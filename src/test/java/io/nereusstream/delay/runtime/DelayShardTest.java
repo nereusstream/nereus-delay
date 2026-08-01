@@ -3,6 +3,7 @@ package io.nereusstream.delay.runtime;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.AuthorIdentity;
 import io.nereusstream.delay.protocol.CanonicalProtobuf;
+import io.nereusstream.delay.protocol.ClaimResultBody;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
@@ -812,6 +813,95 @@ class DelayShardTest {
         }
     }
 
+    @Test
+    void sourceOrderedClaimResultTerminalizesMatchingReplayStableTimeline() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-claim-result"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 21);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("claim-result-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("claim-result")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition claimResultPosition = position(shardId, 1, 1_100);
+        final KafkaSourcePosition duplicatePosition = position(shardId, 2, 1_101);
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final byte[] owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1,
+                Bytes.sha256(Bytes.utf8("lease"))).canonicalBytes();
+        final byte[] claimId = Bytes.sha256(Bytes.utf8("claim-result-claim"));
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            final LaneRecord laneRecord = shard.getLane(lane);
+            final byte[] timelineKey = KeyCodec.timelineDue(lane, 2_000, schedulePosition.sourceOrderToken(),
+                    schedule.delayMessageId(), 0);
+            final byte[] body = claimResultBody(shardId, claimId, schedule.delayMessageId(), 0, lane,
+                    laneRecord.laneIncarnation(), 1, laneRecord.laneVersion(), timelineKey, owner,
+                    store.metadata().storeIncarnation(), 3_000, 1, 1_500, 1_500);
+            final ClaimResultBody parsed = ClaimResultBody.decode(body);
+            assertEquals(1, parsed.resultKind());
+            assertEquals(StableCode.CLAIM_PERMANENT_FAILURE, parsed.stableCode());
+            final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.CLAIM_RESULT, 9_000,
+                    claimId, body, owner, 1, keyPair.getPrivate());
+
+            final SystemMutationResult result = shard.applySystemMutation(mutation, claimResultPosition,
+                    keyPair.getPublic());
+
+            assertEquals(StableCode.CLAIM_PERMANENT_FAILURE, result.stableCode());
+            assertEquals(MessageStatus.DEAD_LETTER, shard.getMessage(schedule.delayMessageId()).status());
+            assertEquals(StableCode.CLAIM_PERMANENT_FAILURE,
+                    shard.getTerminalGeneration(schedule.delayMessageId(), 0).terminalCode());
+            assertEquals(0, shard.quota().pendingMessages());
+            assertEquals(0, shard.discoverDue(10_000, 10).size());
+            assertEquals(0, shard.discoverExpiry(10_000, 10).size());
+            assertEquals(result, shard.applySystemMutation(mutation, duplicatePosition, keyPair.getPublic()));
+            assertEquals(duplicatePosition, shard.lastAppliedSourcePosition());
+            assertEquals(result, shard.getSystemMutationResult(mutation.systemMutationId()));
+        }
+    }
+
+    @Test
+    void staleClaimResultDoesNotTerminalizeChangedTimeline() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-claim-result-stale"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 22);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("claim-result-stale-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("claim-result-stale")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition claimResultPosition = position(shardId, 1, 1_100);
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final byte[] owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1,
+                Bytes.sha256(Bytes.utf8("lease"))).canonicalBytes();
+        final byte[] claimId = Bytes.sha256(Bytes.utf8("claim-result-stale-claim"));
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            final LaneRecord laneRecord = shard.getLane(lane);
+            final byte[] timelineKey = KeyCodec.timelineDue(lane, 2_000, schedulePosition.sourceOrderToken(),
+                    schedule.delayMessageId(), 0);
+            final byte[] body = claimResultBody(shardId, claimId, schedule.delayMessageId(), 0, lane,
+                    laneRecord.laneIncarnation(), 1, laneRecord.laneVersion(), Bytes.sha256(timelineKey), owner,
+                    store.metadata().storeIncarnation(), 3_000, 1, 1_500, 1_500);
+            final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.CLAIM_RESULT, 9_000,
+                    Bytes.sha256(Bytes.utf8("claim-result-stale-operation")), body, owner, 1,
+                    keyPair.getPrivate());
+
+            final SystemMutationResult result = shard.applySystemMutation(mutation, claimResultPosition,
+                    keyPair.getPublic());
+
+            assertEquals(StableCode.STALE_SYSTEM_MUTATION, result.stableCode());
+            assertEquals(MessageStatus.SCHEDULED, shard.getMessage(schedule.delayMessageId()).status());
+            assertEquals(1, shard.quota().pendingMessages());
+            assertNotNull(store.getValue(ColumnFamily.TIMELINE, timelineKey, 1));
+        }
+    }
+
     private static byte[] expiryBody(final ShardId shard, final io.nereusstream.delay.protocol.DelayMessageId messageId,
                                      final int generation, final long expireAt, final byte[] proof) {
         final byte[] subject = CanonicalProtobuf.message(output -> {
@@ -958,6 +1048,76 @@ class DelayShardTest {
             CanonicalProtobuf.bytes(output, 17, observedAt);
             CanonicalProtobuf.bytes(output, 18, retry);
         });
+    }
+
+    private static byte[] claimResultBody(final ShardId shard, final byte[] claimId,
+                                          final DelayMessageId messageId, final int generation,
+                                          final DestinationLaneId lane, final byte[] laneIncarnation,
+                                          final long laneControlVersion, final long runtimeLaneVersion,
+                                          final byte[] timelineKey, final byte[] owner,
+                                          final byte[] storeIncarnation, final long claimDeadline,
+                                          final int sourceWorkKind, final long observedAtEarliest,
+                                          final long observedAtLatest) {
+        final byte[] subject = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());
+            CanonicalProtobuf.uint32(output, 2, shard.partition());
+        });
+        final byte[] precondition = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, claimId);
+            CanonicalProtobuf.bytes(output, 2, messageId.bytes());
+            CanonicalProtobuf.uint32(output, 3, generation);
+            CanonicalProtobuf.int64(output, 4, 1);
+            CanonicalProtobuf.bytes(output, 5, lane.bytes());
+            CanonicalProtobuf.bytes(output, 6, laneIncarnation);
+            CanonicalProtobuf.int64(output, 7, laneControlVersion);
+            CanonicalProtobuf.int64(output, 8, runtimeLaneVersion);
+            CanonicalProtobuf.bytes(output, 9, Bytes.sha256(timelineKey));
+            CanonicalProtobuf.bytes(output, 12, chargeVector());
+            CanonicalProtobuf.int64(output, 13, claimDeadline);
+            CanonicalProtobuf.bytes(output, 14, owner);
+            CanonicalProtobuf.bytes(output, 15, storeIncarnation);
+            CanonicalProtobuf.uint32(output, 16, sourceWorkKind);
+            CanonicalProtobuf.uint32(output, 17, 0);
+            CanonicalProtobuf.uint32(output, 18, 0);
+            CanonicalProtobuf.bytes(output, 19,
+                    Bytes.sha256(Bytes.utf8("nereus-delay-attempt-obligation-set-v1\0")));
+            CanonicalProtobuf.bytes(output, 20, claimTimelineSemanticDigest(messageId, lane, timelineKey,
+                    sourceWorkKind));
+        });
+        final byte[] observedAt = new TrustedUtcIntervalEvidence(observedAtEarliest, observedAtLatest,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("claim-clock"), 1, 1, 1,
+                Bytes.sha256(Bytes.utf8("claim-result-proof")), 0, null).canonicalBytes();
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, subject);
+            CanonicalProtobuf.uint32(output, 2, SystemMutationType.CLAIM_RESULT.wireValue());
+            CanonicalProtobuf.int64(output, 3, 9_000);
+            CanonicalProtobuf.bytes(output, 10, claimId);
+            CanonicalProtobuf.bytes(output, 11, messageId.bytes());
+            CanonicalProtobuf.uint32(output, 12, generation);
+            CanonicalProtobuf.bytes(output, 13, lane.bytes());
+            CanonicalProtobuf.bytes(output, 14, laneIncarnation);
+            CanonicalProtobuf.bytes(output, 15, precondition);
+            CanonicalProtobuf.uint32(output, 16, 1);
+            CanonicalProtobuf.uint32(output, 17, StableCode.CLAIM_PERMANENT_FAILURE.wireValue());
+            CanonicalProtobuf.bytes(output, 18, observedAt);
+            CanonicalProtobuf.bytes(output, 20, chargeVector());
+        });
+    }
+
+    private static byte[] claimTimelineSemanticDigest(final DelayMessageId messageId,
+                                                       final DestinationLaneId lane, final byte[] timelineKey,
+                                                       final int sourceWorkKind) {
+        final byte[] semanticFields = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint32(output, 1, sourceWorkKind);
+            CanonicalProtobuf.bytes(output, 2, timelineKey);
+            CanonicalProtobuf.bytes(output, 3, Bytes.sha256(timelineKey));
+            CanonicalProtobuf.int64(output, 4, 2_000);
+            CanonicalProtobuf.int64(output, 5, 2_000);
+            CanonicalProtobuf.uint32(output, 6, 1);
+            CanonicalProtobuf.uint32(output, 8, 0);
+            CanonicalProtobuf.uint32(output, 9, 1);
+        });
+        return Bytes.sha256(Bytes.utf8("nereus-delay-timeline-work-semantic-v1\0"), semanticFields);
     }
 
     private static byte[] chargeVector() {

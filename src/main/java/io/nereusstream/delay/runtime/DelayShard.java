@@ -3,6 +3,8 @@ package io.nereusstream.delay.runtime;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CommandBodies;
 import io.nereusstream.delay.protocol.CommandId;
+import io.nereusstream.delay.protocol.ClaimResultBody;
+import io.nereusstream.delay.protocol.CanonicalProtobuf;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.PayloadCommitProof;
@@ -197,6 +199,7 @@ public final class DelayShard {
                 case EXPIRE_GENERATION -> applyExpireGenerationMutation(mutation, sourcePosition);
                 case PUBLISH_OUTCOME -> applyPublishOutcomeMutation(mutation, sourcePosition);
                 case EVIDENCE_RESOLUTION -> applyEvidenceResolutionMutation(mutation, sourcePosition);
+                case CLAIM_RESULT -> applyClaimResultMutation(mutation, sourcePosition);
                 default -> throw new UnsupportedOperationException(
                         "System Mutation type is not implemented: " + mutation.type());
             };
@@ -331,6 +334,123 @@ public final class DelayShard {
         }
         return applyNotPublishedPublishOutcome(ledger, resolution, sourcePosition, result,
                 AttemptLedgerState.UNCERTAIN, MessageStatus.UNCERTAIN);
+    }
+
+    /**
+     * Applies the replay-stable CLAIM_RESULT_V1 subset.  The full durable
+     * CLAIMED/GenerationRuntimeIndex model is not present in this embedded
+     * core yet, so a result is accepted only when its signed precondition
+     * exactly describes the current source-derived timeline state.  It never
+     * treats a callback as a direct terminal write: the result, terminal
+     * projection, quota transfer, indexes, and source position share one
+     * synchronous batch.
+     */
+    private SystemMutationResult applyClaimResultMutation(final SystemMutation mutation,
+                                                           final SourcePosition sourcePosition) {
+        final ClaimResultBody body = ClaimResultBody.decode(mutation.canonicalBody());
+        final io.nereusstream.delay.protocol.AuthorIdentity author =
+                io.nereusstream.delay.protocol.AuthorIdentity.decode(mutation.authorIdentity());
+        if (!Arrays.equals(author.canonicalBytes(), body.precondition().ownerIdentity())) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
+
+        final DelayMessageId messageId = new DelayMessageId(body.messageId());
+        final MessageRecord current = getMessage(messageId);
+        if (current == null) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.NOT_FOUND);
+        }
+        if (current.generation() != body.generation()) {
+            final StableCode code = current.generation() > body.generation()
+                    ? StableCode.GENERATION_SUPERSEDED : StableCode.STALE_SYSTEM_MUTATION;
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, code);
+        }
+        if (current.status() != MessageStatus.SCHEDULED) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+
+        final ClaimResultBody.ClaimPrecondition precondition = body.precondition();
+        final LaneRecord lane = readLane(current.laneId());
+        if (lane == null || !lane.laneId().equals(current.laneId())
+                || !Arrays.equals(lane.laneIncarnation(), precondition.laneIncarnation())
+                || lane.laneControlVersion() != precondition.laneControlVersion()
+                || current.stateVersion() != precondition.stateVersion()
+                || !Arrays.equals(current.laneId().bytes(), precondition.destinationLaneId())
+                || !Arrays.equals(Bytes.sha256(timelineKey(messageId, current)),
+                precondition.originalTimelineKeySha256())) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+
+        final int expectedWorkKind = current.retryEligibilityAtEpochMs() == current.deliverAtEpochMs() ? 1 : 2;
+        if (precondition.sourceWorkKind() != expectedWorkKind
+                || precondition.expectedAdmissionsUsed() != 0
+                || precondition.expectedUncertainRetryAdmissionsUsed() != 0
+                || !Bytes.constantTimeEquals(precondition.expectedObligationSetDigest(),
+                emptyAttemptObligationSetDigest())
+                || !Bytes.constantTimeEquals(precondition.sourceTimelineSemanticDigest(),
+                timelineSemanticDigest(current, expectedWorkKind, timelineKey(messageId, current)))) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+
+        final MessageRecord terminalMessage = new MessageRecord(MessageStatus.DEAD_LETTER, current.generation(),
+                Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
+                current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
+                current.payloadReference(), current.retryEligibilityAtEpochMs());
+        final TerminalGenerationRecord terminal = new TerminalGenerationRecord(messageId, body.generation(),
+                MessageStatus.DEAD_LETTER, StableCode.CLAIM_PERMANENT_FAILURE, terminalMessage.stateVersion(),
+                sourcePosition.canonicalBytes(), false);
+        final ShardQuota nextQuota;
+        try {
+            nextQuota = quota.removeSchedule(current.payloadLength());
+        } catch (IllegalStateException exception) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.INTEGRITY_ERROR);
+        }
+        final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
+                sourcePosition, messageId, current, terminalMessage, null);
+        final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED,
+                StableCode.CLAIM_PERMANENT_FAILURE, sourcePosition.canonicalBytes());
+        store.write(batch -> {
+            batch.delete(ColumnFamily.TIMELINE, timelineKey(messageId, current));
+            batch.delete(ColumnFamily.TIMELINE, expiryKey(messageId, current));
+            batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(messageId), terminalMessage.encode());
+            batch.putValue(ColumnFamily.TERMINAL, 1, KeyCodec.terminalGeneration(messageId, body.generation()),
+                    terminal.encode());
+            for (LaneProjection projection : projections.values()) {
+                deleteReadyKey(batch, projection.previousLane());
+                putReadyProjection(batch, projection);
+            }
+            batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(META_QUOTA_USAGE), nextQuota.encode());
+            writeSystemResult(batch, result);
+            writePosition(batch, sourcePosition);
+        });
+        lastAppliedSourcePosition = sourcePosition;
+        mutationSequence++;
+        quota = nextQuota;
+        return result;
+    }
+
+    private static byte[] emptyAttemptObligationSetDigest() {
+        return Bytes.sha256(Bytes.utf8("nereus-delay-attempt-obligation-set-v1\0"));
+    }
+
+    private static byte[] timelineSemanticDigest(final MessageRecord message, final int workKind,
+                                                 final byte[] timelineKey) {
+        final byte[] semanticFields = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint32(output, 1, workKind);
+            CanonicalProtobuf.bytes(output, 2, timelineKey);
+            CanonicalProtobuf.bytes(output, 3, Bytes.sha256(timelineKey));
+            CanonicalProtobuf.int64(output, 4, message.deliverAtEpochMs());
+            CanonicalProtobuf.int64(output, 5, message.retryEligibilityAtEpochMs());
+            CanonicalProtobuf.uint32(output, 6, 1);
+            CanonicalProtobuf.uint32(output, 8,
+                    message.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO ? 1 : 0);
+            CanonicalProtobuf.uint32(output, 9, 1);
+        });
+        return Bytes.sha256(Bytes.utf8("nereus-delay-timeline-work-semantic-v1\0"), semanticFields);
     }
 
     private SystemMutationResult applyNotPublishedPublishOutcome(final PublishAttemptLedger ledger,
