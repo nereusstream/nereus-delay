@@ -48,6 +48,9 @@ class DelayShardTest {
                     KeyCodec.timelineDue(lane, 2_000, position0.sourceOrderToken(), schedule.delayMessageId(), 0), 1));
             assertNotNull(store.getValue(ColumnFamily.TIMELINE,
                     KeyCodec.timelineExpiry(5_000, lane, schedule.delayMessageId(), 0), 1));
+            assertEquals(0, shard.discoverDue(1_999, 10).size());
+            assertEquals(1, shard.discoverDue(2_000, 10).size());
+            assertEquals(1, shard.discoverExpiry(5_000, 10).size());
 
             assertEquals(scheduled, shard.apply(schedule, position0));
 
@@ -65,6 +68,8 @@ class DelayShardTest {
                     KeyCodec.timelineDue(lane, 3_000, position1.sourceOrderToken(), schedule.delayMessageId(), 1), 1));
             assertNull(store.getValue(ColumnFamily.TIMELINE,
                     KeyCodec.timelineExpiry(6_000, lane, schedule.delayMessageId(), 1), 1));
+            assertEquals(0, shard.discoverDue(10_000, 10).size());
+            assertEquals(0, shard.discoverExpiry(10_000, 10).size());
         }
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {

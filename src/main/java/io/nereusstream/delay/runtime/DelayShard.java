@@ -13,6 +13,8 @@ import io.nereusstream.delay.store.KeyCodec;
 import io.nereusstream.delay.store.ShardStore;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -124,6 +126,56 @@ public final class DelayShard {
         return mutationSequence;
     }
 
+    /** Returns due work without claiming it or changing authoritative state. */
+    public synchronized List<TimelineWork> discoverDue(final long earliestEpochMs, final int limit) {
+        if (earliestEpochMs < 0 || limit <= 0) {
+            throw new IllegalArgumentException("invalid due discovery bounds");
+        }
+        final List<TimelineWork> result = new ArrayList<>();
+        discoverDueNamespace((byte) 1, (byte) 2, earliestEpochMs, limit, result);
+        if (result.size() < limit) {
+            discoverDueNamespace((byte) 2, (byte) 3, earliestEpochMs, limit, result);
+        }
+        return List.copyOf(result);
+    }
+
+    /** Returns expiry candidates; the caller must apply an exact source-ordered expiry mutation. */
+    public synchronized List<ExpiryWork> discoverExpiry(final long earliestEpochMs, final int limit) {
+        if (earliestEpochMs < 0 || limit <= 0) {
+            throw new IllegalArgumentException("invalid expiry discovery bounds");
+        }
+        final List<ExpiryWork> result = new ArrayList<>();
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries = store.scan(ColumnFamily.TIMELINE,
+                new byte[]{4, 1}, new byte[]{5, 1}, limit);
+        for (var entry : entries) {
+            final byte[] key = entry.key();
+            if (key.length != 2 + 8 + 32 + DelayMessageId.LENGTH + 4) {
+                throw new IllegalStateException("invalid EXPIRY key length");
+            }
+            final ByteBuffer input = ByteBuffer.wrap(key);
+            if (input.get() != 4 || input.get() != 1) {
+                throw new IllegalStateException("invalid EXPIRY key tag");
+            }
+            final long expireAt = input.getLong();
+            final byte[] laneBytes = new byte[32];
+            input.get(laneBytes);
+            final byte[] messageBytes = new byte[DelayMessageId.LENGTH];
+            input.get(messageBytes);
+            final int generation = input.getInt();
+            if (expireAt > earliestEpochMs) {
+                break;
+            }
+            final TimelineEntry value = TimelineEntry.decode(
+                    io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), 1).payload());
+            if (!value.messageId().equals(new DelayMessageId(messageBytes)) || value.generation() != generation) {
+                throw new IllegalStateException("EXPIRY key/value identity mismatch");
+            }
+            result.add(new ExpiryWork(new DelayMessageId(messageBytes), new io.nereusstream.delay.protocol.DestinationLaneId(
+                    laneBytes), generation, expireAt));
+        }
+        return List.copyOf(result);
+    }
+
     private CommandResult applySchedule(final PreparedCommand command, final SourcePosition sourcePosition) {
         final var intent = CommandBodies.decodeSchedule(command.canonicalBody());
         validateWindow(intent.deliverAtEpochMs(), intent.expireAtEpochMs(), sourcePosition.brokerPersistenceTimeEpochMs());
@@ -142,6 +194,45 @@ public final class DelayShard {
                 intent.deliverAtEpochMs(), intent.expireAtEpochMs(), intent.laneId(), intent.orderingMode(),
                 intent.payload(), sourcePosition.canonicalBytes());
         return applied(StableCode.SCHEDULED, sourcePosition, message);
+    }
+
+    private void discoverDueNamespace(final byte tag, final byte nextTag, final long earliestEpochMs, final int limit,
+                                      final List<TimelineWork> result) {
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries = store.scan(ColumnFamily.TIMELINE,
+                new byte[]{tag, 1}, new byte[]{nextTag, 1}, limit - result.size());
+        for (var entry : entries) {
+            final byte[] key = entry.key();
+            final int tokenLength = key.length > 2 + 32 + 8 && key[2 + 32 + 8] == 1 ? 9
+                    : key.length > 2 + 32 + 8 && key[2 + 32 + 8] == 2 ? 21 : -1;
+            if (tokenLength < 0 || key.length != 2 + 32 + 8 + tokenLength + DelayMessageId.LENGTH + 4) {
+                throw new IllegalStateException("invalid timeline key length or source token");
+            }
+            final ByteBuffer input = ByteBuffer.wrap(key);
+            if (input.get() != tag || input.get() != 1) {
+                throw new IllegalStateException("invalid timeline key tag");
+            }
+            final byte[] laneBytes = new byte[32];
+            input.get(laneBytes);
+            final long eligibleAt = input.getLong();
+            input.position(input.position() + tokenLength);
+            final byte[] messageBytes = new byte[DelayMessageId.LENGTH];
+            input.get(messageBytes);
+            final int generation = input.getInt();
+            if (eligibleAt > earliestEpochMs) {
+                break;
+            }
+            final TimelineEntry value = TimelineEntry.decode(
+                    io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), 1).payload());
+            final DelayMessageId messageId = new DelayMessageId(messageBytes);
+            if (!value.messageId().equals(messageId) || value.generation() != generation) {
+                throw new IllegalStateException("timeline key/value identity mismatch");
+            }
+            result.add(new TimelineWork(messageId, new io.nereusstream.delay.protocol.DestinationLaneId(laneBytes),
+                    generation, eligibleAt, tag == 2));
+            if (result.size() >= limit) {
+                return;
+            }
+        }
     }
 
     private CommandResult applyCancel(final PreparedCommand command, final SourcePosition sourcePosition) {
@@ -335,5 +426,29 @@ public final class DelayShard {
 
     private static final class WindowViolationException extends IllegalArgumentException {
         private static final long serialVersionUID = 1L;
+    }
+
+    public record TimelineWork(DelayMessageId messageId,
+                               io.nereusstream.delay.protocol.DestinationLaneId laneId,
+                               int generation, long eligibleAtEpochMs, boolean ordered) {
+        public TimelineWork {
+            Objects.requireNonNull(messageId, "messageId");
+            Objects.requireNonNull(laneId, "laneId");
+            if (generation < 0 || eligibleAtEpochMs < 0) {
+                throw new IllegalArgumentException("invalid timeline work");
+            }
+        }
+    }
+
+    public record ExpiryWork(DelayMessageId messageId,
+                             io.nereusstream.delay.protocol.DestinationLaneId laneId,
+                             int generation, long expireAtEpochMs) {
+        public ExpiryWork {
+            Objects.requireNonNull(messageId, "messageId");
+            Objects.requireNonNull(laneId, "laneId");
+            if (generation < 0 || expireAtEpochMs < 0) {
+                throw new IllegalArgumentException("invalid expiry work");
+            }
+        }
     }
 }
