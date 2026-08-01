@@ -130,10 +130,7 @@ public final class SystemMutation {
 
     /** Encodes the canonical ShardLogEnvelopeV1, including the system-mutation oneof branch. */
     public byte[] canonicalEnvelope() {
-        final byte[] subject = CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.bytes(output, 1, shardId.routeIncarnation().bytes());
-            CanonicalProtobuf.uint32(output, 2, shardId.partition());
-        });
+        final byte[] subject = new ShardSubjectV1(shardId).canonicalBytes();
         final byte[] mutation = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, ENVELOPE_VERSION);
             CanonicalProtobuf.bytes(output, 2, systemMutationId);
@@ -185,18 +182,7 @@ public final class SystemMutation {
         }
         requireVarint(fields.get(0), 1, ENVELOPE_VERSION);
         final byte[] id = requireFixed(fields.get(1), 2, HASH_LENGTH);
-        final List<CanonicalProtobuf.Reader.Field> subjectFields = readAll(
-                new CanonicalProtobuf.Reader(requireBytes(fields.get(2), 3)));
-        if (subjectFields.size() != 2) {
-            throw new IllegalArgumentException("System Mutation shard subject is incomplete or unknown");
-        }
-        final RouteIncarnation route = new RouteIncarnation(requireFixed(subjectFields.get(0), 1,
-                RouteIncarnation.LENGTH));
-        final long partition = requireVarint(subjectFields.get(1), 2);
-        if (partition > Integer.MAX_VALUE) {
-            throw new IllegalArgumentException("shard partition exceeds Java int range");
-        }
-        final ShardId shard = new ShardId(route, (int) partition);
+        final ShardId shard = ShardSubjectV1.decode(requireBytes(fields.get(2), 3)).shardId();
         final SystemMutationType type = SystemMutationType.fromWire(requireVarint(fields.get(3), 4));
         final long retryUntil = requireVarint(fields.get(4), 5);
         final byte[] body = requireBytes(fields.get(5), 6);
@@ -235,8 +221,9 @@ public final class SystemMutation {
         }
         return Bytes.sha256(Bytes.utf8("nereus-delay-system-mutation-hash-v1\0"), Bytes.u8(FRAMING_VERSION),
                 Bytes.u32be(LOG_ENVELOPE_VERSION), Bytes.u32be(ENVELOPE_VERSION), Bytes.u32be(BODY_VERSION),
-                Bytes.u16be(Objects.requireNonNull(type, "type").wireValue()), shardId.routeIncarnation().bytes(),
-                Bytes.u32be(shardId.partition()), Bytes.i64be(retryUntilEpochMs), Bytes.lp32(canonicalBody));
+                Bytes.u16be(Objects.requireNonNull(type, "type").wireValue()),
+                new ShardSubjectV1(Objects.requireNonNull(shardId, "shardId")).canonicalHashBytes(),
+                Bytes.i64be(retryUntilEpochMs), Bytes.lp32(canonicalBody));
     }
 
     public static byte[] computeSystemMutationId(final ShardId shardId, final SystemMutationType type,
@@ -244,7 +231,7 @@ public final class SystemMutation {
         return Bytes.sha256(Bytes.utf8("nereus-delay-system-mutation-id-v1"),
                 Bytes.u16be(Objects.requireNonNull(type, "type").wireValue()),
                 Bytes.lp32(fixed(logicalOperationIdentity, HASH_LENGTH, "logicalOperationIdentity")),
-                shardId.routeIncarnation().bytes(), Bytes.u32be(shardId.partition()),
+                new ShardSubjectV1(Objects.requireNonNull(shardId, "shardId")).canonicalHashBytes(),
                 fixed(mutationHash, HASH_LENGTH, "mutationHash"));
     }
 
@@ -297,15 +284,8 @@ public final class SystemMutation {
         if (fields.size() < 3) {
             throw new IllegalArgumentException("System Mutation body common fields are incomplete");
         }
-        final List<CanonicalProtobuf.Reader.Field> subject = readAll(
-                new CanonicalProtobuf.Reader(requireBytes(fields.get(0), 1)));
-        if (subject.size() != 2) {
-            throw new IllegalArgumentException("System Mutation body shard subject is incomplete or unknown");
-        }
-        final RouteIncarnation route = new RouteIncarnation(requireFixed(subject.get(0), 1, RouteIncarnation.LENGTH));
-        final long partition = requireBodyVarint(subject.get(1), 2);
-        if (partition > Integer.MAX_VALUE || !route.equals(shardId.routeIncarnation())
-                || partition != shardId.partition()) {
+        final ShardSubjectV1 subject = ShardSubjectV1.decode(requireBytes(fields.get(0), 1));
+        if (!subject.shardId().equals(shardId)) {
             throw new IllegalArgumentException("System Mutation body shard subject does not match outer shard");
         }
         if (requireBodyVarint(fields.get(1), 2) != type.wireValue()
@@ -334,7 +314,8 @@ public final class SystemMutation {
                 Bytes.u32be(ENVELOPE_VERSION), Bytes.u32be(BODY_VERSION),
                 Bytes.u16be(Objects.requireNonNull(type, "type").wireValue()),
                 Bytes.lp32(fixed(systemMutationId, HASH_LENGTH, "systemMutationId")),
-                shardId.routeIncarnation().bytes(), Bytes.u32be(shardId.partition()), Bytes.i64be(retryUntilEpochMs),
+                new ShardSubjectV1(Objects.requireNonNull(shardId, "shardId")).canonicalHashBytes(),
+                Bytes.i64be(retryUntilEpochMs),
                 Bytes.lp32(canonicalBody), Bytes.lp32(fixed(mutationHash, HASH_LENGTH, "mutationHash")),
                 Bytes.lp32(authorIdentity), Bytes.u32be(signingKeyVersion));
     }
