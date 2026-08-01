@@ -26,6 +26,13 @@ public final class PublicCommandResultV1 implements QueryResponseBranchV1 {
         if (stateVersion != null && stateVersion <= 0) {
             throw new IllegalArgumentException("stateVersion must be positive when present");
         }
+        if (status == CommandApplyStatusV1.REJECTED
+                && (generation != null || stateVersion != null || binding != null)) {
+            throw new IllegalArgumentException("rejected result cannot carry Message fields");
+        }
+        if (generation == null && (stateVersion != null || binding != null)) {
+            throw new IllegalArgumentException("stateVersion/binding require a Message generation");
+        }
         if (fullResultRetainUntilEpochMs < 0) {
             throw new IllegalArgumentException("full result retention deadline must be non-negative");
         }

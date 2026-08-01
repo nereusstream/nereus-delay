@@ -145,6 +145,10 @@ class ProtocolCodecTest {
                 CommandQueryResponseV1.decode(CommandQueryResponseV1.applied(appliedView).canonicalBytes()));
         assertEquals(CommandQueryResponseV1.rejected(rejectedView),
                 CommandQueryResponseV1.decode(CommandQueryResponseV1.rejected(rejectedView).canonicalBytes()));
+        assertThrows(IllegalArgumentException.class, () -> new PublicCommandResultV1(
+                CommandApplyStatusV1.REJECTED, StableCode.INVALID_COMMAND, awaited, 0, null, null, 3_000));
+        assertThrows(IllegalArgumentException.class, () -> new PublicCommandResultV1(
+                CommandApplyStatusV1.APPLIED, StableCode.OK, awaited, null, 1L, null, 3_000));
 
         final CompactCommandResultV1 compact = new CompactCommandResultV1(CommandApplyStatusV1.REJECTED,
                 StableCode.INVALID_COMMAND, awaited, 3_000);
@@ -217,6 +221,8 @@ class ProtocolCodecTest {
         assertThrows(IllegalArgumentException.class, () -> CommandAppliedReceiptV1.create(queued,
                 CommandApplyStatusV1.REJECTED, StableCode.INVALID_COMMAND, appliedPosition, 0, 1L, publicBinding(),
                 3_000));
+        assertThrows(IllegalArgumentException.class, () -> CommandAppliedReceiptV1.create(queued,
+                CommandApplyStatusV1.APPLIED, StableCode.OK, appliedPosition, null, 1L, null, 3_000));
     }
 
     @Test
