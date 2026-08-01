@@ -59,11 +59,15 @@ class DelayShardTest {
             final CommandResult superseded = shard.apply(reschedule, position1);
             assertEquals(StableCode.SUPERSEDED, superseded.stableCode());
             assertEquals(1, shard.getMessage(schedule.delayMessageId()).generation());
+            assertEquals(MessageStatus.SUPERSEDED,
+                    shard.getTerminalGeneration(schedule.delayMessageId(), 0).status());
 
             final PreparedCommand cancel = PreparedCommand.cancel(shardId, schedule.delayMessageId(), 1, 9_000);
             final CommandResult canceled = shard.apply(cancel, position2);
             assertEquals(StableCode.CANCELED, canceled.stableCode());
             assertEquals(MessageStatus.CANCELED, shard.getMessage(schedule.delayMessageId()).status());
+            assertEquals(MessageStatus.CANCELED,
+                    shard.getTerminalGeneration(schedule.delayMessageId(), 1).status());
             assertNull(store.getValue(ColumnFamily.TIMELINE,
                     KeyCodec.timelineDue(lane, 3_000, position1.sourceOrderToken(), schedule.delayMessageId(), 1), 1));
             assertNull(store.getValue(ColumnFamily.TIMELINE,

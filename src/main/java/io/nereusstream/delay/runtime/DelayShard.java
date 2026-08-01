@@ -101,6 +101,12 @@ public final class DelayShard {
         return value == null ? null : CommandResult.decode(value.payload());
     }
 
+    public synchronized TerminalGenerationRecord getTerminalGeneration(final DelayMessageId messageId,
+                                                                        final int generation) {
+        final var value = store.getValue(ColumnFamily.TERMINAL, KeyCodec.terminalGeneration(messageId, generation), 1);
+        return value == null ? null : TerminalGenerationRecord.decode(value.payload());
+    }
+
     public synchronized LaneRecord getLane(final io.nereusstream.delay.protocol.DestinationLaneId laneId) {
         return readLane(laneId);
     }
@@ -312,6 +318,12 @@ public final class DelayShard {
                 if (prior != null && prior.status() == MessageStatus.SCHEDULED) {
                     batch.delete(ColumnFamily.TIMELINE, timelineKey(command.delayMessageId(), prior));
                     batch.delete(ColumnFamily.TIMELINE, expiryKey(command.delayMessageId(), prior));
+                    final TerminalGenerationRecord terminal = terminalFor(command, position, result, prior, next);
+                    if (terminal != null) {
+                        batch.putValue(ColumnFamily.TERMINAL, 1,
+                                KeyCodec.terminalGeneration(command.delayMessageId(), terminal.generation()),
+                                terminal.encode());
+                    }
                 }
                 batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(command.delayMessageId()), next.encode());
                 if (result.stableCode() == StableCode.SCHEDULED && readLane(next.laneId()) == null) {
@@ -365,6 +377,22 @@ public final class DelayShard {
                     ? rescheduledMessage(command, position, prior) : null;
             case PREPARE_LARGE_SCHEDULE, COMMIT_LARGE_SCHEDULE -> null;
         };
+    }
+
+    private TerminalGenerationRecord terminalFor(final PreparedCommand command, final SourcePosition position,
+                                                 final CommandResult result, final MessageRecord prior,
+                                                 final MessageRecord next) {
+        final MessageStatus status;
+        if (result.stableCode() == StableCode.CANCELED) {
+            status = MessageStatus.CANCELED;
+        } else if (result.stableCode() == StableCode.SUPERSEDED) {
+            status = MessageStatus.SUPERSEDED;
+        } else {
+            return null;
+        }
+        return new TerminalGenerationRecord(command.delayMessageId(), prior.generation(), status,
+                result.stableCode(), prior.stateVersion(), position.canonicalBytes(),
+                next.status() == MessageStatus.UNCERTAIN);
     }
 
     private MessageRecord rescheduledMessage(final PreparedCommand command, final SourcePosition position,
