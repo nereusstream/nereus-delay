@@ -8,6 +8,7 @@ import io.nereusstream.delay.protocol.CommandId;
 import io.nereusstream.delay.protocol.ClaimResultBody;
 import io.nereusstream.delay.protocol.CanonicalProtobuf;
 import io.nereusstream.delay.protocol.CapacityDimensionV1;
+import io.nereusstream.delay.protocol.CapacityGrantV1;
 import io.nereusstream.delay.protocol.CapacityVectorV1;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
@@ -79,6 +80,7 @@ public final class DelayShard {
     private ShardQuota quota;
     private OutcomeReserveUsage outcomeReserve;
     private CapacityVectorV1 outcomeReserveVector;
+    private final Map<Integer, CapacityVectorV1> controlReserveUsage = new HashMap<>();
 
     public DelayShard(final ShardStore store, final DelayShardConfig config) {
         this(store, config, null, null);
@@ -123,6 +125,7 @@ public final class DelayShard {
             throw new IllegalStateException("persisted outcome reserve exceeds the active shard grant");
         }
         outcomeReserveVector = loadCapacityEnvelopeState(capacityEnvelope);
+        loadControlReserveUsage(capacityEnvelope);
         if (capacityEnvelope != null
                 && !outcomeReserve.equals(outcomeReserveUsage(outcomeReserveVector))) {
             throw new IllegalStateException("persisted outcome reserve projections disagree");
@@ -232,12 +235,9 @@ public final class DelayShard {
         } else if (!envelope.equals(ShardCapacityEnvelopeV1.decode(persistedBinding.payload()))) {
             throw new IllegalStateException("persisted capacity envelope identity differs from active envelope");
         }
-        validateReserveProjection(nonOutcomeEntries, 3, envelope.nonOutcomeControl().grantId(),
-                envelope.nonOutcomeControl().vector(), "non-outcome control");
-        validateReserveProjection(recoveryEntries, 4, envelope.recoveryWorking().grantId(),
-                envelope.recoveryWorking().vector(), "recovery working");
-        validateReserveProjection(emergencyEntries, 5, envelope.emergencyHeadroom().grantId(),
-                envelope.emergencyHeadroom().vector(), "emergency headroom");
+        reserveProjectionUsage(nonOutcomeEntries, 3, envelope.nonOutcomeControl(), "non-outcome control");
+        reserveProjectionUsage(recoveryEntries, 4, envelope.recoveryWorking(), "recovery working");
+        reserveProjectionUsage(emergencyEntries, 5, envelope.emergencyHeadroom(), "emergency headroom");
         if (!systemWriterEntries.isEmpty()) {
             throw new IllegalStateException("Broker system-writer reserve projection is not implemented");
         }
@@ -251,30 +251,83 @@ public final class DelayShard {
         return usage;
     }
 
-    private void validateReserveProjection(
+    private void loadControlReserveUsage(final ShardCapacityEnvelopeV1 envelope) {
+        if (envelope == null) {
+            return;
+        }
+        controlReserveUsage.put(3, reserveProjectionUsage(scanControlReserveClass(3), 3,
+                envelope.nonOutcomeControl(), "non-outcome control"));
+        controlReserveUsage.put(4, reserveProjectionUsage(scanControlReserveClass(4), 4,
+                envelope.recoveryWorking(), "recovery working"));
+        controlReserveUsage.put(5, reserveProjectionUsage(scanControlReserveClass(5), 5,
+                envelope.emergencyHeadroom(), "emergency headroom"));
+    }
+
+    private CapacityVectorV1 reserveProjectionUsage(
             final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries, final int reserveClass,
-            final byte[] grantId, final CapacityVectorV1 grant, final String name) {
+            final CapacityGrantV1 grant, final String name) {
         if (entries.size() > 1) {
             throw new IllegalStateException("multiple " + name + " reserve projections exist");
         }
         if (entries.isEmpty()) {
-            return;
+            return CapacityVectorV1.empty();
         }
-        final byte[] expectedKey = KeyCodec.metaControlReserve(reserveClass, grantId);
+        final byte[] expectedKey = KeyCodec.metaControlReserve(reserveClass, grant.grantId());
         if (!Arrays.equals(entries.get(0).key(), expectedKey)) {
             throw new IllegalStateException(name + " reserve grant identity does not match envelope");
         }
         final CapacityVectorV1 usage = CapacityVectorV1.decode(
                 ValueEnvelope.decode(entries.get(0).value(), CAPACITY_RESERVE_VALUE_TYPE).payload());
-        if (!grant.covers(usage)) {
+        if (!grant.vector().covers(usage)) {
             throw new IllegalStateException(name + " reserve usage exceeds immutable capacity grant");
         }
+        return usage;
     }
 
     private List<io.nereusstream.delay.store.ShardStore.KeyValue> scanControlReserveClass(final int reserveClass) {
         final byte[] lower = new byte[]{6, 1, (byte) reserveClass};
         final byte[] upper = new byte[]{6, 1, (byte) Math.addExact(reserveClass, 1)};
         return store.scan(ColumnFamily.META, lower, upper, 2);
+    }
+
+    private CapacityVectorV1 mutateControlReserve(final int reserveClass, final CapacityVectorV1 amount,
+                                                  final boolean add) {
+        validateMutableControlReserveClass(reserveClass);
+        if (capacityEnvelope == null) {
+            throw new IllegalStateException("capacity envelope is required for control reserve accounting");
+        }
+        final CapacityGrantV1 grant = controlReserveGrant(reserveClass);
+        final CapacityVectorV1 current = controlReserveUsage.getOrDefault(reserveClass, CapacityVectorV1.empty());
+        final CapacityVectorV1 next = add ? current.add(amount) : current.subtract(amount);
+        if (!grant.vector().covers(next)) {
+            throw new IllegalStateException("control reserve exceeds immutable capacity grant");
+        }
+        final byte[] key = KeyCodec.metaControlReserve(reserveClass, grant.grantId());
+        store.write(batch -> {
+            if (next.isZero()) {
+                batch.delete(ColumnFamily.META, key);
+            } else {
+                batch.putValue(ColumnFamily.META, CAPACITY_RESERVE_VALUE_TYPE, key, next.canonicalBytes());
+            }
+        });
+        controlReserveUsage.put(reserveClass, next);
+        return next;
+    }
+
+    private CapacityGrantV1 controlReserveGrant(final int reserveClass) {
+        return switch (reserveClass) {
+            case 3 -> capacityEnvelope.nonOutcomeControl();
+            case 4 -> capacityEnvelope.recoveryWorking();
+            case 5 -> capacityEnvelope.emergencyHeadroom();
+            default -> throw new IllegalArgumentException("unsupported mutable control reserve class: "
+                    + reserveClass);
+        };
+    }
+
+    private static void validateMutableControlReserveClass(final int reserveClass) {
+        if (reserveClass < 3 || reserveClass > 5) {
+            throw new IllegalArgumentException("only CONTROL_RESERVE classes 3-5 are mutable locally");
+        }
     }
 
     private static OutcomeReserveUsage outcomeReserveUsage(final CapacityVectorV1 vector) {
@@ -2964,6 +3017,29 @@ public final class DelayShard {
     /** Returns the immutable placement envelope bound to this shard, if one was supplied. */
     public ShardCapacityEnvelopeV1 capacityEnvelope() {
         return capacityEnvelope;
+    }
+
+    /** Returns the persisted usage of a non-outcome control reserve class. */
+    public synchronized CapacityVectorV1 controlReserveUsage(final int reserveClass) {
+        validateMutableControlReserveClass(reserveClass);
+        return controlReserveUsage.getOrDefault(reserveClass, CapacityVectorV1.empty());
+    }
+
+    /**
+     * Charges one checked class-3/4/5 control reserve projection and persists
+     * it synchronously.  This is a local accounting primitive; the source
+     * ordered control mutation and Oxia placement authority remain callers'
+     * responsibilities.
+     */
+    public synchronized CapacityVectorV1 reserveControlCapacity(final int reserveClass,
+                                                                  final CapacityVectorV1 amount) {
+        return mutateControlReserve(reserveClass, Objects.requireNonNull(amount, "amount"), true);
+    }
+
+    /** Releases an exact checked class-3/4/5 control reserve projection. */
+    public synchronized CapacityVectorV1 releaseControlCapacity(final int reserveClass,
+                                                                  final CapacityVectorV1 amount) {
+        return mutateControlReserve(reserveClass, Objects.requireNonNull(amount, "amount"), false);
     }
 
     /** Returns due work without claiming it or changing authoritative state. */

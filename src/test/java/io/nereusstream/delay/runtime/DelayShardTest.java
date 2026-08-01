@@ -1729,6 +1729,29 @@ class DelayShardTest {
     }
 
     @Test
+    void mutableControlReserveProjectionUsesGrantBoundedCheckedArithmetic() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("control-reserve-accounting"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 20);
+        final ShardCapacityEnvelopeV1 envelope = capacityEnvelopeWithNonOutcomeReserve();
+        final CapacityVectorV1 oneReserveByte = capacityVector(CapacityDimensionV1.CONTROL_RESERVE_BYTES, 1);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, envelope);
+            assertEquals(CapacityVectorV1.empty(), shard.controlReserveUsage(3));
+            assertEquals(oneReserveByte, shard.reserveControlCapacity(3, oneReserveByte));
+            assertEquals(oneReserveByte, shard.controlReserveUsage(3));
+            assertThrows(IllegalStateException.class,
+                    () -> shard.reserveControlCapacity(3, new CapacityVectorV1(
+                            capacityAmounts(CapacityDimensionV1.CONTROL_RESERVE_BYTES, 4))));
+            assertEquals(CapacityVectorV1.empty(), shard.releaseControlCapacity(3, oneReserveByte));
+            assertNull(store.getValue(ColumnFamily.META,
+                    KeyCodec.metaControlReserve(3, envelope.nonOutcomeControl().grantId()), 8));
+            assertThrows(IllegalArgumentException.class,
+                    () -> shard.controlReserveUsage(6));
+        }
+    }
+
+    @Test
     void sourceOrderedPublishAdmissionFailsClosedWhenGenerationBudgetIsExhausted() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-admission-budget"));
         final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,
@@ -2972,6 +2995,35 @@ class DelayShardTest {
                 CanonicalProtobuf.uint32(output, number, 0);
             }
         });
+    }
+
+    private static CapacityVectorV1 capacityVector(final CapacityDimensionV1 dimension, final long amount) {
+        return new CapacityVectorV1(capacityAmounts(dimension, amount));
+    }
+
+    private static long[] capacityAmounts(final CapacityDimensionV1 dimension, final long amount) {
+        final long[] result = new long[CapacityDimensionV1.COUNT];
+        result[dimension.wireValue() - 1] = amount;
+        return result;
+    }
+
+    private static ShardCapacityEnvelopeV1 capacityEnvelopeWithNonOutcomeReserve() {
+        final PublishAdmissionBody.ChargeVector logicalLimit = new PublishAdmissionBody.ChargeVector(
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        final QuotaGrantRefV1 logicalGrant = new QuotaGrantRefV1(
+                Bytes.sha256(Bytes.utf8("control-reserve-logical-grant")), 1, logicalLimit);
+        final CapacityVectorV1 nonOutcomeVector = capacityVector(CapacityDimensionV1.CONTROL_RESERVE_BYTES, 3);
+        final CapacityGrantV1 outcome = new CapacityGrantV1(CapacityGrantKindV1.OUTCOME_RESERVE,
+                Bytes.sha256(Bytes.utf8("control-reserve-outcome-grant")), 1, CapacityVectorV1.empty());
+        final CapacityGrantV1 nonOutcome = new CapacityGrantV1(CapacityGrantKindV1.NON_OUTCOME_CONTROL,
+                Bytes.sha256(Bytes.utf8("control-reserve-non-outcome-grant")), 1, nonOutcomeVector);
+        final CapacityGrantV1 recovery = new CapacityGrantV1(CapacityGrantKindV1.RECOVERY_WORKING,
+                Bytes.sha256(Bytes.utf8("control-reserve-recovery-grant")), 1, CapacityVectorV1.empty());
+        final CapacityGrantV1 emergency = new CapacityGrantV1(CapacityGrantKindV1.EMERGENCY_HEADROOM,
+                Bytes.sha256(Bytes.utf8("control-reserve-emergency-grant")), 1, CapacityVectorV1.empty());
+        return new ShardCapacityEnvelopeV1(Bytes.sha256(Bytes.utf8("control-reserve-envelope")), 1,
+                logicalGrant, nonOutcomeVector, outcome, nonOutcome, recovery, emergency,
+                Bytes.sha256(Bytes.utf8("control-reserve-artifact")));
     }
 
     private static ShardCapacityEnvelopeV1 capacityEnvelope(final long envelopeVersion) {
