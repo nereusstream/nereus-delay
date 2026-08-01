@@ -23,6 +23,37 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void receiptFrameZeroVectorMatchesRegistry() {
+        final byte[] frame = ReceiptFrame.encode(ReceiptKind.COMMAND_QUEUED, new byte[0]);
+        assertEquals("4e44523101010000000000002ad79a80", Bytes.hex(frame));
+        final ReceiptFrame.Decoded decoded = ReceiptFrame.decode(frame);
+        assertEquals(ReceiptKind.COMMAND_QUEUED, decoded.kind());
+        assertArrayEquals(new byte[0], decoded.payload());
+        final ReceiptFrame.Decoded textDecoded = ReceiptFrame.decodeText(ReceiptFrame.encodeText(
+                ReceiptKind.COMMAND_QUEUED, new byte[0]));
+        assertEquals(ReceiptKind.COMMAND_QUEUED, textDecoded.kind());
+        assertArrayEquals(new byte[0], textDecoded.payload());
+    }
+
+    @Test
+    void receiptFrameRejectsFlagsLengthKindAndCrcDrift() {
+        final byte[] frame = ReceiptFrame.encode(ReceiptKind.COMMAND_APPLIED, new byte[]{1, 2, 3});
+        final byte[] flags = frame.clone();
+        flags[6] = 1;
+        assertThrows(IllegalArgumentException.class, () -> ReceiptFrame.decode(flags));
+        final byte[] length = frame.clone();
+        length[11] = 4;
+        assertThrows(IllegalArgumentException.class, () -> ReceiptFrame.decode(length));
+        final byte[] kind = frame.clone();
+        kind[5] = (byte) 99;
+        assertThrows(IllegalArgumentException.class, () -> ReceiptFrame.decode(kind));
+        final byte[] crc = frame.clone();
+        crc[crc.length - 1] ^= 1;
+        assertThrows(IllegalArgumentException.class, () -> ReceiptFrame.decode(crc));
+        assertThrows(IllegalArgumentException.class, () -> ReceiptFrame.decodeText("ndr1_!"));
+    }
+
+    @Test
     void preparedCommandRoundTripsThroughCanonicalFrame() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
         final ScheduleIntent intent = new ScheduleIntent(
