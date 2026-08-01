@@ -60,8 +60,22 @@ public final class CanonicalProtobuf {
         private int offset;
         private int previousField;
 
+        private final boolean allowRepeatedFields;
+
         public Reader(final byte[] bytes) {
+            this(bytes, false);
+        }
+
+        /**
+         * Creates a reader for a canonical message that may contain repeated fields.
+         *
+         * <p>Repeated fields must still be contiguous and strictly non-decreasing.  The
+         * default constructor remains strict so the existing closed messages continue to
+         * reject duplicate singular fields.</p>
+         */
+        public Reader(final byte[] bytes, final boolean allowRepeatedFields) {
             this.bytes = Bytes.copy(bytes);
+            this.allowRepeatedFields = allowRepeatedFields;
         }
 
         public boolean hasRemaining() {
@@ -75,7 +89,8 @@ public final class CanonicalProtobuf {
             final long rawTag = readVarint();
             final int field = Math.toIntExact(rawTag >>> 3);
             final int wireType = (int) (rawTag & 7);
-            if (field <= previousField || field == 0) {
+            if ((!allowRepeatedFields && field <= previousField)
+                    || (allowRepeatedFields && field < previousField) || field == 0) {
                 throw new IllegalArgumentException("protobuf fields are not strictly increasing");
             }
             previousField = field;

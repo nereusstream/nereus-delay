@@ -7,6 +7,7 @@ import io.nereusstream.delay.protocol.PayloadReference;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
 
 /** Durable current-generation projection stored in id_cf/MESSAGE. */
@@ -21,12 +22,13 @@ public record MessageRecord(
         byte[] payload,
         byte[] scheduleSourcePosition,
         PayloadReference payloadReference,
-        long retryEligibilityAtEpochMs) {
+        long retryEligibilityAtEpochMs,
+        GenerationRuntimeIndex runtimeIndex) {
     public MessageRecord(final MessageStatus status, final int generation, final long stateVersion,
                          final long deliverAtEpochMs, final long expireAtEpochMs, final DestinationLaneId laneId,
                          final OrderingMode orderingMode, final byte[] payload, final byte[] scheduleSourcePosition) {
         this(status, generation, stateVersion, deliverAtEpochMs, expireAtEpochMs, laneId, orderingMode, payload,
-                scheduleSourcePosition, null, deliverAtEpochMs);
+                scheduleSourcePosition, null, deliverAtEpochMs, legacyRuntimeIndex(status, stateVersion));
     }
 
     public MessageRecord(final MessageStatus status, final int generation, final long stateVersion,
@@ -34,7 +36,17 @@ public record MessageRecord(
                          final OrderingMode orderingMode, final byte[] payload, final byte[] scheduleSourcePosition,
                          final PayloadReference payloadReference) {
         this(status, generation, stateVersion, deliverAtEpochMs, expireAtEpochMs, laneId, orderingMode, payload,
-                scheduleSourcePosition, payloadReference, deliverAtEpochMs);
+                scheduleSourcePosition, payloadReference, deliverAtEpochMs, legacyRuntimeIndex(status, stateVersion));
+    }
+
+    /** Compatibility constructor for the pre-runtime-index value shape. */
+    public MessageRecord(final MessageStatus status, final int generation, final long stateVersion,
+                         final long deliverAtEpochMs, final long expireAtEpochMs, final DestinationLaneId laneId,
+                         final OrderingMode orderingMode, final byte[] payload, final byte[] scheduleSourcePosition,
+                         final PayloadReference payloadReference, final long retryEligibilityAtEpochMs) {
+        this(status, generation, stateVersion, deliverAtEpochMs, expireAtEpochMs, laneId, orderingMode, payload,
+                scheduleSourcePosition, payloadReference, retryEligibilityAtEpochMs,
+                legacyRuntimeIndex(status, stateVersion));
     }
 
     public MessageRecord {
@@ -43,6 +55,7 @@ public record MessageRecord(
         Objects.requireNonNull(orderingMode, "orderingMode");
         Objects.requireNonNull(payload, "payload");
         Objects.requireNonNull(scheduleSourcePosition, "scheduleSourcePosition");
+        Objects.requireNonNull(runtimeIndex, "runtimeIndex");
         if (generation < 0 || stateVersion < 0 || deliverAtEpochMs < 0 || expireAtEpochMs < deliverAtEpochMs
                 || retryEligibilityAtEpochMs < 0 || retryEligibilityAtEpochMs > expireAtEpochMs) {
             throw new IllegalArgumentException("invalid message record");
@@ -71,6 +84,12 @@ public record MessageRecord(
         return payloadReference == null ? payload.length : payloadReference.length();
     }
 
+    public MessageRecord withRuntimeIndex(final GenerationRuntimeIndex nextRuntimeIndex) {
+        return new MessageRecord(status, generation, stateVersion, deliverAtEpochMs, expireAtEpochMs, laneId,
+                orderingMode, payload, scheduleSourcePosition, payloadReference, retryEligibilityAtEpochMs,
+                nextRuntimeIndex);
+    }
+
     @Override
     public boolean equals(final Object other) {
         if (!(other instanceof MessageRecord that)) {
@@ -82,21 +101,23 @@ public record MessageRecord(
                 && laneId.equals(that.laneId) && orderingMode == that.orderingMode
                 && Arrays.equals(payload, that.payload)
                 && Arrays.equals(scheduleSourcePosition, that.scheduleSourcePosition)
-                && Objects.equals(payloadReference, that.payloadReference);
+                && Objects.equals(payloadReference, that.payloadReference)
+                && runtimeIndex.equals(that.runtimeIndex);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(status, generation, stateVersion, deliverAtEpochMs, expireAtEpochMs,
                 retryEligibilityAtEpochMs, laneId, orderingMode, Arrays.hashCode(payload),
-                Arrays.hashCode(scheduleSourcePosition), payloadReference);
+                Arrays.hashCode(scheduleSourcePosition), payloadReference, runtimeIndex);
     }
 
     public byte[] encode() {
         final byte[] reference = payloadReference == null ? new byte[0] : payloadReference.encode();
+        final byte[] runtime = runtimeIndex.canonicalBytes();
         final ByteBuffer result = ByteBuffer.allocate(4 + 1 + 4 + 8 + 8 + 8 + 8 + 32 + 1 + 1 + 4
-                + scheduleSourcePosition.length + 4 + payload.length + 4 + reference.length);
-        result.putInt(3).put((byte) status.wireValue()).putInt(generation).putLong(stateVersion)
+                + scheduleSourcePosition.length + 4 + payload.length + 4 + reference.length + 4 + runtime.length);
+        result.putInt(4).put((byte) status.wireValue()).putInt(generation).putLong(stateVersion)
                 .putLong(deliverAtEpochMs).putLong(expireAtEpochMs).putLong(retryEligibilityAtEpochMs)
                 .put(laneId.bytes()).put((byte) orderingMode.wireValue())
                 .put((byte) (payloadReference == null ? 1 : 2))
@@ -106,6 +127,7 @@ public record MessageRecord(
         } else {
             result.putInt(0).putInt(reference.length).put(reference);
         }
+        result.putInt(runtime.length).put(runtime);
         return result.array();
     }
 
@@ -116,7 +138,9 @@ public record MessageRecord(
         }
         final int version = input.getInt();
         if (version != 1 && version != 2 && version != 3) {
-            throw new IllegalArgumentException("unsupported message record version");
+            if (version != 4) {
+                throw new IllegalArgumentException("unsupported message record version");
+            }
         }
         final MessageStatus status = MessageStatus.fromWire(input.get() & 0xff);
         final int generation = input.getInt();
@@ -157,7 +181,8 @@ public record MessageRecord(
                 throw new IllegalArgumentException("missing object payload reference length");
             }
             final int referenceLength = input.getInt();
-            if (referenceLength < 0 || referenceLength != input.remaining()) {
+            if (referenceLength < 0 || referenceLength > input.remaining()
+                    || (version < 4 && referenceLength != input.remaining())) {
                 throw new IllegalArgumentException("invalid object payload reference length");
             }
             payloadReference = payloadKind == 1 ? null : PayloadReference.decode(readBytes(input, referenceLength));
@@ -170,15 +195,39 @@ public record MessageRecord(
             case 2 -> OrderingMode.DELIVERY_TIME_FIFO;
             default -> throw new IllegalArgumentException("unknown ordering mode: " + ordering);
         };
+        final GenerationRuntimeIndex runtimeIndex;
+        if (version >= 4) {
+            if (input.remaining() < 4) {
+                throw new IllegalArgumentException("missing generation runtime index length");
+            }
+            final long runtimeLength = Integer.toUnsignedLong(input.getInt());
+            if (runtimeLength > input.remaining()) {
+                throw new IllegalArgumentException("invalid generation runtime index length");
+            }
+            final byte[] runtime = new byte[Math.toIntExact(runtimeLength)];
+            input.get(runtime);
+            if (input.hasRemaining()) {
+                throw new IllegalArgumentException("trailing message runtime index bytes");
+            }
+            runtimeIndex = GenerationRuntimeIndex.decode(runtime);
+        } else {
+            runtimeIndex = legacyRuntimeIndex(status, stateVersion);
+        }
         final MessageRecord result = new MessageRecord(status, generation, stateVersion, deliverAt, expireAt,
-                new DestinationLaneId(lane), mode, payload, source, payloadReference, retryEligibilityAt);
+                new DestinationLaneId(lane), mode, payload, source, payloadReference, retryEligibilityAt,
+                runtimeIndex);
         if (!Arrays.equals(encoded, result.encode())) {
-            // Legacy version 1/2 records remain readable, but all new writes use version 3.
-            if (version >= 3) {
+            // Legacy version 1/2/3 records remain readable, but all new writes use version 4.
+            if (version >= 4) {
                 throw new IllegalArgumentException("non-canonical message record");
             }
         }
         return result;
+    }
+
+    private static GenerationRuntimeIndex legacyRuntimeIndex(final MessageStatus status, final long stateVersion) {
+        return GenerationRuntimeIndex.none(GenerationAggregateState.fromMessageStatus(status), List.of(), 0, 0,
+                false, Math.max(1, stateVersion));
     }
 
     private static byte[] readBytes(final ByteBuffer input, final int length) {

@@ -63,6 +63,12 @@ class DelayShardTest {
             final CommandResult scheduled = shard.apply(schedule, position0);
             assertEquals(StableCode.SCHEDULED, scheduled.stableCode());
             assertEquals(MessageStatus.SCHEDULED, shard.getMessage(schedule.delayMessageId()).status());
+            assertEquals(GenerationAggregateState.SCHEDULED,
+                    shard.getMessage(schedule.delayMessageId()).runtimeIndex().aggregateState());
+            assertEquals(CurrentSendWorkKind.TIMELINE,
+                    shard.getMessage(schedule.delayMessageId()).runtimeIndex().currentWorkKind());
+            assertEquals(TimelineWorkKind.INITIAL_SCHEDULE,
+                    shard.getMessage(schedule.delayMessageId()).runtimeIndex().timeline().workKind());
             assertNotNull(store.getValue(ColumnFamily.TIMELINE,
                     KeyCodec.timelineDue(lane, 2_000, position0.sourceOrderToken(), schedule.delayMessageId(), 0), 1));
             assertNotNull(store.getValue(ColumnFamily.TIMELINE,
@@ -323,6 +329,9 @@ class DelayShardTest {
 
             assertEquals(admission, shard.admitPublishAttempt(admission, admissionPosition));
             assertEquals(MessageStatus.PUBLISHING, shard.getMessage(command.delayMessageId()).status());
+            assertEquals(CurrentSendWorkKind.PUBLISHING,
+                    shard.getMessage(command.delayMessageId()).runtimeIndex().currentWorkKind());
+            assertEquals(1, shard.getMessage(command.delayMessageId()).runtimeIndex().attemptObligations().size());
             assertNull(store.getValue(ColumnFamily.TIMELINE,
                     KeyCodec.timelineDue(lane, 2_000, schedulePosition.sourceOrderToken(), command.delayMessageId(), 0),
                     1));
@@ -338,6 +347,11 @@ class DelayShardTest {
             assertEquals(AttemptLedgerState.UNCERTAIN, shard.getPublishAttempt(attemptId, 42).state());
             assertEquals(uncertain, shard.findOpenPublishAttempt(attemptId));
             assertEquals(MessageStatus.UNCERTAIN, shard.getMessage(command.delayMessageId()).status());
+            assertEquals(GenerationAggregateState.UNCERTAIN,
+                    shard.getMessage(command.delayMessageId()).runtimeIndex().aggregateState());
+            assertEquals(CurrentSendWorkKind.NONE,
+                    shard.getMessage(command.delayMessageId()).runtimeIndex().currentWorkKind());
+            assertEquals(1, shard.getMessage(command.delayMessageId()).runtimeIndex().attemptObligations().size());
             assertNull(store.getValue(ColumnFamily.INFLIGHT, admission.encodedKey(), PublishAttemptLedger.VALUE_TYPE));
             assertNotNull(store.getValue(ColumnFamily.INFLIGHT, uncertain.encodedKey(), PublishAttemptLedger.VALUE_TYPE));
             assertArrayEquals(outcomePosition.canonicalBytes(), uncertain.sourcePosition());
@@ -837,6 +851,9 @@ class DelayShardTest {
                     new byte[0], chargeVector());
 
             assertEquals(MessageStatus.CLAIMED, shard.getMessage(schedule.delayMessageId()).status());
+            assertEquals(CurrentSendWorkKind.CLAIMED,
+                    shard.getMessage(schedule.delayMessageId()).runtimeIndex().currentWorkKind());
+            assertArrayEquals(claim.claimId(), shard.getMessage(schedule.delayMessageId()).runtimeIndex().claimId());
             assertEquals(1, shard.claimSequence());
             assertEquals(claim, shard.getClaim(claim.claimId(), owner.generation()));
             assertNull(store.getValue(ColumnFamily.TIMELINE, timelineKey, 1));
@@ -854,6 +871,7 @@ class DelayShardTest {
             assertEquals(claim, reopened.getClaim(claim.claimId(), owner.generation()));
             final MessageRecord restored = reopened.revokeClaim(claim.claimId(), owner.generation());
             assertEquals(MessageStatus.SCHEDULED, restored.status());
+            assertEquals(CurrentSendWorkKind.TIMELINE, restored.runtimeIndex().currentWorkKind());
             assertNull(reopened.getClaim(claim.claimId(), owner.generation()));
             assertNotNull(reopenedStore.getValue(ColumnFamily.TIMELINE, timelineKey, 1));
             assertEquals(1, reopened.discoverReady(10_000, 10).size());
