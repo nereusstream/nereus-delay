@@ -617,7 +617,8 @@ public final class DelayShard {
                 current.runtimeIndex().possibleDestinationDuplicate(), terminalMessage.stateVersion()));
         final TerminalGenerationRecord terminal = new TerminalGenerationRecord(messageId, body.generation(),
                 MessageStatus.DEAD_LETTER, StableCode.CLAIM_PERMANENT_FAILURE, terminalMessage.stateVersion(),
-                sourcePosition.canonicalBytes(), false);
+                sourcePosition.canonicalBytes(), terminalMessage.runtimeIndex().possibleDestinationDuplicate(),
+                terminalMessage.runtimeIndex().attemptObligations());
         final ShardQuota nextQuota;
         try {
             nextQuota = quota.removeSchedule(current.payloadLength());
@@ -775,9 +776,22 @@ public final class DelayShard {
             return next.withRuntimeIndex(timelineRuntimeIndex(messageId, next, kind, 1, next.stateVersion(),
                     UncertainRetryAuthority.NONE, null, null));
         }
+        if (prior != null && isTerminalStatus(next.status())) {
+            return next.withRuntimeIndex(GenerationRuntimeIndex.none(
+                    GenerationAggregateState.fromMessageStatus(next.status()),
+                    prior.runtimeIndex().attemptObligations(), prior.runtimeIndex().admissionsUsed(),
+                    prior.runtimeIndex().uncertainRetryAdmissionsUsed(),
+                    prior.runtimeIndex().possibleDestinationDuplicate(), next.stateVersion()));
+        }
         return next.withRuntimeIndex(GenerationRuntimeIndex.none(
                 GenerationAggregateState.fromMessageStatus(next.status()), List.of(), 0, 0, false,
                 Math.max(1, next.stateVersion())));
+    }
+
+    private static boolean isTerminalStatus(final MessageStatus status) {
+        return status == MessageStatus.CANCELED || status == MessageStatus.SUPERSEDED
+                || status == MessageStatus.PUBLISHED || status == MessageStatus.EXPIRED
+                || status == MessageStatus.DEAD_LETTER;
     }
 
     private GenerationRuntimeIndex timelineRuntimeIndex(final DelayMessageId messageId, final MessageRecord message,
@@ -881,7 +895,8 @@ public final class DelayShard {
                     current.runtimeIndex().possibleDestinationDuplicate(), terminalMessage.stateVersion()));
             final TerminalGenerationRecord terminal = new TerminalGenerationRecord(ledger.delayMessageId(),
                     ledger.generation(), MessageStatus.DEAD_LETTER, outcome.stableCode(), terminalMessage.stateVersion(),
-                    sourcePosition.canonicalBytes(), false);
+                    sourcePosition.canonicalBytes(), terminalMessage.runtimeIndex().possibleDestinationDuplicate(),
+                    terminalMessage.runtimeIndex().attemptObligations());
             final ShardQuota nextQuota = quota.removeSchedule(current.payloadLength());
             final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
                     sourcePosition, ledger.delayMessageId(), current, terminalMessage, null);
@@ -1017,7 +1032,8 @@ public final class DelayShard {
         final MessageRecord expiredNext = next;
         final TerminalGenerationRecord terminal = new TerminalGenerationRecord(messageId, generation,
                 MessageStatus.EXPIRED, StableCode.ALREADY_EXPIRED, next.stateVersion(),
-                sourcePosition.canonicalBytes(), false);
+                sourcePosition.canonicalBytes(), next.runtimeIndex().possibleDestinationDuplicate(),
+                next.runtimeIndex().attemptObligations());
         final ShardQuota nextQuota = quota.removeSchedule(current.payloadLength());
         final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
                 sourcePosition, messageId, current, next, null);
@@ -1362,7 +1378,8 @@ public final class DelayShard {
         final MessageRecord publishedNext = next;
         final TerminalGenerationRecord terminal = new TerminalGenerationRecord(ledger.delayMessageId(),
                 ledger.generation(), MessageStatus.PUBLISHED, StableCode.OK, next.stateVersion(),
-                sourcePosition.canonicalBytes(), false);
+                sourcePosition.canonicalBytes(), next.runtimeIndex().possibleDestinationDuplicate(),
+                next.runtimeIndex().attemptObligations());
         final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
                 sourcePosition, ledger.delayMessageId(), current, next, null);
         store.write(batch -> {
@@ -2176,7 +2193,7 @@ public final class DelayShard {
         }
         return new TerminalGenerationRecord(command.delayMessageId(), prior.generation(), status,
                 result.stableCode(), prior.stateVersion(), position.canonicalBytes(),
-                next.status() == MessageStatus.UNCERTAIN);
+                prior.runtimeIndex().possibleDestinationDuplicate(), prior.runtimeIndex().attemptObligations());
     }
 
     private MessageRecord rescheduledMessage(final PreparedCommand command, final SourcePosition position,
@@ -2240,6 +2257,9 @@ public final class DelayShard {
                     io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), 1).payload());
             messages.put(messageId, message);
             validateMessageRuntimeBranches(messageId, message);
+            if (isTerminalStatus(message.status())) {
+                validateTerminalSummary(messageId, message);
+            }
             for (AttemptObligationRef obligation : message.runtimeIndex().attemptObligations()) {
                 final PublishAttemptLedger ledger = readLedgerForObligation(obligation);
                 if (!ledger.delayMessageId().equals(messageId)
@@ -2324,6 +2344,15 @@ public final class DelayShard {
             if (matches != 1) {
                 throw new IllegalStateException("PUBLISHING runtime branch lacks its obligation locator");
             }
+        }
+    }
+
+    private void validateTerminalSummary(final DelayMessageId messageId, final MessageRecord message) {
+        final TerminalGenerationRecord summary = getTerminalGeneration(messageId, message.generation());
+        if (summary == null || summary.status() != message.status()
+                || !summary.openObligations().equals(message.runtimeIndex().attemptObligations())
+                || summary.possibleDestinationDuplicate() != message.runtimeIndex().possibleDestinationDuplicate()) {
+            throw new IllegalStateException("terminal runtime and open-obligation summary disagree");
         }
     }
 

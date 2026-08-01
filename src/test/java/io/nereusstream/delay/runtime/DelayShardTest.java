@@ -32,6 +32,8 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -998,6 +1000,72 @@ class DelayShardTest {
     }
 
     @Test
+    void terminalSummaryRetainsASecondOpenObligationAndReopensSafely() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("terminal-obligation-summary"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 26);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("terminal-summary-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("terminal-summary")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition firstAdmissionPosition = position(shardId, 1, 1_001);
+        final KafkaSourcePosition terminalPosition = position(shardId, 2, 1_002);
+        final byte[] firstAttemptId = Bytes.sha256(Bytes.utf8("terminal-summary-first"));
+        final byte[] secondAttemptId = Bytes.sha256(Bytes.utf8("terminal-summary-second"));
+
+        TerminalGenerationRecord summary;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final PublishAttemptLedger first = PublishAttemptLedger.publishing(schedule.delayMessageId(), 0,
+                    firstAttemptId, Bytes.sha256(Bytes.utf8("terminal-summary-first-claim")), 42, 1, lane,
+                    new byte[16], Bytes.sha256(Bytes.utf8("terminal-summary-owner")),
+                    store.metadata().storeIncarnation(), Bytes.sha256(Bytes.utf8("terminal-summary-prepared")),
+                    Bytes.utf8("terminal-summary-first-admission"), firstAdmissionPosition.canonicalBytes());
+            shard.admitPublishAttempt(first, firstAdmissionPosition);
+
+            final MessageRecord current = shard.getMessage(schedule.delayMessageId());
+            final PublishAttemptLedger second = PublishAttemptLedger.publishing(schedule.delayMessageId(), 0,
+                    secondAttemptId, Bytes.sha256(Bytes.utf8("terminal-summary-second-claim")), 43, 2, lane,
+                    shard.getLane(lane).laneIncarnation(), Bytes.sha256(Bytes.utf8("terminal-summary-owner-2")),
+                    store.metadata().storeIncarnation(), Bytes.sha256(Bytes.utf8("terminal-summary-prepared-2")),
+                    Bytes.utf8("terminal-summary-second-admission"), firstAdmissionPosition.canonicalBytes());
+            final List<AttemptObligationRef> obligations = new ArrayList<>(List.of(
+                    first.obligationRef(), second.obligationRef()));
+            obligations.sort(DelayShardTest::compareObligations);
+            final MessageRecord withSecond = new MessageRecord(MessageStatus.PUBLISHING, current.generation(),
+                    current.stateVersion(), current.deliverAtEpochMs(), current.expireAtEpochMs(), current.laneId(),
+                    current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
+                    current.payloadReference(), current.retryEligibilityAtEpochMs()).withRuntimeIndex(
+                            GenerationRuntimeIndex.publishing(firstAttemptId, obligations, 2, 0, false,
+                                    current.stateVersion()));
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(schedule.delayMessageId()), withSecond.encode());
+                batch.putValue(ColumnFamily.INFLIGHT, PublishAttemptLedger.VALUE_TYPE, second.encodedKey(),
+                        second.encode());
+            });
+
+            final MessageRecord published = shard.applyPublishedPublishOutcome(firstAttemptId, 42,
+                    terminalPosition);
+            assertEquals(MessageStatus.PUBLISHED, published.status());
+            summary = shard.getTerminalGeneration(schedule.delayMessageId(), 0);
+            assertNotNull(summary);
+            assertEquals(List.of(second.obligationRef()), summary.openObligations());
+            assertEquals(summary.openObligations(), published.runtimeIndex().attemptObligations());
+        }
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(summary.openObligations(),
+                    reopened.getTerminalGeneration(schedule.delayMessageId(), 0).openObligations());
+            assertNotNull(reopened.getPublishAttempt(secondAttemptId, 43));
+        }
+    }
+
+    @Test
     void claimResultConsumesExactClaimAndTerminalizesCurrentGeneration() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("claim-result-claimed"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 23);
@@ -1391,6 +1459,22 @@ class DelayShardTest {
 
     private static byte[] nestedPlaceholder() {
         return CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1, new byte[]{1}));
+    }
+
+    private static int compareObligations(final AttemptObligationRef left, final AttemptObligationRef right) {
+        final int id = compareUnsigned(left.publishAttemptId(), right.publishAttemptId());
+        return id != 0 ? id : compareUnsigned(left.encodedInflightKey(), right.encodedInflightKey());
+    }
+
+    private static int compareUnsigned(final byte[] left, final byte[] right) {
+        final int length = Math.min(left.length, right.length);
+        for (int index = 0; index < length; index++) {
+            final int comparison = Integer.compare(left[index] & 0xff, right[index] & 0xff);
+            if (comparison != 0) {
+                return comparison;
+            }
+        }
+        return Integer.compare(left.length, right.length);
     }
 
     private static KafkaSourcePosition position(final ShardId shard, final long offset, final long timestamp) {
