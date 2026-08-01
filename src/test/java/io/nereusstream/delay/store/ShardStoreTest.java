@@ -74,6 +74,7 @@ class ShardStoreTest {
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             final SloObservationOutboxStore outbox = new SloObservationOutboxStore(store);
             assertEquals(start, outbox.ensureStart(start).start());
+            assertEquals(1, outbox.scan(10).size());
             final SloSampleFinalV1 finalObservation = new SloSampleFinalV1(start.sampleId(), start.startDigest(),
                     SloFinalOutcomeV1.BAD_TIMEOUT, SloThresholdUnitV1.MILLISECONDS, 10, 12, null,
                     endpoint(200), bytes(32, 9), 1);
@@ -85,6 +86,13 @@ class ShardStoreTest {
             assertEquals(SloFinalOutcomeV1.BAD_TIMEOUT, value.finalObservation().outcome());
             assertArrayEquals(value.canonicalBytes(),
                     SloObservationOutboxV1.decode(value.canonicalBytes()).canonicalBytes());
+            assertThrows(IllegalStateException.class,
+                    () -> new SloObservationOutboxStore(reopened).deleteAfterCollectorAck(start.sampleId(),
+                            Bytes.sha256(Bytes.utf8("wrong-digest"))));
+            assertEquals(1, new SloObservationOutboxStore(reopened).scan(10).size());
+            assertEquals(true, new SloObservationOutboxStore(reopened).deleteAfterCollectorAck(start.sampleId(),
+                    value.recordDigest()));
+            assertEquals(0, new SloObservationOutboxStore(reopened).scan(10).size());
         }
     }
 

@@ -5,6 +5,9 @@ import io.nereusstream.delay.protocol.SloSampleFinalV1;
 import io.nereusstream.delay.protocol.SloSampleStartV1;
 import io.nereusstream.delay.protocol.SloThresholdDirectionV1;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -66,6 +69,42 @@ public final class SloObservationOutboxStore {
         final SloObservationOutboxV1 merged = existing.mergeFinal(finalObservation, direction);
         persist(KeyCodec.metaSloOutbox(merged.sampleId()), merged);
         return merged;
+    }
+
+    /** Returns a bounded key-order snapshot for at-least-once export retry. */
+    public synchronized List<SloObservationOutboxV1> scan(final int limit) {
+        if (limit <= 0) {
+            throw new IllegalArgumentException("SLO outbox scan limit must be positive");
+        }
+        final List<ShardStore.KeyValue> entries = store.scan(ColumnFamily.META,
+                new byte[]{8, 1}, new byte[]{8, 2}, limit);
+        final List<SloObservationOutboxV1> result = new ArrayList<>(entries.size());
+        for (ShardStore.KeyValue entry : entries) {
+            final byte[] key = entry.key();
+            if (key.length != 34 || key[0] != 8 || key[1] != 1) {
+                throw new IllegalStateException("invalid SLO_OUTBOX key shape");
+            }
+            result.add(SloObservationOutboxV1.decode(
+                    ValueEnvelope.decode(entry.value(), VALUE_TYPE).payload()));
+        }
+        return List.copyOf(result);
+    }
+
+    /**
+     * Deletes one record only after an external collector has acknowledged
+     * the exact bytes. A changed record is an integrity failure, not a reason
+     * to delete a newer observation.
+     */
+    public synchronized boolean deleteAfterCollectorAck(final byte[] sampleId, final byte[] recordDigest) {
+        final SloObservationOutboxV1 existing = get(sampleId);
+        if (existing == null) {
+            return false;
+        }
+        if (!Arrays.equals(existing.recordDigest(), recordDigest)) {
+            throw new IllegalStateException("SLO collector acknowledgement does not match record digest");
+        }
+        store.write(batch -> batch.delete(ColumnFamily.META, KeyCodec.metaSloOutbox(sampleId)));
+        return true;
     }
 
     private void persist(final byte[] key, final SloObservationOutboxV1 outbox) {

@@ -103,6 +103,9 @@ records/bytes projection for compatibility. The `SLO_OUTBOX=08` key shape is
 now also wired to a synchronous `SloObservationOutboxStore`: it persists an
 immutable Start before ownership loss and atomically replaces the conservative
 merged Final under the shard's `meta_cf` ValueEnvelope/CRC boundary. This is
+also a bounded key-order scan plus exact-record-digest delete-after-ACK
+boundary, so an exporter can retry unchanged bytes without deleting a newer
+observation. This is
 still local evidence only; multi-shard placement/Oxia authority,
 non-outcome/recovery/emergency reserve accounting, transfer protocol, SLO
 identity-specific reconstruction/collector export and full GC accounting
