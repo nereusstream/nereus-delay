@@ -1530,6 +1530,7 @@ class DelayShardTest {
                     parsed.resource().identityHash(), 7);
             assertNotNull(stored);
             assertArrayEquals(mutation.systemMutationId(), stored.mutationId());
+            assertEquals(1, stored.appliedMutationSequence());
             assertArrayEquals(firstPosition.canonicalBytes(), stored.appliedSourcePosition());
             assertEquals(applied, shard.applySystemMutation(mutation, firstPosition, keyPair.getPublic()));
 

@@ -1800,6 +1800,7 @@ public final class DelayShard {
         final ResourceRetireIntentRecord record = new ResourceRetireIntentRecord(mutation.systemMutationId(),
                 mutation.mutationHash(), body.resourceKind(), body.resource().canonicalBytes(),
                 body.resource().identityHash(), body.expectedResourceStateVersion(),
+                Math.addExact(mutationSequence, 1),
                 body.protections().canonicalBytes(), sourcePosition.canonicalBytes());
         final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, StableCode.OK,
                 sourcePosition.canonicalBytes());

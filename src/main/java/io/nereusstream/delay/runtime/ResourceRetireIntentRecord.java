@@ -17,6 +17,7 @@ public record ResourceRetireIntentRecord(
         byte[] resourceIdentity,
         byte[] resourceIdentityHash,
         long expectedResourceStateVersion,
+        long appliedMutationSequence,
         byte[] protections,
         byte[] appliedSourcePosition) {
     public static final int VALUE_TYPE = 6;
@@ -35,6 +36,9 @@ public record ResourceRetireIntentRecord(
         }
         if (expectedResourceStateVersion < 0) {
             throw new IllegalArgumentException("expected resource state version must be non-negative");
+        }
+        if (appliedMutationSequence < 0) {
+            throw new IllegalArgumentException("applied mutation sequence must be non-negative");
         }
         requireNonEmpty(protections, "protections");
         requireNonEmpty(appliedSourcePosition, "appliedSourcePosition");
@@ -78,15 +82,16 @@ public record ResourceRetireIntentRecord(
     }
 
     public byte[] encode() {
-        return Bytes.concat(Bytes.u32be(1), mutationId, mutationHash, Bytes.u8(resourceKind.wireValue()),
+        return Bytes.concat(Bytes.u32be(2), mutationId, mutationHash, Bytes.u8(resourceKind.wireValue()),
                 Bytes.lp32(resourceIdentity), resourceIdentityHash, Bytes.u64be(expectedResourceStateVersion),
-                Bytes.lp32(protections), Bytes.lp32(appliedSourcePosition));
+                Bytes.u64be(appliedMutationSequence), Bytes.lp32(protections), Bytes.lp32(appliedSourcePosition));
     }
 
     public static ResourceRetireIntentRecord decode(final byte[] encoded) {
         final ByteBuffer input = ByteBuffer.wrap(Objects.requireNonNull(encoded, "encoded"));
         requireRemaining(input, 4 + HASH_LENGTH * 2 + 1 + 4 + HASH_LENGTH + 8 + 4 + 4);
-        if (input.getInt() != 1) {
+        final int version = input.getInt();
+        if (version != 1 && version != 2) {
             throw new IllegalArgumentException("unsupported resource retire intent version");
         }
         final byte[] mutationId = readFixed(input, HASH_LENGTH, "mutationId");
@@ -95,17 +100,24 @@ public record ResourceRetireIntentRecord(
         final byte[] identity = readLp32(input, "resourceIdentity");
         final byte[] identityHash = readFixed(input, HASH_LENGTH, "resourceIdentityHash");
         final long expectedVersion = readU64(input, "expectedResourceStateVersion");
+        final long mutationSequence = version == 2 ? readU64(input, "appliedMutationSequence") : 0;
         final byte[] protections = readLp32(input, "protections");
         final byte[] source = readLp32(input, "appliedSourcePosition");
         if (input.hasRemaining()) {
             throw new IllegalArgumentException("trailing resource retire intent bytes");
         }
         final ResourceRetireIntentRecord result = new ResourceRetireIntentRecord(mutationId, mutationHash, kind,
-                identity, identityHash, expectedVersion, protections, source);
-        if (!Arrays.equals(encoded, result.encode())) {
+                identity, identityHash, expectedVersion, mutationSequence, protections, source);
+        if (version == 1 ? !Arrays.equals(encoded, result.encodeLegacy()) : !Arrays.equals(encoded, result.encode())) {
             throw new IllegalArgumentException("non-canonical resource retire intent");
         }
         return result;
+    }
+
+    private byte[] encodeLegacy() {
+        return Bytes.concat(Bytes.u32be(1), mutationId, mutationHash, Bytes.u8(resourceKind.wireValue()),
+                Bytes.lp32(resourceIdentity), resourceIdentityHash, Bytes.u64be(expectedResourceStateVersion),
+                Bytes.lp32(protections), Bytes.lp32(appliedSourcePosition));
     }
 
     private static void requireNonEmpty(final byte[] value, final String name) {
