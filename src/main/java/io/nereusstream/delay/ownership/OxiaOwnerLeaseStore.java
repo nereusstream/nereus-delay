@@ -40,7 +40,8 @@ public final class OxiaOwnerLeaseStore implements OwnerLeaseStore {
                                         final byte[] sessionIdentity, final long nowEpochMs,
                                         final long leaseDurationMs) {
         Objects.requireNonNull(assignment, "assignment");
-        final OwnerLeaseContext context = new OwnerLeaseContext(assignment.assignmentId(), sessionIdentity);
+        final OwnerLeaseContext context = new OwnerLeaseContext(assignment.assignmentId(), assignment.assignmentEpoch(),
+                sessionIdentity);
         validateRequest(assignment.shardId(), ownerId, nowEpochMs, leaseDurationMs);
         return validateAcquired(backend.acquire(assignment, ownerId, context.sessionIdentity(), nowEpochMs,
                         leaseDurationMs), assignment.shardId(), ownerId, nowEpochMs, context);

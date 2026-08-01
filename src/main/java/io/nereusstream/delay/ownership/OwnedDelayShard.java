@@ -89,6 +89,10 @@ public final class OwnedDelayShard {
                 && !Bytes.constantTimeEquals(lease.sourceAssignmentId(), assignment.assignmentId())) {
             throw new IllegalArgumentException("source assignment does not match owner lease context");
         }
+        if (lease.sourceAssignmentEpoch() > 0
+                && lease.sourceAssignmentEpoch() != assignment.assignmentEpoch()) {
+            throw new IllegalArgumentException("source assignment epoch does not match owner lease context");
+        }
         sourceAssignment = assignment;
         activationBarrier = assignment.activationBarrier();
         lastCatchupPosition = delegate.lastAppliedSourcePosition();

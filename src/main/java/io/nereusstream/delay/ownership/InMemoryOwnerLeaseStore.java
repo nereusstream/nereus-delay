@@ -45,7 +45,8 @@ public final class InMemoryOwnerLeaseStore implements OwnerLeaseStore {
         epochs.put(assignment.shardId(), epoch);
         final OwnerLease next = new OwnerLease(assignment.shardId(), ownerId, epoch, randomBytes(),
                 Math.addExact(nowEpochMs, leaseDurationMs),
-                new OwnerLeaseContext(assignment.assignmentId(), sessionIdentity), ShardLifecycleState.ACQUIRING);
+                new OwnerLeaseContext(assignment.assignmentId(), assignment.assignmentEpoch(), sessionIdentity),
+                ShardLifecycleState.ACQUIRING);
         leases.put(assignment.shardId(), next);
         return Optional.of(next);
     }

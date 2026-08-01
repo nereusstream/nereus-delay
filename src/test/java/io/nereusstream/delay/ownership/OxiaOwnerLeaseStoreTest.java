@@ -27,6 +27,7 @@ class OxiaOwnerLeaseStoreTest {
 
         final OwnerLease acquired = store.acquire(assignment, "worker-a", session, 100, 50).orElseThrow();
         assertArrayEquals(assignment.assignmentId(), acquired.sourceAssignmentId());
+        assertEquals(assignment.assignmentEpoch(), acquired.sourceAssignmentEpoch());
         assertArrayEquals(session, acquired.sessionIdentity());
         assertEquals(ShardLifecycleState.ACQUIRING, acquired.state());
 

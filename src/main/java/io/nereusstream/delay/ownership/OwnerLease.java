@@ -43,6 +43,11 @@ public record OwnerLease(
         return context == null ? null : context.sessionIdentity();
     }
 
+    /** Returns the bound source-assignment epoch, or zero for a legacy lease without context. */
+    public long sourceAssignmentEpoch() {
+        return context == null ? 0 : context.assignmentEpoch();
+    }
+
     /** Returns whether the immutable fencing and assignment/session identity is unchanged. */
     public boolean sameIdentity(final OwnerLease other) {
         return other != null && shardId.equals(other.shardId()) && ownerId.equals(other.ownerId())

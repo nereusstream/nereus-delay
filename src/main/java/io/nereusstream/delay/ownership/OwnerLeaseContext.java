@@ -3,14 +3,23 @@ package io.nereusstream.delay.ownership;
 import io.nereusstream.delay.protocol.Bytes;
 
 import java.util.Arrays;
+import java.util.Objects;
 
-/** Exact source-assignment and Oxia-session identities bound into a lease. */
-public record OwnerLeaseContext(byte[] sourceAssignmentId, byte[] sessionIdentity) {
+/** Exact source-assignment identity/epoch and Oxia-session identity bound into a lease. */
+public record OwnerLeaseContext(byte[] sourceAssignmentId, long assignmentEpoch, byte[] sessionIdentity) {
     public static final int ID_LENGTH = 32;
+
+    /** Compatibility constructor for legacy contexts that predate assignment epochs. */
+    public OwnerLeaseContext(final byte[] sourceAssignmentId, final byte[] sessionIdentity) {
+        this(sourceAssignmentId, 0, sessionIdentity);
+    }
 
     public OwnerLeaseContext {
         requireNonZero(sourceAssignmentId, "sourceAssignmentId");
         requireNonZero(sessionIdentity, "sessionIdentity");
+        if (assignmentEpoch < 0) {
+            throw new IllegalArgumentException("assignmentEpoch must be non-negative");
+        }
         sourceAssignmentId = Bytes.copy(sourceAssignmentId);
         sessionIdentity = Bytes.copy(sessionIdentity);
     }
@@ -29,12 +38,14 @@ public record OwnerLeaseContext(byte[] sourceAssignmentId, byte[] sessionIdentit
     public boolean equals(final Object other) {
         return other instanceof OwnerLeaseContext that
                 && Arrays.equals(sourceAssignmentId, that.sourceAssignmentId)
+                && assignmentEpoch == that.assignmentEpoch
                 && Arrays.equals(sessionIdentity, that.sessionIdentity);
     }
 
     @Override
     public int hashCode() {
-        return 31 * Arrays.hashCode(sourceAssignmentId) + Arrays.hashCode(sessionIdentity);
+        return Objects.hash(Arrays.hashCode(sourceAssignmentId), assignmentEpoch,
+                Arrays.hashCode(sessionIdentity));
     }
 
     private static void requireNonZero(final byte[] value, final String name) {

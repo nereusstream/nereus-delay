@@ -105,6 +105,25 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void sourceAssignmentEpochMustMatchLeaseContextEvenWhenIdIsReused() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 9);
+        final UUID topic = UUID.randomUUID();
+        final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 0);
+        final byte[] reusedId = Bytes.sha256(Bytes.utf8("reused-assignment-id"));
+        final SourceAssignment leaseAssignment = new SourceAssignment(shardId, reusedId, 4, barrier);
+        final SourceAssignment replayedAssignment = new SourceAssignment(shardId, reusedId.clone(), 5, barrier);
+        final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = authority.acquire(leaseAssignment, "worker-epoch",
+                Bytes.sha256(Bytes.utf8("epoch-session")), 100, 100).orElseThrow();
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("assignment-epoch"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            assertThrows(IllegalArgumentException.class, () -> owned.markCatchingUp(replayedAssignment));
+        }
+    }
+
+    @Test
     void leaseRenewalCannotChangeTokenOrMoveExpiryBackwards() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 2);
         final OwnerLease lease = new OwnerLease(shard, "worker-a", 7, new byte[32], 200);
