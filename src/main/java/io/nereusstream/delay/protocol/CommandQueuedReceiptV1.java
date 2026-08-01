@@ -137,6 +137,23 @@ public final class CommandQueuedReceiptV1 {
         return ReceiptFrame.encode(ReceiptKind.COMMAND_QUEUED, payload());
     }
 
+    @Override
+    public boolean equals(final Object other) {
+        if (!(other instanceof CommandQueuedReceiptV1 that)) {
+            return false;
+        }
+        return command.equals(that.command) && sourcePosition.equals(that.sourcePosition)
+                && brokerAck.equals(that.brokerAck) && receiptQueryUntilEpochMs == that.receiptQueryUntilEpochMs
+                && Arrays.equals(physicalEnqueueAttemptId, that.physicalEnqueueAttemptId)
+                && Arrays.equals(receiptPayloadDigest, that.receiptPayloadDigest);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(command, sourcePosition, brokerAck, receiptQueryUntilEpochMs,
+                Arrays.hashCode(physicalEnqueueAttemptId), Arrays.hashCode(receiptPayloadDigest));
+    }
+
     private static byte[] canonicalFields(final PreparedCommandRef command, final SourcePosition sourcePosition,
                                           final SafeBrokerAck brokerAck, final long queryUntil,
                                           final byte[] attemptId) {
@@ -432,6 +449,23 @@ public final class CommandQueuedReceiptV1 {
         @Override
         public byte[] frameSha256() {
             return Bytes.copy(frameSha256);
+        }
+
+        @Override
+        public boolean equals(final Object other) {
+            if (!(other instanceof PreparedCommandRef that)) {
+                return false;
+            }
+            return shardId.equals(that.shardId) && commandId.equals(that.commandId)
+                    && delayMessageId.equals(that.delayMessageId) && commandType == that.commandType
+                    && protocolTuple.equals(that.protocolTuple) && Arrays.equals(commandHash, that.commandHash)
+                    && retryUntilEpochMs == that.retryUntilEpochMs && Arrays.equals(frameSha256, that.frameSha256);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(shardId, commandId, delayMessageId, commandType, protocolTuple,
+                    Arrays.hashCode(commandHash), retryUntilEpochMs, Arrays.hashCode(frameSha256));
         }
 
         public byte[] canonicalBytes() {

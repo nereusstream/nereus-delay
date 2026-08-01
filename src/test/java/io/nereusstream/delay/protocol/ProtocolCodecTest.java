@@ -70,6 +70,7 @@ class ProtocolCodecTest {
         final CommandQueuedReceiptV1 receipt = CommandQueuedReceiptV1.create(command, source, ack, 9_000, attempt);
         final CommandQueuedReceiptV1 decoded = CommandQueuedReceiptV1.decodeFrame(receipt.frame());
 
+        assertEquals(receipt, decoded);
         assertEquals(command.commandId(), decoded.command().commandId());
         assertEquals(command.delayMessageId(), decoded.command().delayMessageId());
         assertEquals(source, decoded.sourcePosition());
