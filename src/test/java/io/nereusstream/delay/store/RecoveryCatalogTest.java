@@ -12,6 +12,8 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 class RecoveryCatalogTest {
     @Test
@@ -36,6 +38,31 @@ class RecoveryCatalogTest {
         catalog.validatePublishedRestoreCandidate(child);
         assertEquals(child, catalog.selectRecoveryCandidate(child.checkpointId()));
         assertEquals(4, catalog.publish(child, 4).catalogGeneration());
+    }
+
+    @Test
+    void floorCoverageRequiresExactAncestryAndFloorCounters() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
+        final UUID topic = UUID.randomUUID();
+        final byte[] lineage = id16(40);
+        final CheckpointManifest genesis = manifest(shard, topic, lineage, id16(41), 0, 10, 10, null);
+        final RecoveryCatalog catalog = new RecoveryCatalog();
+        catalog.publish(genesis, 0);
+        final CheckpointManifest child = manifest(shard, topic, lineage, id16(42), 1, 11, 11,
+                new CheckpointManifest.ParentCheckpoint(genesis.checkpointId(), Bytes.hex(genesis.manifestSha256())));
+        catalog.publish(child, 1);
+        catalog.advanceFloor(genesis.checkpointId(), 2, id32(43));
+
+        assertTrue(catalog.proveFloorCoverage(child.checkpointId(), 10, genesis.appliedShardLogPosition()).isPresent());
+        assertFalse(catalog.proveFloorCoverage(child.checkpointId(), 11, genesis.appliedShardLogPosition()).isPresent());
+        assertFalse(catalog.proveFloorCoverage(genesis.checkpointId(), 10,
+                new KafkaSourcePosition(shard, "cluster", topic, 11, null, 1_011)).isPresent());
+
+        catalog.advanceFloor(child.checkpointId(), 3, id32(44));
+        final RecoveryCatalog.FloorCoverage coverage = catalog.proveFloorCoverage(child.checkpointId(), 11,
+                child.appliedShardLogPosition()).orElseThrow();
+        assertArrayEquals(child.checkpointId(), coverage.floor().checkpointId());
+        assertEquals(List.of(child), coverage.ancestry());
     }
 
     @Test

@@ -144,6 +144,62 @@ public final class RecoveryCatalog {
         return List.copyOf(reverse);
     }
 
+    /**
+     * Proves that an exact published candidate is a descendant of the current
+     * Recovery Floor and that the Floor covers the supplied source/mutation
+     * boundary.  This is deliberately a read-only local proof: it does not
+     * perform an Oxia CAS, publish an object, or authorize an external delete.
+     *
+     * <p>The candidate is part of the proof even though the sequence/source
+     * checks are made against the Floor.  A scalar position or mutation
+     * sequence from an unrelated checkpoint branch must never be accepted as
+     * a substitute for the parent-hash ancestry.</p>
+     */
+    public synchronized Optional<FloorCoverage> proveFloorCoverage(final byte[] candidateCheckpointId,
+                                                                     final long requiredMutationSequence,
+                                                                     final SourcePosition... requiredPositions) {
+        Objects.requireNonNull(candidateCheckpointId, "candidateCheckpointId");
+        if (requiredMutationSequence < 0) {
+            throw new IllegalArgumentException("required mutation sequence must be non-negative");
+        }
+        Objects.requireNonNull(requiredPositions, "requiredPositions");
+        for (SourcePosition position : requiredPositions) {
+            Objects.requireNonNull(position, "required source position");
+        }
+        final RecoveryFloor currentFloor = floor;
+        if (currentFloor == null) {
+            return Optional.empty();
+        }
+        final CheckpointManifest candidate = manifests.get(key(candidateCheckpointId));
+        if (candidate == null) {
+            return Optional.empty();
+        }
+        final List<CheckpointManifest> ancestry;
+        try {
+            ancestry = recoverySet(candidateCheckpointId);
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            return Optional.empty();
+        }
+        final int floorIndex = indexOf(ancestry, currentFloor.checkpointId());
+        if (floorIndex < 0 || !Bytes.constantTimeEquals(ancestry.get(floorIndex).manifestSha256(),
+                currentFloor.manifestSha256())) {
+            return Optional.empty();
+        }
+        if (currentFloor.includedMutationSequence() < requiredMutationSequence) {
+            return Optional.empty();
+        }
+        for (SourcePosition requiredPosition : requiredPositions) {
+            try {
+                if (currentFloor.appliedSourcePosition().compareTo(requiredPosition) < 0) {
+                    return Optional.empty();
+                }
+            } catch (IllegalArgumentException exception) {
+                return Optional.empty();
+            }
+        }
+        return Optional.of(new FloorCoverage(currentFloor, candidate, ancestry));
+    }
+
     public synchronized long catalogGeneration() {
         return catalogGeneration;
     }
@@ -188,6 +244,19 @@ public final class RecoveryCatalog {
             if (catalogGeneration < 0) {
                 throw new IllegalArgumentException("catalog generation must be non-negative");
             }
+        }
+    }
+
+    /** Exact local evidence returned by {@link #proveFloorCoverage(byte[], long, SourcePosition...)}. */
+    public record FloorCoverage(RecoveryFloor floor, CheckpointManifest candidate,
+                                List<CheckpointManifest> ancestry) {
+        public FloorCoverage {
+            Objects.requireNonNull(floor, "floor");
+            Objects.requireNonNull(candidate, "candidate");
+            if (ancestry == null || ancestry.isEmpty()) {
+                throw new IllegalArgumentException("floor coverage ancestry must not be empty");
+            }
+            ancestry = List.copyOf(ancestry);
         }
     }
 }

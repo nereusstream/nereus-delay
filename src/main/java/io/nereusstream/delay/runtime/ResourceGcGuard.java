@@ -3,13 +3,16 @@ package io.nereusstream.delay.runtime;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
+import io.nereusstream.delay.store.RecoveryCatalog;
 import io.nereusstream.delay.store.RecoveryFloor;
 
 import java.util.Objects;
 
 /**
  * Read-only necessary-condition check for compacting a retained GC tombstone.
- * Catalog ancestry, Oxia CAS and provider ownership remain outside this local predicate.
+ * The overload accepting a {@link RecoveryCatalog} also checks local
+ * parent-hash ancestry; Oxia CAS and provider ownership remain outside this
+ * predicate.
  */
 public final class ResourceGcGuard {
     private ResourceGcGuard() {
@@ -57,6 +60,37 @@ public final class ResourceGcGuard {
         final long requiredSequence = Math.max(intent.appliedMutationSequence(),
                 confirmation.appliedMutationSequence());
         return floor.includedMutationSequence() >= requiredSequence
+                ? Decision.SOURCE_AND_SEQUENCE_COVERED
+                : Decision.FLOOR_SOURCE_OR_SEQUENCE_NOT_COVERING;
+    }
+
+    /**
+     * Evaluates the same necessary predicate against a catalog-backed
+     * candidate.  In addition to the Floor scalar checks this verifies the
+     * exact parent-hash ancestry through {@link RecoveryCatalog}; it remains a
+     * local proof and does not replace Oxia/provider authorization.
+     */
+    public static Decision evaluate(final ResourceRetireIntentRecord intent,
+                                    final ResourceDeleteConfirmedRecord confirmation,
+                                    final RecoveryCatalog catalog,
+                                    final byte[] candidateCheckpointId) {
+        Objects.requireNonNull(catalog, "catalog");
+        final Decision scalar = evaluate(intent, confirmation, catalog.currentFloor().orElse(null));
+        if (scalar != Decision.SOURCE_AND_SEQUENCE_COVERED) {
+            return scalar;
+        }
+        final SourcePosition intentPosition;
+        final SourcePosition confirmationPosition;
+        try {
+            intentPosition = SourcePositionCodec.decode(intent.appliedSourcePosition());
+            confirmationPosition = SourcePositionCodec.decode(confirmation.appliedSourcePosition());
+        } catch (IllegalArgumentException exception) {
+            return Decision.FLOOR_SOURCE_OR_SEQUENCE_NOT_COVERING;
+        }
+        final long requiredSequence = Math.max(intent.appliedMutationSequence(),
+                confirmation.appliedMutationSequence());
+        return catalog.proveFloorCoverage(candidateCheckpointId, requiredSequence, intentPosition,
+                confirmationPosition).isPresent()
                 ? Decision.SOURCE_AND_SEQUENCE_COVERED
                 : Decision.FLOOR_SOURCE_OR_SEQUENCE_NOT_COVERING;
     }

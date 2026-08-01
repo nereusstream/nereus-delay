@@ -29,6 +29,7 @@ import io.nereusstream.delay.protocol.SystemMutationType;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.store.ColumnFamily;
 import io.nereusstream.delay.store.KeyCodec;
+import io.nereusstream.delay.store.RecoveryCatalog;
 import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.ValueEnvelope;
 
@@ -442,6 +443,40 @@ public final class DelayShard {
         }
         return ResourceDeleteConfirmedRecord.decode(
                 ValueEnvelope.decode(raw, ResourceDeleteConfirmedRecord.VALUE_TYPE).payload());
+    }
+
+    /**
+     * Physically removes a completed local GC task only after the exact
+     * catalog-backed Floor proof is present.  This is background compaction,
+     * not a new Shard Log mutation; the source-ordered intent and confirmation
+     * records have already supplied the durable audit boundary.
+     */
+    public synchronized ResourceGcGuard.Decision compactResourceDeleteConfirmation(
+            final ResourceKind resourceKind, final byte[] resourceIdentityHash, final long expectedVersion,
+            final RecoveryCatalog catalog, final byte[] candidateCheckpointId) {
+        Objects.requireNonNull(resourceKind, "resourceKind");
+        Bytes.requireLength(resourceIdentityHash, SystemMutation.HASH_LENGTH, "resourceIdentityHash");
+        if (expectedVersion < 0) {
+            throw new IllegalArgumentException("expectedVersion must be non-negative");
+        }
+        Objects.requireNonNull(catalog, "catalog");
+        Objects.requireNonNull(candidateCheckpointId, "candidateCheckpointId");
+        final ResourceRetireIntentRecord intent = getResourceRetireIntent(resourceKind, resourceIdentityHash,
+                expectedVersion);
+        final ResourceDeleteConfirmedRecord confirmation = getResourceDeleteConfirmation(resourceKind,
+                resourceIdentityHash, expectedVersion);
+        final ResourceGcGuard.Decision decision = ResourceGcGuard.evaluate(intent, confirmation, catalog,
+                candidateCheckpointId);
+        if (decision != ResourceGcGuard.Decision.SOURCE_AND_SEQUENCE_COVERED) {
+            return decision;
+        }
+        final byte[] key = KeyCodec.gcRetireIntent(resourceKind, resourceIdentityHash, expectedVersion);
+        final byte[] raw = store.get(ColumnFamily.GC, key);
+        if (raw == null || gcValueType(raw) != ResourceDeleteConfirmedRecord.VALUE_TYPE) {
+            return ResourceGcGuard.Decision.DELETE_NOT_CONFIRMED;
+        }
+        store.write(batch -> batch.delete(ColumnFamily.GC, key));
+        return decision;
     }
 
     /**
