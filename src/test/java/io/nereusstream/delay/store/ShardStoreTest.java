@@ -14,6 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class ShardStoreTest {
     @TempDir
@@ -72,6 +73,23 @@ class ShardStoreTest {
             org.junit.jupiter.api.Assertions.assertFalse(
                     java.util.Arrays.equals(originalStoreIncarnation, restored.metadata().storeIncarnation()));
             assertNotEquals(sourceConfig.rootPath(), restoreConfig.rootPath());
+        }
+    }
+
+    @Test
+    void workerDbSlotLimitFailsBeforeOpeningAnotherShard() {
+        final ShardStoreConfig config = new ShardStoreConfig(tempDir.resolve("bounded"), 1, 1, 32, 32,
+                1, 1024 * 1024, 1024 * 1024, 1, 1, 1024);
+        final ShardId first = new ShardId(RouteIncarnation.random(), 1);
+        final ShardId second = new ShardId(RouteIncarnation.random(), 2);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore firstStore = ShardStore.open(config, first, resources)) {
+            assertNotNull(firstStore.metadata());
+            assertThrows(IllegalStateException.class, () -> ShardStore.open(config, second, resources));
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore secondStore = ShardStore.open(config, second, resources)) {
+            assertNotNull(secondStore.metadata());
         }
     }
 

@@ -41,6 +41,7 @@ to the intended modules:
 | NDL1 frame and canonical Client Command envelope | Implemented | `ShardLogFrame`, `CommandCodec`, registry frame vector test |
 | Kafka/Pulsar source order token encoding | Implemented (core codec) | `SourcePosition.sourceOrderToken`, `ProtocolCodecTest`; broker assignment/barrier adapters pending |
 | One Delay Shard = one RocksDB DB | Implemented | `ShardStore`, `ShardStoreTest` |
+| Worker DB/checkpoint resource limits | Implemented (local guard) | `ShardStoreConfig`, `SharedRocksDbResources`, `ShardStoreTest`; placement/physical capacity artifact pending |
 | Seven application CFs plus empty `default` CF | Implemented | `ShardStore` descriptor validation |
 | Shard identity and local Store Incarnation validation | Implemented | `StoreMetadata`, `ShardStoreTest` |
 | Synchronous atomic WriteBatch | Implemented | `ShardStore.write`, `ShardStoreTest` |

@@ -30,6 +30,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** One independent RocksDB instance for exactly one Delay Shard. */
 public final class ShardStore implements AutoCloseable {
@@ -50,6 +51,7 @@ public final class ShardStore implements AutoCloseable {
     private final List<ColumnFamilyOptions> columnFamilyOptions;
     private final Map<ColumnFamily, ColumnFamilyHandle> handles;
     private final StoreMetadata metadata;
+    private final AtomicBoolean closed = new AtomicBoolean();
 
     private ShardStore(final ShardStoreConfig config, final ShardId shardId, final Path dbPath,
                         final SharedRocksDbResources resources, final RocksDB db, final DBOptions dbOptions,
@@ -222,6 +224,19 @@ public final class ShardStore implements AutoCloseable {
     private static ShardStore openAtPath(final ShardStoreConfig config, final ShardId shardId, final Path dbPath,
                                          final SharedRocksDbResources resources,
                                          final UUID restoreStoreIncarnation) throws IOException, RocksDBException {
+        resources.acquireDbSlot();
+        try {
+            return openAtPathWithSlot(config, shardId, dbPath, resources, restoreStoreIncarnation);
+        } catch (IOException | RocksDBException | RuntimeException exception) {
+            resources.releaseDbSlot();
+            throw exception;
+        }
+    }
+
+    private static ShardStore openAtPathWithSlot(final ShardStoreConfig config, final ShardId shardId,
+                                                 final Path dbPath, final SharedRocksDbResources resources,
+                                                 final UUID restoreStoreIncarnation)
+            throws IOException, RocksDBException {
         Files.createDirectories(dbPath);
         final boolean existing = Files.exists(dbPath.resolve("CURRENT"));
         final List<ColumnFamilyOptions> cfOptions = new ArrayList<>();
@@ -446,6 +461,7 @@ public final class ShardStore implements AutoCloseable {
     }
 
     public Path createCheckpoint(final Path checkpointPath) {
+        resources.acquireCheckpointCreateSlot();
         try {
             if (Files.exists(checkpointPath)) {
                 throw new IOException("checkpoint target already exists: " + checkpointPath);
@@ -457,6 +473,8 @@ public final class ShardStore implements AutoCloseable {
             return checkpointPath;
         } catch (RocksDBException | IOException exception) {
             throw new IllegalStateException("cannot create RocksDB checkpoint", exception);
+        } finally {
+            resources.releaseCheckpointCreateSlot();
         }
     }
 
@@ -466,12 +484,15 @@ public final class ShardStore implements AutoCloseable {
 
     @Override
     public void close() {
-        for (ColumnFamilyHandle handle : handles.values()) {
-            handle.close();
+        if (closed.compareAndSet(false, true)) {
+            for (ColumnFamilyHandle handle : handles.values()) {
+                handle.close();
+            }
+            db.close();
+            closeQuietly(columnFamilyOptions);
+            dbOptions.close();
+            resources.releaseDbSlot();
         }
-        db.close();
-        closeQuietly(columnFamilyOptions);
-        dbOptions.close();
     }
 
     @FunctionalInterface

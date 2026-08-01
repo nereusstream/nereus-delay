@@ -5,6 +5,9 @@ import org.rocksdb.LRUCache;
 import org.rocksdb.RateLimiter;
 import org.rocksdb.WriteBufferManager;
 
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicBoolean;
+
 /** Process-level resources shared by all open shard DBs in one Worker. */
 public final class SharedRocksDbResources implements AutoCloseable {
     static {
@@ -14,11 +17,18 @@ public final class SharedRocksDbResources implements AutoCloseable {
     private final Cache blockCache;
     private final WriteBufferManager writeBufferManager;
     private final RateLimiter rateLimiter;
+    private final Semaphore openDbSlots;
+    private final Semaphore checkpointCreateSlots;
+    private final Semaphore checkpointUploadSlots;
+    private final AtomicBoolean closed = new AtomicBoolean();
 
     public SharedRocksDbResources(final ShardStoreConfig config) {
         blockCache = new LRUCache(config.sharedBlockCacheBytes());
         writeBufferManager = new WriteBufferManager(config.sharedWriteBufferBudgetBytes(), blockCache);
         rateLimiter = new RateLimiter(0);
+        openDbSlots = new Semaphore(config.maxOpenShardDbs(), true);
+        checkpointCreateSlots = new Semaphore(config.maxConcurrentCheckpointCreatesPerWorker(), true);
+        checkpointUploadSlots = new Semaphore(config.maxConcurrentCheckpointUploadsPerWorker(), true);
     }
 
     public Cache blockCache() {
@@ -33,10 +43,51 @@ public final class SharedRocksDbResources implements AutoCloseable {
         return rateLimiter;
     }
 
+    public void acquireDbSlot() {
+        ensureOpen();
+        if (!openDbSlots.tryAcquire()) {
+            throw new IllegalStateException("worker maxOpenShardDbs limit reached");
+        }
+    }
+
+    public void releaseDbSlot() {
+        openDbSlots.release();
+    }
+
+    public void acquireCheckpointCreateSlot() {
+        ensureOpen();
+        if (!checkpointCreateSlots.tryAcquire()) {
+            throw new IllegalStateException("worker checkpoint create concurrency limit reached");
+        }
+    }
+
+    public void releaseCheckpointCreateSlot() {
+        checkpointCreateSlots.release();
+    }
+
+    public void acquireCheckpointUploadSlot() {
+        ensureOpen();
+        if (!checkpointUploadSlots.tryAcquire()) {
+            throw new IllegalStateException("worker checkpoint upload concurrency limit reached");
+        }
+    }
+
+    public void releaseCheckpointUploadSlot() {
+        checkpointUploadSlots.release();
+    }
+
     @Override
     public void close() {
-        rateLimiter.close();
-        writeBufferManager.close();
-        blockCache.close();
+        if (closed.compareAndSet(false, true)) {
+            rateLimiter.close();
+            writeBufferManager.close();
+            blockCache.close();
+        }
+    }
+
+    private void ensureOpen() {
+        if (closed.get()) {
+            throw new IllegalStateException("shared RocksDB resources are closed");
+        }
     }
 }
