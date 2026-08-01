@@ -38,4 +38,15 @@ class SourceActivationBarrierTest {
         assertThrows(IllegalArgumentException.class, () -> barrier.reachedBy(new PulsarSourcePosition(shard,
                 replacement, "persistent://t/a", 4, 8, 2, 3, PulsarSourcePosition.EntryKind.BATCH, 1)));
     }
+
+    @Test
+    void emptyPulsarBarrierStillRejectsARecordFromAnotherResource() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 2);
+        final byte[] resource = Bytes.sha256(Bytes.utf8("empty-resource"));
+        final PulsarActivationBarrier barrier = PulsarActivationBarrier.empty(shard, resource,
+                "persistent://t/empty");
+        assertThrows(IllegalArgumentException.class, () -> barrier.validatePosition(new PulsarSourcePosition(shard,
+                Bytes.sha256(Bytes.utf8("replacement-resource")), "persistent://t/empty", 1, 1, 0, 1,
+                PulsarSourcePosition.EntryKind.NON_BATCH, 1)));
+    }
 }

@@ -41,6 +41,16 @@ public record PulsarActivationBarrier(
     }
 
     @Override
+    public void validatePosition(final SourcePosition position) {
+        if (!(position instanceof PulsarSourcePosition pulsar)
+                || !shardId.equals(pulsar.shardId())
+                || !Arrays.equals(brokerResourceIncarnation, pulsar.brokerResourceIncarnation())
+                || !physicalTopic.equals(pulsar.physicalTopic())) {
+            throw new IllegalArgumentException("Pulsar activation barrier source identity mismatch");
+        }
+    }
+
+    @Override
     public boolean reachedBy(final SourcePosition lastAppliedPosition) {
         if (empty) {
             return true;
@@ -48,12 +58,8 @@ public record PulsarActivationBarrier(
         if (lastAppliedPosition == null) {
             return false;
         }
-        if (!(lastAppliedPosition instanceof PulsarSourcePosition pulsar)
-                || !shardId.equals(pulsar.shardId())
-                || !Arrays.equals(brokerResourceIncarnation, pulsar.brokerResourceIncarnation())
-                || !physicalTopic.equals(pulsar.physicalTopic())) {
-            throw new IllegalArgumentException("Pulsar activation barrier source identity mismatch");
-        }
+        validatePosition(lastAppliedPosition);
+        final PulsarSourcePosition pulsar = (PulsarSourcePosition) lastAppliedPosition;
         if (pulsar.ledgerId() != ledgerId) {
             return pulsar.ledgerId() > ledgerId;
         }

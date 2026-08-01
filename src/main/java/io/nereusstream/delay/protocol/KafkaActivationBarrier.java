@@ -24,16 +24,22 @@ public record KafkaActivationBarrier(
     }
 
     @Override
-    public boolean reachedBy(final SourcePosition lastAppliedPosition) {
-        if (lastAppliedPosition == null) {
-            return exclusiveOffset == 0;
-        }
-        if (!(lastAppliedPosition instanceof KafkaSourcePosition kafka)
+    public void validatePosition(final SourcePosition position) {
+        if (!(position instanceof KafkaSourcePosition kafka)
                 || !shardId.equals(kafka.shardId())
                 || !authenticatedClusterId.equals(kafka.authenticatedClusterId())
                 || !nativeTopicUuid.equals(kafka.nativeTopicUuid())) {
             throw new IllegalArgumentException("Kafka activation barrier source identity mismatch");
         }
+    }
+
+    @Override
+    public boolean reachedBy(final SourcePosition lastAppliedPosition) {
+        if (lastAppliedPosition == null) {
+            return exclusiveOffset == 0;
+        }
+        validatePosition(lastAppliedPosition);
+        final KafkaSourcePosition kafka = (KafkaSourcePosition) lastAppliedPosition;
         return Math.addExact(kafka.offset(), 1) >= exclusiveOffset;
     }
 }

@@ -60,6 +60,9 @@ class OwnerLeaseTest {
             owned.markCatchingUp(new KafkaActivationBarrier(shardId, "cluster", topic, 1));
             org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
                     () -> owned.activateForCommands(101));
+            final KafkaSourcePosition replacement = new KafkaSourcePosition(shardId, "cluster", UUID.randomUUID(),
+                    0, null, 1_000);
+            assertThrows(IllegalArgumentException.class, () -> owned.recordCatchup(replacement));
             owned.recordCatchup(position);
             owned.activateForCommands(101);
             assertTrue(owned.apply(command, position, 101).stableCode()

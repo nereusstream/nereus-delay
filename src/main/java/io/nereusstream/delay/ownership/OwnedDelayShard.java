@@ -69,6 +69,9 @@ public final class OwnedDelayShard {
         if (!delegate.shardId().equals(position.shardId())) {
             throw new IllegalArgumentException("catch-up position does not belong to shard");
         }
+        if (activationBarrier != null) {
+            activationBarrier.validatePosition(position);
+        }
         if (lastCatchupPosition != null && position.compareTo(lastCatchupPosition) < 0) {
             throw new IllegalStateException("catch-up position regressed");
         }
