@@ -102,12 +102,14 @@ V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障
 `EvidenceCursorV1` 的独立 canonical codec 与交叉校验，checkpoint manifest 也能
 严格 round-trip 非空的 Kafka/Pulsar typed evidence-cursor 数组；
 `RecoveryFloorRefV1` 已补齐 lineage/checkpoint/source/typed-cursor-array 的
-canonical floor reference codec，`CheckpointResourceV1` 与
-`CheckpointUploadIntentV1` 也已补齐 manifest-object identity 和
-PENDING/PUBLISHED/REAPING 的 canonical state branches。现有 `DelayShard` 仍
+canonical floor reference codec，`RecoveryCandidateRefV1` 与 `RecoveryPinV1`
+也已补齐 candidate branch、lineage binding 和 session-identity digest 的
+canonical value codecs；`CheckpointResourceV1` 与 `CheckpointUploadIntentV1`
+也已补齐 manifest-object identity 和 PENDING/PUBLISHED/REAPING 的 canonical
+state branches。现有 `DelayShard` 仍
 通过兼容 `LaneRecord` 写入 ACTIVE 分支，因此这不被误报为已经完成 full
 ActiveLaneState persistence、quota-map revision coupling、Oxia target
-registration 或 Recovery-Floor/retention gate。
+registration、Oxia Recovery Pin/Floor CAS 或 Recovery-Floor/retention gate。
 
 ## Source locks
 
