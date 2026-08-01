@@ -1,6 +1,7 @@
 package io.nereusstream.delay.runtime;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.AuthorIdentity;
 import io.nereusstream.delay.protocol.CommandBodies;
 import io.nereusstream.delay.protocol.CommandId;
 import io.nereusstream.delay.protocol.ClaimResultBody;
@@ -42,7 +43,9 @@ import java.util.Set;
 public final class DelayShard {
     private static final int META_APPLIED_SOURCE_POSITION = 3;
     private static final int META_MUTATION_SEQUENCE = 5;
+    private static final int META_CLAIM_SEQUENCE = 11;
     private static final int META_QUOTA_USAGE = 1;
+    private static final byte INFLIGHT_CLAIMED_KIND = 1;
     private static final byte INFLIGHT_PUBLISHING_KIND = 2;
     private static final byte INFLIGHT_UNCERTAIN_KIND = 3;
 
@@ -51,6 +54,7 @@ public final class DelayShard {
     private final PayloadProofTrustSet payloadProofTrustSet;
     private SourcePosition lastAppliedSourcePosition;
     private long mutationSequence;
+    private long claimSequence;
     private ShardQuota quota;
 
     public DelayShard(final ShardStore store, final DelayShardConfig config) {
@@ -67,6 +71,8 @@ public final class DelayShard {
         lastAppliedSourcePosition = source == null ? null : SourcePositionCodec.decode(source);
         final var sequence = store.getValue(ColumnFamily.META, KeyCodec.metaFixed(META_MUTATION_SEQUENCE), 1);
         mutationSequence = sequence == null ? 0 : readSequence(sequence.payload());
+        final var claimSequenceValue = store.getValue(ColumnFamily.META, KeyCodec.metaFixed(META_CLAIM_SEQUENCE), 1);
+        claimSequence = claimSequenceValue == null ? 0 : readSequence(claimSequenceValue.payload());
         final var quotaValue = store.getValue(ColumnFamily.META, KeyCodec.metaQuota(META_QUOTA_USAGE), 7);
         quota = quotaValue == null ? ShardQuota.empty() : ShardQuota.decode(quotaValue.payload());
     }
@@ -130,6 +136,145 @@ public final class DelayShard {
     public synchronized MessageRecord getMessage(final DelayMessageId messageId) {
         final var value = store.getValue(ColumnFamily.ID, KeyCodec.idMessage(messageId), 1);
         return value == null ? null : MessageRecord.decode(value.payload());
+    }
+
+    /** Returns the exact local Claim at an Owner Epoch, or {@code null} when it is no longer live. */
+    public synchronized ClaimRecord getClaim(final byte[] claimId, final long ownerEpoch) {
+        Bytes.requireLength(claimId, ClaimRecord.HASH_LENGTH, "claimId");
+        if (ownerEpoch <= 0) {
+            throw new IllegalArgumentException("ownerEpoch must be positive");
+        }
+        final byte[] key = KeyCodec.inflight(INFLIGHT_CLAIMED_KIND, ownerEpoch, claimId);
+        final var value = store.getValue(ColumnFamily.INFLIGHT, key, ClaimRecord.VALUE_TYPE);
+        if (value == null) {
+            return null;
+        }
+        final ClaimRecord claim = ClaimRecord.decode(value.payload());
+        validateClaimKey(claim, key, claimId, ownerEpoch);
+        return claim;
+    }
+
+    /**
+     * Finds the one live Claim for a Message Identity without trusting an Owner Epoch.
+     * A duplicate or over-bound scan fences the caller instead of guessing.
+     */
+    public synchronized ClaimRecord findClaimForMessage(final DelayMessageId messageId) {
+        Objects.requireNonNull(messageId, "messageId");
+        final int limit = boundedLimitPlusOne(config.maxPendingMessages());
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries = store.scan(ColumnFamily.INFLIGHT,
+                new byte[]{INFLIGHT_CLAIMED_KIND, 1}, new byte[]{INFLIGHT_PUBLISHING_KIND, 1}, limit);
+        ClaimRecord found = null;
+        for (var entry : entries) {
+            final ClaimRecord candidate = decodeClaim(entry);
+            if (candidate.delayMessageId().equals(messageId)) {
+                if (found != null) {
+                    throw new IllegalStateException("message has multiple live Claims");
+                }
+                found = candidate;
+            }
+        }
+        if (entries.size() >= limit && config.maxPendingMessages() < Integer.MAX_VALUE) {
+            throw new IllegalStateException("Claim scan exceeded configured bound");
+        }
+        return found;
+    }
+
+    /** Returns the next local Claim sequence persisted by this shard. */
+    public synchronized long claimSequence() {
+        return claimSequence;
+    }
+
+    /**
+     * Atomically takes a scheduled timeline item into a reversible local Claim.
+     * This embedded method deliberately exposes no Producer call: admission must
+     * later be represented by the source-ordered PUBLISH_ADMISSION mutation.
+     */
+    public synchronized ClaimRecord claimForPublish(final DelayMessageId messageId, final AuthorIdentity owner,
+                                                     final long claimDeadlineEpochMs, final byte[] materialization,
+                                                     final byte[] claimedCharge) {
+        Objects.requireNonNull(messageId, "messageId");
+        Objects.requireNonNull(owner, "owner");
+        owner.requireFor(SystemMutationType.CLAIM_RESULT);
+        if (claimDeadlineEpochMs < 0) {
+            throw new IllegalArgumentException("claim deadline must be non-negative");
+        }
+        final MessageRecord current = getMessage(messageId);
+        if (current == null || current.status() != MessageStatus.SCHEDULED) {
+            throw new IllegalStateException("only a scheduled message can be Claimed");
+        }
+        if (claimDeadlineEpochMs > current.expireAtEpochMs()) {
+            throw new IllegalArgumentException("claim deadline exceeds message expiry");
+        }
+        final LaneRecord lane = readLane(current.laneId());
+        if (lane == null || !lane.schedulable()) {
+            throw new IllegalStateException("Claim requires a schedulable lane");
+        }
+        final byte[] timelineKey = timelineKey(messageId, current);
+        final long nextClaimSequence = Math.addExact(claimSequence, 1);
+        final byte[] claimId = Bytes.sha256(Bytes.utf8("nereus-delay-claim-id-v1\0"),
+                store.metadata().storeIncarnation(), Bytes.u64be(owner.generation()), Bytes.u64be(nextClaimSequence),
+                messageId.bytes(), Bytes.u32be(current.generation()), Bytes.u64be(lane.laneVersion()));
+        final int workKind = current.retryEligibilityAtEpochMs() == current.deliverAtEpochMs() ? 1 : 2;
+        final byte[] precondition = buildClaimPrecondition(claimId, messageId, current, lane, timelineKey,
+                owner, claimDeadlineEpochMs, materialization, claimedCharge, workKind);
+        final MessageRecord next = new MessageRecord(MessageStatus.CLAIMED, current.generation(),
+                Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
+                current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
+                current.payloadReference(), current.retryEligibilityAtEpochMs());
+        final ClaimRecord claim = ClaimRecord.claimed(messageId, current.generation(), claimId, owner.generation(),
+                nextClaimSequence, current.laneId(), lane.laneIncarnation(), lane.laneControlVersion(),
+                lane.laneVersion(), owner.canonicalBytes(), store.metadata().storeIncarnation(), precondition,
+                timelineKey, next.stateVersion());
+        final SourcePosition schedulePosition = SourcePositionCodec.decode(current.scheduleSourcePosition());
+        final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
+                schedulePosition, messageId, current, next, null);
+        store.write(batch -> {
+            batch.delete(ColumnFamily.TIMELINE, timelineKey);
+            batch.putValue(ColumnFamily.INFLIGHT, ClaimRecord.VALUE_TYPE, claim.encodedKey(), claim.encode());
+            batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(messageId), next.encode());
+            batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(META_CLAIM_SEQUENCE),
+                    Bytes.u64be(nextClaimSequence));
+            for (LaneProjection projection : projections.values()) {
+                deleteReadyKey(batch, projection.previousLane());
+                putReadyProjection(batch, projection);
+            }
+        });
+        claimSequence = nextClaimSequence;
+        return claim;
+    }
+
+    /** Atomically revokes a local Claim and restores its exact timeline work. */
+    public synchronized MessageRecord revokeClaim(final byte[] claimId, final long ownerEpoch) {
+        final ClaimRecord claim = getClaim(claimId, ownerEpoch);
+        if (claim == null) {
+            return null;
+        }
+        final MessageRecord current = getMessage(claim.delayMessageId());
+        if (current == null || current.status() != MessageStatus.CLAIMED
+                || current.generation() != claim.generation()
+                || current.stateVersion() != claim.runtimeRevision()) {
+            throw new IllegalStateException("Claim does not match current CLAIMED message");
+        }
+        final MessageRecord next = new MessageRecord(MessageStatus.SCHEDULED, current.generation(),
+                Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
+                current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
+                current.payloadReference(), current.retryEligibilityAtEpochMs());
+        final SourcePosition schedulePosition = SourcePositionCodec.decode(current.scheduleSourcePosition());
+        final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
+                schedulePosition, claim.delayMessageId(), current, next, null);
+        store.write(batch -> {
+            batch.delete(ColumnFamily.INFLIGHT, claim.encodedKey());
+            batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(claim.delayMessageId()), next.encode());
+            batch.putValue(ColumnFamily.TIMELINE, 1, claim.timelineKey(),
+                    new TimelineEntry(claim.delayMessageId(), next.generation()).encode());
+            batch.putValue(ColumnFamily.TIMELINE, 1, expiryKey(claim.delayMessageId(), next),
+                    new TimelineEntry(claim.delayMessageId(), next.generation()).encode());
+            for (LaneProjection projection : projections.values()) {
+                deleteReadyKey(batch, projection.previousLane());
+                putReadyProjection(batch, projection);
+            }
+        });
+        return next;
     }
 
     public synchronized PayloadReservation getReservation(final byte[] reservationId) {
@@ -228,12 +373,22 @@ public final class DelayShard {
                     StableCode.STALE_SYSTEM_MUTATION);
         }
         final MessageRecord current = getMessage(messageId);
-        if (current == null || current.status() != MessageStatus.SCHEDULED
+        if (current == null || (current.status() != MessageStatus.SCHEDULED
+                && current.status() != MessageStatus.CLAIMED)
                 || current.generation() != body.generation() || !current.laneId().equals(laneId)
                 || current.deliverAtEpochMs() != body.descriptor().deliverAtEpochMs()
                 || current.expireAtEpochMs() != body.descriptor().expireAtEpochMs()) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
+        }
+        if (current.status() == MessageStatus.CLAIMED) {
+            final ClaimRecord claim = getClaim(body.claimId(), author.generation());
+            if (claim == null || !claim.delayMessageId().equals(messageId)
+                    || claim.generation() != body.generation()
+                    || !Arrays.equals(claim.preconditionBytes(), body.claimPrecondition().canonicalBytes())) {
+                return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                        StableCode.STALE_SYSTEM_MUTATION);
+            }
         }
         final PublishAttemptLedger admission = PublishAttemptLedger.publishing(messageId, body.generation(),
                 body.publishAttemptId(), body.claimId(), author.generation(), body.descriptor().attemptNo(), laneId,
@@ -337,10 +492,11 @@ public final class DelayShard {
     }
 
     /**
-     * Applies the replay-stable CLAIM_RESULT_V1 subset.  The full durable
-     * CLAIMED/GenerationRuntimeIndex model is not present in this embedded
-     * core yet, so a result is accepted only when its signed precondition
-     * exactly describes the current source-derived timeline state.  It never
+     * Applies the replay-stable CLAIM_RESULT_V1 subset.  A locally persisted
+     * Claim is consumed by exact precondition/instance identity; after replay,
+     * the source-derived SCHEDULED fallback remains accepted when the Claim
+     * record itself was not present in the restored checkpoint.  The full
+     * GenerationRuntimeIndex/obligation model is still pending.  This never
      * treats a callback as a direct terminal write: the result, terminal
      * projection, quota transfer, indexes, and source position share one
      * synchronous batch.
@@ -365,20 +521,35 @@ public final class DelayShard {
                     ? StableCode.GENERATION_SUPERSEDED : StableCode.STALE_SYSTEM_MUTATION;
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, code);
         }
-        if (current.status() != MessageStatus.SCHEDULED) {
+        if (current.status() != MessageStatus.SCHEDULED && current.status() != MessageStatus.CLAIMED) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }
 
         final ClaimResultBody.ClaimPrecondition precondition = body.precondition();
+        final ClaimRecord currentClaim;
+        final byte[] sourceTimelineKey;
+        if (current.status() == MessageStatus.CLAIMED) {
+            currentClaim = getClaim(body.claimId(), author.generation());
+            if (currentClaim == null || !Arrays.equals(currentClaim.preconditionBytes(), precondition.canonicalBytes())
+                    || currentClaim.runtimeRevision() != current.stateVersion()) {
+                return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                        StableCode.STALE_SYSTEM_MUTATION);
+            }
+            sourceTimelineKey = currentClaim.timelineKey();
+        } else {
+            currentClaim = null;
+            sourceTimelineKey = timelineKey(messageId, current);
+        }
         final LaneRecord lane = readLane(current.laneId());
         if (lane == null || !lane.laneId().equals(current.laneId())
                 || !Arrays.equals(lane.laneIncarnation(), precondition.laneIncarnation())
                 || lane.laneControlVersion() != precondition.laneControlVersion()
-                || current.stateVersion() != precondition.stateVersion()
+                || (current.status() == MessageStatus.CLAIMED
+                ? current.stateVersion() != Math.addExact(precondition.stateVersion(), 1)
+                : current.stateVersion() != precondition.stateVersion())
                 || !Arrays.equals(current.laneId().bytes(), precondition.destinationLaneId())
-                || !Arrays.equals(Bytes.sha256(timelineKey(messageId, current)),
-                precondition.originalTimelineKeySha256())) {
+                || !Arrays.equals(Bytes.sha256(sourceTimelineKey), precondition.originalTimelineKeySha256())) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }
@@ -390,7 +561,7 @@ public final class DelayShard {
                 || !Bytes.constantTimeEquals(precondition.expectedObligationSetDigest(),
                 emptyAttemptObligationSetDigest())
                 || !Bytes.constantTimeEquals(precondition.sourceTimelineSemanticDigest(),
-                timelineSemanticDigest(current, expectedWorkKind, timelineKey(messageId, current)))) {
+                timelineSemanticDigest(current, expectedWorkKind, sourceTimelineKey))) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }
@@ -414,8 +585,11 @@ public final class DelayShard {
         final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED,
                 StableCode.CLAIM_PERMANENT_FAILURE, sourcePosition.canonicalBytes());
         store.write(batch -> {
-            batch.delete(ColumnFamily.TIMELINE, timelineKey(messageId, current));
+            batch.delete(ColumnFamily.TIMELINE, sourceTimelineKey);
             batch.delete(ColumnFamily.TIMELINE, expiryKey(messageId, current));
+            if (currentClaim != null) {
+                batch.delete(ColumnFamily.INFLIGHT, currentClaim.encodedKey());
+            }
             batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(messageId), terminalMessage.encode());
             batch.putValue(ColumnFamily.TERMINAL, 1, KeyCodec.terminalGeneration(messageId, body.generation()),
                     terminal.encode());
@@ -584,8 +758,14 @@ public final class DelayShard {
         if (current.status() == MessageStatus.EXPIRED) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.ALREADY_EXPIRED);
         }
-        if (current.status() != MessageStatus.SCHEDULED) {
+        if (current.status() != MessageStatus.SCHEDULED && current.status() != MessageStatus.CLAIMED) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.TOO_LATE);
+        }
+        final ClaimRecord claim = current.status() == MessageStatus.CLAIMED
+                ? findClaimForMessage(messageId) : null;
+        if (current.status() == MessageStatus.CLAIMED && claim == null) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.INTEGRITY_ERROR);
         }
         final MessageRecord next = new MessageRecord(MessageStatus.EXPIRED, current.generation(),
                 Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
@@ -600,8 +780,11 @@ public final class DelayShard {
         final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, StableCode.OK,
                 sourcePosition.canonicalBytes());
         store.write(batch -> {
-            batch.delete(ColumnFamily.TIMELINE, timelineKey(messageId, current));
+            batch.delete(ColumnFamily.TIMELINE, claim == null ? timelineKey(messageId, current) : claim.timelineKey());
             batch.delete(ColumnFamily.TIMELINE, expiryKey(messageId, current));
+            if (claim != null) {
+                batch.delete(ColumnFamily.INFLIGHT, claim.encodedKey());
+            }
             batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(messageId), next.encode());
             batch.putValue(ColumnFamily.TERMINAL, 1, KeyCodec.terminalGeneration(messageId, generation),
                     terminal.encode());
@@ -776,9 +959,20 @@ public final class DelayShard {
             throw new IllegalStateException("publish attempt ID is already open");
         }
         final MessageRecord current = getMessage(admission.delayMessageId());
-        if (current == null || current.status() != MessageStatus.SCHEDULED
+        if (current == null || (current.status() != MessageStatus.SCHEDULED
+                && current.status() != MessageStatus.CLAIMED)
                 || current.generation() != admission.generation() || !current.laneId().equals(admission.laneId())) {
             throw new IllegalStateException("publish admission is stale for the current message generation");
+        }
+        final ClaimRecord claim = current.status() == MessageStatus.CLAIMED
+                ? getClaim(admission.claimId(), admission.ownerEpoch()) : null;
+        if (current.status() == MessageStatus.CLAIMED && (claim == null
+                || !claim.delayMessageId().equals(admission.delayMessageId())
+                || claim.generation() != admission.generation()
+                || !claim.laneId().equals(admission.laneId())
+                || !Arrays.equals(claim.ownerIdentity(), admission.ownerIdentity())
+                || !Arrays.equals(claim.storeIncarnation(), admission.storeIncarnation()))) {
+            throw new IllegalStateException("publish admission Claim is stale");
         }
         final LaneRecord lane = readLane(current.laneId());
         if (lane == null || !lane.schedulable()) {
@@ -790,9 +984,14 @@ public final class DelayShard {
                 current.payloadReference(), current.retryEligibilityAtEpochMs());
         final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
                 sourcePosition, admission.delayMessageId(), current, next, null);
+        final byte[] priorTimelineKey = claim == null ? timelineKey(admission.delayMessageId(), current)
+                : claim.timelineKey();
         store.write(batch -> {
-            batch.delete(ColumnFamily.TIMELINE, timelineKey(admission.delayMessageId(), current));
+            batch.delete(ColumnFamily.TIMELINE, priorTimelineKey);
             batch.delete(ColumnFamily.TIMELINE, expiryKey(admission.delayMessageId(), current));
+            if (claim != null) {
+                batch.delete(ColumnFamily.INFLIGHT, claim.encodedKey());
+            }
             batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(admission.delayMessageId()), next.encode());
             batch.putValue(ColumnFamily.INFLIGHT, PublishAttemptLedger.VALUE_TYPE, admission.encodedKey(),
                     admission.encode());
@@ -1338,7 +1537,7 @@ public final class DelayShard {
             return applied(StableCode.VERSION_CONFLICT, sourcePosition, existing);
         }
         return switch (existing.status()) {
-            case SCHEDULED -> applied(StableCode.CANCELED, sourcePosition,
+            case SCHEDULED, CLAIMED -> applied(StableCode.CANCELED, sourcePosition,
                     new MessageRecord(MessageStatus.CANCELED, existing.generation(), existing.stateVersion() + 1,
                             existing.deliverAtEpochMs(), existing.expireAtEpochMs(), existing.laneId(),
                             existing.orderingMode(), existing.payload(), existing.scheduleSourcePosition(),
@@ -1358,7 +1557,7 @@ public final class DelayShard {
         if (values.expectedGeneration() >= 0 && values.expectedGeneration() != existing.generation()) {
             return applied(StableCode.VERSION_CONFLICT, sourcePosition, existing);
         }
-        if (existing.status() != MessageStatus.SCHEDULED) {
+        if (existing.status() != MessageStatus.SCHEDULED && existing.status() != MessageStatus.CLAIMED) {
             return applied(StableCode.TOO_LATE, sourcePosition, existing);
         }
         validateWindow(values.deliverAtEpochMs(), values.expireAtEpochMs(), sourcePosition.brokerPersistenceTimeEpochMs());
@@ -1430,13 +1629,23 @@ public final class DelayShard {
                                  final CommandResult result, final MessageRecord next,
                                  final PayloadReservation reservation, final ShardQuota nextQuota) {
         final MessageRecord prior = getMessage(command.delayMessageId());
+        final ClaimRecord priorClaim = prior != null && prior.status() == MessageStatus.CLAIMED
+                ? findClaimForMessage(command.delayMessageId()) : null;
+        if (prior != null && prior.status() == MessageStatus.CLAIMED && priorClaim == null) {
+            throw new IllegalStateException("CLAIMED message has no durable Claim record");
+        }
         final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections =
                 readyProjections(position, command.delayMessageId(), prior, next, reservation);
         store.write(batch -> {
             if (next != null) {
-                if (prior != null && prior.status() == MessageStatus.SCHEDULED) {
-                    batch.delete(ColumnFamily.TIMELINE, timelineKey(command.delayMessageId(), prior));
+                if (prior != null && (prior.status() == MessageStatus.SCHEDULED
+                        || prior.status() == MessageStatus.CLAIMED)) {
+                    batch.delete(ColumnFamily.TIMELINE, priorClaim == null
+                            ? timelineKey(command.delayMessageId(), prior) : priorClaim.timelineKey());
                     batch.delete(ColumnFamily.TIMELINE, expiryKey(command.delayMessageId(), prior));
+                    if (priorClaim != null) {
+                        batch.delete(ColumnFamily.INFLIGHT, priorClaim.encodedKey());
+                    }
                     final TerminalGenerationRecord terminal = terminalFor(command, position, result, prior, next);
                     if (terminal != null) {
                         batch.putValue(ColumnFamily.TERMINAL, 1,
@@ -1510,7 +1719,8 @@ public final class DelayShard {
             final LaneRecord previous = readLane(laneId);
             final LaneRecord base = laneOverrides.getOrDefault(laneId,
                     previous == null ? LaneRecord.initial(laneId, position) : previous);
-            final int excludedGeneration = prior != null && prior.status() == MessageStatus.SCHEDULED
+            final int excludedGeneration = prior != null && (prior.status() == MessageStatus.SCHEDULED
+                    || prior.status() == MessageStatus.CLAIMED)
                     ? prior.generation() : -1;
             final TimelineCandidate candidate = findLaneCandidate(laneId, messageId, excludedGeneration,
                     next != null && next.status() == MessageStatus.SCHEDULED ? messageId : null, next);
@@ -1645,7 +1855,8 @@ public final class DelayShard {
         if (prior == null && next != null && result.stableCode() == StableCode.SCHEDULED) {
             return quota.addSchedule(next.payloadLength(), !existingLane);
         }
-        if (prior != null && prior.status() == MessageStatus.SCHEDULED && next != null
+        if (prior != null && (prior.status() == MessageStatus.SCHEDULED || prior.status() == MessageStatus.CLAIMED)
+                && next != null
                 && next.status() == MessageStatus.CANCELED) {
             return quota.removeSchedule(prior.payloadLength());
         }
@@ -1753,6 +1964,35 @@ public final class DelayShard {
         return ledger;
     }
 
+    private ClaimRecord decodeClaim(final io.nereusstream.delay.store.ShardStore.KeyValue entry) {
+        final byte[] key = entry.key();
+        if (key.length != 2 + 8 + 4 + ClaimRecord.HASH_LENGTH
+                || key[0] != INFLIGHT_CLAIMED_KIND || key[1] != 1) {
+            throw new IllegalStateException("invalid Claim key");
+        }
+        final ByteBuffer input = ByteBuffer.wrap(key);
+        input.position(2);
+        final long ownerEpoch = input.getLong();
+        final long idLength = Integer.toUnsignedLong(input.getInt());
+        if (ownerEpoch <= 0 || idLength != ClaimRecord.HASH_LENGTH) {
+            throw new IllegalStateException("invalid Claim key owner/ID length");
+        }
+        final byte[] claimId = new byte[ClaimRecord.HASH_LENGTH];
+        input.get(claimId);
+        final ClaimRecord claim = ClaimRecord.decode(
+                io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), ClaimRecord.VALUE_TYPE).payload());
+        validateClaimKey(claim, key, claimId, ownerEpoch);
+        return claim;
+    }
+
+    private static void validateClaimKey(final ClaimRecord claim, final byte[] key, final byte[] claimId,
+                                         final long ownerEpoch) {
+        if (!Arrays.equals(key, claim.encodedKey()) || !Arrays.equals(claim.claimId(), claimId)
+                || claim.ownerEpoch() != ownerEpoch) {
+            throw new IllegalStateException("Claim key/value identity mismatch");
+        }
+    }
+
     private PublishAttemptLedger decodePublishAttempt(final io.nereusstream.delay.store.ShardStore.KeyValue entry) {
         final byte[] key = entry.key();
         if (key.length != 2 + 8 + 4 + PublishAttemptLedger.HASH_LENGTH
@@ -1788,6 +2028,45 @@ public final class DelayShard {
                 publishAttemptId)) {
             throw new IllegalStateException("open publish attempt key/value mismatch");
         }
+    }
+
+    private byte[] buildClaimPrecondition(final byte[] claimId, final DelayMessageId messageId,
+                                          final MessageRecord current, final LaneRecord lane,
+                                          final byte[] timelineKey, final AuthorIdentity owner,
+                                          final long claimDeadlineEpochMs, final byte[] materialization,
+                                          final byte[] claimedCharge, final int workKind) {
+        final byte[] normalizedMaterialization = materialization == null ? new byte[0] : Bytes.copy(materialization);
+        final byte[] normalizedCharge = Bytes.copy(Objects.requireNonNull(claimedCharge, "claimedCharge"));
+        final byte[] semanticDigest = timelineSemanticDigest(current, workKind, timelineKey);
+        final byte[] encoded = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, claimId);
+            CanonicalProtobuf.bytes(output, 2, messageId.bytes());
+            CanonicalProtobuf.uint32(output, 3, current.generation());
+            CanonicalProtobuf.int64(output, 4, current.stateVersion());
+            CanonicalProtobuf.bytes(output, 5, current.laneId().bytes());
+            CanonicalProtobuf.bytes(output, 6, lane.laneIncarnation());
+            CanonicalProtobuf.int64(output, 7, lane.laneControlVersion());
+            CanonicalProtobuf.int64(output, 8, lane.laneVersion());
+            CanonicalProtobuf.bytes(output, 9, Bytes.sha256(timelineKey));
+            if (normalizedMaterialization.length != 0) {
+                CanonicalProtobuf.bytes(output, 10, normalizedMaterialization);
+                CanonicalProtobuf.bytes(output, 11, Bytes.sha256(
+                        Bytes.utf8("nereus-delay-claim-materialization-v1\0"), normalizedMaterialization));
+            }
+            CanonicalProtobuf.bytes(output, 12, normalizedCharge);
+            CanonicalProtobuf.int64(output, 13, claimDeadlineEpochMs);
+            CanonicalProtobuf.bytes(output, 14, owner.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 15, store.metadata().storeIncarnation());
+            CanonicalProtobuf.uint32(output, 16, workKind);
+            CanonicalProtobuf.uint32(output, 17, 0);
+            CanonicalProtobuf.uint32(output, 18, 0);
+            CanonicalProtobuf.bytes(output, 19, emptyAttemptObligationSetDigest());
+            CanonicalProtobuf.bytes(output, 20, semanticDigest);
+        });
+        // This validates ChargeVector, optional Materialization and every closed
+        // ClaimPrecondition field before the bytes become durable.
+        ClaimResultBody.decodePrecondition(encoded);
+        return encoded;
     }
 
     private void validateMutationPosition(final SourcePosition sourcePosition) {

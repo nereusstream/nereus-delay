@@ -814,6 +814,94 @@ class DelayShardTest {
     }
 
     @Test
+    void localClaimIsDurableAndRevokeRestoresTimelineAtomically() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("claim-lifecycle"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 20);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("claim-lifecycle-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("claim")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final AuthorIdentity owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 42,
+                Bytes.sha256(Bytes.utf8("lease")));
+        final byte[] timelineKey = KeyCodec.timelineDue(lane, 2_000, schedulePosition.sourceOrderToken(),
+                schedule.delayMessageId(), 0);
+        final ClaimRecord claim;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+
+            claim = shard.claimForPublish(schedule.delayMessageId(), owner, 3_000,
+                    new byte[0], chargeVector());
+
+            assertEquals(MessageStatus.CLAIMED, shard.getMessage(schedule.delayMessageId()).status());
+            assertEquals(1, shard.claimSequence());
+            assertEquals(claim, shard.getClaim(claim.claimId(), owner.generation()));
+            assertNull(store.getValue(ColumnFamily.TIMELINE, timelineKey, 1));
+            assertNotNull(store.getValue(ColumnFamily.TIMELINE,
+                    KeyCodec.timelineExpiry(5_000, lane, schedule.delayMessageId(), 0), 1));
+            assertEquals(0, shard.discoverDue(10_000, 10).size());
+            assertEquals(0, shard.discoverReady(10_000, 10).size());
+            assertEquals(1, shard.discoverExpiry(10_000, 10).size());
+        }
+        try (SharedRocksDbResources reopenedResources = new SharedRocksDbResources(config);
+             ShardStore reopenedStore = ShardStore.open(config, shardId, reopenedResources)) {
+            final DelayShard reopened = new DelayShard(reopenedStore, DelayShardConfig.defaults());
+            assertEquals(1, reopened.claimSequence());
+            assertEquals(MessageStatus.CLAIMED, reopened.getMessage(schedule.delayMessageId()).status());
+            assertEquals(claim, reopened.getClaim(claim.claimId(), owner.generation()));
+            final MessageRecord restored = reopened.revokeClaim(claim.claimId(), owner.generation());
+            assertEquals(MessageStatus.SCHEDULED, restored.status());
+            assertNull(reopened.getClaim(claim.claimId(), owner.generation()));
+            assertNotNull(reopenedStore.getValue(ColumnFamily.TIMELINE, timelineKey, 1));
+            assertEquals(1, reopened.discoverReady(10_000, 10).size());
+        }
+    }
+
+    @Test
+    void claimResultConsumesExactClaimAndTerminalizesCurrentGeneration() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("claim-result-claimed"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 23);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("claim-result-claimed-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("claim-result")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition resultPosition = position(shardId, 1, 2_100);
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final AuthorIdentity owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 42,
+                Bytes.sha256(Bytes.utf8("lease")));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final ClaimRecord claim = shard.claimForPublish(schedule.delayMessageId(), owner, 3_000,
+                    new byte[0], chargeVector());
+            final byte[] body = claimResultBody(shardId, claim.claimId(), schedule.delayMessageId(), 0, lane,
+                    claim.laneIncarnation(), claim.laneControlVersion(), claim.runtimeLaneVersion(),
+                    claim.timelineKey(), owner.canonicalBytes(), store.metadata().storeIncarnation(), 3_000, 1,
+                    2_000, 2_000);
+            final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.CLAIM_RESULT, 9_000,
+                    Bytes.sha256(Bytes.utf8("claimed-result-operation")), body, owner.canonicalBytes(), 1,
+                    keyPair.getPrivate());
+
+            final SystemMutationResult result = shard.applySystemMutation(mutation, resultPosition,
+                    keyPair.getPublic());
+
+            assertEquals(StableCode.CLAIM_PERMANENT_FAILURE, result.stableCode());
+            assertEquals(MessageStatus.DEAD_LETTER, shard.getMessage(schedule.delayMessageId()).status());
+            assertNull(shard.getClaim(claim.claimId(), owner.generation()));
+            assertEquals(0, shard.quota().pendingMessages());
+            assertEquals(StableCode.CLAIM_PERMANENT_FAILURE,
+                    shard.getTerminalGeneration(schedule.delayMessageId(), 0).terminalCode());
+        }
+    }
+
+    @Test
     void sourceOrderedClaimResultTerminalizesMatchingReplayStableTimeline() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-claim-result"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 21);

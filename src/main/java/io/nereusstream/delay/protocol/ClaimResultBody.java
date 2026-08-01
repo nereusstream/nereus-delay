@@ -118,7 +118,8 @@ public final class ClaimResultBody {
         return copy(transfer);
     }
 
-    private static ClaimPrecondition decodePrecondition(final byte[] encoded) {
+    /** Decodes the canonical ClaimPreconditionV1 nested value for local Claim persistence. */
+    public static ClaimPrecondition decodePrecondition(final byte[] encoded) {
         final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "ClaimPrecondition");
         if (fields.size() < 18 || fields.size() > 20) {
             throw new IllegalArgumentException("ClaimPrecondition has unexpected field count");

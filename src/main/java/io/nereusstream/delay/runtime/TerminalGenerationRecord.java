@@ -22,7 +22,7 @@ public record TerminalGenerationRecord(
         Objects.requireNonNull(terminalCode, "terminalCode");
         Objects.requireNonNull(appliedSourcePosition, "appliedSourcePosition");
         if (generation < 0 || stateVersion < 0 || status == MessageStatus.SCHEDULED
-                || status == MessageStatus.PUBLISHING) {
+                || status == MessageStatus.CLAIMED || status == MessageStatus.PUBLISHING) {
             throw new IllegalArgumentException("invalid terminal generation record");
         }
         appliedSourcePosition = Bytes.copy(appliedSourcePosition);

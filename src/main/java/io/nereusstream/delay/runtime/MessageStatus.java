@@ -8,7 +8,9 @@ public enum MessageStatus {
     PUBLISHED(5),
     UNCERTAIN(6),
     EXPIRED(7),
-    DEAD_LETTER(8);
+    DEAD_LETTER(8),
+    /** Local current-generation projection for a reversible inflight Claim. */
+    CLAIMED(9);
 
     private final int wireValue;
 
@@ -29,4 +31,3 @@ public enum MessageStatus {
         throw new IllegalArgumentException("unknown message status: " + value);
     }
 }
-
