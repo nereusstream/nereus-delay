@@ -1,6 +1,7 @@
 package io.nereusstream.delay.runtime;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.ApplyShardControlBody;
 import io.nereusstream.delay.protocol.AuthorIdentity;
 import io.nereusstream.delay.protocol.CommandBodies;
 import io.nereusstream.delay.protocol.CommandId;
@@ -366,6 +367,7 @@ public final class DelayShard {
         }
         try {
             return switch (mutation.type()) {
+                case APPLY_SHARD_CONTROL -> applyShardControlMutation(mutation, sourcePosition);
                 case PUBLISH_ADMISSION -> applyPublishAdmissionMutation(mutation, sourcePosition);
                 case REPLAY_DEAD_LETTER -> applyReplayDeadLetterMutation(mutation, sourcePosition);
                 case TIME_FENCE -> applyTimeFenceMutation(mutation, sourcePosition);
@@ -381,6 +383,128 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }
+    }
+
+    /**
+     * Applies the bounded source-ordered Lane PAUSE/RESUME control subset.
+     * Break/Close and the shard/profile/grant control branches remain fail-closed
+     * until their immutable target registrations and terminal guards are present.
+     */
+    private SystemMutationResult applyShardControlMutation(final SystemMutation mutation,
+                                                            final SourcePosition sourcePosition) {
+        final ApplyShardControlBody body = ApplyShardControlBody.decode(mutation.canonicalBody());
+        if (!Bytes.constantTimeEquals(mutation.logicalOperationIdentity(),
+                body.controlRef().logicalOperationIdentity(body.controlKind()))) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
+        if (body.controlKind() != 8 && body.controlKind() != 9) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+        final ApplyShardControlBody.LaneTarget target = body.laneTarget();
+        if (body.expectedPriorControlVersion() != null
+                && body.expectedPriorControlVersion() != target.expectedControlVersion()) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
+        final LaneRecord current = readLane(target.laneId());
+        if (current == null) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.INTEGRITY_ERROR);
+        }
+        if (!Arrays.equals(current.laneIncarnation(), target.laneIncarnation())) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.RESOURCE_INCARNATION_MISMATCH);
+        }
+        if (current.laneControlVersion() != target.expectedControlVersion()) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.VERSION_CONFLICT);
+        }
+
+        final LaneRecord next;
+        try {
+            next = body.controlKind() == 8 ? current.pauseByAdmin() : current.resumeByAdmin();
+        } catch (IllegalStateException exception) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.TOO_LATE);
+        }
+
+        final List<LaneClaimRollback> rollbacks;
+        try {
+            rollbacks = body.controlKind() == 8 ? prepareLaneClaimRollbacks(target.laneId()) : List.of();
+        } catch (IllegalStateException exception) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.INTEGRITY_ERROR);
+        }
+        final TimelineCandidate candidate = body.controlKind() == 9
+                ? findLaneCandidate(target.laneId(), null, -1, null, null) : null;
+        final LaneProjection projection = projectLane(target.laneId(), current, next, candidate);
+        final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, StableCode.OK,
+                sourcePosition.canonicalBytes());
+        store.write(batch -> {
+            deleteReadyKey(batch, current);
+            for (LaneClaimRollback rollback : rollbacks) {
+                batch.delete(ColumnFamily.INFLIGHT, rollback.claim().encodedKey());
+                batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(rollback.claim().delayMessageId()),
+                        rollback.nextMessage().encode());
+                batch.putValue(ColumnFamily.TIMELINE, 1, rollback.claim().timelineKey(),
+                        new TimelineEntry(rollback.claim().delayMessageId(), rollback.nextMessage().generation())
+                                .encode());
+                batch.putValue(ColumnFamily.TIMELINE, 1,
+                        expiryKey(rollback.claim().delayMessageId(), rollback.nextMessage()),
+                        new TimelineEntry(rollback.claim().delayMessageId(), rollback.nextMessage().generation())
+                                .encode());
+            }
+            putReadyProjection(batch, projection);
+            writeSystemResult(batch, result);
+            writePosition(batch, sourcePosition);
+        });
+        lastAppliedSourcePosition = sourcePosition;
+        mutationSequence++;
+        return result;
+    }
+
+    /** Builds the exact reversible timeline projection that Pause must restore in its own batch. */
+    private List<LaneClaimRollback> prepareLaneClaimRollbacks(
+            final io.nereusstream.delay.protocol.DestinationLaneId laneId) {
+        final int limit = boundedLimitPlusOne(config.maxPendingMessages());
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries = store.scan(ColumnFamily.INFLIGHT,
+                new byte[]{INFLIGHT_CLAIMED_KIND, 1}, new byte[]{INFLIGHT_PUBLISHING_KIND, 1}, limit);
+        if (entries.size() >= limit && config.maxPendingMessages() < Integer.MAX_VALUE) {
+            throw new IllegalStateException("Claim scan exceeded configured bound during lane Pause");
+        }
+        final List<LaneClaimRollback> result = new ArrayList<>();
+        for (var entry : entries) {
+            final ClaimRecord claim = decodeClaim(entry);
+            if (!claim.laneId().equals(laneId)) {
+                continue;
+            }
+            final MessageRecord current = getMessage(claim.delayMessageId());
+            if (current == null || current.status() != MessageStatus.CLAIMED
+                    || current.generation() != claim.generation()
+                    || current.stateVersion() != claim.runtimeRevision()) {
+                throw new IllegalStateException("Claim does not match current message during lane Pause");
+            }
+            final ClaimResultBody.ClaimPrecondition precondition =
+                    ClaimResultBody.decodePrecondition(claim.preconditionBytes());
+            final TimelineWorkKind workKind = switch (precondition.sourceWorkKind()) {
+                case 1 -> TimelineWorkKind.INITIAL_SCHEDULE;
+                case 2 -> TimelineWorkKind.DEFINITIVE_RETRY;
+                default -> throw new IllegalStateException("Claim source work is not reversible");
+            };
+            MessageRecord next = new MessageRecord(MessageStatus.SCHEDULED, current.generation(),
+                    Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
+                    current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
+                    current.payloadReference(), current.retryEligibilityAtEpochMs());
+            next = next.withRuntimeIndex(timelineRuntimeIndex(claim.delayMessageId(), next, workKind,
+                    Math.addExact(current.runtimeIndex().admissionsUsed(), 1), next.stateVersion(),
+                    UncertainRetryAuthority.NONE, null, null, current.runtimeIndex()));
+            if (!Arrays.equals(claim.timelineKey(), timelineKey(claim.delayMessageId(), next))) {
+                throw new IllegalStateException("Claim timeline key is not reversible");
+            }
+            result.add(new LaneClaimRollback(claim, next));
+        }
+        return List.copyOf(result);
     }
 
     private SystemMutationResult applyPublishAdmissionMutation(final SystemMutation mutation,
@@ -3221,6 +3345,9 @@ public final class DelayShard {
     }
 
     private record LaneProjection(LaneRecord previousLane, LaneRecord lane, ReadyIndexValue readyValue) {
+    }
+
+    private record LaneClaimRollback(ClaimRecord claim, MessageRecord nextMessage) {
     }
 
     private record AdmissionReplayState(boolean claimMayBeMissing, boolean uncertainRetryAdmission) {

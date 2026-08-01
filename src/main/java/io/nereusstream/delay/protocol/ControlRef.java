@@ -50,8 +50,16 @@ public final class ControlRef {
                 && type != SystemMutationType.RESOLVE_UNCERTAIN) {
             throw new IllegalArgumentException("control ref is not valid for " + type);
         }
+        return logicalOperationIdentity(type.wireValue());
+    }
+
+    /** Computes the identity when the applicable value is a ControlKindV1 number. */
+    public byte[] logicalOperationIdentity(final int applicableTypeOrControlKind) {
+        if (applicableTypeOrControlKind <= 0 || applicableTypeOrControlKind > 0xffff) {
+            throw new IllegalArgumentException("applicable control kind must fit uint16");
+        }
         return Bytes.sha256(Bytes.utf8("nereus-delay-control-target-logical-id-v1\0"), operationId,
-                Bytes.u32be(targetIndex), Bytes.u16be(type.wireValue()));
+                Bytes.u32be(targetIndex), Bytes.u16be(applicableTypeOrControlKind));
     }
 
     public static ControlRef decode(final byte[] encoded) {

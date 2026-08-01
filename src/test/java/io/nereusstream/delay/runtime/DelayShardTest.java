@@ -280,6 +280,69 @@ class DelayShardTest {
     }
 
     @Test
+    void sourceOrderedLaneControlPausesAndResumesWithClaimRollback() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("lane-control"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 6);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("source-ordered-lane-control"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("lane-control")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final AuthorIdentity owner = AuthorIdentity.owner(Bytes.utf8("lane-control-deployment"),
+                Bytes.utf8("lane-control-worker"), 7, Bytes.sha256(Bytes.utf8("lane-control-fence")));
+        final AuthorIdentity control = AuthorIdentity.control(Bytes.sha256(Bytes.utf8("lane-control-actor")),
+                Bytes.sha256(Bytes.utf8("lane-control-roles")), Bytes.sha256(Bytes.utf8("lane-control-scope")));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final ClaimRecord claim = shard.claimForPublish(schedule.delayMessageId(), owner, 2_500,
+                    new byte[0], chargeVector());
+            assertEquals(MessageStatus.CLAIMED, shard.getMessage(schedule.delayMessageId()).status());
+
+            final LaneRecord beforePause = shard.getLane(lane);
+            final ControlRef pauseRef = new ControlRef(Bytes.sha256(Bytes.utf8("lane-control-pause-op")),
+                    Bytes.sha256(Bytes.utf8("lane-control-pause-request")), 1);
+            final byte[] pauseBody = applyShardControlBody(shardId, pauseRef, 8, lane,
+                    beforePause.laneIncarnation(), beforePause.laneControlVersion());
+            final SystemMutation pause = SystemMutation.signed(shardId, SystemMutationType.APPLY_SHARD_CONTROL,
+                    9_000, pauseRef.logicalOperationIdentity(8), pauseBody, control.canonicalBytes(), 1,
+                    keyPair.getPrivate());
+            final SystemMutationResult pausedResult = shard.applySystemMutation(pause,
+                    position(shardId, 1, 1_001), keyPair.getPublic());
+            assertEquals(StableCode.OK, pausedResult.stableCode());
+            assertEquals(AdmissionGate.ADMIN_PAUSED, shard.getLane(lane).admissionGate());
+            assertEquals(RuntimeReadiness.BLOCKED, shard.getLane(lane).runtimeReadiness());
+            assertEquals(MessageStatus.SCHEDULED, shard.getMessage(schedule.delayMessageId()).status());
+            assertNull(shard.getClaim(claim.claimId(), owner.generation()));
+            assertEquals(0, shard.discoverReady(10_000, 10).size());
+            assertEquals(pausedResult, shard.applySystemMutation(pause, position(shardId, 1, 1_001),
+                    keyPair.getPublic()));
+
+            final LaneRecord beforeResume = shard.getLane(lane);
+            final ControlRef resumeRef = new ControlRef(Bytes.sha256(Bytes.utf8("lane-control-resume-op")),
+                    Bytes.sha256(Bytes.utf8("lane-control-resume-request")), 2);
+            final byte[] resumeBody = applyShardControlBody(shardId, resumeRef, 9, lane,
+                    beforeResume.laneIncarnation(), beforeResume.laneControlVersion());
+            final SystemMutation resume = SystemMutation.signed(shardId, SystemMutationType.APPLY_SHARD_CONTROL,
+                    9_000, resumeRef.logicalOperationIdentity(9), resumeBody, control.canonicalBytes(), 1,
+                    keyPair.getPrivate());
+            final SystemMutationResult resumedResult = shard.applySystemMutation(resume,
+                    position(shardId, 2, 1_002), keyPair.getPublic());
+            assertEquals(StableCode.OK, resumedResult.stableCode());
+            assertEquals(AdmissionGate.OPEN, shard.getLane(lane).admissionGate());
+            assertEquals(RuntimeReadiness.BLOCKED, shard.getLane(lane).runtimeReadiness());
+            assertEquals(0, shard.discoverReady(10_000, 10).size());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            assertEquals(1, shard.discoverReady(10_000, 10).size());
+            assertEquals(schedule.delayMessageId(), shard.discoverReady(10_000, 10).get(0).messageId());
+        }
+    }
+
+    @Test
     void hardQuotaRejectsNewScheduleAndReleasesOnCancel() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("quota"));
         final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 1, 3, 1,
@@ -1943,6 +2006,41 @@ class DelayShardTest {
             CanonicalProtobuf.bytes(output, 12, proofId);
             CanonicalProtobuf.bytes(output, 13, proof);
         });
+    }
+
+    private static byte[] applyShardControlBody(final ShardId shard, final ControlRef controlRef,
+                                                final int controlKind, final DestinationLaneId lane,
+                                                final byte[] laneIncarnation, final long expectedControlVersion) {
+        final byte[] subject = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());
+            CanonicalProtobuf.uint32(output, 2, shard.partition());
+        });
+        final byte[] laneTarget = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, lane.bytes());
+            CanonicalProtobuf.bytes(output, 2, laneIncarnation);
+            CanonicalProtobuf.int64(output, 3, expectedControlVersion);
+        });
+        final byte[] branch = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, laneTarget);
+            CanonicalProtobuf.bytes(output, 2, controlReason());
+        });
+        final byte[] payload = CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, controlKind,
+                branch));
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, subject);
+            CanonicalProtobuf.uint32(output, 2, SystemMutationType.APPLY_SHARD_CONTROL.wireValue());
+            CanonicalProtobuf.int64(output, 3, 9_000);
+            CanonicalProtobuf.bytes(output, 10, controlRef.canonicalBytes());
+            CanonicalProtobuf.uint32(output, 11, controlKind);
+            CanonicalProtobuf.uint32(output, 12, 1);
+            CanonicalProtobuf.bytes(output, 13, Bytes.sha256(Bytes.utf8("lane-control-semantic")));
+            CanonicalProtobuf.int64(output, 14, expectedControlVersion);
+            CanonicalProtobuf.bytes(output, 15, payload);
+        });
+    }
+
+    private static byte[] controlReason() {
+        return CanonicalProtobuf.message(output -> CanonicalProtobuf.uint32(output, 1, 1));
     }
 
     private static byte[] publishOutcomeBody(final ShardId shard, final byte[] attemptId, final int sideEffect,
