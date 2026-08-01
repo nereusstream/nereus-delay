@@ -60,6 +60,57 @@ class DelayShardTest {
     }
 
     @Test
+    void cancelAndRescheduleRemainTooLateWhenUncertainObligationSurvivesCurrentWorkProjection() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("uncertain-control-guard"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 27);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("uncertain-control-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("uncertain-control")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 1_001);
+        final KafkaSourcePosition unknownPosition = position(shardId, 2, 1_002);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final byte[] attemptId = Bytes.sha256(Bytes.utf8("uncertain-control-attempt"));
+            final PublishAttemptLedger admission = PublishAttemptLedger.publishing(schedule.delayMessageId(), 0,
+                    attemptId, Bytes.sha256(Bytes.utf8("uncertain-control-claim")), 42, 1, lane, new byte[16],
+                    Bytes.sha256(Bytes.utf8("uncertain-control-owner")), store.metadata().storeIncarnation(),
+                    Bytes.sha256(Bytes.utf8("uncertain-control-prepared")), Bytes.utf8("admission"),
+                    admissionPosition.canonicalBytes());
+            shard.admitPublishAttempt(admission, admissionPosition);
+            shard.applyUnknownPublishOutcome(attemptId, 42, Bytes.utf8("unknown-outcome"),
+                    Bytes.utf8("unknown-evidence"), unknownPosition);
+
+            final MessageRecord uncertain = shard.getMessage(schedule.delayMessageId());
+            final MessageRecord scheduledProjection = new MessageRecord(MessageStatus.SCHEDULED,
+                    uncertain.generation(), uncertain.stateVersion() + 1, uncertain.deliverAtEpochMs(),
+                    uncertain.expireAtEpochMs(), uncertain.laneId(), uncertain.orderingMode(), uncertain.payload(),
+                    uncertain.scheduleSourcePosition(), uncertain.payloadReference(), uncertain.retryEligibilityAtEpochMs())
+                    .withRuntimeIndex(GenerationRuntimeIndex.none(GenerationAggregateState.UNCERTAIN,
+                            uncertain.runtimeIndex().attemptObligations(), uncertain.runtimeIndex().admissionsUsed(),
+                            uncertain.runtimeIndex().uncertainRetryAdmissionsUsed(),
+                            uncertain.runtimeIndex().possibleDestinationDuplicate(),
+                            uncertain.runtimeIndex().runtimeRevision() + 1));
+            store.write(batch -> batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(schedule.delayMessageId()),
+                    scheduledProjection.encode()));
+
+            final PreparedCommand cancel = PreparedCommand.cancel(shardId, schedule.delayMessageId(), 0, 9_000);
+            assertEquals(StableCode.TOO_LATE,
+                    shard.apply(cancel, position(shardId, 3, 1_003)).stableCode());
+            final PreparedCommand reschedule = PreparedCommand.reschedule(shardId, schedule.delayMessageId(), 0,
+                    3_000, 6_000, 9_000);
+            assertEquals(StableCode.TOO_LATE,
+                    shard.apply(reschedule, position(shardId, 4, 1_004)).stableCode());
+            assertEquals(MessageStatus.SCHEDULED, shard.getMessage(schedule.delayMessageId()).status());
+            assertEquals(1, shard.getMessage(schedule.delayMessageId()).runtimeIndex().attemptObligations().size());
+        }
+    }
+
+    @Test
     void appliesScheduleCancelAndRescheduleAtomicallyAndReplaysIdempotently() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 0);

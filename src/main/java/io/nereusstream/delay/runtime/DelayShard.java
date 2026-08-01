@@ -794,6 +794,11 @@ public final class DelayShard {
                 || status == MessageStatus.DEAD_LETTER;
     }
 
+    private static boolean hasUncertainObligation(final GenerationRuntimeIndex index) {
+        return index.attemptObligations().stream()
+                .anyMatch(obligation -> obligation.ledgerState() == AttemptLedgerState.UNCERTAIN);
+    }
+
     private GenerationRuntimeIndex timelineRuntimeIndex(final DelayMessageId messageId, final MessageRecord message,
                                                         final TimelineWorkKind workKind, final int candidateAttemptNo,
                                                         final long runtimeRevision,
@@ -1873,6 +1878,10 @@ public final class DelayShard {
         if (expectedGeneration >= 0 && expectedGeneration != existing.generation()) {
             return applied(StableCode.VERSION_CONFLICT, sourcePosition, existing);
         }
+        if ((existing.status() == MessageStatus.SCHEDULED || existing.status() == MessageStatus.CLAIMED)
+                && hasUncertainObligation(existing.runtimeIndex())) {
+            return applied(StableCode.TOO_LATE, sourcePosition, existing);
+        }
         return switch (existing.status()) {
             case SCHEDULED, CLAIMED -> applied(StableCode.CANCELED, sourcePosition,
                     new MessageRecord(MessageStatus.CANCELED, existing.generation(), existing.stateVersion() + 1,
@@ -1893,6 +1902,10 @@ public final class DelayShard {
         final CommandBodies.RescheduleValues values = CommandBodies.decodeReschedule(command.canonicalBody());
         if (values.expectedGeneration() >= 0 && values.expectedGeneration() != existing.generation()) {
             return applied(StableCode.VERSION_CONFLICT, sourcePosition, existing);
+        }
+        if ((existing.status() == MessageStatus.SCHEDULED || existing.status() == MessageStatus.CLAIMED)
+                && hasUncertainObligation(existing.runtimeIndex())) {
+            return applied(StableCode.TOO_LATE, sourcePosition, existing);
         }
         if (existing.status() != MessageStatus.SCHEDULED && existing.status() != MessageStatus.CLAIMED) {
             return applied(StableCode.TOO_LATE, sourcePosition, existing);
