@@ -2,6 +2,8 @@ package io.nereusstream.delay.adapter;
 
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CommandQueuedReceiptV1;
+import io.nereusstream.delay.protocol.CommandCodec;
+import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.NativeCapabilitySnapshotV1;
 import io.nereusstream.delay.protocol.NativeDeliveryReceiptV1;
 import io.nereusstream.delay.protocol.NativePreparedDeliveryV1;
@@ -10,6 +12,11 @@ import io.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
 import io.nereusstream.delay.protocol.PulsarMetadataV1;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
+import io.nereusstream.delay.protocol.OrderingMode;
+import io.nereusstream.delay.protocol.PreparedCommand;
+import io.nereusstream.delay.protocol.RouteIncarnation;
+import io.nereusstream.delay.protocol.ScheduleIntent;
+import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
@@ -138,6 +145,49 @@ class NativeSubmissionAdapterTest {
                     outcome.nativeDefinitelyNotQueued().error().code());
         }
         assertFalse(called.get());
+    }
+
+    @Test
+    void preparedSubmissionAdapterKeepsManagedBranchManaged() throws Exception {
+        final Fixture fixture = fixture(4_000, 3_000);
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 11);
+        final PreparedCommand command = PreparedCommand.schedule(shard,
+                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("prepared-dispatch-lane")), 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("managed-payload")), 8_000);
+        final AtomicBoolean closed = new AtomicBoolean();
+        final WireCommandIngressAdapter managed = new WireCommandIngressAdapter() {
+            @Override
+            public java.util.concurrent.CompletionStage<io.nereusstream.delay.client.EnqueueOutcome> enqueue(
+                    final PreparedCommand ignored) {
+                return CompletableFuture.failedFuture(new AssertionError("legacy managed path was used"));
+            }
+
+            @Override
+            public java.util.concurrent.CompletionStage<io.nereusstream.delay.protocol.EnqueueOutcomeMessageV1>
+            enqueueOutcomeV1(final PreparedCommand actual, final long queryUntil, final byte[] attemptId) {
+                assertEquals(command, actual);
+                assertEquals(9_000, queryUntil);
+                assertArrayEquals(attempt(7), attemptId);
+                return CompletableFuture.completedFuture(WireIngressOutcomeSupport.localDefinite(actual,
+                        StableCode.CLIENT_CLOSED));
+            }
+
+            @Override
+            public void close() {
+                closed.set(true);
+            }
+        };
+        final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport transport = request ->
+                CompletableFuture.failedFuture(new AssertionError("native branch was selected"));
+        try (PinnedPulsarNativeSubmissionAdapter nativeAdapter = fixture.adapter(transport);
+             PreparedSubmissionAdapter adapter = new PreparedSubmissionAdapter(managed, nativeAdapter)) {
+            final SubmissionOutcomeMessageV1 outcome = adapter.submit(
+                    io.nereusstream.delay.protocol.PreparedSubmissionV1.managed(CommandCodec.encodeFrame(command)),
+                    9_000, attempt(7)).toCompletableFuture().join();
+            assertEquals(io.nereusstream.delay.protocol.SubmissionOutcomeKindV1.MANAGED, outcome.kind());
+            assertEquals(StableCode.CLIENT_CLOSED, outcome.managed().definitelyNotQueued().error().code());
+        }
+        assertTrue(closed.get());
     }
 
     private static Fixture fixture(final long expiry, final long now) throws Exception {
