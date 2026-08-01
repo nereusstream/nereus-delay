@@ -4,7 +4,9 @@ import io.nereusstream.delay.client.EnqueueStatus;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CommandCodec;
 import io.nereusstream.delay.protocol.DestinationLaneId;
+import io.nereusstream.delay.protocol.EnqueueOutcomeKindV1;
 import io.nereusstream.delay.protocol.OrderingMode;
+import io.nereusstream.delay.protocol.NonPersistenceProofKindV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ScheduleIntent;
@@ -17,6 +19,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -55,6 +58,80 @@ class AdapterIngressTest {
             final var outcome = adapter.enqueue(command).toCompletableFuture().join();
             assertEquals(EnqueueStatus.ENQUEUE_UNCERTAIN, outcome.status());
             assertEquals(StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue(), outcome.stableCode());
+        }
+    }
+
+    @Test
+    void kafkaWireBridgeCarriesQueuedReceiptAndAckEvidence() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 5);
+        final UUID topic = UUID.randomUUID();
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-wire", topic, 5);
+        final PreparedCommand command = command(shard);
+        final byte[] evidence = Bytes.utf8("kafka-response");
+        final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("wire-attempt")), 16);
+        final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request ->
+                CompletableFuture.completedFuture(KafkaProduceResult.persisted("cluster-wire", topic, 5, 12,
+                        3, 2_000, evidence));
+        try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
+            final var wire = adapter.enqueueOutcomeV1(command, 5_000, attempt).toCompletableFuture().join();
+            assertEquals(EnqueueOutcomeKindV1.QUEUED, wire.kind());
+            final var ack = (io.nereusstream.delay.protocol.CommandQueuedReceiptV1.KafkaQueuedAck)
+                    wire.queued().brokerAck();
+            assertArrayEquals(Bytes.sha256(evidence), ack.responseSha256());
+            assertEquals(wire, io.nereusstream.delay.protocol.EnqueueOutcomeMessageV1.decode(
+                    wire.canonicalBytes()));
+        }
+    }
+
+    @Test
+    void kafkaWireBridgeCarriesAuthenticatedDefinitiveProof() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
+        final UUID topic = UUID.randomUUID();
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-proof", topic, 6);
+        final PreparedCommand command = command(shard);
+        final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("proof-attempt")), 16);
+        final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request ->
+                CompletableFuture.completedFuture(KafkaProduceResult.definitelyNotPersisted(
+                        StableCode.BROKER_DEFINITIVE_NOT_PERSISTED.wireValue(), Bytes.utf8("rejection")));
+        try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
+            final var wire = adapter.enqueueOutcomeV1(command, 5_000, attempt).toCompletableFuture().join();
+            assertEquals(EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED, wire.kind());
+            assertEquals(NonPersistenceProofKindV1.KAFKA_DEFINITIVE_REJECTION,
+                    wire.definitelyNotQueued().proof().kind());
+            assertEquals(wire, io.nereusstream.delay.protocol.EnqueueOutcomeMessageV1.decode(
+                    wire.canonicalBytes()));
+        }
+    }
+
+    @Test
+    void kafkaWireBridgeKeepsTransportExceptionUncertain() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 7);
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-unknown", UUID.randomUUID(), 7);
+        final PreparedCommand command = command(shard);
+        final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("unknown-attempt")), 16);
+        final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request -> {
+            throw new IllegalStateException("lost after ownership");
+        };
+        try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
+            final var wire = adapter.enqueueOutcomeV1(command, 5_000, attempt).toCompletableFuture().join();
+            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(StableCode.ENQUEUE_RESULT_UNCERTAIN, wire.uncertain().error().code());
+        }
+    }
+
+    @Test
+    void kafkaWireBridgeDoesNotInventProofWithoutResponseEvidence() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 8);
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-no-proof", UUID.randomUUID(), 8);
+        final PreparedCommand command = command(shard);
+        final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("no-proof-attempt")), 16);
+        final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request ->
+                CompletableFuture.completedFuture(KafkaProduceResult.definitelyNotPersisted(
+                        StableCode.BROKER_DEFINITIVE_NOT_PERSISTED.wireValue(), null));
+        try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
+            final var wire = adapter.enqueueOutcomeV1(command, 5_000, attempt).toCompletableFuture().join();
+            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(StableCode.ENQUEUE_RESULT_UNCERTAIN, wire.uncertain().error().code());
         }
     }
 
