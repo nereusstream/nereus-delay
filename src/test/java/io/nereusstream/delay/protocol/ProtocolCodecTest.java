@@ -145,8 +145,9 @@ class ProtocolCodecTest {
         final byte[] logicalIdentity = Bytes.sha256(Bytes.utf8("publish-attempt"));
         final byte[] author = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 42,
                 Bytes.sha256(Bytes.utf8("lease-fence"))).canonicalBytes();
+        final byte[] body = systemBody(shard, SystemMutationType.PUBLISH_ADMISSION, 25_000);
         final SystemMutation mutation = SystemMutation.signed(shard, SystemMutationType.PUBLISH_ADMISSION, 25_000,
-                logicalIdentity, Bytes.utf8("canonical-body"), author, 3, keyPair.getPrivate());
+                logicalIdentity, body, author, 3, keyPair.getPrivate());
 
         final SystemMutation decoded = SystemMutation.decodeFrame(mutation.encodeFrame(), logicalIdentity);
 
@@ -164,8 +165,9 @@ class ProtocolCodecTest {
         final byte[] logicalIdentity = Bytes.sha256(Bytes.utf8("control-target"));
         final byte[] author = AuthorIdentity.control(Bytes.sha256(Bytes.utf8("actor")),
                 Bytes.sha256(Bytes.utf8("roles")), Bytes.sha256(Bytes.utf8("scope"))).canonicalBytes();
+        final byte[] body = systemBody(shard, SystemMutationType.APPLY_SHARD_CONTROL, 30_000);
         final SystemMutation mutation = SystemMutation.signed(shard, SystemMutationType.APPLY_SHARD_CONTROL, 30_000,
-                logicalIdentity, new byte[]{1, 2}, author, 1, keyPair.getPrivate());
+                logicalIdentity, body, author, 1, keyPair.getPrivate());
 
         assertThrows(IllegalArgumentException.class,
                 () -> SystemMutation.decodeFrame(mutation.encodeFrame(), Bytes.sha256(Bytes.utf8("other"))));
@@ -181,5 +183,31 @@ class ProtocolCodecTest {
         assertEquals(AuthorIdentity.Kind.OWNER, AuthorIdentity.decode(owner).kind());
         assertThrows(IllegalArgumentException.class,
                 () -> AuthorIdentity.decode(owner).requireFor(SystemMutationType.APPLY_SHARD_CONTROL));
+    }
+
+    @Test
+    void systemMutationBodyPrefixCannotDriftFromOuterEnvelope() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 11);
+        final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = keyPairGenerator.generateKeyPair();
+        final byte[] author = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1,
+                Bytes.sha256(Bytes.utf8("lease"))).canonicalBytes();
+        final byte[] mismatchedType = systemBody(shard, SystemMutationType.PUBLISH_OUTCOME, 1_000);
+        assertThrows(IllegalArgumentException.class, () -> SystemMutation.signed(shard,
+                SystemMutationType.PUBLISH_ADMISSION, 1_000, Bytes.sha256(Bytes.utf8("logical")), mismatchedType,
+                author, 1, keyPair.getPrivate()));
+    }
+
+    private static byte[] systemBody(final ShardId shard, final SystemMutationType type, final long retryUntil) {
+        final byte[] subject = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());
+            CanonicalProtobuf.uint32(output, 2, shard.partition());
+        });
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, subject);
+            CanonicalProtobuf.uint32(output, 2, type.wireValue());
+            CanonicalProtobuf.int64(output, 3, retryUntil);
+            CanonicalProtobuf.bytes(output, 10, Bytes.utf8("operation-fields"));
+        });
     }
 }

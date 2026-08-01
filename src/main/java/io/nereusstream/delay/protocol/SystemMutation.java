@@ -47,6 +47,7 @@ public final class SystemMutation {
         this.retryUntilEpochMs = retryUntilEpochMs;
         this.logicalOperationIdentity = fixed(logicalOperationIdentity, HASH_LENGTH, "logicalOperationIdentity");
         this.canonicalBody = Bytes.copy(canonicalBody);
+        validateBodyPrefix(shardId, type, retryUntilEpochMs, this.canonicalBody);
         final AuthorIdentity decodedAuthor = AuthorIdentity.decode(authorIdentity);
         decodedAuthor.requireFor(type);
         this.authorIdentity = decodedAuthor.canonicalBytes();
@@ -246,6 +247,36 @@ public final class SystemMutation {
                 fixed(mutationHash, HASH_LENGTH, "mutationHash"));
     }
 
+    /** Validates the closed common fields shared by every System Mutation body. */
+    public static void validateBodyPrefix(final ShardId shardId, final SystemMutationType type,
+                                          final long retryUntilEpochMs, final byte[] canonicalBody) {
+        final List<CanonicalProtobuf.Reader.Field> fields = readAll(
+                new CanonicalProtobuf.Reader(Objects.requireNonNull(canonicalBody, "canonicalBody")));
+        if (fields.size() < 3) {
+            throw new IllegalArgumentException("System Mutation body common fields are incomplete");
+        }
+        final List<CanonicalProtobuf.Reader.Field> subject = readAll(
+                new CanonicalProtobuf.Reader(requireBytes(fields.get(0), 1)));
+        if (subject.size() != 2) {
+            throw new IllegalArgumentException("System Mutation body shard subject is incomplete or unknown");
+        }
+        final RouteIncarnation route = new RouteIncarnation(requireFixed(subject.get(0), 1, RouteIncarnation.LENGTH));
+        final long partition = requireBodyVarint(subject.get(1), 2);
+        if (partition > Integer.MAX_VALUE || !route.equals(shardId.routeIncarnation())
+                || partition != shardId.partition()) {
+            throw new IllegalArgumentException("System Mutation body shard subject does not match outer shard");
+        }
+        if (requireBodyVarint(fields.get(1), 2) != type.wireValue()
+                || requireBodyVarint(fields.get(2), 3) != retryUntilEpochMs) {
+            throw new IllegalArgumentException("System Mutation body common fields do not match outer envelope");
+        }
+        for (int index = 3; index < fields.size(); index++) {
+            if (fields.get(index).number() < 10) {
+                throw new IllegalArgumentException("System Mutation operation fields must start at field 10");
+            }
+        }
+    }
+
     private byte[] signatureDigest() {
         return signatureDigest(shardId, type, retryUntilEpochMs, systemMutationId, canonicalBody, mutationHash,
                 authorIdentity, signingKeyVersion);
@@ -304,6 +335,17 @@ public final class SystemMutation {
         final long value = field.unsignedValue();
         if (value < 0) {
             throw new IllegalArgumentException("protobuf int64 value exceeds signed range");
+        }
+        return value;
+    }
+
+    private static long requireBodyVarint(final CanonicalProtobuf.Reader.Field field, final int number) {
+        if (field.number() != number || field.wireType() != 0) {
+            throw new IllegalArgumentException("unexpected System Mutation body field " + number);
+        }
+        final long value = field.unsignedValue();
+        if (value < 0) {
+            throw new IllegalArgumentException("System Mutation body value exceeds signed range");
         }
         return value;
     }
