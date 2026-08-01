@@ -1,6 +1,8 @@
 package io.nereusstream.delay.client;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.CommandAppliedReceiptV1;
+import io.nereusstream.delay.protocol.CommandApplyStatusV1;
 import io.nereusstream.delay.protocol.CommandQueuedReceiptV1;
 import io.nereusstream.delay.protocol.CommandQueuedReceiptV1.KafkaQueuedAck;
 import io.nereusstream.delay.protocol.CommandQueryResponseV1;
@@ -15,7 +17,9 @@ import io.nereusstream.delay.protocol.PublicDestinationBindingViewV1;
 import io.nereusstream.delay.protocol.ScheduleIntent;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.SourcePosition;
+import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.StableCode;
+import io.nereusstream.delay.runtime.ApplyStatus;
 import io.nereusstream.delay.runtime.CommandResult;
 import io.nereusstream.delay.runtime.DelayShard;
 import io.nereusstream.delay.runtime.DelayShardConfig;
@@ -200,6 +204,44 @@ public final class EmbeddedDelayService implements DelayClient {
         return nowEpochMs > fullResultRetainUntilEpochMs
                 ? BoundedLocalQueryProjector.compactCommand(result, fullResultRetainUntilEpochMs)
                 : BoundedLocalQueryProjector.command(result, fullResultRetainUntilEpochMs, binding);
+    }
+
+    /**
+     * Emits an applied receipt only after this local shard has crossed the
+     * queued receipt's source barrier. A queued receipt is never upgraded in
+     * place; the applied frame retains its queued-payload digest.
+     */
+    public synchronized CommandAppliedReceiptV1 appliedReceiptV1(final CommandQueuedReceiptV1 queuedReceipt,
+                                                                  final long fullResultRetainUntilEpochMs,
+                                                                  final PublicDestinationBindingViewV1 binding) {
+        ensureOpen();
+        Objects.requireNonNull(queuedReceipt, "queuedReceipt");
+        if (!isEmbeddedReceipt(queuedReceipt)) {
+            throw new IllegalArgumentException("queued receipt does not belong to embedded shard");
+        }
+        if (fullResultRetainUntilEpochMs < 0) {
+            throw new IllegalArgumentException("full result retention deadline must be non-negative");
+        }
+        final SourcePosition current = shard.lastAppliedSourcePosition();
+        if (current == null || !current.sameSourceIdentity(queuedReceipt.sourcePosition())
+                || current.compareTo(queuedReceipt.sourcePosition()) < 0) {
+            throw new IllegalStateException("command has not crossed its source barrier");
+        }
+        final CommandResult result = shard.getCommandResult(queuedReceipt.command().commandId());
+        if (result == null) {
+            throw new IllegalStateException("source barrier crossed without a durable command result");
+        }
+        final CommandApplyStatusV1 status = result.applyStatus() == ApplyStatus.APPLIED
+                ? CommandApplyStatusV1.APPLIED : CommandApplyStatusV1.REJECTED;
+        final SourcePosition appliedPosition = SourcePositionCodec.decode(result.appliedSourcePosition());
+        final Integer generation = status == CommandApplyStatusV1.APPLIED && result.generation() >= 0
+                ? result.generation() : null;
+        final Long stateVersion = status == CommandApplyStatusV1.APPLIED && result.stateVersion() > 0
+                ? result.stateVersion() : null;
+        final PublicDestinationBindingViewV1 appliedBinding = status == CommandApplyStatusV1.APPLIED
+                ? binding : null;
+        return CommandAppliedReceiptV1.create(queuedReceipt, status, result.stableCode(), appliedPosition,
+                generation, stateVersion, appliedBinding, fullResultRetainUntilEpochMs);
     }
 
     /** Projects a local message snapshot after the caller supplies policy inputs. */

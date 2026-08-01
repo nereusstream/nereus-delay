@@ -2,6 +2,7 @@ package io.nereusstream.delay.client;
 
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.AdapterKindV1;
+import io.nereusstream.delay.protocol.CommandAppliedReceiptV1;
 import io.nereusstream.delay.protocol.CommandQueryResult;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
@@ -134,6 +135,10 @@ class EmbeddedDelayServiceTest {
             service.drain();
             assertEquals(CommandQueryResult.APPLIED,
                     service.queryCommand(queued, now, 10_000, publicBinding()).resultKind());
+            final CommandAppliedReceiptV1 applied = service.appliedReceiptV1(queued, 10_000, publicBinding());
+            assertEquals(io.nereusstream.delay.protocol.ReceiptKind.COMMAND_APPLIED,
+                    io.nereusstream.delay.protocol.ReceiptFrame.decode(applied.frame()).kind());
+            assertEquals(applied, CommandAppliedReceiptV1.decodeFrame(applied.frame()));
             assertEquals(CommandQueryResult.RESULT_EXPIRED,
                     service.queryCommand(queued, 3_000, 2_000, publicBinding()).resultKind());
             assertEquals(CommandQueryResult.RESULT_EVIDENCE_EXPIRED,
