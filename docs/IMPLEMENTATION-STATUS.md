@@ -11,9 +11,10 @@ The checkpoint code now covers the local physical boundary: checksum the full
 RocksDB directory, emit the closed manifest JSON projection, and install a
 validated checkpoint into a new local Store Incarnation without merging into an
 open DB. The local store uses an `ACTIVE` checksummed pointer and an
-`incarnations/<storeIncarnation>/db` directory. It does not yet publish
-immutable objects, CAS an Oxia catalog, select a Recovery Set/Floor, or replay
-Kafka/Pulsar source records; those remain release blockers below.
+`incarnations/<storeIncarnation>/db` directory. The embedded `RecoveryCatalog`
+now selects and validates a published floor-eligible ancestry before local
+restore. Immutable object publication, durable Oxia catalog/session pins, and
+Kafka/Pulsar source replay remain release blockers below.
 
 ## Current repository shape
 
