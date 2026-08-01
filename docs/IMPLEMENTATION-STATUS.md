@@ -22,8 +22,10 @@ canonical `ControlRefV1`, its Resolve logical identity, lane incarnation,
 acknowledgement hash, current-generation UNCERTAIN obligation and source
 position, then materializes one `UNCERTAIN_RETRY(CONTROL_OVERRIDE)` timeline
 work item without consuming the Admission counter. Resolve evidence attachment,
-possible-delivery terminalization, authenticated Oxia target registration and
-the remaining control-operation matrix are still release blockers.
+and authenticated Oxia target registration remain release blockers; the
+possible-delivery terminal branch is now locally covered by retaining the exact
+UNCERTAIN obligation while terminalizing the generation and releasing its
+active pending quota.
 
 The bounded replay increment now covers `REPLAY_DEAD_LETTER_V1` after a
 `DEAD_LETTER` terminal decision: it checks the exact generation/state-version

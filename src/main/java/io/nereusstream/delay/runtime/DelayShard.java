@@ -537,6 +537,9 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
+        if (body.resolutionKind() == 4) {
+            return applyPossibleDeliveryTerminalization(body, mutation, sourcePosition);
+        }
         if (body.resolutionKind() != 3) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
@@ -630,6 +633,84 @@ public final class DelayShard {
         });
         lastAppliedSourcePosition = sourcePosition;
         mutationSequence++;
+        return result;
+    }
+
+    /** Terminalizes an unresolved generation while retaining its exact obligation ledger. */
+    private SystemMutationResult applyPossibleDeliveryTerminalization(final ResolveUncertainBody body,
+                                                                       final SystemMutation mutation,
+                                                                       final SourcePosition sourcePosition) {
+        final MessageRecord current = getMessage(body.messageId());
+        if (current == null) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.TOO_LATE);
+        }
+        if (current.generation() != body.generation()) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    current.generation() > body.generation()
+                            ? StableCode.GENERATION_SUPERSEDED : StableCode.STALE_SYSTEM_MUTATION);
+        }
+        if (!current.laneId().equals(body.laneId()) || current.status() != MessageStatus.UNCERTAIN
+                || current.runtimeIndex().currentWorkKind() != CurrentSendWorkKind.NONE) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.TOO_LATE);
+        }
+        final LaneRecord lane = readLane(body.laneId());
+        if (lane == null || !Arrays.equals(lane.laneIncarnation(), body.laneIncarnation())) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+        final AttemptObligationRef target = current.runtimeIndex().attemptObligations().stream()
+                .filter(ref -> Arrays.equals(ref.publishAttemptId(), body.publishAttemptId())
+                        && ref.generation() == body.generation()
+                        && ref.ledgerState() == AttemptLedgerState.UNCERTAIN)
+                .findFirst().orElse(null);
+        if (target == null) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.TOO_LATE);
+        }
+        final PublishAttemptLedger ledger = readLedgerForObligation(target);
+        if (ledger.state() != AttemptLedgerState.UNCERTAIN
+                || !ledger.delayMessageId().equals(body.messageId())
+                || !ledger.laneId().equals(body.laneId())) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+        final MessageRecord terminalMessage = new MessageRecord(MessageStatus.DEAD_LETTER, current.generation(),
+                Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
+                current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
+                current.payloadReference(), current.retryEligibilityAtEpochMs()).withRuntimeIndex(
+                GenerationRuntimeIndex.none(GenerationAggregateState.DEAD_LETTER,
+                        current.runtimeIndex().attemptObligations(), current.runtimeIndex().admissionsUsed(),
+                        current.runtimeIndex().uncertainRetryAdmissionsUsed(), true,
+                        Math.addExact(current.runtimeIndex().runtimeRevision(), 1)));
+        final TerminalGenerationRecord terminal = new TerminalGenerationRecord(body.messageId(), body.generation(),
+                MessageStatus.DEAD_LETTER, StableCode.DESTINATION_OUTCOME_UNKNOWN, terminalMessage.stateVersion(),
+                sourcePosition.canonicalBytes(), true, terminalMessage.runtimeIndex().attemptObligations());
+        final ShardQuota nextQuota;
+        try {
+            nextQuota = quota.removeSchedule(current.payloadLength());
+        } catch (IllegalStateException exception) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.INTEGRITY_ERROR);
+        }
+        final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
+                sourcePosition, body.messageId(), current, terminalMessage, null);
+        final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED,
+                StableCode.DESTINATION_OUTCOME_UNKNOWN, sourcePosition.canonicalBytes());
+        store.write(batch -> {
+            batch.delete(ColumnFamily.TIMELINE, expiryKey(body.messageId(), current));
+            batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(body.messageId()), terminalMessage.encode());
+            batch.putValue(ColumnFamily.TERMINAL, 1,
+                    KeyCodec.terminalGeneration(body.messageId(), body.generation()), terminal.encode());
+            for (LaneProjection projection : projections.values()) {
+                deleteReadyKey(batch, projection.previousLane());
+                putReadyProjection(batch, projection);
+            }
+            batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(META_QUOTA_USAGE), nextQuota.encode());
+            writeSystemResult(batch, result);
+            writePosition(batch, sourcePosition);
+        });
+        lastAppliedSourcePosition = sourcePosition;
+        mutationSequence++;
+        quota = nextQuota;
         return result;
     }
 
