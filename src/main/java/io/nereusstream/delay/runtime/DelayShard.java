@@ -29,7 +29,7 @@ import io.nereusstream.delay.protocol.SystemMutationType;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.store.ColumnFamily;
 import io.nereusstream.delay.store.KeyCodec;
-import io.nereusstream.delay.store.RecoveryCatalog;
+import io.nereusstream.delay.store.RecoveryCatalogAuthority;
 import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.ValueEnvelope;
 
@@ -453,7 +453,7 @@ public final class DelayShard {
      */
     public synchronized ResourceGcGuard.Decision compactResourceDeleteConfirmation(
             final ResourceKind resourceKind, final byte[] resourceIdentityHash, final long expectedVersion,
-            final RecoveryCatalog catalog, final byte[] candidateCheckpointId) {
+            final RecoveryCatalogAuthority catalog, final byte[] candidateCheckpointId) {
         Objects.requireNonNull(resourceKind, "resourceKind");
         Bytes.requireLength(resourceIdentityHash, SystemMutation.HASH_LENGTH, "resourceIdentityHash");
         if (expectedVersion < 0) {

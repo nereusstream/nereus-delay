@@ -16,7 +16,7 @@ import java.util.Optional;
  * supplies the same CAS semantics through Oxia; this class deliberately has no
  * network or object-store side effects.
  */
-public final class RecoveryCatalog {
+public final class RecoveryCatalog implements RecoveryCatalogAuthority {
     private final Map<String, CheckpointManifest> manifests = new HashMap<>();
     private long catalogGeneration;
     private RecoveryFloor floor;

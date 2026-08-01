@@ -176,7 +176,7 @@ public final class ShardStore implements AutoCloseable {
     public static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
                                                    final SharedRocksDbResources resources,
                                                    final Path checkpointPath, final CheckpointManifest manifest,
-                                                   final RecoveryCatalog catalog) {
+                                                   final RecoveryCatalogAuthority catalog) {
         Objects.requireNonNull(catalog, "catalog");
         catalog.validatePublishedRestoreCandidate(Objects.requireNonNull(manifest, "manifest"));
         return restoreFromCheckpoint(config, shardId, resources, checkpointPath, manifest);
@@ -190,7 +190,7 @@ public final class ShardStore implements AutoCloseable {
     public static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
                                                    final SharedRocksDbResources resources,
                                                    final Path checkpointPath, final byte[] manifestJson,
-                                                   final RecoveryCatalog catalog) {
+                                                   final RecoveryCatalogAuthority catalog) {
         final CheckpointManifest manifest = CheckpointManifest.decodeCanonicalJson(
                 Objects.requireNonNull(manifestJson, "manifestJson"));
         return restoreFromCheckpoint(config, shardId, resources, checkpointPath, manifest, catalog);

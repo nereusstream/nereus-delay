@@ -102,6 +102,54 @@ class RecoveryCatalogTest {
         assertThrows(IllegalArgumentException.class, () -> catalog.publish(wrongSource, 1));
     }
 
+    @Test
+    void OxiaBoundaryDelegatesCasAndRejectsIdentityDrift() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 5);
+        final CheckpointManifest manifest = manifest(shard, UUID.randomUUID(), id16(50), id16(51), 0, 1, 1, null);
+        final CheckpointManifest wrongPublication = manifest(shard, UUID.randomUUID(), id16(52), id16(53), 0,
+                1, 1, null);
+        final OxiaRecoveryCatalog authority = new OxiaRecoveryCatalog(new RecoveryCatalog());
+        assertEquals(1, authority.publish(manifest, 0).catalogGeneration());
+        assertEquals(manifest.canonicalJson(), authority.manifest(manifest.checkpointId()).orElseThrow()
+                .canonicalJson());
+        authority.validatePublishedRestoreCandidate(manifest);
+
+        final OxiaRecoveryCatalog.CasBackend malformed = new OxiaRecoveryCatalog.CasBackend() {
+            @Override
+            public RecoveryCatalog.Publication publish(final CheckpointManifest ignored, final long expected) {
+                return new RecoveryCatalog.Publication(wrongPublication, expected + 1, null);
+            }
+
+            @Override
+            public RecoveryFloor advanceFloor(final byte[] ignored, final long expected, final byte[] digest) {
+                return null;
+            }
+
+            @Override
+            public java.util.Optional<CheckpointManifest> manifest(final byte[] ignored) {
+                return java.util.Optional.empty();
+            }
+
+            @Override
+            public java.util.Optional<RecoveryFloor> currentFloor() {
+                return java.util.Optional.empty();
+            }
+
+            @Override
+            public void validatePublishedRestoreCandidate(final CheckpointManifest ignored) {
+            }
+
+            @Override
+            public java.util.Optional<RecoveryCatalog.FloorCoverage> proveFloorCoverage(final byte[] ignored,
+                                                                                           final long sequence,
+                                                                                           final io.nereusstream.delay.protocol.SourcePosition... positions) {
+                return java.util.Optional.empty();
+            }
+        };
+        assertThrows(IllegalStateException.class,
+                () -> new OxiaRecoveryCatalog(malformed).publish(manifest, 0));
+    }
+
     private static CheckpointManifest manifest(final ShardId shard, final UUID topic, final byte[] lineage,
                                                final byte[] checkpointId, final long lineageGeneration,
                                                final long offset, final long mutationSequence,

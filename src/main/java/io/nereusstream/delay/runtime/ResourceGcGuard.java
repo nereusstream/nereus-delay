@@ -3,14 +3,14 @@ package io.nereusstream.delay.runtime;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
-import io.nereusstream.delay.store.RecoveryCatalog;
+import io.nereusstream.delay.store.RecoveryCatalogAuthority;
 import io.nereusstream.delay.store.RecoveryFloor;
 
 import java.util.Objects;
 
 /**
  * Read-only necessary-condition check for compacting a retained GC tombstone.
- * The overload accepting a {@link RecoveryCatalog} also checks local
+ * The overload accepting a {@link RecoveryCatalogAuthority} also checks local
  * parent-hash ancestry; Oxia CAS and provider ownership remain outside this
  * predicate.
  */
@@ -67,12 +67,12 @@ public final class ResourceGcGuard {
     /**
      * Evaluates the same necessary predicate against a catalog-backed
      * candidate.  In addition to the Floor scalar checks this verifies the
-     * exact parent-hash ancestry through {@link RecoveryCatalog}; it remains a
+     * exact parent-hash ancestry through {@link RecoveryCatalogAuthority}; it remains a
      * local proof and does not replace Oxia/provider authorization.
      */
     public static Decision evaluate(final ResourceRetireIntentRecord intent,
                                     final ResourceDeleteConfirmedRecord confirmation,
-                                    final RecoveryCatalog catalog,
+                                    final RecoveryCatalogAuthority catalog,
                                     final byte[] candidateCheckpointId) {
         Objects.requireNonNull(catalog, "catalog");
         final Decision scalar = evaluate(intent, confirmation, catalog.currentFloor().orElse(null));
