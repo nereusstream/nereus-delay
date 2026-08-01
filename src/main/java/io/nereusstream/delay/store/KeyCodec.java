@@ -175,6 +175,15 @@ public final class KeyCodec {
         return Bytes.concat(new byte[]{5, 1, (byte) schedulerKeyKind});
     }
 
+    /** Stable meta/SLO_OUTBOX locator: {@code 08 01 | sampleId[32]}. */
+    public static byte[] metaSloOutbox(final byte[] sampleId) {
+        Objects.requireNonNull(sampleId, "sampleId");
+        if (sampleId.length != 32 || isZero(sampleId)) {
+            throw new IllegalArgumentException("sampleId must be a non-zero 32-byte identity");
+        }
+        return Bytes.concat(new byte[]{8, 1}, sampleId);
+    }
+
     /**
      * Exact meta/CONTROL_RESERVE locator: {@code 06 01 | reserveClass |
      * lp32(grantId)}. The grant identity is part of the key so a rotated

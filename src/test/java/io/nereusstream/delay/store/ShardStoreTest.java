@@ -4,6 +4,18 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
+import io.nereusstream.delay.protocol.SloFinalOutcomeV1;
+import io.nereusstream.delay.protocol.SloObjectiveNameV1;
+import io.nereusstream.delay.protocol.SloObservationOutboxV1;
+import io.nereusstream.delay.protocol.SloPathV1;
+import io.nereusstream.delay.protocol.SloPopulationV1;
+import io.nereusstream.delay.protocol.SloSampleEventIdentityV1;
+import io.nereusstream.delay.protocol.SloSampleFinalV1;
+import io.nereusstream.delay.protocol.SloSampleStartV1;
+import io.nereusstream.delay.protocol.SloThresholdDirectionV1;
+import io.nereusstream.delay.protocol.SloThresholdUnitV1;
+import io.nereusstream.delay.protocol.SloTimeEndpointKindV1;
+import io.nereusstream.delay.protocol.SloTimeEndpointV1;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -50,6 +62,29 @@ class ShardStoreTest {
                 dbs = stream.filter(path -> path.getFileName().toString().equals("CURRENT")).toList();
             }
             assertEquals(1, dbs.size());
+        }
+    }
+
+    @Test
+    void sloOutboxStartAndMergedFinalSurviveReopen() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("slo-outbox"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 22);
+        final SloSampleStartV1 start = sloStart();
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final SloObservationOutboxStore outbox = new SloObservationOutboxStore(store);
+            assertEquals(start, outbox.ensureStart(start).start());
+            final SloSampleFinalV1 finalObservation = new SloSampleFinalV1(start.sampleId(), start.startDigest(),
+                    SloFinalOutcomeV1.BAD_TIMEOUT, SloThresholdUnitV1.MILLISECONDS, 10, 12, null,
+                    endpoint(200), bytes(32, 9), 1);
+            outbox.mergeFinal(finalObservation, SloThresholdDirectionV1.AT_MOST);
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore reopened = ShardStore.open(config, shardId, resources)) {
+            final SloObservationOutboxV1 value = new SloObservationOutboxStore(reopened).get(start.sampleId());
+            assertEquals(SloFinalOutcomeV1.BAD_TIMEOUT, value.finalObservation().outcome());
+            assertArrayEquals(value.canonicalBytes(),
+                    SloObservationOutboxV1.decode(value.canonicalBytes()).canonicalBytes());
         }
     }
 
@@ -210,6 +245,27 @@ class ShardStoreTest {
         final byte[] value = new byte[16];
         value[15] = (byte) last;
         return value;
+    }
+
+    private static byte[] bytes(final int length, final int value) {
+        final byte[] result = new byte[length];
+        java.util.Arrays.fill(result, (byte) value);
+        return result;
+    }
+
+    private static SloSampleStartV1 sloStart() {
+        final byte[] identityPayload = io.nereusstream.delay.protocol.CanonicalProtobuf.message(output ->
+                io.nereusstream.delay.protocol.CanonicalProtobuf.bytes(output, 1, Bytes.utf8("query")));
+        final SloSampleEventIdentityV1 identity = new SloSampleEventIdentityV1(
+                SloObjectiveNameV1.QUERY_LATENCY, identityPayload);
+        return new SloSampleStartV1(Bytes.sha256(Bytes.utf8("slo-objective")),
+                SloObjectiveNameV1.QUERY_LATENCY, SloPopulationV1.ALL_ACCEPTED, SloPathV1.NOT_APPLICABLE,
+                identity, endpoint(100), 200L);
+    }
+
+    private static SloTimeEndpointV1 endpoint(final long epochMs) {
+        return new SloTimeEndpointV1(SloTimeEndpointKindV1.SEMANTIC_FIXED_EPOCH, epochMs, epochMs,
+                bytes(32, (int) epochMs));
     }
 
     private static void assertTrueFile(final Path path) {
