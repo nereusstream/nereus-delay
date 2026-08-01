@@ -57,7 +57,8 @@ class OwnerLeaseTest {
                     null, 1_000);
             org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
                     () -> owned.apply(command, position, 101));
-            owned.markCatchingUp(new KafkaActivationBarrier(shardId, "cluster", topic, 1));
+            final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 1);
+            owned.markCatchingUp(new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("assignment-1")), 1, barrier));
             org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
                     () -> owned.activateForCommands(101));
             final KafkaSourcePosition replacement = new KafkaSourcePosition(shardId, "cluster", UUID.randomUUID(),
@@ -104,7 +105,9 @@ class OwnerLeaseTest {
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
             final UUID topic = UUID.randomUUID();
-            owned.markCatchingUp(new KafkaActivationBarrier(shardId, "cluster", topic, 0));
+            final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 0);
+            owned.markCatchingUp(new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("assignment-empty")), 1,
+                    barrier));
             owned.activateForCommands(101);
             final PreparedCommand command = PreparedCommand.schedule(shardId,
                     new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("empty-barrier-lane")), 2_000, 5_000,

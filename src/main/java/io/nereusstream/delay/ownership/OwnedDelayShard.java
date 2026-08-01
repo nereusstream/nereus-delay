@@ -14,6 +14,7 @@ public final class OwnedDelayShard {
     private OwnerLease lease;
     private ShardLifecycleState state;
     private SourceActivationBarrier activationBarrier;
+    private SourceAssignment sourceAssignment;
     private SourcePosition lastCatchupPosition;
 
     public OwnedDelayShard(final DelayShard delegate, final OwnerLease lease) {
@@ -49,17 +50,30 @@ public final class OwnedDelayShard {
     /** @deprecated use {@link #markCatchingUp(SourceActivationBarrier)}. */
     @Deprecated
     public synchronized void markCatchingUp() {
-        markCatchingUp(null);
+        markCatchingUp((SourceActivationBarrier) null);
     }
 
     public synchronized void markCatchingUp(final SourceActivationBarrier barrier) {
+        if (sourceAssignment == null) {
+            throw new IllegalStateException("source assignment must be accepted before catch-up");
+        }
+        if (sourceAssignment.activationBarrier() != barrier) {
+            throw new IllegalArgumentException("catch-up barrier is not the accepted source assignment barrier");
+        }
+        markCatchingUp(sourceAssignment);
+    }
+
+    /** Accepts the exact assignment/barrier pair supplied by the source adapter. */
+    public synchronized void markCatchingUp(final SourceAssignment assignment) {
         if (state != ShardLifecycleState.RESTORING) {
             throw new IllegalStateException("shard is not restoring");
         }
-        if (barrier != null && !delegate.shardId().equals(barrier.shardId())) {
-            throw new IllegalArgumentException("activation barrier does not belong to shard source");
+        Objects.requireNonNull(assignment, "assignment");
+        if (!delegate.shardId().equals(assignment.shardId())) {
+            throw new IllegalArgumentException("source assignment does not belong to shard");
         }
-        activationBarrier = barrier;
+        sourceAssignment = assignment;
+        activationBarrier = assignment.activationBarrier();
         lastCatchupPosition = delegate.lastAppliedSourcePosition();
         state = ShardLifecycleState.CATCHING_UP;
     }
@@ -104,6 +118,10 @@ public final class OwnedDelayShard {
 
     public synchronized OwnerLease lease() {
         return lease;
+    }
+
+    public synchronized SourceAssignment sourceAssignment() {
+        return sourceAssignment;
     }
 
     public synchronized ShardLifecycleState state() {
