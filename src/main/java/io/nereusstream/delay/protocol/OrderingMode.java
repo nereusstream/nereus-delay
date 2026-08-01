@@ -13,5 +13,13 @@ public enum OrderingMode {
     public int wireValue() {
         return wireValue;
     }
-}
 
+    public static OrderingMode fromWire(final long value) {
+        for (OrderingMode mode : values()) {
+            if (mode.wireValue == value) {
+                return mode;
+            }
+        }
+        throw new IllegalArgumentException("unknown OrderingMode: " + value);
+    }
+}

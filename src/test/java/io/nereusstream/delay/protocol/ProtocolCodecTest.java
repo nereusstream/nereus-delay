@@ -126,6 +126,78 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void fullQueryViewsRoundTripAndKeepUnionBranchesClosed() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
+        final UUID topic = UUID.randomUUID();
+        final KafkaSourcePosition current = new KafkaSourcePosition(shard, "cluster-query", topic, 10, 2, 1_000);
+        final KafkaSourcePosition awaited = new KafkaSourcePosition(shard, "cluster-query", topic, 11, 2, 1_001);
+        final PublicDestinationBindingViewV1 binding = publicBinding();
+
+        final PendingCommandViewV1 pendingView = new PendingCommandViewV1(awaited, current, 2_000);
+        assertEquals(CommandQueryResponseV1.pending(pendingView),
+                CommandQueryResponseV1.decode(CommandQueryResponseV1.pending(pendingView).canonicalBytes()));
+
+        final PublicCommandResultV1 appliedView = new PublicCommandResultV1(CommandApplyStatusV1.APPLIED,
+                StableCode.OK, awaited, 0, 1L, binding, 3_000);
+        final PublicCommandResultV1 rejectedView = new PublicCommandResultV1(CommandApplyStatusV1.REJECTED,
+                StableCode.INVALID_COMMAND, awaited, null, null, null, 3_000);
+        assertEquals(CommandQueryResponseV1.applied(appliedView),
+                CommandQueryResponseV1.decode(CommandQueryResponseV1.applied(appliedView).canonicalBytes()));
+        assertEquals(CommandQueryResponseV1.rejected(rejectedView),
+                CommandQueryResponseV1.decode(CommandQueryResponseV1.rejected(rejectedView).canonicalBytes()));
+
+        final CompactCommandResultV1 compact = new CompactCommandResultV1(CommandApplyStatusV1.REJECTED,
+                StableCode.INVALID_COMMAND, awaited, 3_000);
+        assertEquals(CommandQueryResponseV1.resultExpired(compact),
+                CommandQueryResponseV1.decode(CommandQueryResponseV1.resultExpired(compact).canonicalBytes()));
+        assertEquals(CommandQueryResponseV1.resultEvidenceExpired(),
+                CommandQueryResponseV1.decode(CommandQueryResponseV1.resultEvidenceExpired().canonicalBytes()));
+
+        final ReservedMessageViewV1 reserved = new ReservedMessageViewV1(new byte[32], 1,
+                PayloadReservationStateV1.PAYLOAD_RESERVED, 4_000, binding);
+        final ActiveMessageViewV1 active = new ActiveMessageViewV1(0, 2, MessageGenerationStateV1.UNCERTAIN,
+                1_000, 5_000, binding, PayloadAvailabilityV1.INLINE_RETAINED, true);
+        final PublicEvidenceRefV1 evidence = new PublicEvidenceRefV1(PublishEvidenceKindV1.KAFKA_PRODUCE_ACK,
+                Bytes.sha256(Bytes.utf8("evidence")), EvidenceVerificationStatusV1.VERIFIED_PUBLISHED);
+        final TerminalMessageViewV1 terminal = new TerminalMessageViewV1(0, 3,
+                MessageGenerationStateV1.PUBLISHED, StableCode.OK, binding, PayloadAvailabilityV1.INLINE_RETAINED,
+                DlqExportStateV1.NOT_CONFIGURED, false, evidence);
+        assertEquals(MessageQueryResponseV1.reserved(reserved),
+                MessageQueryResponseV1.decode(MessageQueryResponseV1.reserved(reserved).canonicalBytes()));
+        assertEquals(MessageQueryResponseV1.active(active),
+                MessageQueryResponseV1.decode(MessageQueryResponseV1.active(active).canonicalBytes()));
+        assertEquals(MessageQueryResponseV1.terminal(terminal),
+                MessageQueryResponseV1.decode(MessageQueryResponseV1.terminal(terminal).canonicalBytes()));
+        assertEquals(MessageQueryResponseV1.identityRetired(),
+                MessageQueryResponseV1.decode(MessageQueryResponseV1.identityRetired().canonicalBytes()));
+        assertEquals(MessageQueryResponseV1.unknown(FirstScheduleEligibilityV1.NOT_PROVEN),
+                MessageQueryResponseV1.decode(
+                        MessageQueryResponseV1.unknown(FirstScheduleEligibilityV1.NOT_PROVEN).canonicalBytes()));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> new CommandQueryResponseV1(CommandQueryResult.APPLIED, rejectedView));
+        assertThrows(IllegalArgumentException.class,
+                () -> new ActiveMessageViewV1(0, 2, MessageGenerationStateV1.PUBLISHED, 1_000, 5_000, binding,
+                        PayloadAvailabilityV1.INLINE_RETAINED, false));
+    }
+
+    @Test
+    void publicQueryViewsRejectUnsafeBindingAndNonCanonicalBranchShape() {
+        final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("destination"), 1,
+                Bytes.sha256(Bytes.utf8("destination-semantic")), ProfileKindV1.DESTINATION);
+        final ProfileRefV1 capability = new ProfileRefV1(Bytes.utf8("capability"), 1,
+                Bytes.sha256(Bytes.utf8("capability-semantic")), ProfileKindV1.DELIVERY_CAPABILITY);
+        assertThrows(IllegalArgumentException.class,
+                () -> new PublicDestinationBindingViewV1(destination, capability, AdapterKindV1.KAFKA,
+                        Bytes.utf8("e\u0301"), 0, OrderingMode.BEST_EFFORT));
+
+        final CommandQueryResponseV1 unknown = CommandQueryResponseV1.unknown();
+        final byte[] nonCanonical = unknown.canonicalBytes();
+        nonCanonical[nonCanonical.length - 1] = 1;
+        assertThrows(IllegalArgumentException.class, () -> CommandQueryResponseV1.decode(nonCanonical));
+    }
+
+    @Test
     void preparedCommandRoundTripsThroughCanonicalFrame() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
         final ScheduleIntent intent = new ScheduleIntent(
@@ -363,6 +435,15 @@ class ProtocolCodecTest {
                 default -> CanonicalProtobuf.bytes(output, 10, nestedPlaceholder());
             }
         });
+    }
+
+    private static PublicDestinationBindingViewV1 publicBinding() {
+        final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("destination"), 1,
+                Bytes.sha256(Bytes.utf8("destination-semantic")), ProfileKindV1.DESTINATION);
+        final ProfileRefV1 capability = new ProfileRefV1(Bytes.utf8("capability"), 1,
+                Bytes.sha256(Bytes.utf8("capability-semantic")), ProfileKindV1.DELIVERY_CAPABILITY);
+        return new PublicDestinationBindingViewV1(destination, capability, AdapterKindV1.KAFKA,
+                Bytes.utf8("safe-destination"), 2, OrderingMode.BEST_EFFORT);
     }
 
     private static byte[] nestedPlaceholder() {

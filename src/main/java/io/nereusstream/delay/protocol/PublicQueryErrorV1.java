@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Objects;
 
 /** Canonical public query error projection with a closed retry-at rule. */
-public record PublicQueryErrorV1(StableCode code, Long retryAtEpochMs) {
+public record PublicQueryErrorV1(StableCode code, Long retryAtEpochMs) implements QueryResponseBranchV1 {
     public PublicQueryErrorV1 {
         Objects.requireNonNull(code, "code");
         if (!isQueryError(code)) {
