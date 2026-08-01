@@ -54,7 +54,7 @@ to the intended modules:
 | DUE/ORDERED/EXPIRY timeline namespaces | Implemented (core index/discovery) | `DelayShard`, `KeyCodec`, `DelayShardTest`; READY value/discovery and full TimelineWorkRef pending |
 | Source assignment and Owner Lease | Implemented (local lifecycle/CAS boundary) | `OwnerLeaseStore`, `OwnedDelayShard`, `OwnerLeaseTest`; Kafka/Pulsar assignment barriers and Oxia adapter pending |
 | Queued vs applied client outcomes | Implemented (embedded core) | `EmbeddedDelayServiceTest` |
-| Destination Lane gate/readiness projection | Implemented (core projection) | `LaneRecord`, `DelayShard` |
+| Destination Lane gate/readiness projection | Implemented (core projection) | `LaneRecord`, `LaneRecordTest`, `DelayShard`; source-ordered signed control mutation persistence pending |
 | Destination Lane isolation and bounded weighted DRR | Implemented (scheduler core) | `LaneSchedulerTest`; lane work discovery and exact five-value registry projection pending |
 | Persistent scheduler fairness counters | Implemented (core subset) | `PersistentLaneScheduler`, `LaneSchedulerTest`; full `meta_cf/SCHEDULER` closed projections pending |
 | Worker-to-shard-to-lane bounded DRR | Implemented (core snapshot) | `WorkerScheduler`, `WorkerSchedulerTest`; durable outer scheduler projections and placement weights pending |

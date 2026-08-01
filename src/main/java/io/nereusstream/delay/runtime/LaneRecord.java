@@ -66,6 +66,42 @@ public record LaneRecord(
                 weight, nextEligibleAtEpochMs);
     }
 
+    public LaneRecord pauseByAdmin() {
+        if (admissionGate != AdmissionGate.OPEN) {
+            throw new IllegalStateException("only an OPEN lane can be paused");
+        }
+        return withGate(AdmissionGate.ADMIN_PAUSED);
+    }
+
+    public LaneRecord resumeByAdmin() {
+        if (admissionGate != AdmissionGate.ADMIN_PAUSED) {
+            throw new IllegalStateException("only an ADMIN_PAUSED lane can resume");
+        }
+        return withGate(AdmissionGate.OPEN);
+    }
+
+    public LaneRecord breakOrdering() {
+        if (admissionGate != AdmissionGate.OPEN && admissionGate != AdmissionGate.ADMIN_PAUSED) {
+            throw new IllegalStateException("lane is already closed or ordering-broken");
+        }
+        return withGate(AdmissionGate.ORDERING_BROKEN);
+    }
+
+    public LaneRecord closeForNewAdmission() {
+        if (admissionGate != AdmissionGate.OPEN && admissionGate != AdmissionGate.ADMIN_PAUSED
+                && admissionGate != AdmissionGate.ORDERING_BROKEN) {
+            throw new IllegalStateException("lane is already closed or retired");
+        }
+        return withGate(AdmissionGate.CLOSED);
+    }
+
+    public LaneRecord retire() {
+        if (admissionGate != AdmissionGate.CLOSED) {
+            throw new IllegalStateException("only a CLOSED lane can retire");
+        }
+        return withGate(AdmissionGate.RETIRED);
+    }
+
     public byte[] encode() {
         return ByteBuffer.allocate(4 + 32 + 16 + 8 + 8 + 1 + 1 + 4 + 8)
                 .putInt(1).put(laneId.bytes()).put(laneIncarnation).putLong(laneControlVersion).putLong(laneVersion)
@@ -93,4 +129,3 @@ public record LaneRecord(
         return result;
     }
 }
-
