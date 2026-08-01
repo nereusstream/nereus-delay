@@ -3,6 +3,7 @@ package io.nereusstream.delay.client;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.OrderingMode;
+import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ScheduleIntent;
 import io.nereusstream.delay.protocol.ShardId;
@@ -42,7 +43,30 @@ class EmbeddedDelayServiceTest {
         }
     }
 
+    @Test
+    void reopenedEmbeddedServiceContinuesSourceOffsets() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 1);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("reopen"));
+        final ScheduleIntent intent = new ScheduleIntent(
+                DestinationLaneId.derive(Bytes.utf8("reopen-lane")), 2_000, 5_000,
+                OrderingMode.BEST_EFFORT, Bytes.utf8("payload"));
+        try (EmbeddedDelayService first = new EmbeddedDelayService(config, shard, Clock.fixed(
+                Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final PreparedCommand command = first.prepareSchedule(intent, 10_000);
+            final EnqueueOutcome outcome = first.enqueue(command).toCompletableFuture().join();
+            first.awaitApplied(outcome.receipt()).toCompletableFuture().join();
+        }
+        try (EmbeddedDelayService second = new EmbeddedDelayService(config, shard, Clock.fixed(
+                Instant.ofEpochMilli(1_001), ZoneOffset.UTC))) {
+            final PreparedCommand command = second.prepareCancel(
+                    io.nereusstream.delay.protocol.DelayMessageId.random(shard), -1, 10_000);
+            final EnqueueOutcome outcome = second.enqueue(command).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.QUEUED, outcome.status());
+            assertEquals(1, ((io.nereusstream.delay.protocol.KafkaSourcePosition) outcome.receipt()
+                    .sourcePosition()).offset());
+        }
+    }
+
     private record CommandResultView(StableCode code) {
     }
 }
-

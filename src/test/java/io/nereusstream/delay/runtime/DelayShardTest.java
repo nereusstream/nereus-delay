@@ -45,7 +45,7 @@ class DelayShardTest {
             assertEquals(StableCode.SCHEDULED, scheduled.stableCode());
             assertEquals(MessageStatus.SCHEDULED, shard.getMessage(schedule.delayMessageId()).status());
             assertNotNull(store.getValue(ColumnFamily.TIMELINE,
-                    KeyCodec.timelineDue(lane, 2_000, position0.canonicalBytes(), schedule.delayMessageId(), 0), 1));
+                    KeyCodec.timelineDue(lane, 2_000, position0.sourceOrderToken(), schedule.delayMessageId(), 0), 1));
 
             assertEquals(scheduled, shard.apply(schedule, position0));
 
@@ -60,7 +60,7 @@ class DelayShardTest {
             assertEquals(StableCode.CANCELED, canceled.stableCode());
             assertEquals(MessageStatus.CANCELED, shard.getMessage(schedule.delayMessageId()).status());
             assertNull(store.getValue(ColumnFamily.TIMELINE,
-                    KeyCodec.timelineDue(lane, 3_000, position1.canonicalBytes(), schedule.delayMessageId(), 1), 1));
+                    KeyCodec.timelineDue(lane, 3_000, position1.sourceOrderToken(), schedule.delayMessageId(), 1), 1));
         }
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
@@ -100,4 +100,3 @@ class DelayShardTest {
                 1, timestamp);
     }
 }
-

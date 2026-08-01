@@ -303,7 +303,8 @@ public final class DelayShard {
 
     private byte[] timelineKey(final DelayMessageId messageId, final MessageRecord message) {
         final long eligibleAt = message.deliverAtEpochMs();
-        return KeyCodec.timelineDue(message.laneId(), eligibleAt, message.scheduleSourcePosition(), messageId,
+        final SourcePosition position = SourcePositionCodec.decode(message.scheduleSourcePosition());
+        return KeyCodec.timelineDue(message.laneId(), eligibleAt, position.sourceOrderToken(), messageId,
                 message.generation());
     }
 

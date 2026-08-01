@@ -9,6 +9,9 @@ public sealed interface SourcePosition extends Comparable<SourcePosition>
 
     byte[] canonicalBytes();
 
+    /** Closed key variant used in timeline ordering; it is not the full position encoding. */
+    byte[] sourceOrderToken();
+
     long brokerPersistenceTimeEpochMs();
 
     @Override
@@ -21,4 +24,3 @@ public sealed interface SourcePosition extends Comparable<SourcePosition>
 
     int compareWithinShard(SourcePosition other);
 }
-

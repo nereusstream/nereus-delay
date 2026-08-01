@@ -35,8 +35,9 @@ public final class KeyCodec {
         if (eligibleAtEpochMs < 0 || generation < 0) {
             throw new IllegalArgumentException("invalid timeline key values");
         }
-        return Bytes.concat(new byte[]{1, 1}, laneId.bytes(), Bytes.u64be(eligibleAtEpochMs),
-                Bytes.lp32(sourceOrderToken), messageId.bytes(), Bytes.u32be(generation));
+        validateSourceOrderToken(sourceOrderToken);
+        return Bytes.concat(new byte[]{1, 1}, laneId.bytes(), Bytes.u64be(eligibleAtEpochMs), sourceOrderToken,
+                messageId.bytes(), Bytes.u32be(generation));
     }
 
     public static byte[] timelineOrdered(final DestinationLaneId laneId, final long deliverAtEpochMs,
@@ -45,8 +46,9 @@ public final class KeyCodec {
         if (deliverAtEpochMs < 0 || generation < 0) {
             throw new IllegalArgumentException("invalid timeline key values");
         }
-        return Bytes.concat(new byte[]{2, 1}, laneId.bytes(), Bytes.u64be(deliverAtEpochMs),
-                Bytes.lp32(sourceOrderToken), messageId.bytes(), Bytes.u32be(generation));
+        validateSourceOrderToken(sourceOrderToken);
+        return Bytes.concat(new byte[]{2, 1}, laneId.bytes(), Bytes.u64be(deliverAtEpochMs), sourceOrderToken,
+                messageId.bytes(), Bytes.u32be(generation));
     }
 
     public static byte[] timelineReady(final long nextEligibleAtEpochMs, final DestinationLaneId laneId,
@@ -143,5 +145,14 @@ public final class KeyCodec {
             throw new IllegalArgumentException(name + " must be 32 bytes");
         }
         return Bytes.concat(new byte[]{tag, 1}, identity);
+    }
+
+    private static void validateSourceOrderToken(final byte[] token) {
+        Objects.requireNonNull(token, "sourceOrderToken");
+        final int expectedLength = token.length == 9 && token[0] == 1 ? 9
+                : token.length == 21 && token[0] == 2 ? 21 : -1;
+        if (expectedLength < 0) {
+            throw new IllegalArgumentException("sourceOrderToken is not a registered Kafka/Pulsar variant");
+        }
     }
 }

@@ -46,6 +46,14 @@ public final class EmbeddedDelayService implements DelayClient {
         resources = new SharedRocksDbResources(storeConfig);
         store = ShardStore.open(storeConfig, shardId, resources);
         shard = new DelayShard(store, DelayShardConfig.defaults());
+        final SourcePosition last = shard.lastAppliedSourcePosition();
+        if (last != null) {
+            if (!(last instanceof KafkaSourcePosition kafka)
+                    || !kafka.nativeTopicUuid().equals(UUID.nameUUIDFromBytes(Bytes.utf8("embedded-command-topic")))) {
+                throw new IllegalStateException("embedded service cannot reopen a shard with another source identity");
+            }
+            nextOffset = Math.addExact(kafka.offset(), 1);
+        }
     }
 
     @Override
@@ -123,4 +131,3 @@ public final class EmbeddedDelayService implements DelayClient {
     private record QueuedRecord(PreparedCommand command, SourcePosition position) {
     }
 }
-

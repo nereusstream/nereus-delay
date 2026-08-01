@@ -60,6 +60,12 @@ public record PulsarSourcePosition(
     }
 
     @Override
+    public byte[] sourceOrderToken() {
+        return ByteBuffer.allocate(1 + 8 + 8 + 4).put((byte) 2).putLong(ledgerId).putLong(entryId)
+                .putInt(normalizedBatchIndex).array();
+    }
+
+    @Override
     public int compareWithinShard(final SourcePosition other) {
         final PulsarSourcePosition that = (PulsarSourcePosition) other;
         int result = Long.compare(ledgerId, that.ledgerId);

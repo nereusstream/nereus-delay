@@ -54,6 +54,11 @@ public record KafkaSourcePosition(
     }
 
     @Override
+    public byte[] sourceOrderToken() {
+        return ByteBuffer.allocate(1 + 8).put((byte) 1).putLong(offset).array();
+    }
+
+    @Override
     public int compareWithinShard(final SourcePosition other) {
         final KafkaSourcePosition that = (KafkaSourcePosition) other;
         int result = Long.compare(offset, that.offset);

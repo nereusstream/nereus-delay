@@ -71,4 +71,16 @@ class ProtocolCodecTest {
         assertEquals(101, values.size());
         assertThrows(IllegalArgumentException.class, () -> StableCode.fromWire(0x7fff));
     }
+
+    @Test
+    void sourceOrderTokenUsesClosedAdapterVariant() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
+        final KafkaSourcePosition kafka = new KafkaSourcePosition(shard, "cluster", java.util.UUID.randomUUID(),
+                9, null, 10);
+        assertEquals("010000000000000009", Bytes.hex(kafka.sourceOrderToken()));
+        final PulsarSourcePosition pulsar = new PulsarSourcePosition(shard, new byte[32], "persistent://t/topic",
+                1, 2, 3, 4, PulsarSourcePosition.EntryKind.BATCH, 10);
+        assertEquals(21, pulsar.sourceOrderToken().length);
+        assertEquals(2, pulsar.sourceOrderToken()[0]);
+    }
 }
