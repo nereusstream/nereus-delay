@@ -119,6 +119,9 @@ Recovery-Floor/retention gate。
 canonical checkpoint-catalog projection，包含 shard identity、Floor identity
 和严格排序的 summary array；它仍只是 public query value codec，不代表
 durable control-operation query routing 或 Oxia catalog authority 已完成。
+`CheckpointControlResultV1` 也已补齐 checkpoint-control typed result 的
+shard/checkpoint/manifest/generation projection；其余 control result branches
+仍保持各自的未完成状态，不得由 opaque `ControlTypedResultV1` 误报为完整实现。
 
 ## Source locks
 
