@@ -2,8 +2,14 @@ package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
+import io.nereusstream.delay.protocol.OwnerIdentityV1;
+import io.nereusstream.delay.protocol.RecoveryCandidateKindV1;
+import io.nereusstream.delay.protocol.RecoveryCandidateRefV1;
+import io.nereusstream.delay.protocol.RecoveryFloorRefV1;
+import io.nereusstream.delay.protocol.RecoveryPinV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
+import io.nereusstream.delay.protocol.ShardSubjectV1;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -83,6 +89,39 @@ class RecoveryCatalogTest {
         catalog.advanceFloor(first.checkpointId(), 3, id32(34));
         assertThrows(IllegalStateException.class,
                 () -> catalog.advanceFloor(sibling.checkpointId(), 4, id32(35)));
+    }
+
+    @Test
+    void localRecoveryPinBindsCurrentFloorCandidateAndCatalogGeneration() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
+        final UUID topic = UUID.randomUUID();
+        final byte[] lineage = id16(60);
+        final CheckpointManifest genesis = manifest(shard, topic, lineage, id16(61), 0, 1, 1, null);
+        final RecoveryCatalog catalog = new RecoveryCatalog();
+        catalog.publish(genesis, 0);
+        final RecoveryFloor floor = catalog.advanceFloor(genesis.checkpointId(), 1, id32(62));
+        final RecoveryFloorRefV1 floorRef = new RecoveryFloorRefV1(floor.recoveryLineageId(), floor.checkpointId(),
+                floor.manifestSha256(), floor.catalogGeneration(), floor.appliedSourcePosition(),
+                floor.includedMutationSequence(), List.of());
+        final RecoveryCandidateRefV1 candidate = new RecoveryCandidateRefV1(
+                RecoveryCandidateKindV1.CATALOG_CHECKPOINT, lineage, genesis.checkpointId(),
+                genesis.manifestSha256(), null);
+        final RecoveryPinV1 pin = new RecoveryPinV1(id16(63), new ShardSubjectV1(shard),
+                new OwnerIdentityV1(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(64)),
+                candidate, floorRef, floor.catalogGeneration(), id32(65));
+
+        assertEquals(pin, catalog.createRecoveryPin(pin));
+        assertEquals(java.util.Optional.of(pin), catalog.activeRecoveryPin());
+        assertThrows(IllegalStateException.class, () -> catalog.createRecoveryPin(new RecoveryPinV1(
+                id16(66), new ShardSubjectV1(shard), pin.owner(), candidate, floorRef,
+                floor.catalogGeneration(), id32(67))));
+
+        catalog.releaseRecoveryPin(pin);
+        assertTrue(catalog.activeRecoveryPin().isEmpty());
+        final CheckpointManifest child = manifest(shard, topic, lineage, id16(68), 1, 2, 2,
+                new CheckpointManifest.ParentCheckpoint(genesis.checkpointId(), Bytes.hex(genesis.manifestSha256())));
+        catalog.publish(child, floor.catalogGeneration());
+        assertThrows(IllegalStateException.class, () -> catalog.createRecoveryPin(pin));
     }
 
     @Test

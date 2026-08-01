@@ -1,6 +1,9 @@
 package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.RecoveryCandidateKindV1;
+import io.nereusstream.delay.protocol.RecoveryPinV1;
+import io.nereusstream.delay.protocol.ShardSubjectV1;
 import io.nereusstream.delay.protocol.SourcePosition;
 
 import java.util.ArrayList;
@@ -21,6 +24,7 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
     private long catalogGeneration;
     private RecoveryFloor floor;
     private io.nereusstream.delay.protocol.ShardId catalogShard;
+    private RecoveryPinV1 activeRecoveryPin;
 
     public synchronized Publication publish(final CheckpointManifest manifest, final long expectedCatalogGeneration) {
         Objects.requireNonNull(manifest, "manifest");
@@ -202,6 +206,73 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
 
     public synchronized long catalogGeneration() {
         return catalogGeneration;
+    }
+
+    /**
+     * Creates the bounded local projection of the Registry Recovery Pin.
+     * This validates the same immutable identities available to the local
+     * catalog; the Oxia-backed implementation must additionally bind the
+     * exact Owner Lease/session in one transaction.
+     */
+    @Override
+    public synchronized RecoveryPinV1 createRecoveryPin(final RecoveryPinV1 pin) {
+        Objects.requireNonNull(pin, "pin");
+        if (catalogShard == null || !new ShardSubjectV1(catalogShard).equals(pin.shard())) {
+            throw new IllegalArgumentException("RecoveryPin shard is not the catalog shard");
+        }
+        if (pin.observedCatalogGeneration() != catalogGeneration) {
+            throw new IllegalStateException("RecoveryPin catalog generation is stale");
+        }
+        if (floor == null || !matchesFloor(pin)) {
+            throw new IllegalStateException("RecoveryPin does not match the current Recovery Floor");
+        }
+        final CheckpointManifest candidate = manifests.get(key(pin.candidate().checkpointId()));
+        if (candidate == null
+                || !Bytes.constantTimeEquals(candidate.manifestSha256(), pin.candidate().manifestSha256())
+                || !Bytes.constantTimeEquals(candidate.recoveryLineageId(), pin.candidate().recoveryLineageId())) {
+            throw new IllegalArgumentException("RecoveryPin candidate is not the published manifest");
+        }
+        recoverySet(candidate.checkpointId());
+        if (pin.candidate().kind() == RecoveryCandidateKindV1.CATALOG_CHECKPOINT
+                && pin.candidate().storeIncarnation() != null) {
+            throw new IllegalArgumentException("catalog RecoveryPin candidate carries a Store Incarnation");
+        }
+        if (activeRecoveryPin != null) {
+            if (activeRecoveryPin.equals(pin)) {
+                return activeRecoveryPin;
+            }
+            throw new IllegalStateException("a RecoveryPin is already active for the shard");
+        }
+        activeRecoveryPin = pin;
+        return pin;
+    }
+
+    /** Releases the exact session-bound pin value; a different value fails closed. */
+    @Override
+    public synchronized void releaseRecoveryPin(final RecoveryPinV1 pin) {
+        Objects.requireNonNull(pin, "pin");
+        if (activeRecoveryPin == null) {
+            throw new IllegalStateException("no RecoveryPin is active");
+        }
+        if (!activeRecoveryPin.equals(pin)) {
+            throw new IllegalStateException("RecoveryPin identity/value mismatch");
+        }
+        activeRecoveryPin = null;
+    }
+
+    @Override
+    public synchronized Optional<RecoveryPinV1> activeRecoveryPin() {
+        return Optional.ofNullable(activeRecoveryPin);
+    }
+
+    private boolean matchesFloor(final RecoveryPinV1 pin) {
+        final io.nereusstream.delay.protocol.RecoveryFloorRefV1 observed = pin.observedFloor();
+        return Bytes.constantTimeEquals(observed.recoveryLineageId(), floor.recoveryLineageId())
+                && Bytes.constantTimeEquals(observed.checkpointId(), floor.checkpointId())
+                && Bytes.constantTimeEquals(observed.manifestSha256(), floor.manifestSha256())
+                && observed.catalogGeneration() == floor.catalogGeneration()
+                && observed.includedMutationSequence() == floor.includedMutationSequence()
+                && observed.appliedSourcePosition().equals(floor.appliedSourcePosition());
     }
 
     private void validateParent(final CheckpointManifest manifest) {

@@ -1,5 +1,6 @@
 package io.nereusstream.delay.store;
 
+import io.nereusstream.delay.protocol.RecoveryPinV1;
 import io.nereusstream.delay.protocol.SourcePosition;
 
 import java.util.Optional;
@@ -23,4 +24,23 @@ public interface RecoveryCatalogAuthority {
     Optional<RecoveryCatalog.FloorCoverage> proveFloorCoverage(byte[] candidateCheckpointId,
                                                                long requiredMutationSequence,
                                                                SourcePosition... requiredPositions);
+
+    /**
+     * Creates the local/test projection of a session-bound recovery pin.
+     * Production implementations must perform the exact Owner Lease/session
+     * and catalog-generation CAS in Oxia before returning success.
+     */
+    default RecoveryPinV1 createRecoveryPin(final RecoveryPinV1 pin) {
+        throw new UnsupportedOperationException("session-bound RecoveryPin CAS is not implemented");
+    }
+
+    /** Releases exactly the pin value that was created by this authority. */
+    default void releaseRecoveryPin(final RecoveryPinV1 pin) {
+        throw new UnsupportedOperationException("session-bound RecoveryPin CAS is not implemented");
+    }
+
+    /** Returns the active local pin when the implementation exposes one. */
+    default Optional<RecoveryPinV1> activeRecoveryPin() {
+        throw new UnsupportedOperationException("session-bound RecoveryPin read is not implemented");
+    }
 }

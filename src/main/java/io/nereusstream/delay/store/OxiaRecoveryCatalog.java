@@ -1,6 +1,7 @@
 package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.RecoveryPinV1;
 import io.nereusstream.delay.protocol.SourcePosition;
 
 import java.util.Objects;
@@ -103,6 +104,26 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
         return result;
     }
 
+    @Override
+    public RecoveryPinV1 createRecoveryPin(final RecoveryPinV1 pin) {
+        final RecoveryPinV1 result = Objects.requireNonNull(backend.createRecoveryPin(
+                Objects.requireNonNull(pin, "pin")), "Oxia RecoveryPin result");
+        if (!result.equals(pin)) {
+            throw new IllegalStateException("Oxia RecoveryPin result changed identity/value");
+        }
+        return result;
+    }
+
+    @Override
+    public void releaseRecoveryPin(final RecoveryPinV1 pin) {
+        backend.releaseRecoveryPin(Objects.requireNonNull(pin, "pin"));
+    }
+
+    @Override
+    public Optional<RecoveryPinV1> activeRecoveryPin() {
+        return Objects.requireNonNull(backend.activeRecoveryPin(), "Oxia RecoveryPin result");
+    }
+
     private static void validatePublicationIdentity(final CheckpointManifest requested,
                                                     final RecoveryCatalog.Publication result) {
         if (!requested.shardId().equals(result.manifest().shardId())
@@ -128,6 +149,18 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
         Optional<RecoveryCatalog.FloorCoverage> proveFloorCoverage(byte[] candidateCheckpointId,
                                                                    long requiredMutationSequence,
                                                                    SourcePosition... requiredPositions);
+
+        default RecoveryPinV1 createRecoveryPin(final RecoveryPinV1 pin) {
+            throw new UnsupportedOperationException("session-bound RecoveryPin CAS is not implemented");
+        }
+
+        default void releaseRecoveryPin(final RecoveryPinV1 pin) {
+            throw new UnsupportedOperationException("session-bound RecoveryPin CAS is not implemented");
+        }
+
+        default Optional<RecoveryPinV1> activeRecoveryPin() {
+            throw new UnsupportedOperationException("session-bound RecoveryPin read is not implemented");
+        }
     }
 
     private static final class DelegatingBackend implements CasBackend {
@@ -169,6 +202,21 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
                                                                            final long requiredMutationSequence,
                                                                            final SourcePosition... requiredPositions) {
             return delegate.proveFloorCoverage(candidateCheckpointId, requiredMutationSequence, requiredPositions);
+        }
+
+        @Override
+        public RecoveryPinV1 createRecoveryPin(final RecoveryPinV1 pin) {
+            return delegate.createRecoveryPin(pin);
+        }
+
+        @Override
+        public void releaseRecoveryPin(final RecoveryPinV1 pin) {
+            delegate.releaseRecoveryPin(pin);
+        }
+
+        @Override
+        public Optional<RecoveryPinV1> activeRecoveryPin() {
+            return delegate.activeRecoveryPin();
         }
     }
 }

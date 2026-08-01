@@ -104,12 +104,16 @@ V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障
 `RecoveryFloorRefV1` 已补齐 lineage/checkpoint/source/typed-cursor-array 的
 canonical floor reference codec，`RecoveryCandidateRefV1` 与 `RecoveryPinV1`
 也已补齐 candidate branch、lineage binding 和 session-identity digest 的
-canonical value codecs；`CheckpointResourceV1` 与 `CheckpointUploadIntentV1`
+canonical value codecs；本地 `RecoveryCatalog` 现在对同一 shard 提供
+current Floor/catalog generation 绑定的单 active-pin create/idempotent reread/release
+投影，但这仍不是 Oxia Owner Lease/session CAS；`CheckpointResourceV1` 与
+`CheckpointUploadIntentV1`
 也已补齐 manifest-object identity 和 PENDING/PUBLISHED/REAPING 的 canonical
 state branches。现有 `DelayShard` 仍
 通过兼容 `LaneRecord` 写入 ACTIVE 分支，因此这不被误报为已经完成 full
 ActiveLaneState persistence、quota-map revision coupling、Oxia target
-registration、Oxia Recovery Pin/Floor CAS 或 Recovery-Floor/retention gate。
+registration、Oxia Recovery Pin/Floor CAS、source/evidence replay 或
+Recovery-Floor/retention gate。
 
 ## Source locks
 
