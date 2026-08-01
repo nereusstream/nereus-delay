@@ -1,12 +1,15 @@
 package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.EvidenceCursorV1;
+import io.nereusstream.delay.protocol.EvidenceKindV1;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.PulsarSourcePosition;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.SourcePosition;
 
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -39,6 +42,13 @@ final class CheckpointManifestJson {
     private static final String[] PULSAR_POSITION_KEYS = {"batchIndex", "batchSize", "brokerEntryTimestamp",
             "entryId", "entryKind", "kind", "ledgerId", "partition", "physicalTopic", "resourceIncarnation",
             "routeIncarnation"};
+    private static final String[] KAFKA_EVIDENCE_KEYS = {"destinationLaneId", "evidenceGeneration", "evidenceKind",
+            "evidenceResourceIncarnation", "laneIncarnation", "lastObservedLsoExclusive",
+            "maxBrokerPersistedAtThroughCursor", "nextOffsetExclusive", "physicalPartition", "topicUuid"};
+    private static final String[] PULSAR_EVIDENCE_KEYS = {"batchIndex", "batchSize", "destinationLaneId", "entryId",
+            "evidenceGeneration", "evidenceKind", "evidenceResourceIncarnation", "laneIncarnation", "ledgerId",
+            "maxBrokerPersistedAtThroughCursor", "physicalPartition", "physicalTopic",
+            "physicalTopicCreationTimestamp", "resourceToken"};
 
     private CheckpointManifestJson() {
     }
@@ -70,12 +80,9 @@ final class CheckpointManifestJson {
                 decodeSourcePosition(root.get("appliedShardLogPosition")),
                 hex(root.get("controlStateDigest"), "controlStateDigest"),
                 hex(root.get("referencedSemanticVersionsDigest"), "referencedSemanticVersionsDigest"),
+                decodeEvidenceCursors(root.get("evidenceCursors")),
                 decodeFiles(root.get("files")));
 
-        final Object evidenceCursors = root.get("evidenceCursors");
-        if (!(evidenceCursors instanceof List<?> values) || !values.isEmpty()) {
-            throw new IllegalArgumentException("V1 manifest evidenceCursors must be an empty array");
-        }
         if (number(root.get("manifestVersion"), "manifestVersion") != 1) {
             throw new IllegalArgumentException("unsupported manifest version");
         }
@@ -124,6 +131,53 @@ final class CheckpointManifestJson {
         keys(fields, SHARD_KEYS, "shardId");
         return new ShardId(RouteIncarnation.fromUuid(uuid(string(fields.get("routeIncarnation"),
                 "shard routeIncarnation"))), number(fields.get("partition"), "shard partition"));
+    }
+
+    private static List<EvidenceCursorV1> decodeEvidenceCursors(final Object value) {
+        if (!(value instanceof List<?> values)) {
+            throw new IllegalArgumentException("manifest evidenceCursors must be an array");
+        }
+        final List<EvidenceCursorV1> result = new ArrayList<>(values.size());
+        for (Object item : values) {
+            final Map<String, Object> fields = object(item, "evidence cursor");
+            final EvidenceKindV1 kind;
+            try {
+                kind = EvidenceKindV1.valueOf(string(fields.get("evidenceKind"), "evidenceKind"));
+            } catch (IllegalArgumentException exception) {
+                throw new IllegalArgumentException("unknown evidenceKind", exception);
+            }
+            if (kind == EvidenceKindV1.KAFKA_RECEIPT_CONTIGUOUS) {
+                keys(fields, KAFKA_EVIDENCE_KEYS, "Kafka evidence cursor");
+                result.add(EvidenceCursorV1.kafka(
+                        base64(fields.get("destinationLaneId"), "destinationLaneId"),
+                        base64(fields.get("laneIncarnation"), "laneIncarnation"),
+                        uuidBytes(uuid(string(fields.get("topicUuid"), "topicUuid"))),
+                        number(fields.get("physicalPartition"), "physicalPartition"),
+                        decimal(fields.get("evidenceGeneration"), "evidenceGeneration"),
+                        decimal(fields.get("maxBrokerPersistedAtThroughCursor"),
+                                "maxBrokerPersistedAtThroughCursor"),
+                        decimal(fields.get("nextOffsetExclusive"), "nextOffsetExclusive"),
+                        decimal(fields.get("lastObservedLsoExclusive"), "lastObservedLsoExclusive")));
+            } else {
+                keys(fields, PULSAR_EVIDENCE_KEYS, "Pulsar evidence cursor");
+                result.add(EvidenceCursorV1.pulsar(
+                        base64(fields.get("destinationLaneId"), "destinationLaneId"),
+                        base64(fields.get("laneIncarnation"), "laneIncarnation"),
+                        base64(fields.get("resourceToken"), "resourceToken"),
+                        number(fields.get("physicalPartition"), "physicalPartition"),
+                        decimal(fields.get("evidenceGeneration"), "evidenceGeneration"),
+                        decimal(fields.get("maxBrokerPersistedAtThroughCursor"),
+                                "maxBrokerPersistedAtThroughCursor"),
+                        string(fields.get("physicalTopic"), "physicalTopic"),
+                        decimal(fields.get("physicalTopicCreationTimestamp"),
+                                "physicalTopicCreationTimestamp"),
+                        decimal(fields.get("ledgerId"), "ledgerId"),
+                        decimal(fields.get("entryId"), "entryId"),
+                        number(fields.get("batchIndex"), "batchIndex"),
+                        number(fields.get("batchSize"), "batchSize")));
+            }
+        }
+        return result;
     }
 
     private static List<CheckpointManifest.FileEntry> decodeFiles(final Object value) {
@@ -281,6 +335,11 @@ final class CheckpointManifestJson {
         } catch (IllegalArgumentException exception) {
             throw new IllegalArgumentException("invalid canonical UUID", exception);
         }
+    }
+
+    private static byte[] uuidBytes(final UUID value) {
+        return ByteBuffer.allocate(16).putLong(value.getMostSignificantBits())
+                .putLong(value.getLeastSignificantBits()).array();
     }
 
     private record JsonNumber(String text) {

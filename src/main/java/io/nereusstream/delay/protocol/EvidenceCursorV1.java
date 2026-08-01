@@ -249,7 +249,11 @@ public final class EvidenceCursorV1 implements Comparable<EvidenceCursorV1> {
         if (result != 0) {
             return result;
         }
-        return Integer.compare(physicalPartition, other.physicalPartition);
+        result = Integer.compare(physicalPartition, other.physicalPartition);
+        if (result != 0) {
+            return result;
+        }
+        return Long.compareUnsigned(evidenceGeneration, other.evidenceGeneration);
     }
 
     private static long nonNegative(final long value, final String name) {

@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class EvidenceCursorV1Test {
     @Test
@@ -24,6 +25,16 @@ class EvidenceCursorV1Test {
         assertThrows(IllegalArgumentException.class,
                 () -> EvidenceCursorV1.pulsar(bytes(32, 1), bytes(16, 2), bytes(32, 3), 0, 1, 1,
                         "topic", 1, 1, 1, 2, 2));
+    }
+
+    @Test
+    void orderingIncludesEvidenceGenerationInTheIdentityKey() {
+        final EvidenceCursorV1 older = EvidenceCursorV1.kafka(bytes(32, 1), bytes(16, 2), bytes(16, 3),
+                1, 4, 100, 11, 10);
+        final EvidenceCursorV1 newer = EvidenceCursorV1.kafka(bytes(32, 1), bytes(16, 2), bytes(16, 3),
+                1, 5, 100, 11, 10);
+        assertTrue(older.compareTo(newer) < 0);
+        assertTrue(newer.compareTo(older) > 0);
     }
 
     private static byte[] bytes(final int length, final int seed) {

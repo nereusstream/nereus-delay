@@ -1,11 +1,14 @@
 package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.EvidenceCursorV1;
+import io.nereusstream.delay.protocol.EvidenceKindV1;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.PulsarSourcePosition;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.SourcePosition;
 
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Comparator;
@@ -34,6 +37,7 @@ public record CheckpointManifest(
         SourcePosition appliedShardLogPosition,
         byte[] controlStateDigest,
         byte[] referencedSemanticVersionsDigest,
+        List<EvidenceCursorV1> evidenceCursors,
         List<FileEntry> files) {
     private static final int ID_LENGTH = 16;
 
@@ -60,6 +64,15 @@ public record CheckpointManifest(
         }
         requireLength(controlStateDigest, 32, "controlStateDigest");
         requireLength(referencedSemanticVersionsDigest, 32, "referencedSemanticVersionsDigest");
+        if (evidenceCursors == null) {
+            throw new IllegalArgumentException("evidenceCursors must not be null");
+        }
+        evidenceCursors = evidenceCursors.stream().sorted().toList();
+        for (int index = 1; index < evidenceCursors.size(); index++) {
+            if (evidenceCursors.get(index - 1).compareTo(evidenceCursors.get(index)) == 0) {
+                throw new IllegalArgumentException("duplicate evidence cursor identity");
+            }
+        }
         if (files == null || files.isEmpty()) {
             throw new IllegalArgumentException("checkpoint manifest requires at least one file");
         }
@@ -75,7 +88,32 @@ public record CheckpointManifest(
         dbIdentity = Bytes.copy(dbIdentity);
         controlStateDigest = Bytes.copy(controlStateDigest);
         referencedSemanticVersionsDigest = Bytes.copy(referencedSemanticVersionsDigest);
+        evidenceCursors = List.copyOf(evidenceCursors);
         files = List.copyOf(files);
+    }
+
+    /** Backwards-compatible empty-cursor constructor for local callers. */
+    public CheckpointManifest(
+            byte[] checkpointId,
+            byte[] recoveryLineageId,
+            long lineageGeneration,
+            ParentCheckpoint parentCheckpoint,
+            byte[] restoredFromCheckpointId,
+            CreatedBy createdBy,
+            CreatedAt createdAt,
+            ShardId shardId,
+            byte[] dbIdentity,
+            UUID sourceStoreIncarnation,
+            int storeFormatVersion,
+            long shardMutationSequence,
+            SourcePosition appliedShardLogPosition,
+            byte[] controlStateDigest,
+            byte[] referencedSemanticVersionsDigest,
+            List<FileEntry> files) {
+        this(checkpointId, recoveryLineageId, lineageGeneration, parentCheckpoint, restoredFromCheckpointId,
+                createdBy, createdAt, shardId, dbIdentity, sourceStoreIncarnation, storeFormatVersion,
+                shardMutationSequence, appliedShardLogPosition, controlStateDigest,
+                referencedSemanticVersionsDigest, List.of(), files);
     }
 
     @Override
@@ -122,7 +160,14 @@ public record CheckpointManifest(
         field(json, "createdAt", createdAt.toJson());
         field(json, "createdBy", createdBy.toJson());
         field(json, "dbIdentity", quote(b64(dbIdentity)));
-        field(json, "evidenceCursors", "[]");
+        json.append(",\"evidenceCursors\":[");
+        for (int index = 0; index < evidenceCursors.size(); index++) {
+            if (index != 0) {
+                json.append(',');
+            }
+            json.append(evidenceCursorJson(evidenceCursors.get(index)));
+        }
+        json.append(']');
         json.append(",\"files\":[");
         for (int index = 0; index < files.size(); index++) {
             if (index != 0) {
@@ -184,6 +229,48 @@ public record CheckpointManifest(
                 + ",\"physicalTopic\":" + quote(pulsar.physicalTopic()) + ",\"resourceIncarnation\":"
                 + quote(b64(pulsar.brokerResourceIncarnation())) + ",\"routeIncarnation\":"
                 + quote(pulsar.shardId().routeIncarnation().uuid().toString()) + "}";
+    }
+
+    private static String evidenceCursorJson(final EvidenceCursorV1 cursor) {
+        final StringBuilder json = new StringBuilder(512).append('{');
+        if (cursor.evidenceKind() == EvidenceKindV1.KAFKA_RECEIPT_CONTIGUOUS) {
+            field(json, "destinationLaneId", quote(b64(cursor.destinationLaneId())));
+            field(json, "evidenceGeneration", quote(u64(cursor.evidenceGeneration())));
+            field(json, "evidenceKind", quote(cursor.evidenceKind().name()));
+            field(json, "evidenceResourceIncarnation", quote(b64(cursor.evidenceResourceIncarnation())));
+            field(json, "laneIncarnation", quote(b64(cursor.laneIncarnation())));
+            field(json, "lastObservedLsoExclusive", quote(u64(cursor.lastObservedLsoExclusive())));
+            field(json, "maxBrokerPersistedAtThroughCursor",
+                    quote(u64(cursor.maxBrokerPersistedAtThroughCursor())));
+            field(json, "nextOffsetExclusive", quote(u64(cursor.nextOffsetExclusive())));
+            field(json, "physicalPartition", Integer.toString(cursor.physicalPartition()));
+            field(json, "topicUuid", quote(uuidText(cursor.topicUuid())));
+        } else {
+            field(json, "batchIndex", Integer.toString(cursor.normalizedBatchIndex()));
+            field(json, "batchSize", Integer.toString(cursor.batchSize()));
+            field(json, "destinationLaneId", quote(b64(cursor.destinationLaneId())));
+            field(json, "entryId", quote(u64(cursor.entryId())));
+            field(json, "evidenceGeneration", quote(u64(cursor.evidenceGeneration())));
+            field(json, "evidenceKind", quote(cursor.evidenceKind().name()));
+            field(json, "evidenceResourceIncarnation", quote(b64(cursor.evidenceResourceIncarnation())));
+            field(json, "laneIncarnation", quote(b64(cursor.laneIncarnation())));
+            field(json, "ledgerId", quote(u64(cursor.ledgerId())));
+            field(json, "maxBrokerPersistedAtThroughCursor",
+                    quote(u64(cursor.maxBrokerPersistedAtThroughCursor())));
+            field(json, "physicalPartition", Integer.toString(cursor.physicalPartition()));
+            field(json, "physicalTopic", quote(cursor.physicalTopic()));
+            field(json, "physicalTopicCreationTimestamp", quote(u64(cursor.physicalTopicCreationTimestamp())));
+            field(json, "resourceToken", quote(b64(cursor.resourceToken())));
+        }
+        return json.append('}').toString();
+    }
+
+    private static String uuidText(final byte[] value) {
+        if (value == null || value.length != 16) {
+            throw new IllegalArgumentException("UUID bytes must be 16 bytes");
+        }
+        final ByteBuffer buffer = ByteBuffer.wrap(value);
+        return new UUID(buffer.getLong(), buffer.getLong()).toString();
     }
 
     private static void field(final StringBuilder json, final String name, final String value) {

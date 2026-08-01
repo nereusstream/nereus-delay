@@ -99,7 +99,8 @@ V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障
 当前代码已把 Lane 的 same-key ACTIVE/TERMINAL 分支和保守本地退休证明接入
 `DelayShard`；并已补齐 Registry-shaped `ActiveLaneStateV1`、
 `LaneQuotaUsageEntryV1/MapV1`、`ReadyCertificateV1`、`ActivationBarrierV1` 与
-`EvidenceCursorV1` 的独立 canonical codec 与交叉校验。现有 `DelayShard` 仍
+`EvidenceCursorV1` 的独立 canonical codec 与交叉校验，checkpoint manifest 也能
+严格 round-trip 非空的 Kafka/Pulsar typed evidence-cursor 数组。现有 `DelayShard` 仍
 通过兼容 `LaneRecord` 写入 ACTIVE 分支，因此这不被误报为已经完成 full
 ActiveLaneState persistence、quota-map revision coupling、Oxia target
 registration 或 Recovery-Floor/retention gate。

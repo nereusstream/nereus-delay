@@ -1,6 +1,7 @@
 package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.EvidenceCursorV1;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
@@ -34,18 +35,24 @@ class CheckpointManifestTest {
                 .toList();
         final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster-a", UUID.randomUUID(), 9,
                 3, 1000);
+        final UUID evidenceTopicUuid = UUID.randomUUID();
+        final EvidenceCursorV1 kafkaCursor = EvidenceCursorV1.kafka(
+                filled(32, 1), filled(16, 2), uuidBytes(evidenceTopicUuid), 1, 4, 100, 11, 10);
+        final EvidenceCursorV1 pulsarCursor = EvidenceCursorV1.pulsar(
+                filled(32, 4), filled(16, 5), filled(32, 6), 2, 7, 200,
+                "persistent://tenant/ns/topic", 8, 9, 10, 1, 2);
         final CheckpointManifest manifest = new CheckpointManifest(
                 bytes(1), bytes(2), 4, null, null,
                 new CheckpointManifest.CreatedBy(bytes(3), bytes(4), 42),
                 new CheckpointManifest.CreatedAt(1000, 1001, "TEST_CLOCK", bytes(5), 1, 2, 3,
                         Bytes.sha256(Bytes.utf8("evidence")), 1, null),
                 shardId, Bytes.sha256(Bytes.utf8("db")), UUID.randomUUID(), 1, 7, position,
-                new byte[32], new byte[32], files);
+                new byte[32], new byte[32], List.of(pulsarCursor, kafkaCursor), files);
 
         final String first = manifest.canonicalJson();
         assertEquals(first, manifest.canonicalJson());
         assertTrue(first.startsWith("{\"appliedShardLogPosition\":"));
-        assertTrue(first.contains("\"evidenceCursors\":[]"));
+        assertTrue(first.contains("\"evidenceCursors\":[{"));
         assertEquals(32, manifest.manifestSha256().length);
         assertEquals(manifest.canonicalJson(), CheckpointManifest.decodeCanonicalJson(manifest.canonicalJsonBytes())
                 .canonicalJson());
@@ -74,5 +81,18 @@ class CheckpointManifestTest {
         final byte[] value = new byte[16];
         value[15] = (byte) last;
         return value;
+    }
+
+    private static byte[] filled(final int length, final int seed) {
+        final byte[] value = new byte[length];
+        for (int index = 0; index < length; index++) {
+            value[index] = (byte) (seed + index);
+        }
+        return value;
+    }
+
+    private static byte[] uuidBytes(final UUID value) {
+        return java.nio.ByteBuffer.allocate(16).putLong(value.getMostSignificantBits())
+                .putLong(value.getLeastSignificantBits()).array();
     }
 }
