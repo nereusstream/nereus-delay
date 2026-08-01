@@ -11,6 +11,7 @@ import io.nereusstream.delay.protocol.CapacityDimensionV1;
 import io.nereusstream.delay.protocol.CapacityVectorV1;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
+import io.nereusstream.delay.protocol.DlqExportResultBody;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.PayloadCommitProof;
 import io.nereusstream.delay.protocol.PayloadProofTrustSet;
@@ -662,6 +663,7 @@ public final class DelayShard {
                 case EVIDENCE_RESOLUTION -> applyEvidenceResolutionMutation(mutation, sourcePosition);
                 case RESOLVE_UNCERTAIN -> applyResolveUncertainMutation(mutation, sourcePosition);
                 case CLAIM_RESULT -> applyClaimResultMutation(mutation, sourcePosition);
+                case DLQ_EXPORT_RESULT -> applyDlqExportResultMutation(mutation, sourcePosition);
                 case RESOURCE_RETIRE_INTENT -> applyResourceRetireIntentMutation(mutation, sourcePosition);
                 case RESOURCE_DELETE_CONFIRMED -> applyResourceDeleteConfirmedMutation(mutation, sourcePosition);
                 default -> persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
@@ -2024,6 +2026,79 @@ public final class DelayShard {
         return result;
     }
 
+    /**
+     * Applies the local, source-ordered DLQ export outbox transition. The
+     * external target/evidence adapter is deliberately outside this method;
+     * only a signed result mutation may move the durable export state.
+     */
+    private SystemMutationResult applyDlqExportResultMutation(final SystemMutation mutation,
+                                                                final SourcePosition sourcePosition) {
+        final DlqExportResultBody body = DlqExportResultBody.decode(mutation.canonicalBody());
+        if (!Bytes.constantTimeEquals(mutation.logicalOperationIdentity(), body.logicalOperationIdentity())) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
+        final DelayMessageId messageId = new DelayMessageId(body.messageId());
+        final TerminalGenerationRecord terminal = getTerminalGeneration(messageId, body.generation());
+        if (terminal == null || terminal.status() != MessageStatus.DEAD_LETTER
+                || terminal.stateVersion() != body.terminalRevision()) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+        final DlqExportRecord current = getDlqExportRecord(messageId, body.generation());
+        if (current == null || current.state() == DlqExportStateV1.NOT_CONFIGURED
+                || !Bytes.constantTimeEquals(current.exportEnvelopeHash(), body.exportEnvelopeHash())
+                || !Bytes.constantTimeEquals(current.dlqExportId(), body.dlqExportId())) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+        try {
+            validateDlqExportAttempt(current, body);
+            final int nextAttempt = body.resultingState() == DlqExportStateV1.PENDING
+                    ? Math.addExact(body.physicalAttemptNo(), 1) : body.physicalAttemptNo();
+            final DlqExportRecord next = new DlqExportRecord(current.dlqExportId(), messageId,
+                    current.generation(), current.terminalRevision(), current.exportEnvelopeHash(),
+                    body.resultingState(), nextAttempt, sourcePosition.canonicalBytes());
+            final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED,
+                    StableCode.OK, sourcePosition.canonicalBytes());
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.TERMINAL, DlqExportRecord.VALUE_TYPE,
+                        KeyCodec.terminalDlqExport(next.dlqExportId()), next.encode());
+                writeSystemResult(batch, result);
+                writePosition(batch, sourcePosition);
+            });
+            lastAppliedSourcePosition = sourcePosition;
+            mutationSequence++;
+            return result;
+        } catch (IllegalStateException | IllegalArgumentException | ArithmeticException exception) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.INTEGRITY_ERROR);
+        }
+    }
+
+    private static void validateDlqExportAttempt(final DlqExportRecord current,
+                                                 final DlqExportResultBody body) {
+        if (body.eventKind() == 1) {
+            if (current.state() == DlqExportStateV1.PUBLISHED
+                    || current.state() == DlqExportStateV1.FAILED_PERMANENT) {
+                throw new IllegalStateException("terminal DLQ export cannot accept another attempt outcome");
+            }
+            final int expectedAttempt = current.state() == DlqExportStateV1.UNCERTAIN
+                    ? Math.addExact(current.physicalAttemptNo(), 1) : current.physicalAttemptNo();
+            if (body.physicalAttemptNo() != expectedAttempt) {
+                throw new IllegalStateException("DLQ export attempt number is not the checked successor");
+            }
+        } else {
+            if (current.state() != DlqExportStateV1.UNCERTAIN
+                    && current.state() != DlqExportStateV1.PENDING) {
+                throw new IllegalStateException("evidence resolution has no open DLQ export state");
+            }
+            if (body.physicalAttemptNo() > current.physicalAttemptNo()) {
+                throw new IllegalStateException("DLQ evidence names an unknown physical attempt");
+            }
+        }
+    }
+
     private SystemMutationResult persistSystemResult(final SystemMutation mutation, final SourcePosition position,
                                                       final ApplyStatus status, final StableCode code) {
         final SystemMutationResult result = SystemMutationResult.from(mutation, status, code,
@@ -2043,7 +2118,7 @@ public final class DelayShard {
      * separate mutations and are never inferred here.
      */
     private SystemMutationResult applyResourceRetireIntentMutation(final SystemMutation mutation,
-                                                                     final SourcePosition sourcePosition) {
+                                                                    final SourcePosition sourcePosition) {
         final ResourceRetireIntentBody body = ResourceRetireIntentBody.decode(mutation.canonicalBody());
         final byte[] expectedLogicalIdentity = SystemMutation.computeResourceRetireLogicalIdentity(
                 body.resourceKind(), body.resource().identityHash(), body.expectedResourceStateVersion());

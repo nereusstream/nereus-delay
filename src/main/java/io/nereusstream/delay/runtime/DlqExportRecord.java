@@ -66,6 +66,15 @@ public record DlqExportRecord(
                 appliedSourcePosition);
     }
 
+    /** Creates the first pending attempt for a configured export policy. */
+    public static DlqExportRecord pending(final DelayMessageId messageId, final int generation,
+                                          final long terminalRevision, final byte[] exportEnvelopeHash,
+                                          final byte[] appliedSourcePosition) {
+        final byte[] id = deriveId(messageId, generation, terminalRevision);
+        return new DlqExportRecord(id, messageId, generation, terminalRevision, exportEnvelopeHash,
+                DlqExportStateV1.PENDING, 1, appliedSourcePosition);
+    }
+
     public static byte[] deriveId(final DelayMessageId messageId, final int generation,
                                   final long terminalRevision) {
         Objects.requireNonNull(messageId, "messageId");
