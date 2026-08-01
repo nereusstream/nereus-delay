@@ -863,7 +863,12 @@ public final class DelayShard {
 
     private static List<AttemptObligationRef> withObligation(final GenerationRuntimeIndex index,
                                                               final AttemptObligationRef obligation) {
-        final List<AttemptObligationRef> result = new ArrayList<>(index.attemptObligations());
+        return withObligation(index.attemptObligations(), obligation);
+    }
+
+    private static List<AttemptObligationRef> withObligation(final List<AttemptObligationRef> obligations,
+                                                              final AttemptObligationRef obligation) {
+        final List<AttemptObligationRef> result = new ArrayList<>(obligations);
         result.removeIf(ref -> Arrays.equals(ref.publishAttemptId(), obligation.publishAttemptId()));
         result.add(obligation);
         result.sort(DelayShard::compareObligation);
@@ -1332,8 +1337,14 @@ public final class DelayShard {
             throw new IllegalStateException("unknown outcome requires a PUBLISHING ledger");
         }
         final MessageRecord current = getMessage(currentLedger.delayMessageId());
-        if (current == null || current.status() != MessageStatus.PUBLISHING
-                || current.generation() != currentLedger.generation()) {
+        if (current == null || current.generation() < currentLedger.generation()) {
+            throw new IllegalStateException("unknown outcome is stale for the current message");
+        }
+        if (current.generation() > currentLedger.generation()) {
+            return settleHistoricalUnknownObligation(currentLedger, canonicalOutcome, evidence, sourcePosition,
+                    systemResult);
+        }
+        if (current.status() != MessageStatus.PUBLISHING) {
             throw new IllegalStateException("unknown outcome is stale for the current message");
         }
         final boolean scheduleUncertainRetry = retryDecision != null && retryDecision.kind() == 2;
@@ -1391,6 +1402,38 @@ public final class DelayShard {
                 deleteReadyKey(batch, projection.previousLane());
                 putReadyProjection(batch, projection);
             }
+            if (systemResult != null) {
+                writeSystemResult(batch, systemResult);
+            }
+            writePosition(batch, sourcePosition);
+        });
+        lastAppliedSourcePosition = sourcePosition;
+        mutationSequence++;
+        return nextLedger;
+    }
+
+    private PublishAttemptLedger settleHistoricalUnknownObligation(final PublishAttemptLedger ledger,
+                                                                   final byte[] canonicalOutcome,
+                                                                   final byte[] evidence,
+                                                                   final SourcePosition sourcePosition,
+                                                                   final SystemMutationResult systemResult) {
+        final TerminalGenerationRecord summary = getTerminalGeneration(ledger.delayMessageId(), ledger.generation());
+        if (summary == null || !summary.openObligations().contains(ledger.obligationRef())) {
+            throw new IllegalStateException("historical terminal obligation summary is stale or missing");
+        }
+        final PublishAttemptLedger nextLedger = ledger.withUnknownOutcome(canonicalOutcome, evidence,
+                sourcePosition.canonicalBytes());
+        final List<AttemptObligationRef> obligations = withObligation(summary.openObligations(),
+                nextLedger.obligationRef());
+        final TerminalGenerationRecord nextSummary = new TerminalGenerationRecord(summary.messageId(),
+                summary.generation(), summary.status(), summary.terminalCode(), summary.stateVersion(),
+                summary.appliedSourcePosition(), summary.possibleDestinationDuplicate(), obligations);
+        store.write(batch -> {
+            batch.delete(ColumnFamily.INFLIGHT, ledger.encodedKey());
+            batch.putValue(ColumnFamily.INFLIGHT, PublishAttemptLedger.VALUE_TYPE, nextLedger.encodedKey(),
+                    nextLedger.encode());
+            batch.putValue(ColumnFamily.TERMINAL, 1,
+                    KeyCodec.terminalGeneration(ledger.delayMessageId(), ledger.generation()), nextSummary.encode());
             if (systemResult != null) {
                 writeSystemResult(batch, systemResult);
             }

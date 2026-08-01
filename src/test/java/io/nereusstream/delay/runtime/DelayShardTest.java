@@ -1301,14 +1301,19 @@ class DelayShardTest {
         final KafkaSourcePosition generationOnePosition = position(shardId, 2, 1_002);
         final KafkaSourcePosition outcomePosition = position(shardId, 3, 1_003);
         final KafkaSourcePosition secondOutcomePosition = position(shardId, 4, 1_004);
+        final KafkaSourcePosition thirdOutcomePosition = position(shardId, 5, 1_005);
+        final KafkaSourcePosition resolutionPosition = position(shardId, 6, 1_006);
         final byte[] attemptId = Bytes.sha256(Bytes.utf8("historical-terminal-attempt"));
         final byte[] secondAttemptId = Bytes.sha256(Bytes.utf8("historical-terminal-second-attempt"));
+        final byte[] thirdAttemptId = Bytes.sha256(Bytes.utf8("historical-terminal-third-attempt"));
         final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
         final KeyPair keyPair = generator.generateKeyPair();
         final AuthorIdentity owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 42,
                 Bytes.sha256(Bytes.utf8("lease")));
         final AuthorIdentity secondOwner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 43,
                 Bytes.sha256(Bytes.utf8("lease-2")));
+        final AuthorIdentity thirdOwner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 44,
+                Bytes.sha256(Bytes.utf8("lease-3")));
         TerminalGenerationRecord oldSummary;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
@@ -1394,6 +1399,53 @@ class DelayShardTest {
             assertTrue(shard.getTerminalGeneration(schedule.delayMessageId(), 0).possibleDestinationDuplicate());
             assertEquals(List.of(), shard.getTerminalGeneration(schedule.delayMessageId(), 0).openObligations());
             assertNull(shard.getPublishAttempt(secondAttemptId, secondOwner.generation()));
+
+            final PublishAttemptLedger third = PublishAttemptLedger.publishing(schedule.delayMessageId(), 0,
+                    thirdAttemptId, Bytes.sha256(Bytes.utf8("historical-terminal-third-claim")),
+                    thirdOwner.generation(), 3, lane, shard.getLane(lane).laneIncarnation(),
+                    thirdOwner.canonicalBytes(), store.metadata().storeIncarnation(),
+                    Bytes.sha256(Bytes.utf8("historical-terminal-third-prepared")),
+                    Bytes.utf8("historical-third-admission"), thirdOutcomePosition.canonicalBytes());
+            final TerminalGenerationRecord thirdSummary = new TerminalGenerationRecord(
+                    schedule.delayMessageId(), 0, MessageStatus.SUPERSEDED, StableCode.SUPERSEDED,
+                    prior.stateVersion(), generationOnePosition.canonicalBytes(), true,
+                    List.of(third.obligationRef()));
+            oldSummary = thirdSummary;
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.INFLIGHT, PublishAttemptLedger.VALUE_TYPE, third.encodedKey(),
+                        third.encode());
+                batch.putValue(ColumnFamily.TERMINAL, 1,
+                        KeyCodec.terminalGeneration(schedule.delayMessageId(), 0), thirdSummary.encode());
+            });
+            final byte[] unknownBody = publishOutcomeBody(shardId, thirdAttemptId, 3, 4,
+                    StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, new byte[0], observedAt.canonicalBytes());
+            final SystemMutation unknown = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
+                    Bytes.sha256(Bytes.utf8("historical-third-unknown-operation")), unknownBody,
+                    thirdOwner.canonicalBytes(), 1, keyPair.getPrivate());
+            final SystemMutationResult unknownResult = shard.applySystemMutation(unknown, thirdOutcomePosition,
+                    keyPair.getPublic());
+            assertEquals(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, unknownResult.stableCode());
+            assertEquals(AttemptLedgerState.UNCERTAIN, shard.getPublishAttempt(thirdAttemptId,
+                    thirdOwner.generation()).state());
+            assertEquals(AttemptLedgerState.UNCERTAIN,
+                    shard.getTerminalGeneration(schedule.delayMessageId(), 0).openObligations().get(0).ledgerState());
+
+            final byte[] resolutionBody = evidenceResolutionBody(shardId, thirdAttemptId, StableCode.OK, 1, 0,
+                    new TrustedUtcIntervalEvidence(1_006, 1_006,
+                            TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("clock"), 1, 8, 8,
+                            Bytes.sha256(Bytes.utf8("historical-resolution-proof")), 0, null).canonicalBytes());
+            final AuthorIdentity service = AuthorIdentity.service(Bytes.utf8("evidence-service"),
+                    Bytes.utf8("historical-run"), 2);
+            final SystemMutation resolution = SystemMutation.signed(shardId,
+                    SystemMutationType.EVIDENCE_RESOLUTION, 9_000,
+                    Bytes.sha256(Bytes.utf8("historical-resolution-operation")), resolutionBody,
+                    service.canonicalBytes(), 1, keyPair.getPrivate());
+            final SystemMutationResult resolutionResult = shard.applySystemMutation(resolution, resolutionPosition,
+                    keyPair.getPublic());
+            assertEquals(StableCode.OK, resolutionResult.stableCode());
+            assertTrue(shard.getTerminalGeneration(schedule.delayMessageId(), 0).possibleDestinationDuplicate());
+            assertEquals(List.of(), shard.getTerminalGeneration(schedule.delayMessageId(), 0).openObligations());
+            assertNull(shard.getPublishAttempt(thirdAttemptId, thirdOwner.generation()));
         }
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
@@ -1404,6 +1456,7 @@ class DelayShardTest {
             assertTrue(reopened.getTerminalGeneration(schedule.delayMessageId(), 0).possibleDestinationDuplicate());
             assertNull(reopened.getPublishAttempt(attemptId, owner.generation()));
             assertNull(reopened.getPublishAttempt(secondAttemptId, secondOwner.generation()));
+            assertNull(reopened.getPublishAttempt(thirdAttemptId, thirdOwner.generation()));
         }
     }
 
