@@ -166,6 +166,28 @@ public final class KeyCodec {
         return Bytes.concat(new byte[]{5, 1, (byte) schedulerKeyKind});
     }
 
+    /**
+     * Exact meta/CONTROL_RESERVE locator: {@code 06 01 | reserveClass |
+     * lp32(grantId)}. The grant identity is part of the key so a rotated
+     * immutable grant cannot reuse a prior usage projection.
+     */
+    public static byte[] metaControlReserve(final int reserveClass, final byte[] grantId) {
+        Objects.requireNonNull(grantId, "grantId");
+        if (reserveClass <= 0 || reserveClass > 6 || grantId.length != 32 || isZero(grantId)) {
+            throw new IllegalArgumentException("invalid CONTROL_RESERVE meta key");
+        }
+        return Bytes.concat(new byte[]{6, 1, (byte) reserveClass}, Bytes.lp32(grantId));
+    }
+
+    private static boolean isZero(final byte[] value) {
+        for (byte current : value) {
+            if (current != 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static byte[] typedIdentity(final byte tag, final byte[] identity, final String name) {
         Objects.requireNonNull(identity, name);
         if (identity.length != 32) {

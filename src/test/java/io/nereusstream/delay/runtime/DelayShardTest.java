@@ -3,6 +3,10 @@ package io.nereusstream.delay.runtime;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.AuthorIdentity;
 import io.nereusstream.delay.protocol.CanonicalProtobuf;
+import io.nereusstream.delay.protocol.CapacityDimensionV1;
+import io.nereusstream.delay.protocol.CapacityGrantKindV1;
+import io.nereusstream.delay.protocol.CapacityGrantV1;
+import io.nereusstream.delay.protocol.CapacityVectorV1;
 import io.nereusstream.delay.protocol.ClaimResultBody;
 import io.nereusstream.delay.protocol.ControlRef;
 import io.nereusstream.delay.protocol.DestinationLaneId;
@@ -16,11 +20,13 @@ import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.PublishAdmissionBody;
 import io.nereusstream.delay.protocol.PublishAdmissionBodyTest.Fixture;
 import io.nereusstream.delay.protocol.PublishOutcomeBody;
+import io.nereusstream.delay.protocol.QuotaGrantRefV1;
 import io.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
 import io.nereusstream.delay.protocol.ResourceKind;
 import io.nereusstream.delay.protocol.ResourceRetireIntentBody;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
+import io.nereusstream.delay.protocol.ShardCapacityEnvelopeV1;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.SystemMutation;
 import io.nereusstream.delay.protocol.SystemMutationType;
@@ -1605,6 +1611,61 @@ class DelayShardTest {
     }
 
     @Test
+    void boundCapacityEnvelopeChargesExactOutcomeVectorAndRejectsIdentityDrift() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("bound-capacity-envelope"));
+        final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,
+                3, 100, 10_000, 10, 0, 10, 10);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 19);
+        final DelayMessageId messageId = DelayMessageId.random(shardId);
+        final DestinationLaneId lane = new DestinationLaneId(Bytes.sha256(Bytes.utf8("lane")));
+        final PreparedCommand schedule = PreparedCommand.create(shardId,
+                io.nereusstream.delay.protocol.CommandId.random(shardId), messageId,
+                io.nereusstream.delay.protocol.CommandType.SCHEDULE, 9_000,
+                io.nereusstream.delay.protocol.CommandBodies.schedule(new io.nereusstream.delay.protocol.ScheduleIntent(
+                        lane, 2_000, 5_000, OrderingMode.BEST_EFFORT, Bytes.utf8("bound-capacity"))));
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final byte[] sourceTimelineKey = KeyCodec.timelineDue(lane, 2_000, schedulePosition.sourceOrderToken(),
+                messageId, 0);
+        final TimelineWorkRef sourceWork = new TimelineWorkRef(TimelineWorkKind.INITIAL_SCHEDULE,
+                sourceTimelineKey, 2_000, 2_000, 1, 1, false, UncertainRetryAuthority.NONE, null, null);
+        final Fixture fixture = Fixture.createForSource(shardId, messageId,
+                LaneRecord.initial(lane, schedulePosition).laneIncarnation(), sourceTimelineKey, 1, 0, 0,
+                GenerationRuntimeIndex.obligationSetDigest(List.of()), sourceWork.semanticWorkDigest());
+        final byte[] chargedBody = replaceAdmissionCharge(fixture.body(), 1, 1);
+        final PublishAdmissionBody parsed = PublishAdmissionBody.decode(chargedBody);
+        final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = keyPairGenerator.generateKeyPair();
+        final SystemMutation admission = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_ADMISSION, 9_000,
+                Bytes.sha256(Bytes.utf8("bound-capacity-admission")), chargedBody, fixture.owner(), 1,
+                keyPair.getPrivate());
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 2_001);
+        final ShardCapacityEnvelopeV1 envelope = capacityEnvelope(1);
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, shardConfig, null, envelope);
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            assertEquals(StableCode.OK,
+                    shard.applySystemMutation(admission, admissionPosition, keyPair.getPublic()).stableCode());
+            assertEquals(1, shard.outcomeReserveVector().amount(CapacityDimensionV1.RESULT_RECORDS));
+            assertEquals(1, shard.outcomeReserveVector().amount(CapacityDimensionV1.RESULT_BYTES));
+            assertEquals(envelope, shard.capacityEnvelope());
+            assertEquals(shard.outcomeReserveVector(), CapacityVectorV1.decode(store.getValue(ColumnFamily.META,
+                    KeyCodec.metaControlReserve(2, envelope.outcomeReserve().grantId()), 8).payload()));
+            assertNotNull(shard.findOpenPublishAttempt(parsed.publishAttemptId()));
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard reopened = new DelayShard(store, shardConfig, null, envelope);
+            assertEquals(1, reopened.outcomeReserveVector().amount(CapacityDimensionV1.RESULT_RECORDS));
+            assertEquals(1, reopened.outcomeReserveVector().amount(CapacityDimensionV1.RESULT_BYTES));
+            assertThrows(IllegalStateException.class,
+                    () -> new DelayShard(store, shardConfig, null, capacityEnvelope(2)));
+        }
+    }
+
+    @Test
     void sourceOrderedPublishAdmissionFailsClosedWhenGenerationBudgetIsExhausted() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-admission-budget"));
         final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,
@@ -2843,6 +2904,29 @@ class DelayShardTest {
                 CanonicalProtobuf.uint32(output, number, 0);
             }
         });
+    }
+
+    private static ShardCapacityEnvelopeV1 capacityEnvelope(final long envelopeVersion) {
+        final PublishAdmissionBody.ChargeVector logicalLimit = new PublishAdmissionBody.ChargeVector(
+                0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0);
+        final QuotaGrantRefV1 logicalGrant = new QuotaGrantRefV1(
+                Bytes.sha256(Bytes.utf8("bound-capacity-logical-grant")), 1, logicalLimit);
+        final long[] outcomeAmounts = new long[CapacityDimensionV1.COUNT];
+        outcomeAmounts[CapacityDimensionV1.RESULT_RECORDS.wireValue() - 1] = 1;
+        outcomeAmounts[CapacityDimensionV1.RESULT_BYTES.wireValue() - 1] = 1;
+        final CapacityVectorV1 outcomeVector = new CapacityVectorV1(outcomeAmounts);
+        final CapacityGrantV1 outcomeGrant = new CapacityGrantV1(CapacityGrantKindV1.OUTCOME_RESERVE,
+                Bytes.sha256(Bytes.utf8("bound-capacity-outcome-grant")), 1, outcomeVector);
+        final CapacityVectorV1 empty = CapacityVectorV1.empty();
+        final CapacityGrantV1 nonOutcome = new CapacityGrantV1(CapacityGrantKindV1.NON_OUTCOME_CONTROL,
+                Bytes.sha256(Bytes.utf8("bound-capacity-non-outcome-grant")), 1, empty);
+        final CapacityGrantV1 recovery = new CapacityGrantV1(CapacityGrantKindV1.RECOVERY_WORKING,
+                Bytes.sha256(Bytes.utf8("bound-capacity-recovery-grant")), 1, empty);
+        final CapacityGrantV1 emergency = new CapacityGrantV1(CapacityGrantKindV1.EMERGENCY_HEADROOM,
+                Bytes.sha256(Bytes.utf8("bound-capacity-emergency-grant")), 1, empty);
+        return new ShardCapacityEnvelopeV1(Bytes.sha256(Bytes.utf8("bound-capacity-envelope-" + envelopeVersion)),
+                envelopeVersion, logicalGrant, outcomeVector, outcomeGrant, nonOutcome, recovery, emergency,
+                Bytes.sha256(Bytes.utf8("bound-capacity-artifact")));
     }
 
     private static byte[] replaceAdmissionCharge(final byte[] body, final long resultRecords,

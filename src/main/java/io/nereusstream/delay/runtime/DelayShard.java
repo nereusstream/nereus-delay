@@ -7,6 +7,8 @@ import io.nereusstream.delay.protocol.CommandBodies;
 import io.nereusstream.delay.protocol.CommandId;
 import io.nereusstream.delay.protocol.ClaimResultBody;
 import io.nereusstream.delay.protocol.CanonicalProtobuf;
+import io.nereusstream.delay.protocol.CapacityDimensionV1;
+import io.nereusstream.delay.protocol.CapacityVectorV1;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.PayloadCommitProof;
@@ -23,6 +25,7 @@ import io.nereusstream.delay.protocol.ResourceRetireIntentBody;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.StableCode;
+import io.nereusstream.delay.protocol.ShardCapacityEnvelopeV1;
 import io.nereusstream.delay.protocol.SystemMutation;
 import io.nereusstream.delay.protocol.SystemMutationBodyCodec;
 import io.nereusstream.delay.protocol.SystemMutationType;
@@ -55,6 +58,7 @@ public final class DelayShard {
     private static final int META_CLAIM_SEQUENCE = 11;
     private static final int META_QUOTA_USAGE = 1;
     private static final int META_OUTCOME_RESERVE_USAGE = 2;
+    private static final int CAPACITY_RESERVE_VALUE_TYPE = 8;
     private static final byte INFLIGHT_CLAIMED_KIND = 1;
     private static final byte INFLIGHT_PUBLISHING_KIND = 2;
     private static final byte INFLIGHT_UNCERTAIN_KIND = 3;
@@ -62,22 +66,37 @@ public final class DelayShard {
     private final ShardStore store;
     private final DelayShardConfig config;
     private final PayloadProofTrustSet payloadProofTrustSet;
+    private final ShardCapacityEnvelopeV1 capacityEnvelope;
     private SourcePosition lastAppliedSourcePosition;
     private long closedIngressDeadlineThrough;
     private long mutationSequence;
     private long claimSequence;
     private ShardQuota quota;
     private OutcomeReserveUsage outcomeReserve;
+    private CapacityVectorV1 outcomeReserveVector;
 
     public DelayShard(final ShardStore store, final DelayShardConfig config) {
-        this(store, config, null);
+        this(store, config, null, null);
     }
 
     public DelayShard(final ShardStore store, final DelayShardConfig config,
                       final PayloadProofTrustSet payloadProofTrustSet) {
+        this(store, config, payloadProofTrustSet, null);
+    }
+
+    /**
+     * Opens a shard with an immutable capacity envelope supplied by the
+     * placement/activation authority.  The envelope is persisted before any
+     * command can charge its outcome grant; a different grant or digest can
+     * therefore never reuse this DB's usage projection.
+     */
+    public DelayShard(final ShardStore store, final DelayShardConfig config,
+                      final PayloadProofTrustSet payloadProofTrustSet,
+                      final ShardCapacityEnvelopeV1 capacityEnvelope) {
         this.store = Objects.requireNonNull(store, "store");
         this.config = Objects.requireNonNull(config, "config");
         this.payloadProofTrustSet = payloadProofTrustSet;
+        this.capacityEnvelope = capacityEnvelope;
         final var sourceValue = store.getValue(ColumnFamily.META, KeyCodec.metaFixed(META_APPLIED_SOURCE_POSITION), 1);
         final byte[] source = sourceValue == null ? null : sourceValue.payload();
         lastAppliedSourcePosition = source == null ? null : SourcePositionCodec.decode(source);
@@ -97,6 +116,11 @@ public final class DelayShard {
         if (outcomeReserve.records() > config.maxOutcomeReserveRecords()
                 || outcomeReserve.bytes() > config.maxOutcomeReserveBytes()) {
             throw new IllegalStateException("persisted outcome reserve exceeds the active shard grant");
+        }
+        outcomeReserveVector = loadCapacityEnvelopeState(capacityEnvelope);
+        if (capacityEnvelope != null
+                && !outcomeReserve.equals(outcomeReserveUsage(outcomeReserveVector))) {
+            throw new IllegalStateException("persisted outcome reserve projections disagree");
         }
         validateRuntimeObligationIndexes();
     }
@@ -160,6 +184,67 @@ public final class DelayShard {
         }
         persistResultAndPosition(command, sourcePosition, result, nextMessage(command, sourcePosition, result));
         return result;
+    }
+
+    private CapacityVectorV1 loadCapacityEnvelopeState(final ShardCapacityEnvelopeV1 envelope) {
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> bindingEntries =
+                scanControlReserveClass(1);
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> usageEntries =
+                scanControlReserveClass(2);
+        if (envelope == null) {
+            if (!bindingEntries.isEmpty() || !usageEntries.isEmpty()) {
+                throw new IllegalStateException("capacity envelope is required for persisted control reserve state");
+            }
+            return CapacityVectorV1.empty();
+        }
+        final byte[] bindingKey = KeyCodec.metaControlReserve(1, envelope.outcomeReserve().grantId());
+        if (bindingEntries.size() > 1 || !bindingEntries.isEmpty()
+                && !Arrays.equals(bindingEntries.get(0).key(), bindingKey)) {
+            throw new IllegalStateException("persisted control reserve grant identity does not match envelope");
+        }
+        final byte[] usageKey = KeyCodec.metaControlReserve(2, envelope.outcomeReserve().grantId());
+        if (usageEntries.size() > 1 || !usageEntries.isEmpty()
+                && !Arrays.equals(usageEntries.get(0).key(), usageKey)) {
+            throw new IllegalStateException("persisted outcome reserve key does not match envelope grant");
+        }
+        final ValueEnvelope.Decoded persistedBinding = store.getValue(ColumnFamily.META, bindingKey,
+                CAPACITY_RESERVE_VALUE_TYPE);
+        if (persistedBinding == null) {
+            if (!usageEntries.isEmpty()) {
+                throw new IllegalStateException("persisted outcome reserve has no envelope identity");
+            }
+            store.write(batch -> batch.putValue(ColumnFamily.META, CAPACITY_RESERVE_VALUE_TYPE, bindingKey,
+                    envelope.canonicalBytes()));
+        } else if (!envelope.equals(ShardCapacityEnvelopeV1.decode(persistedBinding.payload()))) {
+            throw new IllegalStateException("persisted capacity envelope identity differs from active envelope");
+        }
+        final ValueEnvelope.Decoded persistedUsage = store.getValue(ColumnFamily.META, usageKey,
+                CAPACITY_RESERVE_VALUE_TYPE);
+        final CapacityVectorV1 usage = persistedUsage == null
+                ? CapacityVectorV1.empty() : CapacityVectorV1.decode(persistedUsage.payload());
+        if (!envelope.outcomeReserve().vector().covers(usage)) {
+            throw new IllegalStateException("persisted outcome reserve exceeds immutable capacity grant");
+        }
+        return usage;
+    }
+
+    private List<io.nereusstream.delay.store.ShardStore.KeyValue> scanControlReserveClass(final int reserveClass) {
+        final byte[] lower = new byte[]{6, 1, (byte) reserveClass};
+        final byte[] upper = new byte[]{6, 1, (byte) Math.addExact(reserveClass, 1)};
+        return store.scan(ColumnFamily.META, lower, upper, 2);
+    }
+
+    private static OutcomeReserveUsage outcomeReserveUsage(final CapacityVectorV1 vector) {
+        final long records = Math.addExact(
+                Math.addExact(vector.amount(CapacityDimensionV1.RESULT_RECORDS),
+                        vector.amount(CapacityDimensionV1.SYSTEM_MUTATION_RECORDS)),
+                vector.amount(CapacityDimensionV1.EVIDENCE_RECORDS));
+        final long bytes = Math.addExact(
+                Math.addExact(vector.amount(CapacityDimensionV1.RESULT_BYTES),
+                        vector.amount(CapacityDimensionV1.SYSTEM_MUTATION_BYTES)),
+                Math.addExact(vector.amount(CapacityDimensionV1.OUTCOME_WAL_BYTES),
+                        vector.amount(CapacityDimensionV1.EVIDENCE_BYTES)));
+        return new OutcomeReserveUsage(records, bytes);
     }
 
     public synchronized MessageRecord getMessage(final DelayMessageId messageId) {
@@ -774,6 +859,11 @@ public final class DelayShard {
         }
         if (!outcomeReserve.fits(admissionCharge, config.maxOutcomeReserveRecords(),
                 config.maxOutcomeReserveBytes())) {
+            return persistAdmissionCapacityGated(body, mutation, sourcePosition, localClaim);
+        }
+        try {
+            validateOutcomeReserveVector(outcomeReserveVector.add(body.chargeVector().toCapacityVector()));
+        } catch (ArithmeticException | IllegalArgumentException | IllegalStateException exception) {
             return persistAdmissionCapacityGated(body, mutation, sourcePosition, localClaim);
         }
         if (current.status() == MessageStatus.CLAIMED) {
@@ -1716,6 +1806,7 @@ public final class DelayShard {
                     terminalMessage.runtimeIndex().attemptObligations());
             final ShardQuota nextQuota = quota.removeSchedule(current.payloadLength());
             final OutcomeReserveUsage nextOutcomeReserve = releasedOutcomeReserve(ledger);
+            final CapacityVectorV1 nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
             final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
                     sourcePosition, ledger.delayMessageId(), current, terminalMessage, null);
             final MessageRecord terminalMessageForWrite = terminalMessage;
@@ -1730,7 +1821,7 @@ public final class DelayShard {
                     putReadyProjection(batch, projection);
                 }
                 batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(META_QUOTA_USAGE), nextQuota.encode());
-                persistOutcomeReserve(batch, nextOutcomeReserve);
+                persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector);
                 writeSystemResult(batch, systemResult);
                 writePosition(batch, sourcePosition);
             });
@@ -1738,6 +1829,7 @@ public final class DelayShard {
             mutationSequence++;
             quota = nextQuota;
             outcomeReserve = nextOutcomeReserve;
+            outcomeReserveVector = nextOutcomeReserveVector;
             return systemResult;
         }
         if (current.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO
@@ -1772,6 +1864,7 @@ public final class DelayShard {
         final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
                 sourcePosition, ledger.delayMessageId(), current, scheduled, null, laneOverrides);
         final OutcomeReserveUsage nextOutcomeReserve = releasedOutcomeReserve(ledger);
+        final CapacityVectorV1 nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
         store.write(batch -> {
             batch.delete(ColumnFamily.INFLIGHT, ledger.encodedKey());
             batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(ledger.delayMessageId()), scheduledForWrite.encode());
@@ -1783,13 +1876,14 @@ public final class DelayShard {
                 deleteReadyKey(batch, projection.previousLane());
                 putReadyProjection(batch, projection);
             }
-            persistOutcomeReserve(batch, nextOutcomeReserve);
+            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector);
             writeSystemResult(batch, systemResult);
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
         mutationSequence++;
         outcomeReserve = nextOutcomeReserve;
+        outcomeReserveVector = nextOutcomeReserveVector;
         return systemResult;
     }
 
@@ -2202,10 +2296,13 @@ public final class DelayShard {
         final byte[] priorTimelineKey = claim == null ? timelineKey(admission.delayMessageId(), current)
                 : claim.timelineKey();
         final OutcomeReserveUsage nextOutcomeReserve = outcomeReserve.add(admissionCharge);
+        final CapacityVectorV1 nextOutcomeReserveVector = outcomeReserveVector.add(
+                outcomeCapacityCharge(admission));
         if (!nextOutcomeReserve.fits(OutcomeReserveUsage.empty(), config.maxOutcomeReserveRecords(),
                 config.maxOutcomeReserveBytes())) {
             throw new IllegalStateException("Publish Admission outcome reserve exceeds shard grant");
         }
+        validateOutcomeReserveVector(nextOutcomeReserveVector);
         store.write(batch -> {
             batch.delete(ColumnFamily.TIMELINE, priorTimelineKey);
             batch.delete(ColumnFamily.TIMELINE, expiryKey(admission.delayMessageId(), current));
@@ -2222,15 +2319,13 @@ public final class DelayShard {
             if (systemResult != null) {
                 writeSystemResult(batch, systemResult);
             }
-            if (!nextOutcomeReserve.equals(outcomeReserve)) {
-                batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(META_OUTCOME_RESERVE_USAGE),
-                        nextOutcomeReserve.encode());
-            }
+            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector);
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
         mutationSequence++;
         outcomeReserve = nextOutcomeReserve;
+        outcomeReserveVector = nextOutcomeReserveVector;
         return admission;
     }
 
@@ -2250,11 +2345,39 @@ public final class DelayShard {
         return outcomeReserve.remove(outcomeReserveCharge(ledger));
     }
 
-    private void persistOutcomeReserve(final ShardStore.Batch batch, final OutcomeReserveUsage nextUsage)
+    private CapacityVectorV1 outcomeCapacityCharge(final PublishAttemptLedger ledger) {
+        try {
+            return PublishAdmissionBody.decode(ledger.admissionBytes()).chargeVector().toCapacityVector();
+        } catch (RuntimeException legacyOrMalformedDirectLedger) {
+            // Synthetic direct ledgers do not carry a canonical ChargeVector.
+            return CapacityVectorV1.empty();
+        }
+    }
+
+    private CapacityVectorV1 releasedOutcomeReserveVector(final PublishAttemptLedger ledger) {
+        return outcomeReserveVector.subtract(outcomeCapacityCharge(ledger));
+    }
+
+    private void validateOutcomeReserveVector(final CapacityVectorV1 nextUsage) {
+        if (capacityEnvelope != null && !capacityEnvelope.outcomeReserve().vector().covers(nextUsage)) {
+            throw new IllegalStateException("Publish Admission outcome reserve exceeds immutable capacity grant");
+        }
+    }
+
+    private void persistOutcomeReserve(final ShardStore.Batch batch, final OutcomeReserveUsage nextUsage,
+                                       final CapacityVectorV1 nextVector)
             throws org.rocksdb.RocksDBException {
         if (!nextUsage.equals(outcomeReserve)) {
             batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(META_OUTCOME_RESERVE_USAGE),
                     nextUsage.encode());
+        }
+        if (capacityEnvelope != null && !nextVector.equals(outcomeReserveVector)) {
+            final byte[] key = KeyCodec.metaControlReserve(2, capacityEnvelope.outcomeReserve().grantId());
+            if (nextVector.isZero()) {
+                batch.delete(ColumnFamily.META, key);
+            } else {
+                batch.putValue(ColumnFamily.META, CAPACITY_RESERVE_VALUE_TYPE, key, nextVector.canonicalBytes());
+            }
         }
     }
 
@@ -2437,6 +2560,7 @@ public final class DelayShard {
                 sourcePosition.canonicalBytes(), next.runtimeIndex().possibleDestinationDuplicate(),
                 next.runtimeIndex().attemptObligations());
         final OutcomeReserveUsage nextOutcomeReserve = releasedOutcomeReserve(ledger);
+        final CapacityVectorV1 nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
         final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
                 sourcePosition, ledger.delayMessageId(), current, next, null);
         store.write(batch -> {
@@ -2448,7 +2572,7 @@ public final class DelayShard {
                 deleteReadyKey(batch, projection.previousLane());
                 putReadyProjection(batch, projection);
             }
-            persistOutcomeReserve(batch, nextOutcomeReserve);
+            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector);
             if (systemResult != null) {
                 writeSystemResult(batch, systemResult);
             }
@@ -2457,6 +2581,7 @@ public final class DelayShard {
         lastAppliedSourcePosition = sourcePosition;
         mutationSequence++;
         outcomeReserve = nextOutcomeReserve;
+        outcomeReserveVector = nextOutcomeReserveVector;
         return next;
     }
 
@@ -2484,12 +2609,13 @@ public final class DelayShard {
                 summary.generation(), summary.status(), summary.terminalCode(), summary.stateVersion(),
                 summary.appliedSourcePosition(), duplicate, remaining);
         final OutcomeReserveUsage nextOutcomeReserve = releasedOutcomeReserve(ledger);
+        final CapacityVectorV1 nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
         store.write(batch -> {
             batch.delete(ColumnFamily.INFLIGHT, ledger.encodedKey());
             batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(ledger.delayMessageId()), next.encode());
             batch.putValue(ColumnFamily.TERMINAL, 1,
                     KeyCodec.terminalGeneration(ledger.delayMessageId(), ledger.generation()), nextSummary.encode());
-            persistOutcomeReserve(batch, nextOutcomeReserve);
+            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector);
             if (systemResult != null) {
                 writeSystemResult(batch, systemResult);
             }
@@ -2498,6 +2624,7 @@ public final class DelayShard {
         lastAppliedSourcePosition = sourcePosition;
         mutationSequence++;
         outcomeReserve = nextOutcomeReserve;
+        outcomeReserveVector = nextOutcomeReserveVector;
         return next;
     }
 
@@ -2517,12 +2644,13 @@ public final class DelayShard {
                 summary.generation(), summary.status(), summary.terminalCode(), summary.stateVersion(),
                 summary.appliedSourcePosition(), duplicate, remaining);
         final OutcomeReserveUsage nextOutcomeReserve = releasedOutcomeReserve(ledger);
+        final CapacityVectorV1 nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
         final MessageRecord current = getMessage(ledger.delayMessageId());
         store.write(batch -> {
             batch.delete(ColumnFamily.INFLIGHT, ledger.encodedKey());
             batch.putValue(ColumnFamily.TERMINAL, 1,
                     KeyCodec.terminalGeneration(ledger.delayMessageId(), ledger.generation()), nextSummary.encode());
-            persistOutcomeReserve(batch, nextOutcomeReserve);
+            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector);
             if (systemResult != null) {
                 writeSystemResult(batch, systemResult);
             }
@@ -2531,6 +2659,7 @@ public final class DelayShard {
         lastAppliedSourcePosition = sourcePosition;
         mutationSequence++;
         outcomeReserve = nextOutcomeReserve;
+        outcomeReserveVector = nextOutcomeReserveVector;
         return current;
     }
 
@@ -2601,6 +2730,16 @@ public final class DelayShard {
     /** Returns the persisted non-borrowable outcome reserve usage projection. */
     public synchronized OutcomeReserveUsage outcomeReserve() {
         return outcomeReserve;
+    }
+
+    /** Returns the exact 66-dimensional outcome grant usage when an envelope is bound. */
+    public synchronized CapacityVectorV1 outcomeReserveVector() {
+        return outcomeReserveVector;
+    }
+
+    /** Returns the immutable placement envelope bound to this shard, if one was supplied. */
+    public ShardCapacityEnvelopeV1 capacityEnvelope() {
+        return capacityEnvelope;
     }
 
     /** Returns due work without claiming it or changing authoritative state. */
