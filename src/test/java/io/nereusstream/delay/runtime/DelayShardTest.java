@@ -477,6 +477,67 @@ class DelayShardTest {
     }
 
     @Test
+    void timeFenceOverlaysReservedPayloadAndBoundedCursorMaterializesExpiry() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("reservation-fence"));
+        final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,
+                3, 100, 10_000);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 8);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("reservation-fence-lane"));
+        final LargeScheduleIntent intent = new LargeScheduleIntent(lane, 2_000, 5_000,
+                OrderingMode.BEST_EFFORT, 8, Bytes.sha256(Bytes.utf8("reservation-fence-payload")), 4_000, 9);
+        final PreparedCommand prepare = PreparedCommand.prepareLarge(shardId, intent, 9_000);
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final PayloadProofTrustSet trustSet = new PayloadProofTrustSet(9, Map.of(2, keyPair.getPublic()));
+        final byte[] reservationId = Bytes.sha256(Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                prepare.commandId().bytes(), prepare.delayMessageId().bytes(), prepare.commandHash());
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, shardConfig, trustSet);
+            assertEquals(StableCode.OK, shard.apply(prepare, position(shardId, 0, 1_000)).stableCode());
+            assertEquals(PayloadReservationStatus.RESERVED, shard.getReservation(reservationId).status());
+
+            final TrustedUtcIntervalEvidence fenceProof = new TrustedUtcIntervalEvidence(5_000, 5_000,
+                    TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("reservation-fence-clock"),
+                    1, 1, 1, Bytes.sha256(Bytes.utf8("reservation-fence-proof")), 0, null);
+            final byte[] proofId = Bytes.sha256(Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                    shardId.routeIncarnation().bytes(), Bytes.u32be(shardId.partition()), Bytes.i64be(5_000),
+                    Bytes.u32be(1), Bytes.lp32(fenceProof.canonicalBytes()));
+            final AuthorIdentity fenceAuthor = AuthorIdentity.fence(Bytes.utf8("reservation-fence-writer"), 1);
+            final SystemMutation fence = SystemMutation.signed(shardId, SystemMutationType.TIME_FENCE, 9_000,
+                    proofId, timeFenceBody(shardId, 5_000, 1, proofId, fenceProof.canonicalBytes()),
+                    fenceAuthor.canonicalBytes(), 1, keyPair.getPrivate());
+            assertEquals(StableCode.OK, shard.applySystemMutation(fence,
+                    position(shardId, 1, 1_001), keyPair.getPublic()).stableCode());
+            assertEquals(PayloadReservationStatus.EXPIRED, shard.getReservation(reservationId).status());
+            assertEquals(1, shard.quota().reservationMessages());
+            assertEquals(1, shard.discoverReservationExpiry(5_000, 10).size());
+
+            final PayloadCommitProof proof = PayloadCommitProof.signed(9, 2, shardId.routeIncarnation().bytes(),
+                    shardId.partition(), prepare.delayMessageId(), reservationId,
+                    Bytes.sha256(Bytes.utf8("reservation-fence-profile")), Bytes.utf8("bucket"),
+                    Bytes.utf8("reservation-fence-key"), Bytes.utf8("v1"), new byte[0],
+                    intent.expectedPayloadLength(), intent.payloadSha256(), 5_000, keyPair.getPrivate());
+            final PreparedCommand commit = PreparedCommand.commitLarge(shardId, prepare.delayMessageId(), proof,
+                    9_000);
+            assertEquals(StableCode.RESERVATION_EXPIRED,
+                    shard.apply(commit, position(shardId, 2, 1_002)).stableCode());
+
+            final PayloadReservation materialized = shard.materializeReservationExpiry(reservationId);
+            assertEquals(PayloadReservationStatus.EXPIRED, materialized.status());
+            assertEquals(0, shard.quota().reservationMessages());
+            assertNull(store.getValue(ColumnFamily.TIMELINE,
+                    KeyCodec.reservationExpiry(5_000, reservationId), 5));
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard reopened = new DelayShard(store, shardConfig, trustSet);
+            assertEquals(PayloadReservationStatus.EXPIRED, reopened.getReservation(reservationId).status());
+            assertEquals(0, reopened.quota().reservationMessages());
+        }
+    }
+
+    @Test
     void publishAdmissionAndUnknownOutcomeMoveOneAttemptAcrossInflightKeysAtomically() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("attempt-ledger"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 9);

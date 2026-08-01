@@ -306,7 +306,38 @@ public final class DelayShard {
 
     public synchronized PayloadReservation getReservation(final byte[] reservationId) {
         final var value = store.getValue(ColumnFamily.ID, KeyCodec.idReservation(reservationId), 2);
-        return value == null ? null : PayloadReservation.decode(value.payload());
+        return value == null ? null : effectiveReservation(PayloadReservation.decode(value.payload()));
+    }
+
+    /**
+     * Materializes a reservation that has already been logically expired by a
+     * persisted TIME_FENCE watermark.  This is a local bounded cursor action,
+     * not a new source-log decision.
+     */
+    public synchronized PayloadReservation materializeReservationExpiry(final byte[] reservationId) {
+        Bytes.requireLength(reservationId, 32, "reservationId");
+        final var value = store.getValue(ColumnFamily.ID, KeyCodec.idReservation(reservationId), 2);
+        if (value == null) {
+            return null;
+        }
+        final PayloadReservation current = PayloadReservation.decode(value.payload());
+        if (current.status() != PayloadReservationStatus.RESERVED
+                || closedIngressDeadlineThrough < current.reservationExpiryEpochMs()) {
+            return effectiveReservation(current);
+        }
+        final PayloadReservation expired = new PayloadReservation(current.shardId(), current.reservationId(),
+                current.commandId(), current.delayMessageId(), current.commandHash(), current.intent(),
+                current.reservationExpiryEpochMs(), PayloadReservationStatus.EXPIRED,
+                Math.addExact(current.stateVersion(), 1), current.sourcePosition(), null);
+        final ShardQuota nextQuota = quota.removeReservation(current.intent().expectedPayloadLength());
+        store.write(batch -> {
+            batch.putValue(ColumnFamily.ID, 2, KeyCodec.idReservation(expired.reservationId()), expired.encode());
+            batch.delete(ColumnFamily.TIMELINE,
+                    KeyCodec.reservationExpiry(expired.reservationExpiryEpochMs(), expired.reservationId()));
+            batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(META_QUOTA_USAGE), nextQuota.encode());
+        });
+        quota = nextQuota;
+        return expired;
     }
 
     public synchronized CommandResult getCommandResult(final CommandId commandId) {
@@ -376,8 +407,8 @@ public final class DelayShard {
                 case EVIDENCE_RESOLUTION -> applyEvidenceResolutionMutation(mutation, sourcePosition);
                 case RESOLVE_UNCERTAIN -> applyResolveUncertainMutation(mutation, sourcePosition);
                 case CLAIM_RESULT -> applyClaimResultMutation(mutation, sourcePosition);
-                default -> throw new UnsupportedOperationException(
-                        "System Mutation type is not implemented: " + mutation.type());
+                default -> persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                        StableCode.STALE_SYSTEM_MUTATION);
             };
         } catch (IllegalArgumentException exception) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
@@ -723,7 +754,8 @@ public final class DelayShard {
                     sourcePosition, result, outcome.retryDecision());
             return result;
         }
-        throw new UnsupportedOperationException("NOT_PUBLISHED outcome application is not implemented");
+        return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                StableCode.STALE_SYSTEM_MUTATION);
     }
 
     private SystemMutationResult applyEvidenceResolutionMutation(final SystemMutation mutation,
@@ -2323,6 +2355,45 @@ public final class DelayShard {
         return List.copyOf(result);
     }
 
+    /** Returns only reservations whose expiry is already decided by TIME_FENCE. */
+    public synchronized List<ReservationExpiryWork> discoverReservationExpiry(final long earliestEpochMs,
+                                                                                final int limit) {
+        if (earliestEpochMs < 0 || limit <= 0) {
+            throw new IllegalArgumentException("invalid reservation expiry discovery bounds");
+        }
+        final List<ReservationExpiryWork> result = new ArrayList<>();
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries = store.scan(ColumnFamily.TIMELINE,
+                new byte[]{5, 1}, new byte[]{6, 1}, limit);
+        for (var entry : entries) {
+            final byte[] key = entry.key();
+            if (key.length != 2 + 8 + 32 || key[0] != 5 || key[1] != 1) {
+                throw new IllegalStateException("invalid RESERVATION_EXPIRY key");
+            }
+            final ByteBuffer input = ByteBuffer.wrap(key);
+            input.position(2);
+            final long expiry = input.getLong();
+            final byte[] reservationId = new byte[32];
+            input.get(reservationId);
+            if (expiry > earliestEpochMs) {
+                break;
+            }
+            final PayloadReservation reservation = PayloadReservation.decode(
+                    io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), 5).payload());
+            if (!Arrays.equals(reservation.reservationId(), reservationId)
+                    || reservation.reservationExpiryEpochMs() != expiry) {
+                throw new IllegalStateException("RESERVATION_EXPIRY key/value identity mismatch");
+            }
+            if (effectiveReservation(reservation).status() == PayloadReservationStatus.EXPIRED) {
+                result.add(new ReservationExpiryWork(reservation.reservationId(), reservation.delayMessageId(),
+                        reservation.reservationExpiryEpochMs(), reservation.stateVersion()));
+            }
+            if (result.size() >= limit) {
+                break;
+            }
+        }
+        return List.copyOf(result);
+    }
+
     private CommandResult applyLargePayloadCommand(final PreparedCommand command,
                                                    final SourcePosition sourcePosition) {
         try {
@@ -2958,13 +3029,24 @@ public final class DelayShard {
         final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries = store.scan(ColumnFamily.ID,
                 new byte[]{2, 1}, new byte[]{3, 1}, Math.max(1, limit));
         for (var entry : entries) {
-            final PayloadReservation reservation = PayloadReservation.decode(
-                    io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), 2).payload());
+            final PayloadReservation reservation = effectiveReservation(PayloadReservation.decode(
+                    io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), 2).payload()));
             if (reservation.delayMessageId().equals(messageId)) {
                 return reservation;
             }
         }
         return null;
+    }
+
+    private PayloadReservation effectiveReservation(final PayloadReservation reservation) {
+        if (reservation.status() != PayloadReservationStatus.RESERVED
+                || closedIngressDeadlineThrough < reservation.reservationExpiryEpochMs()) {
+            return reservation;
+        }
+        return new PayloadReservation(reservation.shardId(), reservation.reservationId(), reservation.commandId(),
+                reservation.delayMessageId(), reservation.commandHash(), reservation.intent(),
+                reservation.reservationExpiryEpochMs(), PayloadReservationStatus.EXPIRED,
+                reservation.stateVersion(), reservation.sourcePosition(), null);
     }
 
     /**
@@ -3448,6 +3530,23 @@ public final class DelayShard {
             if (generation < 0 || expireAtEpochMs < 0) {
                 throw new IllegalArgumentException("invalid expiry work");
             }
+        }
+    }
+
+    public record ReservationExpiryWork(byte[] reservationId, DelayMessageId messageId,
+                                       long reservationExpiryEpochMs, long stateVersion) {
+        public ReservationExpiryWork {
+            Bytes.requireLength(reservationId, 32, "reservationId");
+            Objects.requireNonNull(messageId, "messageId");
+            if (reservationExpiryEpochMs < 0 || stateVersion <= 0) {
+                throw new IllegalArgumentException("invalid reservation expiry work");
+            }
+            reservationId = Bytes.copy(reservationId);
+        }
+
+        @Override
+        public byte[] reservationId() {
+            return Bytes.copy(reservationId);
         }
     }
 }
