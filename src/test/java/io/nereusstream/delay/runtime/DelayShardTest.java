@@ -47,6 +47,16 @@ class DelayShardTest {
     Path tempDir;
 
     @Test
+    void admissionBudgetConfigRequiresAPositiveTotalAndSmallerUncertainBudget() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,
+                        3, 100, 10_000, 0, 0));
+        assertThrows(IllegalArgumentException.class,
+                () -> new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,
+                        3, 100, 10_000, 1, 1));
+    }
+
+    @Test
     void appliesScheduleCancelAndRescheduleAtomicallyAndReplaysIdempotently() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 0);
@@ -835,6 +845,75 @@ class DelayShardTest {
             assertArrayEquals(fixture.body(), ledger.admissionBytes());
             assertEquals(result, shard.getSystemMutationResult(mutation.systemMutationId()));
             assertEquals(result, shard.applySystemMutation(mutation, admissionPosition, keyPair.getPublic()));
+        }
+    }
+
+    @Test
+    void sourceOrderedPublishAdmissionFailsClosedWhenGenerationBudgetIsExhausted() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-admission-budget"));
+        final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,
+                3, 100, 10_000, 1, 0);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 25);
+        final DestinationLaneId lane = new DestinationLaneId(Bytes.sha256(Bytes.utf8("lane")));
+        final DelayMessageId messageId = DelayMessageId.random(shardId);
+        final PreparedCommand schedule = PreparedCommand.create(shardId,
+                io.nereusstream.delay.protocol.CommandId.random(shardId), messageId,
+                io.nereusstream.delay.protocol.CommandType.SCHEDULE, 9_000,
+                io.nereusstream.delay.protocol.CommandBodies.schedule(
+                        new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                                OrderingMode.BEST_EFFORT, Bytes.utf8("budget"))));
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final byte[] sourceTimelineKey = KeyCodec.timelineDue(lane, 2_000,
+                schedulePosition.sourceOrderToken(), messageId, 0);
+        final TimelineWorkRef sourceWork = new TimelineWorkRef(TimelineWorkKind.INITIAL_SCHEDULE,
+                sourceTimelineKey, 2_000, 2_000, 1, 1, false, UncertainRetryAuthority.NONE, null, null);
+        final byte[] laneIncarnation = LaneRecord.initial(lane, schedulePosition).laneIncarnation();
+        final Fixture firstFixture = Fixture.createForSource(shardId, messageId, laneIncarnation,
+                sourceTimelineKey, 1, 0, 0,
+                GenerationRuntimeIndex.obligationSetDigest(java.util.List.of()), sourceWork.semanticWorkDigest());
+        final PublishAdmissionBody firstBody = PublishAdmissionBody.decode(firstFixture.body());
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final SystemMutation firstAdmission = SystemMutation.signed(shardId,
+                SystemMutationType.PUBLISH_ADMISSION, 9_000,
+                Bytes.sha256(Bytes.utf8("admission-budget-first")), firstFixture.body(), firstFixture.owner(), 7,
+                keyPair.getPrivate());
+        final KafkaSourcePosition firstAdmissionPosition = position(shardId, 1, 1_001);
+        final byte[] outcomeBody = publishNotPublishedBody(shardId, firstBody.publishAttemptId(), 1,
+                StableCode.DESTINATION_DEFINITIVE_RETRIABLE, 2_002);
+        final SystemMutation outcome = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
+                Bytes.sha256(Bytes.utf8("admission-budget-outcome")), outcomeBody, firstFixture.owner(), 7,
+                keyPair.getPrivate());
+        final KafkaSourcePosition outcomePosition = position(shardId, 2, 2_002);
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, shardConfig);
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            assertEquals(StableCode.OK,
+                    shard.applySystemMutation(firstAdmission, firstAdmissionPosition, keyPair.getPublic()).stableCode());
+            assertEquals(StableCode.DESTINATION_DEFINITIVE_RETRIABLE,
+                    shard.applySystemMutation(outcome, outcomePosition, keyPair.getPublic()).stableCode());
+            final MessageRecord retry = shard.getMessage(messageId);
+            assertEquals(1, retry.runtimeIndex().admissionsUsed());
+            assertEquals(TimelineWorkKind.DEFINITIVE_RETRY, retry.runtimeIndex().timeline().workKind());
+
+            final Fixture secondFixture = Fixture.createForSource(shardId, messageId, laneIncarnation,
+                    retry.runtimeIndex().timeline().encodedTimelineKey(), 2, 1, 0,
+                    GenerationRuntimeIndex.obligationSetDigest(java.util.List.of()),
+                    retry.runtimeIndex().timeline().semanticWorkDigest(), 2, retry.stateVersion());
+            final SystemMutation secondAdmission = SystemMutation.signed(shardId,
+                    SystemMutationType.PUBLISH_ADMISSION, 9_000,
+                    Bytes.sha256(Bytes.utf8("admission-budget-second")), secondFixture.body(), secondFixture.owner(),
+                    7, keyPair.getPrivate());
+            final SystemMutationResult rejected = shard.applySystemMutation(secondAdmission,
+                    position(shardId, 3, 2_003), keyPair.getPublic());
+
+            assertEquals(StableCode.STALE_SYSTEM_MUTATION, rejected.stableCode());
+            assertEquals(MessageStatus.SCHEDULED, shard.getMessage(messageId).status());
+            assertEquals(1, shard.getMessage(messageId).runtimeIndex().admissionsUsed());
+            assertNull(shard.findOpenPublishAttempt(firstBody.publishAttemptId()));
         }
     }
 

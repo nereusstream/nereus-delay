@@ -750,7 +750,19 @@ public final class DelayShard {
         } else if (sourceWorkKind == TimelineWorkKind.UNCERTAIN_RETRY) {
             throw new IllegalStateException("UNCERTAIN_RETRY has no older UNCERTAIN obligation");
         }
+        validateAdmissionBudget(index, uncertainRetry);
         return new AdmissionReplayState(localClaim == null, uncertainRetry);
+    }
+
+    private void validateAdmissionBudget(final GenerationRuntimeIndex index,
+                                         final boolean uncertainRetryAdmission) {
+        if (index.admissionsUsed() >= config.maxPublishAdmissions()) {
+            throw new IllegalStateException("generation publish admission budget is exhausted");
+        }
+        if (uncertainRetryAdmission
+                && index.uncertainRetryAdmissionsUsed() >= config.maxUncertainRetries()) {
+            throw new IllegalStateException("generation uncertain-retry admission budget is exhausted");
+        }
     }
 
     private MessageRecord normalizeCommandRuntime(final DelayMessageId messageId, final MessageRecord prior,
@@ -1198,6 +1210,7 @@ public final class DelayShard {
                 || current.generation() != admission.generation() || !current.laneId().equals(admission.laneId())) {
             throw new IllegalStateException("publish admission is stale for the current message generation");
         }
+        validateAdmissionBudget(current.runtimeIndex(), uncertainRetryAdmission);
         final ClaimRecord claim = current.status() == MessageStatus.CLAIMED
                 ? getClaim(admission.claimId(), admission.ownerEpoch()) : null;
         if (current.status() == MessageStatus.CLAIMED
@@ -2283,6 +2296,9 @@ public final class DelayShard {
 
     private void validateMessageRuntimeBranches(final DelayMessageId messageId, final MessageRecord message) {
         final GenerationRuntimeIndex index = message.runtimeIndex();
+        if (index.admissionsUsed() > config.maxPublishAdmissions()) {
+            throw new IllegalStateException("persisted generation exceeds publish admission budget");
+        }
         if (index.currentWorkKind() == CurrentSendWorkKind.CLAIMED
                 && (message.status() != MessageStatus.CLAIMED || index.claimId().length != ClaimRecord.HASH_LENGTH)) {
             throw new IllegalStateException("CLAIMED runtime branch does not match Message status");

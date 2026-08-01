@@ -57,7 +57,7 @@ public class PublishAdmissionBodyTest {
 
         public static Fixture create(final ShardId shard, final DelayMessageId messageId) {
             return createInternal(shard, messageId, new byte[16], Bytes.sha256(Bytes.utf8("timeline")), 1, 0, 0,
-                    Bytes.sha256(Bytes.utf8("obligations")), Bytes.sha256(Bytes.utf8("semantic")));
+                    Bytes.sha256(Bytes.utf8("obligations")), Bytes.sha256(Bytes.utf8("semantic")), 1, 1);
         }
 
         public static Fixture createForSource(final ShardId shard, final DelayMessageId messageId,
@@ -66,9 +66,33 @@ public class PublishAdmissionBodyTest {
                                                final int expectedAdmissionsUsed,
                                                final int expectedUncertainRetryAdmissionsUsed,
                                                final byte[] obligationSetDigest, final byte[] semanticDigest) {
+            return createForSource(shard, messageId, laneIncarnation, timelineKey, sourceWorkKind,
+                    expectedAdmissionsUsed, expectedUncertainRetryAdmissionsUsed, obligationSetDigest,
+                    semanticDigest, 1, 1);
+        }
+
+        public static Fixture createForSource(final ShardId shard, final DelayMessageId messageId,
+                                               final byte[] laneIncarnation, final byte[] timelineKey,
+                                               final int sourceWorkKind,
+                                               final int expectedAdmissionsUsed,
+                                               final int expectedUncertainRetryAdmissionsUsed,
+                                               final byte[] obligationSetDigest, final byte[] semanticDigest,
+                                               final int attemptNo) {
+            return createForSource(shard, messageId, laneIncarnation, timelineKey, sourceWorkKind,
+                    expectedAdmissionsUsed, expectedUncertainRetryAdmissionsUsed, obligationSetDigest,
+                    semanticDigest, attemptNo, 1);
+        }
+
+        public static Fixture createForSource(final ShardId shard, final DelayMessageId messageId,
+                                               final byte[] laneIncarnation, final byte[] timelineKey,
+                                               final int sourceWorkKind,
+                                               final int expectedAdmissionsUsed,
+                                               final int expectedUncertainRetryAdmissionsUsed,
+                                               final byte[] obligationSetDigest, final byte[] semanticDigest,
+                                               final int attemptNo, final long stateVersion) {
             return createInternal(shard, messageId, laneIncarnation, Bytes.sha256(timelineKey), sourceWorkKind,
                     expectedAdmissionsUsed, expectedUncertainRetryAdmissionsUsed, obligationSetDigest,
-                    semanticDigest);
+                    semanticDigest, attemptNo, stateVersion);
         }
 
         private static Fixture createInternal(final ShardId shard, final DelayMessageId messageId,
@@ -76,7 +100,8 @@ public class PublishAdmissionBodyTest {
                                               final int sourceWorkKind,
                                               final int expectedAdmissionsUsed,
                                               final int expectedUncertainRetryAdmissionsUsed,
-                                              final byte[] obligationSetDigest, final byte[] semanticDigest) {
+                                              final byte[] obligationSetDigest, final byte[] semanticDigest,
+                                              final int attemptNo, final long stateVersion) {
             final byte[] owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 7,
                     Bytes.sha256(Bytes.utf8("lease"))).canonicalBytes();
             final byte[] lane = Bytes.sha256(Bytes.utf8("lane"));
@@ -93,12 +118,12 @@ public class PublishAdmissionBodyTest {
             final byte[] attempt = Bytes.sha256(Bytes.utf8("attempt"));
             final byte[] reserved = reserved(shard, messageId, attempt, destinationProfile, capabilityProfile);
             final byte[] descriptor = descriptor(lane, laneIncarnation, destinationProfile, capabilityProfile,
-                    target, channel, messageId, attempt, payload, metadata, reserved);
+                    target, channel, messageId, attempt, payload, metadata, reserved, attemptNo);
             final byte[] materialization = materialization(destinationProfile, capabilityProfile, target, messageId,
                     payload, metadata, descriptor);
             final byte[] claim = claim(shard, messageId, lane, laneIncarnation, owner, materialization,
                     timelineKeySha256, sourceWorkKind, expectedAdmissionsUsed,
-                    expectedUncertainRetryAdmissionsUsed, obligationSetDigest, semanticDigest);
+                    expectedUncertainRetryAdmissionsUsed, obligationSetDigest, semanticDigest, stateVersion);
             final byte[] certificate = certificate(owner, shard, lane, laneIncarnation, channel, time,
                     bindingDigest, fingerprint);
             final byte[] body = CanonicalProtobuf.message(output -> {
@@ -237,7 +262,7 @@ public class PublishAdmissionBodyTest {
                                          final byte[] destinationProfile, final byte[] capabilityProfile,
                                          final byte[] target, final byte[] channel, final DelayMessageId messageId,
                                          final byte[] attempt, final byte[] payload, final byte[] metadata,
-                                         final byte[] reserved) {
+                                         final byte[] reserved, final int attemptNo) {
             return CanonicalProtobuf.message(output -> {
                 CanonicalProtobuf.uint32(output, 1, 1);
                 CanonicalProtobuf.uint32(output, 2, 1);
@@ -252,7 +277,7 @@ public class PublishAdmissionBodyTest {
                 CanonicalProtobuf.bytes(output, 11, messageId.bytes());
                 CanonicalProtobuf.uint32(output, 12, 0);
                 CanonicalProtobuf.bytes(output, 13, attempt);
-                CanonicalProtobuf.uint32(output, 14, 1);
+                CanonicalProtobuf.uint32(output, 14, attemptNo);
                 CanonicalProtobuf.bytes(output, 15, payload);
                 CanonicalProtobuf.bytes(output, 16, metadata);
                 CanonicalProtobuf.bytes(output, 17, reserved);
@@ -286,12 +311,13 @@ public class PublishAdmissionBodyTest {
                                     final byte[] timelineKeySha256, final int sourceWorkKind,
                                     final int expectedAdmissionsUsed,
                                     final int expectedUncertainRetryAdmissionsUsed,
-                                    final byte[] obligationSetDigest, final byte[] semanticDigest) {
+                                    final byte[] obligationSetDigest, final byte[] semanticDigest,
+                                    final long stateVersion) {
             return CanonicalProtobuf.message(output -> {
                 CanonicalProtobuf.bytes(output, 1, Bytes.sha256(Bytes.utf8("claim")));
                 CanonicalProtobuf.bytes(output, 2, messageId.bytes());
                 CanonicalProtobuf.uint32(output, 3, 0);
-                CanonicalProtobuf.uint32(output, 4, 1);
+                CanonicalProtobuf.int64(output, 4, stateVersion);
                 CanonicalProtobuf.bytes(output, 5, lane);
                 CanonicalProtobuf.bytes(output, 6, laneIncarnation);
                 CanonicalProtobuf.uint32(output, 7, 1);

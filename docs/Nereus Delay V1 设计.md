@@ -2887,6 +2887,14 @@ timingPolicy:
   maxDelayHorizon: required-by-version
   maxMessageLifetime: required-by-version
 
+retryPolicy:
+  maxPublishAdmissions: required-by-pinned-policy
+  maxUncertainRetries: required-by-pinned-policy
+  requireInitialAdmissionsAtMostMax: true
+  requireAutomaticUncertainBudgetBelowTotal: true
+  controlOverrideMayExceedAutomaticUncertainBudget: true
+  controlOverrideMayNotExceedTotalAdmissionBudget: true
+
 payload:
   inlineThresholdBytes: required
   maxPayloadBytes: required

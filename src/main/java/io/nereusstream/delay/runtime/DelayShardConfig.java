@@ -10,11 +10,30 @@ public record DelayShardConfig(
         long maxLanes,
         long inlinePayloadThresholdBytes,
         long maxPayloadBytes,
-        long maxReservationTtlMs) {
+        long maxReservationTtlMs,
+        int maxPublishAdmissions,
+        int maxUncertainRetries) {
+    /**
+     * Compatibility constructor for the pre-retry-policy embedded config.
+     * The safety cap follows the shard's pending-message bound until a pinned
+     * RetryPolicySemanticV1 supplies a smaller per-generation value.
+     */
+    public DelayShardConfig(final long maxDelayHorizonMs, final long minDeliveryWindowMs,
+                            final long maxMessageLifetimeMs, final long maxPendingMessages,
+                            final long maxPendingBytes, final long maxLanes,
+                            final long inlinePayloadThresholdBytes, final long maxPayloadBytes,
+                            final long maxReservationTtlMs) {
+        this(maxDelayHorizonMs, minDeliveryWindowMs, maxMessageLifetimeMs, maxPendingMessages,
+                maxPendingBytes, maxLanes, inlinePayloadThresholdBytes, maxPayloadBytes,
+                maxReservationTtlMs, boundedAdmissionCap(maxPendingMessages), 0);
+    }
+
     public DelayShardConfig {
         if (maxDelayHorizonMs < 0 || minDeliveryWindowMs < 0 || maxMessageLifetimeMs < 0
                 || maxPendingMessages <= 0 || maxPendingBytes <= 0 || maxLanes <= 0
-                || inlinePayloadThresholdBytes < 0 || maxPayloadBytes <= 0 || maxReservationTtlMs <= 0) {
+                || inlinePayloadThresholdBytes < 0 || maxPayloadBytes <= 0 || maxReservationTtlMs <= 0
+                || maxPublishAdmissions <= 0 || maxUncertainRetries < 0
+                || maxUncertainRetries >= maxPublishAdmissions) {
             throw new IllegalArgumentException("timing limits must be non-negative");
         }
         if (maxDelayHorizonMs > maxMessageLifetimeMs) {
@@ -27,6 +46,14 @@ public record DelayShardConfig(
 
     public static DelayShardConfig defaults() {
         return new DelayShardConfig(365L * 24 * 60 * 60 * 1000, 1, 365L * 24 * 60 * 60 * 1000,
-                1_000_000, 1L << 30, 10_000, 1L << 20, 1L << 32, 24L * 60 * 60 * 1000);
+                1_000_000, 1L << 30, 10_000, 1L << 20, 1L << 32, 24L * 60 * 60 * 1000,
+                1_000_000, 0);
+    }
+
+    private static int boundedAdmissionCap(final long maxPendingMessages) {
+        if (maxPendingMessages <= 0) {
+            throw new IllegalArgumentException("maxPendingMessages must be positive");
+        }
+        return maxPendingMessages >= Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) maxPendingMessages;
     }
 }
