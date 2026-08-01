@@ -70,6 +70,10 @@ The local query increment now exposes bounded read-only
 the exact current runtime/terminal state, state version, timing, duplicate-risk
 bit and safe payload-availability category without exposing payload bytes,
 destination lane identity, object-store keys, command hashes or receipt data.
+The durable DLQ export state is part of the message snapshot and is the only
+accepted source for the public DLQ projection; non-dead-letter generations must
+remain `NOT_CONFIGURED`, and the compatibility projector overload rejects a
+caller-supplied state that disagrees with the snapshot.
 The wire-level closed unions are now also encoded: `CommandQueryResponseV1`
 and `MessageQueryResponseV1` cover every Registry public view and error branch,
 including source-barrier pending views, safe destination binding, retired

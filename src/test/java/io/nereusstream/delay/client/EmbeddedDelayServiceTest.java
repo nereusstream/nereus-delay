@@ -116,6 +116,12 @@ class EmbeddedDelayServiceTest {
                         .resultKind());
         assertThrows(IllegalArgumentException.class,
                 () -> BoundedLocalQueryProjector.command(rejected, 5_000, binding));
+        assertThrows(IllegalArgumentException.class,
+                () -> BoundedLocalQueryProjector.message(terminal, binding, DlqExportStateV1.PUBLISHED, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> new MessageQuerySnapshot(messageId, 0, 2, GenerationAggregateState.PUBLISHED,
+                        2_000, 5_000, PayloadAvailability.INLINE_RETAINED, false, StableCode.OK,
+                        DlqExportStateV1.PUBLISHED));
     }
 
     @Test

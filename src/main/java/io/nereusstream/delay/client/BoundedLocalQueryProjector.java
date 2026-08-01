@@ -77,6 +77,9 @@ public final class BoundedLocalQueryProjector {
         Objects.requireNonNull(snapshot, "snapshot");
         Objects.requireNonNull(binding, "binding");
         Objects.requireNonNull(dlqExportState, "dlqExportState");
+        if (snapshot.dlqExportState() != dlqExportState) {
+            throw new IllegalArgumentException("caller DLQ state disagrees with durable message snapshot");
+        }
         final MessageGenerationStateV1 state = MessageGenerationStateV1.fromWire(snapshot.state().wireValue());
         if (state.active()) {
             final ActiveMessageViewV1 view = new ActiveMessageViewV1(snapshot.generation(), snapshot.stateVersion(),

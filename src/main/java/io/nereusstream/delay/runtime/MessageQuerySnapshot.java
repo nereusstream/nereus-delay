@@ -49,6 +49,10 @@ public record MessageQuerySnapshot(
         if (terminal != (terminalCode != null)) {
             throw new IllegalArgumentException("terminal code presence does not match message state");
         }
+        if (state != GenerationAggregateState.DEAD_LETTER
+                && dlqExportState != DlqExportStateV1.NOT_CONFIGURED) {
+            throw new IllegalArgumentException("only a dead-letter generation may have a DLQ export state");
+        }
     }
 
     public boolean terminal() {
