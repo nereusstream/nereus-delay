@@ -61,6 +61,11 @@ class SloObservationOutboxV1Test {
                 DueExclusionReasonV1.CAPACITY_GATED, endpoint(300), bytes(32, 6), 2);
         assertThrows(IllegalArgumentException.class,
                 () -> SloObservationOutboxV1.open(start).mergeFinal(other, SloThresholdDirectionV1.AT_MOST));
+
+        final SloSampleFinalV1 excluded = new SloSampleFinalV1(start.sampleId(), start.startDigest(),
+                SloFinalOutcomeV1.BAD_EVIDENCE_GAP, SloThresholdUnitV1.MILLISECONDS, 1, 1,
+                DueExclusionReasonV1.CAPACITY_GATED, endpoint(300), bytes(32, 7), 2);
+        assertThrows(IllegalArgumentException.class, () -> excluded.validateAgainst(start));
     }
 
     private static SloSampleStartV1 start() {

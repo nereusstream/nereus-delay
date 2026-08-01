@@ -115,6 +115,10 @@ public final class SloSampleFinalV1 {
         if (start.population() == SloPopulationV1.HEALTHY && exclusionReason != null) {
             throw new IllegalArgumentException("HEALTHY SLO final cannot carry an exclusion");
         }
+        if (exclusionReason != null && (start.objective() != SloObjectiveNameV1.DUE_ADMISSION_LAG
+                || start.population() != SloPopulationV1.ALL_ACCEPTED)) {
+            throw new IllegalArgumentException("exclusions are only valid for due ALL_ACCEPTED samples");
+        }
     }
 
     /**
