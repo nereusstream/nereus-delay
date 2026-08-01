@@ -4,10 +4,9 @@ import java.util.Arrays;
 import java.util.Objects;
 
 /**
- * Closed typed-result oneof envelope.  The operation-specific payload is
- * retained as canonical bytes here; its branch codec is owned by the
- * corresponding control-result module and is never treated as a free-form
- * map or diagnostic string.
+ * Closed typed-result oneof envelope.  Each branch is decoded by its exact
+ * control-result codec before the canonical bytes are retained; a branch tag
+ * can therefore never be paired with an unrelated protobuf payload.
  */
 public final class ControlTypedResultV1 {
     private final ControlResultKindV1 kind;
@@ -15,7 +14,7 @@ public final class ControlTypedResultV1 {
 
     public ControlTypedResultV1(final ControlResultKindV1 kind, final byte[] payload) {
         this.kind = Objects.requireNonNull(kind, "kind");
-        this.payload = canonicalPayload(payload);
+        this.payload = canonicalPayload(kind, payload);
     }
 
     public ControlResultKindV1 kind() {
@@ -42,21 +41,22 @@ public final class ControlTypedResultV1 {
         return result;
     }
 
-    private static byte[] canonicalPayload(final byte[] value) {
+    private static byte[] canonicalPayload(final ControlResultKindV1 kind, final byte[] value) {
         Objects.requireNonNull(value, "payload");
         if (value.length == 0) {
             throw new IllegalArgumentException("typed control result payload must not be empty");
         }
-        // A branch payload is itself a canonical protobuf message.  The
-        // branch-specific decoder performs the closed field validation.
-        final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(value);
-        if (!reader.hasRemaining()) {
-            throw new IllegalArgumentException("typed control result payload is empty");
-        }
-        while (reader.hasRemaining()) {
-            reader.next();
-        }
-        return Bytes.copy(value);
+        return switch (kind) {
+            case LANE -> LaneControlResultV1.decode(value).canonicalBytes();
+            case SHARD -> ShardControlResultV1.decode(value).canonicalBytes();
+            case CHECKPOINT -> CheckpointControlResultV1.decode(value).canonicalBytes();
+            case PROFILE -> ProfileControlResultV1.decode(value).canonicalBytes();
+            case QUOTA -> QuotaControlResultV1.decode(value).canonicalBytes();
+            case MESSAGE -> MessageControlResultV1.decode(value).canonicalBytes();
+            case CHECKPOINT_CATALOG -> CheckpointCatalogResultV1.decode(value).canonicalBytes();
+            case ROUTE -> RouteControlResultV1.decode(value).canonicalBytes();
+            case SECRET_ROTATION -> SecretRotationResultV1.decode(value).canonicalBytes();
+        };
     }
 
     @Override

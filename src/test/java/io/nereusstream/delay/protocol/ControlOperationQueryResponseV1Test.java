@@ -16,7 +16,8 @@ class ControlOperationQueryResponseV1Test {
         final CurrentControlOperationV1 current = new CurrentControlOperationV1(bytes(32, 1), bytes(32, 2),
                 bytes(32, 3), ControlOperationStateV1.SUCCEEDED, 4, List.of(target),
                 new ControlTypedResultV1(ControlResultKindV1.LANE,
-                        CanonicalProtobuf.message(output -> CanonicalProtobuf.uint32(output, 1, 1))));
+                        new LaneControlResultV1(new DestinationLaneId(bytes(32, 4)), bytes(16, 5), 6,
+                                LaneAdmissionGateV1.OPEN, 0, StableCode.OK).canonicalBytes()));
         final ControlOperationQueryResponseV1 response = ControlOperationQueryResponseV1.current(current);
         assertArrayEquals(response.canonicalBytes(),
                 ControlOperationQueryResponseV1.decode(response.canonicalBytes()).canonicalBytes());
