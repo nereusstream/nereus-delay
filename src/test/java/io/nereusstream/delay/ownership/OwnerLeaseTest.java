@@ -23,6 +23,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class OwnerLeaseTest {
     @TempDir
@@ -65,6 +66,28 @@ class OwnerLeaseTest {
                     == io.nereusstream.delay.protocol.StableCode.SCHEDULED);
             owned.beginDrain();
             assertEquals(ShardLifecycleState.DRAINING, owned.state());
+        }
+    }
+
+    @Test
+    void leaseRenewalCannotChangeTokenOrMoveExpiryBackwards() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 2);
+        final OwnerLease lease = new OwnerLease(shard, "worker-a", 7, new byte[32], 200);
+        final OwnedDelayShard owned;
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("renewal"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shard, resources)) {
+            owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            assertThrows(IllegalArgumentException.class,
+                    () -> owned.updateLease(new OwnerLease(shard, "worker-b", 7, new byte[32], 250)));
+            final byte[] wrongToken = new byte[32];
+            wrongToken[0] = 1;
+            assertThrows(IllegalArgumentException.class,
+                    () -> owned.updateLease(new OwnerLease(shard, "worker-a", 7, wrongToken, 250)));
+            assertThrows(IllegalArgumentException.class,
+                    () -> owned.updateLease(new OwnerLease(shard, "worker-a", 7, new byte[32], 199)));
+            owned.updateLease(new OwnerLease(shard, "worker-a", 7, new byte[32], 250));
+            assertEquals(250, owned.lease().expiresAtEpochMs());
         }
     }
 }

@@ -29,7 +29,11 @@ public final class OwnedDelayShard {
     }
 
     public synchronized void updateLease(final OwnerLease renewed) {
-        if (!renewed.shardId().equals(lease.shardId()) || renewed.ownerEpoch() != lease.ownerEpoch()) {
+        Objects.requireNonNull(renewed, "renewed");
+        if (!renewed.shardId().equals(lease.shardId()) || !renewed.ownerId().equals(lease.ownerId())
+                || renewed.ownerEpoch() != lease.ownerEpoch()
+                || !io.nereusstream.delay.protocol.Bytes.constantTimeEquals(renewed.leaseToken(), lease.leaseToken())
+                || renewed.expiresAtEpochMs() < lease.expiresAtEpochMs()) {
             throw new IllegalArgumentException("lease renewal changed owner identity/epoch");
         }
         lease = renewed;
