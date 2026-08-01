@@ -26,6 +26,9 @@ public record PulsarActivationBarrier(
         if (empty && (ledgerId != 0 || entryId != 0 || normalizedLastBatchIndex != 0)) {
             throw new IllegalArgumentException("empty Pulsar barrier must use the sentinel cursor");
         }
+        if (allZero(brokerResourceIncarnation) || allZero(resourceGuardAttestationDigest)) {
+            throw new IllegalArgumentException("Pulsar barrier identities must be non-zero");
+        }
         brokerResourceIncarnation = Bytes.copy(brokerResourceIncarnation);
         resourceGuardAttestationDigest = Bytes.copy(resourceGuardAttestationDigest);
     }
@@ -50,6 +53,29 @@ public record PulsarActivationBarrier(
     @Override
     public byte[] resourceGuardAttestationDigest() {
         return Bytes.copy(resourceGuardAttestationDigest);
+    }
+
+    @Override
+    public boolean equals(final Object other) {
+        if (!(other instanceof PulsarActivationBarrier that)) {
+            return false;
+        }
+        return shardId.equals(that.shardId)
+                && Arrays.equals(brokerResourceIncarnation, that.brokerResourceIncarnation)
+                && physicalTopic.equals(that.physicalTopic)
+                && ledgerId == that.ledgerId
+                && entryId == that.entryId
+                && normalizedLastBatchIndex == that.normalizedLastBatchIndex
+                && guardedSourceConnectionGeneration == that.guardedSourceConnectionGeneration
+                && Arrays.equals(resourceGuardAttestationDigest, that.resourceGuardAttestationDigest)
+                && empty == that.empty;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(shardId, Arrays.hashCode(brokerResourceIncarnation), physicalTopic, ledgerId, entryId,
+                normalizedLastBatchIndex, guardedSourceConnectionGeneration,
+                Arrays.hashCode(resourceGuardAttestationDigest), empty);
     }
 
     /** Exact source connection evidence captured with the guarded barrier. */
@@ -87,5 +113,14 @@ public record PulsarActivationBarrier(
             return pulsar.entryId() > entryId;
         }
         return pulsar.normalizedBatchIndex() >= normalizedLastBatchIndex;
+    }
+
+    private static boolean allZero(final byte[] value) {
+        for (byte element : value) {
+            if (element != 0) {
+                return false;
+            }
+        }
+        return true;
     }
 }

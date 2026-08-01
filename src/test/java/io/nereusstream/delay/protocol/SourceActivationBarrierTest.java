@@ -1,10 +1,12 @@
 package io.nereusstream.delay.protocol;
 
+import io.nereusstream.delay.ownership.SourceAssignment;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -54,5 +56,35 @@ class SourceActivationBarrierTest {
         assertThrows(IllegalArgumentException.class, () -> barrier.validatePosition(new PulsarSourcePosition(shard,
                 Bytes.sha256(Bytes.utf8("replacement-resource")), "persistent://t/empty", 1, 1, 0, 1,
                 PulsarSourcePosition.EntryKind.NON_BATCH, 1)));
+    }
+
+    @Test
+    void pulsarBarrierAndAssignmentUseValueEqualityForArrayFields() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
+        final byte[] resource = Bytes.sha256(Bytes.utf8("assignment-resource"));
+        final byte[] guard = Bytes.sha256(Bytes.utf8("assignment-guard"));
+        final PulsarActivationBarrier first = new PulsarActivationBarrier(shard, resource,
+                "persistent://t/value", 7, 9, 1, 13, guard, false);
+        final PulsarActivationBarrier second = new PulsarActivationBarrier(shard, resource.clone(),
+                "persistent://t/value", 7, 9, 1, 13, guard.clone(), false);
+        assertEquals(first, second);
+        assertEquals(first.hashCode(), second.hashCode());
+        final SourceAssignment left = new SourceAssignment(shard, Bytes.sha256(Bytes.utf8("assignment-id")), 4,
+                first);
+        final SourceAssignment right = new SourceAssignment(shard, Bytes.sha256(Bytes.utf8("assignment-id")), 4,
+                second);
+        assertEquals(left, right);
+        assertTrue(left.sameIdentity(right));
+    }
+
+    @Test
+    void pulsarBarrierRejectsZeroResourceOrGuardIdentity() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
+        final byte[] resource = Bytes.sha256(Bytes.utf8("non-zero-resource"));
+        final byte[] zero = new byte[32];
+        assertThrows(IllegalArgumentException.class, () -> new PulsarActivationBarrier(shard, zero,
+                "persistent://t/zero", 0, 0, 0, 1, resource, true));
+        assertThrows(IllegalArgumentException.class, () -> new PulsarActivationBarrier(shard, resource,
+                "persistent://t/zero", 0, 0, 0, 1, zero, true));
     }
 }
