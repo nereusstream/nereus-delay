@@ -19,6 +19,11 @@ public final class CanonicalProtobuf {
         varint(output, value);
     }
 
+    public static void uint64(final ByteArrayOutputStream output, final int field, final long value) {
+        tag(output, field, 0);
+        varint(output, value);
+    }
+
     public static void int64(final ByteArrayOutputStream output, final int field, final long value) {
         tag(output, field, 0);
         varint(output, value);

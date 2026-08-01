@@ -7,6 +7,7 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -51,6 +52,59 @@ class ProtocolCodecTest {
         crc[crc.length - 1] ^= 1;
         assertThrows(IllegalArgumentException.class, () -> ReceiptFrame.decode(crc));
         assertThrows(IllegalArgumentException.class, () -> ReceiptFrame.decodeText("ndr1_!"));
+    }
+
+    @Test
+    void commandQueuedReceiptKafkaPayloadBindsPreparedCommandSourceAndAck() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 8);
+        final UUID topic = UUID.randomUUID();
+        final PreparedCommand command = PreparedCommand.schedule(shard,
+                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("receipt-lane")), 2_000, 8_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("receipt")), 9_000);
+        final KafkaSourcePosition source = new KafkaSourcePosition(shard, "cluster-a", topic, 7, 3, 1_234);
+        final CommandQueuedReceiptV1.KafkaQueuedAck ack = new CommandQueuedReceiptV1.KafkaQueuedAck(
+                "cluster-a", topic, 8, 7, 3, 1_234, Bytes.sha256(Bytes.utf8("broker-response")));
+        final byte[] attempt = new byte[16];
+        attempt[15] = 1;
+
+        final CommandQueuedReceiptV1 receipt = CommandQueuedReceiptV1.create(command, source, ack, 9_000, attempt);
+        final CommandQueuedReceiptV1 decoded = CommandQueuedReceiptV1.decodeFrame(receipt.frame());
+
+        assertEquals(command.commandId(), decoded.command().commandId());
+        assertEquals(command.delayMessageId(), decoded.command().delayMessageId());
+        assertEquals(source, decoded.sourcePosition());
+        assertEquals(ack, decoded.brokerAck());
+        assertArrayEquals(receipt.receiptPayloadDigest(), decoded.receiptPayloadDigest());
+        assertEquals(ReceiptKind.COMMAND_QUEUED, ReceiptFrame.decode(receipt.frame()).kind());
+
+        final byte[] tampered = receipt.payload();
+        tampered[tampered.length - 1] ^= 1;
+        assertThrows(IllegalArgumentException.class, () -> CommandQueuedReceiptV1.decodePayload(tampered));
+        final CommandQueuedReceiptV1.KafkaQueuedAck wrongAck = new CommandQueuedReceiptV1.KafkaQueuedAck(
+                "cluster-a", topic, 8, 8, 3, 1_235, ack.responseSha256());
+        assertThrows(IllegalArgumentException.class,
+                () -> CommandQueuedReceiptV1.create(command, source, wrongAck, 9_000, attempt));
+    }
+
+    @Test
+    void commandQueuedReceiptPulsarPayloadUsesTheClosedAckBranch() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 9);
+        final byte[] resource = new byte[32];
+        resource[0] = 7;
+        final PulsarSourcePosition source = new PulsarSourcePosition(shard, resource, "persistent://tenant/topic",
+                4, 5, 1, 3, PulsarSourcePosition.EntryKind.BATCH, 2_345);
+        final PreparedCommand command = PreparedCommand.cancel(shard, DelayMessageId.random(shard), 0, 9_000);
+        final CommandQueuedReceiptV1.PulsarQueuedAck ack = new CommandQueuedReceiptV1.PulsarQueuedAck(
+                "pulsar-cluster", resource, "persistent://tenant/topic", 1_111, 9, 4, 5, 1, 3, 2_345,
+                Bytes.sha256(Bytes.utf8("send-receipt")));
+        final byte[] attempt = new byte[16];
+        attempt[0] = 1;
+
+        final CommandQueuedReceiptV1 decoded = CommandQueuedReceiptV1.decodeFrame(
+                CommandQueuedReceiptV1.create(command, source, ack, 3_000, attempt).frame());
+        assertEquals(source, decoded.sourcePosition());
+        assertEquals(ack, decoded.brokerAck());
+        assertEquals(CommandType.CANCEL, decoded.command().commandType());
     }
 
     @Test
