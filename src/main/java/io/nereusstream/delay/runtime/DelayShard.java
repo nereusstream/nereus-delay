@@ -34,6 +34,8 @@ public final class DelayShard {
     private static final int META_APPLIED_SOURCE_POSITION = 3;
     private static final int META_MUTATION_SEQUENCE = 5;
     private static final int META_QUOTA_USAGE = 1;
+    private static final byte INFLIGHT_PUBLISHING_KIND = 2;
+    private static final byte INFLIGHT_UNCERTAIN_KIND = 3;
 
     private final ShardStore store;
     private final DelayShardConfig config;
@@ -135,6 +137,182 @@ public final class DelayShard {
                                                                         final int generation) {
         final var value = store.getValue(ColumnFamily.TERMINAL, KeyCodec.terminalGeneration(messageId, generation), 1);
         return value == null ? null : TerminalGenerationRecord.decode(value.payload());
+    }
+
+    /** Returns one open publish attempt at an exact admitted Owner Epoch, or {@code null}. */
+    public synchronized PublishAttemptLedger getPublishAttempt(final byte[] publishAttemptId,
+                                                                final long ownerEpoch) {
+        Bytes.requireLength(publishAttemptId, PublishAttemptLedger.HASH_LENGTH, "publishAttemptId");
+        if (ownerEpoch <= 0) {
+            throw new IllegalArgumentException("ownerEpoch must be positive");
+        }
+        final PublishAttemptLedger publishing = readPublishAttempt(publishAttemptId, ownerEpoch,
+                INFLIGHT_PUBLISHING_KIND);
+        final PublishAttemptLedger uncertain = readPublishAttempt(publishAttemptId, ownerEpoch,
+                INFLIGHT_UNCERTAIN_KIND);
+        if (publishing != null && uncertain != null) {
+            throw new IllegalStateException("publish attempt has two live ledger states");
+        }
+        return publishing == null ? uncertain : publishing;
+    }
+
+    /**
+     * Finds an open attempt without trusting a caller-supplied Owner Epoch. This is a bounded recovery lookup; a
+     * duplicate ID or a scan that exceeds the configured shard bound fences the shard instead of guessing.
+     */
+    public synchronized PublishAttemptLedger findOpenPublishAttempt(final byte[] publishAttemptId) {
+        Bytes.requireLength(publishAttemptId, PublishAttemptLedger.HASH_LENGTH, "publishAttemptId");
+        final int limit = boundedLimitPlusOne(config.maxPendingMessages());
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries = store.scan(ColumnFamily.INFLIGHT,
+                new byte[]{INFLIGHT_PUBLISHING_KIND, 1}, new byte[]{4, 1}, limit);
+        PublishAttemptLedger found = null;
+        for (var entry : entries) {
+            final PublishAttemptLedger candidate = decodePublishAttempt(entry);
+            if (!Bytes.constantTimeEquals(candidate.publishAttemptId(), publishAttemptId)) {
+                continue;
+            }
+            if (found != null) {
+                throw new IllegalStateException("publish attempt ID has multiple live ledgers");
+            }
+            found = candidate;
+        }
+        if (entries.size() >= limit && config.maxPendingMessages() < Integer.MAX_VALUE) {
+            throw new IllegalStateException("open publish attempt scan exceeded configured bound");
+        }
+        return found;
+    }
+
+    /**
+     * Applies the durable part of Publish Admission. The complete signed Registry body is retained verbatim in the
+     * ledger, while nested Claim/Certificate/Channel validation is deliberately owned by the pending admission
+     * body codec. The message, timeline, READY projection, attempt key and source position commit in one batch.
+     */
+    public synchronized PublishAttemptLedger admitPublishAttempt(final PublishAttemptLedger admission,
+                                                                  final SourcePosition sourcePosition) {
+        Objects.requireNonNull(admission, "admission");
+        validateMutationPosition(sourcePosition);
+        if (admission.state() != AttemptLedgerState.PUBLISHING) {
+            throw new IllegalArgumentException("Publish Admission must create a PUBLISHING ledger");
+        }
+        if (!Arrays.equals(admission.sourcePosition(), sourcePosition.canonicalBytes())) {
+            throw new IllegalArgumentException("admission source position mismatch");
+        }
+        if (!store.shardId().equals(admission.delayMessageId().routingId().shardId())
+                || !store.shardId().equals(sourcePosition.shardId())) {
+            throw new IllegalArgumentException("publish admission does not belong to shard");
+        }
+        if (findOpenPublishAttempt(admission.publishAttemptId()) != null) {
+            throw new IllegalStateException("publish attempt ID is already open");
+        }
+        final MessageRecord current = getMessage(admission.delayMessageId());
+        if (current == null || current.status() != MessageStatus.SCHEDULED
+                || current.generation() != admission.generation() || !current.laneId().equals(admission.laneId())) {
+            throw new IllegalStateException("publish admission is stale for the current message generation");
+        }
+        final LaneRecord lane = readLane(current.laneId());
+        if (lane == null || !lane.schedulable()) {
+            throw new IllegalStateException("publish admission requires a schedulable lane");
+        }
+        final MessageRecord next = new MessageRecord(MessageStatus.PUBLISHING, current.generation(),
+                Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
+                current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
+                current.payloadReference());
+        final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
+                sourcePosition, admission.delayMessageId(), current, next, null);
+        store.write(batch -> {
+            batch.delete(ColumnFamily.TIMELINE, timelineKey(admission.delayMessageId(), current));
+            batch.delete(ColumnFamily.TIMELINE, expiryKey(admission.delayMessageId(), current));
+            batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(admission.delayMessageId()), next.encode());
+            batch.putValue(ColumnFamily.INFLIGHT, PublishAttemptLedger.VALUE_TYPE, admission.encodedKey(),
+                    admission.encode());
+            for (LaneProjection projection : projections.values()) {
+                deleteReadyKey(batch, projection.previousLane());
+                putReadyProjection(batch, projection);
+            }
+            writePosition(batch, sourcePosition);
+        });
+        lastAppliedSourcePosition = sourcePosition;
+        mutationSequence++;
+        return admission;
+    }
+
+    /** Atomically records an unknown target result and moves the exact key to UNCERTAIN. */
+    public synchronized PublishAttemptLedger applyUnknownPublishOutcome(final byte[] publishAttemptId,
+                                                                         final long ownerEpoch,
+                                                                         final byte[] canonicalOutcome,
+                                                                         final byte[] evidence,
+                                                                         final SourcePosition sourcePosition) {
+        validateMutationPosition(sourcePosition);
+        final PublishAttemptLedger currentLedger = getPublishAttempt(publishAttemptId, ownerEpoch);
+        if (currentLedger == null || currentLedger.state() != AttemptLedgerState.PUBLISHING) {
+            throw new IllegalStateException("unknown outcome requires a PUBLISHING ledger");
+        }
+        final MessageRecord current = getMessage(currentLedger.delayMessageId());
+        if (current == null || current.status() != MessageStatus.PUBLISHING
+                || current.generation() != currentLedger.generation()) {
+            throw new IllegalStateException("unknown outcome is stale for the current message");
+        }
+        final PublishAttemptLedger nextLedger = currentLedger.withUnknownOutcome(canonicalOutcome, evidence,
+                sourcePosition.canonicalBytes());
+        final MessageRecord next = new MessageRecord(MessageStatus.UNCERTAIN, current.generation(),
+                Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
+                current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
+                current.payloadReference());
+        final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
+                sourcePosition, currentLedger.delayMessageId(), current, next, null);
+        store.write(batch -> {
+            batch.delete(ColumnFamily.INFLIGHT, currentLedger.encodedKey());
+            batch.putValue(ColumnFamily.INFLIGHT, PublishAttemptLedger.VALUE_TYPE, nextLedger.encodedKey(),
+                    nextLedger.encode());
+            batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(nextLedger.delayMessageId()), next.encode());
+            for (LaneProjection projection : projections.values()) {
+                deleteReadyKey(batch, projection.previousLane());
+                putReadyProjection(batch, projection);
+            }
+            writePosition(batch, sourcePosition);
+        });
+        lastAppliedSourcePosition = sourcePosition;
+        mutationSequence++;
+        return nextLedger;
+    }
+
+    /** Atomically closes a PUBLISHING attempt after a verified publish success. */
+    public synchronized MessageRecord applyPublishedPublishOutcome(final byte[] publishAttemptId,
+                                                                    final long ownerEpoch,
+                                                                    final SourcePosition sourcePosition) {
+        validateMutationPosition(sourcePosition);
+        final PublishAttemptLedger ledger = getPublishAttempt(publishAttemptId, ownerEpoch);
+        if (ledger == null || ledger.state() != AttemptLedgerState.PUBLISHING) {
+            throw new IllegalStateException("published outcome requires a PUBLISHING ledger");
+        }
+        final MessageRecord current = getMessage(ledger.delayMessageId());
+        if (current == null || current.status() != MessageStatus.PUBLISHING
+                || current.generation() != ledger.generation()) {
+            throw new IllegalStateException("published outcome is stale for the current message");
+        }
+        final MessageRecord next = new MessageRecord(MessageStatus.PUBLISHED, current.generation(),
+                Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
+                current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
+                current.payloadReference());
+        final TerminalGenerationRecord terminal = new TerminalGenerationRecord(ledger.delayMessageId(),
+                ledger.generation(), MessageStatus.PUBLISHED, StableCode.OK, next.stateVersion(),
+                sourcePosition.canonicalBytes(), false);
+        final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
+                sourcePosition, ledger.delayMessageId(), current, next, null);
+        store.write(batch -> {
+            batch.delete(ColumnFamily.INFLIGHT, ledger.encodedKey());
+            batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(ledger.delayMessageId()), next.encode());
+            batch.putValue(ColumnFamily.TERMINAL, 1,
+                    KeyCodec.terminalGeneration(ledger.delayMessageId(), ledger.generation()), terminal.encode());
+            for (LaneProjection projection : projections.values()) {
+                deleteReadyKey(batch, projection.previousLane());
+                putReadyProjection(batch, projection);
+            }
+            writePosition(batch, sourcePosition);
+        });
+        lastAppliedSourcePosition = sourcePosition;
+        mutationSequence++;
+        return next;
     }
 
     public synchronized LaneRecord getLane(final io.nereusstream.delay.protocol.DestinationLaneId laneId) {
@@ -949,6 +1127,65 @@ public final class DelayShard {
     private LaneRecord readLane(final io.nereusstream.delay.protocol.DestinationLaneId laneId) {
         final var value = store.getValue(ColumnFamily.META, KeyCodec.metaLane(laneId), 2);
         return value == null ? null : LaneRecord.decode(value.payload());
+    }
+
+    private PublishAttemptLedger readPublishAttempt(final byte[] publishAttemptId, final long ownerEpoch,
+                                                    final byte recordKind) {
+        final byte[] key = KeyCodec.inflight(recordKind, ownerEpoch, publishAttemptId);
+        final var value = store.getValue(ColumnFamily.INFLIGHT, key, PublishAttemptLedger.VALUE_TYPE);
+        if (value == null) {
+            return null;
+        }
+        final PublishAttemptLedger ledger = PublishAttemptLedger.decode(value.payload());
+        validatePublishAttemptKey(ledger, key, recordKind, publishAttemptId, ownerEpoch);
+        return ledger;
+    }
+
+    private PublishAttemptLedger decodePublishAttempt(final io.nereusstream.delay.store.ShardStore.KeyValue entry) {
+        final byte[] key = entry.key();
+        if (key.length != 2 + 8 + 4 + PublishAttemptLedger.HASH_LENGTH
+                || (key[0] != INFLIGHT_PUBLISHING_KIND && key[0] != INFLIGHT_UNCERTAIN_KIND) || key[1] != 1) {
+            throw new IllegalStateException("invalid open publish attempt key");
+        }
+        final ByteBuffer input = ByteBuffer.wrap(key);
+        input.position(2);
+        final long ownerEpoch = input.getLong();
+        if (ownerEpoch <= 0) {
+            throw new IllegalStateException("invalid open publish attempt owner epoch");
+        }
+        final long idLength = Integer.toUnsignedLong(input.getInt());
+        if (idLength != PublishAttemptLedger.HASH_LENGTH) {
+            throw new IllegalStateException("invalid open publish attempt ID length");
+        }
+        final byte[] attemptId = new byte[PublishAttemptLedger.HASH_LENGTH];
+        input.get(attemptId);
+        final PublishAttemptLedger ledger = PublishAttemptLedger.decode(
+                io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), PublishAttemptLedger.VALUE_TYPE)
+                        .payload());
+        validatePublishAttemptKey(ledger, key, key[0], attemptId, ownerEpoch);
+        return ledger;
+    }
+
+    private static void validatePublishAttemptKey(final PublishAttemptLedger ledger, final byte[] key,
+                                                   final byte recordKind, final byte[] publishAttemptId,
+                                                   final long ownerEpoch) {
+        final byte expectedKind = ledger.state() == AttemptLedgerState.PUBLISHING
+                ? INFLIGHT_PUBLISHING_KIND : INFLIGHT_UNCERTAIN_KIND;
+        if (recordKind != expectedKind || !Arrays.equals(key, ledger.encodedKey())
+                || ledger.ownerEpoch() != ownerEpoch || !Bytes.constantTimeEquals(ledger.publishAttemptId(),
+                publishAttemptId)) {
+            throw new IllegalStateException("open publish attempt key/value mismatch");
+        }
+    }
+
+    private void validateMutationPosition(final SourcePosition sourcePosition) {
+        Objects.requireNonNull(sourcePosition, "sourcePosition");
+        if (!store.shardId().equals(sourcePosition.shardId())) {
+            throw new IllegalArgumentException("system mutation position does not belong to shard");
+        }
+        if (lastAppliedSourcePosition != null && sourcePosition.compareTo(lastAppliedSourcePosition) <= 0) {
+            throw new IllegalStateException("system mutation source position is not strictly increasing");
+        }
     }
 
     private byte[] timelineKey(final DelayMessageId messageId, final MessageRecord message) {

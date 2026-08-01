@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -281,6 +282,93 @@ class DelayShardTest {
             final DelayShard reopened = new DelayShard(store, shardConfig, trustSet);
             assertEquals(8, reopened.getMessage(prepare.delayMessageId()).payloadLength());
             assertEquals(0, reopened.quota().reservationMessages());
+        }
+    }
+
+    @Test
+    void publishAdmissionAndUnknownOutcomeMoveOneAttemptAcrossInflightKeysAtomically() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("attempt-ledger"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 9);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("attempt-lane"));
+        final PreparedCommand command = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("attempt")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 1_001);
+        final KafkaSourcePosition outcomePosition = position(shardId, 2, 1_002);
+        final byte[] attemptId = Bytes.sha256(Bytes.utf8("attempt-id"));
+        final byte[] claimId = Bytes.sha256(Bytes.utf8("claim-id"));
+        final byte[] ownerIdentity = Bytes.sha256(Bytes.utf8("owner"));
+        final byte[] preparedHash = Bytes.sha256(Bytes.utf8("prepared-publish"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(command, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final PublishAttemptLedger admission = PublishAttemptLedger.publishing(command.delayMessageId(), 0,
+                    attemptId, claimId, 42, 1, lane, new byte[16], ownerIdentity,
+                    store.metadata().storeIncarnation(), preparedHash, Bytes.utf8("admission-body"),
+                    admissionPosition.canonicalBytes());
+
+            assertEquals(admission, shard.admitPublishAttempt(admission, admissionPosition));
+            assertEquals(MessageStatus.PUBLISHING, shard.getMessage(command.delayMessageId()).status());
+            assertNull(store.getValue(ColumnFamily.TIMELINE,
+                    KeyCodec.timelineDue(lane, 2_000, schedulePosition.sourceOrderToken(), command.delayMessageId(), 0),
+                    1));
+            assertNotNull(store.getValue(ColumnFamily.INFLIGHT, admission.encodedKey(), PublishAttemptLedger.VALUE_TYPE));
+            assertEquals(admission.obligationRef(),
+                    AttemptObligationRef.decode(admission.obligationRef().canonicalBytes()));
+            assertEquals(admission, PublishAttemptLedger.decode(admission.encode()));
+
+            final PublishAttemptLedger uncertain = shard.applyUnknownPublishOutcome(attemptId, 42,
+                    Bytes.utf8("unknown-outcome"), Bytes.utf8("timeout-evidence"), outcomePosition);
+            assertEquals(AttemptLedgerState.UNCERTAIN, uncertain.state());
+            assertEquals(uncertain, PublishAttemptLedger.decode(uncertain.encode()));
+            assertEquals(AttemptLedgerState.UNCERTAIN, shard.getPublishAttempt(attemptId, 42).state());
+            assertEquals(uncertain, shard.findOpenPublishAttempt(attemptId));
+            assertEquals(MessageStatus.UNCERTAIN, shard.getMessage(command.delayMessageId()).status());
+            assertNull(store.getValue(ColumnFamily.INFLIGHT, admission.encodedKey(), PublishAttemptLedger.VALUE_TYPE));
+            assertNotNull(store.getValue(ColumnFamily.INFLIGHT, uncertain.encodedKey(), PublishAttemptLedger.VALUE_TYPE));
+            assertArrayEquals(outcomePosition.canonicalBytes(), uncertain.sourcePosition());
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(AttemptLedgerState.UNCERTAIN, reopened.findOpenPublishAttempt(attemptId).state());
+            assertEquals(outcomePosition, reopened.lastAppliedSourcePosition());
+        }
+    }
+
+    @Test
+    void verifiedPublishSuccessClosesPublishingLedgerAndRetainsTerminalHistory() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("attempt-success"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 10);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("success-lane"));
+        final PreparedCommand command = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("success")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 1_001);
+        final KafkaSourcePosition outcomePosition = position(shardId, 2, 1_002);
+        final byte[] attemptId = Bytes.sha256(Bytes.utf8("success-attempt"));
+        final PublishAttemptLedger[] holder = new PublishAttemptLedger[1];
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(command, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            holder[0] = PublishAttemptLedger.publishing(command.delayMessageId(), 0, attemptId,
+                    Bytes.sha256(Bytes.utf8("success-claim")), 7, 1, lane, new byte[16],
+                    Bytes.sha256(Bytes.utf8("success-owner")), store.metadata().storeIncarnation(),
+                    Bytes.sha256(Bytes.utf8("success-prepared")), Bytes.utf8("admission"),
+                    admissionPosition.canonicalBytes());
+            shard.admitPublishAttempt(holder[0], admissionPosition);
+            assertEquals(MessageStatus.PUBLISHED,
+                    shard.applyPublishedPublishOutcome(attemptId, 7, outcomePosition).status());
+            assertNull(shard.findOpenPublishAttempt(attemptId));
+            assertEquals(MessageStatus.PUBLISHED, shard.getMessage(command.delayMessageId()).status());
+            assertEquals(MessageStatus.PUBLISHED,
+                    shard.getTerminalGeneration(command.delayMessageId(), 0).status());
         }
     }
 
