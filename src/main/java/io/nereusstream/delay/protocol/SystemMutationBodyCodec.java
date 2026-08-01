@@ -32,6 +32,13 @@ public final class SystemMutationBodyCodec {
         }
     }
 
+    /** Returns the already-validated canonical body fields for an operation applier. */
+    public static List<CanonicalProtobuf.Reader.Field> fields(final SystemMutationType type,
+                                                               final byte[] canonicalBody) {
+        validate(type, canonicalBody);
+        return List.copyOf(readAll(new CanonicalProtobuf.Reader(canonicalBody)));
+    }
+
     private static Spec[] specs(final SystemMutationType type) {
         return switch (type) {
             case APPLY_SHARD_CONTROL -> new Spec[]{

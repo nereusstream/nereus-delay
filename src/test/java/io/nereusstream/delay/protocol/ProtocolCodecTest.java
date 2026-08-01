@@ -198,6 +198,21 @@ class ProtocolCodecTest {
                 author, 1, keyPair.getPrivate()));
     }
 
+    @Test
+    void trustedUtcEvidenceRoundTripsAndEnforcesSignedSourceShape() {
+        final TrustedUtcIntervalEvidence evidence = new TrustedUtcIntervalEvidence(1_000, 1_005,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("host-a"), 3, 7, 9,
+                Bytes.sha256(Bytes.utf8("sample")), 0, null);
+        evidence.requireEarliestAtLeast(1_000);
+        evidence.requireWidthAtMost(5);
+        assertArrayEquals(evidence.canonicalBytes(), TrustedUtcIntervalEvidence.decode(evidence.canonicalBytes())
+                .canonicalBytes());
+        assertThrows(IllegalArgumentException.class, () -> new TrustedUtcIntervalEvidence(1_000, 1_005,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("host-a"), 3, 7, 9,
+                Bytes.sha256(Bytes.utf8("sample")), 2, new byte[64]));
+        assertThrows(IllegalArgumentException.class, () -> evidence.requireEarliestAtLeast(1_001));
+    }
+
     private static byte[] systemBody(final ShardId shard, final SystemMutationType type, final long retryUntil) {
         final byte[] subject = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());

@@ -12,11 +12,16 @@ import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.StableCode;
+import io.nereusstream.delay.protocol.SystemMutation;
+import io.nereusstream.delay.protocol.SystemMutationBodyCodec;
+import io.nereusstream.delay.protocol.SystemMutationType;
+import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.store.ColumnFamily;
 import io.nereusstream.delay.store.KeyCodec;
 import io.nereusstream.delay.store.ShardStore;
 
 import java.nio.ByteBuffer;
+import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -131,6 +136,199 @@ public final class DelayShard {
     public synchronized CommandResult getCommandResult(final CommandId commandId) {
         final var value = store.getValue(ColumnFamily.DEDUPE, KeyCodec.dedupeResult(commandId), 2);
         return value == null ? null : CommandResult.decode(value.payload());
+    }
+
+    public synchronized SystemMutationResult getSystemMutationResult(final byte[] mutationId) {
+        Bytes.requireLength(mutationId, SystemMutation.HASH_LENGTH, "mutationId");
+        final var value = store.getValue(ColumnFamily.DEDUPE, KeyCodec.dedupeSystemMutation(mutationId),
+                SystemMutationResult.VALUE_TYPE);
+        return value == null ? null : SystemMutationResult.decode(value.payload());
+    }
+
+    /**
+     * Applies the source-ordered System Mutation subset that is currently executable by this core.
+     * Signature verification is deliberately explicit; production wiring must additionally supply the
+     * source-protected key/ACL set before calling this method.
+     */
+    public synchronized SystemMutationResult applySystemMutation(final SystemMutation mutation,
+                                                                  final SourcePosition sourcePosition,
+                                                                  final PublicKey verificationKey) {
+        Objects.requireNonNull(mutation, "mutation");
+        Objects.requireNonNull(verificationKey, "verificationKey");
+        validateMutationShard(mutation, sourcePosition);
+        final SystemMutationResult prior = getSystemMutationResult(mutation.systemMutationId());
+        if (prior != null) {
+            if (!Bytes.constantTimeEquals(prior.mutationHash(), mutation.mutationHash())
+                    || prior.mutationType() != mutation.type()
+                    || prior.retryUntilEpochMs() != mutation.retryUntilEpochMs()
+                    || !Bytes.constantTimeEquals(prior.authorIdentity(), mutation.authorIdentity())) {
+                throw new IllegalStateException("System Mutation identity was reused with different bytes");
+            }
+            if (lastAppliedSourcePosition != null) {
+                final int order = sourcePosition.compareTo(lastAppliedSourcePosition);
+                if (order < 0) {
+                    throw new IllegalStateException("System Mutation source position regressed");
+                }
+                if (order == 0 && !Arrays.equals(prior.appliedSourcePosition(), sourcePosition.canonicalBytes())) {
+                    throw new IllegalStateException("duplicate source position has conflicting System Mutation");
+                }
+            }
+            if (!Arrays.equals(prior.appliedSourcePosition(), sourcePosition.canonicalBytes())) {
+                store.write(batch -> writePosition(batch, sourcePosition));
+                lastAppliedSourcePosition = sourcePosition;
+                mutationSequence++;
+            }
+            return prior;
+        }
+        validateMutationPosition(sourcePosition);
+        if (!mutation.verifySignature(verificationKey)) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
+        if (sourcePosition.brokerPersistenceTimeEpochMs() > mutation.retryUntilEpochMs()) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED);
+        }
+        if (mutation.type() != SystemMutationType.EXPIRE_GENERATION) {
+            throw new UnsupportedOperationException("System Mutation type is not implemented: " + mutation.type());
+        }
+        try {
+            return applyExpireGenerationMutation(mutation, sourcePosition);
+        } catch (IllegalArgumentException exception) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+    }
+
+    private SystemMutationResult applyExpireGenerationMutation(final SystemMutation mutation,
+                                                                final SourcePosition sourcePosition) {
+        final List<io.nereusstream.delay.protocol.CanonicalProtobuf.Reader.Field> fields =
+                SystemMutationBodyCodec.fields(SystemMutationType.EXPIRE_GENERATION, mutation.canonicalBody());
+        final DelayMessageId messageId = new DelayMessageId(fixedBodyBytes(field(fields, 10), 10,
+                DelayMessageId.LENGTH));
+        final int generation = bodyInt(field(fields, 11), 11);
+        final long expireAt = bodyNonNegative(field(fields, 12), 12);
+        final TrustedUtcIntervalEvidence proof = TrustedUtcIntervalEvidence.decode(
+                bytesBody(field(fields, 13), 13));
+        proof.requireEarliestAtLeast(expireAt);
+        final MessageRecord current = getMessage(messageId);
+        if (current == null) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.NOT_FOUND);
+        }
+        if (current.generation() != generation) {
+            final StableCode code = current.generation() > generation
+                    ? StableCode.GENERATION_SUPERSEDED : StableCode.STALE_SYSTEM_MUTATION;
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, code);
+        }
+        if (current.expireAtEpochMs() != expireAt) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+        if (current.status() == MessageStatus.EXPIRED) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.ALREADY_EXPIRED);
+        }
+        if (current.status() != MessageStatus.SCHEDULED) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.TOO_LATE);
+        }
+        final MessageRecord next = new MessageRecord(MessageStatus.EXPIRED, current.generation(),
+                Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
+                current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
+                current.payloadReference());
+        final TerminalGenerationRecord terminal = new TerminalGenerationRecord(messageId, generation,
+                MessageStatus.EXPIRED, StableCode.ALREADY_EXPIRED, next.stateVersion(),
+                sourcePosition.canonicalBytes(), false);
+        final ShardQuota nextQuota = quota.removeSchedule(current.payloadLength());
+        final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
+                sourcePosition, messageId, current, next, null);
+        final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, StableCode.OK,
+                sourcePosition.canonicalBytes());
+        store.write(batch -> {
+            batch.delete(ColumnFamily.TIMELINE, timelineKey(messageId, current));
+            batch.delete(ColumnFamily.TIMELINE, expiryKey(messageId, current));
+            batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(messageId), next.encode());
+            batch.putValue(ColumnFamily.TERMINAL, 1, KeyCodec.terminalGeneration(messageId, generation),
+                    terminal.encode());
+            for (LaneProjection projection : projections.values()) {
+                deleteReadyKey(batch, projection.previousLane());
+                putReadyProjection(batch, projection);
+            }
+            batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(META_QUOTA_USAGE), nextQuota.encode());
+            writeSystemResult(batch, result);
+            writePosition(batch, sourcePosition);
+        });
+        lastAppliedSourcePosition = sourcePosition;
+        mutationSequence++;
+        quota = nextQuota;
+        return result;
+    }
+
+    private SystemMutationResult persistSystemResult(final SystemMutation mutation, final SourcePosition position,
+                                                      final ApplyStatus status, final StableCode code) {
+        final SystemMutationResult result = SystemMutationResult.from(mutation, status, code,
+                position.canonicalBytes());
+        store.write(batch -> {
+            writeSystemResult(batch, result);
+            writePosition(batch, position);
+        });
+        lastAppliedSourcePosition = position;
+        mutationSequence++;
+        return result;
+    }
+
+    private void writeSystemResult(final ShardStore.Batch batch, final SystemMutationResult result)
+            throws org.rocksdb.RocksDBException {
+        batch.putValue(ColumnFamily.DEDUPE, SystemMutationResult.VALUE_TYPE,
+                KeyCodec.dedupeSystemMutation(result.mutationId()), result.encode());
+    }
+
+    private void validateMutationShard(final SystemMutation mutation, final SourcePosition sourcePosition) {
+        Objects.requireNonNull(sourcePosition, "sourcePosition");
+        if (!store.shardId().equals(mutation.shardId()) || !store.shardId().equals(sourcePosition.shardId())) {
+            throw new IllegalArgumentException("System Mutation/source position does not belong to shard");
+        }
+    }
+
+    private static io.nereusstream.delay.protocol.CanonicalProtobuf.Reader.Field field(
+            final List<io.nereusstream.delay.protocol.CanonicalProtobuf.Reader.Field> fields, final int number) {
+        for (int index = 3; index < fields.size(); index++) {
+            if (fields.get(index).number() == number) {
+                return fields.get(index);
+            }
+        }
+        throw new IllegalArgumentException("missing System Mutation operation field " + number);
+    }
+
+    private static long bodyNonNegative(
+            final io.nereusstream.delay.protocol.CanonicalProtobuf.Reader.Field field, final int number) {
+        if (field.wireType() != 0 || field.number() != number || field.unsignedValue() < 0) {
+            throw new IllegalArgumentException("invalid System Mutation scalar field " + number);
+        }
+        return field.unsignedValue();
+    }
+
+    private static int bodyInt(final io.nereusstream.delay.protocol.CanonicalProtobuf.Reader.Field field,
+                               final int number) {
+        final long value = bodyNonNegative(field, number);
+        if (value > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("System Mutation field exceeds Java int range: " + number);
+        }
+        return (int) value;
+    }
+
+    private static byte[] bytesBody(final io.nereusstream.delay.protocol.CanonicalProtobuf.Reader.Field field,
+                                    final int number) {
+        if (field.wireType() != 2 || field.number() != number) {
+            throw new IllegalArgumentException("invalid System Mutation bytes field " + number);
+        }
+        return field.rawValue();
+    }
+
+    private static byte[] fixedBodyBytes(
+            final io.nereusstream.delay.protocol.CanonicalProtobuf.Reader.Field field, final int number,
+            final int length) {
+        final byte[] value = bytesBody(field, number);
+        Bytes.requireLength(value, length, "System Mutation field " + number);
+        return value;
     }
 
     public synchronized TerminalGenerationRecord getTerminalGeneration(final DelayMessageId messageId,

@@ -28,6 +28,14 @@ public final class KeyCodec {
         return Bytes.concat(new byte[]{3, 1}, canonicalSourcePosition);
     }
 
+    public static byte[] dedupeSystemMutation(final byte[] mutationId) {
+        Objects.requireNonNull(mutationId, "mutationId");
+        if (mutationId.length != 32) {
+            throw new IllegalArgumentException("mutationId must be 32 bytes");
+        }
+        return Bytes.concat(new byte[]{5, 1}, mutationId);
+    }
+
     public static byte[] timelineDue(final DestinationLaneId laneId, final long eligibleAtEpochMs,
                                      final byte[] sourceOrderToken, final DelayMessageId messageId,
                                      final int generation) {

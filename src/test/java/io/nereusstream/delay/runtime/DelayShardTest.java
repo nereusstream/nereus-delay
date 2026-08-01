@@ -1,6 +1,8 @@
 package io.nereusstream.delay.runtime;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.AuthorIdentity;
+import io.nereusstream.delay.protocol.CanonicalProtobuf;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
@@ -11,6 +13,9 @@ import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.StableCode;
+import io.nereusstream.delay.protocol.SystemMutation;
+import io.nereusstream.delay.protocol.SystemMutationType;
+import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.store.ColumnFamily;
 import io.nereusstream.delay.store.KeyCodec;
 import io.nereusstream.delay.store.ShardStore;
@@ -370,6 +375,70 @@ class DelayShardTest {
             assertEquals(MessageStatus.PUBLISHED,
                     shard.getTerminalGeneration(command.delayMessageId(), 0).status());
         }
+    }
+
+    @Test
+    void sourceOrderedExpireMutationAtomicallyClosesScheduledGenerationAndDedupes() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-expiry"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 12);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("expiry-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("expiry")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition expiryPosition = position(shardId, 1, 1_001);
+        final KafkaSourcePosition duplicatePosition = position(shardId, 2, 1_002);
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final TrustedUtcIntervalEvidence proof = new TrustedUtcIntervalEvidence(5_000, 5_000,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("clock"), 1, 1, 1,
+                Bytes.sha256(Bytes.utf8("expiry-proof")), 0, null);
+        final byte[] body = expiryBody(shardId, schedule.delayMessageId(), 0, 5_000, proof.canonicalBytes());
+        final byte[] author = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1,
+                Bytes.sha256(Bytes.utf8("lease"))).canonicalBytes();
+        final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.EXPIRE_GENERATION, 9_000,
+                Bytes.sha256(Bytes.utf8("expiry-operation")), body, author, 1, keyPair.getPrivate());
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            assertEquals(StableCode.OK,
+                    shard.applySystemMutation(mutation, expiryPosition, keyPair.getPublic()).stableCode());
+            assertEquals(MessageStatus.EXPIRED, shard.getMessage(schedule.delayMessageId()).status());
+            assertEquals(StableCode.ALREADY_EXPIRED,
+                    shard.getTerminalGeneration(schedule.delayMessageId(), 0).terminalCode());
+            assertEquals(0, shard.quota().pendingMessages());
+            assertEquals(0, shard.discoverExpiry(10_000, 10).size());
+            assertEquals(StableCode.OK,
+                    shard.applySystemMutation(mutation, duplicatePosition, keyPair.getPublic()).stableCode());
+            assertEquals(duplicatePosition, shard.lastAppliedSourcePosition());
+            assertArrayEquals(expiryPosition.canonicalBytes(), shard.getSystemMutationResult(mutation.systemMutationId())
+                    .appliedSourcePosition());
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(MessageStatus.EXPIRED, reopened.getMessage(schedule.delayMessageId()).status());
+            assertEquals(StableCode.OK,
+                    reopened.getSystemMutationResult(mutation.systemMutationId()).stableCode());
+        }
+    }
+
+    private static byte[] expiryBody(final ShardId shard, final io.nereusstream.delay.protocol.DelayMessageId messageId,
+                                     final int generation, final long expireAt, final byte[] proof) {
+        final byte[] subject = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());
+            CanonicalProtobuf.uint32(output, 2, shard.partition());
+        });
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, subject);
+            CanonicalProtobuf.uint32(output, 2, SystemMutationType.EXPIRE_GENERATION.wireValue());
+            CanonicalProtobuf.int64(output, 3, 9_000);
+            CanonicalProtobuf.bytes(output, 10, messageId.bytes());
+            CanonicalProtobuf.uint32(output, 11, generation);
+            CanonicalProtobuf.int64(output, 12, expireAt);
+            CanonicalProtobuf.bytes(output, 13, proof);
+        });
     }
 
     private static KafkaSourcePosition position(final ShardId shard, final long offset, final long timestamp) {
