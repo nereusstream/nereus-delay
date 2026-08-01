@@ -287,6 +287,24 @@ public final class EmbeddedDelayService implements DelayClient {
     /** Projects a local message snapshot after the caller supplies policy inputs. */
     public synchronized MessageQueryResponseV1 queryMessage(final DelayMessageId messageId,
                                                              final PublicDestinationBindingViewV1 binding,
+                                                             final io.nereusstream.delay.protocol.PublicEvidenceRefV1 evidence,
+                                                             final FirstScheduleEligibilityV1 unknownEligibility) {
+        ensureOpen();
+        Objects.requireNonNull(messageId, "messageId");
+        if (!shardId.equals(messageId.routingId().shardId())) {
+            return MessageQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
+        }
+        final MessageQuerySnapshot snapshot = shard.queryMessageSnapshot(messageId);
+        if (snapshot == null) {
+            return MessageQueryResponseV1.unknown(Objects.requireNonNull(unknownEligibility,
+                    "unknownEligibility"));
+        }
+        return BoundedLocalQueryProjector.message(snapshot, binding, evidence);
+    }
+
+    /** Projects a local message snapshot after the caller supplies policy inputs. */
+    public synchronized MessageQueryResponseV1 queryMessage(final DelayMessageId messageId,
+                                                             final PublicDestinationBindingViewV1 binding,
                                                              final DlqExportStateV1 dlqExportState,
                                                              final io.nereusstream.delay.protocol.PublicEvidenceRefV1 evidence,
                                                              final FirstScheduleEligibilityV1 unknownEligibility) {

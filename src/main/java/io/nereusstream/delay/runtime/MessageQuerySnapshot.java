@@ -1,6 +1,7 @@
 package io.nereusstream.delay.runtime;
 
 import io.nereusstream.delay.protocol.DelayMessageId;
+import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.StableCode;
 
 import java.util.Objects;
@@ -21,11 +22,22 @@ public record MessageQuerySnapshot(
         long expireAtEpochMs,
         PayloadAvailability payloadAvailability,
         boolean possibleDestinationDuplicate,
-        StableCode terminalCode) {
+        StableCode terminalCode,
+        DlqExportStateV1 dlqExportState) {
+    /** Compatibility constructor for callers that do not expose DLQ state. */
+    public MessageQuerySnapshot(final DelayMessageId messageId, final int generation, final long stateVersion,
+                                final GenerationAggregateState state, final long deliverAtEpochMs,
+                                final long expireAtEpochMs, final PayloadAvailability payloadAvailability,
+                                final boolean possibleDestinationDuplicate, final StableCode terminalCode) {
+        this(messageId, generation, stateVersion, state, deliverAtEpochMs, expireAtEpochMs, payloadAvailability,
+                possibleDestinationDuplicate, terminalCode, DlqExportStateV1.NOT_CONFIGURED);
+    }
+
     public MessageQuerySnapshot {
         Objects.requireNonNull(messageId, "messageId");
         Objects.requireNonNull(state, "state");
         Objects.requireNonNull(payloadAvailability, "payloadAvailability");
+        Objects.requireNonNull(dlqExportState, "dlqExportState");
         if (generation < 0 || stateVersion < 0 || deliverAtEpochMs < 0
                 || expireAtEpochMs < deliverAtEpochMs) {
             throw new IllegalArgumentException("invalid message query snapshot");

@@ -10,6 +10,7 @@ import io.nereusstream.delay.protocol.CanonicalProtobuf;
 import io.nereusstream.delay.protocol.CapacityDimensionV1;
 import io.nereusstream.delay.protocol.CapacityVectorV1;
 import io.nereusstream.delay.protocol.DelayMessageId;
+import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.PayloadCommitProof;
 import io.nereusstream.delay.protocol.PayloadProofTrustSet;
@@ -275,7 +276,39 @@ public final class DelayShard {
         }
         return new MessageQuerySnapshot(messageId, current.generation(), current.stateVersion(), state,
                 current.deliverAtEpochMs(), current.expireAtEpochMs(), payloadAvailability(current),
-                current.runtimeIndex().possibleDestinationDuplicate(), terminalCode);
+                current.runtimeIndex().possibleDestinationDuplicate(), terminalCode,
+                terminalCode == null ? DlqExportStateV1.NOT_CONFIGURED
+                        : dlqExportState(messageId, current.generation()));
+    }
+
+    /** Returns the durable local DLQ export outbox for one terminal generation. */
+    public synchronized DlqExportRecord getDlqExportRecord(final DelayMessageId messageId, final int generation) {
+        Objects.requireNonNull(messageId, "messageId");
+        if (generation < 0) {
+            throw new IllegalArgumentException("generation must be non-negative");
+        }
+        final TerminalGenerationRecord terminal = getTerminalGeneration(messageId, generation);
+        if (terminal == null || terminal.status() != MessageStatus.DEAD_LETTER) {
+            return null;
+        }
+        final byte[] exportId = DlqExportRecord.deriveId(messageId, generation, terminal.stateVersion());
+        final ValueEnvelope.Decoded value = store.getValue(ColumnFamily.TERMINAL,
+                KeyCodec.terminalDlqExport(exportId), DlqExportRecord.VALUE_TYPE);
+        if (value == null) {
+            return null;
+        }
+        final DlqExportRecord result = DlqExportRecord.decode(value.payload());
+        if (!result.messageId().equals(messageId) || result.generation() != generation
+                || result.terminalRevision() != terminal.stateVersion()) {
+            throw new IllegalStateException("DLQ export record does not match terminal generation");
+        }
+        return result;
+    }
+
+    /** Returns the durable export state, with legacy terminals defaulting to NOT_CONFIGURED. */
+    public synchronized DlqExportStateV1 dlqExportState(final DelayMessageId messageId, final int generation) {
+        final DlqExportRecord record = getDlqExportRecord(messageId, generation);
+        return record == null ? DlqExportStateV1.NOT_CONFIGURED : record.state();
     }
 
     /** Returns the exact local Claim at an Owner Epoch, or {@code null} when it is no longer live. */
@@ -1243,6 +1276,8 @@ public final class DelayShard {
         final TerminalGenerationRecord terminal = new TerminalGenerationRecord(body.messageId(), body.generation(),
                 MessageStatus.DEAD_LETTER, StableCode.DESTINATION_OUTCOME_UNKNOWN, terminalMessage.stateVersion(),
                 sourcePosition.canonicalBytes(), true, terminalMessage.runtimeIndex().attemptObligations());
+        final DlqExportRecord dlqExport = DlqExportRecord.notConfigured(body.messageId(), body.generation(),
+                terminalMessage.stateVersion(), sourcePosition.canonicalBytes());
         final ShardQuota nextQuota;
         try {
             nextQuota = quota.removeSchedule(current.payloadLength());
@@ -1259,6 +1294,8 @@ public final class DelayShard {
             batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(body.messageId()), terminalMessage.encode());
             batch.putValue(ColumnFamily.TERMINAL, 1,
                     KeyCodec.terminalGeneration(body.messageId(), body.generation()), terminal.encode());
+            batch.putValue(ColumnFamily.TERMINAL, DlqExportRecord.VALUE_TYPE,
+                    KeyCodec.terminalDlqExport(dlqExport.dlqExportId()), dlqExport.encode());
             for (LaneProjection projection : projections.values()) {
                 deleteReadyKey(batch, projection.previousLane());
                 putReadyProjection(batch, projection);
@@ -1481,6 +1518,8 @@ public final class DelayShard {
                 MessageStatus.DEAD_LETTER, StableCode.CLAIM_PERMANENT_FAILURE, terminalMessage.stateVersion(),
                 sourcePosition.canonicalBytes(), terminalMessage.runtimeIndex().possibleDestinationDuplicate(),
                 terminalMessage.runtimeIndex().attemptObligations());
+        final DlqExportRecord dlqExport = DlqExportRecord.notConfigured(messageId, body.generation(),
+                terminalMessage.stateVersion(), sourcePosition.canonicalBytes());
         final ShardQuota nextQuota;
         try {
             nextQuota = quota.removeSchedule(current.payloadLength());
@@ -1502,6 +1541,8 @@ public final class DelayShard {
             batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(messageId), terminalMessageForWrite.encode());
             batch.putValue(ColumnFamily.TERMINAL, 1, KeyCodec.terminalGeneration(messageId, body.generation()),
                     terminal.encode());
+            batch.putValue(ColumnFamily.TERMINAL, DlqExportRecord.VALUE_TYPE,
+                    KeyCodec.terminalDlqExport(dlqExport.dlqExportId()), dlqExport.encode());
             for (LaneProjection projection : projections.values()) {
                 deleteReadyKey(batch, projection.previousLane());
                 putReadyProjection(batch, projection);
@@ -1804,6 +1845,8 @@ public final class DelayShard {
                     ledger.generation(), MessageStatus.DEAD_LETTER, outcome.stableCode(), terminalMessage.stateVersion(),
                     sourcePosition.canonicalBytes(), terminalMessage.runtimeIndex().possibleDestinationDuplicate(),
                     terminalMessage.runtimeIndex().attemptObligations());
+            final DlqExportRecord dlqExport = DlqExportRecord.notConfigured(ledger.delayMessageId(),
+                    ledger.generation(), terminalMessage.stateVersion(), sourcePosition.canonicalBytes());
             final ShardQuota nextQuota = quota.removeSchedule(current.payloadLength());
             final OutcomeReserveUsage nextOutcomeReserve = releasedOutcomeReserve(ledger);
             final CapacityVectorV1 nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
@@ -1816,6 +1859,8 @@ public final class DelayShard {
                         terminalMessageForWrite.encode());
                 batch.putValue(ColumnFamily.TERMINAL, 1,
                         KeyCodec.terminalGeneration(ledger.delayMessageId(), ledger.generation()), terminal.encode());
+                batch.putValue(ColumnFamily.TERMINAL, DlqExportRecord.VALUE_TYPE,
+                        KeyCodec.terminalDlqExport(dlqExport.dlqExportId()), dlqExport.encode());
                 for (LaneProjection projection : projections.values()) {
                     deleteReadyKey(batch, projection.previousLane());
                     putReadyProjection(batch, projection);

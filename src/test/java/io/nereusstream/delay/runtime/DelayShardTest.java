@@ -11,6 +11,7 @@ import io.nereusstream.delay.protocol.ClaimResultBody;
 import io.nereusstream.delay.protocol.ControlRef;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.DelayMessageId;
+import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.OrderingMode;
@@ -2244,6 +2245,11 @@ class DelayShardTest {
             assertEquals(0, shard.quota().pendingMessages());
             assertEquals(StableCode.CLAIM_PERMANENT_FAILURE,
                     shard.getTerminalGeneration(schedule.delayMessageId(), 0).terminalCode());
+            final DlqExportRecord dlqExport = shard.getDlqExportRecord(schedule.delayMessageId(), 0);
+            assertNotNull(dlqExport);
+            assertEquals(DlqExportStateV1.NOT_CONFIGURED, dlqExport.state());
+            assertEquals(DlqExportStateV1.NOT_CONFIGURED,
+                    shard.queryMessageSnapshot(schedule.delayMessageId()).dlqExportState());
         }
     }
 

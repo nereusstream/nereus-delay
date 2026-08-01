@@ -64,6 +64,14 @@ public final class BoundedLocalQueryProjector {
     /** Projects a local Message snapshot only when a safe binding has been authorized separately. */
     public static MessageQueryResponseV1 message(final MessageQuerySnapshot snapshot,
                                                  final PublicDestinationBindingViewV1 binding,
+                                                 final PublicEvidenceRefV1 evidence) {
+        Objects.requireNonNull(snapshot, "snapshot");
+        return message(snapshot, binding, snapshot.dlqExportState(), evidence);
+    }
+
+    /** Projects a local Message snapshot only when a safe binding has been authorized separately. */
+    public static MessageQueryResponseV1 message(final MessageQuerySnapshot snapshot,
+                                                 final PublicDestinationBindingViewV1 binding,
                                                  final DlqExportStateV1 dlqExportState,
                                                  final PublicEvidenceRefV1 evidence) {
         Objects.requireNonNull(snapshot, "snapshot");

@@ -24,4 +24,12 @@ class KeyCodecTest {
         assertThrows(IllegalArgumentException.class, () -> KeyCodec.metaControlReserve(1, new byte[31]));
         assertThrows(IllegalArgumentException.class, () -> KeyCodec.metaControlReserve(1, new byte[32]));
     }
+
+    @Test
+    void terminalDlqExportKeyUsesRegisteredIdentityLayout() {
+        final byte[] exportId = Bytes.sha256(Bytes.utf8("dlq-export"));
+
+        assertArrayEquals(Bytes.concat(new byte[]{2, 1}, exportId), KeyCodec.terminalDlqExport(exportId));
+        assertThrows(IllegalArgumentException.class, () -> KeyCodec.terminalDlqExport(new byte[32]));
+    }
 }

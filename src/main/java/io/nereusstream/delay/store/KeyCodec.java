@@ -120,6 +120,15 @@ public final class KeyCodec {
         return Bytes.concat(new byte[]{1, 1}, messageId.bytes(), Bytes.u32be(generation));
     }
 
+    /** Stable terminal_cf/DLQ_EXPORT locator: {@code 02 01 | dlqExportId[32]}. */
+    public static byte[] terminalDlqExport(final byte[] dlqExportId) {
+        Objects.requireNonNull(dlqExportId, "dlqExportId");
+        if (dlqExportId.length != 32 || isZero(dlqExportId)) {
+            throw new IllegalArgumentException("dlqExportId must be a non-zero 32-byte identity");
+        }
+        return Bytes.concat(new byte[]{2, 1}, dlqExportId);
+    }
+
     public static byte[] gcTask(final long notBeforeEpochMs, final byte kind, final byte[] resourceId,
                                 final long expectedVersion) {
         Objects.requireNonNull(resourceId, "resourceId");
