@@ -552,6 +552,81 @@ class DelayShardTest {
     }
 
     @Test
+    void sourceOrderedUnknownOutcomeMaterializesPinnedPolicyUncertainRetry() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-uncertain-retry"));
+        final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,
+                3, 100, 10_000, 3, 1);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 28);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("uncertain-retry-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("uncertain-retry")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 1_001);
+        final KafkaSourcePosition outcomePosition = position(shardId, 2, 1_002);
+        final byte[] attemptId = Bytes.sha256(Bytes.utf8("policy-uncertain-retry-attempt"));
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final byte[] owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 42,
+                Bytes.sha256(Bytes.utf8("lease"))).canonicalBytes();
+        final TrustedUtcIntervalEvidence observedAt = new TrustedUtcIntervalEvidence(1_002, 1_002,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("clock"), 1, 5, 5,
+                Bytes.sha256(Bytes.utf8("uncertain-retry-proof")), 0, null);
+        final byte[] body = publishOutcomeBody(shardId, attemptId, 3, 4,
+                StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, new byte[0], observedAt.canonicalBytes(),
+                unknownRetryDecision(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, 3_000));
+        final PublishOutcomeBody parsed = PublishOutcomeBody.decode(body);
+        assertEquals(2, parsed.retryDecision().kind());
+        assertEquals(3_000, parsed.retryDecision().nextRetryAt());
+        final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
+                Bytes.sha256(Bytes.utf8("policy-uncertain-retry-operation")), body, owner, 1,
+                keyPair.getPrivate());
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, shardConfig);
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final PublishAttemptLedger admission = PublishAttemptLedger.publishing(schedule.delayMessageId(), 0,
+                    attemptId, Bytes.sha256(Bytes.utf8("policy-uncertain-retry-claim")), 42, 1, lane,
+                    new byte[16], Bytes.sha256(Bytes.utf8("policy-uncertain-retry-owner")),
+                    store.metadata().storeIncarnation(), Bytes.sha256(Bytes.utf8("policy-uncertain-retry-prepared")),
+                    Bytes.utf8("admission"), admissionPosition.canonicalBytes());
+            shard.admitPublishAttempt(admission, admissionPosition);
+
+            final SystemMutationResult result = shard.applySystemMutation(mutation, outcomePosition,
+                    keyPair.getPublic());
+
+            assertEquals(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, result.stableCode());
+            final MessageRecord retry = shard.getMessage(schedule.delayMessageId());
+            assertEquals(MessageStatus.SCHEDULED, retry.status());
+            assertEquals(GenerationAggregateState.UNCERTAIN, retry.runtimeIndex().aggregateState());
+            assertEquals(CurrentSendWorkKind.TIMELINE, retry.runtimeIndex().currentWorkKind());
+            assertEquals(TimelineWorkKind.UNCERTAIN_RETRY, retry.runtimeIndex().timeline().workKind());
+            assertEquals(UncertainRetryAuthority.PINNED_POLICY,
+                    retry.runtimeIndex().timeline().uncertainRetryAuthority());
+            assertEquals(2, retry.runtimeIndex().timeline().candidateAttemptNo());
+            assertEquals(3_000, retry.retryEligibilityAtEpochMs());
+            assertEquals(1, retry.runtimeIndex().admissionsUsed());
+            assertEquals(0, retry.runtimeIndex().uncertainRetryAdmissionsUsed());
+            assertEquals(AttemptLedgerState.UNCERTAIN, shard.getPublishAttempt(attemptId, 42).state());
+            assertEquals(0, shard.discoverDue(2_999, 10).size());
+            assertEquals(1, shard.discoverDue(3_000, 10).size());
+            assertEquals(result, shard.getSystemMutationResult(mutation.systemMutationId()));
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard reopened = new DelayShard(store, shardConfig);
+            final MessageRecord retry = reopened.getMessage(schedule.delayMessageId());
+            assertEquals(MessageStatus.SCHEDULED, retry.status());
+            assertEquals(TimelineWorkKind.UNCERTAIN_RETRY, retry.runtimeIndex().timeline().workKind());
+            assertEquals(UncertainRetryAuthority.PINNED_POLICY,
+                    retry.runtimeIndex().timeline().uncertainRetryAuthority());
+            assertEquals(AttemptLedgerState.UNCERTAIN, reopened.getPublishAttempt(attemptId, 42).state());
+            assertEquals(1, reopened.discoverDue(3_000, 10).size());
+        }
+    }
+
+    @Test
     void sourceOrderedEvidenceResolutionClosesUncertainAttempt() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-evidence-resolution"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 19);
@@ -1315,11 +1390,18 @@ class DelayShardTest {
     private static byte[] publishOutcomeBody(final ShardId shard, final byte[] attemptId, final int sideEffect,
                                               final int disposition, final StableCode stableCode,
                                               final byte[] evidence, final byte[] observedAt) {
+        final byte[] retry = sideEffect == 3 ? nestedPlaceholder() : verifiedRetryDecision(stableCode);
+        return publishOutcomeBody(shard, attemptId, sideEffect, disposition, stableCode, evidence, observedAt,
+                retry);
+    }
+
+    private static byte[] publishOutcomeBody(final ShardId shard, final byte[] attemptId, final int sideEffect,
+                                              final int disposition, final StableCode stableCode,
+                                              final byte[] evidence, final byte[] observedAt, final byte[] retry) {
         final byte[] subject = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());
             CanonicalProtobuf.uint32(output, 2, shard.partition());
         });
-        final byte[] retry = sideEffect == 3 ? nestedPlaceholder() : verifiedRetryDecision(stableCode);
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, subject);
             CanonicalProtobuf.uint32(output, 2, SystemMutationType.PUBLISH_OUTCOME.wireValue());
@@ -1334,6 +1416,25 @@ class DelayShardTest {
             CanonicalProtobuf.bytes(output, 15, sideEffect == 3 ? nestedPlaceholder() : chargeVector());
             CanonicalProtobuf.bytes(output, 16, observedAt);
             CanonicalProtobuf.bytes(output, 17, retry);
+        });
+    }
+
+    private static byte[] unknownRetryDecision(final StableCode cause, final long nextRetryAt) {
+        final byte[] policy = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, Bytes.utf8("unknown-retry-policy"));
+            CanonicalProtobuf.uint32(output, 2, 1);
+            CanonicalProtobuf.bytes(output, 3, Bytes.sha256(Bytes.utf8("unknown-retry-policy-hash")));
+        });
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint32(output, 1, 2);
+            CanonicalProtobuf.bytes(output, 2, policy);
+            CanonicalProtobuf.uint32(output, 3, 1);
+            CanonicalProtobuf.int64(output, 4, 2_000);
+            CanonicalProtobuf.int64(output, 5, 5_000);
+            CanonicalProtobuf.int64(output, 6, nextRetryAt);
+            CanonicalProtobuf.uint32(output, 7, 1);
+            CanonicalProtobuf.uint32(output, 8, cause.wireValue());
+            CanonicalProtobuf.uint32(output, 9, 1);
         });
     }
 

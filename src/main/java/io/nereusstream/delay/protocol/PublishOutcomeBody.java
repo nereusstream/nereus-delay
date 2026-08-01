@@ -43,12 +43,17 @@ public final class PublishOutcomeBody {
         final StableCode stableCode = StableCode.fromWire(intValue(field(fields, 13), 13));
         final byte[] evidence = optionalNested(fields, 14);
         final byte[] transfer = nested(field(fields, 15), 15);
-        validateChargeVector(transfer);
+        // UNKNOWN is intentionally an evidence-only branch.  Older producers
+        // persisted an opaque transfer placeholder here, so do not apply the
+        // definitive ChargeVector schema to that branch.
+        if (sideEffect != 3) {
+            validateChargeVector(transfer);
+        }
         final TrustedUtcIntervalEvidence observedAt = TrustedUtcIntervalEvidence.decode(
                 nested(field(fields, 16), 16));
         final byte[] retryBytes = nested(field(fields, 17), 17);
         final RetryDecision retryDecision = sideEffect == 3
-                ? RetryDecision.unchecked(retryBytes) : RetryDecision.decode(retryBytes);
+                ? RetryDecision.decodeUnknown(retryBytes) : RetryDecision.decode(retryBytes);
         if (sideEffect == 1 || sideEffect == 2) {
             validateDefinitiveCombination(sideEffect, disposition, stableCode, evidence, retryDecision);
         } else if (disposition == 0 || stableCode == StableCode.OK || evidence.length != 0) {
@@ -263,6 +268,14 @@ public final class PublishOutcomeBody {
 
         private static RetryDecision unchecked(final byte[] encoded) {
             return new RetryDecision(encoded, 1, 0, 0, Long.MAX_VALUE, null);
+        }
+
+        private static RetryDecision decodeUnknown(final byte[] encoded) {
+            final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "RetryDecision");
+            // Older UNKNOWN producers used a bounded placeholder.  Preserve
+            // that opaque branch, but strictly parse a full RetryDecision when
+            // it carries more than the placeholder's single field.
+            return fields.size() <= 1 ? unchecked(encoded) : decode(encoded);
         }
 
         private static void validateRetryPolicyRef(final byte[] encoded) {

@@ -487,10 +487,11 @@ public final class DelayShard {
                 return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                         StableCode.STALE_SYSTEM_MUTATION);
             }
+            final PublishOutcomeBody outcome = PublishOutcomeBody.decode(mutation.canonicalBody());
             final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, code,
                     sourcePosition.canonicalBytes());
             applyUnknownPublishOutcome(attemptId, author.generation(), mutation.canonicalBody(), evidence,
-                    sourcePosition, result);
+                    sourcePosition, result, outcome.retryDecision());
             return result;
         }
         throw new UnsupportedOperationException("NOT_PUBLISHED outcome application is not implemented");
@@ -1302,7 +1303,7 @@ public final class DelayShard {
                                                                          final byte[] evidence,
                                                                          final SourcePosition sourcePosition) {
         return applyUnknownPublishOutcome(publishAttemptId, ownerEpoch, canonicalOutcome, evidence, sourcePosition,
-                null);
+                null, null);
     }
 
     private PublishAttemptLedger applyUnknownPublishOutcome(final byte[] publishAttemptId,
@@ -1310,7 +1311,8 @@ public final class DelayShard {
                                                              final byte[] canonicalOutcome,
                                                              final byte[] evidence,
                                                              final SourcePosition sourcePosition,
-                                                             final SystemMutationResult systemResult) {
+                                                             final SystemMutationResult systemResult,
+                                                             final PublishOutcomeBody.RetryDecision retryDecision) {
         validateMutationPosition(sourcePosition);
         final PublishAttemptLedger currentLedger = getPublishAttempt(publishAttemptId, ownerEpoch);
         if (currentLedger == null || currentLedger.state() != AttemptLedgerState.PUBLISHING) {
@@ -1321,15 +1323,40 @@ public final class DelayShard {
                 || current.generation() != currentLedger.generation()) {
             throw new IllegalStateException("unknown outcome is stale for the current message");
         }
+        final boolean scheduleUncertainRetry = retryDecision != null && retryDecision.kind() == 2;
+        final long retryAt;
+        if (scheduleUncertainRetry) {
+            if (current.orderingMode() != io.nereusstream.delay.protocol.OrderingMode.BEST_EFFORT
+                    || !retryDecision.hasNextRetryAt()
+                    || config.maxUncertainRetries() == 0
+                    || current.runtimeIndex().uncertainRetryAdmissionsUsed() >= config.maxUncertainRetries()
+                    || current.runtimeIndex().admissionsUsed() >= config.maxPublishAdmissions()) {
+                throw new IllegalArgumentException("uncertain retry is not within the pinned budget");
+            }
+            retryAt = Math.max(current.deliverAtEpochMs(), retryDecision.nextRetryAt());
+            if (retryAt >= current.expireAtEpochMs()
+                    || retryDecision.retryDeadline() > current.expireAtEpochMs()
+                    || retryDecision.firstAttemptAt() > retryAt) {
+                throw new IllegalArgumentException("uncertain retry timing is stale");
+            }
+        } else {
+            retryAt = current.retryEligibilityAtEpochMs();
+        }
         final PublishAttemptLedger nextLedger = currentLedger.withUnknownOutcome(canonicalOutcome, evidence,
                 sourcePosition.canonicalBytes());
         final List<AttemptObligationRef> nextObligations = withObligation(
                 current.runtimeIndex(), nextLedger.obligationRef());
-        MessageRecord next = new MessageRecord(MessageStatus.UNCERTAIN, current.generation(),
-                Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
+        MessageRecord next = new MessageRecord(scheduleUncertainRetry ? MessageStatus.SCHEDULED : MessageStatus.UNCERTAIN,
+                current.generation(), Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(),
+                current.expireAtEpochMs(),
                 current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
-                current.payloadReference(), current.retryEligibilityAtEpochMs());
-        next = next.withRuntimeIndex(GenerationRuntimeIndex.none(GenerationAggregateState.UNCERTAIN,
+                current.payloadReference(), retryAt);
+        next = scheduleUncertainRetry
+                ? next.withRuntimeIndex(timelineRuntimeIndex(currentLedger.delayMessageId(), next,
+                TimelineWorkKind.UNCERTAIN_RETRY,
+                Math.addExact(current.runtimeIndex().admissionsUsed(), 1), next.stateVersion(),
+                UncertainRetryAuthority.PINNED_POLICY, null, null, current.runtimeIndex(), nextObligations))
+                : next.withRuntimeIndex(GenerationRuntimeIndex.none(GenerationAggregateState.UNCERTAIN,
                 nextObligations, current.runtimeIndex().admissionsUsed(),
                 current.runtimeIndex().uncertainRetryAdmissionsUsed(),
                 current.runtimeIndex().possibleDestinationDuplicate(), next.stateVersion()));
@@ -1341,6 +1368,12 @@ public final class DelayShard {
             batch.putValue(ColumnFamily.INFLIGHT, PublishAttemptLedger.VALUE_TYPE, nextLedger.encodedKey(),
                     nextLedger.encode());
             batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(nextLedger.delayMessageId()), uncertainNext.encode());
+            if (scheduleUncertainRetry) {
+                batch.putValue(ColumnFamily.TIMELINE, 1, timelineKey(nextLedger.delayMessageId(), uncertainNext),
+                        new TimelineEntry(nextLedger.delayMessageId(), uncertainNext.generation()).encode());
+                batch.putValue(ColumnFamily.TIMELINE, 1, expiryKey(nextLedger.delayMessageId(), uncertainNext),
+                        new TimelineEntry(nextLedger.delayMessageId(), uncertainNext.generation()).encode());
+            }
             for (LaneProjection projection : projections.values()) {
                 deleteReadyKey(batch, projection.previousLane());
                 putReadyProjection(batch, projection);
