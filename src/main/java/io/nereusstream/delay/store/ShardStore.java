@@ -299,6 +299,10 @@ public final class ShardStore implements AutoCloseable {
         for (int index = 0; index < ColumnFamily.values().length; index++) {
             handles.put(ColumnFamily.values()[index], openedHandles.get(index + 1));
         }
+        if (hasDefaultColumnFamilyData(db, openedHandles.get(0))) {
+            closeHandles(db, openedHandles, cfOptions, dbOptions);
+            throw new IllegalStateException("default RocksDB column family must remain empty");
+        }
         final byte[] identityBytes = db.get(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_SHARD_IDENTITY));
         StoreMetadata metadata;
         if (identityBytes == null) {
@@ -431,6 +435,16 @@ public final class ShardStore implements AutoCloseable {
         db.close();
         closeQuietly(options);
         dbOptions.close();
+    }
+
+    private static boolean hasDefaultColumnFamilyData(final RocksDB db, final ColumnFamilyHandle defaultHandle) {
+        try (RocksIterator iterator = db.newIterator(defaultHandle)) {
+            iterator.seekToFirst();
+            iterator.status();
+            return iterator.isValid();
+        } catch (RocksDBException exception) {
+            throw new IllegalStateException("cannot validate default column family", exception);
+        }
     }
 
     public ShardId shardId() {
