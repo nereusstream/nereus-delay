@@ -109,6 +109,23 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void queryErrorResponsesKeepClosedResultTagsAndRetryPresence() {
+        final CommandQueryResponseV1 command = CommandQueryResponseV1.error(StableCode.SHARD_TRANSITIONING,
+                7_000L);
+        assertEquals(command, CommandQueryResponseV1.decode(command.canonicalBytes()));
+        final MessageQueryResponseV1 message = MessageQueryResponseV1.error(StableCode.INVALID_RECEIPT, null);
+        assertEquals(message, MessageQueryResponseV1.decode(message.canonicalBytes()));
+        assertThrows(IllegalArgumentException.class,
+                () -> new PublicQueryErrorV1(StableCode.SHARD_UNAVAILABLE, 7_000L));
+        assertThrows(IllegalArgumentException.class,
+                () -> PublicQueryErrorV1.decode(CanonicalProtobuf.message(output -> {
+                    CanonicalProtobuf.uint32(output, 1, StableCode.SHARD_TRANSITIONING.wireValue());
+                })));
+        assertThrows(IllegalArgumentException.class,
+                () -> CommandQueryResponseV1.error(StableCode.OK, null));
+    }
+
+    @Test
     void preparedCommandRoundTripsThroughCanonicalFrame() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
         final ScheduleIntent intent = new ScheduleIntent(
