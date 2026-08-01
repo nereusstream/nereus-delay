@@ -250,6 +250,28 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void controlOperationReceiptPinsRegisteredEvidenceAndQueryBoundary() {
+        final TrustedUtcIntervalEvidence registeredAt = new TrustedUtcIntervalEvidence(1_000, 1_005,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("control-clock"), 2, 7, 9,
+                Bytes.sha256(Bytes.utf8("control-sample")), 0, null);
+        final ControlOperationReceiptV1 receipt = ControlOperationReceiptV1.create(
+                Bytes.sha256(Bytes.utf8("operation")), Bytes.sha256(Bytes.utf8("request")),
+                Bytes.sha256(Bytes.utf8("scope")), Bytes.sha256(Bytes.utf8("targets")), 3, registeredAt, 5_000);
+
+        assertEquals(receipt, ControlOperationReceiptV1.decodeFrame(receipt.frame()));
+        assertEquals(ReceiptKind.CONTROL_OPERATION, ReceiptFrame.decode(receipt.frame()).kind());
+        final byte[] tampered = receipt.payload();
+        tampered[tampered.length - 1] ^= 1;
+        assertThrows(IllegalArgumentException.class, () -> ControlOperationReceiptV1.decodePayload(tampered));
+        assertThrows(IllegalArgumentException.class, () -> ControlOperationReceiptV1.create(new byte[32],
+                Bytes.sha256(Bytes.utf8("request")), Bytes.sha256(Bytes.utf8("scope")),
+                Bytes.sha256(Bytes.utf8("targets")), 3, registeredAt, 5_000));
+        assertThrows(IllegalArgumentException.class, () -> ControlOperationReceiptV1.create(
+                Bytes.sha256(Bytes.utf8("operation")), Bytes.sha256(Bytes.utf8("request")),
+                Bytes.sha256(Bytes.utf8("scope")), Bytes.sha256(Bytes.utf8("targets")), 3, registeredAt, 1_004));
+    }
+
+    @Test
     void publicQueryViewsRejectUnsafeBindingAndNonCanonicalBranchShape() {
         final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("destination"), 1,
                 Bytes.sha256(Bytes.utf8("destination-semantic")), ProfileKindV1.DESTINATION);
