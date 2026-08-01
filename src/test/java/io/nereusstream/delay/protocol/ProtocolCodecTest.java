@@ -475,6 +475,73 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void enqueueAndSubmissionOutcomeUnionsKeepBranchIdentityClosed() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 13);
+        final PreparedCommand command = PreparedCommand.cancel(shard, DelayMessageId.random(shard), 0, 9_000);
+        final KafkaSourcePosition source = new KafkaSourcePosition(shard, "outcome-cluster", UUID.randomUUID(), 4,
+                1, 1_000);
+        final CommandQueuedReceiptV1 queuedReceipt = CommandQueuedReceiptV1.create(command, source,
+                new CommandQueuedReceiptV1.KafkaQueuedAck("outcome-cluster", source.nativeTopicUuid(), 13, 4, 1,
+                        1_000, Bytes.sha256(Bytes.utf8("outcome-ack"))), 2_000, nonZero(16, 12));
+        final CommandQueuedReceiptV1.PreparedCommandRef commandRef = queuedReceipt.command();
+        final EnqueueOutcomeMessageV1 queued = EnqueueOutcomeMessageV1.queued(queuedReceipt);
+        assertEquals(queued, EnqueueOutcomeMessageV1.decode(queued.canonicalBytes()));
+
+        final NonPersistenceProofV1 localProof = NonPersistenceProofV1.create(
+                NonPersistenceProofKindV1.LOCAL_BEFORE_PRODUCER_OWNERSHIP, null, commandRef.frameSha256(),
+                null, null, null);
+        final DefinitelyNotQueuedV1 definite = new DefinitelyNotQueuedV1(commandRef, localProof,
+                StableErrorV1.of(FailureStageV1.ENQUEUE, StableCode.BROKER_DEFINITIVE_NOT_PERSISTED, null,
+                        commandRef, null, null));
+        assertEquals(EnqueueOutcomeMessageV1.definitelyNotQueued(definite),
+                EnqueueOutcomeMessageV1.decode(EnqueueOutcomeMessageV1.definitelyNotQueued(definite).canonicalBytes()));
+        final EnqueueUncertainV1 uncertain = new EnqueueUncertainV1(commandRef, nonZero(16, 13),
+                StableErrorV1.of(FailureStageV1.ENQUEUE, StableCode.ENQUEUE_RESULT_UNCERTAIN, null, commandRef,
+                        null, null));
+        assertEquals(EnqueueOutcomeMessageV1.uncertain(uncertain),
+                EnqueueOutcomeMessageV1.decode(EnqueueOutcomeMessageV1.uncertain(uncertain).canonicalBytes()));
+
+        final byte[] resource = nonZero(32, 14);
+        final PulsarBrokerResourceIdentityV1 target = new PulsarBrokerResourceIdentityV1("outcome-pulsar", resource,
+                "persistent://tenant/outcome", 1_400);
+        final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("outcome-destination"), 1,
+                Bytes.sha256(Bytes.utf8("outcome-destination-semantic")), ProfileKindV1.DESTINATION);
+        final NativePreparedRefV1 nativeRef = new NativePreparedRefV1(nonZero(32, 15),
+                Bytes.sha256(Bytes.utf8("outcome-native-submission")), destination, target, 2,
+                Bytes.sha256(Bytes.utf8("outcome-snapshot")), 5_000, Bytes.sha256(Bytes.utf8("outcome-prepared")));
+        final CommandQueuedReceiptV1.PulsarQueuedAck ack = new CommandQueuedReceiptV1.PulsarQueuedAck(
+                "outcome-pulsar", resource, "persistent://tenant/outcome", 1_400, 2, 3, 4, 0, 1, 1_500,
+                Bytes.sha256(Bytes.utf8("native-ack")));
+        final NativeDeliveryReceiptV1 nativeReceipt = NativeDeliveryReceiptV1.create(nativeRef, ack, nonZero(16, 16));
+        assertEquals(SubmissionOutcomeMessageV1.nativeReceipt(nativeReceipt),
+                SubmissionOutcomeMessageV1.decode(SubmissionOutcomeMessageV1.nativeReceipt(nativeReceipt)
+                        .canonicalBytes()));
+
+        final NonPersistenceProofV1 nativeProof = NonPersistenceProofV1.create(
+                NonPersistenceProofKindV1.PULSAR_GUARD_REJECTION, nonZero(16, 17), nativeRef.submissionHash(),
+                BrokerResourceIdentityV1.pulsar(target), Bytes.sha256(Bytes.utf8("native-request")),
+                Bytes.sha256(Bytes.utf8("native-response")));
+        final NativeDefinitelyNotQueuedV1 nativeDefinite = new NativeDefinitelyNotQueuedV1(nativeRef, nativeProof,
+                StableErrorV1.of(FailureStageV1.ENQUEUE, StableCode.NATIVE_GUARD_DEFINITIVE_NOT_PERSISTED, null, null,
+                        nativeRef, null));
+        assertEquals(SubmissionOutcomeMessageV1.nativeDefinitelyNotQueued(nativeDefinite),
+                SubmissionOutcomeMessageV1.decode(SubmissionOutcomeMessageV1.nativeDefinitelyNotQueued(nativeDefinite)
+                        .canonicalBytes()));
+        final NativeEnqueueUncertainV1 nativeUncertain = new NativeEnqueueUncertainV1(nativeRef, nonZero(16, 18),
+                StableErrorV1.of(FailureStageV1.ENQUEUE, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN, null, null,
+                        nativeRef, null));
+        assertEquals(SubmissionOutcomeMessageV1.nativeUncertain(nativeUncertain),
+                SubmissionOutcomeMessageV1.decode(SubmissionOutcomeMessageV1.nativeUncertain(nativeUncertain)
+                        .canonicalBytes()));
+
+        final PreparedSubmissionV1 managedPrepared = PreparedSubmissionV1.managed(CommandCodec.encodeFrame(command));
+        assertEquals(managedPrepared, PreparedSubmissionV1.decode(managedPrepared.canonicalBytes()));
+        final NativePreparedDeliveryV1 nativePrepared = nativePreparedForOutcomeTest();
+        final PreparedSubmissionV1 nativePreparedSubmission = PreparedSubmissionV1.nativePrepared(nativePrepared);
+        assertEquals(nativePreparedSubmission, PreparedSubmissionV1.decode(nativePreparedSubmission.canonicalBytes()));
+    }
+
+    @Test
     void publicQueryViewsRejectUnsafeBindingAndNonCanonicalBranchShape() {
         final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("destination"), 1,
                 Bytes.sha256(Bytes.utf8("destination-semantic")), ProfileKindV1.DESTINATION);
@@ -737,6 +804,29 @@ class ProtocolCodecTest {
                 Bytes.sha256(Bytes.utf8("capability-semantic")), ProfileKindV1.DELIVERY_CAPABILITY);
         return new PublicDestinationBindingViewV1(destination, capability, AdapterKindV1.KAFKA,
                 Bytes.utf8("safe-destination"), 2, OrderingMode.BEST_EFFORT);
+    }
+
+    private static NativePreparedDeliveryV1 nativePreparedForOutcomeTest() throws Exception {
+        final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = keyPairGenerator.generateKeyPair();
+        final byte[] resource = nonZero(32, 19);
+        final PulsarBrokerResourceIdentityV1 target = new PulsarBrokerResourceIdentityV1("prepared-outcome", resource,
+                "persistent://tenant/prepared-outcome", 1_900);
+        final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("prepared-outcome-destination"), 1,
+                Bytes.sha256(Bytes.utf8("prepared-outcome-destination-semantic")), ProfileKindV1.DESTINATION);
+        final ProfileRefV1 capability = new ProfileRefV1(Bytes.utf8("prepared-outcome-capability"), 1,
+                Bytes.sha256(Bytes.utf8("prepared-outcome-capability-semantic")), ProfileKindV1.DELIVERY_CAPABILITY);
+        final TrustedUtcIntervalEvidence issuedAt = new TrustedUtcIntervalEvidence(2_000, 2_010,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("prepared-outcome-clock"), 1, 2,
+                3, Bytes.sha256(Bytes.utf8("prepared-outcome-sample")), 0, null);
+        final NativeCapabilitySnapshotV1 snapshot = NativeCapabilitySnapshotV1.create(destination, capability, target,
+                0, Bytes.sha256(Bytes.utf8("prepared-outcome-guard")), 1, 1,
+                Bytes.sha256(Bytes.utf8("prepared-outcome-binding")),
+                Bytes.sha256(Bytes.utf8("prepared-outcome-fingerprint")),
+                Bytes.sha256(Bytes.utf8("prepared-outcome-scope")), issuedAt, 3_000, 1, keyPair.getPrivate());
+        return NativePreparedDeliveryV1.create(nonZero(32, 20), destination, capability, target, 0,
+                Bytes.utf8("prepared-outcome-payload"), new PulsarMetadataV1(null, null, null, java.util.List.of()),
+                null, 2_100, 2_200, snapshot);
     }
 
     private static byte[] nonZero(final int length, final int firstByte) {
