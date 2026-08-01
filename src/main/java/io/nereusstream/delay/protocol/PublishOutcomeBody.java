@@ -275,7 +275,10 @@ public final class PublishOutcomeBody {
             // Older UNKNOWN producers used a bounded placeholder.  Preserve
             // that opaque branch, but strictly parse a full RetryDecision when
             // it carries more than the placeholder's single field.
-            return fields.size() <= 1 ? unchecked(encoded) : decode(encoded);
+            if (fields.size() == 1 && fields.get(0).number() == 1 && fields.get(0).wireType() == 2) {
+                return unchecked(encoded);
+            }
+            return decode(encoded);
         }
 
         private static void validateRetryPolicyRef(final byte[] encoded) {
