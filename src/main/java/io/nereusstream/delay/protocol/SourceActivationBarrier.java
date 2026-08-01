@@ -12,6 +12,14 @@ public sealed interface SourceActivationBarrier
     SourcePositionKind kind();
 
     /**
+     * Returns the guard attestation digest when the barrier is bound to a
+     * physical source connection. Kafka barriers have no such field.
+     */
+    default byte[] resourceGuardAttestationDigest() {
+        return null;
+    }
+
+    /**
      * Validates the physical source identity before a catch-up record is
      * admitted. This is separate from {@link #reachedBy(SourcePosition)} so an
      * empty barrier cannot accidentally accept a record from a replacement

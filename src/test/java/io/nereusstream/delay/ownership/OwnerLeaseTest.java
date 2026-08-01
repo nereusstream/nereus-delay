@@ -7,6 +7,8 @@ import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.KafkaActivationBarrier;
 import io.nereusstream.delay.protocol.OrderingMode;
 import io.nereusstream.delay.protocol.PreparedCommand;
+import io.nereusstream.delay.protocol.PulsarActivationBarrier;
+import io.nereusstream.delay.protocol.PulsarSourcePosition;
 import io.nereusstream.delay.protocol.ScheduleIntent;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.runtime.DelayShard;
@@ -115,6 +117,39 @@ class OwnerLeaseTest {
             final KafkaSourcePosition replacement = new KafkaSourcePosition(shardId, "cluster", UUID.randomUUID(),
                     0, null, 1_000);
             assertThrows(IllegalArgumentException.class, () -> owned.apply(command, replacement, 101));
+        }
+    }
+
+    @Test
+    void pulsarCatchupAndApplyRequireTheGuardedSourceConnectionGeneration() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 7);
+        final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = authority.acquire(shardId, "worker-pulsar", 100, 100).orElseThrow();
+        final byte[] resource = Bytes.sha256(Bytes.utf8("pulsar-resource"));
+        final byte[] guard = Bytes.sha256(Bytes.utf8("guard-generation-7"));
+        final PulsarActivationBarrier barrier = new PulsarActivationBarrier(shardId, resource,
+                "persistent://tenant/commands-partition-7", 4, 8, 2, 7, guard, false);
+        final PulsarSourcePosition catchup = new PulsarSourcePosition(shardId, resource,
+                "persistent://tenant/commands-partition-7", 4, 8, 2, 3,
+                PulsarSourcePosition.EntryKind.BATCH, 1_000);
+        final PulsarSourcePosition next = new PulsarSourcePosition(shardId, resource,
+                "persistent://tenant/commands-partition-7", 4, 9, 0, 1,
+                PulsarSourcePosition.EntryKind.NON_BATCH, 1_001);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("pulsar-generation"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            owned.markCatchingUp(new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("assignment-pulsar")), 1,
+                    barrier));
+            assertThrows(IllegalArgumentException.class, () -> owned.recordCatchup(catchup));
+            owned.recordCatchup(catchup, 7L, guard);
+            owned.activateForCommands(101);
+            final PreparedCommand command = PreparedCommand.schedule(shardId,
+                    new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("pulsar-generation-lane")), 2_000, 5_000,
+                            OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+            assertThrows(IllegalArgumentException.class, () -> owned.apply(command, next, 101));
+            assertEquals(io.nereusstream.delay.protocol.StableCode.SCHEDULED,
+                    owned.apply(command, next, 101, 7L, guard).stableCode());
         }
     }
 }

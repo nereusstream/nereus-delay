@@ -26,13 +26,19 @@ class SourceActivationBarrierTest {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 1);
         final byte[] resource = new byte[32];
         resource[0] = 7;
+        final byte[] guardDigest = Bytes.sha256(Bytes.utf8("guard-1"));
         final PulsarActivationBarrier barrier = new PulsarActivationBarrier(shard, resource, "persistent://t/a",
-                4, 8, 2, false);
+                4, 8, 2, 11, guardDigest, false);
+        barrier.validateSourceConnection(11, guardDigest);
+        assertThrows(IllegalArgumentException.class, () -> barrier.validateSourceConnection(12, guardDigest));
+        assertThrows(IllegalArgumentException.class,
+                () -> barrier.validateSourceConnection(11, Bytes.sha256(Bytes.utf8("other-guard"))));
         assertFalse(barrier.reachedBy(new PulsarSourcePosition(shard, resource, "persistent://t/a", 4, 8, 1, 3,
                 PulsarSourcePosition.EntryKind.BATCH, 1)));
         assertTrue(barrier.reachedBy(new PulsarSourcePosition(shard, resource, "persistent://t/a", 4, 8, 2, 3,
                 PulsarSourcePosition.EntryKind.BATCH, 1)));
-        assertTrue(PulsarActivationBarrier.empty(shard, resource, "persistent://t/a").reachedBy(null));
+        assertTrue(PulsarActivationBarrier.empty(shard, resource, "persistent://t/a", 11, guardDigest)
+                .reachedBy(null));
         final byte[] replacement = resource.clone();
         replacement[1] = 8;
         assertThrows(IllegalArgumentException.class, () -> barrier.reachedBy(new PulsarSourcePosition(shard,
@@ -44,7 +50,7 @@ class SourceActivationBarrierTest {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 2);
         final byte[] resource = Bytes.sha256(Bytes.utf8("empty-resource"));
         final PulsarActivationBarrier barrier = PulsarActivationBarrier.empty(shard, resource,
-                "persistent://t/empty");
+                "persistent://t/empty", 7, Bytes.sha256(Bytes.utf8("empty-guard")));
         assertThrows(IllegalArgumentException.class, () -> barrier.validatePosition(new PulsarSourcePosition(shard,
                 Bytes.sha256(Bytes.utf8("replacement-resource")), "persistent://t/empty", 1, 1, 0, 1,
                 PulsarSourcePosition.EntryKind.NON_BATCH, 1)));

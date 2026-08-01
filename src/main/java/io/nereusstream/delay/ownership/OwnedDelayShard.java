@@ -1,6 +1,7 @@
 package io.nereusstream.delay.ownership;
 
 import io.nereusstream.delay.protocol.PreparedCommand;
+import io.nereusstream.delay.protocol.PulsarActivationBarrier;
 import io.nereusstream.delay.protocol.SourceActivationBarrier;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.runtime.CommandResult;
@@ -25,9 +26,22 @@ public final class OwnedDelayShard {
 
     public synchronized CommandResult apply(final PreparedCommand command, final SourcePosition position,
                                             final long nowEpochMs) {
+        return apply(command, position, nowEpochMs, null, null);
+    }
+
+    /**
+     * Applies a record from a guarded Pulsar source connection.  The
+     * connection proof is required for Pulsar because a replacement consumer
+     * can otherwise emit a position with the same physical topic identity.
+     * Kafka has no connection-generation field and passes {@code null} proof.
+     */
+    public synchronized CommandResult apply(final PreparedCommand command, final SourcePosition position,
+                                            final long nowEpochMs, final Long sourceConnectionGeneration,
+                                            final byte[] guardAttestationDigest) {
         ensureActive(nowEpochMs);
         if (activationBarrier != null) {
             activationBarrier.validatePosition(position);
+            validateSourceConnection(position, sourceConnectionGeneration, guardAttestationDigest);
         }
         return delegate.apply(command, position);
     }
@@ -79,6 +93,12 @@ public final class OwnedDelayShard {
     }
 
     public synchronized void recordCatchup(final SourcePosition position) {
+        recordCatchup(position, null, null);
+    }
+
+    /** Records catch-up from the exact guarded source connection generation. */
+    public synchronized void recordCatchup(final SourcePosition position, final Long sourceConnectionGeneration,
+                                           final byte[] guardAttestationDigest) {
         Objects.requireNonNull(position, "position");
         if (state != ShardLifecycleState.CATCHING_UP) {
             throw new IllegalStateException("shard is not catching up");
@@ -88,11 +108,24 @@ public final class OwnedDelayShard {
         }
         if (activationBarrier != null) {
             activationBarrier.validatePosition(position);
+            validateSourceConnection(position, sourceConnectionGeneration, guardAttestationDigest);
         }
         if (lastCatchupPosition != null && position.compareTo(lastCatchupPosition) < 0) {
             throw new IllegalStateException("catch-up position regressed");
         }
         lastCatchupPosition = position;
+    }
+
+    private void validateSourceConnection(final SourcePosition position, final Long connectionGeneration,
+                                          final byte[] guardAttestationDigest) {
+        if (!(position instanceof io.nereusstream.delay.protocol.PulsarSourcePosition)
+                || !(activationBarrier instanceof PulsarActivationBarrier pulsarBarrier)) {
+            return;
+        }
+        if (connectionGeneration == null || connectionGeneration <= 0 || guardAttestationDigest == null) {
+            throw new IllegalArgumentException("Pulsar source connection proof is required");
+        }
+        pulsarBarrier.validateSourceConnection(connectionGeneration, guardAttestationDigest);
     }
 
     public synchronized void activateForCommands(final long nowEpochMs) {
