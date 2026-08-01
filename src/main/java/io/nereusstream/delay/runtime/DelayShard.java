@@ -846,8 +846,13 @@ public final class DelayShard {
 
     private static List<AttemptObligationRef> withoutObligation(final GenerationRuntimeIndex index,
                                                                  final byte[] publishAttemptId) {
+        return withoutObligation(index.attemptObligations(), publishAttemptId);
+    }
+
+    private static List<AttemptObligationRef> withoutObligation(final List<AttemptObligationRef> obligations,
+                                                                 final byte[] publishAttemptId) {
         final List<AttemptObligationRef> result = new ArrayList<>();
-        for (AttemptObligationRef ref : index.attemptObligations()) {
+        for (AttemptObligationRef ref : obligations) {
             if (!Arrays.equals(ref.publishAttemptId(), publishAttemptId)) {
                 result.add(ref);
             }
@@ -878,8 +883,16 @@ public final class DelayShard {
                                                                   final MessageStatus expectedMessageStatus) {
         final MessageRecord current = getMessage(ledger.delayMessageId());
         if (ledger.state() != expectedLedgerState || current == null
-                || current.generation() != ledger.generation()) {
+                || current.generation() < ledger.generation()) {
             return persistSystemResultByResult(systemResult, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
+        }
+        if (current.generation() > ledger.generation()) {
+            final PublishOutcomeBody.RetryDecision retryDecision = outcome.retryDecision();
+            if (retryDecision.completedAttemptNo() != ledger.attemptNo()) {
+                return persistSystemResultByResult(systemResult, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
+            }
+            settleHistoricalTerminalObligation(ledger, sourcePosition, systemResult, false);
+            return systemResult;
         }
         if (isTerminalStatus(current.status())) {
             if (outcome.retryDecision().completedAttemptNo() != ledger.attemptNo()) {
@@ -1411,8 +1424,11 @@ public final class DelayShard {
                                                        final SystemMutationResult systemResult,
                                                        final MessageStatus expectedMessageStatus) {
         final MessageRecord current = getMessage(ledger.delayMessageId());
-        if (current == null || current.generation() != ledger.generation()) {
+        if (current == null || current.generation() < ledger.generation()) {
             throw new IllegalStateException("published outcome is stale for the current message");
+        }
+        if (current.generation() > ledger.generation()) {
+            return settleHistoricalTerminalObligation(ledger, sourcePosition, systemResult, true);
         }
         if (isTerminalStatus(current.status())) {
             return settleTerminalObligation(ledger, current, sourcePosition, systemResult, true);
@@ -1490,6 +1506,36 @@ public final class DelayShard {
         lastAppliedSourcePosition = sourcePosition;
         mutationSequence++;
         return next;
+    }
+
+    /** Settles an old-generation obligation using its terminal summary only. */
+    private MessageRecord settleHistoricalTerminalObligation(final PublishAttemptLedger ledger,
+                                                             final SourcePosition sourcePosition,
+                                                             final SystemMutationResult systemResult,
+                                                             final boolean verifiedPublished) {
+        final TerminalGenerationRecord summary = getTerminalGeneration(ledger.delayMessageId(), ledger.generation());
+        if (summary == null || !summary.openObligations().contains(ledger.obligationRef())) {
+            throw new IllegalStateException("historical terminal obligation summary is stale or missing");
+        }
+        final List<AttemptObligationRef> remaining = withoutObligation(summary.openObligations(),
+                ledger.publishAttemptId());
+        final boolean duplicate = summary.possibleDestinationDuplicate() || verifiedPublished;
+        final TerminalGenerationRecord nextSummary = new TerminalGenerationRecord(summary.messageId(),
+                summary.generation(), summary.status(), summary.terminalCode(), summary.stateVersion(),
+                summary.appliedSourcePosition(), duplicate, remaining);
+        final MessageRecord current = getMessage(ledger.delayMessageId());
+        store.write(batch -> {
+            batch.delete(ColumnFamily.INFLIGHT, ledger.encodedKey());
+            batch.putValue(ColumnFamily.TERMINAL, 1,
+                    KeyCodec.terminalGeneration(ledger.delayMessageId(), ledger.generation()), nextSummary.encode());
+            if (systemResult != null) {
+                writeSystemResult(batch, systemResult);
+            }
+            writePosition(batch, sourcePosition);
+        });
+        lastAppliedSourcePosition = sourcePosition;
+        mutationSequence++;
+        return current;
     }
 
     public synchronized LaneRecord getLane(final io.nereusstream.delay.protocol.DestinationLaneId laneId) {
@@ -2371,6 +2417,41 @@ public final class DelayShard {
             }
         }
 
+        final Map<GenerationIdentity, TerminalGenerationRecord> terminalSummaries = new HashMap<>();
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> terminalEntries = store.scan(
+                ColumnFamily.TERMINAL, new byte[]{1, 1}, new byte[]{2, 1}, limit);
+        if (terminalEntries.size() >= limit && config.maxPendingMessages() < Integer.MAX_VALUE) {
+            throw new IllegalStateException("terminal summary reconciliation scan exceeded configured bound");
+        }
+        for (var entry : terminalEntries) {
+            final byte[] key = entry.key();
+            if (key.length != 2 + DelayMessageId.LENGTH + 4 || key[0] != 1 || key[1] != 1) {
+                throw new IllegalStateException("invalid terminal summary key while reconciling runtime indexes");
+            }
+            final byte[] messageBytes = Arrays.copyOfRange(key, 2, 2 + DelayMessageId.LENGTH);
+            final int generation = ByteBuffer.wrap(key, 2 + DelayMessageId.LENGTH, 4).getInt();
+            final TerminalGenerationRecord summary = TerminalGenerationRecord.decode(
+                    io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), 1).payload());
+            final GenerationIdentity identity = new GenerationIdentity(new DelayMessageId(messageBytes), generation);
+            if (!summary.messageId().equals(identity.messageId()) || summary.generation() != identity.generation()
+                    || terminalSummaries.put(identity, summary) != null) {
+                throw new IllegalStateException("terminal summary key/value identity mismatch");
+            }
+            final MessageRecord current = messages.get(identity.messageId());
+            if (current != null && current.generation() == identity.generation()) {
+                validateTerminalSummary(identity.messageId(), current);
+            }
+            for (AttemptObligationRef obligation : summary.openObligations()) {
+                final PublishAttemptLedger ledger = readLedgerForObligation(obligation);
+                if (!ledger.delayMessageId().equals(identity.messageId())
+                        || ledger.generation() != identity.generation()
+                        || ledger.state() != obligation.ledgerState()
+                        || !Arrays.equals(ledger.obligationRef().canonicalBytes(), obligation.canonicalBytes())) {
+                    throw new IllegalStateException("terminal summary obligation does not match its inflight ledger");
+                }
+            }
+        }
+
         final List<io.nereusstream.delay.store.ShardStore.KeyValue> claimEntries = store.scan(ColumnFamily.INFLIGHT,
                 new byte[]{INFLIGHT_CLAIMED_KIND, 1}, new byte[]{INFLIGHT_PUBLISHING_KIND, 1}, limit);
         if (claimEntries.size() >= limit && config.maxPendingMessages() < Integer.MAX_VALUE) {
@@ -2407,7 +2488,14 @@ public final class DelayShard {
         for (var entry : attemptEntries) {
             final PublishAttemptLedger ledger = decodePublishAttempt(entry);
             final MessageRecord message = messages.get(ledger.delayMessageId());
-            if (message == null || !containsObligation(message.runtimeIndex(), ledger.obligationRef())) {
+            final boolean inCurrentRuntime = message != null && message.generation() == ledger.generation()
+                    && containsObligation(message.runtimeIndex(), ledger.obligationRef());
+            final TerminalGenerationRecord summary = terminalSummaries.get(
+                    new GenerationIdentity(ledger.delayMessageId(), ledger.generation()));
+            final boolean inTerminalSummary = summary != null
+                    && summary.openObligations().stream().anyMatch(obligation ->
+                    Arrays.equals(obligation.canonicalBytes(), ledger.obligationRef().canonicalBytes()));
+            if (!inCurrentRuntime && !inTerminalSummary) {
                 throw new IllegalStateException("inflight ledger is not represented by the current runtime index");
             }
         }
@@ -2711,6 +2799,9 @@ public final class DelayShard {
     }
 
     private record AdmissionReplayState(boolean claimMayBeMissing, boolean uncertainRetryAdmission) {
+    }
+
+    private record GenerationIdentity(DelayMessageId messageId, int generation) {
     }
 
     private static int compareUnsigned(final byte[] left, final byte[] right) {

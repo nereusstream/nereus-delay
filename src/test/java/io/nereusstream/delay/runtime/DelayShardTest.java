@@ -1289,6 +1289,125 @@ class DelayShardTest {
     }
 
     @Test
+    void lateOutcomeSettlesOlderGenerationThroughTerminalSummary() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("historical-terminal-outcome"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 30);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("historical-terminal-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("historical-terminal")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 1_001);
+        final KafkaSourcePosition generationOnePosition = position(shardId, 2, 1_002);
+        final KafkaSourcePosition outcomePosition = position(shardId, 3, 1_003);
+        final KafkaSourcePosition secondOutcomePosition = position(shardId, 4, 1_004);
+        final byte[] attemptId = Bytes.sha256(Bytes.utf8("historical-terminal-attempt"));
+        final byte[] secondAttemptId = Bytes.sha256(Bytes.utf8("historical-terminal-second-attempt"));
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final AuthorIdentity owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 42,
+                Bytes.sha256(Bytes.utf8("lease")));
+        final AuthorIdentity secondOwner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 43,
+                Bytes.sha256(Bytes.utf8("lease-2")));
+        TerminalGenerationRecord oldSummary;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final PublishAttemptLedger oldAttempt = PublishAttemptLedger.publishing(schedule.delayMessageId(), 0,
+                    attemptId, Bytes.sha256(Bytes.utf8("historical-terminal-claim")), owner.generation(), 1, lane,
+                    shard.getLane(lane).laneIncarnation(), owner.canonicalBytes(), store.metadata().storeIncarnation(),
+                    Bytes.sha256(Bytes.utf8("historical-terminal-prepared")), Bytes.utf8("historical-admission"),
+                    admissionPosition.canonicalBytes());
+            shard.admitPublishAttempt(oldAttempt, admissionPosition);
+
+            final MessageRecord prior = shard.getMessage(schedule.delayMessageId());
+            final byte[] nextTimelineKey = KeyCodec.timelineDue(lane, 3_000,
+                    generationOnePosition.sourceOrderToken(), schedule.delayMessageId(), 1);
+            final MessageRecord next = new MessageRecord(MessageStatus.SCHEDULED, 1,
+                    prior.stateVersion() + 1, 3_000, 6_000, lane, OrderingMode.BEST_EFFORT, prior.payload(),
+                    generationOnePosition.canonicalBytes(), prior.payloadReference(), 3_000).withRuntimeIndex(
+                    GenerationRuntimeIndex.timeline(GenerationAggregateState.SCHEDULED,
+                            TimelineWorkRef.initial(nextTimelineKey, 3_000, prior.stateVersion() + 1),
+                            List.of(), 0, 0, false, prior.stateVersion() + 1));
+            oldSummary = new TerminalGenerationRecord(schedule.delayMessageId(), 0, MessageStatus.SUPERSEDED,
+                    StableCode.SUPERSEDED, prior.stateVersion(), generationOnePosition.canonicalBytes(), false,
+                    List.of(oldAttempt.obligationRef()));
+            final TerminalGenerationRecord initialSummary = oldSummary;
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(schedule.delayMessageId()), next.encode());
+                batch.putValue(ColumnFamily.TIMELINE, 1, nextTimelineKey,
+                        new TimelineEntry(schedule.delayMessageId(), 1).encode());
+                batch.putValue(ColumnFamily.TIMELINE, 1,
+                        KeyCodec.timelineExpiry(6_000, lane, schedule.delayMessageId(), 1),
+                        new TimelineEntry(schedule.delayMessageId(), 1).encode());
+                batch.putValue(ColumnFamily.TERMINAL, 1,
+                        KeyCodec.terminalGeneration(schedule.delayMessageId(), 0), initialSummary.encode());
+            });
+
+            final TrustedUtcIntervalEvidence observedAt = new TrustedUtcIntervalEvidence(1_003, 1_003,
+                    TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("clock"), 1, 7, 7,
+                    Bytes.sha256(Bytes.utf8("historical-outcome-proof")), 0, null);
+            final byte[] outcomeBody = publishNotPublishedBody(shardId, attemptId, 1,
+                    StableCode.DESTINATION_DEFINITIVE_RETRIABLE, 3_000);
+            final SystemMutation outcome = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
+                    Bytes.sha256(Bytes.utf8("historical-outcome-operation")), outcomeBody,
+                    owner.canonicalBytes(), 1, keyPair.getPrivate());
+
+            final SystemMutationResult result = shard.applySystemMutation(outcome, outcomePosition,
+                    keyPair.getPublic());
+
+            assertEquals(StableCode.DESTINATION_DEFINITIVE_RETRIABLE, result.stableCode());
+            assertEquals(MessageStatus.SCHEDULED, shard.getMessage(schedule.delayMessageId()).status());
+            assertFalse(shard.getMessage(schedule.delayMessageId()).runtimeIndex().possibleDestinationDuplicate());
+            assertEquals(List.of(), shard.getTerminalGeneration(schedule.delayMessageId(), 0).openObligations());
+            assertNull(shard.getPublishAttempt(attemptId, owner.generation()));
+            assertEquals(result, shard.getSystemMutationResult(outcome.systemMutationId()));
+
+            final PublishAttemptLedger second = PublishAttemptLedger.publishing(schedule.delayMessageId(), 0,
+                    secondAttemptId, Bytes.sha256(Bytes.utf8("historical-terminal-second-claim")),
+                    secondOwner.generation(), 2, lane, shard.getLane(lane).laneIncarnation(),
+                    secondOwner.canonicalBytes(), store.metadata().storeIncarnation(),
+                    Bytes.sha256(Bytes.utf8("historical-terminal-second-prepared")),
+                    Bytes.utf8("historical-second-admission"), secondOutcomePosition.canonicalBytes());
+            final TerminalGenerationRecord secondSummary = new TerminalGenerationRecord(schedule.delayMessageId(), 0,
+                    MessageStatus.SUPERSEDED,
+                    StableCode.SUPERSEDED, prior.stateVersion(), generationOnePosition.canonicalBytes(), false,
+                    List.of(second.obligationRef()));
+            oldSummary = secondSummary;
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.INFLIGHT, PublishAttemptLedger.VALUE_TYPE, second.encodedKey(),
+                        second.encode());
+                batch.putValue(ColumnFamily.TERMINAL, 1,
+                        KeyCodec.terminalGeneration(schedule.delayMessageId(), 0), secondSummary.encode());
+            });
+            final byte[] secondOutcomeBody = publishOutcomeBody(shardId, secondAttemptId, 1, 0, StableCode.OK,
+                    nestedPlaceholder(), observedAt.canonicalBytes());
+            final SystemMutation secondOutcome = SystemMutation.signed(shardId,
+                    SystemMutationType.PUBLISH_OUTCOME, 9_000,
+                    Bytes.sha256(Bytes.utf8("historical-second-outcome-operation")), secondOutcomeBody,
+                    secondOwner.canonicalBytes(), 1, keyPair.getPrivate());
+            final SystemMutationResult secondResult = shard.applySystemMutation(secondOutcome,
+                    secondOutcomePosition, keyPair.getPublic());
+            assertEquals(StableCode.OK, secondResult.stableCode());
+            assertTrue(shard.getTerminalGeneration(schedule.delayMessageId(), 0).possibleDestinationDuplicate());
+            assertEquals(List.of(), shard.getTerminalGeneration(schedule.delayMessageId(), 0).openObligations());
+            assertNull(shard.getPublishAttempt(secondAttemptId, secondOwner.generation()));
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(MessageStatus.SCHEDULED, reopened.getMessage(schedule.delayMessageId()).status());
+            assertEquals(oldSummary.generation(), reopened.getTerminalGeneration(schedule.delayMessageId(), 0)
+                    .generation());
+            assertTrue(reopened.getTerminalGeneration(schedule.delayMessageId(), 0).possibleDestinationDuplicate());
+            assertNull(reopened.getPublishAttempt(attemptId, owner.generation()));
+            assertNull(reopened.getPublishAttempt(secondAttemptId, secondOwner.generation()));
+        }
+    }
+
+    @Test
     void claimResultConsumesExactClaimAndTerminalizesCurrentGeneration() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("claim-result-claimed"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 23);
