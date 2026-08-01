@@ -137,6 +137,20 @@ class ShardStoreTest {
     }
 
     @Test
+    void sharedResourcesCannotCloseBeforeTheShardDb() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("resource-lifecycle"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 21);
+        final SharedRocksDbResources resources = new SharedRocksDbResources(config);
+        final ShardStore store = ShardStore.open(config, shardId, resources);
+        try {
+            assertThrows(IllegalStateException.class, resources::close);
+        } finally {
+            store.close();
+            resources.close();
+        }
+    }
+
+    @Test
     void restoreWithManifestRejectsFileIdentityDrift() throws Exception {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 19);
         final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("manifest-source"));

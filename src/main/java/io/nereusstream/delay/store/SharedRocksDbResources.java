@@ -21,6 +21,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
     private final Semaphore checkpointCreateSlots;
     private final Semaphore checkpointUploadSlots;
     private final AtomicBoolean closed = new AtomicBoolean();
+    private int openDbCount;
 
     public SharedRocksDbResources(final ShardStoreConfig config) {
         this(config, null);
@@ -58,14 +59,19 @@ public final class SharedRocksDbResources implements AutoCloseable {
         return rateLimiter;
     }
 
-    public void acquireDbSlot() {
+    public synchronized void acquireDbSlot() {
         ensureOpen();
         if (!openDbSlots.tryAcquire()) {
             throw new IllegalStateException("worker maxOpenShardDbs limit reached");
         }
+        openDbCount++;
     }
 
-    public void releaseDbSlot() {
+    public synchronized void releaseDbSlot() {
+        if (openDbCount <= 0) {
+            throw new IllegalStateException("RocksDB DB slot released without an open DB");
+        }
+        openDbCount--;
         openDbSlots.release();
     }
 
@@ -92,12 +98,17 @@ public final class SharedRocksDbResources implements AutoCloseable {
     }
 
     @Override
-    public void close() {
-        if (closed.compareAndSet(false, true)) {
-            rateLimiter.close();
-            writeBufferManager.close();
-            blockCache.close();
+    public synchronized void close() {
+        if (closed.get()) {
+            return;
         }
+        if (openDbCount != 0) {
+            throw new IllegalStateException("cannot close shared RocksDB resources while a shard DB is open");
+        }
+        closed.set(true);
+        rateLimiter.close();
+        writeBufferManager.close();
+        blockCache.close();
     }
 
     private void ensureOpen() {
