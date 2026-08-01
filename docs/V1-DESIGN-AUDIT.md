@@ -121,7 +121,10 @@ canonical checkpoint-catalog projection，包含 shard identity、Floor identity
 durable control-operation query routing 或 Oxia catalog authority 已完成。
 `CheckpointControlResultV1` 也已补齐 checkpoint-control typed result 的
 shard/checkpoint/manifest/generation projection；其余 control result branches
-仍保持各自的未完成状态，不得由 opaque `ControlTypedResultV1` 误报为完整实现。
+现已补齐 Lane/Shard/Profile/Quota/Message/Route/Secret 的纯值 codecs 和
+枚举/presence 校验，但 `ControlTypedResultV1` 仍只保存 canonical branch
+bytes；durable control-operation query state、routing、authorization 和
+真实 Oxia ownership 仍未完成。
 
 ## Source locks
 
