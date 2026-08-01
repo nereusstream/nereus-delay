@@ -13,6 +13,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class WorkerSchedulerTest {
     @Test
@@ -48,6 +49,7 @@ class WorkerSchedulerTest {
         worker.registerShard(second, 1, LaneScheduler.defaults());
         worker.registerLane(first, laneRecord(firstLane));
         worker.registerLane(second, laneRecord(secondLane));
+        worker.markShardBlocked(first);
         for (int index = 0; index < 4; index++) {
             worker.offer(item(first, firstLane, index));
             worker.offer(item(second, secondLane, index));
@@ -64,6 +66,9 @@ class WorkerSchedulerTest {
 
         assertEquals(saved.roundGeneration(), restored.snapshot().roundGeneration());
         assertFalse(restored.snapshot().shards().isEmpty());
+        assertTrue(restored.snapshot().shards().stream()
+                .filter(snapshot -> snapshot.shardId().equals(first))
+                .findFirst().orElseThrow().blocked());
     }
 
     private static LaneRecord laneRecord(final DestinationLaneId lane) {

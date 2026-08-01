@@ -133,6 +133,7 @@ public final class WorkerScheduler {
             }
             shard.deficit = saved.deficit();
             shard.lastServedRound = saved.lastServedRound();
+            shard.blocked = saved.blocked();
         }
         cursor = ring.isEmpty() ? 0 : Math.floorMod(snapshot.cursor(), ring.size());
         roundGeneration = snapshot.roundGeneration();
