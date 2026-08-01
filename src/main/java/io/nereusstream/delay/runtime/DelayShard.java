@@ -872,7 +872,17 @@ public final class DelayShard {
                                                                   final MessageStatus expectedMessageStatus) {
         final MessageRecord current = getMessage(ledger.delayMessageId());
         if (ledger.state() != expectedLedgerState || current == null
-                || current.status() != expectedMessageStatus || current.generation() != ledger.generation()) {
+                || current.generation() != ledger.generation()) {
+            return persistSystemResultByResult(systemResult, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
+        }
+        if (isTerminalStatus(current.status())) {
+            if (outcome.retryDecision().completedAttemptNo() != ledger.attemptNo()) {
+                return persistSystemResultByResult(systemResult, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
+            }
+            settleTerminalObligation(ledger, current, sourcePosition, systemResult, false);
+            return systemResult;
+        }
+        if (current.status() != expectedMessageStatus) {
             return persistSystemResultByResult(systemResult, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
         }
         final PublishOutcomeBody.RetryDecision retryDecision = outcome.retryDecision();
@@ -1363,8 +1373,13 @@ public final class DelayShard {
                                                        final SystemMutationResult systemResult,
                                                        final MessageStatus expectedMessageStatus) {
         final MessageRecord current = getMessage(ledger.delayMessageId());
-        if (current == null || current.status() != expectedMessageStatus
-                || current.generation() != ledger.generation()) {
+        if (current == null || current.generation() != ledger.generation()) {
+            throw new IllegalStateException("published outcome is stale for the current message");
+        }
+        if (isTerminalStatus(current.status())) {
+            return settleTerminalObligation(ledger, current, sourcePosition, systemResult, true);
+        }
+        if (current.status() != expectedMessageStatus) {
             throw new IllegalStateException("published outcome is stale for the current message");
         }
         MessageRecord next = new MessageRecord(MessageStatus.PUBLISHED, current.generation(),
@@ -1391,6 +1406,44 @@ public final class DelayShard {
                 deleteReadyKey(batch, projection.previousLane());
                 putReadyProjection(batch, projection);
             }
+            if (systemResult != null) {
+                writeSystemResult(batch, systemResult);
+            }
+            writePosition(batch, sourcePosition);
+        });
+        lastAppliedSourcePosition = sourcePosition;
+        mutationSequence++;
+        return next;
+    }
+
+    private MessageRecord settleTerminalObligation(final PublishAttemptLedger ledger,
+                                                   final MessageRecord current,
+                                                   final SourcePosition sourcePosition,
+                                                   final SystemMutationResult systemResult,
+                                                   final boolean verifiedPublished) {
+        final TerminalGenerationRecord summary = getTerminalGeneration(ledger.delayMessageId(), ledger.generation());
+        if (summary == null || !containsObligation(current.runtimeIndex(), ledger.obligationRef())
+                || !summary.openObligations().equals(current.runtimeIndex().attemptObligations())) {
+            throw new IllegalStateException("terminal obligation summary is stale or missing");
+        }
+        final List<AttemptObligationRef> remaining = withoutObligation(current.runtimeIndex(),
+                ledger.publishAttemptId());
+        final boolean duplicate = current.runtimeIndex().possibleDestinationDuplicate() || verifiedPublished;
+        final MessageRecord next = new MessageRecord(current.status(), current.generation(), current.stateVersion(),
+                current.deliverAtEpochMs(), current.expireAtEpochMs(), current.laneId(), current.orderingMode(),
+                current.payload(), current.scheduleSourcePosition(), current.payloadReference(),
+                current.retryEligibilityAtEpochMs()).withRuntimeIndex(GenerationRuntimeIndex.none(
+                        GenerationAggregateState.fromMessageStatus(current.status()), remaining,
+                        current.runtimeIndex().admissionsUsed(), current.runtimeIndex().uncertainRetryAdmissionsUsed(),
+                        duplicate, Math.addExact(current.runtimeIndex().runtimeRevision(), 1)));
+        final TerminalGenerationRecord nextSummary = new TerminalGenerationRecord(summary.messageId(),
+                summary.generation(), summary.status(), summary.terminalCode(), summary.stateVersion(),
+                summary.appliedSourcePosition(), duplicate, remaining);
+        store.write(batch -> {
+            batch.delete(ColumnFamily.INFLIGHT, ledger.encodedKey());
+            batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(ledger.delayMessageId()), next.encode());
+            batch.putValue(ColumnFamily.TERMINAL, 1,
+                    KeyCodec.terminalGeneration(ledger.delayMessageId(), ledger.generation()), nextSummary.encode());
             if (systemResult != null) {
                 writeSystemResult(batch, systemResult);
             }

@@ -43,6 +43,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DelayShardTest {
     @TempDir
@@ -1054,6 +1055,17 @@ class DelayShardTest {
             assertNotNull(summary);
             assertEquals(List.of(second.obligationRef()), summary.openObligations());
             assertEquals(summary.openObligations(), published.runtimeIndex().attemptObligations());
+            final TerminalGenerationRecord retained = summary;
+
+            final MessageRecord latePublished = shard.applyPublishedPublishOutcome(secondAttemptId, 43,
+                    position(shardId, 3, 1_003));
+            assertEquals(MessageStatus.PUBLISHED, latePublished.status());
+            assertTrue(latePublished.runtimeIndex().possibleDestinationDuplicate());
+            assertEquals(List.of(), latePublished.runtimeIndex().attemptObligations());
+            assertEquals(List.of(), shard.getTerminalGeneration(schedule.delayMessageId(), 0).openObligations());
+            assertNull(shard.getPublishAttempt(secondAttemptId, 43));
+            assertEquals(List.of(second.obligationRef()), retained.openObligations());
+            summary = shard.getTerminalGeneration(schedule.delayMessageId(), 0);
         }
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
@@ -1061,7 +1073,8 @@ class DelayShardTest {
             final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults());
             assertEquals(summary.openObligations(),
                     reopened.getTerminalGeneration(schedule.delayMessageId(), 0).openObligations());
-            assertNotNull(reopened.getPublishAttempt(secondAttemptId, 43));
+            assertTrue(reopened.getMessage(schedule.delayMessageId()).runtimeIndex().possibleDestinationDuplicate());
+            assertNull(reopened.getPublishAttempt(secondAttemptId, 43));
         }
     }
 
