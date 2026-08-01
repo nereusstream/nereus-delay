@@ -482,7 +482,7 @@ public final class CommandQueuedReceiptV1 {
             });
         }
 
-        private static PreparedCommandRef decode(final byte[] encoded) {
+        static PreparedCommandRef decode(final byte[] encoded) {
             final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "PreparedCommandRefV1");
             requireNumbers(fields, new int[]{1, 2, 3, 4, 5, 6, 7, 8, 9});
             final ShardId shard = new ShardId(new RouteIncarnation(fixed(fields.get(0), 1, 16)),

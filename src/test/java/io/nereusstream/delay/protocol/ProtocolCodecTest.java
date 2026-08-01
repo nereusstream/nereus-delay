@@ -408,6 +408,35 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void stableErrorPinsRegistryRetryabilityAndPreparedRefPresence() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 12);
+        final PreparedCommand command = PreparedCommand.cancel(shard, DelayMessageId.random(shard), 0, 9_000);
+        final CommandQueuedReceiptV1.PreparedCommandRef commandRef =
+                CommandQueuedReceiptV1.PreparedCommandRef.from(command);
+        final StableErrorV1 uncertain = StableErrorV1.of(FailureStageV1.ENQUEUE,
+                StableCode.ENQUEUE_RESULT_UNCERTAIN, null, commandRef, null, 7);
+        assertEquals(uncertain, StableErrorV1.decode(uncertain.canonicalBytes()));
+        assertEquals(RetryabilityV1.RETRY_EXACT_BYTES_AFTER_RETRY_AT,
+                RetryabilityV1.forCode(StableCode.SHARD_TRANSITIONING));
+        final StableErrorV1 delayed = StableErrorV1.of(FailureStageV1.QUERY, StableCode.SHARD_TRANSITIONING,
+                12_000L, null, null, null);
+        assertEquals(delayed, StableErrorV1.decode(delayed.canonicalBytes()));
+        assertThrows(IllegalArgumentException.class, () -> new StableErrorV1(FailureStageV1.ENQUEUE,
+                StableCode.ENQUEUE_RESULT_UNCERTAIN, RetryabilityV1.NEVER, null, commandRef, null, null));
+        assertThrows(IllegalArgumentException.class, () -> StableErrorV1.of(FailureStageV1.QUERY,
+                StableCode.SHARD_TRANSITIONING, null, null, null, null));
+        final PulsarBrokerResourceIdentityV1 target = new PulsarBrokerResourceIdentityV1("stable-error",
+                nonZero(32, 8), "persistent://tenant/stable-error", 1_000);
+        final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("stable-error-destination"), 1,
+                Bytes.sha256(Bytes.utf8("stable-error-destination-semantic")), ProfileKindV1.DESTINATION);
+        final NativePreparedRefV1 nativeRef = new NativePreparedRefV1(nonZero(32, 9),
+                Bytes.sha256(Bytes.utf8("native-submission")), destination, target, 0,
+                Bytes.sha256(Bytes.utf8("native-snapshot")), 2_000, Bytes.sha256(Bytes.utf8("native-prepared")));
+        assertThrows(IllegalArgumentException.class, () -> StableErrorV1.of(FailureStageV1.ENQUEUE,
+                StableCode.ENQUEUE_RESULT_UNCERTAIN, null, commandRef, nativeRef, null));
+    }
+
+    @Test
     void publicQueryViewsRejectUnsafeBindingAndNonCanonicalBranchShape() {
         final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("destination"), 1,
                 Bytes.sha256(Bytes.utf8("destination-semantic")), ProfileKindV1.DESTINATION);
@@ -473,7 +502,7 @@ class ProtocolCodecTest {
                     "duplicate stable code: " + code.wireValue());
             assertEquals(code, StableCode.fromWire(code.wireValue()));
         }
-        assertEquals(101, values.size());
+        assertEquals(103, values.size());
         assertThrows(IllegalArgumentException.class, () -> StableCode.fromWire(0x7fff));
     }
 
