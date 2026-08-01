@@ -41,7 +41,7 @@ public final class ResourceRetireIntentBody {
         final List<CanonicalProtobuf.Reader.Field> fields =
                 SystemMutationBodyCodec.fields(SystemMutationType.RESOURCE_RETIRE_INTENT, canonicalBody);
         final ResourceKind kind = ResourceKind.fromWire(unsigned(field(fields, 10), 10));
-        final ExactResourceIdentity resource = ExactResourceIdentity.decode(kind, nested(field(fields, 11), 11));
+        final ExactResourceIdentity resource = decodeResourceIdentity(kind, nested(field(fields, 11), 11));
         final long expectedVersion = unsigned(field(fields, 12), 12);
         final ProtectionSet protections = ProtectionSet.decode(nested(field(fields, 13), 13));
         return new ResourceRetireIntentBody(kind, resource, expectedVersion, protections);
@@ -61,6 +61,47 @@ public final class ResourceRetireIntentBody {
 
     public ProtectionSet protections() {
         return protections;
+    }
+
+    /** Decodes one closed identity outside the enclosing retire body. */
+    public static ExactResourceIdentity decodeResourceIdentity(final ResourceKind kind, final byte[] encoded) {
+        Objects.requireNonNull(kind, "kind");
+        return ExactResourceIdentity.decode(kind, encoded);
+    }
+
+    /**
+     * Checks optional provider-returned version/etag fields against identity branches that expose them.
+     * Other resource branches retain those fields for the authenticated adapter to interpret.
+     */
+    public static void validateExternalDeleteIdentity(final ResourceKind kind, final byte[] encoded,
+                                                       final byte[] observedImmutableVersion,
+                                                       final byte[] observedEtag) {
+        final ExactResourceIdentity identity = decodeResourceIdentity(kind, encoded);
+        Objects.requireNonNull(observedImmutableVersion, "observedImmutableVersion");
+        Objects.requireNonNull(observedEtag, "observedEtag");
+        final CanonicalProtobuf.Reader.Field branchField = new CanonicalProtobuf.Reader(identity.canonicalBytes()).next();
+        final List<CanonicalProtobuf.Reader.Field> fields = read(branchField.rawValue(), kind + " resource");
+        if (kind == ResourceKind.PAYLOAD_OBJECT) {
+            final byte[] exactVersion = bytes(field(fields, 4), 4);
+            if (observedImmutableVersion.length != 0
+                    && !Arrays.equals(exactVersion, observedImmutableVersion)) {
+                throw new IllegalArgumentException("delete evidence immutable version does not match payload identity");
+            }
+            final byte[] exactEtag = optionalBytes(fields, 5);
+            if (observedEtag.length != 0
+                    && (exactEtag.length == 0 || !Arrays.equals(exactEtag, observedEtag))) {
+                throw new IllegalArgumentException("delete evidence etag does not match payload identity");
+            }
+        } else if (kind == ResourceKind.CHECKPOINT) {
+            final byte[] exactVersion = bytes(field(fields, 6), 6);
+            if (observedImmutableVersion.length != 0
+                    && !Arrays.equals(exactVersion, observedImmutableVersion)) {
+                throw new IllegalArgumentException("delete evidence immutable version does not match checkpoint identity");
+            }
+            if (observedEtag.length != 0) {
+                throw new IllegalArgumentException("checkpoint identity has no etag field");
+            }
+        }
     }
 
     /** Closed ExactResourceIdentityV1 projection. */

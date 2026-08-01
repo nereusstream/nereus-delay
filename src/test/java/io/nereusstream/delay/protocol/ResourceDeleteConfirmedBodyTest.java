@@ -56,6 +56,25 @@ class ResourceDeleteConfirmedBodyTest {
         assertThrows(IllegalArgumentException.class, () -> ResourceDeleteConfirmedBody.decode(absentWithIdentity));
     }
 
+    @Test
+    void providerReturnedPayloadIdentityFieldsMustMatchExactResourceIdentity() {
+        final byte[] identity = CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1,
+                CanonicalProtobuf.message(payload -> {
+                    CanonicalProtobuf.bytes(payload, 1, profileRef());
+                    CanonicalProtobuf.bytes(payload, 2, Bytes.utf8("container"));
+                    CanonicalProtobuf.bytes(payload, 3, Bytes.utf8("object"));
+                    CanonicalProtobuf.bytes(payload, 4, Bytes.utf8("version-1"));
+                    CanonicalProtobuf.bytes(payload, 5, Bytes.utf8("etag-1"));
+                    CanonicalProtobuf.uint32(payload, 6, 4);
+                    CanonicalProtobuf.bytes(payload, 7, Bytes.sha256(Bytes.utf8("payload")));
+                })));
+
+        ResourceRetireIntentBody.validateExternalDeleteIdentity(ResourceKind.PAYLOAD_OBJECT, identity,
+                Bytes.utf8("version-1"), Bytes.utf8("etag-1"));
+        assertThrows(IllegalArgumentException.class, () -> ResourceRetireIntentBody.validateExternalDeleteIdentity(
+                ResourceKind.PAYLOAD_OBJECT, identity, Bytes.utf8("version-2"), Bytes.utf8("etag-1")));
+    }
+
     private static byte[] body(final ShardId shard, final byte[] mutationId, final byte[] mutationHash,
                                final byte[] resourceHash, final long expectedVersion,
                                final ResourceDeleteConfirmedBody.DeleteOutcome outcome,
@@ -98,6 +117,15 @@ class ResourceDeleteConfirmedBodyTest {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());
             CanonicalProtobuf.uint32(output, 2, shard.partition());
+        });
+    }
+
+    private static byte[] profileRef() {
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, Bytes.utf8("object-store"));
+            CanonicalProtobuf.uint32(output, 2, 1);
+            CanonicalProtobuf.bytes(output, 3, Bytes.sha256(Bytes.utf8("profile")));
+            CanonicalProtobuf.uint32(output, 4, 1);
         });
     }
 }

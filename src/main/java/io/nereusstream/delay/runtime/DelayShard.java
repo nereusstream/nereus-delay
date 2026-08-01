@@ -1832,6 +1832,9 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }
+        ResourceRetireIntentBody.validateExternalDeleteIdentity(lookup.resourceKind(),
+                lookup.intent().resourceIdentity(), body.evidence().observedImmutableVersion(),
+                body.evidence().observedEtag());
         final ResourceDeleteConfirmedRecord prior = getResourceDeleteConfirmation(lookup.resourceKind(),
                 body.intent().resourceIdentityHash(), body.intent().expectedResourceStateVersion());
         if (prior != null) {

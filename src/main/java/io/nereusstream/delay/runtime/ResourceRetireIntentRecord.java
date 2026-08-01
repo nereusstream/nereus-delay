@@ -2,6 +2,8 @@ package io.nereusstream.delay.runtime;
 
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.ResourceKind;
+import io.nereusstream.delay.protocol.ResourceRetireIntentBody;
+import io.nereusstream.delay.protocol.SourcePositionCodec;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
@@ -26,11 +28,17 @@ public record ResourceRetireIntentRecord(
         Objects.requireNonNull(resourceKind, "resourceKind");
         requireNonEmpty(resourceIdentity, "resourceIdentity");
         Bytes.requireLength(resourceIdentityHash, HASH_LENGTH, "resourceIdentityHash");
+        ResourceRetireIntentBody.decodeResourceIdentity(resourceKind, resourceIdentity);
+        if (!Bytes.constantTimeEquals(resourceIdentityHash,
+                Bytes.sha256(Bytes.utf8("nereus-delay-resource-identity-v1\0"), resourceIdentity))) {
+            throw new IllegalArgumentException("resource identity hash does not match canonical identity");
+        }
         if (expectedResourceStateVersion < 0) {
             throw new IllegalArgumentException("expected resource state version must be non-negative");
         }
         requireNonEmpty(protections, "protections");
         requireNonEmpty(appliedSourcePosition, "appliedSourcePosition");
+        SourcePositionCodec.decode(appliedSourcePosition);
         mutationId = Bytes.copy(mutationId);
         mutationHash = Bytes.copy(mutationHash);
         resourceIdentity = Bytes.copy(resourceIdentity);

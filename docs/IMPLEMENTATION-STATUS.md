@@ -77,9 +77,10 @@ The bounded `RESOURCE_DELETE_CONFIRMED_V1` increment now validates the exact
 Retire Intent reference, delete outcome, provider evidence and Trusted-UTC
 interval, then source-orders a local `gc_cf/TASK` tombstone that retains the
 full intent and confirmation evidence. It does not claim that the provider
-delete happened merely because this mutation was accepted: real adapter
-ownership, provider identity/version checks, Recovery Floor barriers, quota
-release and Lane terminal-guard replacement remain pending.
+delete happened merely because this mutation was accepted: local payload and
+checkpoint identity/version fields are compared when present, while real
+adapter ownership/attestation, Recovery Floor barriers, quota release and
+Lane terminal-guard replacement remain pending.
 
 ## Current repository shape
 
@@ -133,7 +134,7 @@ to the intended modules:
 | Hard shard quota admission | Implemented (core subset) | `ShardQuota`, `DelayShardTest`; atomic multi-shard grants, control reserve and GC accounting pending |
 | Kafka/Pulsar ingress and target adapters | In progress (ingress SPI only) | release blocker until concrete pinned transports, target publish/evidence channels and real-broker tests exist |
 | Recovery Set/Floor, catalog and restore replay | In progress (local catalog/Floor subset) | release blocker; Oxia catalog/session pin, immutable publication, source/evidence replay and activation CAS remain |
-| Large payload, quota grants, control reserve and GC | In progress (reservation/commit, shard hard-quota, retire-intent and delete-confirmed subsets) | release blocker; `ResourceRetireIntentBody`/`ResourceRetireIntentRecord` and `ResourceDeleteConfirmedBody`/`ResourceDeleteConfirmedRecord` now provide canonical source-ordered `gc_cf/TASK` intent/tombstone persistence, but Object Store/Oxia publication, multi-shard grants, control reserve, real provider delete attestation, Recovery Floor barrier, Lane terminal guard and guarded GC remain |
+| Large payload, quota grants, control reserve and GC | In progress (reservation/commit, shard hard-quota, retire-intent and delete-confirmed subsets) | release blocker; `ResourceRetireIntentBody`/`ResourceRetireIntentRecord` and `ResourceDeleteConfirmedBody`/`ResourceDeleteConfirmedRecord` now provide canonical source-ordered `gc_cf/TASK` intent/tombstone persistence plus local payload/checkpoint version/etag comparison, but Object Store/Oxia publication, multi-shard grants, control reserve, real provider delete attestation/ownership, Recovery Floor barrier, Lane terminal guard and guarded GC remain |
 | Query, control operations, DLQ and observability | In progress (bounded local Message/Reservation projection) | `MessageQuerySnapshot`, `ReservationQuerySnapshot`, `DelayShard.queryMessageSnapshot`, `DelayShard.queryReservationSnapshot`, `DelayShardTest`; full V1 query wire responses, receipt/barrier routing, authorization-safe binding/evidence/retention, control-operation query, DLQ and observability remain release blockers |
 | Real-service, chaos, benchmark, soak and upgrade evidence | Not started | release blocker |
 

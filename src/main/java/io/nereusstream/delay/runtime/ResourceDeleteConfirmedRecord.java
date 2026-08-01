@@ -2,6 +2,7 @@ package io.nereusstream.delay.runtime;
 
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
+import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 
 import java.nio.ByteBuffer;
@@ -43,6 +44,7 @@ public record ResourceDeleteConfirmedRecord(
         if (appliedSourcePosition.length == 0) {
             throw new IllegalArgumentException("appliedSourcePosition must not be empty");
         }
+        SourcePositionCodec.decode(appliedSourcePosition);
         confirmationMutationId = Bytes.copy(confirmationMutationId);
         confirmationMutationHash = Bytes.copy(confirmationMutationHash);
         providerRequestIdHash = Bytes.copy(providerRequestIdHash);
