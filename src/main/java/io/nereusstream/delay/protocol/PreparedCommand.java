@@ -44,6 +44,23 @@ public final class PreparedCommand {
                 CommandBodies.schedule(intent));
     }
 
+    public static PreparedCommand prepareLarge(final ShardId shardId, final LargeScheduleIntent intent,
+                                               final long retryUntilEpochMs) {
+        final CommandId commandId = CommandId.random(shardId);
+        final DelayMessageId messageId = DelayMessageId.random(shardId);
+        return create(shardId, commandId, messageId, CommandType.PREPARE_LARGE_SCHEDULE, retryUntilEpochMs,
+                CommandBodies.prepareLarge(intent));
+    }
+
+    public static PreparedCommand commitLarge(final ShardId shardId, final DelayMessageId messageId,
+                                              final PayloadCommitProof proof, final long retryUntilEpochMs) {
+        if (!messageId.equals(proof.delayMessageId())) {
+            throw new IllegalArgumentException("payload proof message identity mismatch");
+        }
+        return create(shardId, CommandId.random(shardId), messageId, CommandType.COMMIT_LARGE_SCHEDULE,
+                retryUntilEpochMs, CommandBodies.commitLarge(proof));
+    }
+
     public static PreparedCommand cancel(final ShardId shardId, final DelayMessageId messageId,
                                          final int expectedGeneration, final long retryUntilEpochMs) {
         return create(shardId, CommandId.random(shardId), messageId, CommandType.CANCEL, retryUntilEpochMs,
@@ -110,4 +127,3 @@ public final class PreparedCommand {
                 Arrays.hashCode(canonicalBody), Arrays.hashCode(commandHash));
     }
 }
-

@@ -53,6 +53,7 @@ to the intended modules:
 | Command applied/rejected state machine | Implemented (embedded core) | `DelayShard`, `DelayShardTest` |
 | DUE/ORDERED/EXPIRY timeline namespaces | Implemented (core index/discovery) | `DelayShard`, `KeyCodec`, `DelayShardTest`; READY value/discovery and full TimelineWorkRef pending |
 | Terminal generation history | Implemented (Cancel/Reschedule subset) | `TerminalGenerationRecord`, `DelayShardTest`; publish/expiry/DLQ terminal obligations and GC retention pending |
+| Large-payload reservation/proof/commit | Implemented (embedded core subset) | `LargeScheduleIntent`, `PayloadCommitProof`, `PayloadReservation`, object-backed `MessageRecord`, `DelayShardTest`; Object Store handles/attestation, source-ordered trust controls, Time Fence overlay and guarded GC pending |
 | Source assignment and Owner Lease | Implemented (local lifecycle/CAS boundary) | `OwnerLeaseStore`, `OwnedDelayShard`, `OwnerLeaseTest`; Kafka/Pulsar assignment barriers and Oxia adapter pending |
 | Queued vs applied client outcomes | Implemented (embedded core) | `EmbeddedDelayServiceTest` |
 | Destination Lane gate/readiness projection | Implemented (core projection) | `LaneRecord`, `LaneRecordTest`, `DelayShard`; source-ordered signed control mutation persistence pending |
@@ -63,7 +64,7 @@ to the intended modules:
 | Hard shard quota admission | Implemented (core subset) | `ShardQuota`, `DelayShardTest`; atomic multi-shard grants, control reserve and GC accounting pending |
 | Kafka/Pulsar ingress and target adapters | In progress (ingress SPI only) | release blocker until concrete pinned transports, target publish/evidence channels and real-broker tests exist |
 | Recovery Set/Floor, catalog and restore replay | Not started | release blocker |
-| Large payload, quota grants, control reserve and GC | In progress (shard hard-quota subset) | release blocker; large payload references, multi-shard grants, control reserve and GC accounting remain |
+| Large payload, quota grants, control reserve and GC | In progress (reservation/commit and shard hard-quota subsets) | release blocker; Object Store/Oxia publication, multi-shard grants, control reserve, Time Fence overlay and guarded GC remain |
 | Query, control operations, DLQ and observability | Not started | release blocker |
 | Real-service, chaos, benchmark, soak and upgrade evidence | Not started | release blocker |
 

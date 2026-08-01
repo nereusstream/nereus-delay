@@ -43,6 +43,46 @@ public final class CommandBodies {
         return result;
     }
 
+    public static byte[] prepareLarge(final LargeScheduleIntent intent) {
+        return intent.canonicalBytes();
+    }
+
+    public static LargeScheduleIntent decodePrepareLarge(final byte[] body) {
+        final ByteBuffer input = ByteBuffer.wrap(body);
+        final int expectedLength = 4 + 8 + 8 + DestinationLaneId.LENGTH + 1 + 8 + 32 + 8 + 8;
+        if (body.length != expectedLength || input.getInt() != 1) {
+            throw new IllegalArgumentException("invalid large schedule prepare body");
+        }
+        final long deliverAt = input.getLong();
+        final long expireAt = input.getLong();
+        final byte[] lane = new byte[DestinationLaneId.LENGTH];
+        input.get(lane);
+        final OrderingMode ordering = switch (input.get() & 0xff) {
+            case 1 -> OrderingMode.BEST_EFFORT;
+            case 2 -> OrderingMode.DELIVERY_TIME_FIFO;
+            default -> throw new IllegalArgumentException("unknown ordering mode");
+        };
+        final long payloadLength = input.getLong();
+        final byte[] payloadSha = new byte[32];
+        input.get(payloadSha);
+        final long reservationTtl = input.getLong();
+        final long trustSetVersion = input.getLong();
+        final LargeScheduleIntent result = new LargeScheduleIntent(new DestinationLaneId(lane), deliverAt,
+                expireAt, ordering, payloadLength, payloadSha, reservationTtl, trustSetVersion);
+        if (!java.util.Arrays.equals(body, result.canonicalBytes())) {
+            throw new IllegalArgumentException("non-canonical large schedule prepare body");
+        }
+        return result;
+    }
+
+    public static byte[] commitLarge(final PayloadCommitProof proof) {
+        return proof.canonicalBytes();
+    }
+
+    public static PayloadCommitProof decodeCommitLarge(final byte[] body) {
+        return PayloadCommitProof.decode(body);
+    }
+
     public static byte[] cancel(final int expectedGeneration) {
         final ByteBuffer result = ByteBuffer.allocate(8);
         result.putInt(1).putInt(expectedGeneration).flip();
@@ -87,4 +127,3 @@ public final class CommandBodies {
     public record RescheduleValues(int expectedGeneration, long deliverAtEpochMs, long expireAtEpochMs) {
     }
 }
-

@@ -3,7 +3,10 @@ package io.nereusstream.delay.runtime;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
+import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.OrderingMode;
+import io.nereusstream.delay.protocol.PayloadCommitProof;
+import io.nereusstream.delay.protocol.PayloadProofTrustSet;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
@@ -17,6 +20,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -132,7 +138,8 @@ class DelayShardTest {
     @Test
     void hardQuotaRejectsNewScheduleAndReleasesOnCancel() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("quota"));
-        final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 1, 3, 1);
+        final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 1, 3, 1,
+                1, 1_000, 10_000);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 3);
         final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("quota-lane"));
         final PreparedCommand first = PreparedCommand.schedule(shardId,
@@ -157,6 +164,62 @@ class DelayShardTest {
                     new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_100, 5_100,
                             OrderingMode.BEST_EFFORT, Bytes.utf8("d")), 9_000);
             assertEquals(StableCode.SCHEDULED, shard.apply(retry, position(shardId, 3, 1_003)).stableCode());
+        }
+    }
+
+    @Test
+    void largePayloadPrepareCommitUsesReservationQuotaAndObjectReference() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("large"));
+        final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,
+                3, 100, 10_000);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 4);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("large-lane"));
+        final LargeScheduleIntent intent = new LargeScheduleIntent(lane, 2_000, 5_000,
+                OrderingMode.BEST_EFFORT, 8, Bytes.sha256(Bytes.utf8("large")), 4_000, 9);
+        final PreparedCommand prepare = PreparedCommand.prepareLarge(shardId, intent, 9_000);
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final PayloadProofTrustSet trustSet = new PayloadProofTrustSet(9, Map.of(2, keyPair.getPublic()));
+        final KafkaSourcePosition preparePosition = position(shardId, 0, 1_000);
+        final byte[] reservationId = Bytes.sha256(Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                prepare.commandId().bytes(), prepare.delayMessageId().bytes(), prepare.commandHash());
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, shardConfig, trustSet);
+            assertEquals(StableCode.OK, shard.apply(prepare, preparePosition).stableCode());
+            assertEquals(PayloadReservationStatus.RESERVED, shard.getReservation(reservationId).status());
+            assertEquals(1, shard.quota().reservationMessages());
+            assertEquals(8, shard.quota().reservationBytes());
+
+            final PreparedCommand abandonedPrepare = PreparedCommand.prepareLarge(shardId, intent, 9_000);
+            assertEquals(StableCode.OK,
+                    shard.apply(abandonedPrepare, position(shardId, 1, 1_001)).stableCode());
+            final PreparedCommand abandon = PreparedCommand.cancel(shardId, abandonedPrepare.delayMessageId(), 0,
+                    9_000);
+            assertEquals(StableCode.PAYLOAD_RESERVATION_ABANDONED,
+                    shard.apply(abandon, position(shardId, 2, 1_002)).stableCode());
+            assertEquals(1, shard.quota().reservationMessages());
+
+            final PayloadCommitProof proof = PayloadCommitProof.signed(9, 2, shardId.routeIncarnation().bytes(),
+                    shardId.partition(), prepare.delayMessageId(), reservationId, Bytes.sha256(Bytes.utf8("profile")),
+                    Bytes.utf8("bucket"), Bytes.utf8("key"), Bytes.utf8("v1"), new byte[0],
+                    intent.expectedPayloadLength(), intent.payloadSha256(), 5_000, keyPair.getPrivate());
+            final PreparedCommand commit = PreparedCommand.commitLarge(shardId, prepare.delayMessageId(), proof,
+                    9_000);
+            assertEquals(StableCode.SCHEDULED,
+                    shard.apply(commit, position(shardId, 3, 1_003)).stableCode());
+            final MessageRecord message = shard.getMessage(prepare.delayMessageId());
+            assertNotNull(message.payloadReference());
+            assertEquals(8, message.payloadLength());
+            assertEquals(PayloadReservationStatus.COMMITTED, shard.getReservation(reservationId).status());
+            assertEquals(1, shard.quota().pendingMessages());
+            assertEquals(0, shard.quota().reservationMessages());
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard reopened = new DelayShard(store, shardConfig, trustSet);
+            assertEquals(8, reopened.getMessage(prepare.delayMessageId()).payloadLength());
+            assertEquals(0, reopened.quota().reservationMessages());
         }
     }
 

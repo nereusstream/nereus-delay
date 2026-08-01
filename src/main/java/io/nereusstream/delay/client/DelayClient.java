@@ -1,6 +1,7 @@
 package io.nereusstream.delay.client;
 
 import io.nereusstream.delay.protocol.DelayMessageId;
+import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.ScheduleIntent;
 import io.nereusstream.delay.runtime.CommandResult;
@@ -10,6 +11,8 @@ import java.util.concurrent.CompletionStage;
 /** Client contract separating preparation, queueing and authoritative application. */
 public interface DelayClient extends AutoCloseable {
     PreparedCommand prepareSchedule(ScheduleIntent intent, long retryUntilEpochMs);
+
+    PreparedCommand prepareLargeSchedule(LargeScheduleIntent intent, long retryUntilEpochMs);
 
     PreparedCommand prepareCancel(DelayMessageId messageId, int expectedGeneration, long retryUntilEpochMs);
 
@@ -23,4 +26,3 @@ public interface DelayClient extends AutoCloseable {
     @Override
     void close();
 }
-

@@ -3,6 +3,8 @@ package io.nereusstream.delay.protocol;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
 import java.util.Arrays;
 import java.util.HashSet;
 
@@ -10,6 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ProtocolCodecTest {
     @Test
@@ -104,5 +107,33 @@ class ProtocolCodecTest {
                 "persistent://t/a", 1, 2, 0, 1, PulsarSourcePosition.EntryKind.NON_BATCH, 11);
         assertFalse(pulsarA.sameSourceIdentity(pulsarReplacement));
         assertThrows(IllegalArgumentException.class, () -> pulsarA.compareTo(pulsarReplacement));
+    }
+
+    @Test
+    void largeScheduleAndPayloadProofAreCanonicalAndSigned() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
+        final LargeScheduleIntent intent = new LargeScheduleIntent(
+                DestinationLaneId.derive(Bytes.utf8("large-lane")), 2_000, 8_000,
+                OrderingMode.BEST_EFFORT, 123_456, Bytes.sha256(Bytes.utf8("payload")), 10_000, 3);
+        assertEquals(intent, CommandBodies.decodePrepareLarge(CommandBodies.prepareLarge(intent)));
+        final PreparedCommand prepare = PreparedCommand.prepareLarge(shard, intent, 20_000);
+        assertEquals(prepare, CommandCodec.decodeFrame(CommandCodec.encodeFrame(prepare)));
+
+        final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = keyPairGenerator.generateKeyPair();
+        final DelayMessageId messageId = prepare.delayMessageId();
+        final byte[] reservationId = Bytes.sha256(Bytes.utf8("reservation"));
+        final PayloadCommitProof proof = PayloadCommitProof.signed(3, 7, shard.routeIncarnation().bytes(),
+                shard.partition(), messageId, reservationId, Bytes.sha256(Bytes.utf8("profile")),
+                Bytes.utf8("bucket"), Bytes.utf8("object-key"), Bytes.utf8("version-1"), new byte[0],
+                intent.expectedPayloadLength(), intent.payloadSha256(), 12_000, keyPair.getPrivate());
+        assertTrue(proof.verifySignature(keyPair.getPublic()));
+        assertEquals(proof, PayloadCommitProof.decode(proof.canonicalBytes()));
+        assertEquals(proof, CommandBodies.decodeCommitLarge(CommandBodies.commitLarge(proof)));
+        final PreparedCommand commit = PreparedCommand.commitLarge(shard, messageId, proof, 20_000);
+        assertEquals(commit, CommandCodec.decodeFrame(CommandCodec.encodeFrame(commit)));
+        final byte[] tampered = proof.canonicalBytes();
+        tampered[tampered.length - 1] ^= 1;
+        assertFalse(PayloadCommitProof.decode(tampered).verifySignature(keyPair.getPublic()));
     }
 }

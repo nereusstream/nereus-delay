@@ -3,6 +3,7 @@ package io.nereusstream.delay.client;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
+import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.ScheduleIntent;
 import io.nereusstream.delay.protocol.ShardId;
@@ -60,6 +61,12 @@ public final class EmbeddedDelayService implements DelayClient {
     public PreparedCommand prepareSchedule(final ScheduleIntent intent, final long retryUntilEpochMs) {
         ensureOpen();
         return PreparedCommand.schedule(shardId, intent, retryUntilEpochMs);
+    }
+
+    @Override
+    public PreparedCommand prepareLargeSchedule(final LargeScheduleIntent intent, final long retryUntilEpochMs) {
+        ensureOpen();
+        return PreparedCommand.prepareLarge(shardId, intent, retryUntilEpochMs);
     }
 
     @Override

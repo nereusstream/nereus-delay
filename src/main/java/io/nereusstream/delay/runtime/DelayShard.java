@@ -4,6 +4,10 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CommandBodies;
 import io.nereusstream.delay.protocol.CommandId;
 import io.nereusstream.delay.protocol.DelayMessageId;
+import io.nereusstream.delay.protocol.LargeScheduleIntent;
+import io.nereusstream.delay.protocol.PayloadCommitProof;
+import io.nereusstream.delay.protocol.PayloadProofTrustSet;
+import io.nereusstream.delay.protocol.PayloadReference;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
@@ -28,13 +32,20 @@ public final class DelayShard {
 
     private final ShardStore store;
     private final DelayShardConfig config;
+    private final PayloadProofTrustSet payloadProofTrustSet;
     private SourcePosition lastAppliedSourcePosition;
     private long mutationSequence;
     private ShardQuota quota;
 
     public DelayShard(final ShardStore store, final DelayShardConfig config) {
+        this(store, config, null);
+    }
+
+    public DelayShard(final ShardStore store, final DelayShardConfig config,
+                      final PayloadProofTrustSet payloadProofTrustSet) {
         this.store = Objects.requireNonNull(store, "store");
         this.config = Objects.requireNonNull(config, "config");
+        this.payloadProofTrustSet = payloadProofTrustSet;
         final var sourceValue = store.getValue(ColumnFamily.META, KeyCodec.metaFixed(META_APPLIED_SOURCE_POSITION), 1);
         final byte[] source = sourceValue == null ? null : sourceValue.payload();
         lastAppliedSourcePosition = source == null ? null : SourcePositionCodec.decode(source);
@@ -77,6 +88,11 @@ public final class DelayShard {
             return persistRejected(command, sourcePosition, StableCode.COMMAND_RETRY_WINDOW_EXPIRED);
         }
 
+        if (command.type() == io.nereusstream.delay.protocol.CommandType.PREPARE_LARGE_SCHEDULE
+                || command.type() == io.nereusstream.delay.protocol.CommandType.COMMIT_LARGE_SCHEDULE) {
+            return applyLargePayloadCommand(command, sourcePosition);
+        }
+
         final CommandResult result;
         try {
             result = switch (command.type()) {
@@ -98,6 +114,11 @@ public final class DelayShard {
     public synchronized MessageRecord getMessage(final DelayMessageId messageId) {
         final var value = store.getValue(ColumnFamily.ID, KeyCodec.idMessage(messageId), 1);
         return value == null ? null : MessageRecord.decode(value.payload());
+    }
+
+    public synchronized PayloadReservation getReservation(final byte[] reservationId) {
+        final var value = store.getValue(ColumnFamily.ID, KeyCodec.idReservation(reservationId), 2);
+        return value == null ? null : PayloadReservation.decode(value.payload());
     }
 
     public synchronized CommandResult getCommandResult(final CommandId commandId) {
@@ -190,6 +211,124 @@ public final class DelayShard {
         return List.copyOf(result);
     }
 
+    private CommandResult applyLargePayloadCommand(final PreparedCommand command,
+                                                   final SourcePosition sourcePosition) {
+        try {
+            return command.type() == io.nereusstream.delay.protocol.CommandType.PREPARE_LARGE_SCHEDULE
+                    ? applyPrepareLarge(command, sourcePosition)
+                    : applyCommitLarge(command, sourcePosition);
+        } catch (WindowViolationException exception) {
+            return persistRejected(command, sourcePosition, StableCode.INVALID_DELIVERY_WINDOW);
+        } catch (ArithmeticException | IllegalArgumentException exception) {
+            return persistRejected(command, sourcePosition, StableCode.INVALID_COMMAND);
+        }
+    }
+
+    private CommandResult applyPrepareLarge(final PreparedCommand command, final SourcePosition sourcePosition) {
+        final LargeScheduleIntent intent = CommandBodies.decodePrepareLarge(command.canonicalBody());
+        validateWindow(intent.deliverAtEpochMs(), intent.expireAtEpochMs(), sourcePosition.brokerPersistenceTimeEpochMs());
+        if (intent.expectedPayloadLength() <= config.inlinePayloadThresholdBytes()
+                || intent.expectedPayloadLength() > config.maxPayloadBytes()) {
+            return persistRejected(command, sourcePosition, StableCode.PAYLOAD_TOO_LARGE);
+        }
+        if (intent.reservationTtlMs() > config.maxReservationTtlMs()) {
+            return persistRejected(command, sourcePosition, StableCode.INVALID_COMMAND);
+        }
+        if (getMessage(command.delayMessageId()) != null) {
+            return persistRejected(command, sourcePosition, StableCode.DELAY_MESSAGE_ID_CONFLICT);
+        }
+        final var existingLane = readLane(intent.laneId());
+        if (existingLane != null && existingLane.admissionGate() != AdmissionGate.OPEN) {
+            final StableCode code = existingLane.admissionGate() == AdmissionGate.RETIRED
+                    ? StableCode.LANE_TERMINALLY_CLOSED : StableCode.LANE_CLOSED;
+            return persistRejected(command, sourcePosition, code);
+        }
+        final boolean newLane = existingLane == null;
+        if (newLane && quota.laneCount() >= config.maxLanes()) {
+            return persistRejected(command, sourcePosition, StableCode.DESTINATION_LANE_LIMIT_EXCEEDED);
+        }
+        final long accountedBytes = Math.addExact(quota.pendingBytes(), quota.reservationBytes());
+        final long accountedMessages = Math.addExact(quota.pendingMessages(), quota.reservationMessages());
+        if (accountedMessages >= config.maxPendingMessages()
+                || intent.expectedPayloadLength() > config.maxPendingBytes() - accountedBytes) {
+            return persistRejected(command, sourcePosition, StableCode.HARD_QUOTA_EXCEEDED);
+        }
+        final long expiry = Math.addExact(sourcePosition.brokerPersistenceTimeEpochMs(), intent.reservationTtlMs());
+        final byte[] reservationId = reservationId(command);
+        final PayloadReservation reservation = new PayloadReservation(store.shardId(), reservationId,
+                command.commandId(), command.delayMessageId(), command.commandHash(), intent, expiry,
+                PayloadReservationStatus.RESERVED, 1, sourcePosition.canonicalBytes(), null);
+        final ShardQuota nextQuota = quota.addReservation(intent.expectedPayloadLength(), newLane);
+        final CommandResult result = applied(StableCode.OK, sourcePosition, null);
+        persistMutation(command, sourcePosition, result, null, reservation, nextQuota);
+        return result;
+    }
+
+    private CommandResult applyCommitLarge(final PreparedCommand command, final SourcePosition sourcePosition) {
+        final PayloadCommitProof proof = CommandBodies.decodeCommitLarge(command.canonicalBody());
+        final PayloadReservation reservation = getReservation(proof.reservationId());
+        if (reservation == null || !reservation.delayMessageId().equals(command.delayMessageId())) {
+            return persistRejected(command, sourcePosition, StableCode.RESERVATION_NOT_COMMITTED);
+        }
+        if (reservation.status() == PayloadReservationStatus.COMMITTED) {
+            if (reservation.committedPayload() != null && proofMatches(proof, reservation.committedPayload())) {
+                final CommandResult result = applied(StableCode.ALREADY_COMMITTED, sourcePosition, null);
+                persistResultAndPosition(command, sourcePosition, result, null);
+                return result;
+            }
+            return persistRejected(command, sourcePosition, StableCode.PAYLOAD_COMMIT_CONFLICT);
+        }
+        if (reservation.status() == PayloadReservationStatus.ABANDONED) {
+            return persistRejected(command, sourcePosition, StableCode.PAYLOAD_RESERVATION_CLOSED);
+        }
+        if (reservation.status() == PayloadReservationStatus.EXPIRED) {
+            return persistRejected(command, sourcePosition, StableCode.RESERVATION_EXPIRED);
+        }
+        if (sourcePosition.brokerPersistenceTimeEpochMs() > reservation.reservationExpiryEpochMs()
+                || sourcePosition.brokerPersistenceTimeEpochMs() > proof.notAfterEpochMs()
+                || proof.notAfterEpochMs() > reservation.reservationExpiryEpochMs()
+                || proof.trustSetVersion() != reservation.intent().payloadProofTrustSetVersion()
+                || !java.util.Arrays.equals(proof.routeIncarnationUuid(), store.shardId().routeIncarnation().bytes())
+                || proof.partition() != store.shardId().partition()
+                || !proof.delayMessageId().equals(command.delayMessageId())
+                || proof.length() != reservation.intent().expectedPayloadLength()
+                || !Bytes.constantTimeEquals(proof.payloadSha256(), reservation.intent().payloadSha256())) {
+            return persistRejected(command, sourcePosition, StableCode.PAYLOAD_PROOF_INVALID);
+        }
+        if (payloadProofTrustSet == null || !payloadProofTrustSet.verifies(proof)) {
+            return persistRejected(command, sourcePosition,
+                    StableCode.PAYLOAD_PROOF_KEY_NOT_AUTHORIZED_AT_SOURCE_POSITION);
+        }
+        final PayloadReference reference = new PayloadReference(proof.objectStoreProfileHash(), proof.container(),
+                proof.objectKey(), proof.immutableObjectVersion(), proof.etag(), proof.length(), proof.payloadSha256());
+        final MessageRecord message = new MessageRecord(MessageStatus.SCHEDULED, 0, 1,
+                reservation.intent().deliverAtEpochMs(), reservation.intent().expireAtEpochMs(),
+                reservation.intent().laneId(), reservation.intent().orderingMode(), new byte[0],
+                sourcePosition.canonicalBytes(), reference);
+        final PayloadReservation committed = new PayloadReservation(reservation.shardId(), reservation.reservationId(),
+                reservation.commandId(), reservation.delayMessageId(), reservation.commandHash(), reservation.intent(),
+                reservation.reservationExpiryEpochMs(), PayloadReservationStatus.COMMITTED,
+                Math.addExact(reservation.stateVersion(), 1), reservation.sourcePosition(), reference);
+        final ShardQuota nextQuota = quota.commitReservation(reference.length());
+        final CommandResult result = applied(StableCode.SCHEDULED, sourcePosition, message);
+        persistMutation(command, sourcePosition, result, message, committed, nextQuota);
+        return result;
+    }
+
+    private static byte[] reservationId(final PreparedCommand command) {
+        return Bytes.sha256(Bytes.utf8("nereus-delay-reservation-id-v1\0"), command.commandId().bytes(),
+                command.delayMessageId().bytes(), command.commandHash());
+    }
+
+    private static boolean proofMatches(final PayloadCommitProof proof, final PayloadReference reference) {
+        return Bytes.constantTimeEquals(proof.objectStoreProfileHash(), reference.objectStoreProfileHash())
+                && java.util.Arrays.equals(proof.container(), reference.container())
+                && java.util.Arrays.equals(proof.objectKey(), reference.objectKey())
+                && java.util.Arrays.equals(proof.immutableObjectVersion(), reference.immutableObjectVersion())
+                && java.util.Arrays.equals(proof.etag(), reference.etag()) && proof.length() == reference.length()
+                && Bytes.constantTimeEquals(proof.payloadSha256(), reference.payloadSha256());
+    }
+
     private CommandResult applySchedule(final PreparedCommand command, final SourcePosition sourcePosition) {
         final var intent = CommandBodies.decodeSchedule(command.canonicalBody());
         validateWindow(intent.deliverAtEpochMs(), intent.expireAtEpochMs(), sourcePosition.brokerPersistenceTimeEpochMs());
@@ -208,8 +347,10 @@ public final class DelayShard {
         if (newLane && quota.laneCount() >= config.maxLanes()) {
             return rejected(StableCode.DESTINATION_LANE_LIMIT_EXCEEDED, sourcePosition, -1, 0, null);
         }
-        if (quota.pendingMessages() >= config.maxPendingMessages()
-                || quota.pendingBytes() > config.maxPendingBytes() - intent.payload().length) {
+        final long accountedMessages = Math.addExact(quota.pendingMessages(), quota.reservationMessages());
+        final long accountedBytes = Math.addExact(quota.pendingBytes(), quota.reservationBytes());
+        if (accountedMessages >= config.maxPendingMessages()
+                || intent.payload().length > config.maxPendingBytes() - accountedBytes) {
             return rejected(StableCode.HARD_QUOTA_EXCEEDED, sourcePosition, -1, 0, null);
         }
         final MessageRecord message = new MessageRecord(MessageStatus.SCHEDULED, 0, 1,
@@ -260,6 +401,19 @@ public final class DelayShard {
     private CommandResult applyCancel(final PreparedCommand command, final SourcePosition sourcePosition) {
         final MessageRecord existing = getMessage(command.delayMessageId());
         if (existing == null) {
+            final PayloadReservation reservation = findReservationForMessage(command.delayMessageId());
+            if (reservation != null) {
+                final int expectedGeneration = CommandBodies.decodeCancel(command.canonicalBody());
+                if (expectedGeneration >= 0 && expectedGeneration != 0) {
+                    return applied(StableCode.VERSION_CONFLICT, sourcePosition, null);
+                }
+                return switch (reservation.status()) {
+                    case RESERVED -> applied(StableCode.PAYLOAD_RESERVATION_ABANDONED, sourcePosition, null);
+                    case ABANDONED -> applied(StableCode.ALREADY_ABANDONED, sourcePosition, null);
+                    case EXPIRED -> applied(StableCode.RESERVATION_EXPIRED, sourcePosition, null);
+                    case COMMITTED -> rejected(StableCode.INTEGRITY_ERROR, sourcePosition, -1, 0, null);
+                };
+            }
             return applied(StableCode.NOT_FOUND, sourcePosition, null);
         }
         final int expectedGeneration = CommandBodies.decodeCancel(command.canonicalBody());
@@ -270,7 +424,8 @@ public final class DelayShard {
             case SCHEDULED -> applied(StableCode.CANCELED, sourcePosition,
                     new MessageRecord(MessageStatus.CANCELED, existing.generation(), existing.stateVersion() + 1,
                             existing.deliverAtEpochMs(), existing.expireAtEpochMs(), existing.laneId(),
-                            existing.orderingMode(), existing.payload(), existing.scheduleSourcePosition()));
+                            existing.orderingMode(), existing.payload(), existing.scheduleSourcePosition(),
+                            existing.payloadReference()));
             case CANCELED -> applied(StableCode.ALREADY_CANCELED, sourcePosition, existing);
             case PUBLISHED, PUBLISHING, UNCERTAIN -> applied(StableCode.TOO_LATE, sourcePosition, existing);
             default -> applied(StableCode.TOO_LATE, sourcePosition, existing);
@@ -292,7 +447,8 @@ public final class DelayShard {
         validateWindow(values.deliverAtEpochMs(), values.expireAtEpochMs(), sourcePosition.brokerPersistenceTimeEpochMs());
         final MessageRecord replacement = new MessageRecord(MessageStatus.SCHEDULED, existing.generation() + 1,
                 existing.stateVersion() + 1, values.deliverAtEpochMs(), values.expireAtEpochMs(), existing.laneId(),
-                existing.orderingMode(), existing.payload(), sourcePosition.canonicalBytes());
+                existing.orderingMode(), existing.payload(), sourcePosition.canonicalBytes(),
+                existing.payloadReference());
         return applied(StableCode.SUPERSEDED, sourcePosition, replacement);
     }
 
@@ -330,7 +486,34 @@ public final class DelayShard {
                                           final CommandResult result, final MessageRecord next) {
         final MessageRecord prior = getMessage(command.delayMessageId());
         final boolean existingLane = next != null && readLane(next.laneId()) != null;
-        final ShardQuota nextQuota = quotaAfter(prior, next, result, existingLane);
+        final PayloadReservation reservation = reservationTransition(command, position, result);
+        final ShardQuota nextQuota = reservation == null
+                ? quotaAfter(prior, next, result, existingLane) : quota.removeReservation(reservation.intent()
+                .expectedPayloadLength());
+        persistMutation(command, position, result, next, reservation, nextQuota);
+    }
+
+    private PayloadReservation reservationTransition(final PreparedCommand command, final SourcePosition position,
+                                                     final CommandResult result) {
+        if (command.type() != io.nereusstream.delay.protocol.CommandType.CANCEL
+                || result.stableCode() != StableCode.PAYLOAD_RESERVATION_ABANDONED) {
+            return null;
+        }
+        final PayloadReservation current = findReservationForMessage(command.delayMessageId());
+        if (current == null || current.status() != PayloadReservationStatus.RESERVED) {
+            return null;
+        }
+        return new PayloadReservation(current.shardId(), current.reservationId(), current.commandId(),
+                current.delayMessageId(), current.commandHash(), current.intent(), current.reservationExpiryEpochMs(),
+                PayloadReservationStatus.ABANDONED, Math.addExact(current.stateVersion(), 1),
+                position.canonicalBytes(), null);
+    }
+
+    private void persistMutation(final PreparedCommand command, final SourcePosition position,
+                                 final CommandResult result, final MessageRecord next,
+                                 final PayloadReservation reservation, final ShardQuota nextQuota) {
+        final MessageRecord prior = getMessage(command.delayMessageId());
+        final boolean existingLane = next != null && readLane(next.laneId()) != null;
         store.write(batch -> {
             if (next != null) {
                 if (prior != null && prior.status() == MessageStatus.SCHEDULED) {
@@ -356,6 +539,23 @@ public final class DelayShard {
                             new TimelineEntry(command.delayMessageId(), next.generation()).encode());
                 }
             }
+            if (reservation != null) {
+                batch.putValue(ColumnFamily.ID, 2, KeyCodec.idReservation(reservation.reservationId()),
+                        reservation.encode());
+                if (reservation.status() == PayloadReservationStatus.RESERVED) {
+                    batch.putValue(ColumnFamily.TIMELINE, 5,
+                            KeyCodec.reservationExpiry(reservation.reservationExpiryEpochMs(),
+                                    reservation.reservationId()), reservation.encode());
+                    if (readLane(reservation.intent().laneId()) == null) {
+                        batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(reservation.intent().laneId()),
+                                LaneRecord.initial(reservation.intent().laneId(), position).encode());
+                    }
+                } else {
+                    batch.delete(ColumnFamily.TIMELINE,
+                            KeyCodec.reservationExpiry(reservation.reservationExpiryEpochMs(),
+                                    reservation.reservationId()));
+                }
+            }
             batch.putValue(ColumnFamily.DEDUPE, 1, KeyCodec.dedupeCommand(command.commandId()),
                     new CommandDedupeRecord(command.commandHash(), result).encode());
             batch.putValue(ColumnFamily.DEDUPE, 2, KeyCodec.dedupeResult(command.commandId()), result.encode());
@@ -374,11 +574,11 @@ public final class DelayShard {
     private ShardQuota quotaAfter(final MessageRecord prior, final MessageRecord next, final CommandResult result,
                                   final boolean existingLane) {
         if (prior == null && next != null && result.stableCode() == StableCode.SCHEDULED) {
-            return quota.addSchedule(next.payload().length, !existingLane);
+            return quota.addSchedule(next.payloadLength(), !existingLane);
         }
         if (prior != null && prior.status() == MessageStatus.SCHEDULED && next != null
                 && next.status() == MessageStatus.CANCELED) {
-            return quota.removeSchedule(prior.payload().length);
+            return quota.removeSchedule(prior.payloadLength());
         }
         return quota;
     }
@@ -406,7 +606,7 @@ public final class DelayShard {
             case CANCEL -> result.stableCode() == StableCode.CANCELED && prior != null
                     ? new MessageRecord(MessageStatus.CANCELED, prior.generation(), prior.stateVersion() + 1,
                     prior.deliverAtEpochMs(), prior.expireAtEpochMs(), prior.laneId(), prior.orderingMode(),
-                    prior.payload(), prior.scheduleSourcePosition()) : null;
+                    prior.payload(), prior.scheduleSourcePosition(), prior.payloadReference()) : null;
             case RESCHEDULE -> result.stableCode() == StableCode.SUPERSEDED && prior != null
                     ? rescheduledMessage(command, position, prior) : null;
             case PREPARE_LARGE_SCHEDULE, COMMIT_LARGE_SCHEDULE -> null;
@@ -434,7 +634,7 @@ public final class DelayShard {
         final var values = CommandBodies.decodeReschedule(command.canonicalBody());
         return new MessageRecord(MessageStatus.SCHEDULED, prior.generation() + 1, prior.stateVersion() + 1,
                 values.deliverAtEpochMs(), values.expireAtEpochMs(), prior.laneId(), prior.orderingMode(),
-                prior.payload(), position.canonicalBytes());
+                prior.payload(), position.canonicalBytes(), prior.payloadReference());
     }
 
     private void persistPositionOnly(final PreparedCommand command, final SourcePosition position) {
@@ -450,6 +650,20 @@ public final class DelayShard {
     private CommandDedupeRecord readCommandDedupe(final CommandId commandId) {
         final var value = store.getValue(ColumnFamily.DEDUPE, KeyCodec.dedupeCommand(commandId), 1);
         return value == null ? null : CommandDedupeRecord.decode(value.payload());
+    }
+
+    private PayloadReservation findReservationForMessage(final DelayMessageId messageId) {
+        final int limit = (int) Math.min(config.maxPendingMessages(), Integer.MAX_VALUE);
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries = store.scan(ColumnFamily.ID,
+                new byte[]{2, 1}, new byte[]{3, 1}, Math.max(1, limit));
+        for (var entry : entries) {
+            final PayloadReservation reservation = PayloadReservation.decode(
+                    io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), 2).payload());
+            if (reservation.delayMessageId().equals(messageId)) {
+                return reservation;
+            }
+        }
+        return null;
     }
 
     private LaneRecord readLane(final io.nereusstream.delay.protocol.DestinationLaneId laneId) {
