@@ -64,10 +64,15 @@ class SloObservationOutboxV1Test {
     }
 
     private static SloSampleStartV1 start() {
-        final byte[] branchPayload = CanonicalProtobuf.message(output ->
-                CanonicalProtobuf.bytes(output, 1, Bytes.utf8("command-identity")));
+        final byte[] commandHash = bytes(32, 2);
+        final byte[] physicalAttemptId = bytes(16, 3);
+        final byte[] completeBranchPayload = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, bytes(41, 1));
+            CanonicalProtobuf.bytes(output, 2, commandHash);
+            CanonicalProtobuf.bytes(output, 3, physicalAttemptId);
+        });
         final SloSampleEventIdentityV1 identity = new SloSampleEventIdentityV1(
-                SloObjectiveNameV1.COMMAND_QUEUED_LATENCY, branchPayload);
+                SloObjectiveNameV1.COMMAND_QUEUED_LATENCY, completeBranchPayload);
         return new SloSampleStartV1(bytes(32, 1), SloObjectiveNameV1.COMMAND_QUEUED_LATENCY,
                 SloPopulationV1.ALL_ACCEPTED, SloPathV1.NOT_APPLICABLE, identity, endpoint(100), 200L);
     }

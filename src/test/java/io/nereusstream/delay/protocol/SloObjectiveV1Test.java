@@ -41,7 +41,7 @@ class SloObjectiveV1Test {
     }
 
     private static byte[] identityPayload() {
-        return CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1, Bytes.utf8("query")));
+        return CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1, bytes(16, 7)));
     }
 
     private static SloTimeEndpointV1 endpoint(final long epochMs) {

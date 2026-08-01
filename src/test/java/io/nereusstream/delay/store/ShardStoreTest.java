@@ -255,7 +255,7 @@ class ShardStoreTest {
 
     private static SloSampleStartV1 sloStart() {
         final byte[] identityPayload = io.nereusstream.delay.protocol.CanonicalProtobuf.message(output ->
-                io.nereusstream.delay.protocol.CanonicalProtobuf.bytes(output, 1, Bytes.utf8("query")));
+                io.nereusstream.delay.protocol.CanonicalProtobuf.bytes(output, 1, bytes(16, 8)));
         final SloSampleEventIdentityV1 identity = new SloSampleEventIdentityV1(
                 SloObjectiveNameV1.QUERY_LATENCY, identityPayload);
         return new SloSampleStartV1(Bytes.sha256(Bytes.utf8("slo-objective")),
