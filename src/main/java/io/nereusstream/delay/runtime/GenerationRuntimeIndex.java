@@ -72,15 +72,34 @@ public final class GenerationRuntimeIndex {
 
     public static GenerationRuntimeIndex timeline(final GenerationAggregateState aggregateState,
                                                    final TimelineWorkRef timeline, final long runtimeRevision) {
-        return new GenerationRuntimeIndex(aggregateState, CurrentSendWorkKind.TIMELINE, timeline, null, null,
-                List.of(), 0, 0, false, runtimeRevision);
+        return timeline(aggregateState, timeline, List.of(), 0, 0, false, runtimeRevision);
+    }
+
+    /**
+     * Creates a timeline projection while retaining already admitted attempt
+     * history.  A definitive retry closes its prior ledger, but it does not
+     * reset the generation's admission counters; those counters are part of
+     * the replay precondition for the next admission.
+     */
+    public static GenerationRuntimeIndex timeline(final GenerationAggregateState aggregateState,
+                                                   final TimelineWorkRef timeline,
+                                                   final List<AttemptObligationRef> obligations,
+                                                   final int admissionsUsed,
+                                                   final int uncertainRetryAdmissionsUsed,
+                                                   final boolean possibleDestinationDuplicate,
+                                                   final long runtimeRevision) {
+        return new GenerationRuntimeIndex(effectiveAggregate(aggregateState, obligations),
+                CurrentSendWorkKind.TIMELINE, timeline, null, null,
+                obligations, admissionsUsed, uncertainRetryAdmissionsUsed, possibleDestinationDuplicate,
+                runtimeRevision);
     }
 
     public static GenerationRuntimeIndex claimed(final byte[] claimId,
                                                   final List<AttemptObligationRef> obligations,
                                                   final int admissionsUsed, final int uncertainRetryAdmissionsUsed,
                                                   final boolean duplicate, final long runtimeRevision) {
-        return new GenerationRuntimeIndex(GenerationAggregateState.CLAIMED, CurrentSendWorkKind.CLAIMED, null,
+        final GenerationAggregateState aggregate = effectiveAggregate(GenerationAggregateState.CLAIMED, obligations);
+        return new GenerationRuntimeIndex(aggregate, CurrentSendWorkKind.CLAIMED, null,
                 claimId, null, obligations, admissionsUsed, uncertainRetryAdmissionsUsed, duplicate,
                 runtimeRevision);
     }
@@ -89,7 +108,9 @@ public final class GenerationRuntimeIndex {
                                                      final List<AttemptObligationRef> obligations,
                                                      final int admissionsUsed, final int uncertainRetryAdmissionsUsed,
                                                      final boolean duplicate, final long runtimeRevision) {
-        return new GenerationRuntimeIndex(GenerationAggregateState.PUBLISHING, CurrentSendWorkKind.PUBLISHING,
+        final GenerationAggregateState aggregate = effectiveAggregate(GenerationAggregateState.PUBLISHING,
+                obligations);
+        return new GenerationRuntimeIndex(aggregate, CurrentSendWorkKind.PUBLISHING,
                 null, null, publishAttemptId, obligations, admissionsUsed, uncertainRetryAdmissionsUsed, duplicate,
                 runtimeRevision);
     }
@@ -293,6 +314,19 @@ public final class GenerationRuntimeIndex {
             ids.add(obligation.publishAttemptId());
         }
         return copy;
+    }
+
+    private static GenerationAggregateState effectiveAggregate(final GenerationAggregateState requested,
+                                                               final List<AttemptObligationRef> obligations) {
+        Objects.requireNonNull(requested, "aggregateState");
+        Objects.requireNonNull(obligations, "obligations");
+        final boolean hasUncertain = obligations.stream()
+                .anyMatch(obligation -> obligation.ledgerState() == AttemptLedgerState.UNCERTAIN);
+        return hasUncertain && (requested == GenerationAggregateState.CLAIMED
+                || requested == GenerationAggregateState.PUBLISHING
+                || requested == GenerationAggregateState.RETRY_WAIT
+                || requested == GenerationAggregateState.SCHEDULED)
+                ? GenerationAggregateState.UNCERTAIN : requested;
     }
 
     private static int compareUnsigned(final byte[] left, final byte[] right) {

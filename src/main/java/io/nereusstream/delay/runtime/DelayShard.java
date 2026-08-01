@@ -268,8 +268,9 @@ public final class DelayShard {
                 ClaimResultBody.decodePrecondition(claim.preconditionBytes());
         final TimelineWorkKind workKind = precondition.sourceWorkKind() == 1
                 ? TimelineWorkKind.INITIAL_SCHEDULE : TimelineWorkKind.DEFINITIVE_RETRY;
-        next = next.withRuntimeIndex(timelineRuntimeIndex(claim.delayMessageId(), next, workKind, 1,
-                next.stateVersion(), UncertainRetryAuthority.NONE, null, null));
+        next = next.withRuntimeIndex(timelineRuntimeIndex(claim.delayMessageId(), next, workKind,
+                Math.addExact(current.runtimeIndex().admissionsUsed(), 1), next.stateVersion(),
+                UncertainRetryAuthority.NONE, null, null, current.runtimeIndex()));
         final MessageRecord revokedNext = next;
         final SourcePosition schedulePosition = SourcePositionCodec.decode(current.scheduleSourcePosition());
         final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
@@ -393,11 +394,24 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }
+        final LaneRecord lane = readLane(laneId);
+        if (lane == null || !lane.schedulable()) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+        final ClaimRecord localClaim = current.status() == MessageStatus.CLAIMED
+                ? getClaim(body.claimId(), author.generation()) : null;
+        final AdmissionReplayState replayState;
+        try {
+            replayState = validatePublishAdmissionReplayState(body, current, lane, localClaim);
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
         if (current.status() == MessageStatus.CLAIMED) {
-            final ClaimRecord claim = getClaim(body.claimId(), author.generation());
-            if (claim == null || !claim.delayMessageId().equals(messageId)
-                    || claim.generation() != body.generation()
-                    || !Arrays.equals(claim.preconditionBytes(), body.claimPrecondition().canonicalBytes())) {
+            if (localClaim != null && (!localClaim.delayMessageId().equals(messageId)
+                    || localClaim.generation() != body.generation()
+                    || !Arrays.equals(localClaim.preconditionBytes(), body.claimPrecondition().canonicalBytes()))) {
                 return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                         StableCode.STALE_SYSTEM_MUTATION);
             }
@@ -409,7 +423,8 @@ public final class DelayShard {
         final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, StableCode.OK,
                 sourcePosition.canonicalBytes());
         try {
-            admitPublishAttempt(admission, sourcePosition, result);
+            admitPublishAttempt(admission, sourcePosition, result, replayState.claimMayBeMissing(),
+                    replayState.uncertainRetryAdmission());
             return result;
         } catch (IllegalArgumentException | IllegalStateException exception) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
@@ -576,7 +591,8 @@ public final class DelayShard {
                 : current.runtimeIndex().timeline() == null
                 ? timelineRuntimeIndex(messageId, current,
                 expectedWorkKind == 1 ? TimelineWorkKind.INITIAL_SCHEDULE : TimelineWorkKind.DEFINITIVE_RETRY,
-                1, current.stateVersion(), UncertainRetryAuthority.NONE, null, null).timeline()
+                Math.addExact(current.runtimeIndex().admissionsUsed(), 1), current.stateVersion(),
+                UncertainRetryAuthority.NONE, null, null, current.runtimeIndex()).timeline()
                 .semanticWorkDigest()
                 : current.runtimeIndex().timeline().semanticWorkDigest();
         if (precondition.sourceWorkKind() != expectedWorkKind
@@ -636,14 +652,113 @@ public final class DelayShard {
         return result;
     }
 
+    /**
+     * Validates the replay-stable portion of a source-ordered Publish Admission.
+     *
+     * <p>The local Claim and its runtime instance are useful optimizations, but
+     * neither is the source of truth after checkpoint/replay.  The signed body
+     * must therefore still match the current Message/Lane projection and the
+     * generation runtime counters before a new PUBLISHING obligation is made
+     * durable.</p>
+     */
+    private AdmissionReplayState validatePublishAdmissionReplayState(final PublishAdmissionBody body,
+                                                                       final MessageRecord current,
+                                                                       final LaneRecord lane,
+                                                                       final ClaimRecord localClaim) {
+        final ClaimResultBody.ClaimPrecondition precondition =
+                ClaimResultBody.decodePrecondition(body.claimPrecondition().canonicalBytes());
+        final DelayMessageId messageId = new DelayMessageId(body.messageId());
+        final GenerationRuntimeIndex index = current.runtimeIndex();
+        if (!Arrays.equals(precondition.messageId(), messageId.bytes())
+                || precondition.generation() != current.generation()
+                || !Arrays.equals(precondition.destinationLaneId(), current.laneId().bytes())
+                || !Arrays.equals(precondition.laneIncarnation(), lane.laneIncarnation())
+                || precondition.laneControlVersion() != lane.laneControlVersion()) {
+            throw new IllegalStateException("Publish Admission source identity is stale");
+        }
+        final long expectedStateVersion = current.status() == MessageStatus.CLAIMED
+                ? Math.addExact(precondition.stateVersion(), 1) : precondition.stateVersion();
+        if (current.stateVersion() != expectedStateVersion) {
+            throw new IllegalStateException("Publish Admission message state version is stale");
+        }
+        final byte[] sourceTimelineKey = localClaim == null
+                ? timelineKey(messageId, current) : localClaim.timelineKey();
+        if (!Bytes.constantTimeEquals(precondition.originalTimelineKeySha256(),
+                Bytes.sha256(sourceTimelineKey))) {
+            throw new IllegalStateException("Publish Admission timeline key projection is stale");
+        }
+        if (precondition.expectedAdmissionsUsed() != index.admissionsUsed()
+                || precondition.expectedUncertainRetryAdmissionsUsed()
+                != index.uncertainRetryAdmissionsUsed()
+                || !Bytes.constantTimeEquals(precondition.expectedObligationSetDigest(),
+                GenerationRuntimeIndex.obligationSetDigest(index.attemptObligations()))) {
+            throw new IllegalStateException("Publish Admission runtime counters are stale");
+        }
+        final int expectedAttemptNo = Math.addExact(index.admissionsUsed(), 1);
+        if (body.descriptor().attemptNo() != expectedAttemptNo) {
+            throw new IllegalStateException("Publish Admission attempt number is not replay-stable");
+        }
+        if (current.status() == MessageStatus.SCHEDULED
+                && index.currentWorkKind() != CurrentSendWorkKind.TIMELINE) {
+            throw new IllegalStateException("scheduled message has no timeline work projection");
+        }
+        if (current.status() == MessageStatus.CLAIMED
+                && (index.currentWorkKind() != CurrentSendWorkKind.CLAIMED
+                || !Bytes.constantTimeEquals(index.claimId(), body.claimId()))) {
+            throw new IllegalStateException("claimed message has a different Claim projection");
+        }
+
+        final TimelineWorkKind sourceWorkKind = TimelineWorkKind.fromWire(precondition.sourceWorkKind());
+        final TimelineWorkRef sourceWork;
+        if (localClaim != null) {
+            // The exact Claim record already validated the historical
+            // work-instance digest and retains the canonical precondition.
+            sourceWork = index.timeline();
+        } else if (index.timeline() != null) {
+            sourceWork = index.timeline();
+            if (!Arrays.equals(sourceWork.encodedTimelineKey(), sourceTimelineKey)
+                    || sourceWork.candidateAttemptNo() != expectedAttemptNo) {
+                throw new IllegalStateException("Publish Admission timeline work projection is stale");
+            }
+        } else {
+            if (sourceWorkKind == TimelineWorkKind.UNCERTAIN_RETRY) {
+                throw new IllegalStateException("uncertain retry lacks a persisted timeline work reference");
+            }
+            sourceWork = new TimelineWorkRef(sourceWorkKind, sourceTimelineKey, current.deliverAtEpochMs(),
+                    current.retryEligibilityAtEpochMs(), expectedAttemptNo,
+                    Math.max(1, index.runtimeRevision()),
+                    current.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO,
+                    UncertainRetryAuthority.NONE, null, null);
+        }
+        if (localClaim == null && (sourceWork == null
+                || sourceWork.workKind() != sourceWorkKind
+                || !Bytes.constantTimeEquals(sourceWork.semanticWorkDigest(),
+                precondition.sourceTimelineSemanticDigest()))) {
+            throw new IllegalStateException("Publish Admission timeline semantic digest is stale");
+        }
+        if (sourceWorkKind == TimelineWorkKind.DEFINITIVE_RETRY && !index.attemptObligations().isEmpty()) {
+            throw new IllegalStateException("definitive retry cannot carry open attempt obligations");
+        }
+        final boolean uncertainRetry = index.attemptObligations().stream()
+                .anyMatch(ref -> ref.ledgerState() == AttemptLedgerState.UNCERTAIN);
+        if (uncertainRetry) {
+            if (sourceWorkKind != TimelineWorkKind.UNCERTAIN_RETRY
+                    || current.orderingMode() != io.nereusstream.delay.protocol.OrderingMode.BEST_EFFORT) {
+                throw new IllegalStateException("older UNCERTAIN obligation requires an uncertain retry work item");
+            }
+        } else if (sourceWorkKind == TimelineWorkKind.UNCERTAIN_RETRY) {
+            throw new IllegalStateException("UNCERTAIN_RETRY has no older UNCERTAIN obligation");
+        }
+        return new AdmissionReplayState(localClaim == null, uncertainRetry);
+    }
+
     private MessageRecord normalizeCommandRuntime(final DelayMessageId messageId, final MessageRecord prior,
                                                   final MessageRecord next, final CommandResult result) {
         if (next == null) {
             return null;
         }
         if (next.status() == MessageStatus.SCHEDULED) {
-            final TimelineWorkKind kind = prior == null || result.stableCode() == StableCode.SCHEDULED
-                    ? TimelineWorkKind.INITIAL_SCHEDULE : TimelineWorkKind.INITIAL_SCHEDULE;
+            final TimelineWorkKind kind = TimelineWorkKind.INITIAL_SCHEDULE;
             return next.withRuntimeIndex(timelineRuntimeIndex(messageId, next, kind, 1, next.stateVersion(),
                     UncertainRetryAuthority.NONE, null, null));
         }
@@ -657,6 +772,27 @@ public final class DelayShard {
                                                         final long runtimeRevision,
                                                         final UncertainRetryAuthority authority,
                                                         final byte[] control, final byte[] controlPosition) {
+        return timelineRuntimeIndex(messageId, message, workKind, candidateAttemptNo, runtimeRevision, authority,
+                control, controlPosition, null, null);
+    }
+
+    private GenerationRuntimeIndex timelineRuntimeIndex(final DelayMessageId messageId, final MessageRecord message,
+                                                        final TimelineWorkKind workKind, final int candidateAttemptNo,
+                                                        final long runtimeRevision,
+                                                        final UncertainRetryAuthority authority,
+                                                        final byte[] control, final byte[] controlPosition,
+                                                        final GenerationRuntimeIndex base) {
+        return timelineRuntimeIndex(messageId, message, workKind, candidateAttemptNo, runtimeRevision, authority,
+                control, controlPosition, base, base == null ? null : base.attemptObligations());
+    }
+
+    private GenerationRuntimeIndex timelineRuntimeIndex(final DelayMessageId messageId, final MessageRecord message,
+                                                        final TimelineWorkKind workKind, final int candidateAttemptNo,
+                                                        final long runtimeRevision,
+                                                        final UncertainRetryAuthority authority,
+                                                        final byte[] control, final byte[] controlPosition,
+                                                        final GenerationRuntimeIndex base,
+                                                        final List<AttemptObligationRef> obligations) {
         final byte[] key = timelineKey(messageId, message);
         final TimelineWorkRef work = new TimelineWorkRef(workKind, key, message.deliverAtEpochMs(),
                 message.retryEligibilityAtEpochMs(), candidateAttemptNo, runtimeRevision,
@@ -667,7 +803,12 @@ public final class DelayShard {
             case DEFINITIVE_RETRY -> GenerationAggregateState.RETRY_WAIT;
             case UNCERTAIN_RETRY -> GenerationAggregateState.UNCERTAIN;
         };
-        return GenerationRuntimeIndex.timeline(aggregate, work, runtimeRevision);
+        final List<AttemptObligationRef> retained = obligations == null ? List.of() : obligations;
+        final int admissionsUsed = base == null ? 0 : base.admissionsUsed();
+        final int uncertainRetryAdmissionsUsed = base == null ? 0 : base.uncertainRetryAdmissionsUsed();
+        final boolean possibleDestinationDuplicate = base != null && base.possibleDestinationDuplicate();
+        return GenerationRuntimeIndex.timeline(aggregate, work, retained, admissionsUsed,
+                uncertainRetryAdmissionsUsed, possibleDestinationDuplicate, runtimeRevision);
     }
 
     private static List<AttemptObligationRef> withoutObligation(final GenerationRuntimeIndex index,
@@ -763,9 +904,14 @@ public final class DelayShard {
                 Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
                 current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
                 current.payloadReference(), retryAt);
+        final List<AttemptObligationRef> remainingObligations = withoutObligation(current.runtimeIndex(),
+                ledger.publishAttemptId());
+        if (remainingObligations.stream().anyMatch(ref -> ref.ledgerState() == AttemptLedgerState.UNCERTAIN)) {
+            throw new IllegalStateException("definitive retry cannot bypass an older UNCERTAIN obligation");
+        }
         scheduled = scheduled.withRuntimeIndex(timelineRuntimeIndex(ledger.delayMessageId(), scheduled,
-                TimelineWorkKind.DEFINITIVE_RETRY, ledger.attemptNo() + 1, scheduled.stateVersion(),
-                UncertainRetryAuthority.NONE, null, null));
+                TimelineWorkKind.DEFINITIVE_RETRY, Math.addExact(ledger.attemptNo(), 1), scheduled.stateVersion(),
+                UncertainRetryAuthority.NONE, null, null, current.runtimeIndex(), remainingObligations));
         final MessageRecord scheduledForWrite = scheduled;
         final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneRecord> laneOverrides = new HashMap<>();
         if (outcome.disposition() == 3) {
@@ -1022,12 +1168,14 @@ public final class DelayShard {
      */
     public synchronized PublishAttemptLedger admitPublishAttempt(final PublishAttemptLedger admission,
                                                                   final SourcePosition sourcePosition) {
-        return admitPublishAttempt(admission, sourcePosition, null);
+        return admitPublishAttempt(admission, sourcePosition, null, false, false);
     }
 
     private PublishAttemptLedger admitPublishAttempt(final PublishAttemptLedger admission,
                                                      final SourcePosition sourcePosition,
-                                                     final SystemMutationResult systemResult) {
+                                                     final SystemMutationResult systemResult,
+                                                     final boolean claimMayBeMissing,
+                                                     final boolean uncertainRetryAdmission) {
         Objects.requireNonNull(admission, "admission");
         validateMutationPosition(sourcePosition);
         if (admission.state() != AttemptLedgerState.PUBLISHING) {
@@ -1051,12 +1199,13 @@ public final class DelayShard {
         }
         final ClaimRecord claim = current.status() == MessageStatus.CLAIMED
                 ? getClaim(admission.claimId(), admission.ownerEpoch()) : null;
-        if (current.status() == MessageStatus.CLAIMED && (claim == null
-                || !claim.delayMessageId().equals(admission.delayMessageId())
+        if (current.status() == MessageStatus.CLAIMED
+                && ((!claimMayBeMissing && claim == null)
+                || (claim != null && (!claim.delayMessageId().equals(admission.delayMessageId())
                 || claim.generation() != admission.generation()
                 || !claim.laneId().equals(admission.laneId())
                 || !Arrays.equals(claim.ownerIdentity(), admission.ownerIdentity())
-                || !Arrays.equals(claim.storeIncarnation(), admission.storeIncarnation()))) {
+                || !Arrays.equals(claim.storeIncarnation(), admission.storeIncarnation()))))) {
             throw new IllegalStateException("publish admission Claim is stale");
         }
         final LaneRecord lane = readLane(current.laneId());
@@ -1070,7 +1219,8 @@ public final class DelayShard {
                 current.payloadReference(), current.retryEligibilityAtEpochMs());
         next = next.withRuntimeIndex(GenerationRuntimeIndex.publishing(admission.publishAttemptId(), obligations,
                 Math.addExact(current.runtimeIndex().admissionsUsed(), 1),
-                current.runtimeIndex().uncertainRetryAdmissionsUsed(),
+                Math.addExact(current.runtimeIndex().uncertainRetryAdmissionsUsed(),
+                        uncertainRetryAdmission ? 1 : 0),
                 current.runtimeIndex().possibleDestinationDuplicate(), next.stateVersion()));
         final MessageRecord admissionNext = next;
         final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
@@ -2147,7 +2297,8 @@ public final class DelayShard {
                 ? current.runtimeIndex().timeline()
                 : timelineRuntimeIndex(messageId, current,
                 workKind == 1 ? TimelineWorkKind.INITIAL_SCHEDULE : TimelineWorkKind.DEFINITIVE_RETRY,
-                1, current.stateVersion(), UncertainRetryAuthority.NONE, null, null).timeline();
+                Math.addExact(current.runtimeIndex().admissionsUsed(), 1), current.stateVersion(),
+                UncertainRetryAuthority.NONE, null, null, current.runtimeIndex()).timeline();
         final byte[] semanticDigest = sourceWork.semanticWorkDigest();
         final int admissionsUsed = current.runtimeIndex().admissionsUsed();
         final int uncertainRetryAdmissionsUsed = current.runtimeIndex().uncertainRetryAdmissionsUsed();
@@ -2272,6 +2423,9 @@ public final class DelayShard {
     }
 
     private record LaneProjection(LaneRecord previousLane, LaneRecord lane, ReadyIndexValue readyValue) {
+    }
+
+    private record AdmissionReplayState(boolean claimMayBeMissing, boolean uncertainRetryAdmission) {
     }
 
     private static int compareUnsigned(final byte[] left, final byte[] right) {

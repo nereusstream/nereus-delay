@@ -680,6 +680,7 @@ class DelayShardTest {
                     Bytes.sha256(Bytes.utf8("owner")), store.metadata().storeIncarnation(),
                     Bytes.sha256(Bytes.utf8("prepared")), Bytes.utf8("admission"), admissionPosition.canonicalBytes());
             shard.admitPublishAttempt(admission, admissionPosition);
+            assertEquals(1, shard.getMessage(schedule.delayMessageId()).runtimeIndex().admissionsUsed());
 
             final SystemMutationResult result = shard.applySystemMutation(mutation, outcomePosition,
                     keyPair.getPublic());
@@ -687,6 +688,9 @@ class DelayShardTest {
             assertEquals(StableCode.DESTINATION_DEFINITIVE_RETRIABLE, result.stableCode());
             assertEquals(MessageStatus.SCHEDULED, shard.getMessage(schedule.delayMessageId()).status());
             assertEquals(2_002, shard.getMessage(schedule.delayMessageId()).retryEligibilityAtEpochMs());
+            assertEquals(1, shard.getMessage(schedule.delayMessageId()).runtimeIndex().admissionsUsed());
+            assertEquals(2, shard.getMessage(schedule.delayMessageId()).runtimeIndex().timeline()
+                    .candidateAttemptNo());
             assertNull(shard.findOpenPublishAttempt(attemptId));
             assertEquals(0, shard.discoverDue(2_001, 10).size());
             assertEquals(1, shard.discoverDue(2_002, 10).size());
@@ -791,13 +795,19 @@ class DelayShardTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-admission"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 15);
         final DelayMessageId messageId = DelayMessageId.random(shardId);
-        final Fixture fixture = Fixture.create(shardId, messageId);
-        final DestinationLaneId lane = new DestinationLaneId(fixture.lane());
+        final DestinationLaneId lane = new DestinationLaneId(Bytes.sha256(Bytes.utf8("lane")));
         final PreparedCommand schedule = PreparedCommand.create(shardId, io.nereusstream.delay.protocol.CommandId.random(shardId),
                 messageId, io.nereusstream.delay.protocol.CommandType.SCHEDULE, 9_000,
                 io.nereusstream.delay.protocol.CommandBodies.schedule(new io.nereusstream.delay.protocol.ScheduleIntent(
                         lane, 2_000, 5_000, OrderingMode.BEST_EFFORT, Bytes.utf8("hello"))));
         final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final byte[] sourceTimelineKey = KeyCodec.timelineDue(lane, 2_000, schedulePosition.sourceOrderToken(),
+                messageId, 0);
+        final TimelineWorkRef sourceWork = new TimelineWorkRef(TimelineWorkKind.INITIAL_SCHEDULE,
+                sourceTimelineKey, 2_000, 2_000, 1, 1, false, UncertainRetryAuthority.NONE, null, null);
+        final Fixture fixture = Fixture.createForSource(shardId, messageId,
+                LaneRecord.initial(lane, schedulePosition).laneIncarnation(), sourceTimelineKey, 1, 0, 0,
+                GenerationRuntimeIndex.obligationSetDigest(java.util.List.of()), sourceWork.semanticWorkDigest());
         final KafkaSourcePosition admissionPosition = position(shardId, 1, 2_001);
         final java.security.KeyPairGenerator keyPairGenerator = java.security.KeyPairGenerator.getInstance("Ed25519");
         final java.security.KeyPair keyPair = keyPairGenerator.generateKeyPair();
@@ -811,6 +821,7 @@ class DelayShardTest {
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
             assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
             shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            assertNull(shard.getClaim(parsed.claimId(), 1));
 
             final SystemMutationResult result = shard.applySystemMutation(mutation, admissionPosition,
                     keyPair.getPublic());
