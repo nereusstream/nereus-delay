@@ -115,6 +115,11 @@ ActiveLaneState persistence、quota-map revision coupling、Oxia target
 registration、Oxia Recovery Pin/Floor CAS、source/evidence replay 或
 Recovery-Floor/retention gate。
 
+查询层也已补齐 `CheckpointSummaryV1`/`CheckpointCatalogResultV1` 的
+canonical checkpoint-catalog projection，包含 shard identity、Floor identity
+和严格排序的 summary array；它仍只是 public query value codec，不代表
+durable control-operation query routing 或 Oxia catalog authority 已完成。
+
 ## Source locks
 
 | 依赖 | 审计锁 |
