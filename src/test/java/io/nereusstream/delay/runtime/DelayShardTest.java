@@ -16,6 +16,7 @@ import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.PublishAdmissionBody;
 import io.nereusstream.delay.protocol.PublishAdmissionBodyTest.Fixture;
 import io.nereusstream.delay.protocol.PublishOutcomeBody;
+import io.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
 import io.nereusstream.delay.protocol.ResourceKind;
 import io.nereusstream.delay.protocol.ResourceRetireIntentBody;
 import io.nereusstream.delay.protocol.RouteIncarnation;
@@ -1525,7 +1526,8 @@ class DelayShardTest {
             final SystemMutationResult applied = shard.applySystemMutation(mutation, firstPosition,
                     keyPair.getPublic());
             assertEquals(StableCode.OK, applied.stableCode());
-            final ResourceRetireIntentRecord stored = shard.getResourceRetireIntent(parsed.resource().identityHash(), 7);
+            final ResourceRetireIntentRecord stored = shard.getResourceRetireIntent(ResourceKind.LOCAL_STORE,
+                    parsed.resource().identityHash(), 7);
             assertNotNull(stored);
             assertArrayEquals(mutation.systemMutationId(), stored.mutationId());
             assertArrayEquals(firstPosition.canonicalBytes(), stored.appliedSourcePosition());
@@ -1546,17 +1548,81 @@ class DelayShardTest {
             assertEquals(StableCode.VERSION_CONFLICT,
                     shard.applySystemMutation(conflicting, position(shardId, 2, 1_002),
                             keyPair.getPublic()).stableCode());
-            assertArrayEquals(mutation.mutationHash(), shard.getResourceRetireIntent(parsed.resource().identityHash(), 7)
-                    .mutationHash());
+            assertArrayEquals(mutation.mutationHash(), shard.getResourceRetireIntent(ResourceKind.LOCAL_STORE,
+                    parsed.resource().identityHash(), 7).mutationHash());
         }
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults());
-            final ResourceRetireIntentRecord stored = reopened.getResourceRetireIntent(
+            final ResourceRetireIntentRecord stored = reopened.getResourceRetireIntent(ResourceKind.LOCAL_STORE,
                     parsed.resource().identityHash(), 7);
             assertNotNull(stored);
             assertArrayEquals(mutation.systemMutationId(), stored.mutationId());
+            assertEquals(position(shardId, 2, 1_002), reopened.lastAppliedSourcePosition());
+        }
+    }
+
+    @Test
+    void resourceDeleteConfirmationRequiresExactIntentAndRetainsLocalTombstone() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("resource-delete-confirmed"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 27);
+        final byte[] resource = localStoreResource(shardId);
+        final byte[] protections = resourceProtectionSet(Bytes.sha256(Bytes.utf8("delete-protection")));
+        final byte[] retireBody = resourceRetireBody(shardId, resource, 3, protections);
+        final ResourceRetireIntentBody parsedRetire = ResourceRetireIntentBody.decode(retireBody);
+        final byte[] service = AuthorIdentity.service(Bytes.utf8("delete-service"), Bytes.utf8("run-1"), 1)
+                .canonicalBytes();
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final SystemMutation retire = SystemMutation.signed(shardId, SystemMutationType.RESOURCE_RETIRE_INTENT,
+                9_000, SystemMutation.computeResourceRetireLogicalIdentity(parsedRetire.resourceKind(),
+                        parsedRetire.resource().identityHash(), 3), retireBody, service, 1, keyPair.getPrivate());
+        final ResourceDeleteConfirmedBody.DeleteOutcome outcome = ResourceDeleteConfirmedBody.DeleteOutcome
+                .ALREADY_ABSENT;
+        final byte[] confirmationBody = resourceDeleteConfirmedBody(shardId, retire, parsedRetire, outcome,
+                Bytes.sha256(Bytes.utf8("provider-request-1")));
+        final ResourceDeleteConfirmedBody parsedConfirmation = ResourceDeleteConfirmedBody.decode(confirmationBody);
+        final SystemMutation confirmation = SystemMutation.signed(shardId,
+                SystemMutationType.RESOURCE_DELETE_CONFIRMED, 9_000, parsedConfirmation.intent().mutationId(),
+                confirmationBody, service, 1, keyPair.getPrivate());
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.OK,
+                    shard.applySystemMutation(retire, position(shardId, 0, 1_000), keyPair.getPublic()).stableCode());
+            final SystemMutationResult applied = shard.applySystemMutation(confirmation,
+                    position(shardId, 1, 1_001), keyPair.getPublic());
+            assertEquals(StableCode.OK, applied.stableCode());
+            final ResourceDeleteConfirmedRecord tombstone = shard.getResourceDeleteConfirmation(
+                    ResourceKind.LOCAL_STORE, parsedRetire.resource().identityHash(), 3);
+            assertNotNull(tombstone);
+            assertEquals(outcome, tombstone.outcome());
+            assertArrayEquals(retire.systemMutationId(), tombstone.retireIntent().mutationId());
+            assertArrayEquals(confirmation.systemMutationId(), tombstone.confirmationMutationId());
+            assertNotNull(shard.getResourceRetireIntent(ResourceKind.LOCAL_STORE,
+                    parsedRetire.resource().identityHash(), 3));
+            assertEquals(applied, shard.applySystemMutation(confirmation, position(shardId, 1, 1_001),
+                    keyPair.getPublic()));
+
+            final byte[] conflictingBody = resourceDeleteConfirmedBody(shardId, retire, parsedRetire, outcome,
+                    Bytes.sha256(Bytes.utf8("provider-request-2")));
+            final ResourceDeleteConfirmedBody parsedConflict = ResourceDeleteConfirmedBody.decode(conflictingBody);
+            final SystemMutation conflicting = SystemMutation.signed(shardId,
+                    SystemMutationType.RESOURCE_DELETE_CONFIRMED, 9_000, parsedConflict.intent().mutationId(),
+                    conflictingBody, service, 1, keyPair.getPrivate());
+            assertEquals(StableCode.VERSION_CONFLICT,
+                    shard.applySystemMutation(conflicting, position(shardId, 2, 1_002),
+                            keyPair.getPublic()).stableCode());
+        }
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(ResourceDeleteConfirmedBody.DeleteOutcome.ALREADY_ABSENT,
+                    reopened.getResourceDeleteConfirmation(ResourceKind.LOCAL_STORE,
+                            parsedRetire.resource().identityHash(), 3).outcome());
             assertEquals(position(shardId, 2, 1_002), reopened.lastAppliedSourcePosition());
         }
     }
@@ -2651,6 +2717,40 @@ class DelayShardTest {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, reference);
             CanonicalProtobuf.bytes(output, 2, digest);
+        });
+    }
+
+    private static byte[] resourceDeleteConfirmedBody(final ShardId shard, final SystemMutation retire,
+                                                       final ResourceRetireIntentBody parsedRetire,
+                                                       final ResourceDeleteConfirmedBody.DeleteOutcome outcome,
+                                                       final byte[] providerRequestHash) {
+        final TrustedUtcIntervalEvidence time = new TrustedUtcIntervalEvidence(2_000, 2_001,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("delete-clock"), 1, 8, 8,
+                Bytes.sha256(Bytes.utf8("delete-time")), 0, null);
+        final byte[] intent = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, retire.systemMutationId());
+            CanonicalProtobuf.bytes(output, 2, retire.mutationHash());
+            CanonicalProtobuf.bytes(output, 3, parsedRetire.resource().identityHash());
+            CanonicalProtobuf.uint32(output, 4, parsedRetire.expectedResourceStateVersion());
+        });
+        final byte[] evidence = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, parsedRetire.resource().identityHash());
+            CanonicalProtobuf.bytes(output, 2, providerRequestHash);
+            CanonicalProtobuf.uint32(output, 3, outcome.wireValue());
+            CanonicalProtobuf.bytes(output, 6, Bytes.sha256(Bytes.utf8("delete-response")));
+            CanonicalProtobuf.bytes(output, 7, time.canonicalBytes());
+        });
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, CanonicalProtobuf.message(subject -> {
+                CanonicalProtobuf.bytes(subject, 1, shard.routeIncarnation().bytes());
+                CanonicalProtobuf.uint32(subject, 2, shard.partition());
+            }));
+            CanonicalProtobuf.uint32(output, 2, SystemMutationType.RESOURCE_DELETE_CONFIRMED.wireValue());
+            CanonicalProtobuf.int64(output, 3, 9_000);
+            CanonicalProtobuf.bytes(output, 10, intent);
+            CanonicalProtobuf.uint32(output, 11, outcome.wireValue());
+            CanonicalProtobuf.bytes(output, 12, evidence);
+            CanonicalProtobuf.bytes(output, 13, time.canonicalBytes());
         });
     }
 

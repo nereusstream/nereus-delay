@@ -4,6 +4,7 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CommandId;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DestinationLaneId;
+import io.nereusstream.delay.protocol.ResourceKind;
 
 import java.util.Objects;
 
@@ -130,12 +131,14 @@ public final class KeyCodec {
     }
 
     /** Stable gc_cf locator for a resource identity/version retire intent. */
-    public static byte[] gcRetireIntent(final byte[] resourceIdentityHash, final long expectedVersion) {
+    public static byte[] gcRetireIntent(final ResourceKind resourceKind, final byte[] resourceIdentityHash,
+                                        final long expectedVersion) {
+        Objects.requireNonNull(resourceKind, "resourceKind");
         Objects.requireNonNull(resourceIdentityHash, "resourceIdentityHash");
         if (resourceIdentityHash.length != 32 || expectedVersion < 0) {
             throw new IllegalArgumentException("invalid resource retire intent key values");
         }
-        return Bytes.concat(new byte[]{2, 1}, resourceIdentityHash, Bytes.u64be(expectedVersion));
+        return gcTask(0, (byte) resourceKind.wireValue(), resourceIdentityHash, expectedVersion);
     }
 
     public static byte[] metaFixed(final int fixedKeyKind) {

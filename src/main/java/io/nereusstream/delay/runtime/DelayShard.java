@@ -17,6 +17,8 @@ import io.nereusstream.delay.protocol.PublishOutcomeBody;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.ReplayDeadLetterBody;
 import io.nereusstream.delay.protocol.ResolveUncertainBody;
+import io.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
+import io.nereusstream.delay.protocol.ResourceKind;
 import io.nereusstream.delay.protocol.ResourceRetireIntentBody;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
@@ -28,6 +30,7 @@ import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.store.ColumnFamily;
 import io.nereusstream.delay.store.KeyCodec;
 import io.nereusstream.delay.store.ShardStore;
+import io.nereusstream.delay.store.ValueEnvelope;
 
 import java.nio.ByteBuffer;
 import java.security.PublicKey;
@@ -400,15 +403,45 @@ public final class DelayShard {
     }
 
     /** Returns the durable gc_cf retire intent for one exact resource identity/version. */
-    public synchronized ResourceRetireIntentRecord getResourceRetireIntent(final byte[] resourceIdentityHash,
+    public synchronized ResourceRetireIntentRecord getResourceRetireIntent(final ResourceKind resourceKind,
+                                                                              final byte[] resourceIdentityHash,
                                                                               final long expectedVersion) {
+        Objects.requireNonNull(resourceKind, "resourceKind");
         Bytes.requireLength(resourceIdentityHash, SystemMutation.HASH_LENGTH, "resourceIdentityHash");
         if (expectedVersion < 0) {
             throw new IllegalArgumentException("expectedVersion must be non-negative");
         }
-        final var value = store.getValue(ColumnFamily.GC,
-                KeyCodec.gcRetireIntent(resourceIdentityHash, expectedVersion), ResourceRetireIntentRecord.VALUE_TYPE);
-        return value == null ? null : ResourceRetireIntentRecord.decode(value.payload());
+        final byte[] raw = gcValue(resourceKind, resourceIdentityHash, expectedVersion);
+        if (raw == null) {
+            return null;
+        }
+        final int valueType = gcValueType(raw);
+        if (valueType == ResourceRetireIntentRecord.VALUE_TYPE) {
+            return ResourceRetireIntentRecord.decode(
+                    ValueEnvelope.decode(raw, ResourceRetireIntentRecord.VALUE_TYPE).payload());
+        }
+        if (valueType == ResourceDeleteConfirmedRecord.VALUE_TYPE) {
+            return ResourceDeleteConfirmedRecord.decode(
+                    ValueEnvelope.decode(raw, ResourceDeleteConfirmedRecord.VALUE_TYPE).payload()).retireIntent();
+        }
+        throw new IllegalStateException("unknown gc task value type: " + valueType);
+    }
+
+    /** Returns the durable delete confirmation, if this exact task has reached that local state. */
+    public synchronized ResourceDeleteConfirmedRecord getResourceDeleteConfirmation(final ResourceKind resourceKind,
+                                                                                      final byte[] resourceIdentityHash,
+                                                                                      final long expectedVersion) {
+        Objects.requireNonNull(resourceKind, "resourceKind");
+        Bytes.requireLength(resourceIdentityHash, SystemMutation.HASH_LENGTH, "resourceIdentityHash");
+        if (expectedVersion < 0) {
+            throw new IllegalArgumentException("expectedVersion must be non-negative");
+        }
+        final byte[] raw = gcValue(resourceKind, resourceIdentityHash, expectedVersion);
+        if (raw == null || gcValueType(raw) != ResourceDeleteConfirmedRecord.VALUE_TYPE) {
+            return null;
+        }
+        return ResourceDeleteConfirmedRecord.decode(
+                ValueEnvelope.decode(raw, ResourceDeleteConfirmedRecord.VALUE_TYPE).payload());
     }
 
     /**
@@ -467,6 +500,7 @@ public final class DelayShard {
                 case RESOLVE_UNCERTAIN -> applyResolveUncertainMutation(mutation, sourcePosition);
                 case CLAIM_RESULT -> applyClaimResultMutation(mutation, sourcePosition);
                 case RESOURCE_RETIRE_INTENT -> applyResourceRetireIntentMutation(mutation, sourcePosition);
+                case RESOURCE_DELETE_CONFIRMED -> applyResourceDeleteConfirmedMutation(mutation, sourcePosition);
                 default -> persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                         StableCode.STALE_SYSTEM_MUTATION);
             };
@@ -1754,8 +1788,8 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
-        final ResourceRetireIntentRecord prior = getResourceRetireIntent(body.resource().identityHash(),
-                body.expectedResourceStateVersion());
+        final ResourceRetireIntentRecord prior = getResourceRetireIntent(body.resourceKind(),
+                body.resource().identityHash(), body.expectedResourceStateVersion());
         if (prior != null) {
             if (Bytes.constantTimeEquals(prior.mutationId(), mutation.systemMutationId())
                     && Bytes.constantTimeEquals(prior.mutationHash(), mutation.mutationHash())) {
@@ -1771,7 +1805,8 @@ public final class DelayShard {
                 sourcePosition.canonicalBytes());
         store.write(batch -> {
             batch.putValue(ColumnFamily.GC, ResourceRetireIntentRecord.VALUE_TYPE,
-                    KeyCodec.gcRetireIntent(record.resourceIdentityHash(), record.expectedResourceStateVersion()),
+                    KeyCodec.gcRetireIntent(record.resourceKind(), record.resourceIdentityHash(),
+                            record.expectedResourceStateVersion()),
                     record.encode());
             writeSystemResult(batch, result);
             writePosition(batch, sourcePosition);
@@ -1779,6 +1814,79 @@ public final class DelayShard {
         lastAppliedSourcePosition = sourcePosition;
         mutationSequence++;
         return result;
+    }
+
+    /**
+     * Records an exact delete response against an already applied retire intent.
+     * Provider deletion, Recovery Floor advancement and quota release remain outside this local projection.
+     */
+    private SystemMutationResult applyResourceDeleteConfirmedMutation(final SystemMutation mutation,
+                                                                        final SourcePosition sourcePosition) {
+        final ResourceDeleteConfirmedBody body = ResourceDeleteConfirmedBody.decode(mutation.canonicalBody());
+        if (!Bytes.constantTimeEquals(mutation.logicalOperationIdentity(), body.intent().mutationId())) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
+        final RetireIntentLookup lookup = findRetireIntent(body.intent());
+        if (lookup == null) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+        final ResourceDeleteConfirmedRecord prior = getResourceDeleteConfirmation(lookup.resourceKind(),
+                body.intent().resourceIdentityHash(), body.intent().expectedResourceStateVersion());
+        if (prior != null) {
+            if (Bytes.constantTimeEquals(prior.confirmationMutationId(), mutation.systemMutationId())
+                    && Bytes.constantTimeEquals(prior.confirmationMutationHash(), mutation.mutationHash())) {
+                return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.OK);
+            }
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.VERSION_CONFLICT);
+        }
+        final ResourceDeleteConfirmedRecord record = new ResourceDeleteConfirmedRecord(
+                mutation.systemMutationId(), mutation.mutationHash(), lookup.intent(), body.outcome(),
+                body.evidence().providerRequestIdHash(), body.evidence().observedImmutableVersion(),
+                body.evidence().observedEtag(), body.evidence().responseHash(), body.evidence().observedAt().canonicalBytes(),
+                body.confirmedAt().canonicalBytes(), sourcePosition.canonicalBytes());
+        final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, StableCode.OK,
+                sourcePosition.canonicalBytes());
+        store.write(batch -> {
+            batch.putValue(ColumnFamily.GC, ResourceDeleteConfirmedRecord.VALUE_TYPE,
+                    KeyCodec.gcRetireIntent(lookup.resourceKind(), record.retireIntent().resourceIdentityHash(),
+                            record.retireIntent().expectedResourceStateVersion()), record.encode());
+            writeSystemResult(batch, result);
+            writePosition(batch, sourcePosition);
+        });
+        lastAppliedSourcePosition = sourcePosition;
+        mutationSequence++;
+        return result;
+    }
+
+    private RetireIntentLookup findRetireIntent(final ResourceDeleteConfirmedBody.RetireIntentRef reference) {
+        for (ResourceKind resourceKind : ResourceKind.values()) {
+            final ResourceRetireIntentRecord intent = getResourceRetireIntent(resourceKind,
+                    reference.resourceIdentityHash(), reference.expectedResourceStateVersion());
+            if (intent != null
+                    && Bytes.constantTimeEquals(intent.mutationId(), reference.mutationId())
+                    && Bytes.constantTimeEquals(intent.mutationHash(), reference.mutationHash())) {
+                return new RetireIntentLookup(resourceKind, intent);
+            }
+        }
+        return null;
+    }
+
+    private byte[] gcValue(final ResourceKind resourceKind, final byte[] resourceIdentityHash,
+                           final long expectedVersion) {
+        return store.get(ColumnFamily.GC, KeyCodec.gcRetireIntent(resourceKind, resourceIdentityHash,
+                expectedVersion));
+    }
+
+    private static int gcValueType(final byte[] raw) {
+        if (raw.length < 4 || raw[0] != 0x4e || raw[1] != 0x56) {
+            throw new IllegalStateException("invalid gc task value envelope");
+        }
+        return raw[2] & 0xff;
+    }
+
+    private record RetireIntentLookup(ResourceKind resourceKind, ResourceRetireIntentRecord intent) {
     }
 
     private void writeSystemResult(final ShardStore.Batch batch, final SystemMutationResult result)

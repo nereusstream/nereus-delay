@@ -1,0 +1,103 @@
+package io.nereusstream.delay.protocol;
+
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+class ResourceDeleteConfirmedBodyTest {
+    @Test
+    void deletedEvidenceRoundTripsWithExactOptionalIdentityFields() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 21);
+        final byte[] resourceHash = Bytes.sha256(Bytes.utf8("resource"));
+        final byte[] mutationId = Bytes.sha256(Bytes.utf8("retire-mutation"));
+        final byte[] body = body(shard, mutationId, Bytes.sha256(Bytes.utf8("retire-hash")), resourceHash, 4,
+                ResourceDeleteConfirmedBody.DeleteOutcome.DELETED, resourceHash, Bytes.utf8("version-1"),
+                Bytes.utf8("etag"));
+
+        final ResourceDeleteConfirmedBody decoded = ResourceDeleteConfirmedBody.decode(body);
+
+        assertEquals(ResourceDeleteConfirmedBody.DeleteOutcome.DELETED, decoded.outcome());
+        assertArrayEquals(mutationId, decoded.intent().mutationId());
+        assertArrayEquals(resourceHash, decoded.evidence().resourceIdentityHash());
+        assertArrayEquals(Bytes.utf8("version-1"), decoded.evidence().observedImmutableVersion());
+        assertArrayEquals(Bytes.utf8("etag"), decoded.evidence().observedEtag());
+    }
+
+    @Test
+    void alreadyAbsentEvidenceForbidsObservedVersionAndEtag() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 22);
+        final byte[] resourceHash = Bytes.sha256(Bytes.utf8("absent-resource"));
+        final byte[] body = body(shard, Bytes.sha256(Bytes.utf8("absent-mutation")),
+                Bytes.sha256(Bytes.utf8("absent-hash")), resourceHash, 5,
+                ResourceDeleteConfirmedBody.DeleteOutcome.ALREADY_ABSENT, resourceHash, new byte[0], new byte[0]);
+
+        final ResourceDeleteConfirmedBody decoded = ResourceDeleteConfirmedBody.decode(body);
+
+        assertEquals(ResourceDeleteConfirmedBody.DeleteOutcome.ALREADY_ABSENT, decoded.outcome());
+        assertEquals(0, decoded.evidence().observedImmutableVersion().length);
+        assertEquals(0, decoded.evidence().observedEtag().length);
+    }
+
+    @Test
+    void intentAndEvidenceMismatchesAreRejected() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 23);
+        final byte[] resourceHash = Bytes.sha256(Bytes.utf8("resource"));
+        final byte[] body = body(shard, Bytes.sha256(Bytes.utf8("mutation")),
+                Bytes.sha256(Bytes.utf8("hash")), resourceHash, 1, ResourceDeleteConfirmedBody.DeleteOutcome.DELETED,
+                Bytes.sha256(Bytes.utf8("different-resource")), Bytes.utf8("version"), new byte[0]);
+        assertThrows(IllegalArgumentException.class, () -> ResourceDeleteConfirmedBody.decode(body));
+
+        final byte[] absentWithIdentity = body(shard, Bytes.sha256(Bytes.utf8("mutation-2")),
+                Bytes.sha256(Bytes.utf8("hash-2")), resourceHash, 1,
+                ResourceDeleteConfirmedBody.DeleteOutcome.ALREADY_ABSENT, resourceHash, Bytes.utf8("version"),
+                new byte[0]);
+        assertThrows(IllegalArgumentException.class, () -> ResourceDeleteConfirmedBody.decode(absentWithIdentity));
+    }
+
+    private static byte[] body(final ShardId shard, final byte[] mutationId, final byte[] mutationHash,
+                               final byte[] resourceHash, final long expectedVersion,
+                               final ResourceDeleteConfirmedBody.DeleteOutcome outcome,
+                               final byte[] evidenceResourceHash, final byte[] observedVersion,
+                               final byte[] etag) {
+        final TrustedUtcIntervalEvidence time = new TrustedUtcIntervalEvidence(2_000, 2_001,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("clock"), 1, 4, 4,
+                Bytes.sha256(Bytes.utf8("time")), 0, null);
+        final byte[] intent = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, mutationId);
+            CanonicalProtobuf.bytes(output, 2, mutationHash);
+            CanonicalProtobuf.bytes(output, 3, resourceHash);
+            CanonicalProtobuf.uint32(output, 4, expectedVersion);
+        });
+        final byte[] evidence = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, evidenceResourceHash);
+            CanonicalProtobuf.bytes(output, 2, Bytes.sha256(Bytes.utf8("provider-request")));
+            CanonicalProtobuf.uint32(output, 3, outcome.wireValue());
+            if (observedVersion.length != 0) {
+                CanonicalProtobuf.bytes(output, 4, observedVersion);
+            }
+            if (etag.length != 0) {
+                CanonicalProtobuf.bytes(output, 5, etag);
+            }
+            CanonicalProtobuf.bytes(output, 6, Bytes.sha256(Bytes.utf8("response")));
+            CanonicalProtobuf.bytes(output, 7, time.canonicalBytes());
+        });
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, subject(shard));
+            CanonicalProtobuf.uint32(output, 2, SystemMutationType.RESOURCE_DELETE_CONFIRMED.wireValue());
+            CanonicalProtobuf.int64(output, 3, 9_000);
+            CanonicalProtobuf.bytes(output, 10, intent);
+            CanonicalProtobuf.uint32(output, 11, outcome.wireValue());
+            CanonicalProtobuf.bytes(output, 12, evidence);
+            CanonicalProtobuf.bytes(output, 13, time.canonicalBytes());
+        });
+    }
+
+    private static byte[] subject(final ShardId shard) {
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());
+            CanonicalProtobuf.uint32(output, 2, shard.partition());
+        });
+    }
+}
