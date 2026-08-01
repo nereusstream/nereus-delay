@@ -1489,6 +1489,63 @@ class DelayShardTest {
     }
 
     @Test
+    void admissionOutcomeReserveGateRevokesLiveClaimWithoutConsumingAttempt() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("admission-outcome-claim-gate"));
+        final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,
+                3, 100, 10_000, 10, 0, 1, 1);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 18);
+        final DelayMessageId messageId = DelayMessageId.random(shardId);
+        final DestinationLaneId lane = new DestinationLaneId(Bytes.sha256(Bytes.utf8("lane")));
+        final PreparedCommand schedule = PreparedCommand.create(shardId,
+                io.nereusstream.delay.protocol.CommandId.random(shardId), messageId,
+                io.nereusstream.delay.protocol.CommandType.SCHEDULE, 9_000,
+                io.nereusstream.delay.protocol.CommandBodies.schedule(new io.nereusstream.delay.protocol.ScheduleIntent(
+                        lane, 2_000, 5_000, OrderingMode.BEST_EFFORT, Bytes.utf8("claim-gate"))));
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final byte[] sourceTimelineKey = KeyCodec.timelineDue(lane, 2_000, schedulePosition.sourceOrderToken(),
+                messageId, 0);
+        final TimelineWorkRef sourceWork = new TimelineWorkRef(TimelineWorkKind.INITIAL_SCHEDULE,
+                sourceTimelineKey, 2_000, 2_000, 1, 1, false, UncertainRetryAuthority.NONE, null, null);
+        final Fixture fixture = Fixture.createForSource(shardId, messageId,
+                LaneRecord.initial(lane, schedulePosition).laneIncarnation(), sourceTimelineKey, 1, 0, 0,
+                GenerationRuntimeIndex.obligationSetDigest(List.of()), sourceWork.semanticWorkDigest());
+        final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = keyPairGenerator.generateKeyPair();
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 2_001);
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, shardConfig);
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final AuthorIdentity owner = AuthorIdentity.decode(fixture.owner());
+            final PublishAdmissionBody fixtureAdmission = PublishAdmissionBody.decode(fixture.body());
+            final ClaimRecord claim = shard.claimForPublish(messageId, owner, 3_000,
+                    fixtureAdmission.descriptor().materializationBytes(), chargeVector());
+            final byte[] claimBody = replaceAdmissionClaim(fixture.body(), claim, store.metadata().storeIncarnation());
+            final byte[] chargedBody = replaceAdmissionCharge(claimBody, 2, 2);
+            final PublishAdmissionBody admissionBody = PublishAdmissionBody.decode(chargedBody);
+            final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_ADMISSION,
+                    9_000, Bytes.sha256(Bytes.utf8("admission-outcome-claim-gate")), chargedBody,
+                    fixture.owner(), 1, keyPair.getPrivate());
+
+            assertEquals(MessageStatus.CLAIMED, shard.getMessage(messageId).status());
+            assertEquals(StableCode.ADMISSION_CAPACITY_GATED,
+                    shard.applySystemMutation(mutation, admissionPosition, keyPair.getPublic()).stableCode());
+            final MessageRecord restored = shard.getMessage(messageId);
+            assertEquals(MessageStatus.SCHEDULED, restored.status());
+            assertEquals(0, restored.runtimeIndex().admissionsUsed());
+            assertEquals(CurrentSendWorkKind.TIMELINE, restored.runtimeIndex().currentWorkKind());
+            assertNull(shard.getClaim(claim.claimId(), owner.generation()));
+            assertNull(shard.findOpenPublishAttempt(admissionBody.publishAttemptId()));
+            assertNotNull(store.getValue(ColumnFamily.TIMELINE,
+                    KeyCodec.timelineDue(lane, 2_000, schedulePosition.sourceOrderToken(), messageId, 0), 1));
+            assertEquals(1, shard.discoverReady(10_000, 10).size());
+            assertEquals(OutcomeReserveUsage.empty(), shard.outcomeReserve());
+        }
+    }
+
+    @Test
     void admissionOutcomeReserveChargeIsReleasedByVerifiedPublish() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("admission-outcome-release"));
         final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,
@@ -2809,6 +2866,89 @@ class DelayShardTest {
                 }
             }
         });
+    }
+
+    private static byte[] replaceAdmissionClaim(final byte[] body, final ClaimRecord claim,
+                                                final byte[] storeIncarnation) {
+        final List<CanonicalProtobuf.Reader.Field> fields = new ArrayList<>();
+        final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(body);
+        while (reader.hasRemaining()) {
+            fields.add(reader.next());
+        }
+        final byte[] certificate = fields.stream()
+                .filter(field -> field.number() == 23)
+                .findFirst()
+                .map(field -> replaceReadyCertificate(field.rawValue(), storeIncarnation))
+                .orElseThrow();
+        final byte[] certificateDigest = readyCertificateDigest(certificate);
+        return CanonicalProtobuf.message(output -> {
+            for (CanonicalProtobuf.Reader.Field field : fields) {
+                switch (field.number()) {
+                    case 11 -> CanonicalProtobuf.bytes(output, 11, storeIncarnation);
+                    case 12 -> CanonicalProtobuf.bytes(output, 12, claim.claimId());
+                    case 20 -> CanonicalProtobuf.bytes(output, 20, certificateDigest);
+                    case 23 -> CanonicalProtobuf.bytes(output, 23, certificate);
+                    case 25 -> CanonicalProtobuf.bytes(output, 25, claim.preconditionBytes());
+                    default -> {
+                        if (field.wireType() == 0) {
+                            CanonicalProtobuf.int64(output, field.number(), field.unsignedValue());
+                        } else {
+                            CanonicalProtobuf.bytes(output, field.number(), field.rawValue());
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    private static byte[] replaceReadyCertificate(final byte[] encoded, final byte[] storeIncarnation) {
+        final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(encoded);
+        final byte[] prefix = CanonicalProtobuf.message(output -> {
+            while (reader.hasRemaining()) {
+                final CanonicalProtobuf.Reader.Field field = reader.next();
+                if (field.number() == 16) {
+                    break;
+                }
+                if (field.number() == 3) {
+                    CanonicalProtobuf.bytes(output, 3, storeIncarnation);
+                } else if (field.wireType() == 0) {
+                    CanonicalProtobuf.int64(output, field.number(), field.unsignedValue());
+                } else {
+                    CanonicalProtobuf.bytes(output, field.number(), field.rawValue());
+                }
+            }
+        });
+        return CanonicalProtobuf.message(output -> {
+            final CanonicalProtobuf.Reader prefixReader = new CanonicalProtobuf.Reader(prefix);
+            while (prefixReader.hasRemaining()) {
+                final CanonicalProtobuf.Reader.Field field = prefixReader.next();
+                if (field.wireType() == 0) {
+                    CanonicalProtobuf.int64(output, field.number(), field.unsignedValue());
+                } else {
+                    CanonicalProtobuf.bytes(output, field.number(), field.rawValue());
+                }
+            }
+            CanonicalProtobuf.bytes(output, 16, Bytes.sha256(
+                    Bytes.utf8("nereus-delay-ready-certificate-v1\0"), prefix));
+        });
+    }
+
+    private static byte[] readyCertificateDigest(final byte[] certificate) {
+        final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(certificate);
+        final byte[] prefix = CanonicalProtobuf.message(output -> {
+            while (reader.hasRemaining()) {
+                final CanonicalProtobuf.Reader.Field field = reader.next();
+                if (field.number() == 16) {
+                    break;
+                }
+                if (field.wireType() == 0) {
+                    CanonicalProtobuf.int64(output, field.number(), field.unsignedValue());
+                } else {
+                    CanonicalProtobuf.bytes(output, field.number(), field.rawValue());
+                }
+            }
+        });
+        return Bytes.sha256(Bytes.utf8("nereus-delay-ready-certificate-v1\0"), prefix);
     }
 
     private static byte[] nestedPlaceholder() {
