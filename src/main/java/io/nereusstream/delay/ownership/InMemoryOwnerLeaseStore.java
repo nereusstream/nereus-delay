@@ -6,6 +6,7 @@ import io.nereusstream.delay.protocol.ShardId;
 import java.security.SecureRandom;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /** Deterministic-CAS test authority with monotonically increasing owner epochs. */
@@ -31,6 +32,25 @@ public final class InMemoryOwnerLeaseStore implements OwnerLeaseStore {
     }
 
     @Override
+    public synchronized Optional<OwnerLease> acquire(final SourceAssignment assignment, final String ownerId,
+                                                      final byte[] sessionIdentity, final long nowEpochMs,
+                                                      final long leaseDurationMs) {
+        Objects.requireNonNull(assignment, "assignment");
+        validateDuration(nowEpochMs, leaseDurationMs);
+        final OwnerLease current = leases.get(assignment.shardId());
+        if (current != null && current.validAt(nowEpochMs)) {
+            return Optional.empty();
+        }
+        final long epoch = Math.addExact(epochs.getOrDefault(assignment.shardId(), 0L), 1);
+        epochs.put(assignment.shardId(), epoch);
+        final OwnerLease next = new OwnerLease(assignment.shardId(), ownerId, epoch, randomBytes(),
+                Math.addExact(nowEpochMs, leaseDurationMs),
+                new OwnerLeaseContext(assignment.assignmentId(), sessionIdentity), ShardLifecycleState.ACQUIRING);
+        leases.put(assignment.shardId(), next);
+        return Optional.of(next);
+    }
+
+    @Override
     public synchronized Optional<OwnerLease> renew(final OwnerLease expected, final long nowEpochMs,
                                                     final long leaseDurationMs) {
         validateDuration(nowEpochMs, leaseDurationMs);
@@ -39,7 +59,7 @@ public final class InMemoryOwnerLeaseStore implements OwnerLeaseStore {
             return Optional.empty();
         }
         final OwnerLease next = new OwnerLease(expected.shardId(), expected.ownerId(), expected.ownerEpoch(),
-                expected.leaseToken(), Math.addExact(nowEpochMs, leaseDurationMs));
+                expected.leaseToken(), Math.addExact(nowEpochMs, leaseDurationMs), expected.context(), expected.state());
         leases.put(expected.shardId(), next);
         return Optional.of(next);
     }
@@ -52,6 +72,21 @@ public final class InMemoryOwnerLeaseStore implements OwnerLeaseStore {
         }
         leases.remove(expected.shardId());
         return true;
+    }
+
+    @Override
+    public synchronized Optional<OwnerLease> transition(final OwnerLease expected,
+                                                         final ShardLifecycleState nextState) {
+        Objects.requireNonNull(expected, "expected");
+        Objects.requireNonNull(nextState, "nextState");
+        final OwnerLease current = leases.get(expected.shardId());
+        if (!same(current, expected) || current.state() != expected.state()) {
+            return Optional.empty();
+        }
+        final OwnerLease next = new OwnerLease(current.shardId(), current.ownerId(), current.ownerEpoch(),
+                current.leaseToken(), current.expiresAtEpochMs(), current.context(), nextState);
+        leases.put(expected.shardId(), next);
+        return Optional.of(next);
     }
 
     @Override
@@ -68,7 +103,8 @@ public final class InMemoryOwnerLeaseStore implements OwnerLeaseStore {
     private static boolean same(final OwnerLease left, final OwnerLease right) {
         return left != null && right != null && left.shardId().equals(right.shardId())
                 && left.ownerId().equals(right.ownerId()) && left.ownerEpoch() == right.ownerEpoch()
-                && Bytes.constantTimeEquals(left.leaseToken(), right.leaseToken());
+                && Bytes.constantTimeEquals(left.leaseToken(), right.leaseToken())
+                && Objects.equals(left.context(), right.context());
     }
 
     private static void validateDuration(final long nowEpochMs, final long durationMs) {
@@ -77,4 +113,3 @@ public final class InMemoryOwnerLeaseStore implements OwnerLeaseStore {
         }
     }
 }
-

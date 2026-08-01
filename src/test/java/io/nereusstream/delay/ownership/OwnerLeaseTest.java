@@ -76,6 +76,35 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void sourceAssignmentMustMatchLeaseContextAndActivationUsesAuthorityCas() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 8);
+        final UUID topic = UUID.randomUUID();
+        final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 0);
+        final SourceAssignment assignment = new SourceAssignment(shardId,
+                Bytes.sha256(Bytes.utf8("assignment-8")), 1, barrier);
+        final SourceAssignment differentAssignment = new SourceAssignment(shardId,
+                Bytes.sha256(Bytes.utf8("different-assignment-8")), 2, barrier);
+        final byte[] session = Bytes.sha256(Bytes.utf8("session-8"));
+        final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = authority.acquire(differentAssignment, "worker-a", session, 100, 100).orElseThrow();
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("lease-context"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            assertThrows(IllegalArgumentException.class, () -> owned.markCatchingUp(assignment));
+
+            final InMemoryOwnerLeaseStore matchingAuthority = new InMemoryOwnerLeaseStore();
+            final OwnedDelayShard matching = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()),
+                    matchingAuthority.acquire(assignment, "worker-b", Bytes.sha256(Bytes.utf8("session-8b")), 100, 100)
+                            .orElseThrow());
+            matching.markCatchingUp(assignment);
+            matching.activateForCommands(new OxiaOwnerLeaseStore(matchingAuthority), 101);
+            assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, matching.state());
+            assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, matching.lease().state());
+        }
+    }
+
+    @Test
     void leaseRenewalCannotChangeTokenOrMoveExpiryBackwards() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 2);
         final OwnerLease lease = new OwnerLease(shard, "worker-a", 7, new byte[32], 200);

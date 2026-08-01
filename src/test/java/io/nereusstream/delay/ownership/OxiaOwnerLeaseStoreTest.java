@@ -1,16 +1,44 @@
 package io.nereusstream.delay.ownership;
 
 import io.nereusstream.delay.protocol.RouteIncarnation;
+import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.KafkaActivationBarrier;
 import io.nereusstream.delay.protocol.ShardId;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
+import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class OxiaOwnerLeaseStoreTest {
+    @Test
+    void contextBoundLeaseCarriesAssignmentSessionAndLifecycleCas() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 10);
+        final SourceAssignment assignment = new SourceAssignment(shard,
+                Bytes.sha256(Bytes.utf8("source-assignment")), 3,
+                new KafkaActivationBarrier(shard, "cluster", UUID.randomUUID(), 0));
+        final byte[] session = Bytes.sha256(Bytes.utf8("oxia-session"));
+        final OxiaOwnerLeaseStore store = new OxiaOwnerLeaseStore(new InMemoryOwnerLeaseStore());
+
+        final OwnerLease acquired = store.acquire(assignment, "worker-a", session, 100, 50).orElseThrow();
+        assertArrayEquals(assignment.assignmentId(), acquired.sourceAssignmentId());
+        assertArrayEquals(session, acquired.sessionIdentity());
+        assertEquals(ShardLifecycleState.ACQUIRING, acquired.state());
+
+        final OwnerLease renewed = store.renew(acquired, 110, 50).orElseThrow();
+        assertEquals(acquired.context(), renewed.context());
+        assertEquals(acquired.state(), renewed.state());
+        final OwnerLease restoring = store.transition(renewed, ShardLifecycleState.RESTORING).orElseThrow();
+        assertEquals(ShardLifecycleState.RESTORING, restoring.state());
+        assertTrue(store.transition(renewed, ShardLifecycleState.CATCHING_UP).isEmpty());
+        assertFalse(store.acquire(assignment, "worker-b", session, 120, 50).isPresent());
+    }
+
     @Test
     void delegatesCasAndPreservesFencedIdentity() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 0);

@@ -34,6 +34,18 @@ public final class OxiaOwnerLeaseStore implements OwnerLeaseStore {
                 nowEpochMs);
     }
 
+    /** Acquires a lease whose value is bound to the exact assignment and Oxia session. */
+    @Override
+    public Optional<OwnerLease> acquire(final SourceAssignment assignment, final String ownerId,
+                                        final byte[] sessionIdentity, final long nowEpochMs,
+                                        final long leaseDurationMs) {
+        Objects.requireNonNull(assignment, "assignment");
+        final OwnerLeaseContext context = new OwnerLeaseContext(assignment.assignmentId(), sessionIdentity);
+        validateRequest(assignment.shardId(), ownerId, nowEpochMs, leaseDurationMs);
+        return validateAcquired(backend.acquire(assignment, ownerId, context.sessionIdentity(), nowEpochMs,
+                        leaseDurationMs), assignment.shardId(), ownerId, nowEpochMs, context);
+    }
+
     @Override
     public Optional<OwnerLease> renew(final OwnerLease expected, final long nowEpochMs,
                                       final long leaseDurationMs) {
@@ -57,6 +69,23 @@ public final class OxiaOwnerLeaseStore implements OwnerLeaseStore {
         return backend.release(expected);
     }
 
+    /** CASes the lifecycle state while retaining every fencing identity. */
+    @Override
+    public Optional<OwnerLease> transition(final OwnerLease expected, final ShardLifecycleState nextState) {
+        Objects.requireNonNull(expected, "expected");
+        Objects.requireNonNull(nextState, "nextState");
+        final Optional<OwnerLease> result = backend.transition(expected, nextState);
+        if (result.isEmpty()) {
+            return Optional.empty();
+        }
+        final OwnerLease transitioned = result.get();
+        if (!sameIdentity(expected, transitioned) || transitioned.state() != nextState
+                || transitioned.expiresAtEpochMs() < expected.expiresAtEpochMs()) {
+            throw new IllegalStateException("Oxia lease transition changed identity, state, or expiry");
+        }
+        return Optional.of(transitioned);
+    }
+
     @Override
     public Optional<OwnerLease> current(final ShardId shardId) {
         Objects.requireNonNull(shardId, "shardId");
@@ -69,6 +98,19 @@ public final class OxiaOwnerLeaseStore implements OwnerLeaseStore {
             throw new IllegalStateException("Oxia current lease belongs to another shard");
         }
         return Optional.of(lease);
+    }
+
+    private static Optional<OwnerLease> validateAcquired(final Optional<OwnerLease> result, final ShardId shardId,
+                                                         final String ownerId, final long nowEpochMs,
+                                                         final OwnerLeaseContext expectedContext) {
+        final Optional<OwnerLease> validated = validateAcquired(result, shardId, ownerId, nowEpochMs);
+        if (validated.isEmpty()) {
+            return Optional.empty();
+        }
+        if (!sameContext(expectedContext, validated.get().context())) {
+            throw new IllegalStateException("Oxia acquire result is not bound to assignment/session context");
+        }
+        return validated;
     }
 
     private static Optional<OwnerLease> validateAcquired(final Optional<OwnerLease> result, final ShardId shardId,
@@ -88,7 +130,12 @@ public final class OxiaOwnerLeaseStore implements OwnerLeaseStore {
     private static boolean sameIdentity(final OwnerLease expected, final OwnerLease actual) {
         return expected.shardId().equals(actual.shardId()) && expected.ownerId().equals(actual.ownerId())
                 && expected.ownerEpoch() == actual.ownerEpoch()
-                && Bytes.constantTimeEquals(expected.leaseToken(), actual.leaseToken());
+                && Bytes.constantTimeEquals(expected.leaseToken(), actual.leaseToken())
+                && sameContext(expected.context(), actual.context());
+    }
+
+    private static boolean sameContext(final OwnerLeaseContext expected, final OwnerLeaseContext actual) {
+        return Objects.equals(expected, actual);
     }
 
     private static void validateRequest(final ShardId shardId, final String ownerId, final long nowEpochMs,
@@ -104,9 +151,19 @@ public final class OxiaOwnerLeaseStore implements OwnerLeaseStore {
     public interface LeaseCasBackend {
         Optional<OwnerLease> acquire(ShardId shardId, String ownerId, long nowEpochMs, long leaseDurationMs);
 
+        default Optional<OwnerLease> acquire(final SourceAssignment assignment, final String ownerId,
+                                             final byte[] sessionIdentity, final long nowEpochMs,
+                                             final long leaseDurationMs) {
+            return acquire(assignment.shardId(), ownerId, nowEpochMs, leaseDurationMs);
+        }
+
         Optional<OwnerLease> renew(OwnerLease expected, long nowEpochMs, long leaseDurationMs);
 
         boolean release(OwnerLease expected);
+
+        default Optional<OwnerLease> transition(final OwnerLease expected, final ShardLifecycleState nextState) {
+            return Optional.empty();
+        }
 
         Optional<OwnerLease> current(ShardId shardId);
     }
@@ -125,6 +182,13 @@ public final class OxiaOwnerLeaseStore implements OwnerLeaseStore {
         }
 
         @Override
+        public Optional<OwnerLease> acquire(final SourceAssignment assignment, final String ownerId,
+                                            final byte[] sessionIdentity, final long nowEpochMs,
+                                            final long leaseDurationMs) {
+            return delegate.acquire(assignment, ownerId, sessionIdentity, nowEpochMs, leaseDurationMs);
+        }
+
+        @Override
         public Optional<OwnerLease> renew(final OwnerLease expected, final long nowEpochMs,
                                           final long leaseDurationMs) {
             return delegate.renew(expected, nowEpochMs, leaseDurationMs);
@@ -133,6 +197,11 @@ public final class OxiaOwnerLeaseStore implements OwnerLeaseStore {
         @Override
         public boolean release(final OwnerLease expected) {
             return delegate.release(expected);
+        }
+
+        @Override
+        public Optional<OwnerLease> transition(final OwnerLease expected, final ShardLifecycleState nextState) {
+            return delegate.transition(expected, nextState);
         }
 
         @Override

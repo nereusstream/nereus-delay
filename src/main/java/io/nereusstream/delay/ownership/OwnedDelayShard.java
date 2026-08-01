@@ -4,6 +4,7 @@ import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.PulsarActivationBarrier;
 import io.nereusstream.delay.protocol.SourceActivationBarrier;
 import io.nereusstream.delay.protocol.SourcePosition;
+import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.runtime.CommandResult;
 import io.nereusstream.delay.runtime.DelayShard;
 
@@ -48,9 +49,7 @@ public final class OwnedDelayShard {
 
     public synchronized void updateLease(final OwnerLease renewed) {
         Objects.requireNonNull(renewed, "renewed");
-        if (!renewed.shardId().equals(lease.shardId()) || !renewed.ownerId().equals(lease.ownerId())
-                || renewed.ownerEpoch() != lease.ownerEpoch()
-                || !io.nereusstream.delay.protocol.Bytes.constantTimeEquals(renewed.leaseToken(), lease.leaseToken())
+        if (!lease.sameIdentity(renewed) || renewed.state() != lease.state()
                 || renewed.expiresAtEpochMs() < lease.expiresAtEpochMs()) {
             throw new IllegalArgumentException("lease renewal changed owner identity/epoch");
         }
@@ -85,6 +84,10 @@ public final class OwnedDelayShard {
         Objects.requireNonNull(assignment, "assignment");
         if (!delegate.shardId().equals(assignment.shardId())) {
             throw new IllegalArgumentException("source assignment does not belong to shard");
+        }
+        if (lease.sourceAssignmentId() != null
+                && !Bytes.constantTimeEquals(lease.sourceAssignmentId(), assignment.assignmentId())) {
+            throw new IllegalArgumentException("source assignment does not match owner lease context");
         }
         sourceAssignment = assignment;
         activationBarrier = assignment.activationBarrier();
@@ -129,6 +132,31 @@ public final class OwnedDelayShard {
     }
 
     public synchronized void activateForCommands(final long nowEpochMs) {
+        ensureActivationPreconditions(nowEpochMs);
+        state = ShardLifecycleState.ACTIVE_FOR_COMMANDS;
+    }
+
+    /** Completes activation only after the authority CASes the same lease to ACTIVE_FOR_COMMANDS. */
+    public synchronized void activateForCommands(final OxiaOwnerLeaseStore authority, final long nowEpochMs) {
+        Objects.requireNonNull(authority, "authority");
+        ensureActivationPreconditions(nowEpochMs);
+        final OwnerLease transitioned;
+        try {
+            transitioned = authority.transition(lease, ShardLifecycleState.ACTIVE_FOR_COMMANDS)
+                    .orElseThrow(() -> new IllegalStateException("owner lease activation CAS was lost"));
+        } catch (RuntimeException failure) {
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        }
+        if (!transitioned.validAt(nowEpochMs)) {
+            state = ShardLifecycleState.FENCED;
+            throw new IllegalStateException("owner lease expired during activation CAS");
+        }
+        lease = transitioned;
+        state = ShardLifecycleState.ACTIVE_FOR_COMMANDS;
+    }
+
+    private void ensureActivationPreconditions(final long nowEpochMs) {
         if (state != ShardLifecycleState.CATCHING_UP) {
             throw new IllegalStateException("shard has not completed source catch-up");
         }
