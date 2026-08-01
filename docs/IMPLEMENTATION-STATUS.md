@@ -56,6 +56,16 @@ their exact timeline keys, persists the System Mutation result, and advances
 the source position. Profile/grant activation, authenticated Oxia target
 registration and the Lane terminal guard remain release blockers.
 
+The local query increment now exposes bounded read-only
+`MessageQuerySnapshot` and `ReservationQuerySnapshot` projections. They derive
+the exact current runtime/terminal state, state version, timing, duplicate-risk
+bit and safe payload-availability category without exposing payload bytes,
+destination lane identity, object-store keys, command hashes or receipt data.
+This is not the wire-level `MessageQueryResponseV1`: receipt/barrier routing,
+authorization-safe destination binding, retired-identity branches, evidence
+references and source-derived result-retention decisions remain release
+blockers.
+
 ## Current repository shape
 
 The repository is currently a single Gradle Java 21 library while the design's
@@ -109,7 +119,7 @@ to the intended modules:
 | Kafka/Pulsar ingress and target adapters | In progress (ingress SPI only) | release blocker until concrete pinned transports, target publish/evidence channels and real-broker tests exist |
 | Recovery Set/Floor, catalog and restore replay | In progress (local catalog/Floor subset) | release blocker; Oxia catalog/session pin, immutable publication, source/evidence replay and activation CAS remain |
 | Large payload, quota grants, control reserve and GC | In progress (reservation/commit and shard hard-quota subsets) | release blocker; Object Store/Oxia publication, multi-shard grants, control reserve, Time Fence overlay and guarded GC remain |
-| Query, control operations, DLQ and observability | Not started | release blocker |
+| Query, control operations, DLQ and observability | In progress (bounded local Message/Reservation projection) | `MessageQuerySnapshot`, `ReservationQuerySnapshot`, `DelayShard.queryMessageSnapshot`, `DelayShard.queryReservationSnapshot`, `DelayShardTest`; full V1 query wire responses, receipt/barrier routing, authorization-safe binding/evidence/retention, control-operation query, DLQ and observability remain release blockers |
 | Real-service, chaos, benchmark, soak and upgrade evidence | Not started | release blocker |
 
 ## Verification command

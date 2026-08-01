@@ -1,0 +1,20 @@
+# Nereus Delay 文档地图
+
+这些文档不是互相替代的版本，而是分工不同的设计、协议、决策和证据层。
+
+## 权威顺序
+
+1. [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20设计.md) 是 V1 的语义、生命周期、恢复、资源和验收基线。实现必须满足它；它仍然有效，没有被状态文档取代。
+2. [`V1-PROTOCOL-REGISTRY.md`](V1-PROTOCOL-REGISTRY.md) 是线上的精确契约：字段号、枚举值、canonical bytes、key tag、稳定错误码和 presence/union 规则。实现与 prose 有冲突时，以这里的可编码细节为准，并回到设计基线记录冲突。
+3. [`adr/`](adr/README.md) 保存已经冻结的架构决策及其理由，例如 `deliverAt`、一 Shard 一 RocksDB、命令排队与应用分离、Source Position 顺序和 Lane 隔离。ADR 解释“为什么这样定”，不替代规范字段表。
+4. [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) 只记录当前代码、测试和剩余 blocker 的证据。它不能把“未实现”变成实现许可，也不能放宽设计或 Registry 的要求。
+5. [`V1-DESIGN-AUDIT.md`](V1-DESIGN-AUDIT.md) 是跨文档审计和发布检查视图，用来发现规范、ADR、代码和证据之间的漂移；它不是新的协议规范。
+
+## 如何阅读
+
+- 想知道系统必须保证什么：先读设计基线，再查 Registry 的精确编码。
+- 想知道某个决策为何存在：查对应 ADR。
+- 想知道现在代码做到哪一步：查 Implementation Status，并以其中列出的测试/源码证据为准。
+- 想做发布或评审：查 Design Audit，确认剩余 blocker 没有被误标为完成。
+
+当前仓库仍是单 Gradle Java 21 工程；文档中的多模块目标和真实 Broker/Oxia/Object Store 集成会随着实现逐项变成状态证据，但不会改变上述权威分工。

@@ -152,6 +152,32 @@ public final class DelayShard {
         return value == null ? null : MessageRecord.decode(value.payload());
     }
 
+    /**
+     * Returns the bounded local query projection for a current Message generation.
+     * A missing ID returns {@code null}; it is not evidence that the ID never existed.
+     */
+    public synchronized MessageQuerySnapshot queryMessageSnapshot(final DelayMessageId messageId) {
+        Objects.requireNonNull(messageId, "messageId");
+        final MessageRecord current = getMessage(messageId);
+        if (current == null) {
+            return null;
+        }
+        final GenerationAggregateState state = current.runtimeIndex().aggregateState();
+        final StableCode terminalCode;
+        if (isTerminalAggregateState(state)) {
+            final TerminalGenerationRecord terminal = getTerminalGeneration(messageId, current.generation());
+            if (terminal == null || terminal.status() != current.status()) {
+                throw new IllegalStateException("terminal query projection has no matching history");
+            }
+            terminalCode = terminal.terminalCode();
+        } else {
+            terminalCode = null;
+        }
+        return new MessageQuerySnapshot(messageId, current.generation(), current.stateVersion(), state,
+                current.deliverAtEpochMs(), current.expireAtEpochMs(), payloadAvailability(current),
+                current.runtimeIndex().possibleDestinationDuplicate(), terminalCode);
+    }
+
     /** Returns the exact local Claim at an Owner Epoch, or {@code null} when it is no longer live. */
     public synchronized ClaimRecord getClaim(final byte[] claimId, final long ownerEpoch) {
         Bytes.requireLength(claimId, ClaimRecord.HASH_LENGTH, "claimId");
@@ -307,6 +333,26 @@ public final class DelayShard {
     public synchronized PayloadReservation getReservation(final byte[] reservationId) {
         final var value = store.getValue(ColumnFamily.ID, KeyCodec.idReservation(reservationId), 2);
         return value == null ? null : effectiveReservation(PayloadReservation.decode(value.payload()));
+    }
+
+    /**
+     * Returns a safe, bounded projection of a payload reservation without exposing
+     * command hashes, object keys, object versions or inline payload bytes.
+     */
+    public synchronized ReservationQuerySnapshot queryReservationSnapshot(final byte[] reservationId) {
+        Bytes.requireLength(reservationId, 32, "reservationId");
+        final PayloadReservation reservation = getReservation(reservationId);
+        if (reservation == null) {
+            return null;
+        }
+        final PayloadAvailability availability = switch (reservation.status()) {
+            case RESERVED -> PayloadAvailability.UPLOAD_PENDING;
+            case COMMITTED -> PayloadAvailability.OBJECT_RETAINED;
+            case ABANDONED, EXPIRED -> PayloadAvailability.NOT_APPLICABLE;
+        };
+        return new ReservationQuerySnapshot(reservation.reservationId(), reservation.delayMessageId(),
+                reservation.stateVersion(), reservation.status(), reservation.reservationExpiryEpochMs(),
+                availability);
     }
 
     /**
@@ -1352,6 +1398,18 @@ public final class DelayShard {
         return status == MessageStatus.CANCELED || status == MessageStatus.SUPERSEDED
                 || status == MessageStatus.PUBLISHED || status == MessageStatus.EXPIRED
                 || status == MessageStatus.DEAD_LETTER;
+    }
+
+    private static boolean isTerminalAggregateState(final GenerationAggregateState state) {
+        return switch (state) {
+            case PUBLISHED, HANDED_OFF, CANCELED, EXPIRED, DEAD_LETTER, SUPERSEDED -> true;
+            default -> false;
+        };
+    }
+
+    private static PayloadAvailability payloadAvailability(final MessageRecord message) {
+        return message.payloadReference() == null
+                ? PayloadAvailability.INLINE_RETAINED : PayloadAvailability.OBJECT_RETAINED;
     }
 
     private static boolean hasUncertainObligation(final GenerationRuntimeIndex index) {
