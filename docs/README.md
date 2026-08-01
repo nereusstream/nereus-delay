@@ -10,6 +10,18 @@
 4. [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) 只记录当前代码、测试和剩余 blocker 的证据。它不能把“未实现”变成实现许可，也不能放宽设计或 Registry 的要求。
 5. [`V1-DESIGN-AUDIT.md`](V1-DESIGN-AUDIT.md) 是跨文档审计和发布检查视图，用来发现规范、ADR、代码和证据之间的漂移；它不是新的协议规范。
 
+## 按问题查文档
+
+| 你想确认什么 | 应先看 | 它不负责什么 |
+| --- | --- | --- |
+| V1 必须保证的业务语义、生命周期、恢复、资源边界和验收条件 | [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20设计.md) | 不记录每个类当前实现到哪一步 |
+| 线上字段号、枚举、canonical bytes、key tag、错误码和 union presence | [`V1-PROTOCOL-REGISTRY.md`](V1-PROTOCOL-REGISTRY.md) | 不解释完整业务背景和取舍过程 |
+| 为什么冻结 `deliverAt`、一 Shard 一 RocksDB、Source Position、Lane 隔离等决策 | [`adr/`](adr/README.md) 中对应 ADR | 不替代 Registry 的精确字段契约 |
+| 当前代码、测试证据和剩余 release blocker | [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) | 不把未实现项变成实现许可，也不放宽主设计 |
+| 多份文档、代码和证据是否发生漂移，能否发布 | [`V1-DESIGN-AUDIT.md`](V1-DESIGN-AUDIT.md) | 不新增协议语义 |
+
+因此，`Nereus Delay V1 设计.md` 不是废弃文档；它是“系统要成为什么样”的基线。其余文档分别回答“怎么编码”“为什么这样定”“现在做到哪”“有没有偏离”，是对它的分层补充。
+
 ## 如何阅读
 
 - 想知道系统必须保证什么：先读设计基线，再查 Registry 的精确编码。
