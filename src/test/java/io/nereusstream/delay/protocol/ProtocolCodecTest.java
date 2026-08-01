@@ -220,6 +220,36 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void payloadReservationReceiptKeepsObjectIdentityAndTrustSetPinned() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
+        final DelayMessageId messageId = DelayMessageId.random(shard);
+        final KafkaSourcePosition source = new KafkaSourcePosition(shard, "cluster-payload", UUID.randomUUID(), 12, 1,
+                1_200);
+        final ProfileRefV1 objectStore = new ProfileRefV1(Bytes.utf8("object-store"), 3,
+                Bytes.sha256(Bytes.utf8("object-store-semantic")), ProfileKindV1.OBJECT_STORE);
+        final PayloadProofTrustSetRefV1 trustSet = new PayloadProofTrustSetRefV1(4,
+                Bytes.sha256(Bytes.utf8("trust-set")));
+        final PayloadReservationReceiptV1 receipt = PayloadReservationReceiptV1.create(Bytes.sha256(
+                Bytes.utf8("reservation")), messageId, shard, source, 2, objectStore, Bytes.utf8("container-a"),
+                Bytes.utf8("service-owned/key"), 123, Bytes.sha256(Bytes.utf8("payload")), 9_000, trustSet);
+
+        assertEquals(receipt, PayloadReservationReceiptV1.decodeFrame(receipt.frame()));
+        assertEquals(ReceiptKind.PAYLOAD_RESERVATION, ReceiptFrame.decode(receipt.frame()).kind());
+        final byte[] tampered = receipt.payload();
+        tampered[tampered.length - 1] ^= 1;
+        assertThrows(IllegalArgumentException.class, () -> PayloadReservationReceiptV1.decodePayload(tampered));
+
+        final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("destination"), 1,
+                Bytes.sha256(Bytes.utf8("destination-semantic")), ProfileKindV1.DESTINATION);
+        assertThrows(IllegalArgumentException.class, () -> PayloadReservationReceiptV1.create(new byte[32], messageId,
+                shard, source, 2, destination, Bytes.utf8("container-a"), Bytes.utf8("key"), 1,
+                Bytes.sha256(Bytes.utf8("payload")), 9_000, trustSet));
+        assertThrows(IllegalArgumentException.class, () -> PayloadReservationReceiptV1.create(new byte[32], messageId,
+                new ShardId(RouteIncarnation.random(), 6), source, 2, objectStore, Bytes.utf8("container-a"),
+                Bytes.utf8("key"), 1, Bytes.sha256(Bytes.utf8("payload")), 9_000, trustSet));
+    }
+
+    @Test
     void publicQueryViewsRejectUnsafeBindingAndNonCanonicalBranchShape() {
         final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("destination"), 1,
                 Bytes.sha256(Bytes.utf8("destination-semantic")), ProfileKindV1.DESTINATION);
