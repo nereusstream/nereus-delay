@@ -1,11 +1,14 @@
 package io.nereusstream.delay.adapter;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.BrokerResourceIdentityV1;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.StableCode;
+import io.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
+import io.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
@@ -25,7 +28,9 @@ class DestinationAdapterTest {
             assertArrayEquals(request.publishAttemptId(), actual.publishAttemptId());
             assertEquals(2_000, actual.deliverAtEpochMs());
             return CompletableFuture.completedFuture(DestinationPublishResult.published(
-                    Bytes.utf8("record-identity"), 2_001, null));
+                    BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+                            resource.authenticatedClusterId(), resource.nativeTopicUuid())), resource.partition(),
+                    Bytes.utf8("record-identity"), 2_001, Bytes.utf8("kafka-evidence")));
         };
         try (PinnedKafkaDestinationAdapter adapter = new PinnedKafkaDestinationAdapter(resource, transport)) {
             final DestinationPublishResult result = adapter.publish(request).toCompletableFuture().join();
@@ -48,6 +53,39 @@ class DestinationAdapterTest {
                     .toCompletableFuture().join();
             assertEquals(DestinationPublishResult.Disposition.UNKNOWN, result.disposition());
             assertEquals(StableCode.DESTINATION_OUTCOME_UNKNOWN, result.stableCode());
+        }
+    }
+
+    @Test
+    void kafkaPublishedIdentityMismatchIsUnknown() {
+        final KafkaTargetResource resource = new KafkaTargetResource("cluster", UUID.randomUUID(), 4);
+        final PinnedKafkaDestinationAdapter.KafkaDestinationTransport transport = actual ->
+                CompletableFuture.completedFuture(DestinationPublishResult.published(
+                        BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1("cluster", UUID.randomUUID())),
+                        resource.partition(), Bytes.utf8("record"), 2_001, Bytes.utf8("evidence")));
+        try (PinnedKafkaDestinationAdapter adapter = new PinnedKafkaDestinationAdapter(resource, transport)) {
+            final DestinationPublishResult result = adapter.publish(request(2_000, 2_000))
+                    .toCompletableFuture().join();
+            assertEquals(DestinationPublishResult.Disposition.UNKNOWN, result.disposition());
+            assertEquals(StableCode.RESOURCE_INCARNATION_MISMATCH, result.stableCode());
+        }
+    }
+
+    @Test
+    void pulsarPublishedIdentityMustMatchCreationIdentity() {
+        final byte[] token = Bytes.sha256(Bytes.utf8("pulsar-target-token"));
+        final PulsarTargetResource resource = new PulsarTargetResource("cluster", token,
+                "persistent://tenant/ns/published", 8100, 0);
+        final PinnedPulsarDestinationAdapter.PulsarDestinationTransport transport = actual ->
+                CompletableFuture.completedFuture(DestinationPublishResult.published(
+                        BrokerResourceIdentityV1.pulsar(new PulsarBrokerResourceIdentityV1(
+                                resource.authenticatedClusterId(), resource.resourceIncarnation(),
+                                resource.physicalTopic(), resource.physicalTopicCreationTimestamp())), resource.partition(),
+                        Bytes.utf8("record"), 2_001, Bytes.utf8("pulsar-evidence")));
+        try (PinnedPulsarDestinationAdapter adapter = new PinnedPulsarDestinationAdapter(resource, transport)) {
+            final DestinationPublishResult result = adapter.publish(request(2_000, 2_000))
+                    .toCompletableFuture().join();
+            assertEquals(DestinationPublishResult.Disposition.PUBLISHED, result.disposition());
         }
     }
 

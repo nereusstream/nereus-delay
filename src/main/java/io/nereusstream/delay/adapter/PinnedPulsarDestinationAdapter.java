@@ -1,6 +1,7 @@
 package io.nereusstream.delay.adapter;
 
 import io.nereusstream.delay.protocol.StableCode;
+import io.nereusstream.delay.protocol.BrokerResourceIdentityV1;
 
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -40,7 +41,7 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
         if (result == null) {
             return completed(DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
         }
-        return result.handle((value, error) -> error == null && value != null ? value
+        return result.handle((value, error) -> error == null && value != null ? validate(value)
                 : DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
     }
 
@@ -53,6 +54,22 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
 
     private static CompletionStage<DestinationPublishResult> completed(final DestinationPublishResult result) {
         return CompletableFuture.completedFuture(result);
+    }
+
+    private DestinationPublishResult validate(final DestinationPublishResult result) {
+        if (result.disposition() != DestinationPublishResult.Disposition.PUBLISHED) {
+            return result;
+        }
+        final BrokerResourceIdentityV1 identity = result.brokerResource();
+        if (identity == null || identity.kind() != BrokerResourceIdentityV1.Kind.PULSAR
+                || !resource.authenticatedClusterId().equals(identity.pulsar().authenticatedClusterId())
+                || !java.util.Arrays.equals(resource.resourceIncarnation(), identity.pulsar().resourceIncarnation())
+                || !resource.physicalTopic().equals(identity.pulsar().physicalTopic())
+                || resource.physicalTopicCreationTimestamp() != identity.pulsar().physicalTopicCreationTimestamp()
+                || resource.partition() != result.brokerPartition()) {
+            return DestinationPublishResult.unknown(StableCode.RESOURCE_INCARNATION_MISMATCH, result.evidence());
+        }
+        return result;
     }
 
     @FunctionalInterface

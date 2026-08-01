@@ -1,6 +1,7 @@
 package io.nereusstream.delay.adapter;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.BrokerResourceIdentityV1;
 import io.nereusstream.delay.protocol.StableCode;
 
 import java.util.Objects;
@@ -11,7 +12,9 @@ public record DestinationPublishResult(
         StableCode stableCode,
         byte[] externalDeliveryIdentity,
         long brokerPersistenceTimeEpochMs,
-        byte[] evidence) {
+        byte[] evidence,
+        BrokerResourceIdentityV1 brokerResource,
+        int brokerPartition) {
     public DestinationPublishResult {
         Objects.requireNonNull(disposition, "disposition");
         Objects.requireNonNull(stableCode, "stableCode");
@@ -24,6 +27,12 @@ public record DestinationPublishResult(
         if (externalDeliveryIdentity != null && externalDeliveryIdentity.length == 0) {
             throw new IllegalArgumentException("external delivery identity must be non-empty");
         }
+        if (disposition == Disposition.PUBLISHED && brokerPartition < -1) {
+            throw new IllegalArgumentException("broker partition is outside the local range");
+        }
+        if (disposition != Disposition.PUBLISHED && (brokerResource != null || brokerPartition != -1)) {
+            throw new IllegalArgumentException("non-published result cannot carry Broker resource identity");
+        }
         externalDeliveryIdentity = externalDeliveryIdentity == null ? null : Bytes.copy(externalDeliveryIdentity);
         evidence = evidence == null ? null : Bytes.copy(evidence);
     }
@@ -32,15 +41,33 @@ public record DestinationPublishResult(
                                                      final long brokerPersistenceTimeEpochMs,
                                                      final byte[] evidence) {
         return new DestinationPublishResult(Disposition.PUBLISHED, StableCode.OK, externalDeliveryIdentity,
-                brokerPersistenceTimeEpochMs, evidence);
+                brokerPersistenceTimeEpochMs, evidence, null, -1);
+    }
+
+    public static DestinationPublishResult published(final BrokerResourceIdentityV1 brokerResource,
+                                                     final int brokerPartition,
+                                                     final byte[] externalDeliveryIdentity,
+                                                     final long brokerPersistenceTimeEpochMs,
+                                                     final byte[] evidence) {
+        return new DestinationPublishResult(Disposition.PUBLISHED, StableCode.OK, externalDeliveryIdentity,
+                brokerPersistenceTimeEpochMs, evidence, Objects.requireNonNull(brokerResource, "brokerResource"),
+                brokerPartition);
     }
 
     public static DestinationPublishResult definitelyNotPublished(final StableCode code, final byte[] evidence) {
-        return new DestinationPublishResult(Disposition.DEFINITIVELY_NOT_PUBLISHED, code, null, -1, evidence);
+        return new DestinationPublishResult(Disposition.DEFINITIVELY_NOT_PUBLISHED, code, null, -1, evidence, null, -1);
     }
 
     public static DestinationPublishResult unknown(final StableCode code, final byte[] evidence) {
-        return new DestinationPublishResult(Disposition.UNKNOWN, code, null, -1, evidence);
+        return new DestinationPublishResult(Disposition.UNKNOWN, code, null, -1, evidence, null, -1);
+    }
+
+    public BrokerResourceIdentityV1 brokerResource() {
+        return brokerResource;
+    }
+
+    public int brokerPartition() {
+        return brokerPartition;
     }
 
     @Override

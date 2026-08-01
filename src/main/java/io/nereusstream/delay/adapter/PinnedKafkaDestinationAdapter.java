@@ -1,6 +1,7 @@
 package io.nereusstream.delay.adapter;
 
 import io.nereusstream.delay.protocol.StableCode;
+import io.nereusstream.delay.protocol.BrokerResourceIdentityV1;
 
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -40,7 +41,7 @@ public final class PinnedKafkaDestinationAdapter implements DestinationPublishAd
         if (result == null) {
             return completed(DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
         }
-        return result.handle((value, error) -> error == null && value != null ? value
+        return result.handle((value, error) -> error == null && value != null ? validate(value)
                 : DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
     }
 
@@ -53,6 +54,20 @@ public final class PinnedKafkaDestinationAdapter implements DestinationPublishAd
 
     private static CompletionStage<DestinationPublishResult> completed(final DestinationPublishResult result) {
         return CompletableFuture.completedFuture(result);
+    }
+
+    private DestinationPublishResult validate(final DestinationPublishResult result) {
+        if (result.disposition() != DestinationPublishResult.Disposition.PUBLISHED) {
+            return result;
+        }
+        final BrokerResourceIdentityV1 identity = result.brokerResource();
+        if (identity == null || identity.kind() != BrokerResourceIdentityV1.Kind.KAFKA
+                || !resource.authenticatedClusterId().equals(identity.kafka().authenticatedClusterId())
+                || !resource.nativeTopicUuid().equals(identity.kafka().nativeTopicUuid())
+                || resource.partition() != result.brokerPartition()) {
+            return DestinationPublishResult.unknown(StableCode.RESOURCE_INCARNATION_MISMATCH, result.evidence());
+        }
+        return result;
     }
 
     @FunctionalInterface
