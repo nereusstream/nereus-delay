@@ -2,12 +2,15 @@ package io.nereusstream.delay.client;
 
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.AdapterKindV1;
+import io.nereusstream.delay.protocol.CommandQueryResult;
+import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.OrderingMode;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.PublicDestinationBindingViewV1;
+import io.nereusstream.delay.protocol.MessageQueryResult;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ScheduleIntent;
@@ -110,6 +113,57 @@ class EmbeddedDelayServiceTest {
                         .resultKind());
         assertThrows(IllegalArgumentException.class,
                 () -> BoundedLocalQueryProjector.command(rejected, 5_000, binding));
+    }
+
+    @Test
+    void embeddedQueryUsesQueuedReceiptAsSourceBarrier() {
+        final long now = 1_000;
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
+        final Clock clock = Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(ShardStoreConfig.defaults(tempDir.resolve("query")),
+                shard, clock)) {
+            final PreparedCommand command = service.prepareSchedule(new ScheduleIntent(
+                    DestinationLaneId.derive(Bytes.utf8("query-lane")), 2_000, 5_000,
+                    OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+            final EnqueueOutcome outcome = service.enqueue(command).toCompletableFuture().join();
+            final var queued = service.queuedReceiptV1(outcome, 10_000,
+                    java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("attempt")), 16));
+
+            assertEquals(CommandQueryResult.PENDING,
+                    service.queryCommand(queued, now, 10_000, publicBinding()).resultKind());
+            service.drain();
+            assertEquals(CommandQueryResult.APPLIED,
+                    service.queryCommand(queued, now, 10_000, publicBinding()).resultKind());
+            assertEquals(CommandQueryResult.RESULT_EXPIRED,
+                    service.queryCommand(queued, 3_000, 2_000, publicBinding()).resultKind());
+            assertEquals(CommandQueryResult.RESULT_EVIDENCE_EXPIRED,
+                    service.queryCommand(queued, 10_001, 10_000, publicBinding()).resultKind());
+
+            assertEquals(MessageQueryResult.ACTIVE,
+                    service.queryMessage(command.delayMessageId(), publicBinding(),
+                            DlqExportStateV1.NOT_CONFIGURED, null,
+                            io.nereusstream.delay.protocol.FirstScheduleEligibilityV1.NOT_PROVEN).resultKind());
+            assertEquals(MessageQueryResult.UNKNOWN,
+                    service.queryMessage(DelayMessageId.random(shard), publicBinding(),
+                            DlqExportStateV1.NOT_CONFIGURED, null,
+                            io.nereusstream.delay.protocol.FirstScheduleEligibilityV1.NOT_PROVEN).resultKind());
+        }
+    }
+
+    @Test
+    void embeddedQueuedReceiptRejectsNonQueuedOutcome() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(ShardStoreConfig.defaults(tempDir.resolve("reject")),
+                shard, Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final PreparedCommand otherShardCommand = PreparedCommand.schedule(
+                    new ShardId(RouteIncarnation.random(), 0), new ScheduleIntent(
+                            DestinationLaneId.derive(Bytes.utf8("other-lane")), 2_000, 5_000,
+                            OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+            final EnqueueOutcome outcome = service.enqueue(otherShardCommand).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.DEFINITELY_NOT_QUEUED, outcome.status());
+            assertThrows(IllegalArgumentException.class,
+                    () -> service.queuedReceiptV1(outcome, 10_000, new byte[16]));
+        }
     }
 
     private record CommandResultView(StableCode code) {

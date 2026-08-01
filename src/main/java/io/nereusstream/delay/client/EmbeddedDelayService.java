@@ -1,16 +1,25 @@
 package io.nereusstream.delay.client;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.CommandQueuedReceiptV1;
+import io.nereusstream.delay.protocol.CommandQueuedReceiptV1.KafkaQueuedAck;
+import io.nereusstream.delay.protocol.CommandQueryResponseV1;
 import io.nereusstream.delay.protocol.DelayMessageId;
+import io.nereusstream.delay.protocol.DlqExportStateV1;
+import io.nereusstream.delay.protocol.FirstScheduleEligibilityV1;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
+import io.nereusstream.delay.protocol.MessageQueryResponseV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
+import io.nereusstream.delay.protocol.PublicDestinationBindingViewV1;
 import io.nereusstream.delay.protocol.ScheduleIntent;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.SourcePosition;
+import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.runtime.CommandResult;
 import io.nereusstream.delay.runtime.DelayShard;
 import io.nereusstream.delay.runtime.DelayShardConfig;
+import io.nereusstream.delay.runtime.MessageQuerySnapshot;
 import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.ShardStoreConfig;
 import io.nereusstream.delay.store.SharedRocksDbResources;
@@ -28,6 +37,10 @@ import java.util.concurrent.CompletionStage;
  * explicitly and is intentionally not presented as a Kafka/Pulsar adapter.
  */
 public final class EmbeddedDelayService implements DelayClient {
+    private static final String EMBEDDED_CLUSTER_ID = "embedded";
+    private static final UUID EMBEDDED_TOPIC_UUID = UUID.nameUUIDFromBytes(
+            Bytes.utf8("embedded-command-topic"));
+
     private final ShardId shardId;
     private final Clock clock;
     private final SharedRocksDbResources resources;
@@ -50,7 +63,8 @@ public final class EmbeddedDelayService implements DelayClient {
         final SourcePosition last = shard.lastAppliedSourcePosition();
         if (last != null) {
             if (!(last instanceof KafkaSourcePosition kafka)
-                    || !kafka.nativeTopicUuid().equals(UUID.nameUUIDFromBytes(Bytes.utf8("embedded-command-topic")))) {
+                    || !EMBEDDED_CLUSTER_ID.equals(kafka.authenticatedClusterId())
+                    || !kafka.nativeTopicUuid().equals(EMBEDDED_TOPIC_UUID)) {
                 throw new IllegalStateException("embedded service cannot reopen a shard with another source identity");
             }
             nextOffset = Math.addExact(kafka.offset(), 1);
@@ -92,8 +106,8 @@ public final class EmbeddedDelayService implements DelayClient {
             return CompletableFuture.completedFuture(EnqueueOutcome.definitelyNotQueued(command, 0x110a));
         }
         final long now = clock.millis();
-        final SourcePosition position = new KafkaSourcePosition(shardId, "embedded", UUID.nameUUIDFromBytes(
-                Bytes.utf8("embedded-command-topic")), nextOffset++, null, now);
+        final SourcePosition position = new KafkaSourcePosition(shardId, EMBEDDED_CLUSTER_ID, EMBEDDED_TOPIC_UUID,
+                nextOffset++, null, now);
         final CommandQueuedReceipt receipt = new CommandQueuedReceipt(command.commandId(), command.delayMessageId(),
                 shardId, position);
         pending.addLast(new QueuedRecord(command, position));
@@ -116,6 +130,97 @@ public final class EmbeddedDelayService implements DelayClient {
         return CompletableFuture.completedFuture(shard.getCommandResult(receipt.commandId()));
     }
 
+    /**
+     * Converts the local queued locator into the canonical NDR1 receipt. The
+     * method is an embedded adapter only; production callers must obtain the
+     * broker acknowledgement and physical attempt id from the real ingress
+     * adapter.
+     */
+    public synchronized CommandQueuedReceiptV1 queuedReceiptV1(final EnqueueOutcome outcome,
+                                                               final long receiptQueryUntilEpochMs,
+                                                               final byte[] physicalAttemptId) {
+        ensureOpen();
+        Objects.requireNonNull(outcome, "outcome");
+        if (outcome.status() != EnqueueStatus.QUEUED || outcome.receipt() == null) {
+            throw new IllegalArgumentException("only QUEUED outcomes have a queued receipt");
+        }
+        final SourcePosition source = outcome.receipt().sourcePosition();
+        if (!(source instanceof KafkaSourcePosition kafka) || !isEmbeddedSource(kafka)
+                || !shardId.equals(source.shardId())) {
+            throw new IllegalArgumentException("embedded outcome has an unexpected source identity");
+        }
+        final byte[] responseHash = Bytes.sha256(Bytes.utf8("embedded-queued-ack\0"), source.canonicalBytes());
+        final KafkaQueuedAck ack = new KafkaQueuedAck(kafka.authenticatedClusterId(), kafka.nativeTopicUuid(),
+                kafka.shardId().partition(), kafka.offset(), kafka.leaderEpoch(),
+                kafka.brokerLogAppendTimeEpochMs(), responseHash);
+        return outcome.receipt().toV1(outcome.preparedCommand(), ack, receiptQueryUntilEpochMs, physicalAttemptId);
+    }
+
+    /**
+     * Performs the bounded local query chain: receipt validation, fixed-shard
+     * source barrier, durable result lookup and retention projection. It does
+     * not route across workers, authorize a tenant, or wait for a broker.
+     */
+    public synchronized CommandQueryResponseV1 queryCommand(final CommandQueuedReceiptV1 receipt,
+                                                             final long nowEpochMs,
+                                                             final long fullResultRetainUntilEpochMs,
+                                                             final PublicDestinationBindingViewV1 binding) {
+        ensureOpen();
+        Objects.requireNonNull(receipt, "receipt");
+        if (!isEmbeddedReceipt(receipt)) {
+            return CommandQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
+        }
+        if (nowEpochMs < 0 || fullResultRetainUntilEpochMs < 0) {
+            return CommandQueryResponseV1.error(StableCode.INVALID_RECEIPT, null);
+        }
+        if (nowEpochMs > receipt.receiptQueryUntilEpochMs()) {
+            return CommandQueryResponseV1.resultEvidenceExpired();
+        }
+        final SourcePosition awaited = receipt.sourcePosition();
+        final SourcePosition current = shard.lastAppliedSourcePosition();
+        if (current == null) {
+            return CommandQueryResponseV1.pending(new io.nereusstream.delay.protocol.PendingCommandViewV1(
+                    awaited, null, safeRetryAt(nowEpochMs)));
+        }
+        try {
+            if (!current.sameSourceIdentity(awaited)) {
+                return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+            }
+            if (current.compareTo(awaited) < 0) {
+                return CommandQueryResponseV1.pending(new io.nereusstream.delay.protocol.PendingCommandViewV1(
+                        awaited, current, safeRetryAt(nowEpochMs)));
+            }
+        } catch (IllegalArgumentException mismatch) {
+            return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+        }
+        final CommandResult result = shard.getCommandResult(receipt.command().commandId());
+        if (result == null) {
+            return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+        }
+        return nowEpochMs > fullResultRetainUntilEpochMs
+                ? BoundedLocalQueryProjector.compactCommand(result, fullResultRetainUntilEpochMs)
+                : BoundedLocalQueryProjector.command(result, fullResultRetainUntilEpochMs, binding);
+    }
+
+    /** Projects a local message snapshot after the caller supplies policy inputs. */
+    public synchronized MessageQueryResponseV1 queryMessage(final DelayMessageId messageId,
+                                                             final PublicDestinationBindingViewV1 binding,
+                                                             final DlqExportStateV1 dlqExportState,
+                                                             final io.nereusstream.delay.protocol.PublicEvidenceRefV1 evidence,
+                                                             final FirstScheduleEligibilityV1 unknownEligibility) {
+        ensureOpen();
+        Objects.requireNonNull(messageId, "messageId");
+        if (!shardId.equals(messageId.routingId().shardId())) {
+            return MessageQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
+        }
+        final MessageQuerySnapshot snapshot = shard.queryMessageSnapshot(messageId);
+        if (snapshot == null) {
+            return MessageQueryResponseV1.unknown(Objects.requireNonNull(unknownEligibility,
+                    "unknownEligibility"));
+        }
+        return BoundedLocalQueryProjector.message(snapshot, binding, dlqExportState, evidence);
+    }
+
     public synchronized DelayShard shard() {
         return shard;
     }
@@ -133,6 +238,27 @@ public final class EmbeddedDelayService implements DelayClient {
         if (closed) {
             throw new IllegalStateException("client is closed");
         }
+    }
+
+    private boolean isEmbeddedReceipt(final CommandQueuedReceiptV1 receipt) {
+        if (!shardId.equals(receipt.command().shardId()) || !shardId.equals(receipt.sourcePosition().shardId())
+                || !(receipt.sourcePosition() instanceof KafkaSourcePosition kafka) || !isEmbeddedSource(kafka)) {
+            return false;
+        }
+        return receipt.brokerAck() instanceof KafkaQueuedAck ack
+                && EMBEDDED_CLUSTER_ID.equals(ack.authenticatedClusterId())
+                && EMBEDDED_TOPIC_UUID.equals(ack.nativeTopicUuid())
+                && ack.partition() == shardId.partition()
+                && ack.offset() == kafka.offset();
+    }
+
+    private boolean isEmbeddedSource(final KafkaSourcePosition source) {
+        return shardId.equals(source.shardId()) && EMBEDDED_CLUSTER_ID.equals(source.authenticatedClusterId())
+                && EMBEDDED_TOPIC_UUID.equals(source.nativeTopicUuid());
+    }
+
+    private static long safeRetryAt(final long nowEpochMs) {
+        return nowEpochMs == Long.MAX_VALUE ? Long.MAX_VALUE : nowEpochMs + 1;
     }
 
     private record QueuedRecord(PreparedCommand command, SourcePosition position) {

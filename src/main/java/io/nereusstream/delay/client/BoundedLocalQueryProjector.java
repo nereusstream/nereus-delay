@@ -3,6 +3,7 @@ package io.nereusstream.delay.client;
 import io.nereusstream.delay.protocol.ActiveMessageViewV1;
 import io.nereusstream.delay.protocol.CommandApplyStatusV1;
 import io.nereusstream.delay.protocol.CommandQueryResponseV1;
+import io.nereusstream.delay.protocol.CompactCommandResultV1;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.MessageGenerationStateV1;
 import io.nereusstream.delay.protocol.MessageQueryResponseV1;
@@ -45,6 +46,19 @@ public final class BoundedLocalQueryProjector {
                 fullResultRetainUntilEpochMs);
         return status == CommandApplyStatusV1.APPLIED
                 ? CommandQueryResponseV1.applied(view) : CommandQueryResponseV1.rejected(view);
+    }
+
+    /** Projects the compact historical branch after the full result retention boundary. */
+    public static CommandQueryResponseV1 compactCommand(final CommandResult result,
+                                                        final long fullResultRetainUntilEpochMs) {
+        Objects.requireNonNull(result, "result");
+        final CommandApplyStatusV1 status = switch (result.applyStatus()) {
+            case APPLIED -> CommandApplyStatusV1.APPLIED;
+            case REJECTED -> CommandApplyStatusV1.REJECTED;
+        };
+        final CompactCommandResultV1 view = new CompactCommandResultV1(status, result.stableCode(),
+                SourcePositionCodec.decode(result.appliedSourcePosition()), fullResultRetainUntilEpochMs);
+        return CommandQueryResponseV1.resultExpired(view);
     }
 
     /** Projects a local Message snapshot only when a safe binding has been authorized separately. */
