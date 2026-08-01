@@ -44,6 +44,7 @@ import java.util.Set;
  */
 public final class DelayShard {
     private static final int META_APPLIED_SOURCE_POSITION = 3;
+    private static final int META_CLOSED_INGRESS_DEADLINE = 4;
     private static final int META_MUTATION_SEQUENCE = 5;
     private static final int META_CLAIM_SEQUENCE = 11;
     private static final int META_QUOTA_USAGE = 1;
@@ -55,6 +56,7 @@ public final class DelayShard {
     private final DelayShardConfig config;
     private final PayloadProofTrustSet payloadProofTrustSet;
     private SourcePosition lastAppliedSourcePosition;
+    private long closedIngressDeadlineThrough;
     private long mutationSequence;
     private long claimSequence;
     private ShardQuota quota;
@@ -71,6 +73,9 @@ public final class DelayShard {
         final var sourceValue = store.getValue(ColumnFamily.META, KeyCodec.metaFixed(META_APPLIED_SOURCE_POSITION), 1);
         final byte[] source = sourceValue == null ? null : sourceValue.payload();
         lastAppliedSourcePosition = source == null ? null : SourcePositionCodec.decode(source);
+        final var closedDeadline = store.getValue(ColumnFamily.META,
+                KeyCodec.metaFixed(META_CLOSED_INGRESS_DEADLINE), 1);
+        closedIngressDeadlineThrough = closedDeadline == null ? -1 : readNonNegativeSequence(closedDeadline.payload());
         final var sequence = store.getValue(ColumnFamily.META, KeyCodec.metaFixed(META_MUTATION_SEQUENCE), 1);
         mutationSequence = sequence == null ? 0 : readSequence(sequence.payload());
         final var claimSequenceValue = store.getValue(ColumnFamily.META, KeyCodec.metaFixed(META_CLAIM_SEQUENCE), 1);
@@ -98,6 +103,11 @@ public final class DelayShard {
                 }
                 throw new IllegalStateException("duplicate source position without matching command evidence");
             }
+        }
+        if (closedIngressDeadlineThrough >= 0
+                && command.retryUntilEpochMs() <= closedIngressDeadlineThrough) {
+            return persistRejectedPositionOnly(command, sourcePosition,
+                    StableCode.COMMAND_RETRY_WINDOW_EXPIRED);
         }
         final CommandDedupeRecord prior = readCommandDedupe(command.commandId());
         if (prior != null) {
@@ -358,6 +368,7 @@ public final class DelayShard {
             return switch (mutation.type()) {
                 case PUBLISH_ADMISSION -> applyPublishAdmissionMutation(mutation, sourcePosition);
                 case REPLAY_DEAD_LETTER -> applyReplayDeadLetterMutation(mutation, sourcePosition);
+                case TIME_FENCE -> applyTimeFenceMutation(mutation, sourcePosition);
                 case EXPIRE_GENERATION -> applyExpireGenerationMutation(mutation, sourcePosition);
                 case PUBLISH_OUTCOME -> applyPublishOutcomeMutation(mutation, sourcePosition);
                 case EVIDENCE_RESOLUTION -> applyEvidenceResolutionMutation(mutation, sourcePosition);
@@ -435,6 +446,48 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }
+    }
+
+    private SystemMutationResult applyTimeFenceMutation(final SystemMutation mutation,
+                                                         final SourcePosition sourcePosition) {
+        final List<io.nereusstream.delay.protocol.CanonicalProtobuf.Reader.Field> fields =
+                SystemMutationBodyCodec.fields(SystemMutationType.TIME_FENCE, mutation.canonicalBody());
+        final long closeThrough = bodyNonNegative(field(fields, 10), 10);
+        final int fenceKeyVersion = bodyInt(field(fields, 11), 11);
+        final byte[] proofId = fixedBodyBytes(field(fields, 12), 12, SystemMutation.HASH_LENGTH);
+        final TrustedUtcIntervalEvidence proof = TrustedUtcIntervalEvidence.decode(
+                bytesBody(field(fields, 13), 13));
+        if (fenceKeyVersion != mutation.signingKeyVersion() || proof.earliestEpochMs() < closeThrough) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
+        final byte[] expectedProofId = Bytes.sha256(Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                store.shardId().routeIncarnation().bytes(), Bytes.u32be(store.shardId().partition()),
+                Bytes.i64be(closeThrough), Bytes.u32be(fenceKeyVersion), Bytes.lp32(proof.canonicalBytes()));
+        if (!Bytes.constantTimeEquals(proofId, expectedProofId)
+                || !Bytes.constantTimeEquals(mutation.logicalOperationIdentity(), proofId)) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
+        final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, StableCode.OK,
+                sourcePosition.canonicalBytes());
+        if (closeThrough <= closedIngressDeadlineThrough) {
+            store.write(batch -> {
+                writeSystemResult(batch, result);
+                writePosition(batch, sourcePosition);
+            });
+        } else {
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(META_CLOSED_INGRESS_DEADLINE),
+                        Bytes.u64be(closeThrough));
+                writeSystemResult(batch, result);
+                writePosition(batch, sourcePosition);
+            });
+            closedIngressDeadlineThrough = closeThrough;
+        }
+        lastAppliedSourcePosition = sourcePosition;
+        mutationSequence++;
+        return result;
     }
 
     private SystemMutationResult applyPublishOutcomeMutation(final SystemMutation mutation,
@@ -1930,6 +1983,11 @@ public final class DelayShard {
         return lastAppliedSourcePosition;
     }
 
+    /** Returns the source-ordered ingress retry deadline, or {@code -1} before the first fence. */
+    public synchronized long closedIngressDeadlineThrough() {
+        return closedIngressDeadlineThrough;
+    }
+
     public io.nereusstream.delay.protocol.ShardId shardId() {
         return store.shardId();
     }
@@ -2355,6 +2413,20 @@ public final class DelayShard {
                                           final StableCode code) {
         final CommandResult result = rejected(code, position, -1, 0, null);
         persistResultAndPosition(command, position, result, null);
+        return result;
+    }
+
+    /** Persists only the position-level fence rejection; never overwrites command identity/result dedupe. */
+    private CommandResult persistRejectedPositionOnly(final PreparedCommand command,
+                                                      final SourcePosition position, final StableCode code) {
+        final CommandResult result = rejected(code, position, -1, 0, null);
+        store.write(batch -> {
+            batch.putValue(ColumnFamily.DEDUPE, 3, KeyCodec.dedupePosition(position.canonicalBytes()),
+                    command.commandId().bytes());
+            writePosition(batch, position);
+        });
+        lastAppliedSourcePosition = position;
+        mutationSequence++;
         return result;
     }
 
@@ -3095,6 +3167,14 @@ public final class DelayShard {
             throw new IllegalStateException("invalid shard mutation sequence");
         }
         return ByteBuffer.wrap(bytes).getLong();
+    }
+
+    private static long readNonNegativeSequence(final byte[] bytes) {
+        final long value = readSequence(bytes);
+        if (value < 0) {
+            throw new IllegalStateException("negative persisted ingress deadline");
+        }
+        return value;
     }
 
     private static final class WindowViolationException extends IllegalArgumentException {

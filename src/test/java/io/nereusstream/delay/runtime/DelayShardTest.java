@@ -1735,6 +1735,58 @@ class DelayShardTest {
     }
 
     @Test
+    void timeFenceMonotonicallyClosesIngressWithoutOverwritingCommandIdentity() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("time-fence-ingress"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 34);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("time-fence-lane"));
+        final KafkaSourcePosition fencePosition = position(shardId, 0, 2_000);
+        final TrustedUtcIntervalEvidence proof = new TrustedUtcIntervalEvidence(3_000, 3_000,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("fence-clock"), 1, 9, 9,
+                Bytes.sha256(Bytes.utf8("fence-proof")), 0, null);
+        final int keyVersion = 7;
+        final long closeThrough = 3_000;
+        final byte[] proofId = Bytes.sha256(Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                shardId.routeIncarnation().bytes(), Bytes.u32be(shardId.partition()), Bytes.i64be(closeThrough),
+                Bytes.u32be(keyVersion), Bytes.lp32(proof.canonicalBytes()));
+        final byte[] fenceBody = timeFenceBody(shardId, closeThrough, keyVersion, proofId,
+                proof.canonicalBytes());
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final AuthorIdentity fence = AuthorIdentity.fence(Bytes.utf8("fence-writer"), keyVersion);
+        final SystemMutation fenceMutation = SystemMutation.signed(shardId, SystemMutationType.TIME_FENCE, 9_000,
+                proofId, fenceBody, fence.canonicalBytes(), keyVersion, keyPair.getPrivate());
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.OK,
+                    shard.applySystemMutation(fenceMutation, fencePosition, keyPair.getPublic()).stableCode());
+            assertEquals(closeThrough, shard.closedIngressDeadlineThrough());
+
+            final PreparedCommand closed = PreparedCommand.schedule(shardId,
+                    new io.nereusstream.delay.protocol.ScheduleIntent(lane, 4_000, 7_000,
+                            OrderingMode.BEST_EFFORT, Bytes.utf8("closed")), 3_000);
+            final CommandResult closedResult = shard.apply(closed, position(shardId, 1, 2_500));
+            assertEquals(StableCode.COMMAND_RETRY_WINDOW_EXPIRED, closedResult.stableCode());
+            assertNull(shard.getMessage(closed.delayMessageId()));
+            assertNull(shard.getCommandResult(closed.commandId()));
+
+            final PreparedCommand open = PreparedCommand.schedule(shardId,
+                    new io.nereusstream.delay.protocol.ScheduleIntent(lane, 4_000, 7_000,
+                            OrderingMode.BEST_EFFORT, Bytes.utf8("open")), 4_000);
+            assertEquals(StableCode.SCHEDULED, shard.apply(open, position(shardId, 2, 2_501)).stableCode());
+            assertEquals(closeThrough, shard.closedIngressDeadlineThrough());
+            assertEquals(StableCode.OK,
+                    shard.applySystemMutation(fenceMutation, position(shardId, 3, 2_502),
+                            keyPair.getPublic()).stableCode());
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(closeThrough, reopened.closedIngressDeadlineThrough());
+        }
+    }
+
+    @Test
     void publishAdmissionConsumesExactLocalClaimBeforeCreatingAttemptLedger() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("claim-admission"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 24);
@@ -1872,6 +1924,23 @@ class DelayShardTest {
             CanonicalProtobuf.bytes(output, 10, messageId.bytes());
             CanonicalProtobuf.uint32(output, 11, generation);
             CanonicalProtobuf.int64(output, 12, expireAt);
+            CanonicalProtobuf.bytes(output, 13, proof);
+        });
+    }
+
+    private static byte[] timeFenceBody(final ShardId shard, final long closeThrough, final int keyVersion,
+                                        final byte[] proofId, final byte[] proof) {
+        final byte[] subject = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());
+            CanonicalProtobuf.uint32(output, 2, shard.partition());
+        });
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, subject);
+            CanonicalProtobuf.uint32(output, 2, SystemMutationType.TIME_FENCE.wireValue());
+            CanonicalProtobuf.int64(output, 3, 9_000);
+            CanonicalProtobuf.int64(output, 10, closeThrough);
+            CanonicalProtobuf.uint32(output, 11, keyVersion);
+            CanonicalProtobuf.bytes(output, 12, proofId);
             CanonicalProtobuf.bytes(output, 13, proof);
         });
     }

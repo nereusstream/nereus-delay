@@ -35,6 +35,13 @@ timing and shard quota, then atomically creates the next generation's
 Immutable RetryPolicy/Profile binding, replay-window/fence proofs, Oxia target
 registration and full DLQ/replay retention remain pending.
 
+The local `TIME_FENCE_V1` increment now validates the exact proof ID, fence key
+version and Trusted-UTC lower bound, monotonically persists
+`closedIngressDeadlineThrough`, and rejects later commands at the position level
+without overwriting an existing command identity/result. Reservation-expiry
+watermark overlay, source-protected fence-key history and full retention/GC
+proofs remain pending.
+
 ## Current repository shape
 
 The repository is currently a single Gradle Java 21 library while the design's
