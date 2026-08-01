@@ -1,0 +1,23 @@
+# Prepare the `AUTO_FAST` branch before I/O and return an outcome union
+
+Nereus Delay V1 keeps `MANAGED` as the default. `AUTO_FAST` is an explicit caller grant allowing the SDK to choose either managed Command enqueue or direct certified Pulsar delayed delivery. Selection and submission are two API phases: `prepareAutoFast()` finalizes and returns a serializable `PreparedSubmission` before any Producer/network I/O; `submit()` accepts only that exact object. The result is a sealed `SubmissionOutcome` whose concrete type exposes the resulting capabilities.
+
+## Selection
+
+- `MANAGED` always prepares a Command; `PreparedSubmission.Managed` wraps those exact canonical Command bytes and `submit()` returns the normal enqueue outcome/`CommandQueuedReceipt`.
+- `AUTO_FAST` accepts only the bounded inline request type. It may choose direct native only when the configured target is Pulsar, every delayed-delivery time/subscription/capability prerequisite is certified, `PULSAR_RESOURCE_GUARD_V1` has a current all-Broker attestation and the Producer carries the pinned target token, payload and headers fit the native Producer, requested delay is inside the benchmark/configured native budget, and the caller has direct target authority. Out-of-line payloads use the explicit managed reserve/upload/attest/commit API.
+- Otherwise the SDK chooses the managed branch before I/O and returns the prepared managed object. Selection telemetry records a bounded reason code.
+- Batch preparation chooses independently per item and returns results in input order; one item never changes another item's semantic branch.
+- V1 exposes no retryable one-shot `submitAutoFast(request)`. A convenience method may only compose `prepareAutoFast` and `submit` when it returns the PreparedSubmission to the caller before I/O and documents that crash-safe retry requires persisting it.
+
+## Native identity and outcome
+
+The native branch prepares an immutable `NativePreparedDelivery` with a distinct `nativeDeliveryId`, exact target record, shifted Broker deliver timestamp, pinned Profile/resource incarnation, a full signed `NativeCapabilitySnapshotV1`, canonical bytes, and stable submission hash. The snapshot binds the exact Destination/Capability semantics, Pulsar resource and partition, resource-guard attestation/config generation, Credential Binding generation/digest/resolved fingerprint, SDK principal scope, Trusted-UTC validity and issuer signature. It contains no secret reference/plaintext. It does not allocate a managed Delay Message Identity. The caller can persist it before submission. The direct Producer result is `NativeDeliveryReceipt`, `NativeDefinitelyNotQueued`, or `NativeEnqueueUncertain`, and every branch carries the exact native identity/hash.
+
+The snapshot issuer first durably extends a per-binding `nativeCapabilityProtectionUntil`; snapshot issuance is the credential-authority linearization point and `prepareAutoFast()` remains local/zero-I/O. Equivalent rotation does not retroactively revoke an issued snapshot, and old binding material is retained through its expiry and possible native requests. Before Producer ownership, `submit()` validates the full snapshot and the SDK's resolved credential fingerprint. Expiry, ordinary prerequisite failure, or credential drift returns typed `NativeDefinitelyNotQueued` and never reselects managed. Once the native Producer owns a request, timeout, lost acknowledgement, cancellation, revocation, or connection failure can be uncertain. The SDK never falls back to a managed Schedule after that point. An explicit retry reuses the exact prepared identity/bytes/hash and follows the target Producer's documented duplicate behavior. A received exact resource-guard SEND rejection is definitive non-publication; losing that response remains uncertain.
+
+## Capability surface
+
+Managed `QUEUED` carries a `CommandQueuedReceipt` with Command/Delay Message locators and can be used with await/query/Cancel/Reschedule under their normal state boundaries. `NativeDeliveryReceipt` carries target Broker acknowledgement and declares `query=false`, `cancel=false`, `reschedule=false`, `serverQuota=false`, and `serverAudit=false`. Native uncertainty likewise cannot be queried through the Delay service; it points back to the exact persisted `NativePreparedDelivery`.
+
+Callers must exhaustively handle the `SubmissionOutcome` union; V1 does not provide a legacy `DelayQueuedReceipt` whose name implies both paths or whose optional fields obscure authority. SDK convenience methods may require `MANAGED` when the application expects a controllable receipt.

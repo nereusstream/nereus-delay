@@ -1,0 +1,48 @@
+# Classify publish outcomes by side-effect evidence
+
+Nereus Delay V1 bases retry decisions on destination side-effect evidence, not exception-name heuristics. Payload fetch/checksum, schema/header validation, exact physical routing, record-size validation, target serialization, and Producer byte/slot permits complete while a record is still reversibly `CLAIMED`, producing a `PreparedPublishTemplate`. Publish Admission allocates attempt/channel/sequence metadata, finalizes and hashes the exact Prepared Publish, and durably stores a reproducible descriptor; only then is the Adapter call authorized.
+
+A proven permanent pre-send failure that terminalizes the Generation is an authenticated `CLAIM_RESULT_V1` in the Shard Log. Until that mutation applies, the Claim remains reversible; a materializer callback cannot directly create `DEAD_LETTER`. A transient pre-send failure restores the same semantic timeline key/work kind/authority/candidate/digest, with a new runtime revision/instance digest, may update derivable Lane backoff, and does not consume a Publish Attempt or create `RETRY_WAIT`. The permanent result races Cancel, Reschedule, Expiry, Close, and Admission by Source Position.
+
+## Orthogonal outcome dimensions
+
+An Adapter reports a closed product:
+
+- `sideEffect = PUBLISHED | NOT_PUBLISHED | UNKNOWN`.
+- `disposition = NONE | MESSAGE_RETRIABLE | MESSAGE_PERMANENT | LANE_UNAVAILABLE | OWNER_FENCED | ADAPTER_BUG`.
+- stable code, evidence descriptor, and bounded diagnostic are separate fields.
+
+`PUBLISHED` is valid only with `NONE` and the selected capability's durability evidence. `NOT_PUBLISHED + MESSAGE_RETRIABLE` authorizes ordinary retry; `NOT_PUBLISHED + MESSAGE_PERMANENT` authorizes a message terminal decision. `NOT_PUBLISHED + LANE_UNAVAILABLE` finalizes that exact attempt and blocks/backs off the Lane without pretending that the message itself is invalid. `UNKNOWN` always persists `UNCERTAIN`; a simultaneous Lane, Owner, or Adapter problem may open a circuit or safety gate but cannot turn uncertainty into failure. `OWNER_FENCED` and `ADAPTER_BUG` invoke shard/Worker safety handling rather than an ordinary message retry.
+
+Producer queue rejection before request ownership transfers to the client, or a capability oracle proving absence, can be definitive. Send/commit timeout, connection loss after submission, canceled Future, process crash, and a missing callback are `UNKNOWN` unless stronger evidence proves otherwise.
+
+A Kafka pinned-UUID request rejected as `UNKNOWN_TOPIC_ID`, or an exact Pulsar `NEREUS_RESOURCE_GUARD_REJECTED_V1` SEND error received from the pre-persistence guard, is `NOT_PUBLISHED + LANE_UNAVAILABLE` and opens/blocks the affected Lane as a resource-incarnation failure. If that response is lost, the attempt is `UNKNOWN + LANE_UNAVAILABLE`; an Adapter never infers non-publication merely because a later metadata probe sees a replacement.
+
+## Retry policy
+
+Schedules select a pre-registered, versioned Retry Policy or bounded permitted overrides. The applied message pins initial/capped exponential backoff, deterministic full-jitter algorithm, maximum Publish Admissions, maximum retry duration, uncertain-outcome policy, and terminal/export behavior.
+
+- The first durable Publish Admission persists `firstAttemptAt = latestUtcNow` from the Trusted UTC Interval and `retryDeadline = min(expireAt, checkedAdd(firstAttemptAt, maxRetryDuration))`.
+- Every durable Admission consumes one attempt, including a crash between Admission and Adapter invocation. Claim/materialization failure before Admission does not.
+- `nextRetryAt`, attempt number, last error class, algorithm version, policy version, and closed `RetryDomainV1` are persisted with the state transition. `RETRY_JITTER_V1` takes the first unsigned 64 bits of `SHA-256("nereus-delay-retry-v1" || retryDomain:u8 || DelayMessageId[41] || generation:u32be || attemptNo:u32be)`, maps it without floating point into `[0, min(maxBackoff, exponentialCap)]`, and adds it to persisted `latestUtcNow` with checked arithmetic. Business publish uses `MESSAGE_PUBLISH`; DLQ export uses `DLQ_EXPORT`, so the two physical retry streams cannot accidentally share jitter. Replay cannot invent a tighter schedule.
+- No new Admission occurs after attempt or time budget exhaustion. An already-admitted request may complete later.
+- A stronger capability resolves `UNCERTAIN` before retry. Baseline `AT_LEAST_ONCE` may use a delayed retry with the same Message Generation and a new Publish Attempt, accepting a possible duplicate, only for unordered `BEST_EFFORT`. `DELIVERY_TIME_FIFO` holds the unresolved head until evidence or an explicit acknowledged order-domain break/close. If the bounded baseline policy exhausts while outcome is still unknown, the Dead Letter Record sets `possibleDestinationDuplicate=true`.
+- Starting that baseline retry retains the old attempt as immutable unresolved evidence rather than replacing it. At most one new send is current, but an older timed-out Producer request can still complete. Any verified late success under the same Owner/Store terminalizes the Generation with duplicate risk if a later attempt was already admitted; stale-owner callbacks require the Profile's external evidence path.
+
+## Aggregate state and attempt obligations
+
+`id_cf/MESSAGE` stores one exact `GenerationRuntimeIndexV1`, separating public aggregate state from current work. Current work is `NONE | TIMELINE | CLAIMED | PUBLISHING`; timeline work is `INITIAL_SCHEDULE | DEFINITIVE_RETRY | UNCERTAIN_RETRY`. A canonical, bounded `AttemptObligationRefV1` set points by exact encoded key/hash and ledger state to every admitted PUBLISHING/UNCERTAIN ledger whose outcome/evidence/physical charge is not closed. There is at most one current new send, but multiple historical obligations may coexist.
+
+Any UNCERTAIN ledger keeps the aggregate state `UNCERTAIN`, even while an unordered policy-authorized retry is in timeline, Claim, or PUBLISHING. `UNKNOWN + SCHEDULED` inserts `UNCERTAIN_RETRY` without consuming its count; the later durable Admission consumes both one Admission and one uncertain retry exactly when an older UNCERTAIN ledger is still present. The Claim freezes the replay-stable timeline semantic digest/authority, both counters, and the canonical obligation-set digest, while its separate instance digest fences only local snapshots; intervening evidence revokes it or makes the Admission stale, but requeue alone does not. `BOUNDED_RETRY_POSSIBLE_DUPLICATE` requires `0 < maxUncertainRetries < maxPublishAdmissions`; other uncertain policies require zero.
+
+An authenticated `ResolveUncertain(retry + possible-duplicate acknowledgement)` is a distinct `CONTROL_OVERRIDE` authority, not an untraceable runtime flag. It is legal only for unordered current UNCERTAIN work with no other current send and remaining total Admission/time/expiry budget. Its source-ordered marker creates immediate timeline work bound to the exact ControlRef and marker Source Position; the later Admission, not the marker, consumes the total uncertain-retry count. It may exceed the automatic `maxUncertainRetries` budget but can never exceed pinned `maxPublishAdmissions` or bypass live capacity/admission gates. The other Resolve evidence branch for definitive nonpublication removes only the named obligation and follows ordinary all-absent normalization.
+
+If every old attempt becomes definitively absent, a stale Claim is first revoked and remaining current work normalizes to definitive retry state. A verified late success deletes reversible timeline/Claim work and terminalizes. It cannot revoke a different already-admitted PUBLISHING attempt, so that ledger remains an open terminal obligation and duplicate risk is set. Expiry/Close likewise delete reversible current work without erasing admitted obligations. Cancel/Reschedule stay `TOO_LATE` whenever an UNCERTAIN obligation exists, even if the current work itself is reversible. Terminal state is immutable; later attempt evidence only releases that attempt's charges and updates retained evidence/duplicate risk monotonically.
+
+For unordered `BEST_EFFORT`, the advertised baseline means Nereus does not lose an admitted logical delivery solely because of its own crash and will retry uncertain work within the pinned policy. Strict ordering instead preserves its unresolved head. Neither is an unbounded promise to deliver through permanent target outage, expiration, or exhausted policy.
+
+## Lane failures and circuit behavior
+
+Systemic authorization, missing-topic, capability-drift, quota/throttle, metadata, and cluster-availability failures update persistent Lane state and open or delay its circuit. They do not burn every queued message's attempt budget or create a dead-letter storm. A bounded half-open probe controls recovery; healthy Lanes continue under weighted fairness.
+
+Permanent message failure, definitive retry exhaustion, and explicit uncertain-stop policy terminalize only that generation. An uncertain-stop policy cannot unblock a strict Ordering Domain while retaining its order claim; that requires proof or an explicit audited new-domain boundary. `EXPIRED` is separate and occurs when no new Admission is safe before `expireAt` and no possible-delivery obligation remains. All runtime-index, attempt-ledger, counter, Command/result, timeline/inflight/terminal, and Lane-head changes are one WriteBatch.

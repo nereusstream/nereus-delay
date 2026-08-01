@@ -1,0 +1,3 @@
+# Require opt-in for native fast delivery
+
+Nereus Delay will not silently downgrade a managed request to Pulsar's native fast path. Managed delivery remains the default and preserves query, cancellation, and rescheduling semantics; native fast delivery requires explicit `AUTO_FAST` permission and returns a distinct outcome/receipt that exposes reduced management capabilities. Local thresholds may select the branch only inside zero-I/O `prepareAutoFast()`, which returns an exact serializable `PreparedSubmission`; `submit()` and every retry reuse that branch/identity/bytes and never reselect after I/O or uncertainty.
