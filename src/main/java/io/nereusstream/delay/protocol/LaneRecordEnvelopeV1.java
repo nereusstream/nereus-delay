@@ -13,6 +13,10 @@ import java.util.Objects;
  * mutation.</p>
  */
 public final class LaneRecordEnvelopeV1 {
+    private static final byte[] ACTIVE_ADAPTER_DIGEST_DOMAIN =
+            Bytes.utf8("nereus-delay-active-lane-adapter-v1\0");
+    private static final int HASH_LENGTH = 32;
+
     public enum Kind {
         ACTIVE_LANE(1),
         TERMINAL_GUARD(2);
@@ -97,7 +101,7 @@ public final class LaneRecordEnvelopeV1 {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, kind.wireValue());
             if (isActive()) {
-                CanonicalProtobuf.bytes(output, 10, activeStateBytes);
+                CanonicalProtobuf.bytes(output, 10, activeAdapterBytes());
             } else {
                 CanonicalProtobuf.bytes(output, 11, terminalGuard.canonicalBytes());
             }
@@ -115,7 +119,7 @@ public final class LaneRecordEnvelopeV1 {
             if (fields.get(1).number() != 10) {
                 throw new IllegalArgumentException("active lane must use field 10");
             }
-            result = active(QueryCodecSupport.bytes(fields.get(1), 10));
+            result = active(decodeActiveAdapter(QueryCodecSupport.nested(fields.get(1), 10)));
         } else {
             if (fields.get(1).number() != 11) {
                 throw new IllegalArgumentException("terminal lane must use field 11");
@@ -124,6 +128,33 @@ public final class LaneRecordEnvelopeV1 {
         }
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "LaneRecordEnvelopeV1");
         return result;
+    }
+
+    private byte[] activeAdapterBytes() {
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, activeStateBytes);
+            CanonicalProtobuf.bytes(output, 2, activeAdapterDigest(activeStateBytes));
+        });
+    }
+
+    private static byte[] decodeActiveAdapter(final byte[] encoded) {
+        final var fields = QueryCodecSupport.read(encoded, "ActiveLaneAdapterV1");
+        QueryCodecSupport.requireNumbers(fields, new int[]{1, 2}, "ActiveLaneAdapterV1");
+        final byte[] state = QueryCodecSupport.bytes(fields.get(0), 1);
+        final byte[] digest = QueryCodecSupport.fixed(fields.get(1), 2, HASH_LENGTH);
+        if (!Bytes.constantTimeEquals(digest, activeAdapterDigest(state))) {
+            throw new IllegalArgumentException("active lane adapter digest mismatch");
+        }
+        final byte[] canonical = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, state);
+            CanonicalProtobuf.bytes(output, 2, digest);
+        });
+        QueryCodecSupport.requireCanonical(encoded, canonical, "ActiveLaneAdapterV1");
+        return state;
+    }
+
+    private static byte[] activeAdapterDigest(final byte[] state) {
+        return Bytes.sha256(ACTIVE_ADAPTER_DIGEST_DOMAIN, state);
     }
 
     @Override

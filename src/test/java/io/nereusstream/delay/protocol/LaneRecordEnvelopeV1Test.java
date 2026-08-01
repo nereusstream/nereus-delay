@@ -36,6 +36,10 @@ class LaneRecordEnvelopeV1Test {
         encoded[1] = 2;
         assertThrows(IllegalArgumentException.class, () -> LaneRecordEnvelopeV1.decode(encoded));
 
+        final byte[] tamperedState = active.canonicalBytes();
+        tamperedState[tamperedState.length - 1] ^= 1;
+        assertThrows(IllegalArgumentException.class, () -> LaneRecordEnvelopeV1.decode(tamperedState));
+
         final byte[] duplicate = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, 1);
             CanonicalProtobuf.bytes(output, 10, Bytes.utf8("active"));
