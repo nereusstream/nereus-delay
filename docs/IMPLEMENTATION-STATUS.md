@@ -49,7 +49,7 @@ to the intended modules:
 | Synchronous atomic WriteBatch | Implemented | `ShardStore.write`, `ShardStoreTest` |
 | Native RocksDB checkpoint creation | Implemented | `ShardStore.createCheckpoint`, `ShardStoreTest` |
 | Checkpoint file inventory and canonical manifest projection | Implemented (local/object publication boundary pending) | `CheckpointFileInventory`, `CheckpointManifest`, `CheckpointManifestTest` |
-| Checkpoint restore into a new Store Incarnation | Implemented (local restore path) | `ShardStore.restoreFromCheckpoint`, `ShardStoreTest` |
+| Checkpoint restore into a new Store Incarnation | Implemented (local manifest-validated path) | `ShardStore.restoreFromCheckpoint`, `ShardStoreTest`; Oxia Recovery Set/Floor and source replay pending |
 | Command applied/rejected state machine | Implemented (embedded core) | `DelayShard`, `DelayShardTest` |
 | DUE/ORDERED/EXPIRY timeline namespaces | Implemented (core index projection) | `DelayShard`, `KeyCodec`, `DelayShardTest`; READY value/discovery and full TimelineWorkRef pending |
 | Source assignment and Owner Lease | Implemented (local lifecycle/CAS boundary) | `OwnerLeaseStore`, `OwnedDelayShard`, `OwnerLeaseTest`; Kafka/Pulsar assignment barriers and Oxia adapter pending |

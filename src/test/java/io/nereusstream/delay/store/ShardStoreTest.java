@@ -1,6 +1,7 @@
 package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
 import org.junit.jupiter.api.Test;
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -91,6 +93,49 @@ class ShardStoreTest {
              ShardStore secondStore = ShardStore.open(config, second, resources)) {
             assertNotNull(secondStore.metadata());
         }
+    }
+
+    @Test
+    void restoreWithManifestRejectsFileIdentityDrift() throws Exception {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 19);
+        final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("manifest-source"));
+        final Path checkpoint = tempDir.resolve("manifest-checkpoint");
+        final byte[] key = KeyCodec.metaFixed(8);
+        final byte[] payload = Bytes.utf8("manifest-value");
+        final byte[] dbIdentity;
+        final UUID sourceStoreIncarnation;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(sourceConfig);
+             ShardStore store = ShardStore.open(sourceConfig, shardId, resources)) {
+            dbIdentity = store.metadata().dbIdentity();
+            sourceStoreIncarnation = store.metadata().storeIncarnationUuid();
+            store.write(batch -> batch.putValue(ColumnFamily.META, 8, key, payload));
+            store.createCheckpoint(checkpoint);
+        }
+        final List<CheckpointFileInventory> inventory = CheckpointFileInventory.collect(checkpoint);
+        final List<CheckpointManifest.FileEntry> files = inventory.stream()
+                .map(file -> new CheckpointManifest.FileEntry(file.name(), file.length(), file.checksum(),
+                        Bytes.utf8("object/" + file.name()), Bytes.utf8("version"), null))
+                .toList();
+        final CheckpointManifest manifest = new CheckpointManifest(bytes(10), bytes(11), 1, null, null,
+                new CheckpointManifest.CreatedBy(bytes(12), bytes(13), 1),
+                new CheckpointManifest.CreatedAt(1_000, 1_000, "TEST_CLOCK", bytes(14), 1, 1, 1,
+                        Bytes.sha256(Bytes.utf8("evidence")), 1, null), shardId, dbIdentity, sourceStoreIncarnation,
+                1, 1, new KafkaSourcePosition(shardId, "cluster", UUID.randomUUID(), 0, null, 1_000),
+                new byte[32], new byte[32], files);
+
+        final Path firstFile = checkpoint.resolve(inventory.get(0).name());
+        Files.writeString(firstFile, "tampered");
+        final ShardStoreConfig restoreConfig = ShardStoreConfig.defaults(tempDir.resolve("manifest-restore"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(restoreConfig)) {
+            assertThrows(IllegalStateException.class,
+                    () -> ShardStore.restoreFromCheckpoint(restoreConfig, shardId, resources, checkpoint, manifest));
+        }
+    }
+
+    private static byte[] bytes(final int last) {
+        final byte[] value = new byte[16];
+        value[15] = (byte) last;
+        return value;
     }
 
     private static void assertTrueFile(final Path path) {

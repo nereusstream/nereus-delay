@@ -100,6 +100,12 @@ public final class ShardStore implements AutoCloseable {
     public static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
                                                    final SharedRocksDbResources resources,
                                                    final Path checkpointPath) {
+        return restoreFromCheckpoint(config, shardId, resources, checkpointPath, null);
+    }
+
+    public static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
+                                                   final SharedRocksDbResources resources,
+                                                   final Path checkpointPath, final CheckpointManifest manifest) {
         Objects.requireNonNull(config, "config");
         Objects.requireNonNull(shardId, "shardId");
         Objects.requireNonNull(resources, "resources");
@@ -115,14 +121,26 @@ public final class ShardStore implements AutoCloseable {
             if (!Files.isDirectory(checkpointPath) || !Files.isRegularFile(checkpointPath.resolve("CURRENT"))) {
                 throw new IOException("checkpoint is not a complete RocksDB directory: " + checkpointPath);
             }
+            if (manifest != null) {
+                validateCheckpointManifest(shardId, checkpointPath, manifest);
+            }
             Files.createDirectories(shardRoot);
             if (hasActiveDb(shardRoot)) {
                 throw new IOException("cannot restore while an active shard DB exists: " + shardRoot);
             }
             copyTree(checkpointPath, stagedDb);
-            try (ShardStore staged = openAtPath(config, shardId, stagedDb, resources, storeUuid)) {
+            try (ShardStore staged = openAtPath(config, shardId, stagedDb, resources, null)) {
                 if (!staged.shardId().equals(shardId)) {
                     throw new IOException("restored DB shard identity mismatch");
+                }
+                if (manifest != null && (!java.util.Arrays.equals(manifest.dbIdentity(), staged.metadata().dbIdentity())
+                        || !manifest.sourceStoreIncarnation().equals(staged.metadata().storeIncarnationUuid()))) {
+                    throw new IOException("restored DB metadata does not match checkpoint manifest");
+                }
+            }
+            try (ShardStore installed = openAtPath(config, shardId, stagedDb, resources, storeUuid)) {
+                if (!installed.shardId().equals(shardId)) {
+                    throw new IOException("install-mode DB shard identity mismatch");
                 }
             }
             Files.createDirectories(activeDb.getParent());
@@ -137,6 +155,25 @@ public final class ShardStore implements AutoCloseable {
                 exception.addSuppressed(cleanupException);
             }
             throw new IllegalStateException("cannot restore shard checkpoint", exception);
+        }
+    }
+
+    private static void validateCheckpointManifest(final ShardId shardId, final Path checkpointPath,
+                                                   final CheckpointManifest manifest) throws IOException {
+        if (!manifest.shardId().equals(shardId) || manifest.storeFormatVersion() != META_STORE_FORMAT) {
+            throw new IOException("checkpoint manifest shard or format mismatch");
+        }
+        final List<CheckpointFileInventory> inventory = CheckpointFileInventory.collect(checkpointPath);
+        if (inventory.size() != manifest.files().size()) {
+            throw new IOException("checkpoint manifest file count mismatch");
+        }
+        for (int index = 0; index < inventory.size(); index++) {
+            final CheckpointFileInventory actual = inventory.get(index);
+            final CheckpointManifest.FileEntry expected = manifest.files().get(index);
+            if (!actual.name().equals(expected.name()) || actual.length() != expected.length()
+                    || !Bytes.constantTimeEquals(actual.checksum(), expected.checksum())) {
+                throw new IOException("checkpoint file checksum mismatch: " + actual.name());
+            }
         }
     }
 
