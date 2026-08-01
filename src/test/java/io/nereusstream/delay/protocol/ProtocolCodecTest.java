@@ -278,6 +278,41 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void nativeDeliveryReceiptPinsPulsarTargetAndPhysicalAttempt() {
+        final byte[] resource = new byte[32];
+        resource[0] = 9;
+        final PulsarBrokerResourceIdentityV1 target = new PulsarBrokerResourceIdentityV1(
+                "pulsar-native", resource, "persistent://tenant/native", 1_234);
+        assertEquals(target, PulsarBrokerResourceIdentityV1.decode(target.canonicalBytes()));
+        final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("native-destination"), 2,
+                Bytes.sha256(Bytes.utf8("native-destination-semantic")), ProfileKindV1.DESTINATION);
+        final NativePreparedRefV1 prepared = new NativePreparedRefV1(
+                nonZero(32, 1), Bytes.sha256(Bytes.utf8("submission")), destination, target, 2,
+                Bytes.sha256(Bytes.utf8("capability-snapshot")), 5_000,
+                Bytes.sha256(Bytes.utf8("prepared-bytes")));
+        final CommandQueuedReceiptV1.PulsarQueuedAck ack = new CommandQueuedReceiptV1.PulsarQueuedAck(
+                "pulsar-native", resource, "persistent://tenant/native", 1_234, 2, 4, 5, 0, 1, 1_250,
+                Bytes.sha256(Bytes.utf8("send-receipt")));
+        final byte[] attempt = nonZero(16, 2);
+
+        final NativeDeliveryReceiptV1 receipt = NativeDeliveryReceiptV1.create(prepared, ack, attempt);
+        assertEquals(receipt, NativeDeliveryReceiptV1.decodeFrame(receipt.frame()));
+        assertEquals(ReceiptKind.NATIVE_DELIVERY, ReceiptFrame.decode(receipt.frame()).kind());
+
+        final byte[] tampered = receipt.payload();
+        tampered[tampered.length - 1] ^= 1;
+        assertThrows(IllegalArgumentException.class, () -> NativeDeliveryReceiptV1.decodePayload(tampered));
+        assertThrows(IllegalArgumentException.class, () -> NativeDeliveryReceiptV1.create(prepared,
+                new CommandQueuedReceiptV1.PulsarQueuedAck("pulsar-native", resource,
+                        "persistent://tenant/native", 1_235, 2, 4, 5, 0, 1, 1_250,
+                        Bytes.sha256(Bytes.utf8("send-receipt"))), attempt));
+        assertThrows(IllegalArgumentException.class, () -> new NativePreparedRefV1(new byte[32],
+                Bytes.sha256(Bytes.utf8("submission")), destination, target, 2,
+                Bytes.sha256(Bytes.utf8("capability-snapshot")), 5_000,
+                Bytes.sha256(Bytes.utf8("prepared-bytes"))));
+    }
+
+    @Test
     void publicQueryViewsRejectUnsafeBindingAndNonCanonicalBranchShape() {
         final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("destination"), 1,
                 Bytes.sha256(Bytes.utf8("destination-semantic")), ProfileKindV1.DESTINATION);
@@ -540,6 +575,12 @@ class ProtocolCodecTest {
                 Bytes.sha256(Bytes.utf8("capability-semantic")), ProfileKindV1.DELIVERY_CAPABILITY);
         return new PublicDestinationBindingViewV1(destination, capability, AdapterKindV1.KAFKA,
                 Bytes.utf8("safe-destination"), 2, OrderingMode.BEST_EFFORT);
+    }
+
+    private static byte[] nonZero(final int length, final int firstByte) {
+        final byte[] value = new byte[length];
+        value[0] = (byte) firstByte;
+        return value;
     }
 
     private static byte[] nestedPlaceholder() {
