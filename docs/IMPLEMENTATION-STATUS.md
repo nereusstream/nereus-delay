@@ -67,9 +67,9 @@ to the intended modules:
 
 ## Verification command
 
-Use an isolated Gradle cache on hosts where the default Gradle native cache is
-not writable:
+Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
+default Gradle native cache is not writable:
 
 ```bash
-GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle gradle clean check
+GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew clean check
 ```
