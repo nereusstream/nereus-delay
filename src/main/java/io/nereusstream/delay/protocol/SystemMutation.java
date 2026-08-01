@@ -47,7 +47,9 @@ public final class SystemMutation {
         this.retryUntilEpochMs = retryUntilEpochMs;
         this.logicalOperationIdentity = fixed(logicalOperationIdentity, HASH_LENGTH, "logicalOperationIdentity");
         this.canonicalBody = Bytes.copy(canonicalBody);
-        this.authorIdentity = requireNonEmpty(authorIdentity, "authorIdentity");
+        final AuthorIdentity decodedAuthor = AuthorIdentity.decode(authorIdentity);
+        decodedAuthor.requireFor(type);
+        this.authorIdentity = decodedAuthor.canonicalBytes();
         if (signingKeyVersion <= 0) {
             throw new IllegalArgumentException("signingKeyVersion must be positive");
         }
@@ -74,7 +76,8 @@ public final class SystemMutation {
         Objects.requireNonNull(privateKey, "privateKey");
         final byte[] logical = fixed(logicalOperationIdentity, HASH_LENGTH, "logicalOperationIdentity");
         final byte[] body = Bytes.copy(canonicalBody);
-        final byte[] author = requireNonEmpty(authorIdentity, "authorIdentity");
+        final byte[] author = AuthorIdentity.decode(authorIdentity).canonicalBytes();
+        AuthorIdentity.decode(author).requireFor(type);
         final byte[] hash = computeMutationHash(shardId, type, retryUntilEpochMs, body);
         final byte[] id = computeSystemMutationId(shardId, type, logical, hash);
         final byte[] signature = sign(signatureDigest(shardId, type, retryUntilEpochMs, id, body, hash, author,
@@ -319,14 +322,6 @@ public final class SystemMutation {
 
     private static byte[] fixed(final byte[] value, final int length, final String name) {
         Bytes.requireLength(value, length, name);
-        return Bytes.copy(value);
-    }
-
-    private static byte[] requireNonEmpty(final byte[] value, final String name) {
-        Objects.requireNonNull(value, name);
-        if (value.length == 0) {
-            throw new IllegalArgumentException(name + " must not be empty");
-        }
         return Bytes.copy(value);
     }
 

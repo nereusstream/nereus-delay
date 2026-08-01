@@ -143,8 +143,10 @@ class ProtocolCodecTest {
         final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
         final KeyPair keyPair = keyPairGenerator.generateKeyPair();
         final byte[] logicalIdentity = Bytes.sha256(Bytes.utf8("publish-attempt"));
+        final byte[] author = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 42,
+                Bytes.sha256(Bytes.utf8("lease-fence"))).canonicalBytes();
         final SystemMutation mutation = SystemMutation.signed(shard, SystemMutationType.PUBLISH_ADMISSION, 25_000,
-                logicalIdentity, Bytes.utf8("canonical-body"), Bytes.utf8("author-v1"), 3, keyPair.getPrivate());
+                logicalIdentity, Bytes.utf8("canonical-body"), author, 3, keyPair.getPrivate());
 
         final SystemMutation decoded = SystemMutation.decodeFrame(mutation.encodeFrame(), logicalIdentity);
 
@@ -160,13 +162,24 @@ class ProtocolCodecTest {
         final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
         final KeyPair keyPair = keyPairGenerator.generateKeyPair();
         final byte[] logicalIdentity = Bytes.sha256(Bytes.utf8("control-target"));
+        final byte[] author = AuthorIdentity.control(Bytes.sha256(Bytes.utf8("actor")),
+                Bytes.sha256(Bytes.utf8("roles")), Bytes.sha256(Bytes.utf8("scope"))).canonicalBytes();
         final SystemMutation mutation = SystemMutation.signed(shard, SystemMutationType.APPLY_SHARD_CONTROL, 30_000,
-                logicalIdentity, new byte[]{1, 2}, new byte[]{3}, 1, keyPair.getPrivate());
+                logicalIdentity, new byte[]{1, 2}, author, 1, keyPair.getPrivate());
 
         assertThrows(IllegalArgumentException.class,
                 () -> SystemMutation.decodeFrame(mutation.encodeFrame(), Bytes.sha256(Bytes.utf8("other"))));
         final byte[] tampered = mutation.encodeFrame();
         tampered[tampered.length - 5] ^= 1;
         assertThrows(IllegalArgumentException.class, () -> SystemMutation.decodeFrame(tampered, logicalIdentity));
+    }
+
+    @Test
+    void authorIdentityBranchMustMatchSystemMutationType() {
+        final byte[] owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1,
+                Bytes.sha256(Bytes.utf8("lease"))).canonicalBytes();
+        assertEquals(AuthorIdentity.Kind.OWNER, AuthorIdentity.decode(owner).kind());
+        assertThrows(IllegalArgumentException.class,
+                () -> AuthorIdentity.decode(owner).requireFor(SystemMutationType.APPLY_SHARD_CONTROL));
     }
 }
