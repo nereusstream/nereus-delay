@@ -9,9 +9,11 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Destination-Lane weighted deficit round robin. Lane circuit/failure state is
@@ -122,6 +124,41 @@ public final class LaneScheduler {
                         state.queue.size(), state.schedulable()))
                 .toList();
         return new SchedulerSnapshot(cursor, roundGeneration, states);
+    }
+
+    /** Returns the semantic successor order used by the inner DRR ring. */
+    public synchronized List<DestinationLaneId> ringOrder() {
+        return List.copyOf(ring);
+    }
+
+    /** Returns Lane snapshots in semantic ring order rather than key order. */
+    public synchronized List<LaneSnapshot> orderedSnapshot() {
+        return ring.stream().map(lanes::get)
+                .filter(Objects::nonNull)
+                .map(state -> new LaneSnapshot(state.laneId, state.weight, state.deficit, state.lastServedRound,
+                        state.queue.size(), state.schedulable()))
+                .toList();
+    }
+
+    /** Rebuilds the in-memory ring from a validated persisted successor order. */
+    public synchronized void restoreRing(final List<DestinationLaneId> persistedOrder) {
+        Objects.requireNonNull(persistedOrder, "persistedOrder");
+        final Set<DestinationLaneId> seen = new HashSet<>();
+        final List<DestinationLaneId> rebuilt = new ArrayList<>();
+        for (DestinationLaneId laneId : persistedOrder) {
+            if (!seen.add(laneId) || !lanes.containsKey(laneId)) {
+                continue;
+            }
+            rebuilt.add(laneId);
+        }
+        for (DestinationLaneId laneId : ring) {
+            if (seen.add(laneId)) {
+                rebuilt.add(laneId);
+            }
+        }
+        ring.clear();
+        ring.addAll(rebuilt);
+        cursor = ring.isEmpty() ? 0 : cursor % ring.size();
     }
 
     /** Restores fair-scheduling counters after all current Lane records are registered. */

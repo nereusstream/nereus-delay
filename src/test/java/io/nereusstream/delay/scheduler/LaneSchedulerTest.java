@@ -3,10 +3,13 @@ package io.nereusstream.delay.scheduler;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.RouteIncarnation;
+import io.nereusstream.delay.protocol.SchedulerProjectionsV1;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.runtime.AdmissionGate;
 import io.nereusstream.delay.runtime.LaneRecord;
 import io.nereusstream.delay.runtime.RuntimeReadiness;
+import io.nereusstream.delay.store.ColumnFamily;
+import io.nereusstream.delay.store.KeyCodec;
 import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.ShardStoreConfig;
 import io.nereusstream.delay.store.SharedRocksDbResources;
@@ -87,6 +90,35 @@ class LaneSchedulerTest {
             assertEquals(expected.deficit(), restored.deficit());
             assertEquals(expected.lastServedRound(), restored.lastServedRound());
             assertEquals(expected.weight(), restored.weight());
+        }
+    }
+
+    @Test
+    void persistsAllFiveClosedSchedulerProjectionsTogether() {
+        final DestinationLaneId lane = lane(6);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 6);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
+            scheduler.register(record(lane, 1));
+            scheduler.offer(item(lane, 1));
+            scheduler.poll(new SchedulerBudget(1, 1024, 1_000_000_000));
+
+            org.junit.jupiter.api.Assertions.assertNotNull(store.getValue(ColumnFamily.META,
+                    KeyCodec.metaScheduler(1), 5));
+            org.junit.jupiter.api.Assertions.assertNotNull(store.getValue(ColumnFamily.META,
+                    KeyCodec.metaScheduler(2), 5));
+            org.junit.jupiter.api.Assertions.assertNotNull(store.getValue(ColumnFamily.META,
+                    KeyCodec.metaScheduler(3), 5));
+            org.junit.jupiter.api.Assertions.assertNotNull(store.getValue(ColumnFamily.META,
+                    KeyCodec.metaScheduler(4), 5));
+            org.junit.jupiter.api.Assertions.assertNotNull(store.getValue(ColumnFamily.META,
+                    KeyCodec.metaScheduler(5), 5));
+            SchedulerProjectionsV1.ActiveRing.decode(store.getValue(ColumnFamily.META,
+                    KeyCodec.metaScheduler(2), 5).payload());
+            SchedulerProjectionsV1.Round.decode(store.getValue(ColumnFamily.META,
+                    KeyCodec.metaScheduler(4), 5).payload());
         }
     }
 
