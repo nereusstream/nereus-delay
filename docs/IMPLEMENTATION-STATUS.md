@@ -51,7 +51,7 @@ to the intended modules:
 | Checkpoint file inventory and canonical manifest projection | Implemented (local/object publication boundary pending) | `CheckpointFileInventory`, `CheckpointManifest`, `CheckpointManifestTest` |
 | Checkpoint restore into a new Store Incarnation | Implemented (local restore path) | `ShardStore.restoreFromCheckpoint`, `ShardStoreTest` |
 | Command applied/rejected state machine | Implemented (embedded core) | `DelayShard`, `DelayShardTest` |
-| Source assignment and Owner Lease | Implemented (CAS boundary/test authority) | `OwnerLeaseStore`, `OwnedDelayShard`, `OwnerLeaseTest`; Oxia adapter pending |
+| Source assignment and Owner Lease | Implemented (local lifecycle/CAS boundary) | `OwnerLeaseStore`, `OwnedDelayShard`, `OwnerLeaseTest`; Kafka/Pulsar assignment barriers and Oxia adapter pending |
 | Queued vs applied client outcomes | Implemented (embedded core) | `EmbeddedDelayServiceTest` |
 | Destination Lane gate/readiness projection | Implemented (core projection) | `LaneRecord`, `DelayShard` |
 | Destination Lane isolation and bounded weighted DRR | Implemented (scheduler core) | `LaneSchedulerTest`; lane work discovery and exact five-value registry projection pending |

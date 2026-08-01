@@ -16,7 +16,7 @@ public final class OwnedDelayShard {
     public OwnedDelayShard(final DelayShard delegate, final OwnerLease lease) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
         this.lease = Objects.requireNonNull(lease, "lease");
-        this.state = ShardLifecycleState.ACTIVE_FOR_COMMANDS;
+        this.state = ShardLifecycleState.RESTORING;
     }
 
     public synchronized CommandResult apply(final PreparedCommand command, final SourcePosition position,
@@ -36,6 +36,31 @@ public final class OwnedDelayShard {
         state = ShardLifecycleState.FENCED;
     }
 
+    public synchronized void markCatchingUp() {
+        if (state != ShardLifecycleState.RESTORING) {
+            throw new IllegalStateException("shard is not restoring");
+        }
+        state = ShardLifecycleState.CATCHING_UP;
+    }
+
+    public synchronized void activateForCommands(final long nowEpochMs) {
+        if (state != ShardLifecycleState.CATCHING_UP) {
+            throw new IllegalStateException("shard has not completed source catch-up");
+        }
+        if (!lease.validAt(nowEpochMs)) {
+            state = ShardLifecycleState.FENCED;
+            throw new IllegalStateException("owner lease expired before activation");
+        }
+        state = ShardLifecycleState.ACTIVE_FOR_COMMANDS;
+    }
+
+    public synchronized void beginDrain() {
+        if (state != ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
+            throw new IllegalStateException("only an active shard can drain");
+        }
+        state = ShardLifecycleState.DRAINING;
+    }
+
     public synchronized OwnerLease lease() {
         return lease;
     }
@@ -45,10 +70,12 @@ public final class OwnedDelayShard {
     }
 
     private void ensureActive(final long nowEpochMs) {
-        if (state != ShardLifecycleState.ACTIVE_FOR_COMMANDS || !lease.validAt(nowEpochMs)) {
+        if (!lease.validAt(nowEpochMs)) {
             state = ShardLifecycleState.FENCED;
             throw new IllegalStateException("shard owner lease is not active");
         }
+        if (state != ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
+            throw new IllegalStateException("shard lifecycle is not active for commands: " + state);
+        }
     }
 }
-
