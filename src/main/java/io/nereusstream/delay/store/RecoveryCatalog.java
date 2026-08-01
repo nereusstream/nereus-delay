@@ -20,11 +20,15 @@ public final class RecoveryCatalog {
     private final Map<String, CheckpointManifest> manifests = new HashMap<>();
     private long catalogGeneration;
     private RecoveryFloor floor;
+    private io.nereusstream.delay.protocol.ShardId catalogShard;
 
     public synchronized Publication publish(final CheckpointManifest manifest, final long expectedCatalogGeneration) {
         Objects.requireNonNull(manifest, "manifest");
         if (expectedCatalogGeneration != catalogGeneration) {
             throw new IllegalStateException("checkpoint catalog generation conflict");
+        }
+        if (catalogShard != null && !catalogShard.equals(manifest.shardId())) {
+            throw new IllegalArgumentException("checkpoint catalog is bound to a different shard");
         }
         final String key = key(manifest.checkpointId());
         final CheckpointManifest existing = manifests.get(key);
@@ -34,7 +38,13 @@ public final class RecoveryCatalog {
             }
             return new Publication(existing, catalogGeneration, floor);
         }
+        if (manifest.parentCheckpoint() == null && manifest.lineageGeneration() != 0) {
+            throw new IllegalArgumentException("genesis checkpoint must have lineage generation zero");
+        }
         validateParent(manifest);
+        if (catalogShard == null) {
+            catalogShard = manifest.shardId();
+        }
         catalogGeneration = Math.addExact(catalogGeneration, 1);
         manifests.put(key, manifest);
         return new Publication(manifest, catalogGeneration, floor);
@@ -51,6 +61,11 @@ public final class RecoveryCatalog {
         final CheckpointManifest candidate = manifests.get(key(checkpointId));
         if (candidate == null) {
             throw new IllegalArgumentException("checkpoint is not published");
+        }
+        // This also proves that the candidate is a descendant of the current
+        // floor rather than merely sharing its lineage and a higher position.
+        if (floor != null) {
+            recoverySet(checkpointId);
         }
         if (floor != null) {
             if (!Bytes.constantTimeEquals(floor.recoveryLineageId(), candidate.recoveryLineageId())) {
@@ -74,6 +89,29 @@ public final class RecoveryCatalog {
 
     public synchronized Optional<RecoveryFloor> currentFloor() {
         return Optional.ofNullable(floor);
+    }
+
+    /**
+     * Validates that an exact manifest is catalog-published and still belongs
+     * to the floor-bounded recovery set.  It performs no catalog mutation and
+     * is the local counterpart of an Oxia recovery-candidate read/verification.
+     */
+    public synchronized void validatePublishedRestoreCandidate(final CheckpointManifest candidate) {
+        Objects.requireNonNull(candidate, "candidate");
+        final CheckpointManifest published = manifests.get(key(candidate.checkpointId()));
+        if (published == null || !Bytes.constantTimeEquals(published.manifestSha256(), candidate.manifestSha256())) {
+            throw new IllegalArgumentException("checkpoint is not the published catalog manifest");
+        }
+        recoverySet(candidate.checkpointId());
+    }
+
+    /** Returns the newest checkpoint in the floor-bounded recovery set. */
+    public synchronized CheckpointManifest selectRecoveryCandidate(final byte[] checkpointId) {
+        final List<CheckpointManifest> set = recoverySet(checkpointId);
+        if (set.isEmpty()) {
+            throw new IllegalStateException("published recovery set is empty");
+        }
+        return set.get(set.size() - 1);
     }
 
     /** Returns the floor-to-candidate ancestry in replay order. */

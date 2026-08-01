@@ -158,6 +158,24 @@ public final class ShardStore implements AutoCloseable {
         }
     }
 
+    /**
+     * Restores only an exact manifest that is already published in the local
+     * recovery catalog and is still inside its floor-bounded ancestry.
+     *
+     * <p>The catalog check is deliberately separate from file verification:
+     * the former proves recovery authority, while the latter proves the local
+     * physical bytes.  Production wiring replaces the in-memory catalog with
+     * the Oxia CAS/catalog read without changing this boundary.</p>
+     */
+    public static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
+                                                   final SharedRocksDbResources resources,
+                                                   final Path checkpointPath, final CheckpointManifest manifest,
+                                                   final RecoveryCatalog catalog) {
+        Objects.requireNonNull(catalog, "catalog");
+        catalog.validatePublishedRestoreCandidate(Objects.requireNonNull(manifest, "manifest"));
+        return restoreFromCheckpoint(config, shardId, resources, checkpointPath, manifest);
+    }
+
     private static void validateCheckpointManifest(final ShardId shardId, final Path checkpointPath,
                                                    final CheckpointManifest manifest) throws IOException {
         if (!manifest.shardId().equals(shardId) || manifest.storeFormatVersion() != META_STORE_FORMAT) {

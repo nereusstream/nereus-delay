@@ -79,6 +79,47 @@ class ShardStoreTest {
     }
 
     @Test
+    void catalogBoundRestoreRequiresPublishedFloorEligibleManifest() throws Exception {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 20);
+        final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("catalog-source"));
+        final Path checkpoint = tempDir.resolve("catalog-checkpoint");
+        final byte[] key = KeyCodec.metaFixed(7);
+        final byte[] payload = Bytes.utf8("catalog-value");
+        final byte[] dbIdentity;
+        final UUID sourceStoreIncarnation;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(sourceConfig);
+             ShardStore store = ShardStore.open(sourceConfig, shardId, resources)) {
+            dbIdentity = store.metadata().dbIdentity();
+            sourceStoreIncarnation = store.metadata().storeIncarnationUuid();
+            store.write(batch -> batch.putValue(ColumnFamily.META, 7, key, payload));
+            store.createCheckpoint(checkpoint);
+        }
+        final List<CheckpointManifest.FileEntry> files = CheckpointFileInventory.collect(checkpoint).stream()
+                .map(file -> new CheckpointManifest.FileEntry(file.name(), file.length(), file.checksum(),
+                        Bytes.utf8("object/" + file.name()), Bytes.utf8("version"), null))
+                .toList();
+        final CheckpointManifest manifest = new CheckpointManifest(bytes(30), bytes(31), 0, null, null,
+                new CheckpointManifest.CreatedBy(bytes(32), bytes(33), 1),
+                new CheckpointManifest.CreatedAt(1_000, 1_000, "TEST_CLOCK", bytes(34), 1, 0, 0,
+                        Bytes.sha256(Bytes.utf8("evidence")), 0, null), shardId, dbIdentity, sourceStoreIncarnation,
+                1, 0, new KafkaSourcePosition(shardId, "cluster", UUID.randomUUID(), 0, null, 1_000),
+                new byte[32], new byte[32], files);
+        final RecoveryCatalog catalog = new RecoveryCatalog();
+        final ShardStoreConfig unpublishedConfig = ShardStoreConfig.defaults(tempDir.resolve("unpublished-restore"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(unpublishedConfig)) {
+            assertThrows(IllegalArgumentException.class, () -> ShardStore.restoreFromCheckpoint(
+                    unpublishedConfig, shardId, resources, checkpoint, manifest, catalog));
+        }
+        catalog.publish(manifest, 0);
+        final ShardStoreConfig restoreConfig = ShardStoreConfig.defaults(tempDir.resolve("catalog-restore"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(restoreConfig);
+             ShardStore restored = ShardStore.restoreFromCheckpoint(restoreConfig, shardId, resources,
+                     checkpoint, manifest, catalog)) {
+            assertArrayEquals(payload, restored.getValue(ColumnFamily.META, key, 7).payload());
+        }
+    }
+
+    @Test
     void workerDbSlotLimitFailsBeforeOpeningAnotherShard() {
         final ShardStoreConfig config = new ShardStoreConfig(tempDir.resolve("bounded"), 1, 1, 32, 32,
                 1, 1024 * 1024, 1024 * 1024, 1, 1, 1024);

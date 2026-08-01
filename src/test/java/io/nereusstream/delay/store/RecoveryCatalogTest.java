@@ -33,7 +33,29 @@ class RecoveryCatalogTest {
         final RecoveryFloor secondFloor = catalog.advanceFloor(child.checkpointId(), 3, id32(5));
         assertArrayEquals(child.checkpointId(), secondFloor.checkpointId());
         assertEquals(List.of(child), catalog.recoverySet(child.checkpointId()));
+        catalog.validatePublishedRestoreCandidate(child);
+        assertEquals(child, catalog.selectRecoveryCandidate(child.checkpointId()));
         assertEquals(4, catalog.publish(child, 4).catalogGeneration());
+    }
+
+    @Test
+    void floorCannotMoveAcrossAPublishedSibling() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 2);
+        final byte[] lineage = id16(30);
+        final CheckpointManifest genesis = manifest(shard, UUID.randomUUID(), lineage, id16(31), 0, 1, 1, null);
+        final RecoveryCatalog catalog = new RecoveryCatalog();
+        catalog.publish(genesis, 0);
+        final CheckpointManifest first = manifest(shard, ((KafkaSourcePosition) genesis.appliedShardLogPosition())
+                .nativeTopicUuid(), lineage, id16(32), 1, 2, 2,
+                new CheckpointManifest.ParentCheckpoint(genesis.checkpointId(), Bytes.hex(genesis.manifestSha256())));
+        final CheckpointManifest sibling = manifest(shard, ((KafkaSourcePosition) genesis.appliedShardLogPosition())
+                .nativeTopicUuid(), lineage, id16(33), 1, 3, 3,
+                new CheckpointManifest.ParentCheckpoint(genesis.checkpointId(), Bytes.hex(genesis.manifestSha256())));
+        catalog.publish(first, 1);
+        catalog.publish(sibling, 2);
+        catalog.advanceFloor(first.checkpointId(), 3, id32(34));
+        assertThrows(IllegalStateException.class,
+                () -> catalog.advanceFloor(sibling.checkpointId(), 4, id32(35)));
     }
 
     @Test
