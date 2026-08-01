@@ -192,6 +192,54 @@ class AdapterIngressTest {
         }
     }
 
+    @Test
+    void pulsarWireBridgeCarriesBatchAwareReceiptAndEvidence() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 9);
+        final byte[] token = Bytes.sha256(Bytes.utf8("wire-pulsar-token"));
+        final PulsarIngressResource resource = new PulsarIngressResource(shard, "cluster-pulsar-wire", token,
+                "persistent://tenant/ns/command-9", 9009, 9);
+        final PreparedCommand command = command(shard);
+        final byte[] evidence = Bytes.utf8("pulsar-response");
+        final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("pulsar-attempt")), 16);
+        final PinnedPulsarCommandIngress.PulsarSendTransport transport = request -> {
+            assertEquals(resource.physicalTopicCreationTimestamp(), request.physicalTopicCreationTimestamp());
+            return CompletableFuture.completedFuture(PulsarSendResult.persisted("cluster-pulsar-wire", token,
+                    resource.physicalTopic(), resource.physicalTopicCreationTimestamp(), 9, 12, 13, 2, 3, true,
+                    2_001, evidence));
+        };
+        try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
+            final var wire = adapter.enqueueOutcomeV1(command, 5_000, attempt).toCompletableFuture().join();
+            assertEquals(EnqueueOutcomeKindV1.QUEUED, wire.kind());
+            final var ack = (io.nereusstream.delay.protocol.CommandQueuedReceiptV1.PulsarQueuedAck)
+                    wire.queued().brokerAck();
+            assertArrayEquals(Bytes.sha256(evidence), ack.sendReceiptSha256());
+            assertEquals(2, ack.normalizedBatchIndex());
+            assertEquals(wire, io.nereusstream.delay.protocol.EnqueueOutcomeMessageV1.decode(
+                    wire.canonicalBytes()));
+        }
+    }
+
+    @Test
+    void pulsarWireBridgeCarriesGuardRejectionProof() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 10);
+        final byte[] token = Bytes.sha256(Bytes.utf8("guard-wire-token"));
+        final PulsarIngressResource resource = new PulsarIngressResource(shard, "cluster-pulsar-proof", token,
+                "persistent://tenant/ns/command-10", 9010, 10);
+        final PreparedCommand command = command(shard);
+        final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("pulsar-proof-attempt")), 16);
+        final PinnedPulsarCommandIngress.PulsarSendTransport transport = request ->
+                CompletableFuture.completedFuture(PulsarSendResult.definitelyNotPersisted(
+                        StableCode.BROKER_DEFINITIVE_NOT_PERSISTED.wireValue(), Bytes.utf8("guard-rejection")));
+        try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
+            final var wire = adapter.enqueueOutcomeV1(command, 5_000, attempt).toCompletableFuture().join();
+            assertEquals(EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED, wire.kind());
+            assertEquals(NonPersistenceProofKindV1.PULSAR_GUARD_REJECTION,
+                    wire.definitelyNotQueued().proof().kind());
+            assertEquals(wire, io.nereusstream.delay.protocol.EnqueueOutcomeMessageV1.decode(
+                    wire.canonicalBytes()));
+        }
+    }
+
     private static PreparedCommand command(final ShardId shard) {
         return PreparedCommand.schedule(shard, new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("adapter-lane")),
                 2000, 5000, OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
