@@ -272,6 +272,23 @@ public final class SystemMutation {
                 Bytes.u64be(expectedResourceStateVersion));
     }
 
+    /** Computes the logical identity for one numbered DLQ export physical attempt. */
+    public static byte[] computeDlqExportAttemptLogicalIdentity(final byte[] dlqExportId,
+                                                                  final int physicalAttemptNo) {
+        if (physicalAttemptNo <= 0) {
+            throw new IllegalArgumentException("physicalAttemptNo must be positive");
+        }
+        return Bytes.sha256(Bytes.utf8("nereus-delay-dlq-export-attempt-logical-id-v1\0"),
+                fixed(dlqExportId, HASH_LENGTH, "dlqExportId"), Bytes.u32be(physicalAttemptNo));
+    }
+
+    /** Computes the logical identity for one DLQ export evidence resolution. */
+    public static byte[] computeDlqExportEvidenceLogicalIdentity(final byte[] dlqExportId,
+                                                                   final byte[] evidenceId) {
+        return Bytes.sha256(Bytes.utf8("nereus-delay-dlq-export-evidence-logical-id-v1\0"),
+                fixed(dlqExportId, HASH_LENGTH, "dlqExportId"), fixed(evidenceId, HASH_LENGTH, "evidenceId"));
+    }
+
     /** Validates the closed common fields shared by every System Mutation body. */
     public static void validateBodyPrefix(final ShardId shardId, final SystemMutationType type,
                                           final long retryUntilEpochMs, final byte[] canonicalBody) {
