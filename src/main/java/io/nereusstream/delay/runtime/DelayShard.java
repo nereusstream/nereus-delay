@@ -189,15 +189,57 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED);
         }
-        if (mutation.type() != SystemMutationType.EXPIRE_GENERATION) {
-            throw new UnsupportedOperationException("System Mutation type is not implemented: " + mutation.type());
-        }
         try {
-            return applyExpireGenerationMutation(mutation, sourcePosition);
+            return switch (mutation.type()) {
+                case EXPIRE_GENERATION -> applyExpireGenerationMutation(mutation, sourcePosition);
+                case PUBLISH_OUTCOME -> applyPublishOutcomeMutation(mutation, sourcePosition);
+                default -> throw new UnsupportedOperationException(
+                        "System Mutation type is not implemented: " + mutation.type());
+            };
         } catch (IllegalArgumentException exception) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }
+    }
+
+    private SystemMutationResult applyPublishOutcomeMutation(final SystemMutation mutation,
+                                                              final SourcePosition sourcePosition) {
+        final List<io.nereusstream.delay.protocol.CanonicalProtobuf.Reader.Field> fields =
+                SystemMutationBodyCodec.fields(SystemMutationType.PUBLISH_OUTCOME, mutation.canonicalBody());
+        final byte[] attemptId = fixedBodyBytes(field(fields, 10), 10, PublishAttemptLedger.HASH_LENGTH);
+        final int sideEffect = bodyInt(field(fields, 11), 11);
+        final int disposition = bodyInt(field(fields, 12), 12);
+        final StableCode code = StableCode.fromWire(bodyInt(field(fields, 13), 13));
+        final byte[] evidence = optionalBodyBytes(fields, 14);
+        final io.nereusstream.delay.protocol.AuthorIdentity author =
+                io.nereusstream.delay.protocol.AuthorIdentity.decode(mutation.authorIdentity());
+        final PublishAttemptLedger ledger = getPublishAttempt(attemptId, author.generation());
+        if (ledger == null || ledger.state() != AttemptLedgerState.PUBLISHING) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+        if (sideEffect == 1) {
+            if (disposition != 0 || code != StableCode.OK || evidence.length == 0) {
+                return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                        StableCode.STALE_SYSTEM_MUTATION);
+            }
+            final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, code,
+                    sourcePosition.canonicalBytes());
+            applyPublishedPublishOutcome(attemptId, author.generation(), sourcePosition, result);
+            return result;
+        }
+        if (sideEffect == 3) {
+            if (disposition == 0 || code == StableCode.OK || evidence.length != 0) {
+                return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                        StableCode.STALE_SYSTEM_MUTATION);
+            }
+            final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, code,
+                    sourcePosition.canonicalBytes());
+            applyUnknownPublishOutcome(attemptId, author.generation(), mutation.canonicalBody(), evidence,
+                    sourcePosition, result);
+            return result;
+        }
+        throw new UnsupportedOperationException("NOT_PUBLISHED outcome application is not implemented");
     }
 
     private SystemMutationResult applyExpireGenerationMutation(final SystemMutation mutation,
@@ -331,6 +373,16 @@ public final class DelayShard {
         return value;
     }
 
+    private static byte[] optionalBodyBytes(
+            final List<io.nereusstream.delay.protocol.CanonicalProtobuf.Reader.Field> fields, final int number) {
+        for (int index = 3; index < fields.size(); index++) {
+            if (fields.get(index).number() == number) {
+                return bytesBody(fields.get(index), number);
+            }
+        }
+        return new byte[0];
+    }
+
     public synchronized TerminalGenerationRecord getTerminalGeneration(final DelayMessageId messageId,
                                                                         final int generation) {
         final var value = store.getValue(ColumnFamily.TERMINAL, KeyCodec.terminalGeneration(messageId, generation), 1);
@@ -440,6 +492,16 @@ public final class DelayShard {
                                                                          final byte[] canonicalOutcome,
                                                                          final byte[] evidence,
                                                                          final SourcePosition sourcePosition) {
+        return applyUnknownPublishOutcome(publishAttemptId, ownerEpoch, canonicalOutcome, evidence, sourcePosition,
+                null);
+    }
+
+    private PublishAttemptLedger applyUnknownPublishOutcome(final byte[] publishAttemptId,
+                                                             final long ownerEpoch,
+                                                             final byte[] canonicalOutcome,
+                                                             final byte[] evidence,
+                                                             final SourcePosition sourcePosition,
+                                                             final SystemMutationResult systemResult) {
         validateMutationPosition(sourcePosition);
         final PublishAttemptLedger currentLedger = getPublishAttempt(publishAttemptId, ownerEpoch);
         if (currentLedger == null || currentLedger.state() != AttemptLedgerState.PUBLISHING) {
@@ -467,6 +529,9 @@ public final class DelayShard {
                 deleteReadyKey(batch, projection.previousLane());
                 putReadyProjection(batch, projection);
             }
+            if (systemResult != null) {
+                writeSystemResult(batch, systemResult);
+            }
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
@@ -478,6 +543,12 @@ public final class DelayShard {
     public synchronized MessageRecord applyPublishedPublishOutcome(final byte[] publishAttemptId,
                                                                     final long ownerEpoch,
                                                                     final SourcePosition sourcePosition) {
+        return applyPublishedPublishOutcome(publishAttemptId, ownerEpoch, sourcePosition, null);
+    }
+
+    private MessageRecord applyPublishedPublishOutcome(final byte[] publishAttemptId, final long ownerEpoch,
+                                                       final SourcePosition sourcePosition,
+                                                       final SystemMutationResult systemResult) {
         validateMutationPosition(sourcePosition);
         final PublishAttemptLedger ledger = getPublishAttempt(publishAttemptId, ownerEpoch);
         if (ledger == null || ledger.state() != AttemptLedgerState.PUBLISHING) {
@@ -505,6 +576,9 @@ public final class DelayShard {
             for (LaneProjection projection : projections.values()) {
                 deleteReadyKey(batch, projection.previousLane());
                 putReadyProjection(batch, projection);
+            }
+            if (systemResult != null) {
+                writeSystemResult(batch, systemResult);
             }
             writePosition(batch, sourcePosition);
         });

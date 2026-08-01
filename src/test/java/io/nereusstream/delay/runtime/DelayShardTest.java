@@ -424,6 +424,90 @@ class DelayShardTest {
         }
     }
 
+    @Test
+    void sourceOrderedPublishOutcomeAtomicallyMovesAttemptToUncertainAndRetainsDedupe() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-outcome-unknown"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 13);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("outcome-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("outcome")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 1_001);
+        final KafkaSourcePosition outcomePosition = position(shardId, 2, 1_002);
+        final byte[] attemptId = Bytes.sha256(Bytes.utf8("system-outcome-attempt"));
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final byte[] owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 42,
+                Bytes.sha256(Bytes.utf8("lease"))).canonicalBytes();
+        final TrustedUtcIntervalEvidence observedAt = new TrustedUtcIntervalEvidence(1_002, 1_002,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("clock"), 1, 2, 2,
+                Bytes.sha256(Bytes.utf8("outcome-proof")), 0, null);
+        final byte[] body = publishOutcomeBody(shardId, attemptId, 3, 4,
+                StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, new byte[0], observedAt.canonicalBytes());
+        final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
+                Bytes.sha256(Bytes.utf8("system-outcome-operation")), body, owner, 1, keyPair.getPrivate());
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final PublishAttemptLedger admission = PublishAttemptLedger.publishing(schedule.delayMessageId(), 0,
+                    attemptId, Bytes.sha256(Bytes.utf8("claim")), 42, 1, lane, new byte[16],
+                    Bytes.sha256(Bytes.utf8("owner")), store.metadata().storeIncarnation(),
+                    Bytes.sha256(Bytes.utf8("prepared")), Bytes.utf8("admission"), admissionPosition.canonicalBytes());
+            shard.admitPublishAttempt(admission, admissionPosition);
+
+            assertEquals(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN,
+                    shard.applySystemMutation(mutation, outcomePosition, keyPair.getPublic()).stableCode());
+            assertEquals(MessageStatus.UNCERTAIN, shard.getMessage(schedule.delayMessageId()).status());
+            assertEquals(AttemptLedgerState.UNCERTAIN, shard.findOpenPublishAttempt(attemptId).state());
+            assertEquals(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN,
+                    shard.getSystemMutationResult(mutation.systemMutationId()).stableCode());
+        }
+    }
+
+    @Test
+    void sourceOrderedPublishSuccessUsesEvidenceAndClosesAttempt() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-outcome-published"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 14);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("published-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("published")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 1_001);
+        final KafkaSourcePosition outcomePosition = position(shardId, 2, 1_002);
+        final byte[] attemptId = Bytes.sha256(Bytes.utf8("system-published-attempt"));
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final byte[] owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 7,
+                Bytes.sha256(Bytes.utf8("lease"))).canonicalBytes();
+        final TrustedUtcIntervalEvidence observedAt = new TrustedUtcIntervalEvidence(1_002, 1_002,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("clock"), 1, 3, 3,
+                Bytes.sha256(Bytes.utf8("published-proof")), 0, null);
+        final byte[] body = publishOutcomeBody(shardId, attemptId, 1, 0, StableCode.OK,
+                nestedPlaceholder(), observedAt.canonicalBytes());
+        final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
+                Bytes.sha256(Bytes.utf8("system-published-operation")), body, owner, 1, keyPair.getPrivate());
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final PublishAttemptLedger admission = PublishAttemptLedger.publishing(schedule.delayMessageId(), 0,
+                    attemptId, Bytes.sha256(Bytes.utf8("claim")), 7, 1, lane, new byte[16],
+                    Bytes.sha256(Bytes.utf8("owner")), store.metadata().storeIncarnation(),
+                    Bytes.sha256(Bytes.utf8("prepared")), Bytes.utf8("admission"), admissionPosition.canonicalBytes());
+            shard.admitPublishAttempt(admission, admissionPosition);
+
+            assertEquals(StableCode.OK,
+                    shard.applySystemMutation(mutation, outcomePosition, keyPair.getPublic()).stableCode());
+            assertEquals(MessageStatus.PUBLISHED, shard.getMessage(schedule.delayMessageId()).status());
+            assertNull(shard.findOpenPublishAttempt(attemptId));
+        }
+    }
+
     private static byte[] expiryBody(final ShardId shard, final io.nereusstream.delay.protocol.DelayMessageId messageId,
                                      final int generation, final long expireAt, final byte[] proof) {
         final byte[] subject = CanonicalProtobuf.message(output -> {
@@ -439,6 +523,34 @@ class DelayShardTest {
             CanonicalProtobuf.int64(output, 12, expireAt);
             CanonicalProtobuf.bytes(output, 13, proof);
         });
+    }
+
+    private static byte[] publishOutcomeBody(final ShardId shard, final byte[] attemptId, final int sideEffect,
+                                              final int disposition, final StableCode stableCode,
+                                              final byte[] evidence, final byte[] observedAt) {
+        final byte[] subject = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());
+            CanonicalProtobuf.uint32(output, 2, shard.partition());
+        });
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, subject);
+            CanonicalProtobuf.uint32(output, 2, SystemMutationType.PUBLISH_OUTCOME.wireValue());
+            CanonicalProtobuf.int64(output, 3, 9_000);
+            CanonicalProtobuf.bytes(output, 10, attemptId);
+            CanonicalProtobuf.uint32(output, 11, sideEffect);
+            CanonicalProtobuf.uint32(output, 12, disposition);
+            CanonicalProtobuf.uint32(output, 13, stableCode.wireValue());
+            if (evidence.length != 0) {
+                CanonicalProtobuf.bytes(output, 14, evidence);
+            }
+            CanonicalProtobuf.bytes(output, 15, nestedPlaceholder());
+            CanonicalProtobuf.bytes(output, 16, observedAt);
+            CanonicalProtobuf.bytes(output, 17, nestedPlaceholder());
+        });
+    }
+
+    private static byte[] nestedPlaceholder() {
+        return CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1, new byte[]{1}));
     }
 
     private static KafkaSourcePosition position(final ShardId shard, final long offset, final long timestamp) {
