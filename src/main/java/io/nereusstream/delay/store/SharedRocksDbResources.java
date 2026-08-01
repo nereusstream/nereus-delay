@@ -23,6 +23,18 @@ public final class SharedRocksDbResources implements AutoCloseable {
     private final AtomicBoolean closed = new AtomicBoolean();
 
     public SharedRocksDbResources(final ShardStoreConfig config) {
+        this(config, null);
+    }
+
+    /**
+     * Creates shared resources after validating an explicit process/container
+     * capacity proof.  The legacy constructor remains for embedded tests that
+     * do not claim a production resource envelope.
+     */
+    public SharedRocksDbResources(final ShardStoreConfig config, final WorkerResourceEnvelope envelope) {
+        if (envelope != null) {
+            envelope.validate(config);
+        }
         blockCache = new LRUCache(config.sharedBlockCacheBytes());
         writeBufferManager = new WriteBufferManager(config.sharedWriteBufferBudgetBytes(), blockCache);
         rateLimiter = new RateLimiter(0);

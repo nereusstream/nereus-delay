@@ -43,7 +43,7 @@ to the intended modules:
 | Pinned Kafka/Pulsar command ingress outcome mapping | Implemented (transport SPI) | `PinnedKafkaCommandIngress`, `PinnedPulsarCommandIngress`, `AdapterIngressTest`; concrete pinned request transports and source assignment pending |
 | Target publish side-effect outcome boundary | Implemented (transport SPI) | `DestinationPublishAdapter`, `PinnedKafkaDestinationAdapter`, `PinnedPulsarDestinationAdapter`, `DestinationAdapterTest`; Publish Admission/attempt ledger/evidence journal pending |
 | One Delay Shard = one RocksDB DB | Implemented | `ShardStore`, `ShardStoreTest` |
-| Worker DB/checkpoint resource limits | Implemented (local guard) | `ShardStoreConfig`, `SharedRocksDbResources`, `ShardStoreTest`; placement/physical capacity artifact pending |
+| Worker DB/checkpoint resource limits | Implemented (config-envelope subset) | `ShardStoreConfig`, `SharedRocksDbResources`, `WorkerResourceEnvelope`, `WorkerResourceEnvelopeTest`; checked memory/FD/disk cross-bucket inequalities fail closed before resource creation; live JVM/cgroup/rlimit probes, WAL/SST/temp accounting, per-work-class reserves and placement capacity artifact pending |
 | Seven application CFs plus empty `default` CF | Implemented | `ShardStore` descriptor validation |
 | Shard identity and local Store Incarnation validation | Implemented | `StoreMetadata`, `ShardStoreTest` |
 | Synchronous atomic WriteBatch | Implemented | `ShardStore.write`, `ShardStoreTest` |
