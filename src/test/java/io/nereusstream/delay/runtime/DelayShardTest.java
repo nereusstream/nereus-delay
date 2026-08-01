@@ -890,6 +890,35 @@ class DelayShardTest {
     }
 
     @Test
+    void shardActivationFailsClosedForOrphanedPublishLedger() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("orphaned-ledger"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 21);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("orphaned-ledger-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("orphaned")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 1_001);
+        final byte[] attemptId = Bytes.sha256(Bytes.utf8("orphaned-ledger-attempt"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final PublishAttemptLedger admission = PublishAttemptLedger.publishing(schedule.delayMessageId(), 0,
+                    attemptId, Bytes.sha256(Bytes.utf8("claim")), 42, 1, lane, new byte[16],
+                    Bytes.sha256(Bytes.utf8("owner")), store.metadata().storeIncarnation(),
+                    Bytes.sha256(Bytes.utf8("prepared")), Bytes.utf8("admission"), admissionPosition.canonicalBytes());
+            shard.admitPublishAttempt(admission, admissionPosition);
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> batch.delete(ColumnFamily.ID, KeyCodec.idMessage(schedule.delayMessageId())));
+            assertThrows(IllegalStateException.class, () -> new DelayShard(store, DelayShardConfig.defaults()));
+        }
+    }
+
+    @Test
     void claimResultConsumesExactClaimAndTerminalizesCurrentGeneration() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("claim-result-claimed"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 23);

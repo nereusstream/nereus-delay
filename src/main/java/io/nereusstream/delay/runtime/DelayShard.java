@@ -75,6 +75,7 @@ public final class DelayShard {
         claimSequence = claimSequenceValue == null ? 0 : readSequence(claimSequenceValue.payload());
         final var quotaValue = store.getValue(ColumnFamily.META, KeyCodec.metaQuota(META_QUOTA_USAGE), 7);
         quota = quotaValue == null ? ShardQuota.empty() : ShardQuota.decode(quotaValue.payload());
+        validateRuntimeObligationIndexes();
     }
 
     public synchronized CommandResult apply(final PreparedCommand command, final SourcePosition sourcePosition) {
@@ -2200,6 +2201,146 @@ public final class DelayShard {
             }
         }
         return null;
+    }
+
+    /**
+     * Reconciles the persisted runtime locator with every live Claim/attempt
+     * ledger before the shard can serve work.  A checkpoint that loses one
+     * side of this relationship is not safely replayable, so activation fails
+     * closed instead of guessing a current obligation.
+     */
+    private void validateRuntimeObligationIndexes() {
+        final int limit = boundedLimitPlusOne(config.maxPendingMessages());
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> messageEntries = store.scan(ColumnFamily.ID,
+                new byte[]{1, 1}, new byte[]{2, 1}, limit);
+        if (messageEntries.size() >= limit && config.maxPendingMessages() < Integer.MAX_VALUE) {
+            throw new IllegalStateException("message runtime-index scan exceeded configured bound");
+        }
+        final Map<DelayMessageId, MessageRecord> messages = new HashMap<>();
+        for (var entry : messageEntries) {
+            if (entry.key().length != 2 + DelayMessageId.LENGTH || entry.key()[0] != 1 || entry.key()[1] != 1) {
+                throw new IllegalStateException("invalid MESSAGE key while reconciling runtime indexes");
+            }
+            final byte[] messageBytes = Arrays.copyOfRange(entry.key(), 2, entry.key().length);
+            final DelayMessageId messageId = new DelayMessageId(messageBytes);
+            final MessageRecord message = MessageRecord.decode(
+                    io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), 1).payload());
+            messages.put(messageId, message);
+            validateMessageRuntimeBranches(messageId, message);
+            for (AttemptObligationRef obligation : message.runtimeIndex().attemptObligations()) {
+                final PublishAttemptLedger ledger = readLedgerForObligation(obligation);
+                if (!ledger.delayMessageId().equals(messageId)
+                        || ledger.generation() != message.generation()
+                        || ledger.state() != obligation.ledgerState()
+                        || !Bytes.constantTimeEquals(ledger.publishAttemptId(), obligation.publishAttemptId())
+                        || !Arrays.equals(ledger.obligationRef().canonicalBytes(), obligation.canonicalBytes())) {
+                    throw new IllegalStateException("runtime obligation does not match its inflight ledger");
+                }
+            }
+        }
+
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> claimEntries = store.scan(ColumnFamily.INFLIGHT,
+                new byte[]{INFLIGHT_CLAIMED_KIND, 1}, new byte[]{INFLIGHT_PUBLISHING_KIND, 1}, limit);
+        if (claimEntries.size() >= limit && config.maxPendingMessages() < Integer.MAX_VALUE) {
+            throw new IllegalStateException("Claim reconciliation scan exceeded configured bound");
+        }
+        final Set<DelayMessageId> claimedMessages = new HashSet<>();
+        for (var entry : claimEntries) {
+            final ClaimRecord claim = decodeClaim(entry);
+            final MessageRecord message = messages.get(claim.delayMessageId());
+            if (message == null || message.status() != MessageStatus.CLAIMED
+                    || message.generation() != claim.generation()
+                    || message.runtimeIndex().currentWorkKind() != CurrentSendWorkKind.CLAIMED
+                    || !Bytes.constantTimeEquals(message.runtimeIndex().claimId(), claim.claimId())) {
+                throw new IllegalStateException("Claim is not represented by the current runtime index");
+            }
+            if (!claimedMessages.add(claim.delayMessageId())) {
+                throw new IllegalStateException("message has multiple live Claim records");
+            }
+        }
+        for (var entry : messageEntries) {
+            final DelayMessageId messageId = new DelayMessageId(Arrays.copyOfRange(entry.key(), 2, entry.key().length));
+            final MessageRecord message = messages.get(messageId);
+            if (message.runtimeIndex().currentWorkKind() == CurrentSendWorkKind.CLAIMED
+                    && !claimedMessages.contains(messageId)) {
+                throw new IllegalStateException("CLAIMED runtime index has no live Claim record");
+            }
+        }
+
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> attemptEntries = store.scan(ColumnFamily.INFLIGHT,
+                new byte[]{INFLIGHT_PUBLISHING_KIND, 1}, new byte[]{4, 1}, limit);
+        if (attemptEntries.size() >= limit && config.maxPendingMessages() < Integer.MAX_VALUE) {
+            throw new IllegalStateException("attempt reconciliation scan exceeded configured bound");
+        }
+        for (var entry : attemptEntries) {
+            final PublishAttemptLedger ledger = decodePublishAttempt(entry);
+            final MessageRecord message = messages.get(ledger.delayMessageId());
+            if (message == null || !containsObligation(message.runtimeIndex(), ledger.obligationRef())) {
+                throw new IllegalStateException("inflight ledger is not represented by the current runtime index");
+            }
+        }
+    }
+
+    private void validateMessageRuntimeBranches(final DelayMessageId messageId, final MessageRecord message) {
+        final GenerationRuntimeIndex index = message.runtimeIndex();
+        if (index.currentWorkKind() == CurrentSendWorkKind.CLAIMED
+                && (message.status() != MessageStatus.CLAIMED || index.claimId().length != ClaimRecord.HASH_LENGTH)) {
+            throw new IllegalStateException("CLAIMED runtime branch does not match Message status");
+        }
+        if (index.currentWorkKind() == CurrentSendWorkKind.PUBLISHING
+                && (message.status() != MessageStatus.PUBLISHING
+                || index.publishAttemptId().length != PublishAttemptLedger.HASH_LENGTH)) {
+            throw new IllegalStateException("PUBLISHING runtime branch does not match Message status");
+        }
+        if (index.currentWorkKind() == CurrentSendWorkKind.TIMELINE
+                && (message.status() != MessageStatus.SCHEDULED || index.timeline() == null)) {
+            throw new IllegalStateException("TIMELINE runtime branch does not match Message status");
+        }
+        if (index.currentWorkKind() == CurrentSendWorkKind.NONE
+                && (message.status() == MessageStatus.CLAIMED || message.status() == MessageStatus.PUBLISHING)) {
+            throw new IllegalStateException("Message status has no current runtime branch");
+        }
+        if (index.currentWorkKind() == CurrentSendWorkKind.PUBLISHING) {
+            final long matches = index.attemptObligations().stream()
+                    .filter(ref -> ref.ledgerState() == AttemptLedgerState.PUBLISHING
+                            && Arrays.equals(ref.publishAttemptId(), index.publishAttemptId()))
+                    .count();
+            if (matches != 1) {
+                throw new IllegalStateException("PUBLISHING runtime branch lacks its obligation locator");
+            }
+        }
+    }
+
+    private PublishAttemptLedger readLedgerForObligation(final AttemptObligationRef obligation) {
+        final byte[] key = obligation.encodedInflightKey();
+        if (key.length != 2 + 8 + 4 + PublishAttemptLedger.HASH_LENGTH
+                || key[1] != 1
+                || (key[0] != INFLIGHT_PUBLISHING_KIND && key[0] != INFLIGHT_UNCERTAIN_KIND)) {
+            throw new IllegalStateException("runtime obligation has an invalid inflight key");
+        }
+        final ByteBuffer input = ByteBuffer.wrap(key);
+        input.position(2);
+        final long ownerEpoch = input.getLong();
+        final long idLength = Integer.toUnsignedLong(input.getInt());
+        final byte[] attemptId = new byte[PublishAttemptLedger.HASH_LENGTH];
+        input.get(attemptId);
+        if (ownerEpoch <= 0 || idLength != PublishAttemptLedger.HASH_LENGTH
+                || !Bytes.constantTimeEquals(attemptId, obligation.publishAttemptId())) {
+            throw new IllegalStateException("runtime obligation inflight identity is invalid");
+        }
+        final var value = store.getValue(ColumnFamily.INFLIGHT, key, PublishAttemptLedger.VALUE_TYPE);
+        if (value == null) {
+            throw new IllegalStateException("runtime obligation points to a missing inflight ledger");
+        }
+        final PublishAttemptLedger ledger = PublishAttemptLedger.decode(value.payload());
+        validatePublishAttemptKey(ledger, key, key[0], obligation.publishAttemptId(), ownerEpoch);
+        return ledger;
+    }
+
+    private static boolean containsObligation(final GenerationRuntimeIndex index,
+                                              final AttemptObligationRef expected) {
+        return index.attemptObligations().stream()
+                .anyMatch(actual -> Arrays.equals(actual.canonicalBytes(), expected.canonicalBytes()));
     }
 
     private LaneRecord readLane(final io.nereusstream.delay.protocol.DestinationLaneId laneId) {
