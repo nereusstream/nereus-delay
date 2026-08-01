@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CheckpointManifestTest {
@@ -46,6 +47,20 @@ class CheckpointManifestTest {
         assertTrue(first.startsWith("{\"appliedShardLogPosition\":"));
         assertTrue(first.contains("\"evidenceCursors\":[]"));
         assertEquals(32, manifest.manifestSha256().length);
+    }
+
+    @Test
+    void inventoryRejectsSymlinkedCheckpointFiles() throws Exception {
+        final Path root = tempDir.resolve("symlink-checkpoint");
+        Files.createDirectories(root);
+        final Path target = tempDir.resolve("outside");
+        Files.writeString(target, "outside-bytes");
+        try {
+            Files.createSymbolicLink(root.resolve("CURRENT"), target);
+        } catch (UnsupportedOperationException | java.nio.file.FileSystemException unsupported) {
+            return;
+        }
+        assertThrows(IllegalArgumentException.class, () -> CheckpointFileInventory.collect(root));
     }
 
     private static byte[] bytes(final int last) {

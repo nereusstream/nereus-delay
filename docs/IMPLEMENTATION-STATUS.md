@@ -147,7 +147,7 @@ to the intended modules:
 | Shard identity and local Store Incarnation validation | Implemented | `StoreMetadata`, `ShardStoreTest` |
 | Synchronous atomic WriteBatch | Implemented | `ShardStore.write`, `ShardStoreTest` |
 | Native RocksDB checkpoint creation | Implemented | `ShardStore.createCheckpoint`, `ShardStoreTest` |
-| Checkpoint file inventory and canonical manifest projection | Implemented (local/object publication boundary pending) | `CheckpointFileInventory`, `CheckpointManifest`, `CheckpointManifestTest` |
+| Checkpoint file inventory and canonical manifest projection | Implemented (local/object publication boundary pending) | `CheckpointFileInventory`, `CheckpointManifest`, `CheckpointManifestTest`; inventory streams SHA-256 over each file without loading an SST into heap and rejects symbolic links before restore/copy |
 | Checkpoint restore into a new Store Incarnation | Implemented (local manifest/catalog-validated path) | `ShardStore.restoreFromCheckpoint`, `ShardStoreTest`; exact published floor-eligible catalog candidate is checked before local manifest/file validation; Oxia Recovery Pin/Floor CAS and source replay pending |
 | Recovery catalog, lineage and Floor selection | Implemented (in-memory core subset) | `RecoveryCatalog`, `RecoveryFloor`, `RecoveryCatalogTest`; catalog binds one shard, rejects non-zero genesis lineage, enforces floor ancestry, exposes candidate validation/selection and `proveFloorCoverage` evidence; durable Oxia catalog/session pins, Object Store publication and evidence cursors pending |
 | Command applied/rejected state machine | Implemented (embedded core) | `DelayShard`, `DelayShardTest` |

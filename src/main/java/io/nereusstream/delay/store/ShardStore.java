@@ -121,7 +121,10 @@ public final class ShardStore implements AutoCloseable {
         final Path stagedDb = restoreRoot.resolve("db");
         final Path activeDb = shardRoot.resolve("incarnations").resolve(storeUuid.toString()).resolve("db");
         try {
-            if (!Files.isDirectory(checkpointPath) || !Files.isRegularFile(checkpointPath.resolve("CURRENT"))) {
+            if (Files.isSymbolicLink(checkpointPath)
+                    || !Files.isDirectory(checkpointPath)
+                    || !Files.isRegularFile(checkpointPath.resolve("CURRENT"),
+                    java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
                 throw new IOException("checkpoint is not a complete RocksDB directory: " + checkpointPath);
             }
             if (manifest != null) {
@@ -400,9 +403,12 @@ public final class ShardStore implements AutoCloseable {
         try (var paths = Files.walk(source)) {
             for (Path path : paths.toList()) {
                 final Path destination = target.resolve(source.relativize(path).toString());
+                if (Files.isSymbolicLink(path)) {
+                    throw new IOException("checkpoint contains a symbolic link: " + path);
+                }
                 if (Files.isDirectory(path)) {
                     Files.createDirectories(destination);
-                } else if (Files.isRegularFile(path)) {
+                } else if (Files.isRegularFile(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
                     Files.createDirectories(destination.getParent());
                     Files.copy(path, destination);
                 }
