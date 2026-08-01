@@ -46,6 +46,8 @@ class DelayShardTest {
             assertEquals(MessageStatus.SCHEDULED, shard.getMessage(schedule.delayMessageId()).status());
             assertNotNull(store.getValue(ColumnFamily.TIMELINE,
                     KeyCodec.timelineDue(lane, 2_000, position0.sourceOrderToken(), schedule.delayMessageId(), 0), 1));
+            assertNotNull(store.getValue(ColumnFamily.TIMELINE,
+                    KeyCodec.timelineExpiry(5_000, lane, schedule.delayMessageId(), 0), 1));
 
             assertEquals(scheduled, shard.apply(schedule, position0));
 
@@ -61,6 +63,8 @@ class DelayShardTest {
             assertEquals(MessageStatus.CANCELED, shard.getMessage(schedule.delayMessageId()).status());
             assertNull(store.getValue(ColumnFamily.TIMELINE,
                     KeyCodec.timelineDue(lane, 3_000, position1.sourceOrderToken(), schedule.delayMessageId(), 1), 1));
+            assertNull(store.getValue(ColumnFamily.TIMELINE,
+                    KeyCodec.timelineExpiry(6_000, lane, schedule.delayMessageId(), 1), 1));
         }
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
@@ -92,6 +96,27 @@ class DelayShardTest {
                             OrderingMode.BEST_EFFORT, new byte[0])));
             final CommandResult conflict = shard.apply(conflicting, position(shardId, 1, 10_001));
             assertEquals(StableCode.COMMAND_ID_CONFLICT, conflict.stableCode());
+        }
+    }
+
+    @Test
+    void fifoScheduleUsesOrderedTimelineNamespace() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("fifo"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 2);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("fifo-lane"));
+        final PreparedCommand command = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.DELIVERY_TIME_FIFO, Bytes.utf8("fifo")), 9_000);
+        final KafkaSourcePosition position = position(shardId, 0, 1_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(command, position).stableCode());
+            assertNotNull(store.getValue(ColumnFamily.TIMELINE,
+                    KeyCodec.timelineOrdered(lane, 2_000, position.sourceOrderToken(), command.delayMessageId(), 0),
+                    1));
+            assertNull(store.getValue(ColumnFamily.TIMELINE,
+                    KeyCodec.timelineDue(lane, 2_000, position.sourceOrderToken(), command.delayMessageId(), 0), 1));
         }
     }
 

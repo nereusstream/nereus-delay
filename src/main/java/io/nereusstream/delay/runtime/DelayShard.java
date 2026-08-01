@@ -220,6 +220,7 @@ public final class DelayShard {
             if (next != null) {
                 if (prior != null && prior.status() == MessageStatus.SCHEDULED) {
                     batch.delete(ColumnFamily.TIMELINE, timelineKey(command.delayMessageId(), prior));
+                    batch.delete(ColumnFamily.TIMELINE, expiryKey(command.delayMessageId(), prior));
                 }
                 batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(command.delayMessageId()), next.encode());
                 if (result.stableCode() == StableCode.SCHEDULED && readLane(next.laneId()) == null) {
@@ -229,6 +230,8 @@ public final class DelayShard {
                 if (next.status() == MessageStatus.SCHEDULED) {
                     batch.putValue(ColumnFamily.TIMELINE, 1,
                             timelineKey(command.delayMessageId(), next),
+                            new TimelineEntry(command.delayMessageId(), next.generation()).encode());
+                    batch.putValue(ColumnFamily.TIMELINE, 1, expiryKey(command.delayMessageId(), next),
                             new TimelineEntry(command.delayMessageId(), next.generation()).encode());
                 }
             }
@@ -304,7 +307,15 @@ public final class DelayShard {
     private byte[] timelineKey(final DelayMessageId messageId, final MessageRecord message) {
         final long eligibleAt = message.deliverAtEpochMs();
         final SourcePosition position = SourcePositionCodec.decode(message.scheduleSourcePosition());
-        return KeyCodec.timelineDue(message.laneId(), eligibleAt, position.sourceOrderToken(), messageId,
+        return message.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO
+                ? KeyCodec.timelineOrdered(message.laneId(), eligibleAt, position.sourceOrderToken(), messageId,
+                message.generation())
+                : KeyCodec.timelineDue(message.laneId(), eligibleAt, position.sourceOrderToken(), messageId,
+                message.generation());
+    }
+
+    private byte[] expiryKey(final DelayMessageId messageId, final MessageRecord message) {
+        return KeyCodec.timelineExpiry(message.expireAtEpochMs(), message.laneId(), messageId,
                 message.generation());
     }
 
