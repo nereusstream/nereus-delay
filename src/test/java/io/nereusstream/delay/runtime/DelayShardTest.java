@@ -1663,6 +1663,12 @@ class DelayShardTest {
             assertEquals(1, reopened.outcomeReserveVector().amount(CapacityDimensionV1.RESULT_BYTES));
             assertThrows(IllegalStateException.class,
                     () -> new DelayShard(store, shardConfig, null, capacityEnvelope(2)));
+            final long[] staleReserve = new long[CapacityDimensionV1.COUNT];
+            staleReserve[CapacityDimensionV1.CONTROL_RESERVE_BYTES.wireValue() - 1] = 1;
+            store.write(batch -> batch.putValue(ColumnFamily.META, 8,
+                    KeyCodec.metaControlReserve(3, envelope.nonOutcomeControl().grantId()),
+                    new CapacityVectorV1(staleReserve).canonicalBytes()));
+            assertThrows(IllegalStateException.class, () -> new DelayShard(store, shardConfig, null, envelope));
         }
     }
 

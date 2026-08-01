@@ -193,8 +193,17 @@ public final class DelayShard {
                 scanControlReserveClass(1);
         final List<io.nereusstream.delay.store.ShardStore.KeyValue> usageEntries =
                 scanControlReserveClass(2);
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> nonOutcomeEntries =
+                scanControlReserveClass(3);
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> recoveryEntries =
+                scanControlReserveClass(4);
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> emergencyEntries =
+                scanControlReserveClass(5);
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> systemWriterEntries =
+                scanControlReserveClass(6);
         if (envelope == null) {
-            if (!bindingEntries.isEmpty() || !usageEntries.isEmpty()) {
+            if (!bindingEntries.isEmpty() || !usageEntries.isEmpty() || !nonOutcomeEntries.isEmpty()
+                    || !recoveryEntries.isEmpty() || !emergencyEntries.isEmpty() || !systemWriterEntries.isEmpty()) {
                 throw new IllegalStateException("capacity envelope is required for persisted control reserve state");
             }
             return CapacityVectorV1.empty();
@@ -220,6 +229,15 @@ public final class DelayShard {
         } else if (!envelope.equals(ShardCapacityEnvelopeV1.decode(persistedBinding.payload()))) {
             throw new IllegalStateException("persisted capacity envelope identity differs from active envelope");
         }
+        validateReserveProjection(nonOutcomeEntries, 3, envelope.nonOutcomeControl().grantId(),
+                envelope.nonOutcomeControl().vector(), "non-outcome control");
+        validateReserveProjection(recoveryEntries, 4, envelope.recoveryWorking().grantId(),
+                envelope.recoveryWorking().vector(), "recovery working");
+        validateReserveProjection(emergencyEntries, 5, envelope.emergencyHeadroom().grantId(),
+                envelope.emergencyHeadroom().vector(), "emergency headroom");
+        if (!systemWriterEntries.isEmpty()) {
+            throw new IllegalStateException("Broker system-writer reserve projection is not implemented");
+        }
         final ValueEnvelope.Decoded persistedUsage = store.getValue(ColumnFamily.META, usageKey,
                 CAPACITY_RESERVE_VALUE_TYPE);
         final CapacityVectorV1 usage = persistedUsage == null
@@ -228,6 +246,26 @@ public final class DelayShard {
             throw new IllegalStateException("persisted outcome reserve exceeds immutable capacity grant");
         }
         return usage;
+    }
+
+    private void validateReserveProjection(
+            final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries, final int reserveClass,
+            final byte[] grantId, final CapacityVectorV1 grant, final String name) {
+        if (entries.size() > 1) {
+            throw new IllegalStateException("multiple " + name + " reserve projections exist");
+        }
+        if (entries.isEmpty()) {
+            return;
+        }
+        final byte[] expectedKey = KeyCodec.metaControlReserve(reserveClass, grantId);
+        if (!Arrays.equals(entries.get(0).key(), expectedKey)) {
+            throw new IllegalStateException(name + " reserve grant identity does not match envelope");
+        }
+        final CapacityVectorV1 usage = CapacityVectorV1.decode(
+                ValueEnvelope.decode(entries.get(0).value(), CAPACITY_RESERVE_VALUE_TYPE).payload());
+        if (!grant.covers(usage)) {
+            throw new IllegalStateException(name + " reserve usage exceeds immutable capacity grant");
+        }
     }
 
     private List<io.nereusstream.delay.store.ShardStore.KeyValue> scanControlReserveClass(final int reserveClass) {
