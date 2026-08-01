@@ -17,6 +17,7 @@ import io.nereusstream.delay.protocol.PublishOutcomeBody;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.ReplayDeadLetterBody;
 import io.nereusstream.delay.protocol.ResolveUncertainBody;
+import io.nereusstream.delay.protocol.ResourceRetireIntentBody;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.StableCode;
@@ -398,6 +399,18 @@ public final class DelayShard {
         return value == null ? null : SystemMutationResult.decode(value.payload());
     }
 
+    /** Returns the durable gc_cf retire intent for one exact resource identity/version. */
+    public synchronized ResourceRetireIntentRecord getResourceRetireIntent(final byte[] resourceIdentityHash,
+                                                                              final long expectedVersion) {
+        Bytes.requireLength(resourceIdentityHash, SystemMutation.HASH_LENGTH, "resourceIdentityHash");
+        if (expectedVersion < 0) {
+            throw new IllegalArgumentException("expectedVersion must be non-negative");
+        }
+        final var value = store.getValue(ColumnFamily.GC,
+                KeyCodec.gcRetireIntent(resourceIdentityHash, expectedVersion), ResourceRetireIntentRecord.VALUE_TYPE);
+        return value == null ? null : ResourceRetireIntentRecord.decode(value.payload());
+    }
+
     /**
      * Applies the source-ordered System Mutation subset that is currently executable by this core.
      * Signature verification is deliberately explicit; production wiring must additionally supply the
@@ -453,6 +466,7 @@ public final class DelayShard {
                 case EVIDENCE_RESOLUTION -> applyEvidenceResolutionMutation(mutation, sourcePosition);
                 case RESOLVE_UNCERTAIN -> applyResolveUncertainMutation(mutation, sourcePosition);
                 case CLAIM_RESULT -> applyClaimResultMutation(mutation, sourcePosition);
+                case RESOURCE_RETIRE_INTENT -> applyResourceRetireIntentMutation(mutation, sourcePosition);
                 default -> persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                         StableCode.STALE_SYSTEM_MUTATION);
             };
@@ -1722,6 +1736,47 @@ public final class DelayShard {
             writePosition(batch, position);
         });
         lastAppliedSourcePosition = position;
+        mutationSequence++;
+        return result;
+    }
+
+    /**
+     * Persists the source-ordered retirement intent and its immutable protection
+     * set. External deletion, Floor release and delete confirmation remain
+     * separate mutations and are never inferred here.
+     */
+    private SystemMutationResult applyResourceRetireIntentMutation(final SystemMutation mutation,
+                                                                     final SourcePosition sourcePosition) {
+        final ResourceRetireIntentBody body = ResourceRetireIntentBody.decode(mutation.canonicalBody());
+        final byte[] expectedLogicalIdentity = SystemMutation.computeResourceRetireLogicalIdentity(
+                body.resourceKind(), body.resource().identityHash(), body.expectedResourceStateVersion());
+        if (!Bytes.constantTimeEquals(mutation.logicalOperationIdentity(), expectedLogicalIdentity)) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
+        final ResourceRetireIntentRecord prior = getResourceRetireIntent(body.resource().identityHash(),
+                body.expectedResourceStateVersion());
+        if (prior != null) {
+            if (Bytes.constantTimeEquals(prior.mutationId(), mutation.systemMutationId())
+                    && Bytes.constantTimeEquals(prior.mutationHash(), mutation.mutationHash())) {
+                return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.OK);
+            }
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.VERSION_CONFLICT);
+        }
+        final ResourceRetireIntentRecord record = new ResourceRetireIntentRecord(mutation.systemMutationId(),
+                mutation.mutationHash(), body.resourceKind(), body.resource().canonicalBytes(),
+                body.resource().identityHash(), body.expectedResourceStateVersion(),
+                body.protections().canonicalBytes(), sourcePosition.canonicalBytes());
+        final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, StableCode.OK,
+                sourcePosition.canonicalBytes());
+        store.write(batch -> {
+            batch.putValue(ColumnFamily.GC, ResourceRetireIntentRecord.VALUE_TYPE,
+                    KeyCodec.gcRetireIntent(record.resourceIdentityHash(), record.expectedResourceStateVersion()),
+                    record.encode());
+            writeSystemResult(batch, result);
+            writePosition(batch, sourcePosition);
+        });
+        lastAppliedSourcePosition = sourcePosition;
         mutationSequence++;
         return result;
     }

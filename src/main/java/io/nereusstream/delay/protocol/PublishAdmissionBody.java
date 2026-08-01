@@ -682,6 +682,16 @@ public final class PublishAdmissionBody {
         }
     }
 
+    /** Validates and decodes a registry ChannelResourceIdentityV1 outside an Admission body. */
+    public static Channel decodeChannelIdentity(final byte[] encoded) {
+        return decodeChannel(Objects.requireNonNull(encoded, "encoded"));
+    }
+
+    /** Validates a registry BrokerResourceIdentityV1 outside an Admission body. */
+    public static void validateBrokerResourceIdentity(final byte[] encoded) {
+        validateBrokerResource(Objects.requireNonNull(encoded, "encoded"));
+    }
+
     public static final class Descriptor {
         private final byte[] canonicalBytes;
         private final byte[] preparedPublishHash;

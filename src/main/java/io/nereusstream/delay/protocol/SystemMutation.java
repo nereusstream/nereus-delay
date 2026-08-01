@@ -248,6 +248,30 @@ public final class SystemMutation {
                 fixed(mutationHash, HASH_LENGTH, "mutationHash"));
     }
 
+    /** Computes the registered logical identity for RESOURCE_RETIRE_INTENT_V1. */
+    public static byte[] computeResourceRetireLogicalIdentity(final ResourceKind resourceKind,
+                                                               final byte[] resourceIdentityHash,
+                                                               final long expectedResourceStateVersion) {
+        Objects.requireNonNull(resourceKind, "resourceKind");
+        if (expectedResourceStateVersion < 0) {
+            throw new IllegalArgumentException("expected resource state version must be non-negative");
+        }
+        return computeResourceRetireLogicalIdentity(resourceKind.wireValue(), resourceIdentityHash,
+                expectedResourceStateVersion);
+    }
+
+    /** Computes the same identity from the closed numeric registry value. */
+    public static byte[] computeResourceRetireLogicalIdentity(final int resourceKind,
+                                                               final byte[] resourceIdentityHash,
+                                                               final long expectedResourceStateVersion) {
+        if (resourceKind <= 0 || resourceKind > 0xff || expectedResourceStateVersion < 0) {
+            throw new IllegalArgumentException("invalid resource-retire logical identity inputs");
+        }
+        return Bytes.sha256(Bytes.utf8("nereus-delay-retire-logical-id-v1"), Bytes.u8(resourceKind),
+                fixed(resourceIdentityHash, HASH_LENGTH, "resourceIdentityHash"),
+                Bytes.u64be(expectedResourceStateVersion));
+    }
+
     /** Validates the closed common fields shared by every System Mutation body. */
     public static void validateBodyPrefix(final ShardId shardId, final SystemMutationType type,
                                           final long retryUntilEpochMs, final byte[] canonicalBody) {

@@ -129,6 +129,15 @@ public final class KeyCodec {
                 Bytes.lp32(resourceId), Bytes.u64be(expectedVersion));
     }
 
+    /** Stable gc_cf locator for a resource identity/version retire intent. */
+    public static byte[] gcRetireIntent(final byte[] resourceIdentityHash, final long expectedVersion) {
+        Objects.requireNonNull(resourceIdentityHash, "resourceIdentityHash");
+        if (resourceIdentityHash.length != 32 || expectedVersion < 0) {
+            throw new IllegalArgumentException("invalid resource retire intent key values");
+        }
+        return Bytes.concat(new byte[]{2, 1}, resourceIdentityHash, Bytes.u64be(expectedVersion));
+    }
+
     public static byte[] metaFixed(final int fixedKeyKind) {
         if (fixedKeyKind <= 0 || fixedKeyKind > 11) {
             throw new IllegalArgumentException("unknown FIXED meta key kind");

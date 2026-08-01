@@ -16,6 +16,8 @@ import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.PublishAdmissionBody;
 import io.nereusstream.delay.protocol.PublishAdmissionBodyTest.Fixture;
 import io.nereusstream.delay.protocol.PublishOutcomeBody;
+import io.nereusstream.delay.protocol.ResourceKind;
+import io.nereusstream.delay.protocol.ResourceRetireIntentBody;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.StableCode;
@@ -1500,6 +1502,66 @@ class DelayShardTest {
     }
 
     @Test
+    void resourceRetireIntentIsSourceOrderedDurableAndVersionFenced() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("resource-retire-intent"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 26);
+        final byte[] resource = localStoreResource(shardId);
+        final byte[] firstProtections = resourceProtectionSet(Bytes.sha256(Bytes.utf8("first-protection")));
+        final byte[] body = resourceRetireBody(shardId, resource, 7, firstProtections);
+        final ResourceRetireIntentBody parsed = ResourceRetireIntentBody.decode(body);
+        final byte[] service = AuthorIdentity.service(Bytes.utf8("resource-service"), Bytes.utf8("run-1"), 1)
+                .canonicalBytes();
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final byte[] logicalIdentity = SystemMutation.computeResourceRetireLogicalIdentity(
+                parsed.resourceKind(), parsed.resource().identityHash(), parsed.expectedResourceStateVersion());
+        final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.RESOURCE_RETIRE_INTENT,
+                9_000, logicalIdentity, body, service, 1, keyPair.getPrivate());
+        final KafkaSourcePosition firstPosition = position(shardId, 0, 1_000);
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            final SystemMutationResult applied = shard.applySystemMutation(mutation, firstPosition,
+                    keyPair.getPublic());
+            assertEquals(StableCode.OK, applied.stableCode());
+            final ResourceRetireIntentRecord stored = shard.getResourceRetireIntent(parsed.resource().identityHash(), 7);
+            assertNotNull(stored);
+            assertArrayEquals(mutation.systemMutationId(), stored.mutationId());
+            assertArrayEquals(firstPosition.canonicalBytes(), stored.appliedSourcePosition());
+            assertEquals(applied, shard.applySystemMutation(mutation, firstPosition, keyPair.getPublic()));
+
+            final SystemMutation wrongIdentity = SystemMutation.signed(shardId,
+                    SystemMutationType.RESOURCE_RETIRE_INTENT, 9_000, Bytes.sha256(Bytes.utf8("wrong-identity")),
+                    body, service, 1, keyPair.getPrivate());
+            assertEquals(StableCode.UNAUTHORIZED_SYSTEM_MUTATION,
+                    shard.applySystemMutation(wrongIdentity, position(shardId, 1, 1_001),
+                            keyPair.getPublic()).stableCode());
+
+            final byte[] secondProtections = resourceProtectionSet(Bytes.sha256(Bytes.utf8("second-protection")));
+            final SystemMutation conflicting = SystemMutation.signed(shardId,
+                    SystemMutationType.RESOURCE_RETIRE_INTENT, 9_000, logicalIdentity,
+                    resourceRetireBody(shardId, resource, 7, secondProtections), service, 1,
+                    keyPair.getPrivate());
+            assertEquals(StableCode.VERSION_CONFLICT,
+                    shard.applySystemMutation(conflicting, position(shardId, 2, 1_002),
+                            keyPair.getPublic()).stableCode());
+            assertArrayEquals(mutation.mutationHash(), shard.getResourceRetireIntent(parsed.resource().identityHash(), 7)
+                    .mutationHash());
+        }
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults());
+            final ResourceRetireIntentRecord stored = reopened.getResourceRetireIntent(
+                    parsed.resource().identityHash(), 7);
+            assertNotNull(stored);
+            assertArrayEquals(mutation.systemMutationId(), stored.mutationId());
+            assertEquals(position(shardId, 2, 1_002), reopened.lastAppliedSourcePosition());
+        }
+    }
+
+    @Test
     void localClaimIsDurableAndRevokeRestoresTimelineAtomically() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("claim-lifecycle"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 20);
@@ -2547,6 +2609,49 @@ class DelayShardTest {
             }
         }
         return Integer.compare(left.length, right.length);
+    }
+
+    private static byte[] resourceRetireBody(final ShardId shard, final byte[] resource,
+                                              final long expectedVersion, final byte[] protections) {
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, CanonicalProtobuf.message(subject -> {
+                CanonicalProtobuf.bytes(subject, 1, shard.routeIncarnation().bytes());
+                CanonicalProtobuf.uint32(subject, 2, shard.partition());
+            }));
+            CanonicalProtobuf.uint32(output, 2, SystemMutationType.RESOURCE_RETIRE_INTENT.wireValue());
+            CanonicalProtobuf.int64(output, 3, 9_000);
+            CanonicalProtobuf.uint32(output, 10, ResourceKind.LOCAL_STORE.wireValue());
+            CanonicalProtobuf.bytes(output, 11, resource);
+            CanonicalProtobuf.uint32(output, 12, expectedVersion);
+            CanonicalProtobuf.bytes(output, 13, protections);
+        });
+    }
+
+    private static byte[] localStoreResource(final ShardId shard) {
+        return CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 7,
+                CanonicalProtobuf.message(local -> {
+                    CanonicalProtobuf.bytes(local, 1, CanonicalProtobuf.message(subject -> {
+                        CanonicalProtobuf.bytes(subject, 1, shard.routeIncarnation().bytes());
+                        CanonicalProtobuf.uint32(subject, 2, shard.partition());
+                    }));
+                    CanonicalProtobuf.bytes(local, 2, new byte[16]);
+                    CanonicalProtobuf.bytes(local, 3, Bytes.sha256(Bytes.utf8("db-identity")));
+                    CanonicalProtobuf.bytes(local, 4, Bytes.sha256(Bytes.utf8("root-policy")));
+                })));
+    }
+
+    private static byte[] resourceProtectionSet(final byte[] protectedResourceId) {
+        final byte[] reference = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint32(output, 1, 3);
+            CanonicalProtobuf.bytes(output, 2, protectedResourceId);
+            CanonicalProtobuf.uint32(output, 3, 1);
+        });
+        final byte[] repeated = CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1, reference));
+        final byte[] digest = Bytes.sha256(Bytes.utf8("nereus-delay-protection-set-v1\0"), repeated);
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, reference);
+            CanonicalProtobuf.bytes(output, 2, digest);
+        });
     }
 
     private static KafkaSourcePosition position(final ShardId shard, final long offset, final long timestamp) {
