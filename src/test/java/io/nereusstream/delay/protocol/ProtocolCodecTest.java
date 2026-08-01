@@ -542,6 +542,45 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void payloadUploadAndAttestationResponsesKeepPayloadScopedBranches() throws Exception {
+        final ProfileRefV1 objectStore = new ProfileRefV1(Bytes.utf8("payload-object-store"), 2,
+                Bytes.sha256(Bytes.utf8("payload-object-store-semantic")), ProfileKindV1.OBJECT_STORE);
+        final OpaquePayloadUploadHandleV1 handle = OpaquePayloadUploadHandleV1.create(nonZero(32, 21), objectStore,
+                UploadHandleKindV1.OPAQUE_SINGLE_PUT, 9_000, Bytes.utf8("opaque-envelope"));
+        final PayloadUploadHandleResponseV1 issued = PayloadUploadHandleResponseV1.issued(handle);
+        assertEquals(issued, PayloadUploadHandleResponseV1.decode(issued.canonicalBytes()));
+        final StableErrorV1 uploadRetry = StableErrorV1.of(FailureStageV1.PAYLOAD,
+                StableCode.OBJECT_STORE_UNAVAILABLE_RETRYABLE, 8_000L, null, null, null);
+        final PayloadUploadHandleResponseV1 unavailable = PayloadUploadHandleResponseV1.error(
+                PayloadUploadHandleOutcomeV1.OBJECT_STORE_UNAVAILABLE_RETRYABLE, uploadRetry);
+        assertEquals(unavailable, PayloadUploadHandleResponseV1.decode(unavailable.canonicalBytes()));
+        assertThrows(IllegalArgumentException.class, () -> PayloadUploadHandleResponseV1.error(
+                PayloadUploadHandleOutcomeV1.INTEGRITY_ERROR, uploadRetry));
+
+        final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = keyPairGenerator.generateKeyPair();
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 2);
+        final DelayMessageId messageId = DelayMessageId.random(shard);
+        final PayloadCommitProof proof = PayloadCommitProof.signed(1, 1, shard.routeIncarnation().bytes(),
+                shard.partition(), messageId, nonZero(32, 22), objectStore.semanticHash(), Bytes.utf8("bucket"),
+                Bytes.utf8("key"), Bytes.utf8("version"), new byte[0], 3, Bytes.sha256(Bytes.utf8("payload")),
+                7_000, keyPair.getPrivate());
+        final PayloadAttestationResponseV1 attested = PayloadAttestationResponseV1.attested(proof);
+        assertEquals(attested, PayloadAttestationResponseV1.decode(attested.canonicalBytes()));
+        final StableErrorV1 notReadyError = StableErrorV1.of(FailureStageV1.PAYLOAD,
+                StableCode.OBJECT_NOT_READY_RETRYABLE, 6_000L, null, null, null);
+        final PayloadAttestationResponseV1 notReady = PayloadAttestationResponseV1.error(
+                PayloadAttestationOutcomeV1.OBJECT_NOT_READY_RETRYABLE, notReadyError);
+        assertEquals(notReady, PayloadAttestationResponseV1.decode(notReady.canonicalBytes()));
+
+        final byte[] tampered = handle.canonicalBytes();
+        tampered[tampered.length - 1] ^= 1;
+        assertThrows(IllegalArgumentException.class, () -> OpaquePayloadUploadHandleV1.decode(tampered));
+        assertThrows(IllegalArgumentException.class, () -> PayloadAttestationResponseV1.error(
+                PayloadAttestationOutcomeV1.INTEGRITY_ERROR, notReadyError));
+    }
+
+    @Test
     void publicQueryViewsRejectUnsafeBindingAndNonCanonicalBranchShape() {
         final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("destination"), 1,
                 Bytes.sha256(Bytes.utf8("destination-semantic")), ProfileKindV1.DESTINATION);
