@@ -31,7 +31,7 @@ public final class PublishOutcomeBody {
         this.retryDecision = Objects.requireNonNull(retryDecision, "retryDecision");
     }
 
-    /** Parses all common fields and strictly validates the NOT_PUBLISHED branch. */
+    /** Parses all common fields and strictly validates the definitive PUBLISHED/NOT_PUBLISHED branches. */
     public static PublishOutcomeBody decode(final byte[] canonicalBody) {
         final List<CanonicalProtobuf.Reader.Field> fields =
                 SystemMutationBodyCodec.fields(SystemMutationType.PUBLISH_OUTCOME, canonicalBody);
@@ -47,21 +47,38 @@ public final class PublishOutcomeBody {
         final TrustedUtcIntervalEvidence observedAt = TrustedUtcIntervalEvidence.decode(
                 nested(field(fields, 16), 16));
         final byte[] retryBytes = nested(field(fields, 17), 17);
-        final RetryDecision retryDecision = sideEffect == 2
-                ? RetryDecision.decode(retryBytes) : RetryDecision.unchecked(retryBytes);
-        if (sideEffect == 1) {
-            if (disposition != 0 || stableCode != StableCode.OK || evidence.length == 0
-                    || retryDecision.kind() != 1) {
-                throw new IllegalArgumentException("invalid PUBLISHED outcome combination");
-            }
-        } else if (sideEffect == 2) {
-            if (disposition == 0 || stableCode == StableCode.OK || evidence.length == 0) {
-                throw new IllegalArgumentException("invalid NOT_PUBLISHED outcome combination");
-            }
-            retryDecision.requireFor(disposition);
+        final RetryDecision retryDecision = sideEffect == 3
+                ? RetryDecision.unchecked(retryBytes) : RetryDecision.decode(retryBytes);
+        if (sideEffect == 1 || sideEffect == 2) {
+            validateDefinitiveCombination(sideEffect, disposition, stableCode, evidence, retryDecision);
         } else if (disposition == 0 || stableCode == StableCode.OK || evidence.length != 0) {
             throw new IllegalArgumentException("invalid UNKNOWN outcome combination");
         }
+        return new PublishOutcomeBody(bytes(field(fields, 10), 10), sideEffect, disposition, stableCode, evidence,
+                transfer, observedAt, retryDecision);
+    }
+
+    /**
+     * Parses the verified published/not-published subset of an Evidence Resolution. The cursor and evidence
+     * messages are required and canonical, but adapter-specific semantic fields remain outside this subset.
+     */
+    public static PublishOutcomeBody decodeEvidenceResolution(final byte[] canonicalBody) {
+        final List<CanonicalProtobuf.Reader.Field> fields =
+                SystemMutationBodyCodec.fields(SystemMutationType.EVIDENCE_RESOLUTION, canonicalBody);
+        nested(field(fields, 11), 11); // EvidenceCursorV1
+        final byte[] evidence = nested(field(fields, 12), 12);
+        final StableCode stableCode = StableCode.fromWire(intValue(field(fields, 13), 13));
+        final int sideEffect = intValue(field(fields, 14), 14);
+        final int disposition = intValue(field(fields, 15), 15);
+        final byte[] transfer = nested(field(fields, 16), 16);
+        validateChargeVector(transfer);
+        final TrustedUtcIntervalEvidence observedAt = TrustedUtcIntervalEvidence.decode(
+                nested(field(fields, 17), 17));
+        final RetryDecision retryDecision = RetryDecision.decode(nested(field(fields, 18), 18));
+        if (sideEffect != 1 && sideEffect != 2) {
+            throw new IllegalArgumentException("only verified Evidence Resolution outcomes are implemented");
+        }
+        validateDefinitiveCombination(sideEffect, disposition, stableCode, evidence, retryDecision);
         return new PublishOutcomeBody(bytes(field(fields, 10), 10), sideEffect, disposition, stableCode, evidence,
                 transfer, observedAt, retryDecision);
     }
@@ -105,6 +122,23 @@ public final class PublishOutcomeBody {
         }
         for (int number = 1; number <= 17; number++) {
             unsigned(field(fields, number), number);
+        }
+    }
+
+    private static void validateDefinitiveCombination(final int sideEffect, final int disposition,
+                                                       final StableCode stableCode, final byte[] evidence,
+                                                       final RetryDecision retryDecision) {
+        if (evidence.length == 0) {
+            throw new IllegalArgumentException("definitive publish outcome requires evidence");
+        }
+        if (sideEffect == 1) {
+            if (disposition != 0 || stableCode != StableCode.OK || retryDecision.kind() != 1) {
+                throw new IllegalArgumentException("invalid PUBLISHED outcome combination");
+            }
+        } else if (disposition == 0 || disposition > 3 || stableCode == StableCode.OK) {
+            throw new IllegalArgumentException("invalid NOT_PUBLISHED outcome combination");
+        } else {
+            retryDecision.requireFor(disposition);
         }
     }
 

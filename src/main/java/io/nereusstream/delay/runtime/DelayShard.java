@@ -196,6 +196,7 @@ public final class DelayShard {
                 case PUBLISH_ADMISSION -> applyPublishAdmissionMutation(mutation, sourcePosition);
                 case EXPIRE_GENERATION -> applyExpireGenerationMutation(mutation, sourcePosition);
                 case PUBLISH_OUTCOME -> applyPublishOutcomeMutation(mutation, sourcePosition);
+                case EVIDENCE_RESOLUTION -> applyEvidenceResolutionMutation(mutation, sourcePosition);
                 default -> throw new UnsupportedOperationException(
                         "System Mutation type is not implemented: " + mutation.type());
             };
@@ -273,7 +274,8 @@ public final class DelayShard {
             }
             final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, code,
                     sourcePosition.canonicalBytes());
-            return applyNotPublishedPublishOutcome(ledger, outcome, sourcePosition, result);
+            return applyNotPublishedPublishOutcome(ledger, outcome, sourcePosition, result,
+                    AttemptLedgerState.PUBLISHING, MessageStatus.PUBLISHING);
         }
         final PublishAttemptLedger ledger = getPublishAttempt(attemptId, author.generation());
         if (ledger == null || ledger.state() != AttemptLedgerState.PUBLISHING) {
@@ -281,14 +283,18 @@ public final class DelayShard {
                     StableCode.STALE_SYSTEM_MUTATION);
         }
         if (sideEffect == 1) {
-            if (disposition != 0 || code != StableCode.OK || evidence.length == 0) {
-                return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
-                        StableCode.STALE_SYSTEM_MUTATION);
+            final PublishOutcomeBody outcome = PublishOutcomeBody.decode(mutation.canonicalBody());
+            if (!Arrays.equals(outcome.publishAttemptId(), attemptId)) {
+                throw new IllegalArgumentException("Publish Outcome attempt identity mismatch");
             }
             final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, code,
                     sourcePosition.canonicalBytes());
-            applyPublishedPublishOutcome(attemptId, author.generation(), sourcePosition, result);
-            return result;
+            try {
+                applyPublishedPublishOutcome(attemptId, author.generation(), sourcePosition, result);
+                return result;
+            } catch (IllegalStateException exception) {
+                return persistSystemResultByResult(result, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
+            }
         }
         if (sideEffect == 3) {
             if (disposition == 0 || code == StableCode.OK || evidence.length != 0) {
@@ -304,13 +310,38 @@ public final class DelayShard {
         throw new UnsupportedOperationException("NOT_PUBLISHED outcome application is not implemented");
     }
 
+    private SystemMutationResult applyEvidenceResolutionMutation(final SystemMutation mutation,
+                                                                  final SourcePosition sourcePosition) {
+        final PublishOutcomeBody resolution =
+                PublishOutcomeBody.decodeEvidenceResolution(mutation.canonicalBody());
+        final PublishAttemptLedger ledger = findOpenPublishAttempt(resolution.publishAttemptId());
+        if (ledger == null || ledger.state() != AttemptLedgerState.UNCERTAIN) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+        final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED,
+                resolution.stableCode(), sourcePosition.canonicalBytes());
+        if (resolution.sideEffect() == 1) {
+            try {
+                applyPublishedPublishOutcome(ledger, sourcePosition, result, MessageStatus.UNCERTAIN);
+                return result;
+            } catch (IllegalStateException exception) {
+                return persistSystemResultByResult(result, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
+            }
+        }
+        return applyNotPublishedPublishOutcome(ledger, resolution, sourcePosition, result,
+                AttemptLedgerState.UNCERTAIN, MessageStatus.UNCERTAIN);
+    }
+
     private SystemMutationResult applyNotPublishedPublishOutcome(final PublishAttemptLedger ledger,
                                                                   final PublishOutcomeBody outcome,
                                                                   final SourcePosition sourcePosition,
-                                                                  final SystemMutationResult systemResult) {
+                                                                  final SystemMutationResult systemResult,
+                                                                  final AttemptLedgerState expectedLedgerState,
+                                                                  final MessageStatus expectedMessageStatus) {
         final MessageRecord current = getMessage(ledger.delayMessageId());
-        if (current == null || current.status() != MessageStatus.PUBLISHING
-                || current.generation() != ledger.generation()) {
+        if (ledger.state() != expectedLedgerState || current == null
+                || current.status() != expectedMessageStatus || current.generation() != ledger.generation()) {
             return persistSystemResultByResult(systemResult, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
         }
         final PublishOutcomeBody.RetryDecision retryDecision = outcome.retryDecision();
@@ -727,8 +758,15 @@ public final class DelayShard {
         if (ledger == null || ledger.state() != AttemptLedgerState.PUBLISHING) {
             throw new IllegalStateException("published outcome requires a PUBLISHING ledger");
         }
+        return applyPublishedPublishOutcome(ledger, sourcePosition, systemResult, MessageStatus.PUBLISHING);
+    }
+
+    private MessageRecord applyPublishedPublishOutcome(final PublishAttemptLedger ledger,
+                                                       final SourcePosition sourcePosition,
+                                                       final SystemMutationResult systemResult,
+                                                       final MessageStatus expectedMessageStatus) {
         final MessageRecord current = getMessage(ledger.delayMessageId());
-        if (current == null || current.status() != MessageStatus.PUBLISHING
+        if (current == null || current.status() != expectedMessageStatus
                 || current.generation() != ledger.generation()) {
             throw new IllegalStateException("published outcome is stale for the current message");
         }
