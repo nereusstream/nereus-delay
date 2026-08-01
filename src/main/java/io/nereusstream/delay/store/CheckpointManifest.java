@@ -150,6 +150,15 @@ public record CheckpointManifest(
         return Bytes.sha256(canonicalJsonBytes());
     }
 
+    /**
+     * Decodes only the exact V1 canonical JSON projection emitted by this
+     * class.  A downloaded manifest is recovery authority only after this
+     * byte-for-byte canonicality check succeeds.
+     */
+    public static CheckpointManifest decodeCanonicalJson(final byte[] encoded) {
+        return CheckpointManifestJson.decode(encoded);
+    }
+
     private String shardIdJson() {
         return "{\"partition\":" + shardId.partition() + ",\"routeIncarnation\":"
                 + quote(shardId.routeIncarnation().uuid().toString()) + "}";

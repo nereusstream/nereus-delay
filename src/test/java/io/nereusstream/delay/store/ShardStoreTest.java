@@ -114,7 +114,7 @@ class ShardStoreTest {
         final ShardStoreConfig restoreConfig = ShardStoreConfig.defaults(tempDir.resolve("catalog-restore"));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(restoreConfig);
              ShardStore restored = ShardStore.restoreFromCheckpoint(restoreConfig, shardId, resources,
-                     checkpoint, manifest, catalog)) {
+                     checkpoint, manifest.canonicalJsonBytes(), catalog)) {
             assertArrayEquals(payload, restored.getValue(ColumnFamily.META, key, 7).payload());
         }
     }

@@ -182,6 +182,20 @@ public final class ShardStore implements AutoCloseable {
         return restoreFromCheckpoint(config, shardId, resources, checkpointPath, manifest);
     }
 
+    /**
+     * Restores from an object-store/download boundary where the manifest is
+     * still raw bytes. Canonical decoding happens before catalog lookup or any
+     * local checkpoint files are opened.
+     */
+    public static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
+                                                   final SharedRocksDbResources resources,
+                                                   final Path checkpointPath, final byte[] manifestJson,
+                                                   final RecoveryCatalog catalog) {
+        final CheckpointManifest manifest = CheckpointManifest.decodeCanonicalJson(
+                Objects.requireNonNull(manifestJson, "manifestJson"));
+        return restoreFromCheckpoint(config, shardId, resources, checkpointPath, manifest, catalog);
+    }
+
     private static void validateCheckpointManifest(final ShardId shardId, final Path checkpointPath,
                                                    final CheckpointManifest manifest) throws IOException {
         if (!manifest.shardId().equals(shardId) || manifest.storeFormatVersion() != META_STORE_FORMAT) {

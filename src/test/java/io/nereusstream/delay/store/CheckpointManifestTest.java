@@ -47,6 +47,13 @@ class CheckpointManifestTest {
         assertTrue(first.startsWith("{\"appliedShardLogPosition\":"));
         assertTrue(first.contains("\"evidenceCursors\":[]"));
         assertEquals(32, manifest.manifestSha256().length);
+        assertEquals(manifest.canonicalJson(), CheckpointManifest.decodeCanonicalJson(manifest.canonicalJsonBytes())
+                .canonicalJson());
+        assertThrows(IllegalArgumentException.class,
+                () -> CheckpointManifest.decodeCanonicalJson((" " + first).getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        assertThrows(IllegalArgumentException.class, () -> CheckpointManifest.decodeCanonicalJson(
+                first.replace("\"manifestVersion\":1", "\"manifestVersion\":2")
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
     }
 
     @Test
