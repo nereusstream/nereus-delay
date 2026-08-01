@@ -9,6 +9,7 @@ import io.nereusstream.delay.protocol.PayloadCommitProof;
 import io.nereusstream.delay.protocol.PayloadProofTrustSet;
 import io.nereusstream.delay.protocol.PayloadReference;
 import io.nereusstream.delay.protocol.PublishAdmissionBody;
+import io.nereusstream.delay.protocol.PublishOutcomeBody;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
@@ -256,6 +257,24 @@ public final class DelayShard {
         final byte[] evidence = optionalBodyBytes(fields, 14);
         final io.nereusstream.delay.protocol.AuthorIdentity author =
                 io.nereusstream.delay.protocol.AuthorIdentity.decode(mutation.authorIdentity());
+        if (sideEffect == 2) {
+            final PublishOutcomeBody outcome = PublishOutcomeBody.decode(mutation.canonicalBody());
+            if (!Arrays.equals(outcome.publishAttemptId(), attemptId)) {
+                throw new IllegalArgumentException("Publish Outcome attempt identity mismatch");
+            }
+            final PublishAttemptLedger ledger = getPublishAttempt(attemptId, author.generation());
+            if (ledger == null || ledger.state() != AttemptLedgerState.PUBLISHING) {
+                return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                        StableCode.STALE_SYSTEM_MUTATION);
+            }
+            if (ledger.ownerEpoch() != author.generation()) {
+                return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                        StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+            }
+            final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, code,
+                    sourcePosition.canonicalBytes());
+            return applyNotPublishedPublishOutcome(ledger, outcome, sourcePosition, result);
+        }
         final PublishAttemptLedger ledger = getPublishAttempt(attemptId, author.generation());
         if (ledger == null || ledger.state() != AttemptLedgerState.PUBLISHING) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
@@ -283,6 +302,108 @@ public final class DelayShard {
             return result;
         }
         throw new UnsupportedOperationException("NOT_PUBLISHED outcome application is not implemented");
+    }
+
+    private SystemMutationResult applyNotPublishedPublishOutcome(final PublishAttemptLedger ledger,
+                                                                  final PublishOutcomeBody outcome,
+                                                                  final SourcePosition sourcePosition,
+                                                                  final SystemMutationResult systemResult) {
+        final MessageRecord current = getMessage(ledger.delayMessageId());
+        if (current == null || current.status() != MessageStatus.PUBLISHING
+                || current.generation() != ledger.generation()) {
+            return persistSystemResultByResult(systemResult, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
+        }
+        final PublishOutcomeBody.RetryDecision retryDecision = outcome.retryDecision();
+        if (retryDecision.completedAttemptNo() != ledger.attemptNo()
+                || retryDecision.retryDeadline() > current.expireAtEpochMs()
+                || retryDecision.firstAttemptAt() > retryDecision.retryDeadline()
+                || retryDecision.hasNextRetryAt()
+                && retryDecision.nextRetryAt() < current.deliverAtEpochMs()) {
+            return persistSystemResultByResult(systemResult, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
+        }
+        if (outcome.disposition() == 2) {
+            final MessageRecord terminalMessage = new MessageRecord(MessageStatus.DEAD_LETTER, current.generation(),
+                    Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
+                    current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
+                    current.payloadReference(), current.retryEligibilityAtEpochMs());
+            final TerminalGenerationRecord terminal = new TerminalGenerationRecord(ledger.delayMessageId(),
+                    ledger.generation(), MessageStatus.DEAD_LETTER, outcome.stableCode(), terminalMessage.stateVersion(),
+                    sourcePosition.canonicalBytes(), false);
+            final ShardQuota nextQuota = quota.removeSchedule(current.payloadLength());
+            final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
+                    sourcePosition, ledger.delayMessageId(), current, terminalMessage, null);
+            store.write(batch -> {
+                batch.delete(ColumnFamily.INFLIGHT, ledger.encodedKey());
+                batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(ledger.delayMessageId()), terminalMessage.encode());
+                batch.putValue(ColumnFamily.TERMINAL, 1,
+                        KeyCodec.terminalGeneration(ledger.delayMessageId(), ledger.generation()), terminal.encode());
+                for (LaneProjection projection : projections.values()) {
+                    deleteReadyKey(batch, projection.previousLane());
+                    putReadyProjection(batch, projection);
+                }
+                batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(META_QUOTA_USAGE), nextQuota.encode());
+                writeSystemResult(batch, systemResult);
+                writePosition(batch, sourcePosition);
+            });
+            lastAppliedSourcePosition = sourcePosition;
+            mutationSequence++;
+            quota = nextQuota;
+            return systemResult;
+        }
+        if (current.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO
+                || !retryDecision.hasNextRetryAt()) {
+            return persistSystemResultByResult(systemResult, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
+        }
+        final long retryAt = Math.max(current.deliverAtEpochMs(), retryDecision.nextRetryAt());
+        if (retryAt >= current.expireAtEpochMs()) {
+            return persistSystemResultByResult(systemResult, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
+        }
+        final MessageRecord scheduled = new MessageRecord(MessageStatus.SCHEDULED, current.generation(),
+                Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
+                current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
+                current.payloadReference(), retryAt);
+        final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneRecord> laneOverrides = new HashMap<>();
+        if (outcome.disposition() == 3) {
+            final LaneRecord lane = readLane(current.laneId());
+            if (lane == null) {
+                return persistSystemResultByResult(systemResult, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
+            }
+            laneOverrides.put(current.laneId(), lane.withReadiness(RuntimeReadiness.BLOCKED));
+        }
+        final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
+                sourcePosition, ledger.delayMessageId(), current, scheduled, null, laneOverrides);
+        store.write(batch -> {
+            batch.delete(ColumnFamily.INFLIGHT, ledger.encodedKey());
+            batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(ledger.delayMessageId()), scheduled.encode());
+            batch.putValue(ColumnFamily.TIMELINE, 1, timelineKey(ledger.delayMessageId(), scheduled),
+                    new TimelineEntry(ledger.delayMessageId(), scheduled.generation()).encode());
+            batch.putValue(ColumnFamily.TIMELINE, 1, expiryKey(ledger.delayMessageId(), scheduled),
+                    new TimelineEntry(ledger.delayMessageId(), scheduled.generation()).encode());
+            for (LaneProjection projection : projections.values()) {
+                deleteReadyKey(batch, projection.previousLane());
+                putReadyProjection(batch, projection);
+            }
+            writeSystemResult(batch, systemResult);
+            writePosition(batch, sourcePosition);
+        });
+        lastAppliedSourcePosition = sourcePosition;
+        mutationSequence++;
+        return systemResult;
+    }
+
+    private SystemMutationResult persistSystemResultByResult(final SystemMutationResult original,
+                                                              final SourcePosition sourcePosition,
+                                                              final StableCode code) {
+        final SystemMutationResult result = new SystemMutationResult(original.mutationId(), original.mutationHash(),
+                original.mutationType(), original.retryUntilEpochMs(), original.authorIdentity(),
+                ApplyStatus.APPLIED, code, sourcePosition.canonicalBytes());
+        store.write(batch -> {
+            writeSystemResult(batch, result);
+            writePosition(batch, sourcePosition);
+        });
+        lastAppliedSourcePosition = sourcePosition;
+        mutationSequence++;
+        return result;
     }
 
     private SystemMutationResult applyExpireGenerationMutation(final SystemMutation mutation,
@@ -318,7 +439,7 @@ public final class DelayShard {
         final MessageRecord next = new MessageRecord(MessageStatus.EXPIRED, current.generation(),
                 Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
                 current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
-                current.payloadReference());
+                current.payloadReference(), current.retryEligibilityAtEpochMs());
         final TerminalGenerationRecord terminal = new TerminalGenerationRecord(messageId, generation,
                 MessageStatus.EXPIRED, StableCode.ALREADY_EXPIRED, next.stateVersion(),
                 sourcePosition.canonicalBytes(), false);
@@ -515,7 +636,7 @@ public final class DelayShard {
         final MessageRecord next = new MessageRecord(MessageStatus.PUBLISHING, current.generation(),
                 Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
                 current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
-                current.payloadReference());
+                current.payloadReference(), current.retryEligibilityAtEpochMs());
         final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
                 sourcePosition, admission.delayMessageId(), current, next, null);
         store.write(batch -> {
@@ -569,7 +690,7 @@ public final class DelayShard {
         final MessageRecord next = new MessageRecord(MessageStatus.UNCERTAIN, current.generation(),
                 Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
                 current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
-                current.payloadReference());
+                current.payloadReference(), current.retryEligibilityAtEpochMs());
         final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
                 sourcePosition, currentLedger.delayMessageId(), current, next, null);
         store.write(batch -> {
@@ -614,7 +735,7 @@ public final class DelayShard {
         final MessageRecord next = new MessageRecord(MessageStatus.PUBLISHED, current.generation(),
                 Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
                 current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
-                current.payloadReference());
+                current.payloadReference(), current.retryEligibilityAtEpochMs());
         final TerminalGenerationRecord terminal = new TerminalGenerationRecord(ledger.delayMessageId(),
                 ledger.generation(), MessageStatus.PUBLISHED, StableCode.OK, next.stateVersion(),
                 sourcePosition.canonicalBytes(), false);
@@ -1063,7 +1184,7 @@ public final class DelayShard {
                     new MessageRecord(MessageStatus.CANCELED, existing.generation(), existing.stateVersion() + 1,
                             existing.deliverAtEpochMs(), existing.expireAtEpochMs(), existing.laneId(),
                             existing.orderingMode(), existing.payload(), existing.scheduleSourcePosition(),
-                            existing.payloadReference()));
+                            existing.payloadReference(), existing.retryEligibilityAtEpochMs()));
             case CANCELED -> applied(StableCode.ALREADY_CANCELED, sourcePosition, existing);
             case PUBLISHED, PUBLISHING, UNCERTAIN -> applied(StableCode.TOO_LATE, sourcePosition, existing);
             default -> applied(StableCode.TOO_LATE, sourcePosition, existing);
@@ -1209,6 +1330,13 @@ public final class DelayShard {
     private Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> readyProjections(
             final SourcePosition position, final DelayMessageId messageId, final MessageRecord prior,
             final MessageRecord next, final PayloadReservation reservation) {
+        return readyProjections(position, messageId, prior, next, reservation, Map.of());
+    }
+
+    private Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> readyProjections(
+            final SourcePosition position, final DelayMessageId messageId, final MessageRecord prior,
+            final MessageRecord next, final PayloadReservation reservation,
+            final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneRecord> laneOverrides) {
         final Set<io.nereusstream.delay.protocol.DestinationLaneId> laneIds = new HashSet<>();
         if (prior != null) {
             laneIds.add(prior.laneId());
@@ -1222,7 +1350,8 @@ public final class DelayShard {
         final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> result = new HashMap<>();
         for (var laneId : laneIds) {
             final LaneRecord previous = readLane(laneId);
-            final LaneRecord base = previous == null ? LaneRecord.initial(laneId, position) : previous;
+            final LaneRecord base = laneOverrides.getOrDefault(laneId,
+                    previous == null ? LaneRecord.initial(laneId, position) : previous);
             final int excludedGeneration = prior != null && prior.status() == MessageStatus.SCHEDULED
                     ? prior.generation() : -1;
             final TimelineCandidate candidate = findLaneCandidate(laneId, messageId, excludedGeneration,
@@ -1270,7 +1399,7 @@ public final class DelayShard {
         if (includedMessage != null && includedMessage.status() == MessageStatus.SCHEDULED
                 && includedMessageId != null && includedMessage.laneId().equals(laneId)) {
             selected = new TimelineCandidate(includedMessageId, includedMessage.generation(),
-                    includedMessage.deliverAtEpochMs(), timelineKey(includedMessageId, includedMessage),
+                    timelineEligibilityAt(includedMessage), timelineKey(includedMessageId, includedMessage),
                     includedMessage.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO);
         }
         for (byte tag = 1; tag <= 2; tag++) {
@@ -1388,7 +1517,8 @@ public final class DelayShard {
             case CANCEL -> result.stableCode() == StableCode.CANCELED && prior != null
                     ? new MessageRecord(MessageStatus.CANCELED, prior.generation(), prior.stateVersion() + 1,
                     prior.deliverAtEpochMs(), prior.expireAtEpochMs(), prior.laneId(), prior.orderingMode(),
-                    prior.payload(), prior.scheduleSourcePosition(), prior.payloadReference()) : null;
+                    prior.payload(), prior.scheduleSourcePosition(), prior.payloadReference(),
+                    prior.retryEligibilityAtEpochMs()) : null;
             case RESCHEDULE -> result.stableCode() == StableCode.SUPERSEDED && prior != null
                     ? rescheduledMessage(command, position, prior) : null;
             case PREPARE_LARGE_SCHEDULE, COMMIT_LARGE_SCHEDULE -> null;
@@ -1513,13 +1643,18 @@ public final class DelayShard {
     }
 
     private byte[] timelineKey(final DelayMessageId messageId, final MessageRecord message) {
-        final long eligibleAt = message.deliverAtEpochMs();
+        final long eligibleAt = timelineEligibilityAt(message);
         final SourcePosition position = SourcePositionCodec.decode(message.scheduleSourcePosition());
         return message.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO
                 ? KeyCodec.timelineOrdered(message.laneId(), eligibleAt, position.sourceOrderToken(), messageId,
                 message.generation())
                 : KeyCodec.timelineDue(message.laneId(), eligibleAt, position.sourceOrderToken(), messageId,
                 message.generation());
+    }
+
+    private static long timelineEligibilityAt(final MessageRecord message) {
+        return message.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO
+                ? message.deliverAtEpochMs() : message.retryEligibilityAtEpochMs();
     }
 
     private byte[] expiryKey(final DelayMessageId messageId, final MessageRecord message) {

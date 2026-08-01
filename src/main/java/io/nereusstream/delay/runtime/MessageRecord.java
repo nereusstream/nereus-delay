@@ -20,12 +20,21 @@ public record MessageRecord(
         OrderingMode orderingMode,
         byte[] payload,
         byte[] scheduleSourcePosition,
-        PayloadReference payloadReference) {
+        PayloadReference payloadReference,
+        long retryEligibilityAtEpochMs) {
     public MessageRecord(final MessageStatus status, final int generation, final long stateVersion,
                          final long deliverAtEpochMs, final long expireAtEpochMs, final DestinationLaneId laneId,
                          final OrderingMode orderingMode, final byte[] payload, final byte[] scheduleSourcePosition) {
         this(status, generation, stateVersion, deliverAtEpochMs, expireAtEpochMs, laneId, orderingMode, payload,
-                scheduleSourcePosition, null);
+                scheduleSourcePosition, null, deliverAtEpochMs);
+    }
+
+    public MessageRecord(final MessageStatus status, final int generation, final long stateVersion,
+                         final long deliverAtEpochMs, final long expireAtEpochMs, final DestinationLaneId laneId,
+                         final OrderingMode orderingMode, final byte[] payload, final byte[] scheduleSourcePosition,
+                         final PayloadReference payloadReference) {
+        this(status, generation, stateVersion, deliverAtEpochMs, expireAtEpochMs, laneId, orderingMode, payload,
+                scheduleSourcePosition, payloadReference, deliverAtEpochMs);
     }
 
     public MessageRecord {
@@ -34,7 +43,8 @@ public record MessageRecord(
         Objects.requireNonNull(orderingMode, "orderingMode");
         Objects.requireNonNull(payload, "payload");
         Objects.requireNonNull(scheduleSourcePosition, "scheduleSourcePosition");
-        if (generation < 0 || stateVersion < 0 || deliverAtEpochMs < 0 || expireAtEpochMs < deliverAtEpochMs) {
+        if (generation < 0 || stateVersion < 0 || deliverAtEpochMs < 0 || expireAtEpochMs < deliverAtEpochMs
+                || retryEligibilityAtEpochMs < 0 || retryEligibilityAtEpochMs > expireAtEpochMs) {
             throw new IllegalArgumentException("invalid message record");
         }
         if (payloadReference != null && payload.length != 0) {
@@ -68,6 +78,7 @@ public record MessageRecord(
         }
         return status == that.status && generation == that.generation && stateVersion == that.stateVersion
                 && deliverAtEpochMs == that.deliverAtEpochMs && expireAtEpochMs == that.expireAtEpochMs
+                && retryEligibilityAtEpochMs == that.retryEligibilityAtEpochMs
                 && laneId.equals(that.laneId) && orderingMode == that.orderingMode
                 && Arrays.equals(payload, that.payload)
                 && Arrays.equals(scheduleSourcePosition, that.scheduleSourcePosition)
@@ -76,16 +87,18 @@ public record MessageRecord(
 
     @Override
     public int hashCode() {
-        return Objects.hash(status, generation, stateVersion, deliverAtEpochMs, expireAtEpochMs, laneId,
-                orderingMode, Arrays.hashCode(payload), Arrays.hashCode(scheduleSourcePosition), payloadReference);
+        return Objects.hash(status, generation, stateVersion, deliverAtEpochMs, expireAtEpochMs,
+                retryEligibilityAtEpochMs, laneId, orderingMode, Arrays.hashCode(payload),
+                Arrays.hashCode(scheduleSourcePosition), payloadReference);
     }
 
     public byte[] encode() {
         final byte[] reference = payloadReference == null ? new byte[0] : payloadReference.encode();
-        final ByteBuffer result = ByteBuffer.allocate(4 + 1 + 4 + 8 + 8 + 8 + 32 + 1 + 1 + 4
+        final ByteBuffer result = ByteBuffer.allocate(4 + 1 + 4 + 8 + 8 + 8 + 8 + 32 + 1 + 1 + 4
                 + scheduleSourcePosition.length + 4 + payload.length + 4 + reference.length);
-        result.putInt(2).put((byte) status.wireValue()).putInt(generation).putLong(stateVersion)
-                .putLong(deliverAtEpochMs).putLong(expireAtEpochMs).put(laneId.bytes()).put((byte) orderingMode.wireValue())
+        result.putInt(3).put((byte) status.wireValue()).putInt(generation).putLong(stateVersion)
+                .putLong(deliverAtEpochMs).putLong(expireAtEpochMs).putLong(retryEligibilityAtEpochMs)
+                .put(laneId.bytes()).put((byte) orderingMode.wireValue())
                 .put((byte) (payloadReference == null ? 1 : 2))
                 .putInt(scheduleSourcePosition.length).put(scheduleSourcePosition);
         if (payloadReference == null) {
@@ -102,7 +115,7 @@ public record MessageRecord(
             throw new IllegalArgumentException("message record is truncated");
         }
         final int version = input.getInt();
-        if (version != 1 && version != 2) {
+        if (version != 1 && version != 2 && version != 3) {
             throw new IllegalArgumentException("unsupported message record version");
         }
         final MessageStatus status = MessageStatus.fromWire(input.get() & 0xff);
@@ -110,6 +123,7 @@ public record MessageRecord(
         final long stateVersion = input.getLong();
         final long deliverAt = input.getLong();
         final long expireAt = input.getLong();
+        final long retryEligibilityAt = version >= 3 ? input.getLong() : deliverAt;
         final byte[] lane = new byte[32];
         input.get(lane);
         final int ordering = input.get() & 0xff;
@@ -157,10 +171,10 @@ public record MessageRecord(
             default -> throw new IllegalArgumentException("unknown ordering mode: " + ordering);
         };
         final MessageRecord result = new MessageRecord(status, generation, stateVersion, deliverAt, expireAt,
-                new DestinationLaneId(lane), mode, payload, source, payloadReference);
+                new DestinationLaneId(lane), mode, payload, source, payloadReference, retryEligibilityAt);
         if (!Arrays.equals(encoded, result.encode())) {
-            // Version 1 records remain readable, but all new writes use version 2.
-            if (version != 1) {
+            // Legacy version 1/2 records remain readable, but all new writes use version 3.
+            if (version >= 3) {
                 throw new IllegalArgumentException("non-canonical message record");
             }
         }
