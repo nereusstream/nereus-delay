@@ -49,7 +49,8 @@ to the intended modules:
 | Synchronous atomic WriteBatch | Implemented | `ShardStore.write`, `ShardStoreTest` |
 | Native RocksDB checkpoint creation | Implemented | `ShardStore.createCheckpoint`, `ShardStoreTest` |
 | Checkpoint file inventory and canonical manifest projection | Implemented (local/object publication boundary pending) | `CheckpointFileInventory`, `CheckpointManifest`, `CheckpointManifestTest` |
-| Checkpoint restore into a new Store Incarnation | Implemented (local manifest-validated path) | `ShardStore.restoreFromCheckpoint`, `ShardStoreTest`; Oxia Recovery Set/Floor and source replay pending |
+| Checkpoint restore into a new Store Incarnation | Implemented (local manifest-validated path) | `ShardStore.restoreFromCheckpoint`, `ShardStoreTest`; catalog/floor core exists, Oxia Recovery Pin/Floor CAS and source replay pending |
+| Recovery catalog, lineage and Floor selection | Implemented (in-memory core subset) | `RecoveryCatalog`, `RecoveryFloor`, `RecoveryCatalogTest`; durable Oxia catalog/session pins, Object Store publication and evidence cursors pending |
 | Command applied/rejected state machine | Implemented (embedded core) | `DelayShard`, `DelayShardTest` |
 | DUE/ORDERED/EXPIRY timeline namespaces | Implemented (core index/discovery) | `DelayShard`, `KeyCodec`, `DelayShardTest`; READY value/discovery and full TimelineWorkRef pending |
 | Terminal generation history | Implemented (Cancel/Reschedule subset) | `TerminalGenerationRecord`, `DelayShardTest`; publish/expiry/DLQ terminal obligations and GC retention pending |
@@ -63,7 +64,7 @@ to the intended modules:
 | Closed Stable Code registry | Implemented | `StableCode`, `ProtocolCodecTest` |
 | Hard shard quota admission | Implemented (core subset) | `ShardQuota`, `DelayShardTest`; atomic multi-shard grants, control reserve and GC accounting pending |
 | Kafka/Pulsar ingress and target adapters | In progress (ingress SPI only) | release blocker until concrete pinned transports, target publish/evidence channels and real-broker tests exist |
-| Recovery Set/Floor, catalog and restore replay | Not started | release blocker |
+| Recovery Set/Floor, catalog and restore replay | In progress (local catalog/Floor subset) | release blocker; Oxia catalog/session pin, immutable publication, source/evidence replay and activation CAS remain |
 | Large payload, quota grants, control reserve and GC | In progress (reservation/commit and shard hard-quota subsets) | release blocker; Object Store/Oxia publication, multi-shard grants, control reserve, Time Fence overlay and guarded GC remain |
 | Query, control operations, DLQ and observability | Not started | release blocker |
 | Real-service, chaos, benchmark, soak and upgrade evidence | Not started | release blocker |
