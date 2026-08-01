@@ -13,6 +13,9 @@ import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.DlqExportResultBody;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
+import io.nereusstream.delay.protocol.LaneRecordEnvelopeV1;
+import io.nereusstream.delay.protocol.LaneRetirementProgressV1;
+import io.nereusstream.delay.protocol.LaneTerminalGuardV1;
 import io.nereusstream.delay.protocol.PayloadCommitProof;
 import io.nereusstream.delay.protocol.PayloadProofTrustSet;
 import io.nereusstream.delay.protocol.PayloadReference;
@@ -2833,6 +2836,9 @@ public final class DelayShard {
         if (current == null) {
             throw new IllegalArgumentException("unknown destination lane");
         }
+        if (current.admissionGate() == AdmissionGate.RETIRED) {
+            throw new IllegalStateException("terminal lane cannot change readiness");
+        }
         final LaneRecord next = current.withReadiness(readiness);
         final TimelineCandidate candidate = findLaneCandidate(laneId, null, -1, null, null);
         final LaneProjection projection = projectLane(laneId, current, next, candidate);
@@ -2851,8 +2857,14 @@ public final class DelayShard {
         if (current == null) {
             throw new IllegalArgumentException("unknown destination lane");
         }
+        if (current.admissionGate() == AdmissionGate.RETIRED) {
+            throw new IllegalStateException("terminal lane cannot change admission gate");
+        }
         if (current.laneControlVersion() != expectedLaneControlVersion) {
             throw new IllegalStateException("lane control version conflict");
+        }
+        if (gate == AdmissionGate.RETIRED) {
+            throw new IllegalArgumentException("physical retirement requires a terminal guard");
         }
         final LaneRecord next = current.withGate(Objects.requireNonNull(gate, "gate"));
         final TimelineCandidate candidate = findLaneCandidate(laneId, null, -1, null, null);
@@ -2862,6 +2874,60 @@ public final class DelayShard {
             putReadyProjection(batch, projection);
         });
         return projection.lane();
+    }
+
+    /**
+     * Atomically replaces one closed active Lane with its terminal guard at
+     * the same {@code meta_cf/LANE} key.  The caller supplies the already
+     * applied retirement progress and must invoke this only after the
+     * Recovery-Floor and external-channel checks have passed.
+     */
+    public synchronized LaneTerminalGuardV1 retireLaneWithTerminalGuard(
+            final io.nereusstream.delay.protocol.DestinationLaneId laneId,
+            final long expectedLaneControlVersion, final LaneRetirementProgressV1 progress,
+            final LaneTerminalGuardV1 guard) {
+        Objects.requireNonNull(laneId, "laneId");
+        Objects.requireNonNull(progress, "progress");
+        Objects.requireNonNull(guard, "guard");
+        final LaneValue currentValue = readLaneValue(laneId);
+        if (currentValue == null || !currentValue.isActive()) {
+            throw new IllegalStateException("lane is already terminal or missing");
+        }
+        final LaneRecord current = LaneRecord.decode(currentValue.activeStateBytes());
+        if (current.admissionGate() != AdmissionGate.CLOSED) {
+            throw new IllegalStateException("only a CLOSED lane can be physically retired");
+        }
+        if (current.laneControlVersion() != expectedLaneControlVersion) {
+            throw new IllegalStateException("lane control version conflict");
+        }
+        if (!guard.laneId().equals(laneId)
+                || !Arrays.equals(guard.laneIncarnation(), current.laneIncarnation())
+                || guard.laneControlVersion() != current.laneControlVersion()
+                || !Arrays.equals(progress.retireMutationId(), guard.retirementIntentId())
+                || progress.appliedShardMutationSequence() != guard.retirementMutationSequence()) {
+            throw new IllegalStateException("terminal guard does not match the closed lane or retirement progress");
+        }
+        if (lastAppliedSourcePosition == null
+                || progress.intentSourcePosition().compareTo(lastAppliedSourcePosition) > 0
+                || guard.terminalSourcePosition().compareTo(progress.intentSourcePosition()) > 0) {
+            throw new IllegalStateException("retirement progress is not source-ordered and applied");
+        }
+        if (findLaneCandidate(laneId, null, -1, null, null) != null || hasLaneRuntimeWork(laneId)) {
+            throw new IllegalStateException("lane still has pending or inflight work");
+        }
+        store.write(batch -> {
+            deleteReadyKey(batch, current);
+            batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(laneId),
+                    LaneRecordEnvelopeV1.terminal(guard).canonicalBytes());
+        });
+        return guard;
+    }
+
+    /** Returns the terminal guard at the Lane key, or {@code null} while active. */
+    public synchronized LaneTerminalGuardV1 getLaneTerminalGuard(
+            final io.nereusstream.delay.protocol.DestinationLaneId laneId) {
+        final LaneValue value = readLaneValue(laneId);
+        return value == null || value.isActive() ? null : value.terminalGuard();
     }
 
     public synchronized SourcePosition lastAppliedSourcePosition() {
@@ -2979,8 +3045,12 @@ public final class DelayShard {
             }
             final io.nereusstream.delay.protocol.DestinationLaneId laneId =
                     new io.nereusstream.delay.protocol.DestinationLaneId(Arrays.copyOfRange(key, 2, 34));
-            final LaneRecord lane = LaneRecord.decode(
+            final LaneValue laneValue = decodeLaneValue(
                     io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), 2).payload());
+            if (!laneValue.isActive()) {
+                continue;
+            }
+            final LaneRecord lane = LaneRecord.decode(laneValue.activeStateBytes());
             if (!lane.laneId().equals(laneId) || lanes.put(laneId, lane) != null) {
                 throw new IllegalStateException("duplicate or mismatched lane metadata");
             }
@@ -3537,7 +3607,8 @@ public final class DelayShard {
 
     private void putReadyProjection(final ShardStore.Batch batch, final LaneProjection projection)
             throws org.rocksdb.RocksDBException {
-        batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(projection.lane().laneId()), projection.lane().encode());
+        batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(projection.lane().laneId()),
+                LaneRecordEnvelopeV1.active(projection.lane().encode()).canonicalBytes());
         if (projection.readyValue() != null) {
             final ReadyIndexValue ready = projection.readyValue();
             batch.putValue(ColumnFamily.TIMELINE, 3,
@@ -3943,8 +4014,86 @@ public final class DelayShard {
     }
 
     private LaneRecord readLane(final io.nereusstream.delay.protocol.DestinationLaneId laneId) {
+        final LaneValue value = readLaneValue(laneId);
+        if (value == null) {
+            return null;
+        }
+        if (value.isActive()) {
+            return LaneRecord.decode(value.activeStateBytes());
+        }
+        final LaneTerminalGuardV1 guard = value.terminalGuard();
+        return new LaneRecord(guard.laneId(), guard.laneIncarnation(), guard.laneControlVersion(), 0,
+                AdmissionGate.RETIRED, RuntimeReadiness.BLOCKED, 1, 0);
+    }
+
+    private LaneValue readLaneValue(final io.nereusstream.delay.protocol.DestinationLaneId laneId) {
         final var value = store.getValue(ColumnFamily.META, KeyCodec.metaLane(laneId), 2);
-        return value == null ? null : LaneRecord.decode(value.payload());
+        return value == null ? null : decodeLaneValue(value.payload());
+    }
+
+    /**
+     * Conservative local retirement proof.  A lane is retired only when this
+     * bounded scan can prove that no current message or reversible attempt
+     * still names it.  If the configured bound is exceeded we fail closed and
+     * require the recovery/GC coordinator to retry after compaction.
+     */
+    private boolean hasLaneRuntimeWork(final io.nereusstream.delay.protocol.DestinationLaneId laneId) {
+        final int limit = boundedLimitPlusOne(config.maxPendingMessages());
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> messages = store.scan(ColumnFamily.ID,
+                new byte[]{1, 1}, new byte[]{2, 1}, limit);
+        if (messages.size() >= limit && config.maxPendingMessages() < Integer.MAX_VALUE) {
+            throw new IllegalStateException("message scan exceeded configured bound during lane retirement");
+        }
+        for (var entry : messages) {
+            if (entry.key().length != 2 + DelayMessageId.LENGTH || entry.key()[0] != 1 || entry.key()[1] != 1) {
+                throw new IllegalStateException("invalid MESSAGE key during lane retirement");
+            }
+            final MessageRecord message = MessageRecord.decode(
+                    ValueEnvelope.decode(entry.value(), 1).payload());
+            if (message.laneId().equals(laneId)) {
+                return true;
+            }
+        }
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> attempts = store.scan(ColumnFamily.INFLIGHT,
+                new byte[]{1, 1}, new byte[]{4, 1}, limit);
+        if (attempts.size() >= limit && config.maxPendingMessages() < Integer.MAX_VALUE) {
+            throw new IllegalStateException("inflight scan exceeded configured bound during lane retirement");
+        }
+        for (var entry : attempts) {
+            if (entry.key().length < 2 || entry.key()[1] != 1) {
+                throw new IllegalStateException("invalid inflight key during lane retirement");
+            }
+            final io.nereusstream.delay.protocol.DestinationLaneId candidateLane;
+            if (entry.key()[0] == INFLIGHT_CLAIMED_KIND) {
+                candidateLane = ClaimRecord.decode(ValueEnvelope.decode(entry.value(), ClaimRecord.VALUE_TYPE)
+                        .payload()).laneId();
+            } else if (entry.key()[0] == INFLIGHT_PUBLISHING_KIND
+                    || entry.key()[0] == INFLIGHT_UNCERTAIN_KIND) {
+                candidateLane = PublishAttemptLedger.decode(
+                        ValueEnvelope.decode(entry.value(), PublishAttemptLedger.VALUE_TYPE).payload()).laneId();
+            } else {
+                throw new IllegalStateException("unknown inflight kind during lane retirement");
+            }
+            if (candidateLane.equals(laneId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static LaneValue decodeLaneValue(final byte[] payload) {
+        Objects.requireNonNull(payload, "payload");
+        // Pre-envelope databases used the fixed LaneRecord adapter bytes.  A
+        // zero first byte is the big-endian version marker, while every new
+        // protobuf envelope starts with field 1's tag (0x08).  Preserve read
+        // compatibility without treating malformed new values as legacy data.
+        if (payload.length >= 4 && payload[0] == 0) {
+            LaneRecord.decode(payload);
+            return LaneValue.active(payload);
+        }
+        final LaneRecordEnvelopeV1 envelope = LaneRecordEnvelopeV1.decode(payload);
+        return envelope.isActive() ? LaneValue.active(envelope.activeStateBytes())
+                : LaneValue.terminal(envelope.terminalGuard());
     }
 
     private PublishAttemptLedger readPublishAttempt(final byte[] publishAttemptId, final long ownerEpoch,
@@ -4129,6 +4278,36 @@ public final class DelayShard {
 
     private static final class WindowViolationException extends IllegalArgumentException {
         private static final long serialVersionUID = 1L;
+    }
+
+    private record LaneValue(boolean isActive, byte[] activeStateBytes, LaneTerminalGuardV1 terminalGuard) {
+        private LaneValue {
+            if (isActive == (terminalGuard != null)) {
+                throw new IllegalArgumentException("invalid lane value branch");
+            }
+            if (isActive) {
+                Objects.requireNonNull(activeStateBytes, "activeStateBytes");
+                activeStateBytes = Bytes.copy(activeStateBytes);
+            } else {
+                if (activeStateBytes != null) {
+                    throw new IllegalArgumentException("terminal lane cannot carry active bytes");
+                }
+                Objects.requireNonNull(terminalGuard, "terminalGuard");
+            }
+        }
+
+        private static LaneValue active(final byte[] stateBytes) {
+            return new LaneValue(true, stateBytes, null);
+        }
+
+        private static LaneValue terminal(final LaneTerminalGuardV1 guard) {
+            return new LaneValue(false, null, guard);
+        }
+
+        @Override
+        public byte[] activeStateBytes() {
+            return activeStateBytes == null ? null : Bytes.copy(activeStateBytes);
+        }
     }
 
     private static ReadyKey decodeReadyKey(final byte[] key) {

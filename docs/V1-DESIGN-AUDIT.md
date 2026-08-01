@@ -96,6 +96,11 @@ V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障
 | Checkpoint upload | PENDING/PUBLISHED/REAPING Upload Intent CAS；catalog 只接受 complete immutable manifest |
 | Time | Admission 使用 frozen decision interval + Broker persistence inequality；replay 不采样新墙钟 |
 
+当前代码已把 Lane 的 same-key ACTIVE/TERMINAL 分支和保守本地退休证明接入
+`DelayShard`；它只覆盖本地消息/timeline/inflight 为空的检查与 guard 持久化，
+不把它误报为完整的 `ActiveLaneStateV1`、Oxia target registration 或
+Recovery-Floor/retention gate。
+
 ## Source locks
 
 | 依赖 | 审计锁 |

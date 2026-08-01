@@ -13,10 +13,14 @@ import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
+import io.nereusstream.delay.protocol.LaneRetirementProgressV1;
+import io.nereusstream.delay.protocol.LaneTerminalGuardV1;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.OrderingMode;
 import io.nereusstream.delay.protocol.PayloadCommitProof;
 import io.nereusstream.delay.protocol.PayloadProofTrustSet;
+import io.nereusstream.delay.protocol.ProfileKindV1;
+import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.PublishAdmissionBody;
 import io.nereusstream.delay.protocol.PublishAdmissionBodyTest.Fixture;
@@ -427,6 +431,58 @@ class DelayShardTest {
                     position(shardId, 2, 1_002), keyPair.getPublic()).stableCode());
             assertEquals(AdmissionGate.CLOSED, shard.getLane(lane).admissionGate());
             assertEquals(0, shard.discoverReady(10_000, 10).size());
+        }
+    }
+
+    @Test
+    void laneRetirementAtomicallyReplacesActiveValueWithTerminalGuard() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("lane-terminal-guard"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 8);
+        final byte[] tuple = Bytes.utf8("terminal-lane-tuple");
+        final DestinationLaneId lane = DestinationLaneId.derive(tuple);
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("terminal-lane")), 9_000);
+        final KafkaSourcePosition source = position(shardId, 0, 1_000);
+        final ProfileRefV1 destination = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2),
+                ProfileKindV1.DESTINATION);
+        final ProfileRefV1 capability = new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4),
+                ProfileKindV1.DELIVERY_CAPABILITY);
+        final byte[] retirementId = bytes(32, 6);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, source).stableCode());
+            // Simulate the floor-protected GC phase: no current message or
+            // timeline work remains, but the lane metadata is retained.
+            store.write(batch -> {
+                batch.delete(ColumnFamily.ID, KeyCodec.idMessage(schedule.delayMessageId()));
+                batch.delete(ColumnFamily.TIMELINE, KeyCodec.timelineDue(lane, 2_000,
+                        source.sourceOrderToken(), schedule.delayMessageId(), 0));
+                batch.delete(ColumnFamily.TIMELINE, KeyCodec.timelineExpiry(5_000, lane,
+                        schedule.delayMessageId(), 0));
+            });
+            final LaneRecord closed = shard.updateLaneGate(lane, 1, AdmissionGate.CLOSED);
+            final LaneTerminalGuardV1 guard = new LaneTerminalGuardV1(closed.laneIncarnation(),
+                    closed.laneControlVersion(), source, destination, capability, tuple, retirementId, 1);
+            final LaneRetirementProgressV1 progress = new LaneRetirementProgressV1(retirementId, 1, source);
+            assertEquals(guard, shard.retireLaneWithTerminalGuard(lane, closed.laneControlVersion(), progress,
+                    guard));
+            assertEquals(AdmissionGate.RETIRED, shard.getLane(lane).admissionGate());
+            assertEquals(guard, shard.getLaneTerminalGuard(lane));
+            assertThrows(IllegalStateException.class,
+                    () -> shard.updateLaneGate(lane, closed.laneControlVersion(), AdmissionGate.OPEN));
+        }
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults());
+            assertNotNull(reopened.getLaneTerminalGuard(lane));
+            final PreparedCommand replacement = PreparedCommand.schedule(shardId,
+                    new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_100, 5_100,
+                            OrderingMode.BEST_EFFORT, Bytes.utf8("must-not-reopen")), 9_000);
+            assertEquals(StableCode.LANE_TERMINALLY_CLOSED,
+                    reopened.apply(replacement, position(shardId, 1, 1_001)).stableCode());
         }
     }
 
@@ -3142,6 +3198,12 @@ class DelayShardTest {
             CanonicalProtobuf.bytes(output, 12, evidence);
             CanonicalProtobuf.bytes(output, 13, time.canonicalBytes());
         });
+    }
+
+    private static byte[] bytes(final int length, final int value) {
+        final byte[] result = new byte[length];
+        java.util.Arrays.fill(result, (byte) value);
+        return result;
     }
 
     private static KafkaSourcePosition position(final ShardId shard, final long offset, final long timestamp) {
