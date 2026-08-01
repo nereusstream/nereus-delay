@@ -159,6 +159,27 @@ public final class DelayShard {
         return projection.lane();
     }
 
+    /** Applies a local management-gate transition with an exact CAS version. */
+    public synchronized LaneRecord updateLaneGate(
+            final io.nereusstream.delay.protocol.DestinationLaneId laneId,
+            final long expectedLaneControlVersion, final AdmissionGate gate) {
+        final LaneRecord current = readLane(laneId);
+        if (current == null) {
+            throw new IllegalArgumentException("unknown destination lane");
+        }
+        if (current.laneControlVersion() != expectedLaneControlVersion) {
+            throw new IllegalStateException("lane control version conflict");
+        }
+        final LaneRecord next = current.withGate(Objects.requireNonNull(gate, "gate"));
+        final TimelineCandidate candidate = findLaneCandidate(laneId, null, -1, null, null);
+        final LaneProjection projection = projectLane(laneId, current, next, candidate);
+        store.write(batch -> {
+            deleteReadyKey(batch, current);
+            putReadyProjection(batch, projection);
+        });
+        return projection.lane();
+    }
+
     public synchronized SourcePosition lastAppliedSourcePosition() {
         return lastAppliedSourcePosition;
     }

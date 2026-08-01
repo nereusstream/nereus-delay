@@ -28,6 +28,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class DelayShardTest {
     @TempDir
@@ -176,6 +177,17 @@ class DelayShardTest {
             assertEquals(0, shard.discoverReady(10_000, 10).size());
             assertEquals(1, shard.rebuildReadyIndexes());
             assertEquals(later.delayMessageId(), shard.discoverReady(10_000, 10).get(0).messageId());
+
+            final LaneRecord paused = shard.updateLaneGate(lane, afterCancel.laneControlVersion(),
+                    AdmissionGate.ADMIN_PAUSED);
+            assertEquals(0, shard.discoverReady(10_000, 10).size());
+            assertThrows(IllegalStateException.class,
+                    () -> shard.updateLaneGate(lane, afterCancel.laneControlVersion(), AdmissionGate.OPEN));
+            final LaneRecord resumed = shard.updateLaneGate(lane, paused.laneControlVersion(), AdmissionGate.OPEN);
+            assertEquals(RuntimeReadiness.BLOCKED, resumed.runtimeReadiness());
+            assertEquals(0, shard.discoverReady(10_000, 10).size());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            assertEquals(1, shard.discoverReady(10_000, 10).size());
 
             shard.updateLaneReadiness(lane, RuntimeReadiness.BLOCKED);
             assertEquals(0, shard.discoverReady(10_000, 10).size());
