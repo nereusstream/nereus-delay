@@ -182,6 +182,44 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void commandAppliedReceiptBindsQueuedDigestAndAppliedSourcePosition() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 5);
+        final UUID topic = UUID.randomUUID();
+        final PreparedCommand command = PreparedCommand.schedule(shard,
+                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("applied-lane")), 1_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 8_000);
+        final KafkaSourcePosition queuedPosition = new KafkaSourcePosition(shard, "cluster-applied", topic, 10, 1,
+                1_000);
+        final KafkaSourcePosition appliedPosition = new KafkaSourcePosition(shard, "cluster-applied", topic, 11, 1,
+                1_001);
+        final byte[] attempt = new byte[16];
+        attempt[0] = 1;
+        final CommandQueuedReceiptV1 queued = CommandQueuedReceiptV1.create(command, queuedPosition,
+                new CommandQueuedReceiptV1.KafkaQueuedAck("cluster-applied", topic, shard.partition(), 10, 1, 1_000,
+                        Bytes.sha256(Bytes.utf8("ack"))), 2_000, attempt);
+        final CommandAppliedReceiptV1 applied = CommandAppliedReceiptV1.create(queued,
+                CommandApplyStatusV1.APPLIED, StableCode.OK, appliedPosition, 0, 1L, publicBinding(), 3_000);
+
+        assertEquals(applied, CommandAppliedReceiptV1.decodeFrame(applied.frame()));
+        assertEquals(ReceiptKind.COMMAND_APPLIED, ReceiptFrame.decode(applied.frame()).kind());
+
+        final CommandAppliedReceiptV1 rejected = CommandAppliedReceiptV1.create(queued,
+                CommandApplyStatusV1.REJECTED, StableCode.INVALID_COMMAND, appliedPosition, null, null, null, 3_000);
+        assertEquals(rejected, CommandAppliedReceiptV1.decodePayload(rejected.payload()));
+
+        final byte[] tampered = applied.payload();
+        tampered[tampered.length - 1] ^= 1;
+        assertThrows(IllegalArgumentException.class, () -> CommandAppliedReceiptV1.decodePayload(tampered));
+        final KafkaSourcePosition beforeQueued = new KafkaSourcePosition(shard, "cluster-applied", topic, 9, 1,
+                999);
+        assertThrows(IllegalArgumentException.class, () -> CommandAppliedReceiptV1.create(queued,
+                CommandApplyStatusV1.APPLIED, StableCode.OK, beforeQueued, 0, 1L, publicBinding(), 3_000));
+        assertThrows(IllegalArgumentException.class, () -> CommandAppliedReceiptV1.create(queued,
+                CommandApplyStatusV1.REJECTED, StableCode.INVALID_COMMAND, appliedPosition, 0, 1L, publicBinding(),
+                3_000));
+    }
+
+    @Test
     void publicQueryViewsRejectUnsafeBindingAndNonCanonicalBranchShape() {
         final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("destination"), 1,
                 Bytes.sha256(Bytes.utf8("destination-semantic")), ProfileKindV1.DESTINATION);
