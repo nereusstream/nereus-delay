@@ -365,6 +365,49 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void nativePreparedDeliveryPinsSnapshotProjectionAndSubmissionHash() throws Exception {
+        final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = keyPairGenerator.generateKeyPair();
+        final byte[] resource = nonZero(32, 5);
+        final PulsarBrokerResourceIdentityV1 target = new PulsarBrokerResourceIdentityV1(
+                "pulsar-prepared", resource, "persistent://tenant/prepared", 2_500);
+        final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("prepared-destination"), 1,
+                Bytes.sha256(Bytes.utf8("prepared-destination-semantic")), ProfileKindV1.DESTINATION);
+        final ProfileRefV1 capability = new ProfileRefV1(Bytes.utf8("prepared-capability"), 1,
+                Bytes.sha256(Bytes.utf8("prepared-capability-semantic")), ProfileKindV1.DELIVERY_CAPABILITY);
+        final TrustedUtcIntervalEvidence issuedAt = new TrustedUtcIntervalEvidence(2_600, 2_610,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("prepared-clock"), 1, 2, 3,
+                Bytes.sha256(Bytes.utf8("prepared-sample")), 0, null);
+        final byte[] guard = Bytes.sha256(Bytes.utf8("prepared-guard"));
+        final NativeCapabilitySnapshotV1 snapshot = NativeCapabilitySnapshotV1.create(destination, capability, target,
+                1, guard, 3, 4, Bytes.sha256(Bytes.utf8("prepared-binding")),
+                Bytes.sha256(Bytes.utf8("prepared-fingerprint")), Bytes.sha256(Bytes.utf8("prepared-scope")),
+                issuedAt, 4_000, 5, keyPair.getPrivate());
+        final PulsarMetadataV1 metadata = new PulsarMetadataV1(Bytes.utf8("partition"),
+                PulsarMetadataV1.KeyEncoding.UTF8, null,
+                java.util.List.of(new PulsarMetadataV1.Property("trace", "native")));
+
+        final NativePreparedDeliveryV1 prepared = NativePreparedDeliveryV1.create(nonZero(32, 6), destination,
+                capability, target, 1, Bytes.utf8("inline-payload"), metadata, 2_650L, 2_700, 2_800, snapshot);
+        final NativePreparedDeliveryV1 decoded = NativePreparedDeliveryV1.decode(prepared.canonicalBytes());
+        final NativePreparedRefV1 ref = prepared.preparedRef();
+
+        assertEquals(prepared, decoded);
+        assertArrayEquals(snapshot.snapshotDigest(), ref.capabilitySnapshotDigest());
+        assertArrayEquals(Bytes.sha256(prepared.canonicalBytes()), ref.preparedBytesSha256());
+        assertArrayEquals(prepared.submissionHash(), ref.submissionHash());
+
+        final byte[] tampered = prepared.canonicalBytes();
+        tampered[tampered.length - 1] ^= 1;
+        assertThrows(IllegalArgumentException.class, () -> NativePreparedDeliveryV1.decode(tampered));
+        assertThrows(IllegalArgumentException.class, () -> NativePreparedDeliveryV1.create(nonZero(32, 6),
+                destination, capability,
+                new PulsarBrokerResourceIdentityV1("pulsar-prepared", nonZero(32, 7),
+                        "persistent://tenant/prepared", 2_500),
+                1, Bytes.utf8("inline-payload"), metadata, 2_650L, 2_700, 2_800, snapshot));
+    }
+
+    @Test
     void publicQueryViewsRejectUnsafeBindingAndNonCanonicalBranchShape() {
         final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("destination"), 1,
                 Bytes.sha256(Bytes.utf8("destination-semantic")), ProfileKindV1.DESTINATION);
