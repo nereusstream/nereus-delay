@@ -45,11 +45,11 @@ public final class SystemMutationBodyCodec {
                     nested(10), varint(11), varint(12), fixed(13, 32, true), optionalVarint(14), nested(15)};
             case REPLAY_DEAD_LETTER -> new Spec[]{
                     nested(10), fixed(11, DelayMessageId.LENGTH, true), varint(12), varint(13), varint(14),
-                    nested(16), bool(17), optionalFixed(18, 32, true)};
+                    nested(16), bool(17), optionalFixed(18, 32, false)};
             case RESOLVE_UNCERTAIN -> new Spec[]{
                     nested(10), fixed(11, 32, true), fixed(12, 16, true), fixed(13, DelayMessageId.LENGTH, true),
                     varint(14), fixed(15, 32, true), varint(16), optionalNested(17), bool(18), bool(19),
-                    optionalFixed(20, 32, true)};
+                    optionalFixed(20, 32, false)};
             case TIME_FENCE -> new Spec[]{varint(10), varint(11), fixed(12, 32, true), nested(13)};
             case PUBLISH_ADMISSION -> new Spec[]{
                     nested(10), fixed(11, 16, true), fixed(12, 32, true), fixed(13, 32, true),

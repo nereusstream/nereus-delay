@@ -14,6 +14,7 @@ import io.nereusstream.delay.protocol.PayloadReference;
 import io.nereusstream.delay.protocol.PublishAdmissionBody;
 import io.nereusstream.delay.protocol.PublishOutcomeBody;
 import io.nereusstream.delay.protocol.PreparedCommand;
+import io.nereusstream.delay.protocol.ResolveUncertainBody;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.StableCode;
@@ -358,6 +359,7 @@ public final class DelayShard {
                 case EXPIRE_GENERATION -> applyExpireGenerationMutation(mutation, sourcePosition);
                 case PUBLISH_OUTCOME -> applyPublishOutcomeMutation(mutation, sourcePosition);
                 case EVIDENCE_RESOLUTION -> applyEvidenceResolutionMutation(mutation, sourcePosition);
+                case RESOLVE_UNCERTAIN -> applyResolveUncertainMutation(mutation, sourcePosition);
                 case CLAIM_RESULT -> applyClaimResultMutation(mutation, sourcePosition);
                 default -> throw new UnsupportedOperationException(
                         "System Mutation type is not implemented: " + mutation.type());
@@ -518,6 +520,115 @@ public final class DelayShard {
         }
         return applyNotPublishedPublishOutcome(ledger, resolution, sourcePosition, result,
                 AttemptLedgerState.UNCERTAIN, MessageStatus.UNCERTAIN);
+    }
+
+    /**
+     * Applies the source-ordered RETRY_ALLOW_POSSIBLE_DUPLICATE Resolve subset.
+     * Evidence attachment and possible-delivery terminalization remain explicit
+     * fail-closed branches until their dedicated evidence/terminal codecs land.
+     */
+    private SystemMutationResult applyResolveUncertainMutation(final SystemMutation mutation,
+                                                                final SourcePosition sourcePosition) {
+        final ResolveUncertainBody body = ResolveUncertainBody.decode(mutation.canonicalBody());
+        if (!Arrays.equals(mutation.logicalOperationIdentity(), body.controlRef()
+                .logicalOperationIdentity(SystemMutationType.RESOLVE_UNCERTAIN))) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
+        if (body.resolutionKind() != 3) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+        final MessageRecord current = getMessage(body.messageId());
+        if (current == null) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.TOO_LATE);
+        }
+        if (current.generation() != body.generation()) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    current.generation() > body.generation()
+                            ? StableCode.GENERATION_SUPERSEDED : StableCode.STALE_SYSTEM_MUTATION);
+        }
+        if (!current.laneId().equals(body.laneId())
+                || current.status() != MessageStatus.UNCERTAIN
+                || current.runtimeIndex().currentWorkKind() != CurrentSendWorkKind.NONE
+                || current.orderingMode() != io.nereusstream.delay.protocol.OrderingMode.BEST_EFFORT) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    current.orderingMode() != io.nereusstream.delay.protocol.OrderingMode.BEST_EFFORT
+                            ? StableCode.ORDERING_DOMAIN_BROKEN : StableCode.TOO_LATE);
+        }
+        final LaneRecord lane = readLane(body.laneId());
+        if (lane == null || !Arrays.equals(lane.laneIncarnation(), body.laneIncarnation())) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+        if (lane.admissionGate() == AdmissionGate.ORDERING_BROKEN) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.ORDERING_DOMAIN_BROKEN);
+        }
+        if (lane.admissionGate() == AdmissionGate.CLOSED || lane.admissionGate() == AdmissionGate.RETIRED) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.LANE_CLOSED);
+        }
+        final AttemptObligationRef target = current.runtimeIndex().attemptObligations().stream()
+                .filter(ref -> Arrays.equals(ref.publishAttemptId(), body.publishAttemptId())
+                        && ref.generation() == body.generation()
+                        && ref.ledgerState() == AttemptLedgerState.UNCERTAIN)
+                .findFirst().orElse(null);
+        if (target == null) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.TOO_LATE);
+        }
+        final PublishAttemptLedger ledger = readLedgerForObligation(target);
+        if (ledger.state() != AttemptLedgerState.UNCERTAIN
+                || !ledger.delayMessageId().equals(body.messageId())
+                || !ledger.laneId().equals(body.laneId())
+                || ledger.generation() != body.generation()) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+        final int candidateAttemptNo;
+        try {
+            candidateAttemptNo = Math.addExact(current.runtimeIndex().admissionsUsed(), 1);
+        } catch (ArithmeticException exception) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.TOO_LATE);
+        }
+        if (current.runtimeIndex().admissionsUsed() >= config.maxPublishAdmissions()) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.TOO_LATE);
+        }
+        final long retryAt = Math.max(current.deliverAtEpochMs(), sourcePosition.brokerPersistenceTimeEpochMs());
+        if (retryAt >= current.expireAtEpochMs()) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.TOO_LATE);
+        }
+        MessageRecord scheduled = new MessageRecord(MessageStatus.SCHEDULED, current.generation(),
+                Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
+                current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
+                current.payloadReference(), retryAt);
+        scheduled = scheduled.withRuntimeIndex(timelineRuntimeIndex(body.messageId(), scheduled,
+                TimelineWorkKind.UNCERTAIN_RETRY, candidateAttemptNo, scheduled.stateVersion(),
+                UncertainRetryAuthority.CONTROL_OVERRIDE, body.controlRef().canonicalBytes(),
+                sourcePosition.canonicalBytes(), current.runtimeIndex(), current.runtimeIndex().attemptObligations()));
+        final MessageRecord scheduledForWrite = scheduled;
+        final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
+                sourcePosition, body.messageId(), current, scheduled, null);
+        final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, StableCode.OK,
+                sourcePosition.canonicalBytes());
+        store.write(batch -> {
+            batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(body.messageId()), scheduledForWrite.encode());
+            batch.putValue(ColumnFamily.TIMELINE, 1, timelineKey(body.messageId(), scheduledForWrite),
+                    new TimelineEntry(body.messageId(), scheduledForWrite.generation()).encode());
+            batch.putValue(ColumnFamily.TIMELINE, 1, expiryKey(body.messageId(), scheduledForWrite),
+                    new TimelineEntry(body.messageId(), scheduledForWrite.generation()).encode());
+            for (LaneProjection projection : projections.values()) {
+                deleteReadyKey(batch, projection.previousLane());
+                putReadyProjection(batch, projection);
+            }
+            writeSystemResult(batch, result);
+            writePosition(batch, sourcePosition);
+        });
+        lastAppliedSourcePosition = sourcePosition;
+        mutationSequence++;
+        return result;
     }
 
     /**

@@ -16,6 +16,15 @@ now selects and validates a published floor-eligible ancestry before local
 restore. Immutable object publication, durable Oxia catalog/session pins, and
 Kafka/Pulsar source replay remain release blockers below.
 
+The current source-ordered control increment is deliberately bounded: the
+`RESOLVE_UNCERTAIN_V1(RETRY_ALLOW_POSSIBLE_DUPLICATE)` branch now validates a
+canonical `ControlRefV1`, its Resolve logical identity, lane incarnation,
+acknowledgement hash, current-generation UNCERTAIN obligation and source
+position, then materializes one `UNCERTAIN_RETRY(CONTROL_OVERRIDE)` timeline
+work item without consuming the Admission counter. Resolve evidence attachment,
+possible-delivery terminalization, authenticated Oxia target registration and
+the remaining control-operation matrix are still release blockers.
+
 ## Current repository shape
 
 The repository is currently a single Gradle Java 21 library while the design's

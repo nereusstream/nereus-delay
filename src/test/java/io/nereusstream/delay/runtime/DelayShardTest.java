@@ -4,6 +4,7 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.AuthorIdentity;
 import io.nereusstream.delay.protocol.CanonicalProtobuf;
 import io.nereusstream.delay.protocol.ClaimResultBody;
+import io.nereusstream.delay.protocol.ControlRef;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
@@ -623,6 +624,92 @@ class DelayShardTest {
                     retry.runtimeIndex().timeline().uncertainRetryAuthority());
             assertEquals(AttemptLedgerState.UNCERTAIN, reopened.getPublishAttempt(attemptId, 42).state());
             assertEquals(1, reopened.discoverDue(3_000, 10).size());
+        }
+    }
+
+    @Test
+    void sourceOrderedResolveUncertainRetryMaterializesControlOverrideTimeline() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-control-uncertain-retry"));
+        final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,
+                3, 100, 10_000, 3, 0);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 31);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("control-uncertain-retry-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("control-uncertain-retry")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 1_001);
+        final KafkaSourcePosition unknownPosition = position(shardId, 2, 1_002);
+        final KafkaSourcePosition resolvePosition = position(shardId, 3, 2_001);
+        final byte[] attemptId = Bytes.sha256(Bytes.utf8("control-uncertain-retry-attempt"));
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final byte[] owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 42,
+                Bytes.sha256(Bytes.utf8("lease"))).canonicalBytes();
+        final TrustedUtcIntervalEvidence observedAt = new TrustedUtcIntervalEvidence(1_002, 1_002,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("clock"), 1, 7, 7,
+                Bytes.sha256(Bytes.utf8("control-uncertain-retry-proof")), 0, null);
+        final byte[] unknownBody = publishOutcomeBody(shardId, attemptId, 3, 4,
+                StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, new byte[0], observedAt.canonicalBytes());
+        final SystemMutation unknown = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
+                Bytes.sha256(Bytes.utf8("control-uncertain-retry-unknown")), unknownBody, owner, 1,
+                keyPair.getPrivate());
+        final ControlRef controlRef = new ControlRef(Bytes.sha256(Bytes.utf8("resolve-operation")),
+                Bytes.sha256(Bytes.utf8("resolve-request")), 4);
+        final byte[] acknowledgementHash = Bytes.sha256(Bytes.utf8("possible-duplicate-ack"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, shardConfig);
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final byte[] laneIncarnation = shard.getLane(lane).laneIncarnation();
+            final PublishAttemptLedger admission = PublishAttemptLedger.publishing(schedule.delayMessageId(), 0,
+                    attemptId, Bytes.sha256(Bytes.utf8("control-uncertain-retry-claim")), 42, 1, lane,
+                    laneIncarnation, Bytes.sha256(Bytes.utf8("control-uncertain-retry-owner")),
+                    store.metadata().storeIncarnation(), Bytes.sha256(Bytes.utf8("control-uncertain-retry-prepared")),
+                    Bytes.utf8("admission"), admissionPosition.canonicalBytes());
+            shard.admitPublishAttempt(admission, admissionPosition);
+            assertEquals(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN,
+                    shard.applySystemMutation(unknown, unknownPosition, keyPair.getPublic()).stableCode());
+
+            final byte[] body = resolveUncertainRetryBody(shardId, controlRef, lane, laneIncarnation,
+                    schedule.delayMessageId(), 0, attemptId, acknowledgementHash);
+            final SystemMutation resolve = SystemMutation.signed(shardId, SystemMutationType.RESOLVE_UNCERTAIN,
+                    9_000, controlRef.logicalOperationIdentity(SystemMutationType.RESOLVE_UNCERTAIN), body,
+                    AuthorIdentity.control(Bytes.sha256(Bytes.utf8("actor")),
+                            Bytes.sha256(Bytes.utf8("role")), Bytes.sha256(Bytes.utf8("scope"))).canonicalBytes(),
+                    1, keyPair.getPrivate());
+
+            final SystemMutationResult result = shard.applySystemMutation(resolve, resolvePosition,
+                    keyPair.getPublic());
+            assertEquals(StableCode.OK, result.stableCode());
+            final MessageRecord retry = shard.getMessage(schedule.delayMessageId());
+            assertEquals(MessageStatus.SCHEDULED, retry.status());
+            assertEquals(GenerationAggregateState.UNCERTAIN, retry.runtimeIndex().aggregateState());
+            assertEquals(CurrentSendWorkKind.TIMELINE, retry.runtimeIndex().currentWorkKind());
+            assertEquals(TimelineWorkKind.UNCERTAIN_RETRY, retry.runtimeIndex().timeline().workKind());
+            assertEquals(UncertainRetryAuthority.CONTROL_OVERRIDE,
+                    retry.runtimeIndex().timeline().uncertainRetryAuthority());
+            assertArrayEquals(controlRef.canonicalBytes(), retry.runtimeIndex().timeline().uncertainRetryControl());
+            assertArrayEquals(resolvePosition.canonicalBytes(),
+                    retry.runtimeIndex().timeline().uncertainRetryControlPosition());
+            assertEquals(2_001, retry.retryEligibilityAtEpochMs());
+            assertEquals(2, retry.runtimeIndex().timeline().candidateAttemptNo());
+            assertEquals(1, retry.runtimeIndex().admissionsUsed());
+            assertEquals(0, retry.runtimeIndex().uncertainRetryAdmissionsUsed());
+            assertEquals(AttemptLedgerState.UNCERTAIN, shard.getPublishAttempt(attemptId, 42).state());
+            assertEquals(0, shard.discoverDue(2_000, 10).size());
+            assertEquals(1, shard.discoverDue(2_001, 10).size());
+            assertEquals(result, shard.applySystemMutation(resolve, resolvePosition, keyPair.getPublic()));
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard reopened = new DelayShard(store, shardConfig);
+            final MessageRecord retry = reopened.getMessage(schedule.delayMessageId());
+            assertEquals(TimelineWorkKind.UNCERTAIN_RETRY, retry.runtimeIndex().timeline().workKind());
+            assertEquals(UncertainRetryAuthority.CONTROL_OVERRIDE,
+                    retry.runtimeIndex().timeline().uncertainRetryAuthority());
+            assertEquals(AttemptLedgerState.UNCERTAIN, reopened.getPublishAttempt(attemptId, 42).state());
         }
     }
 
@@ -1797,6 +1884,31 @@ class DelayShardTest {
             CanonicalProtobuf.bytes(output, 16, chargeVector());
             CanonicalProtobuf.bytes(output, 17, observedAt);
             CanonicalProtobuf.bytes(output, 18, retry);
+        });
+    }
+
+    private static byte[] resolveUncertainRetryBody(final ShardId shard, final ControlRef controlRef,
+                                                    final DestinationLaneId lane, final byte[] laneIncarnation,
+                                                    final DelayMessageId messageId, final int generation,
+                                                    final byte[] attemptId, final byte[] acknowledgementHash) {
+        final byte[] subject = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());
+            CanonicalProtobuf.uint32(output, 2, shard.partition());
+        });
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, subject);
+            CanonicalProtobuf.uint32(output, 2, SystemMutationType.RESOLVE_UNCERTAIN.wireValue());
+            CanonicalProtobuf.int64(output, 3, 9_000);
+            CanonicalProtobuf.bytes(output, 10, controlRef.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 11, lane.bytes());
+            CanonicalProtobuf.bytes(output, 12, laneIncarnation);
+            CanonicalProtobuf.bytes(output, 13, messageId.bytes());
+            CanonicalProtobuf.uint32(output, 14, generation);
+            CanonicalProtobuf.bytes(output, 15, attemptId);
+            CanonicalProtobuf.uint32(output, 16, 3);
+            CanonicalProtobuf.uint32(output, 18, 1);
+            CanonicalProtobuf.uint32(output, 19, 0);
+            CanonicalProtobuf.bytes(output, 20, acknowledgementHash);
         });
     }
 
