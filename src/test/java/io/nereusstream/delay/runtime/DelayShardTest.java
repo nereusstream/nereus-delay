@@ -902,6 +902,42 @@ class DelayShardTest {
     }
 
     @Test
+    void publishAdmissionConsumesExactLocalClaimBeforeCreatingAttemptLedger() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("claim-admission"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 24);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("claim-admission-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("claim-admission")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 2_001);
+        final AuthorIdentity owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 42,
+                Bytes.sha256(Bytes.utf8("lease")));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final ClaimRecord claim = shard.claimForPublish(schedule.delayMessageId(), owner, 3_000,
+                    new byte[0], chargeVector());
+            final byte[] attemptId = Bytes.sha256(Bytes.utf8("claim-admission-attempt"));
+            final PublishAttemptLedger admission = PublishAttemptLedger.publishing(schedule.delayMessageId(), 0,
+                    attemptId, claim.claimId(), owner.generation(), 1, lane, claim.laneIncarnation(),
+                    owner.canonicalBytes(), store.metadata().storeIncarnation(),
+                    Bytes.sha256(Bytes.utf8("prepared")), Bytes.utf8("admission"), admissionPosition.canonicalBytes());
+
+            shard.admitPublishAttempt(admission, admissionPosition);
+
+            assertEquals(MessageStatus.PUBLISHING, shard.getMessage(schedule.delayMessageId()).status());
+            assertNull(shard.getClaim(claim.claimId(), owner.generation()));
+            assertEquals(admission, shard.getPublishAttempt(attemptId, owner.generation()));
+            assertNull(store.getValue(ColumnFamily.TIMELINE, claim.timelineKey(), 1));
+            assertNull(store.getValue(ColumnFamily.TIMELINE,
+                    KeyCodec.timelineExpiry(5_000, lane, schedule.delayMessageId(), 0), 1));
+        }
+    }
+
+    @Test
     void sourceOrderedClaimResultTerminalizesMatchingReplayStableTimeline() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-claim-result"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 21);
