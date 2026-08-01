@@ -51,12 +51,14 @@ public final class ShardStore implements AutoCloseable {
     private final List<ColumnFamilyOptions> columnFamilyOptions;
     private final Map<ColumnFamily, ColumnFamilyHandle> handles;
     private final StoreMetadata metadata;
+    private final boolean ownsShardSlot;
     private final AtomicBoolean closed = new AtomicBoolean();
 
     private ShardStore(final ShardStoreConfig config, final ShardId shardId, final Path dbPath,
                         final SharedRocksDbResources resources, final RocksDB db, final DBOptions dbOptions,
                         final List<ColumnFamilyOptions> columnFamilyOptions,
-                        final Map<ColumnFamily, ColumnFamilyHandle> handles, final StoreMetadata metadata) {
+                        final Map<ColumnFamily, ColumnFamilyHandle> handles, final StoreMetadata metadata,
+                        final boolean ownsShardSlot) {
         this.config = config;
         this.shardId = shardId;
         this.dbPath = dbPath;
@@ -66,6 +68,7 @@ public final class ShardStore implements AutoCloseable {
         this.columnFamilyOptions = columnFamilyOptions;
         this.handles = handles;
         this.metadata = metadata;
+        this.ownsShardSlot = ownsShardSlot;
     }
 
     public static ShardStore open(final ShardStoreConfig config, final ShardId shardId,
@@ -79,7 +82,7 @@ public final class ShardStore implements AutoCloseable {
                     .resolve(Integer.toString(shardId.partition()));
             Files.createDirectories(shardRoot);
             final Path dbPath = locateOrCreateDbPath(shardRoot);
-            final ShardStore opened = openAtPath(config, shardId, dbPath, resources, null);
+            final ShardStore opened = openAtPath(config, shardId, dbPath, resources, null, true);
             try {
                 writeActivePointer(shardRoot, storeUuidFromPath(dbPath));
                 return opened;
@@ -129,7 +132,7 @@ public final class ShardStore implements AutoCloseable {
                 throw new IOException("cannot restore while an active shard DB exists: " + shardRoot);
             }
             copyTree(checkpointPath, stagedDb);
-            try (ShardStore staged = openAtPath(config, shardId, stagedDb, resources, null)) {
+            try (ShardStore staged = openAtPath(config, shardId, stagedDb, resources, null, false)) {
                 if (!staged.shardId().equals(shardId)) {
                     throw new IOException("restored DB shard identity mismatch");
                 }
@@ -138,7 +141,7 @@ public final class ShardStore implements AutoCloseable {
                     throw new IOException("restored DB metadata does not match checkpoint manifest");
                 }
             }
-            try (ShardStore installed = openAtPath(config, shardId, stagedDb, resources, storeUuid)) {
+            try (ShardStore installed = openAtPath(config, shardId, stagedDb, resources, storeUuid, false)) {
                 if (!installed.shardId().equals(shardId)) {
                     throw new IOException("install-mode DB shard identity mismatch");
                 }
@@ -147,7 +150,7 @@ public final class ShardStore implements AutoCloseable {
             Files.move(stagedDb, activeDb, StandardCopyOption.ATOMIC_MOVE);
             writeActivePointer(shardRoot, storeUuid);
             deleteTree(restoreRoot);
-            return openAtPath(config, shardId, activeDb, resources, null);
+            return openAtPath(config, shardId, activeDb, resources, null, true);
         } catch (IOException | RocksDBException exception) {
             try {
                 deleteTree(restoreRoot);
@@ -278,19 +281,36 @@ public final class ShardStore implements AutoCloseable {
 
     private static ShardStore openAtPath(final ShardStoreConfig config, final ShardId shardId, final Path dbPath,
                                          final SharedRocksDbResources resources,
-                                         final UUID restoreStoreIncarnation) throws IOException, RocksDBException {
-        resources.acquireDbSlot();
+                                         final UUID restoreStoreIncarnation,
+                                         final boolean acquireOwnedSlot) throws IOException, RocksDBException {
+        boolean ownedSlotAcquired = false;
+        boolean dbSlotAcquired = false;
         try {
-            return openAtPathWithSlot(config, shardId, dbPath, resources, restoreStoreIncarnation);
+            if (acquireOwnedSlot) {
+                resources.acquireOwnedShardSlot();
+                ownedSlotAcquired = true;
+            }
+            resources.acquireDbSlot();
+            dbSlotAcquired = true;
+            return openAtPathWithSlot(config, shardId, dbPath, resources, restoreStoreIncarnation,
+                    acquireOwnedSlot);
         } catch (IOException | RocksDBException | RuntimeException exception) {
-            resources.releaseDbSlot();
+            // The DB slot is acquired after the owned slot.  Release only the
+            // slots that this invocation actually acquired.
+            if (dbSlotAcquired) {
+                resources.releaseDbSlot();
+            }
+            if (ownedSlotAcquired) {
+                resources.releaseOwnedShardSlot();
+            }
             throw exception;
         }
     }
 
     private static ShardStore openAtPathWithSlot(final ShardStoreConfig config, final ShardId shardId,
                                                  final Path dbPath, final SharedRocksDbResources resources,
-                                                 final UUID restoreStoreIncarnation)
+                                                 final UUID restoreStoreIncarnation,
+                                                 final boolean ownsShardSlot)
             throws IOException, RocksDBException {
         Files.createDirectories(dbPath);
         final boolean existing = Files.exists(dbPath.resolve("CURRENT"));
@@ -367,7 +387,8 @@ public final class ShardStore implements AutoCloseable {
             closeHandles(db, openedHandles, cfOptions, dbOptions);
             throw new IllegalStateException("missing or unsupported store format marker");
         }
-        return new ShardStore(config, shardId, dbPath, resources, db, dbOptions, cfOptions, handles, metadata);
+        return new ShardStore(config, shardId, dbPath, resources, db, dbOptions, cfOptions, handles, metadata,
+                ownsShardSlot);
     }
 
     private static byte[] uuidBytes(final UUID uuid) {
@@ -561,6 +582,9 @@ public final class ShardStore implements AutoCloseable {
             closeQuietly(columnFamilyOptions);
             dbOptions.close();
             resources.releaseDbSlot();
+            if (ownsShardSlot) {
+                resources.releaseOwnedShardSlot();
+            }
         }
     }
 

@@ -18,7 +18,7 @@ public record ShardStoreConfig(
         long checkpointIoBytesPerSecond) {
     public ShardStoreConfig {
         Objects.requireNonNull(rootPath, "rootPath");
-        if (maxOwnedShards <= 0 || maxOpenShardDbs <= 0 || maxOpenShardDbs > maxOwnedShards
+        if (maxOwnedShards <= 0 || maxOpenShardDbs < maxOwnedShards
                 || maxOpenFilesPerDb <= 0 || maxTotalOpenFiles <= 0
                 || (long) maxTotalOpenFiles < (long) maxOpenFilesPerDb * maxOpenShardDbs
                 || maxBackgroundJobs <= 0 || sharedBlockCacheBytes <= 0 || sharedWriteBufferBudgetBytes <= 0

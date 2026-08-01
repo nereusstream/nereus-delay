@@ -17,10 +17,12 @@ public final class SharedRocksDbResources implements AutoCloseable {
     private final Cache blockCache;
     private final WriteBufferManager writeBufferManager;
     private final RateLimiter rateLimiter;
+    private final Semaphore ownedShardSlots;
     private final Semaphore openDbSlots;
     private final Semaphore checkpointCreateSlots;
     private final Semaphore checkpointUploadSlots;
     private final AtomicBoolean closed = new AtomicBoolean();
+    private int ownedShardCount;
     private int openDbCount;
 
     public SharedRocksDbResources(final ShardStoreConfig config) {
@@ -42,6 +44,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
         // opened by this process.  A zero-byte limiter would silently disable
         // the global bound even though the config declares one.
         rateLimiter = new RateLimiter(config.checkpointIoBytesPerSecond());
+        ownedShardSlots = new Semaphore(config.maxOwnedShards(), true);
         openDbSlots = new Semaphore(config.maxOpenShardDbs(), true);
         checkpointCreateSlots = new Semaphore(config.maxConcurrentCheckpointCreatesPerWorker(), true);
         checkpointUploadSlots = new Semaphore(config.maxConcurrentCheckpointUploadsPerWorker(), true);
@@ -57,6 +60,27 @@ public final class SharedRocksDbResources implements AutoCloseable {
 
     public RateLimiter rateLimiter() {
         return rateLimiter;
+    }
+
+    /**
+     * Reserves one logical shard ownership slot for the lifetime of an open
+     * active shard DB.  This is separate from the physical DB slot because
+     * restore validation may briefly open a DB without owning the shard.
+     */
+    public synchronized void acquireOwnedShardSlot() {
+        ensureOpen();
+        if (!ownedShardSlots.tryAcquire()) {
+            throw new IllegalStateException("worker maxOwnedShards limit reached");
+        }
+        ownedShardCount++;
+    }
+
+    public synchronized void releaseOwnedShardSlot() {
+        if (ownedShardCount <= 0) {
+            throw new IllegalStateException("owned shard slot released without an owned shard");
+        }
+        ownedShardCount--;
+        ownedShardSlots.release();
     }
 
     public synchronized void acquireDbSlot() {
@@ -102,7 +126,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
         if (closed.get()) {
             return;
         }
-        if (openDbCount != 0) {
+        if (openDbCount != 0 || ownedShardCount != 0) {
             throw new IllegalStateException("cannot close shared RocksDB resources while a shard DB is open");
         }
         closed.set(true);

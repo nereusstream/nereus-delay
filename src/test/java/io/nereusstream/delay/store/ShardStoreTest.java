@@ -137,6 +137,25 @@ class ShardStoreTest {
     }
 
     @Test
+    void workerOwnedShardLimitIsIndependentFromTransientDbSlots() {
+        final ShardStoreConfig config = new ShardStoreConfig(tempDir.resolve("owned-bounded"), 1, 2, 32, 64,
+                1, 1024 * 1024, 1024 * 1024, 1, 1, 1024);
+        final ShardId first = new ShardId(RouteIncarnation.random(), 3);
+        final ShardId second = new ShardId(RouteIncarnation.random(), 4);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+            try (ShardStore firstStore = ShardStore.open(config, first, resources)) {
+                assertEquals(first, firstStore.shardId());
+                final IllegalStateException rejected = assertThrows(IllegalStateException.class,
+                        () -> ShardStore.open(config, second, resources));
+                assertEquals("worker maxOwnedShards limit reached", rejected.getMessage());
+            }
+            try (ShardStore secondStore = ShardStore.open(config, second, resources)) {
+                assertEquals(second, secondStore.shardId());
+            }
+        }
+    }
+
+    @Test
     void sharedResourcesCannotCloseBeforeTheShardDb() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("resource-lifecycle"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 21);
