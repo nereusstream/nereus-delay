@@ -131,6 +131,19 @@ public final class PublishAdmissionBody {
         return copy(reserveCharge);
     }
 
+    /** Decodes the closed 17-dimensional logical charge vector carried by this admission. */
+    public ChargeVector chargeVector() {
+        final List<CanonicalProtobuf.Reader.Field> fields = read(reserveCharge, "ChargeVector");
+        requireExactFields(fields, 17, "ChargeVector");
+        final long[] values = new long[17];
+        for (int index = 0; index < values.length; index++) {
+            values[index] = unsigned(field(fields, index + 1), index + 1);
+        }
+        return new ChargeVector(values[0], values[1], values[2], values[3], values[4], values[5], values[6],
+                values[7], values[8], values[9], values[10], values[11], values[12], values[13], values[14],
+                values[15], values[16]);
+    }
+
     public byte[] readyCertificateDigest() {
         return copy(readyCertificateDigest);
     }
@@ -499,6 +512,45 @@ public final class PublishAdmissionBody {
         requireExactFields(fields, 17, "ChargeVector");
         for (int number = 1; number <= 17; number++) {
             unsigned(field(fields, number), number);
+        }
+    }
+
+    /** Exact fields 1-17 of Registry ChargeVectorV1. */
+    public record ChargeVector(
+            long activeMessages,
+            long pendingPayloadBytes,
+            long logicalStateBytes,
+            long retainedBytes,
+            long reservationMessages,
+            long reservationPayloadBytes,
+            long inflightMessages,
+            long inflightBytes,
+            long resultRecords,
+            long resultBytes,
+            long systemMutationRecords,
+            long systemMutationBytes,
+            long outcomeWalBytes,
+            long evidenceRecords,
+            long evidenceBytes,
+            long laneCount,
+            long strongLaneCount) {
+        public ChargeVector {
+            if (activeMessages < 0 || pendingPayloadBytes < 0 || logicalStateBytes < 0 || retainedBytes < 0
+                    || reservationMessages < 0 || reservationPayloadBytes < 0 || inflightMessages < 0
+                    || inflightBytes < 0 || resultRecords < 0 || resultBytes < 0
+                    || systemMutationRecords < 0 || systemMutationBytes < 0 || outcomeWalBytes < 0
+                    || evidenceRecords < 0 || evidenceBytes < 0 || laneCount < 0 || strongLaneCount < 0) {
+                throw new IllegalArgumentException("ChargeVector values must be non-negative");
+            }
+        }
+
+        public long outcomeReserveRecords() {
+            return Math.addExact(Math.addExact(resultRecords, systemMutationRecords), evidenceRecords);
+        }
+
+        public long outcomeReserveBytes() {
+            return Math.addExact(Math.addExact(resultBytes, systemMutationBytes),
+                    Math.addExact(outcomeWalBytes, evidenceBytes));
         }
     }
 

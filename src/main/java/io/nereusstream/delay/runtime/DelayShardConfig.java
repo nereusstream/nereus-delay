@@ -12,7 +12,9 @@ public record DelayShardConfig(
         long maxPayloadBytes,
         long maxReservationTtlMs,
         int maxPublishAdmissions,
-        int maxUncertainRetries) {
+        int maxUncertainRetries,
+        long maxOutcomeReserveBytes,
+        long maxOutcomeReserveRecords) {
     /**
      * Compatibility constructor for the pre-retry-policy embedded config.
      * The safety cap follows the shard's pending-message bound until a pinned
@@ -25,7 +27,22 @@ public record DelayShardConfig(
                             final long maxReservationTtlMs) {
         this(maxDelayHorizonMs, minDeliveryWindowMs, maxMessageLifetimeMs, maxPendingMessages,
                 maxPendingBytes, maxLanes, inlinePayloadThresholdBytes, maxPayloadBytes,
-                maxReservationTtlMs, boundedAdmissionCap(maxPendingMessages), 0);
+                maxReservationTtlMs, boundedAdmissionCap(maxPendingMessages), 0,
+                defaultOutcomeReserveBytes(maxPendingBytes), defaultOutcomeReserveRecords(
+                        boundedAdmissionCap(maxPendingMessages)));
+    }
+
+    /** Compatibility constructor for callers that already specify admission budgets. */
+    public DelayShardConfig(final long maxDelayHorizonMs, final long minDeliveryWindowMs,
+                            final long maxMessageLifetimeMs, final long maxPendingMessages,
+                            final long maxPendingBytes, final long maxLanes,
+                            final long inlinePayloadThresholdBytes, final long maxPayloadBytes,
+                            final long maxReservationTtlMs, final int maxPublishAdmissions,
+                            final int maxUncertainRetries) {
+        this(maxDelayHorizonMs, minDeliveryWindowMs, maxMessageLifetimeMs, maxPendingMessages,
+                maxPendingBytes, maxLanes, inlinePayloadThresholdBytes, maxPayloadBytes,
+                maxReservationTtlMs, maxPublishAdmissions, maxUncertainRetries,
+                defaultOutcomeReserveBytes(maxPendingBytes), defaultOutcomeReserveRecords(maxPublishAdmissions));
     }
 
     public DelayShardConfig {
@@ -33,7 +50,8 @@ public record DelayShardConfig(
                 || maxPendingMessages <= 0 || maxPendingBytes <= 0 || maxLanes <= 0
                 || inlinePayloadThresholdBytes < 0 || maxPayloadBytes <= 0 || maxReservationTtlMs <= 0
                 || maxPublishAdmissions <= 0 || maxUncertainRetries < 0
-                || maxUncertainRetries >= maxPublishAdmissions) {
+                || maxUncertainRetries >= maxPublishAdmissions || maxOutcomeReserveBytes <= 0
+                || maxOutcomeReserveRecords <= 0) {
             throw new IllegalArgumentException("timing limits must be non-negative");
         }
         if (maxDelayHorizonMs > maxMessageLifetimeMs) {
@@ -47,7 +65,7 @@ public record DelayShardConfig(
     public static DelayShardConfig defaults() {
         return new DelayShardConfig(365L * 24 * 60 * 60 * 1000, 1, 365L * 24 * 60 * 60 * 1000,
                 1_000_000, 1L << 30, 10_000, 1L << 20, 1L << 32, 24L * 60 * 60 * 1000,
-                1_000_000, 0);
+                1_000_000, 0, 64L << 20, 4_000_000);
     }
 
     private static int boundedAdmissionCap(final long maxPendingMessages) {
@@ -55,5 +73,13 @@ public record DelayShardConfig(
             throw new IllegalArgumentException("maxPendingMessages must be positive");
         }
         return maxPendingMessages >= Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) maxPendingMessages;
+    }
+
+    private static long defaultOutcomeReserveBytes(final long maxPendingBytes) {
+        return Math.max(1L << 20, Math.min(maxPendingBytes, 64L << 20));
+    }
+
+    private static long defaultOutcomeReserveRecords(final int maxPublishAdmissions) {
+        return Math.max(256L, Math.multiplyExact((long) maxPublishAdmissions, 4L));
     }
 }

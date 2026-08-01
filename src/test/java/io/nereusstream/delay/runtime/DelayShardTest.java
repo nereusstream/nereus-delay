@@ -1435,6 +1435,119 @@ class DelayShardTest {
     }
 
     @Test
+    void admissionOutcomeReserveGatesAndThenReleasesFromDurableUsage() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("admission-outcome-reserve"));
+        final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,
+                3, 100, 10_000, 10, 0, 1, 1);
+        assertEquals(1, shardConfig.maxOutcomeReserveBytes());
+        assertEquals(1, shardConfig.maxOutcomeReserveRecords());
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 16);
+        final DelayMessageId messageId = DelayMessageId.random(shardId);
+        final DestinationLaneId lane = new DestinationLaneId(Bytes.sha256(Bytes.utf8("lane")));
+        final PreparedCommand schedule = PreparedCommand.create(shardId,
+                io.nereusstream.delay.protocol.CommandId.random(shardId), messageId,
+                io.nereusstream.delay.protocol.CommandType.SCHEDULE, 9_000,
+                io.nereusstream.delay.protocol.CommandBodies.schedule(new io.nereusstream.delay.protocol.ScheduleIntent(
+                        lane, 2_000, 5_000, OrderingMode.BEST_EFFORT, Bytes.utf8("reserve"))));
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final byte[] sourceTimelineKey = KeyCodec.timelineDue(lane, 2_000, schedulePosition.sourceOrderToken(),
+                messageId, 0);
+        final TimelineWorkRef sourceWork = new TimelineWorkRef(TimelineWorkKind.INITIAL_SCHEDULE,
+                sourceTimelineKey, 2_000, 2_000, 1, 1, false, UncertainRetryAuthority.NONE, null, null);
+        final Fixture fixture = Fixture.createForSource(shardId, messageId,
+                LaneRecord.initial(lane, schedulePosition).laneIncarnation(), sourceTimelineKey, 1, 0, 0,
+                GenerationRuntimeIndex.obligationSetDigest(List.of()), sourceWork.semanticWorkDigest());
+        final byte[] chargedBody = replaceAdmissionCharge(fixture.body(), 2, 2);
+        assertEquals(2, PublishAdmissionBody.decode(chargedBody).chargeVector().resultRecords());
+        assertEquals(2, PublishAdmissionBody.decode(chargedBody).chargeVector().resultBytes());
+        assertFalse(OutcomeReserveUsage.empty().fits(
+                OutcomeReserveUsage.from(PublishAdmissionBody.decode(chargedBody).chargeVector()), 1, 1));
+        final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = keyPairGenerator.generateKeyPair();
+        final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_ADMISSION, 9_000,
+                Bytes.sha256(Bytes.utf8("admission-outcome-reserve")), chargedBody, fixture.owner(), 1,
+                keyPair.getPrivate());
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 2_001);
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, shardConfig);
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final SystemMutationResult gated = shard.applySystemMutation(mutation, admissionPosition,
+                    keyPair.getPublic());
+            assertEquals(StableCode.ADMISSION_CAPACITY_GATED, gated.stableCode());
+            assertEquals(MessageStatus.SCHEDULED, shard.getMessage(messageId).status());
+            assertNull(shard.findOpenPublishAttempt(PublishAdmissionBody.decode(chargedBody).publishAttemptId()));
+            assertEquals(OutcomeReserveUsage.empty(), shard.outcomeReserve());
+            assertEquals(admissionPosition, shard.lastAppliedSourcePosition());
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            assertEquals(OutcomeReserveUsage.empty(), new DelayShard(store, shardConfig).outcomeReserve());
+        }
+    }
+
+    @Test
+    void admissionOutcomeReserveChargeIsReleasedByVerifiedPublish() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("admission-outcome-release"));
+        final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,
+                3, 100, 10_000, 10, 0, 10, 10);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 17);
+        final DelayMessageId messageId = DelayMessageId.random(shardId);
+        final DestinationLaneId lane = new DestinationLaneId(Bytes.sha256(Bytes.utf8("lane")));
+        final PreparedCommand schedule = PreparedCommand.create(shardId,
+                io.nereusstream.delay.protocol.CommandId.random(shardId), messageId,
+                io.nereusstream.delay.protocol.CommandType.SCHEDULE, 9_000,
+                io.nereusstream.delay.protocol.CommandBodies.schedule(new io.nereusstream.delay.protocol.ScheduleIntent(
+                        lane, 2_000, 5_000, OrderingMode.BEST_EFFORT, Bytes.utf8("reserve-release"))));
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final byte[] sourceTimelineKey = KeyCodec.timelineDue(lane, 2_000, schedulePosition.sourceOrderToken(),
+                messageId, 0);
+        final TimelineWorkRef sourceWork = new TimelineWorkRef(TimelineWorkKind.INITIAL_SCHEDULE,
+                sourceTimelineKey, 2_000, 2_000, 1, 1, false, UncertainRetryAuthority.NONE, null, null);
+        final Fixture fixture = Fixture.createForSource(shardId, messageId,
+                LaneRecord.initial(lane, schedulePosition).laneIncarnation(), sourceTimelineKey, 1, 0, 0,
+                GenerationRuntimeIndex.obligationSetDigest(List.of()), sourceWork.semanticWorkDigest());
+        final byte[] chargedBody = replaceAdmissionCharge(fixture.body(), 2, 2);
+        final PublishAdmissionBody parsed = PublishAdmissionBody.decode(chargedBody);
+        final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = keyPairGenerator.generateKeyPair();
+        final SystemMutation admission = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_ADMISSION, 9_000,
+                Bytes.sha256(Bytes.utf8("admission-outcome-release")), chargedBody, fixture.owner(), 1,
+                keyPair.getPrivate());
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 2_001);
+        final byte[] outcomeBody = publishOutcomeBody(shardId, parsed.publishAttemptId(), 1, 0, StableCode.OK,
+                nestedPlaceholder(), new TrustedUtcIntervalEvidence(2_002, 2_002,
+                        TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("outcome-clock"),
+                        1, 1, 1, Bytes.sha256(Bytes.utf8("outcome-proof")), 0, null).canonicalBytes());
+        final SystemMutation outcome = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
+                Bytes.sha256(Bytes.utf8("outcome-outcome-release")), outcomeBody, fixture.owner(), 1,
+                keyPair.getPrivate());
+        final KafkaSourcePosition outcomePosition = position(shardId, 2, 2_002);
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, shardConfig);
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            assertEquals(StableCode.OK,
+                    shard.applySystemMutation(admission, admissionPosition, keyPair.getPublic()).stableCode());
+            assertEquals(new OutcomeReserveUsage(2, 2), shard.outcomeReserve());
+            assertEquals(MessageStatus.PUBLISHING, shard.getMessage(messageId).status());
+            assertNotNull(shard.findOpenPublishAttempt(parsed.publishAttemptId()));
+            assertEquals(StableCode.OK,
+                    shard.applySystemMutation(outcome, outcomePosition, keyPair.getPublic()).stableCode());
+            assertEquals(OutcomeReserveUsage.empty(), shard.outcomeReserve());
+            assertEquals(MessageStatus.PUBLISHED, shard.getMessage(messageId).status());
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            assertEquals(OutcomeReserveUsage.empty(), new DelayShard(store, shardConfig).outcomeReserve());
+        }
+    }
+
+    @Test
     void sourceOrderedPublishAdmissionFailsClosedWhenGenerationBudgetIsExhausted() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-admission-budget"));
         final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,
@@ -2671,6 +2784,29 @@ class DelayShardTest {
         return CanonicalProtobuf.message(output -> {
             for (int number = 1; number <= 17; number++) {
                 CanonicalProtobuf.uint32(output, number, 0);
+            }
+        });
+    }
+
+    private static byte[] replaceAdmissionCharge(final byte[] body, final long resultRecords,
+                                                 final long resultBytes) {
+        final byte[] charge = CanonicalProtobuf.message(output -> {
+            for (int number = 1; number <= 17; number++) {
+                final long value = number == 9 ? resultRecords : number == 10 ? resultBytes : 0;
+                CanonicalProtobuf.uint64(output, number, value);
+            }
+        });
+        final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(body);
+        return CanonicalProtobuf.message(output -> {
+            while (reader.hasRemaining()) {
+                final CanonicalProtobuf.Reader.Field field = reader.next();
+                if (field.number() == 19) {
+                    CanonicalProtobuf.bytes(output, 19, charge);
+                } else if (field.wireType() == 0) {
+                    CanonicalProtobuf.int64(output, field.number(), field.unsignedValue());
+                } else {
+                    CanonicalProtobuf.bytes(output, field.number(), field.rawValue());
+                }
             }
         });
     }
