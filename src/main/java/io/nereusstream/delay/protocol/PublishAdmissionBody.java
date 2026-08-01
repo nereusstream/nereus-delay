@@ -318,10 +318,28 @@ public final class PublishAdmissionBody {
 
     /** Validates and decodes a Registry ReadyCertificateV1 outside an Admission body. */
     public static ReadyCertificate decodeReadyCertificate(final byte[] encoded) {
-        final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "ReadyCertificate");
-        requireExactFields(fields, 16, "ReadyCertificate");
-        for (int number = 1; number <= 16; number++) {
-            field(fields, number);
+        final List<CanonicalProtobuf.Reader.Field> fields = readRepeated(encoded, "ReadyCertificate");
+        if (fields.size() < 16) {
+            throw new IllegalArgumentException("ReadyCertificate fields are incomplete");
+        }
+        for (int number = 1; number <= 7; number++) {
+            if (fields.get(number - 1).number() != number) {
+                throw new IllegalArgumentException("ReadyCertificate common field order mismatch");
+            }
+        }
+        int index = 7;
+        int evidenceCount = 0;
+        while (index < fields.size() && fields.get(index).number() == 8) {
+            evidenceCount++;
+            index++;
+        }
+        if (evidenceCount == 0 || index + 8 != fields.size()) {
+            throw new IllegalArgumentException("ReadyCertificate evidence cursor field order mismatch");
+        }
+        for (int number = 9; number <= 16; number++) {
+            if (fields.get(index++).number() != number) {
+                throw new IllegalArgumentException("ReadyCertificate trailing field order mismatch");
+            }
         }
         if (unsigned(field(fields, 1), 1) != 1) {
             throw new IllegalArgumentException("unsupported ReadyCertificate version");
@@ -628,6 +646,19 @@ public final class PublishAdmissionBody {
         }
         final List<CanonicalProtobuf.Reader.Field> fields = new ArrayList<>();
         final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(encoded);
+        while (reader.hasRemaining()) {
+            fields.add(reader.next());
+        }
+        return fields;
+    }
+
+    private static List<CanonicalProtobuf.Reader.Field> readRepeated(final byte[] encoded, final String name) {
+        Objects.requireNonNull(encoded, name);
+        if (encoded.length == 0) {
+            throw new IllegalArgumentException(name + " must not be empty");
+        }
+        final List<CanonicalProtobuf.Reader.Field> fields = new ArrayList<>();
+        final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(encoded, true);
         while (reader.hasRemaining()) {
             fields.add(reader.next());
         }

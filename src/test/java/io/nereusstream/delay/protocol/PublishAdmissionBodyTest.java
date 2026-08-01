@@ -353,8 +353,7 @@ public class PublishAdmissionBodyTest {
                             CanonicalProtobuf.bytes(empty, 1, brokerResource());
                             CanonicalProtobuf.uint32(empty, 2, 0);
                         }))));
-                CanonicalProtobuf.bytes(output, 8, CanonicalProtobuf.message(cursor ->
-                        CanonicalProtobuf.bytes(cursor, 1, new byte[]{1})));
+                CanonicalProtobuf.bytes(output, 8, evidenceCursor(lane, laneIncarnation));
                 CanonicalProtobuf.uint32(output, 9, 1);
                 CanonicalProtobuf.uint32(output, 10, 1);
                 CanonicalProtobuf.int64(output, 11, 8_000);
@@ -364,6 +363,12 @@ public class PublishAdmissionBodyTest {
                 CanonicalProtobuf.bytes(output, 15, fingerprint);
             });
             return appendHash(prefix, 16, "nereus-delay-ready-certificate-v1\0");
+        }
+
+        private static byte[] evidenceCursor(final byte[] lane, final byte[] laneIncarnation) {
+            final byte[] topicUuid = new byte[16];
+            return EvidenceCursorV1.kafka(lane, laneIncarnation, topicUuid, 0, 1, 8_000, 1, 1)
+                    .canonicalBytes();
         }
 
         private static byte[] charge() {

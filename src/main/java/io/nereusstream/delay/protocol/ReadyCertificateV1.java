@@ -1,6 +1,8 @@
 package io.nereusstream.delay.protocol;
 
 import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -78,24 +80,24 @@ public final class ReadyCertificateV1 {
     }
 
     private static void validateNestedCanonical(final byte[] encoded) {
-        final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(encoded);
+        final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(encoded, true);
+        final List<EvidenceCursorV1> evidenceCursors = new ArrayList<>();
+        boolean activationBarrierSeen = false;
         while (reader.hasRemaining()) {
             final CanonicalProtobuf.Reader.Field field = reader.next();
-            if (field.number() == 7 || field.number() == 8) {
-                final byte[] nested = QueryCodecSupport.bytes(field, field.number());
-                final java.util.List<CanonicalProtobuf.Reader.Field> nestedFields =
-                        QueryCodecSupport.read(nested, "ReadyCertificate nested field " + field.number());
-                final byte[] canonical = CanonicalProtobuf.message(output -> {
-                    for (CanonicalProtobuf.Reader.Field nestedField : nestedFields) {
-                        if (nestedField.wireType() == 0) {
-                            CanonicalProtobuf.uint64(output, nestedField.number(), nestedField.unsignedValue());
-                        } else {
-                            CanonicalProtobuf.bytes(output, nestedField.number(), nestedField.rawValue());
-                        }
-                    }
-                });
-                QueryCodecSupport.requireCanonical(nested, canonical,
-                        "ReadyCertificate nested field " + field.number());
+            if (field.number() == 7) {
+                ActivationBarrierV1.decode(QueryCodecSupport.nested(field, 7));
+                activationBarrierSeen = true;
+            } else if (field.number() == 8) {
+                evidenceCursors.add(EvidenceCursorV1.decode(QueryCodecSupport.nested(field, 8)));
+            }
+        }
+        if (!activationBarrierSeen || evidenceCursors.isEmpty()) {
+            throw new IllegalArgumentException("ReadyCertificate requires activation barrier and evidence cursor");
+        }
+        for (int index = 1; index < evidenceCursors.size(); index++) {
+            if (evidenceCursors.get(index - 1).compareTo(evidenceCursors.get(index)) >= 0) {
+                throw new IllegalArgumentException("ReadyCertificate evidence cursors must be sorted and unique");
             }
         }
     }
