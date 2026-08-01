@@ -93,4 +93,25 @@ class OwnerLeaseTest {
             assertEquals(250, owned.lease().expiresAtEpochMs());
         }
     }
+
+    @Test
+    void emptyKafkaBarrierStillPinsTheFirstAppliedRecord() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 6);
+        final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = authority.acquire(shardId, "worker-empty", 100, 100).orElseThrow();
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("empty-barrier"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            final UUID topic = UUID.randomUUID();
+            owned.markCatchingUp(new KafkaActivationBarrier(shardId, "cluster", topic, 0));
+            owned.activateForCommands(101);
+            final PreparedCommand command = PreparedCommand.schedule(shardId,
+                    new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("empty-barrier-lane")), 2_000, 5_000,
+                            OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+            final KafkaSourcePosition replacement = new KafkaSourcePosition(shardId, "cluster", UUID.randomUUID(),
+                    0, null, 1_000);
+            assertThrows(IllegalArgumentException.class, () -> owned.apply(command, replacement, 101));
+        }
+    }
 }

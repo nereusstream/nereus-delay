@@ -25,6 +25,9 @@ public final class OwnedDelayShard {
     public synchronized CommandResult apply(final PreparedCommand command, final SourcePosition position,
                                             final long nowEpochMs) {
         ensureActive(nowEpochMs);
+        if (activationBarrier != null) {
+            activationBarrier.validatePosition(position);
+        }
         return delegate.apply(command, position);
     }
 
