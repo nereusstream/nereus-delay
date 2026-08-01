@@ -55,7 +55,7 @@ to the intended modules:
 | DUE/ORDERED/EXPIRY timeline namespaces | Implemented (core index/discovery) | `DelayShard`, `KeyCodec`, `DelayShardTest`; READY value/discovery and full TimelineWorkRef pending |
 | Terminal generation history | Implemented (Cancel/Reschedule subset) | `TerminalGenerationRecord`, `DelayShardTest`; publish/expiry/DLQ terminal obligations and GC retention pending |
 | Large-payload reservation/proof/commit | Implemented (embedded core subset) | `LargeScheduleIntent`, `PayloadCommitProof`, `PayloadReservation`, object-backed `MessageRecord`, `DelayShardTest`; Object Store handles/attestation, source-ordered trust controls, Time Fence overlay and guarded GC pending |
-| Source assignment and Owner Lease | Implemented (local lifecycle/CAS boundary) | `OwnerLeaseStore`, `OwnedDelayShard`, `OwnerLeaseTest`; Kafka/Pulsar assignment barriers and Oxia adapter pending |
+| Source assignment, typed Activation Barrier and Owner Lease | Implemented (local boundary subset) | `KafkaActivationBarrier`, `PulsarActivationBarrier`, `OwnerLeaseStore`, `OwnedDelayShard`; pinned broker assignment/guard, Oxia adapter and activation CAS pending |
 | Queued vs applied client outcomes | Implemented (embedded core) | `EmbeddedDelayServiceTest` |
 | Destination Lane gate/readiness projection | Implemented (core projection) | `LaneRecord`, `LaneRecordTest`, `DelayShard`; source-ordered signed control mutation persistence pending |
 | Destination Lane isolation and bounded weighted DRR | Implemented (scheduler core) | `LaneSchedulerTest`; lane work discovery and exact five-value registry projection pending |
