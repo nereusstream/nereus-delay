@@ -7,6 +7,8 @@ import io.nereusstream.delay.protocol.CommandQueryResult;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.DestinationLaneId;
+import io.nereusstream.delay.protocol.EnqueueOutcomeKindV1;
+import io.nereusstream.delay.protocol.EnqueueOutcomeMessageV1;
 import io.nereusstream.delay.protocol.OrderingMode;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
@@ -168,6 +170,40 @@ class EmbeddedDelayServiceTest {
             assertEquals(EnqueueStatus.DEFINITELY_NOT_QUEUED, outcome.status());
             assertThrows(IllegalArgumentException.class,
                     () -> service.queuedReceiptV1(outcome, 10_000, new byte[16]));
+        }
+    }
+
+    @Test
+    void embeddedIngressProjectsAllManagedOutcomeBranches() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 5);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(ShardStoreConfig.defaults(tempDir.resolve("outcome")),
+                shard, Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final PreparedCommand queuedCommand = service.prepareSchedule(new ScheduleIntent(
+                    DestinationLaneId.derive(Bytes.utf8("outcome-queued")), 2_000, 5_000,
+                    OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+            final EnqueueOutcome queued = service.enqueue(queuedCommand).toCompletableFuture().join();
+            final byte[] attemptId = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("outcome-attempt")), 16);
+            final EnqueueOutcomeMessageV1 queuedWire = service.enqueueOutcomeV1(queued, 10_000, attemptId);
+            assertEquals(EnqueueOutcomeKindV1.QUEUED, queuedWire.kind());
+            assertEquals(queuedWire, EnqueueOutcomeMessageV1.decode(queuedWire.canonicalBytes()));
+
+            final PreparedCommand rejectedCommand = PreparedCommand.schedule(
+                    new ShardId(RouteIncarnation.random(), 0), new ScheduleIntent(
+                            DestinationLaneId.derive(Bytes.utf8("outcome-rejected")), 2_000, 5_000,
+                            OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+            final EnqueueOutcome rejected = service.enqueue(rejectedCommand).toCompletableFuture().join();
+            final EnqueueOutcomeMessageV1 definiteWire = service.enqueueOutcomeV1(rejected, 10_000, attemptId);
+            assertEquals(EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED, definiteWire.kind());
+            assertEquals(definiteWire, EnqueueOutcomeMessageV1.decode(definiteWire.canonicalBytes()));
+
+            final PreparedCommand uncertainCommand = service.prepareSchedule(new ScheduleIntent(
+                    DestinationLaneId.derive(Bytes.utf8("outcome-uncertain")), 2_000, 5_000,
+                    OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+            final EnqueueOutcome uncertain = EnqueueOutcome.uncertain(uncertainCommand,
+                    StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue());
+            final EnqueueOutcomeMessageV1 uncertainWire = service.enqueueOutcomeV1(uncertain, 10_000, attemptId);
+            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, uncertainWire.kind());
+            assertEquals(uncertainWire, EnqueueOutcomeMessageV1.decode(uncertainWire.canonicalBytes()));
         }
     }
 

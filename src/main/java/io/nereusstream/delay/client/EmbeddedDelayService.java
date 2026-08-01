@@ -7,11 +7,17 @@ import io.nereusstream.delay.protocol.CommandQueuedReceiptV1;
 import io.nereusstream.delay.protocol.CommandQueuedReceiptV1.KafkaQueuedAck;
 import io.nereusstream.delay.protocol.CommandQueryResponseV1;
 import io.nereusstream.delay.protocol.DelayMessageId;
+import io.nereusstream.delay.protocol.DefinitelyNotQueuedV1;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
+import io.nereusstream.delay.protocol.EnqueueOutcomeMessageV1;
+import io.nereusstream.delay.protocol.EnqueueUncertainV1;
+import io.nereusstream.delay.protocol.FailureStageV1;
 import io.nereusstream.delay.protocol.FirstScheduleEligibilityV1;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.MessageQueryResponseV1;
+import io.nereusstream.delay.protocol.NonPersistenceProofKindV1;
+import io.nereusstream.delay.protocol.NonPersistenceProofV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.PublicDestinationBindingViewV1;
 import io.nereusstream.delay.protocol.ScheduleIntent;
@@ -19,6 +25,7 @@ import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.StableCode;
+import io.nereusstream.delay.protocol.StableErrorV1;
 import io.nereusstream.delay.runtime.ApplyStatus;
 import io.nereusstream.delay.runtime.CommandResult;
 import io.nereusstream.delay.runtime.DelayShard;
@@ -161,6 +168,39 @@ public final class EmbeddedDelayService implements DelayClient {
     }
 
     /**
+     * Maps the embedded three-state ingress result to the closed wire union.
+     * This bridge only emits a local pre-ownership proof for deterministic
+     * embedded rejection; real adapters must supply authenticated Broker proof.
+     */
+    public synchronized EnqueueOutcomeMessageV1 enqueueOutcomeV1(final EnqueueOutcome outcome,
+                                                                  final long receiptQueryUntilEpochMs,
+                                                                  final byte[] physicalAttemptId) {
+        ensureOpen();
+        Objects.requireNonNull(outcome, "outcome");
+        return switch (outcome.status()) {
+            case QUEUED -> EnqueueOutcomeMessageV1.queued(
+                    queuedReceiptV1(outcome, receiptQueryUntilEpochMs, physicalAttemptId));
+            case DEFINITELY_NOT_QUEUED -> {
+                final StableCode code = stableErrorCode(outcome);
+                final CommandQueuedReceiptV1.PreparedCommandRef command =
+                        CommandQueuedReceiptV1.PreparedCommandRef.from(outcome.preparedCommand());
+                final NonPersistenceProofV1 proof = NonPersistenceProofV1.create(
+                        NonPersistenceProofKindV1.LOCAL_BEFORE_PRODUCER_OWNERSHIP, null, command.frameSha256(),
+                        null, null, null);
+                yield EnqueueOutcomeMessageV1.definitelyNotQueued(new DefinitelyNotQueuedV1(command, proof,
+                        StableErrorV1.of(FailureStageV1.ENQUEUE, code, null, command, null, null)));
+            }
+            case ENQUEUE_UNCERTAIN -> {
+                final StableCode code = stableErrorCode(outcome);
+                final CommandQueuedReceiptV1.PreparedCommandRef command =
+                        CommandQueuedReceiptV1.PreparedCommandRef.from(outcome.preparedCommand());
+                yield EnqueueOutcomeMessageV1.uncertain(new EnqueueUncertainV1(command, physicalAttemptId,
+                        StableErrorV1.of(FailureStageV1.ENQUEUE, code, null, command, null, null)));
+            }
+        };
+    }
+
+    /**
      * Performs the bounded local query chain: receipt validation, fixed-shard
      * source barrier, durable result lookup and retention projection. It does
      * not route across workers, authorize a tenant, or wait for a broker.
@@ -280,6 +320,13 @@ public final class EmbeddedDelayService implements DelayClient {
         if (closed) {
             throw new IllegalStateException("client is closed");
         }
+    }
+
+    private static StableCode stableErrorCode(final EnqueueOutcome outcome) {
+        if (outcome.stableCode() <= 0) {
+            throw new IllegalArgumentException("non-queued outcome must carry a nonzero stable code");
+        }
+        return StableCode.fromWire(outcome.stableCode());
     }
 
     private boolean isEmbeddedReceipt(final CommandQueuedReceiptV1 receipt) {
