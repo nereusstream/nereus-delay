@@ -207,7 +207,47 @@ class ProtocolCodecTest {
             CanonicalProtobuf.bytes(output, 1, subject);
             CanonicalProtobuf.uint32(output, 2, type.wireValue());
             CanonicalProtobuf.int64(output, 3, retryUntil);
-            CanonicalProtobuf.bytes(output, 10, Bytes.utf8("operation-fields"));
+            switch (type) {
+                case APPLY_SHARD_CONTROL -> {
+                    CanonicalProtobuf.bytes(output, 10, nestedPlaceholder());
+                    CanonicalProtobuf.uint32(output, 11, 1);
+                    CanonicalProtobuf.uint32(output, 12, 1);
+                    CanonicalProtobuf.bytes(output, 13, Bytes.sha256(Bytes.utf8("control")));
+                    CanonicalProtobuf.bytes(output, 15, nestedPlaceholder());
+                }
+                case PUBLISH_ADMISSION -> {
+                    CanonicalProtobuf.bytes(output, 10, nestedPlaceholder());
+                    CanonicalProtobuf.bytes(output, 11, new byte[16]);
+                    CanonicalProtobuf.bytes(output, 12, Bytes.sha256(Bytes.utf8("claim")));
+                    CanonicalProtobuf.bytes(output, 13, Bytes.sha256(Bytes.utf8("lane")));
+                    CanonicalProtobuf.bytes(output, 14, new byte[16]);
+                    CanonicalProtobuf.bytes(output, 15, DelayMessageId.random(shard).bytes());
+                    CanonicalProtobuf.uint32(output, 16, 0);
+                    CanonicalProtobuf.bytes(output, 17, Bytes.sha256(Bytes.utf8("attempt")));
+                    CanonicalProtobuf.bytes(output, 18, Bytes.sha256(Bytes.utf8("prepared")));
+                    CanonicalProtobuf.bytes(output, 19, nestedPlaceholder());
+                    CanonicalProtobuf.bytes(output, 20, Bytes.sha256(Bytes.utf8("ready")));
+                    CanonicalProtobuf.bytes(output, 21, nestedPlaceholder());
+                    CanonicalProtobuf.bytes(output, 22, nestedPlaceholder());
+                    CanonicalProtobuf.bytes(output, 23, nestedPlaceholder());
+                    CanonicalProtobuf.bytes(output, 24, nestedPlaceholder());
+                    CanonicalProtobuf.bytes(output, 25, nestedPlaceholder());
+                }
+                case PUBLISH_OUTCOME -> {
+                    CanonicalProtobuf.bytes(output, 10, Bytes.sha256(Bytes.utf8("attempt")));
+                    CanonicalProtobuf.uint32(output, 11, 3);
+                    CanonicalProtobuf.uint32(output, 12, 4);
+                    CanonicalProtobuf.uint32(output, 13, StableCode.DESTINATION_OUTCOME_UNKNOWN.wireValue());
+                    CanonicalProtobuf.bytes(output, 15, nestedPlaceholder());
+                    CanonicalProtobuf.bytes(output, 16, nestedPlaceholder());
+                    CanonicalProtobuf.bytes(output, 17, nestedPlaceholder());
+                }
+                default -> CanonicalProtobuf.bytes(output, 10, nestedPlaceholder());
+            }
         });
+    }
+
+    private static byte[] nestedPlaceholder() {
+        return CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1, new byte[]{1}));
     }
 }

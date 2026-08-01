@@ -48,6 +48,7 @@ public final class SystemMutation {
         this.logicalOperationIdentity = fixed(logicalOperationIdentity, HASH_LENGTH, "logicalOperationIdentity");
         this.canonicalBody = Bytes.copy(canonicalBody);
         validateBodyPrefix(shardId, type, retryUntilEpochMs, this.canonicalBody);
+        SystemMutationBodyCodec.validate(type, this.canonicalBody);
         final AuthorIdentity decodedAuthor = AuthorIdentity.decode(authorIdentity);
         decodedAuthor.requireFor(type);
         this.authorIdentity = decodedAuthor.canonicalBytes();
