@@ -40,6 +40,7 @@ to the intended modules:
 | `commandId + commandHash` prepared before I/O | Implemented | `PreparedCommand`, `CommandHash`, `ProtocolCodecTest` |
 | NDL1 frame and canonical Client Command envelope | Implemented | `ShardLogFrame`, `CommandCodec`, registry frame vector test |
 | Kafka/Pulsar source order token encoding | Implemented (core codec) | `SourcePosition.sourceOrderToken`, `ProtocolCodecTest`; broker assignment/barrier adapters pending |
+| Pinned Kafka/Pulsar command ingress outcome mapping | Implemented (transport SPI) | `PinnedKafkaCommandIngress`, `PinnedPulsarCommandIngress`, `AdapterIngressTest`; concrete pinned request transports and source assignment pending |
 | One Delay Shard = one RocksDB DB | Implemented | `ShardStore`, `ShardStoreTest` |
 | Worker DB/checkpoint resource limits | Implemented (local guard) | `ShardStoreConfig`, `SharedRocksDbResources`, `ShardStoreTest`; placement/physical capacity artifact pending |
 | Seven application CFs plus empty `default` CF | Implemented | `ShardStore` descriptor validation |
@@ -55,7 +56,7 @@ to the intended modules:
 | Destination Lane isolation and bounded weighted DRR | Implemented (scheduler core) | `LaneSchedulerTest`; lane work discovery and exact five-value registry projection pending |
 | Persistent scheduler fairness counters | Implemented (core subset) | `PersistentLaneScheduler`, `LaneSchedulerTest`; full `meta_cf/SCHEDULER` closed projections pending |
 | Closed Stable Code registry | Implemented | `StableCode`, `ProtocolCodecTest` |
-| Kafka/Pulsar ingress and target adapters | Not started | release blocker |
+| Kafka/Pulsar ingress and target adapters | In progress (ingress SPI only) | release blocker until concrete pinned transports, target publish/evidence channels and real-broker tests exist |
 | Recovery Set/Floor, catalog and restore replay | Not started | release blocker |
 | Large payload, quota, control reserve and GC | Not started | release blocker |
 | Query, control operations, DLQ and observability | Not started | release blocker |
