@@ -136,6 +136,55 @@ class DelayShardTest {
     }
 
     @Test
+    void readyIndexTracksLaneVersionAndCanBeDeterministicallyRebuilt() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("ready"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 5);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("ready-lane"));
+        final PreparedCommand later = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 3_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("later")), 9_000);
+        final PreparedCommand earlier = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("earlier")), 9_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED,
+                    shard.apply(later, position(shardId, 0, 1_000)).stableCode());
+            assertEquals(StableCode.SCHEDULED,
+                    shard.apply(earlier, position(shardId, 1, 1_001)).stableCode());
+            assertEquals(0, shard.discoverReady(10_000, 10).size());
+
+            final LaneRecord readyLane = shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            assertEquals(2_000, readyLane.nextEligibleAtEpochMs());
+            assertEquals(1, shard.discoverReady(10_000, 10).size());
+            assertEquals(earlier.delayMessageId(), shard.discoverReady(10_000, 10).get(0).messageId());
+            assertNotNull(store.getValue(ColumnFamily.TIMELINE,
+                    KeyCodec.timelineReady(2_000, lane, readyLane.laneVersion()), 3));
+
+            final PreparedCommand cancel = PreparedCommand.cancel(shardId, earlier.delayMessageId(), 0, 9_000);
+            assertEquals(StableCode.CANCELED,
+                    shard.apply(cancel, position(shardId, 2, 1_002)).stableCode());
+            final LaneRecord afterCancel = shard.getLane(lane);
+            assertEquals(3_000, afterCancel.nextEligibleAtEpochMs());
+            assertEquals(later.delayMessageId(), shard.discoverReady(10_000, 10).get(0).messageId());
+            assertNull(store.getValue(ColumnFamily.TIMELINE,
+                    KeyCodec.timelineReady(2_000, lane, readyLane.laneVersion()), 3));
+
+            store.write(batch -> batch.delete(ColumnFamily.TIMELINE,
+                    KeyCodec.timelineReady(3_000, lane, afterCancel.laneVersion())));
+            assertEquals(0, shard.discoverReady(10_000, 10).size());
+            assertEquals(1, shard.rebuildReadyIndexes());
+            assertEquals(later.delayMessageId(), shard.discoverReady(10_000, 10).get(0).messageId());
+
+            shard.updateLaneReadiness(lane, RuntimeReadiness.BLOCKED);
+            assertEquals(0, shard.discoverReady(10_000, 10).size());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.RECOVERING_EVIDENCE);
+            assertEquals(0, shard.discoverReady(10_000, 10).size());
+        }
+    }
+
+    @Test
     void hardQuotaRejectsNewScheduleAndReleasesOnCancel() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("quota"));
         final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 1, 3, 1,

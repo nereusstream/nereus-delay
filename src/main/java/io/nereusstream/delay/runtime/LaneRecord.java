@@ -53,6 +53,19 @@ public record LaneRecord(
                 admissionGate, next, weight, nextEligibleAtEpochMs);
     }
 
+    /**
+     * Updates the scheduler wake-up projection while retaining the management
+     * and runtime gates.  READY keys carry this incremented runtime version so
+     * a cursor cannot reuse a key from an older projection.
+     */
+    public LaneRecord withNextEligibleAt(final long next) {
+        if (next < 0) {
+            throw new IllegalArgumentException("next eligible time must be non-negative");
+        }
+        return new LaneRecord(laneId, laneIncarnation, laneControlVersion, laneVersion + 1,
+                admissionGate, runtimeReadiness, weight, next);
+    }
+
     public LaneRecord withGate(final AdmissionGate nextGate) {
         Objects.requireNonNull(nextGate, "nextGate");
         if (nextGate == AdmissionGate.OPEN && admissionGate != AdmissionGate.ADMIN_PAUSED) {

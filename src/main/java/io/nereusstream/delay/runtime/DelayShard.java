@@ -18,8 +18,13 @@ import io.nereusstream.delay.store.ShardStore;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Single-writer deterministic command application loop for one Delay Shard.
@@ -145,8 +150,13 @@ public final class DelayShard {
             throw new IllegalArgumentException("unknown destination lane");
         }
         final LaneRecord next = current.withReadiness(readiness);
-        store.write(batch -> batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(laneId), next.encode()));
-        return next;
+        final TimelineCandidate candidate = findLaneCandidate(laneId, null, -1, null, null);
+        final LaneProjection projection = projectLane(laneId, current, next, candidate);
+        store.write(batch -> {
+            deleteReadyKey(batch, current);
+            putReadyProjection(batch, projection);
+        });
+        return projection.lane();
     }
 
     public synchronized SourcePosition lastAppliedSourcePosition() {
@@ -176,6 +186,107 @@ public final class DelayShard {
             discoverDueNamespace((byte) 2, (byte) 3, earliestEpochMs, limit, result);
         }
         return List.copyOf(result);
+    }
+
+    /**
+     * Returns the bounded READY head projection.  A malformed, orphaned, or
+     * version-mismatched entry fences discovery instead of silently falling
+     * back to a full timeline scan.
+     */
+    public synchronized List<ReadyWork> discoverReady(final long earliestEpochMs, final int limit) {
+        if (earliestEpochMs < 0 || limit <= 0) {
+            throw new IllegalArgumentException("invalid READY discovery bounds");
+        }
+        final List<ReadyWork> result = new ArrayList<>();
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries = store.scan(ColumnFamily.TIMELINE,
+                new byte[]{3, 1}, new byte[]{4, 1}, limit);
+        for (var entry : entries) {
+            final ReadyKey key = decodeReadyKey(entry.key());
+            final ReadyIndexValue value = ReadyIndexValue.decode(
+                    io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), 3).payload());
+            if (!key.laneId().equals(value.laneId()) || key.nextEligibleAtEpochMs() != value.nextEligibleAtEpochMs()
+                    || key.laneVersion() != value.laneVersion()) {
+                throw new IllegalStateException("READY key/value identity mismatch");
+            }
+            if (key.nextEligibleAtEpochMs() > earliestEpochMs) {
+                break;
+            }
+            final LaneRecord lane = readLane(key.laneId());
+            if (lane == null || !lane.schedulable() || lane.laneVersion() != key.laneVersion()
+                    || lane.nextEligibleAtEpochMs() != key.nextEligibleAtEpochMs()) {
+                throw new IllegalStateException("stale READY lane projection");
+            }
+            final MessageRecord message = getMessage(value.messageId());
+            if (message == null || message.status() != MessageStatus.SCHEDULED
+                    || message.generation() != value.generation() || !message.laneId().equals(key.laneId())) {
+                throw new IllegalStateException("READY points to non-schedulable message");
+            }
+            final byte[] timelineKey = timelineKey(value.messageId(), message);
+            if (!Bytes.constantTimeEquals(Bytes.sha256(timelineKey), value.timelineKeySha256())) {
+                throw new IllegalStateException("READY timeline digest mismatch");
+            }
+            result.add(new ReadyWork(key.laneId(), value.messageId(), value.generation(),
+                    key.nextEligibleAtEpochMs(), key.laneVersion(), message.orderingMode()
+                    == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO));
+        }
+        return List.copyOf(result);
+    }
+
+    /**
+     * Rebuilds all READY projections while the shard is fenced.  This is the
+     * deterministic repair path for startup/recovery; normal command and
+     * readiness mutations update the affected projection in their own batch.
+     *
+     * @return number of schedulable lanes that received a READY key
+     */
+    public synchronized int rebuildReadyIndexes() {
+        final int laneLimit = boundedLimitPlusOne(config.maxLanes());
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> laneEntries = store.scan(ColumnFamily.META,
+                new byte[]{2, 1}, new byte[]{3, 1}, laneLimit);
+        if (laneEntries.size() >= laneLimit && config.maxLanes() < Integer.MAX_VALUE) {
+            throw new IllegalStateException("lane metadata exceeds configured maxLanes");
+        }
+        final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneRecord> lanes = new HashMap<>();
+        for (var entry : laneEntries) {
+            final byte[] key = entry.key();
+            if (key.length != 2 + 32 || key[0] != 2 || key[1] != 1) {
+                throw new IllegalStateException("invalid lane metadata key");
+            }
+            final io.nereusstream.delay.protocol.DestinationLaneId laneId =
+                    new io.nereusstream.delay.protocol.DestinationLaneId(Arrays.copyOfRange(key, 2, 34));
+            final LaneRecord lane = LaneRecord.decode(
+                    io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), 2).payload());
+            if (!lane.laneId().equals(laneId) || lanes.put(laneId, lane) != null) {
+                throw new IllegalStateException("duplicate or mismatched lane metadata");
+            }
+        }
+        final Map<io.nereusstream.delay.protocol.DestinationLaneId, TimelineCandidate> candidates = new HashMap<>();
+        for (var laneId : lanes.keySet()) {
+            final TimelineCandidate candidate = findLaneCandidate(laneId, null, -1, null, null);
+            if (candidate != null) {
+                candidates.put(laneId, candidate);
+            }
+        }
+        final int readyLimit = boundedLimitPlusOne(config.maxLanes());
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> existingReady = store.scan(
+                ColumnFamily.TIMELINE, new byte[]{3, 1}, new byte[]{4, 1}, readyLimit);
+        if (existingReady.size() >= readyLimit && config.maxLanes() < Integer.MAX_VALUE) {
+            throw new IllegalStateException("READY index exceeds configured maxLanes");
+        }
+        final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = new HashMap<>();
+        for (var entry : lanes.entrySet()) {
+            final TimelineCandidate candidate = candidates.get(entry.getKey());
+            projections.put(entry.getKey(), projectLane(entry.getKey(), entry.getValue(), entry.getValue(), candidate));
+        }
+        store.write(batch -> {
+            for (var entry : existingReady) {
+                batch.delete(ColumnFamily.TIMELINE, entry.key());
+            }
+            for (LaneProjection projection : projections.values()) {
+                putReadyProjection(batch, projection);
+            }
+        });
+        return (int) projections.values().stream().filter(projection -> projection.readyValue() != null).count();
     }
 
     /** Returns expiry candidates; the caller must apply an exact source-ordered expiry mutation. */
@@ -517,7 +628,8 @@ public final class DelayShard {
                                  final CommandResult result, final MessageRecord next,
                                  final PayloadReservation reservation, final ShardQuota nextQuota) {
         final MessageRecord prior = getMessage(command.delayMessageId());
-        final boolean existingLane = next != null && readLane(next.laneId()) != null;
+        final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections =
+                readyProjections(position, command.delayMessageId(), prior, next, reservation);
         store.write(batch -> {
             if (next != null) {
                 if (prior != null && prior.status() == MessageStatus.SCHEDULED) {
@@ -531,10 +643,6 @@ public final class DelayShard {
                     }
                 }
                 batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(command.delayMessageId()), next.encode());
-                if (result.stableCode() == StableCode.SCHEDULED && !existingLane) {
-                    batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(next.laneId()),
-                            LaneRecord.initial(next.laneId(), position).encode());
-                }
                 if (next.status() == MessageStatus.SCHEDULED) {
                     batch.putValue(ColumnFamily.TIMELINE, 1,
                             timelineKey(command.delayMessageId(), next),
@@ -550,15 +658,15 @@ public final class DelayShard {
                     batch.putValue(ColumnFamily.TIMELINE, 5,
                             KeyCodec.reservationExpiry(reservation.reservationExpiryEpochMs(),
                                     reservation.reservationId()), reservation.encode());
-                    if (readLane(reservation.intent().laneId()) == null) {
-                        batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(reservation.intent().laneId()),
-                                LaneRecord.initial(reservation.intent().laneId(), position).encode());
-                    }
                 } else {
                     batch.delete(ColumnFamily.TIMELINE,
                             KeyCodec.reservationExpiry(reservation.reservationExpiryEpochMs(),
                                     reservation.reservationId()));
                 }
+            }
+            for (LaneProjection projection : projections.values()) {
+                deleteReadyKey(batch, projection.previousLane());
+                putReadyProjection(batch, projection);
             }
             batch.putValue(ColumnFamily.DEDUPE, 1, KeyCodec.dedupeCommand(command.commandId()),
                     new CommandDedupeRecord(command.commandHash(), result).encode());
@@ -573,6 +681,153 @@ public final class DelayShard {
         lastAppliedSourcePosition = position;
         mutationSequence++;
         quota = nextQuota;
+    }
+
+    private Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> readyProjections(
+            final SourcePosition position, final DelayMessageId messageId, final MessageRecord prior,
+            final MessageRecord next, final PayloadReservation reservation) {
+        final Set<io.nereusstream.delay.protocol.DestinationLaneId> laneIds = new HashSet<>();
+        if (prior != null) {
+            laneIds.add(prior.laneId());
+        }
+        if (next != null) {
+            laneIds.add(next.laneId());
+        }
+        if (reservation != null) {
+            laneIds.add(reservation.intent().laneId());
+        }
+        final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> result = new HashMap<>();
+        for (var laneId : laneIds) {
+            final LaneRecord previous = readLane(laneId);
+            final LaneRecord base = previous == null ? LaneRecord.initial(laneId, position) : previous;
+            final int excludedGeneration = prior != null && prior.status() == MessageStatus.SCHEDULED
+                    ? prior.generation() : -1;
+            final TimelineCandidate candidate = findLaneCandidate(laneId, messageId, excludedGeneration,
+                    next != null && next.status() == MessageStatus.SCHEDULED ? messageId : null, next);
+            result.put(laneId, projectLane(laneId, previous, base, candidate));
+        }
+        return result;
+    }
+
+    private LaneProjection projectLane(
+            final io.nereusstream.delay.protocol.DestinationLaneId laneId,
+            final LaneRecord previous, final LaneRecord base, final TimelineCandidate candidate) {
+        final long nextEligibleAt = candidate == null ? 0 : candidate.eligibleAtEpochMs();
+        final LaneRecord projected = base.nextEligibleAtEpochMs() == nextEligibleAt
+                ? base : base.withNextEligibleAt(nextEligibleAt);
+        final ReadyIndexValue ready = projected.schedulable() && candidate != null
+                ? new ReadyIndexValue(laneId, candidate.eligibleAtEpochMs(), projected.laneVersion(),
+                candidate.messageId(), candidate.generation(), Bytes.sha256(candidate.timelineKey())) : null;
+        return new LaneProjection(previous, projected, ready);
+    }
+
+    private void deleteReadyKey(final ShardStore.Batch batch, final LaneRecord lane) throws org.rocksdb.RocksDBException {
+        if (lane != null && lane.schedulable()) {
+            batch.delete(ColumnFamily.TIMELINE,
+                    KeyCodec.timelineReady(lane.nextEligibleAtEpochMs(), lane.laneId(), lane.laneVersion()));
+        }
+    }
+
+    private void putReadyProjection(final ShardStore.Batch batch, final LaneProjection projection)
+            throws org.rocksdb.RocksDBException {
+        batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(projection.lane().laneId()), projection.lane().encode());
+        if (projection.readyValue() != null) {
+            final ReadyIndexValue ready = projection.readyValue();
+            batch.putValue(ColumnFamily.TIMELINE, 3,
+                    KeyCodec.timelineReady(ready.nextEligibleAtEpochMs(), ready.laneId(), ready.laneVersion()),
+                    ready.encode());
+        }
+    }
+
+    private TimelineCandidate findLaneCandidate(
+            final io.nereusstream.delay.protocol.DestinationLaneId laneId,
+            final DelayMessageId excludedMessageId, final int excludedGeneration,
+            final DelayMessageId includedMessageId, final MessageRecord includedMessage) {
+        TimelineCandidate selected = null;
+        if (includedMessage != null && includedMessage.status() == MessageStatus.SCHEDULED
+                && includedMessageId != null && includedMessage.laneId().equals(laneId)) {
+            selected = new TimelineCandidate(includedMessageId, includedMessage.generation(),
+                    includedMessage.deliverAtEpochMs(), timelineKey(includedMessageId, includedMessage),
+                    includedMessage.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO);
+        }
+        for (byte tag = 1; tag <= 2; tag++) {
+            final byte[] prefix = Bytes.concat(new byte[]{tag, 1}, laneId.bytes());
+            final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries = store.scan(ColumnFamily.TIMELINE,
+                    prefix, prefixUpperBound(prefix), boundedLimit(config.maxPendingMessages()));
+            for (var entry : entries) {
+                final TimelineCandidate candidate = decodeTimelineCandidate(entry, tag, laneId);
+                if (excludedMessageId != null && candidate.messageId().equals(excludedMessageId)
+                        && candidate.generation() == excludedGeneration) {
+                    continue;
+                }
+                if (selected == null || candidate.compareTo(selected) < 0) {
+                    selected = candidate;
+                }
+            }
+        }
+        return selected;
+    }
+
+    private TimelineCandidate decodeTimelineCandidate(
+            final io.nereusstream.delay.store.ShardStore.KeyValue entry, final byte tag,
+            final io.nereusstream.delay.protocol.DestinationLaneId expectedLane) {
+        final byte[] key = entry.key();
+        final int tokenOffset = 2 + 32 + 8;
+        final int tokenLength = key.length > tokenOffset && key[tokenOffset] == 1 ? 9
+                : key.length > tokenOffset && key[tokenOffset] == 2 ? 21 : -1;
+        if (tokenLength < 0 || key.length != tokenOffset + tokenLength + DelayMessageId.LENGTH + 4
+                || key[0] != tag || key[1] != 1) {
+            throw new IllegalStateException("invalid timeline key for READY projection");
+        }
+        final ByteBuffer input = ByteBuffer.wrap(key);
+        input.position(2);
+        final byte[] laneBytes = new byte[32];
+        input.get(laneBytes);
+        final io.nereusstream.delay.protocol.DestinationLaneId lane =
+                new io.nereusstream.delay.protocol.DestinationLaneId(laneBytes);
+        if (!lane.equals(expectedLane)) {
+            throw new IllegalStateException("timeline lane prefix mismatch");
+        }
+        final long eligibleAt = input.getLong();
+        input.position(input.position() + tokenLength);
+        final byte[] messageBytes = new byte[DelayMessageId.LENGTH];
+        input.get(messageBytes);
+        final int generation = input.getInt();
+        final DelayMessageId messageId = new DelayMessageId(messageBytes);
+        final TimelineEntry timeline = TimelineEntry.decode(
+                io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), 1).payload());
+        if (!timeline.messageId().equals(messageId) || timeline.generation() != generation) {
+            throw new IllegalStateException("timeline key/value identity mismatch during READY rebuild");
+        }
+        final MessageRecord message = getMessage(messageId);
+        if (message == null || message.status() != MessageStatus.SCHEDULED || message.generation() != generation
+                || !message.laneId().equals(expectedLane)) {
+            throw new IllegalStateException("timeline points to a non-current scheduled message");
+        }
+        final boolean ordered = message.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO;
+        if ((tag == 2) != ordered) {
+            throw new IllegalStateException("timeline namespace does not match ordering mode");
+        }
+        return new TimelineCandidate(messageId, generation, eligibleAt, key, ordered);
+    }
+
+    private static byte[] prefixUpperBound(final byte[] prefix) {
+        final byte[] result = Bytes.copy(prefix);
+        for (int index = result.length - 1; index >= 0; index--) {
+            if ((result[index] & 0xff) != 0xff) {
+                result[index]++;
+                return Arrays.copyOf(result, index + 1);
+            }
+        }
+        return null;
+    }
+
+    private static int boundedLimit(final long configured) {
+        return (int) Math.max(1, Math.min(configured, Integer.MAX_VALUE));
+    }
+
+    private static int boundedLimitPlusOne(final long configured) {
+        return configured >= Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) Math.max(1, configured + 1);
     }
 
     private ShardQuota quotaAfter(final MessageRecord prior, final MessageRecord next, final CommandResult result,
@@ -708,6 +963,59 @@ public final class DelayShard {
         private static final long serialVersionUID = 1L;
     }
 
+    private static ReadyKey decodeReadyKey(final byte[] key) {
+        if (key.length != 2 + 8 + 32 + 8 || key[0] != 3 || key[1] != 1) {
+            throw new IllegalStateException("invalid READY key length or tag");
+        }
+        final ByteBuffer input = ByteBuffer.wrap(key);
+        input.position(2);
+        final long nextEligibleAt = input.getLong();
+        final byte[] laneBytes = new byte[32];
+        input.get(laneBytes);
+        final long laneVersion = input.getLong();
+        return new ReadyKey(new io.nereusstream.delay.protocol.DestinationLaneId(laneBytes), nextEligibleAt,
+                laneVersion);
+    }
+
+    private record ReadyKey(io.nereusstream.delay.protocol.DestinationLaneId laneId,
+                            long nextEligibleAtEpochMs, long laneVersion) {
+    }
+
+    private record TimelineCandidate(DelayMessageId messageId, int generation, long eligibleAtEpochMs,
+                                     byte[] timelineKey, boolean ordered) implements Comparable<TimelineCandidate> {
+        private TimelineCandidate {
+            timelineKey = Bytes.copy(timelineKey);
+        }
+
+        @Override
+        public byte[] timelineKey() {
+            return Bytes.copy(timelineKey);
+        }
+
+        @Override
+        public int compareTo(final TimelineCandidate other) {
+            int result = Long.compare(eligibleAtEpochMs, other.eligibleAtEpochMs);
+            if (result != 0) {
+                return result;
+            }
+            return compareUnsigned(timelineKey, other.timelineKey);
+        }
+    }
+
+    private record LaneProjection(LaneRecord previousLane, LaneRecord lane, ReadyIndexValue readyValue) {
+    }
+
+    private static int compareUnsigned(final byte[] left, final byte[] right) {
+        final int length = Math.min(left.length, right.length);
+        for (int index = 0; index < length; index++) {
+            final int result = Integer.compare(left[index] & 0xff, right[index] & 0xff);
+            if (result != 0) {
+                return result;
+            }
+        }
+        return Integer.compare(left.length, right.length);
+    }
+
     public record TimelineWork(DelayMessageId messageId,
                                io.nereusstream.delay.protocol.DestinationLaneId laneId,
                                int generation, long eligibleAtEpochMs, boolean ordered) {
@@ -716,6 +1024,18 @@ public final class DelayShard {
             Objects.requireNonNull(laneId, "laneId");
             if (generation < 0 || eligibleAtEpochMs < 0) {
                 throw new IllegalArgumentException("invalid timeline work");
+            }
+        }
+    }
+
+    public record ReadyWork(io.nereusstream.delay.protocol.DestinationLaneId laneId,
+                            DelayMessageId messageId, int generation, long nextEligibleAtEpochMs,
+                            long laneVersion, boolean ordered) {
+        public ReadyWork {
+            Objects.requireNonNull(laneId, "laneId");
+            Objects.requireNonNull(messageId, "messageId");
+            if (generation < 0 || nextEligibleAtEpochMs < 0 || laneVersion < 0) {
+                throw new IllegalArgumentException("invalid READY work");
             }
         }
     }
