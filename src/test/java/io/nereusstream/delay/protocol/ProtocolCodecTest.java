@@ -347,6 +347,24 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void pulsarMetadataKeepsOptionalKeysAndSortedUniqueProperties() {
+        final PulsarMetadataV1 metadata = new PulsarMetadataV1(Bytes.utf8("partition-key"),
+                PulsarMetadataV1.KeyEncoding.UTF8, Bytes.utf8("ordering-key"),
+                java.util.List.of(new PulsarMetadataV1.Property("a", "one"),
+                        new PulsarMetadataV1.Property("z", "two")));
+        assertEquals(metadata, PulsarMetadataV1.decode(metadata.canonicalBytes()));
+        assertEquals(new PulsarMetadataV1(null, null, null, java.util.List.of()),
+                PulsarMetadataV1.decode(new byte[0]));
+        assertThrows(IllegalArgumentException.class, () -> new PulsarMetadataV1(Bytes.utf8("key"), null, null,
+                java.util.List.of()));
+        assertThrows(IllegalArgumentException.class, () -> new PulsarMetadataV1(null, null, null,
+                java.util.List.of(new PulsarMetadataV1.Property("z", "two"),
+                        new PulsarMetadataV1.Property("a", "one"))));
+        assertThrows(IllegalArgumentException.class, () -> PulsarMetadataV1.decode(CanonicalProtobuf.message(
+                output -> CanonicalProtobuf.bytes(output, 1, Bytes.utf8("key")))));
+    }
+
+    @Test
     void publicQueryViewsRejectUnsafeBindingAndNonCanonicalBranchShape() {
         final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("destination"), 1,
                 Bytes.sha256(Bytes.utf8("destination-semantic")), ProfileKindV1.DESTINATION);
