@@ -37,7 +37,10 @@ public final class SharedRocksDbResources implements AutoCloseable {
         }
         blockCache = new LRUCache(config.sharedBlockCacheBytes());
         writeBufferManager = new WriteBufferManager(config.sharedWriteBufferBudgetBytes(), blockCache);
-        rateLimiter = new RateLimiter(0);
+        // Use the worker-wide checkpoint/compaction I/O budget for every DB
+        // opened by this process.  A zero-byte limiter would silently disable
+        // the global bound even though the config declares one.
+        rateLimiter = new RateLimiter(config.checkpointIoBytesPerSecond());
         openDbSlots = new Semaphore(config.maxOpenShardDbs(), true);
         checkpointCreateSlots = new Semaphore(config.maxConcurrentCheckpointCreatesPerWorker(), true);
         checkpointUploadSlots = new Semaphore(config.maxConcurrentCheckpointUploadsPerWorker(), true);
