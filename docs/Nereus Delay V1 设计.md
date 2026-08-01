@@ -3405,6 +3405,9 @@ Kafka/Pulsar client类型不得泄漏到核心状态机；adapter-specific messa
 | M7 | AUTO_FAST、Pulsar handoff、Kafka receipt、Pulsar dedup、strict order | capability-specific gates |
 | M8 | full chaos、benchmark、soak、upgrade、distribution | release gates 全通过 |
 
+当前实现进度、可执行证据和未完成 blocker 以 [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) 为准；
+已完成的 core/embedded 里程碑不等于 Kafka/Pulsar/Oxia 生产集成或 V1 release-ready。
+
 功能不得因为 milestone 靠后而在早期代码中使用更弱的隐含语义；未实现 capability 必须注册失败。
 
 ## 26. V1 最终基线

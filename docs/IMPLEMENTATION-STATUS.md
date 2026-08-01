@@ -17,8 +17,10 @@ to the intended modules:
 |---|---|---|
 | `io.nereusstream.delay.protocol` | IDs, source positions, canonical hash, NDL1 frame, command envelope and body codec | `delay-api` / `delay-client-core` |
 | `io.nereusstream.delay.store` | One RocksDB instance per shard, seven application CFs, value envelope, shared process resources and checkpoints | `delay-store-rocksdb` |
-| `io.nereusstream.delay.runtime` | Deterministic Shard Log application and message state machine | `delay-core` |
-| `io.nereusstream.delay.scheduler` | Lane state and bounded scheduling | `delay-core` |
+| `io.nereusstream.delay.runtime` | Deterministic Shard Log application, message state machine and Lane gate projection | `delay-core` |
+| `io.nereusstream.delay.scheduler` | Lane-local failure isolation and bounded weighted DRR | `delay-core` |
+| `io.nereusstream.delay.ownership` | Owner Lease CAS boundary and local ownerEpoch fencing | `delay-server` / `delay-metadata-oxia` |
+| `io.nereusstream.delay.client` | Queued/applied outcome contract and embedded conformance service | `delay-api` / `delay-client-core` / `delay-testkit` |
 | `io.nereusstream.delay.adapter` | Broker/destination interfaces and test adapters | ingress/adapter modules |
 
 ## Evidence matrix
@@ -34,8 +36,11 @@ to the intended modules:
 | Shard identity and local Store Incarnation validation | Implemented | `StoreMetadata`, `ShardStoreTest` |
 | Synchronous atomic WriteBatch | Implemented | `ShardStore.write`, `ShardStoreTest` |
 | Native RocksDB checkpoint creation | Implemented | `ShardStore.createCheckpoint`, `ShardStoreTest` |
-| Command applied/rejected state machine | In progress | next milestone |
-| Source assignment and Owner Lease | Not started | release blocker |
+| Command applied/rejected state machine | Implemented (embedded core) | `DelayShard`, `DelayShardTest` |
+| Source assignment and Owner Lease | Implemented (CAS boundary/test authority) | `OwnerLeaseStore`, `OwnedDelayShard`, `OwnerLeaseTest`; Oxia adapter pending |
+| Queued vs applied client outcomes | Implemented (embedded core) | `EmbeddedDelayServiceTest` |
+| Destination Lane gate/readiness projection | Implemented (core projection) | `LaneRecord`, `DelayShard` |
+| Destination Lane isolation and bounded weighted DRR | Implemented (scheduler core) | `LaneSchedulerTest`; persistent scheduler index pending |
 | Kafka/Pulsar ingress and target adapters | Not started | release blocker |
 | Destination Lane isolation and two-level DRR | Not started | release blocker |
 | Recovery Set/Floor, catalog and restore replay | Not started | release blocker |
@@ -51,4 +56,3 @@ not writable:
 ```bash
 GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle gradle clean check
 ```
-
