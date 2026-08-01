@@ -11,10 +11,13 @@ The checkpoint code now covers the local physical boundary: checksum the full
 RocksDB directory, emit the closed manifest JSON projection, and install a
 validated checkpoint into a new local Store Incarnation without merging into an
 open DB. The local store uses an `ACTIVE` checksummed pointer and an
-`incarnations/<storeIncarnation>/db` directory. The embedded `RecoveryCatalog`
-now selects and validates a published floor-eligible ancestry before local
-restore. Immutable object publication, durable Oxia catalog/session pins, and
-Kafka/Pulsar source replay remain release blockers below.
+`incarnations/<storeIncarnation>/db` directory. Typed
+`CheckpointResourceV1`/`CheckpointUploadIntentV1` codecs now close the
+manifest-object identity and PENDING/PUBLISHED/REAPING branch rules. The
+embedded `RecoveryCatalog` now selects and validates a published floor-eligible
+ancestry before local restore. Immutable object publication, durable Oxia
+catalog/session pins, and Kafka/Pulsar source replay remain release blockers
+below.
 
 The AUTO_FAST native submission boundary now has a local, identity-pinned
 Pulsar transport SPI. `PinnedPulsarNativeSubmissionAdapter` verifies the
@@ -183,7 +186,7 @@ to the intended modules:
 | Shard identity and local Store Incarnation validation | Implemented | `StoreMetadata`, `ShardStoreTest` |
 | Synchronous atomic WriteBatch | Implemented | `ShardStore.write`, `ShardStoreTest` |
 | Native RocksDB checkpoint creation | Implemented | `ShardStore.createCheckpoint`, `ShardStoreTest` |
-| Checkpoint file inventory and canonical manifest projection | Implemented (local/object publication boundary pending) | `CheckpointFileInventory`, `CheckpointManifest`, `CheckpointManifestJson`, `CheckpointManifestTest`; inventory streams SHA-256 over each file without loading an SST into heap and rejects symbolic links before restore/copy, while the manifest decoder enforces the closed field order/types, Kafka/Pulsar typed `EvidenceCursorV1` branches, strict cursor identity ordering and byte-identical canonical JSON round trip |
+| Checkpoint file inventory and canonical manifest projection | Implemented (local/object publication boundary pending) | `CheckpointFileInventory`, `CheckpointManifest`, `CheckpointManifestJson`, `CheckpointResourceV1`, `CheckpointUploadStateV1`, `CheckpointUploadIntentV1`, `CheckpointManifestTest`, `CheckpointResourceV1Test`, `CheckpointUploadIntentV1Test`; inventory streams SHA-256 over each file without loading an SST into heap and rejects symbolic links before restore/copy, while the manifest decoder enforces the closed field order/types, Kafka/Pulsar typed `EvidenceCursorV1` branches, strict cursor identity ordering and byte-identical canonical JSON round trip; the published-manifest Object Store identity and upload intent state branches have closed canonical codecs, while Object Store upload/CAS publication remains pending |
 | Checkpoint restore into a new Store Incarnation | Implemented (local manifest/catalog-validated path) | `ShardStore.restoreFromCheckpoint`, `CheckpointManifest.decodeCanonicalJson`, `ShardStoreTest`; raw canonical manifest bytes are decoded and catalog-validated before local file verification, then installed as a new Store Incarnation; Oxia Recovery Pin/Floor CAS and source replay pending |
 | Recovery catalog, lineage and Floor selection | Implemented (typed local codec plus in-memory core and Oxia CAS adapter contract) | `RecoveryFloorRefV1`, `RecoveryCatalog`, `RecoveryCatalogAuthority`, `OxiaRecoveryCatalog`, `RecoveryFloor`, `RecoveryFloorRefV1Test`, `RecoveryCatalogTest`; `RecoveryFloorRefV1` now canonically binds lineage/checkpoint/manifest, catalog generation, Source Position, mutation sequence and a strictly sorted typed cursor array with a checked digest; the local catalog still binds one shard, rejects non-zero genesis lineage, enforces floor ancestry, exposes candidate validation/selection and `proveFloorCoverage`, while durable Oxia catalog/session pins, Object Store publication and evidence-cursor retention/dominance enforcement remain pending |
 | Command applied/rejected state machine | Implemented (embedded core) | `DelayShard`, `DelayShardTest` |
