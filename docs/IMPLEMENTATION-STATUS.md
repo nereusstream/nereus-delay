@@ -68,6 +68,9 @@ identity and evidence-reference projections. The codecs do not fabricate those
 views from the local snapshots: receipt/barrier routing, authorization policy,
 real binding/evidence lookup and source-derived retention decisions remain
 release blockers.
+`BoundedLocalQueryProjector` is the explicit local bridge when those policy
+inputs have already been supplied; it does not perform the missing authority
+steps itself.
 
 The bounded `RESOURCE_RETIRE_INTENT_V1` increment now validates the closed
 `ExactResourceIdentityV1` branches and canonical `ProtectionSetV1`, checks the
@@ -149,7 +152,7 @@ to the intended modules:
 | Kafka/Pulsar ingress and target adapters | In progress (ingress SPI only) | release blocker until concrete pinned transports, target publish/evidence channels and real-broker tests exist |
 | Recovery Set/Floor, catalog and restore replay | In progress (local catalog/Floor subset) | release blocker; Oxia catalog/session pin, immutable publication, source/evidence replay and activation CAS remain |
 | Large payload, quota grants, control reserve and GC | In progress (reservation/commit, shard hard-quota, retire-intent, delete-confirmed and catalog-backed local compaction subsets) | release blocker; `ResourceRetireIntentBody`/`ResourceRetireIntentRecord` and `ResourceDeleteConfirmedBody`/`ResourceDeleteConfirmedRecord` provide canonical source-ordered `gc_cf/TASK` intent/tombstone persistence with applied mutation sequence, `RecoveryCatalog.proveFloorCoverage` plus `ResourceGcGuard` enforce local ancestry/source/sequence coverage, `DelayShard.compactResourceDeleteConfirmation` removes only a covered local tombstone, and local payload/checkpoint version/etag comparison is enforced, but Object Store/Oxia publication, multi-shard grants, control reserve, real provider delete attestation/ownership, durable catalog/Floor barrier, Lane terminal guard and full guarded GC remain |
-| Query, control operations, DLQ and observability | In progress (wire unions plus bounded local Message/Reservation projection) | `MessageQuerySnapshot`, `ReservationQuerySnapshot`, `DelayShard.queryMessageSnapshot`, `DelayShard.queryReservationSnapshot`, all V1 Command/Message query view codecs, `DelayShardTest`, `ProtocolCodecTest`; receipt/barrier routing, authorization-safe binding/evidence/retention lookup, control-operation query, DLQ and observability remain release blockers |
+| Query, control operations, DLQ and observability | In progress (wire unions plus bounded local projection bridge) | `MessageQuerySnapshot`, `ReservationQuerySnapshot`, `DelayShard.queryMessageSnapshot`, `DelayShard.queryReservationSnapshot`, `BoundedLocalQueryProjector`, all V1 Command/Message query view codecs, `DelayShardTest`, `EmbeddedDelayServiceTest`, `ProtocolCodecTest`; receipt/barrier routing, authorization-safe binding/evidence/retention lookup, control-operation query, DLQ and observability remain release blockers |
 | Real-service, chaos, benchmark, soak and upgrade evidence | Not started | release blocker |
 
 ## Verification command
