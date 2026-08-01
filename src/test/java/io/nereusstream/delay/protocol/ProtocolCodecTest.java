@@ -437,6 +437,44 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void nonPersistenceProofEnforcesKindSpecificBrokerEvidence() {
+        final byte[] preparedHash = Bytes.sha256(Bytes.utf8("prepared-submission"));
+        final byte[] attempt = nonZero(16, 10);
+        final NonPersistenceProofV1 local = NonPersistenceProofV1.create(
+                NonPersistenceProofKindV1.LOCAL_BEFORE_PRODUCER_OWNERSHIP, null, preparedHash, null, null, null);
+        assertEquals(local, NonPersistenceProofV1.decode(local.canonicalBytes()));
+
+        final PulsarBrokerResourceIdentityV1 pulsar = new PulsarBrokerResourceIdentityV1("proof-pulsar",
+                nonZero(32, 11), "persistent://tenant/proof", 1_111);
+        final NonPersistenceProofV1 pulsarProof = NonPersistenceProofV1.create(
+                NonPersistenceProofKindV1.PULSAR_GUARD_REJECTION, attempt, preparedHash,
+                BrokerResourceIdentityV1.pulsar(pulsar), Bytes.sha256(Bytes.utf8("pulsar-request")),
+                Bytes.sha256(Bytes.utf8("pulsar-response")));
+        assertEquals(pulsarProof, NonPersistenceProofV1.decode(pulsarProof.canonicalBytes()));
+        assertEquals(pulsar, BrokerResourceIdentityV1.decode(pulsar.canonicalBytes()).pulsar());
+
+        final KafkaBrokerResourceIdentityV1 kafka = new KafkaBrokerResourceIdentityV1("proof-kafka",
+                UUID.randomUUID());
+        final NonPersistenceProofV1 kafkaProof = NonPersistenceProofV1.create(
+                NonPersistenceProofKindV1.KAFKA_DEFINITIVE_REJECTION, attempt, preparedHash,
+                BrokerResourceIdentityV1.kafka(kafka), Bytes.sha256(Bytes.utf8("kafka-request")),
+                Bytes.sha256(Bytes.utf8("kafka-response")));
+        assertEquals(kafka, BrokerResourceIdentityV1.decode(kafka.canonicalBytes()).kafka());
+        assertEquals(kafkaProof, NonPersistenceProofV1.decode(kafkaProof.canonicalBytes()));
+
+        final byte[] tampered = pulsarProof.canonicalBytes();
+        tampered[tampered.length - 1] ^= 1;
+        assertThrows(IllegalArgumentException.class, () -> NonPersistenceProofV1.decode(tampered));
+        assertThrows(IllegalArgumentException.class, () -> NonPersistenceProofV1.create(
+                NonPersistenceProofKindV1.PULSAR_GUARD_REJECTION, attempt, preparedHash, null,
+                Bytes.sha256(Bytes.utf8("request")), Bytes.sha256(Bytes.utf8("response"))));
+        assertThrows(IllegalArgumentException.class, () -> NonPersistenceProofV1.create(
+                NonPersistenceProofKindV1.LOCAL_BEFORE_PRODUCER_OWNERSHIP, attempt, preparedHash,
+                BrokerResourceIdentityV1.pulsar(pulsar), Bytes.sha256(Bytes.utf8("request")),
+                Bytes.sha256(Bytes.utf8("response"))));
+    }
+
+    @Test
     void publicQueryViewsRejectUnsafeBindingAndNonCanonicalBranchShape() {
         final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("destination"), 1,
                 Bytes.sha256(Bytes.utf8("destination-semantic")), ProfileKindV1.DESTINATION);
