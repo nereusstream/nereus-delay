@@ -109,7 +109,10 @@ current Floor/catalog generation 绑定的单 active-pin create/idempotent rerea
 投影，但这仍不是 Oxia Owner Lease/session CAS；`CheckpointResourceV1` 与
 `CheckpointUploadIntentV1`
 也已补齐 manifest-object identity 和 PENDING/PUBLISHED/REAPING 的 canonical
-state branches。现有 `DelayShard` 仍
+state branches；`CheckpointUploadIntentStore` 还提供了 exact-value create
+idempotency 与本地 PENDING_UPLOAD -> PUBLISHED/REAPING revision CAS 投影。
+这仍不是 Oxia 的 Owner Lease/session、lineage-head、catalog-generation
+transaction，也不执行 Object Store upload/attestation/delete。现有 `DelayShard` 仍
 通过兼容 `LaneRecord` 写入 ACTIVE 分支，因此这不被误报为已经完成 full
 ActiveLaneState persistence、quota-map revision coupling、Oxia target
 registration、Oxia Recovery Pin/Floor CAS、source/evidence replay 或
