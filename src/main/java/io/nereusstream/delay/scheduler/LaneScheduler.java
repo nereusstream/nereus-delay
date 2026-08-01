@@ -124,6 +124,27 @@ public final class LaneScheduler {
         return new SchedulerSnapshot(cursor, roundGeneration, states);
     }
 
+    /** Restores fair-scheduling counters after all current Lane records are registered. */
+    public synchronized void restore(final SchedulerSnapshot snapshot) {
+        Objects.requireNonNull(snapshot, "snapshot");
+        if (snapshot.cursor() < 0 || snapshot.roundGeneration() < 0) {
+            throw new IllegalArgumentException("invalid scheduler snapshot");
+        }
+        for (LaneSnapshot saved : snapshot.lanes()) {
+            final LaneQueue lane = lanes.get(saved.laneId());
+            if (lane == null || lane.weight != saved.weight()) {
+                continue;
+            }
+            if (saved.deficit() < 0 || saved.lastServedRound() < 0) {
+                throw new IllegalArgumentException("invalid lane scheduler counters");
+            }
+            lane.deficit = saved.deficit();
+            lane.lastServedRound = saved.lastServedRound();
+        }
+        cursor = ring.isEmpty() ? 0 : snapshot.cursor() % ring.size();
+        roundGeneration = snapshot.roundGeneration();
+    }
+
     private LaneQueue requireLane(final DestinationLaneId laneId) {
         final LaneQueue lane = lanes.get(Objects.requireNonNull(laneId, "laneId"));
         if (lane == null) {
@@ -168,4 +189,3 @@ public final class LaneScheduler {
         }
     }
 }
-

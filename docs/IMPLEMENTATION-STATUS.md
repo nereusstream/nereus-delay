@@ -7,6 +7,14 @@ normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20�
 the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
+The checkpoint code now covers the local physical boundary: checksum the full
+RocksDB directory, emit the closed manifest JSON projection, and install a
+validated checkpoint into a new local Store Incarnation without merging into an
+open DB. The local store uses an `ACTIVE` checksummed pointer and an
+`incarnations/<storeIncarnation>/db` directory. It does not yet publish
+immutable objects, CAS an Oxia catalog, select a Recovery Set/Floor, or replay
+Kafka/Pulsar source records; those remain release blockers below.
+
 ## Current repository shape
 
 The repository is currently a single Gradle Java 21 library while the design's
@@ -36,13 +44,16 @@ to the intended modules:
 | Shard identity and local Store Incarnation validation | Implemented | `StoreMetadata`, `ShardStoreTest` |
 | Synchronous atomic WriteBatch | Implemented | `ShardStore.write`, `ShardStoreTest` |
 | Native RocksDB checkpoint creation | Implemented | `ShardStore.createCheckpoint`, `ShardStoreTest` |
+| Checkpoint file inventory and canonical manifest projection | Implemented (local/object publication boundary pending) | `CheckpointFileInventory`, `CheckpointManifest`, `CheckpointManifestTest` |
+| Checkpoint restore into a new Store Incarnation | Implemented (local restore path) | `ShardStore.restoreFromCheckpoint`, `ShardStoreTest` |
 | Command applied/rejected state machine | Implemented (embedded core) | `DelayShard`, `DelayShardTest` |
 | Source assignment and Owner Lease | Implemented (CAS boundary/test authority) | `OwnerLeaseStore`, `OwnedDelayShard`, `OwnerLeaseTest`; Oxia adapter pending |
 | Queued vs applied client outcomes | Implemented (embedded core) | `EmbeddedDelayServiceTest` |
 | Destination Lane gate/readiness projection | Implemented (core projection) | `LaneRecord`, `DelayShard` |
-| Destination Lane isolation and bounded weighted DRR | Implemented (scheduler core) | `LaneSchedulerTest`; persistent scheduler index pending |
+| Destination Lane isolation and bounded weighted DRR | Implemented (scheduler core) | `LaneSchedulerTest`; lane work discovery and exact five-value registry projection pending |
+| Persistent scheduler fairness counters | Implemented (core subset) | `PersistentLaneScheduler`, `LaneSchedulerTest`; full `meta_cf/SCHEDULER` closed projections pending |
+| Closed Stable Code registry | Implemented | `StableCode`, `ProtocolCodecTest` |
 | Kafka/Pulsar ingress and target adapters | Not started | release blocker |
-| Destination Lane isolation and two-level DRR | Not started | release blocker |
 | Recovery Set/Floor, catalog and restore replay | Not started | release blocker |
 | Large payload, quota, control reserve and GC | Not started | release blocker |
 | Query, control operations, DLQ and observability | Not started | release blocker |

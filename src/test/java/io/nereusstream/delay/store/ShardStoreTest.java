@@ -13,6 +13,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 class ShardStoreTest {
     @TempDir
@@ -46,6 +47,31 @@ class ShardStoreTest {
                 dbs = stream.filter(path -> path.getFileName().toString().equals("CURRENT")).toList();
             }
             assertEquals(1, dbs.size());
+        }
+    }
+
+    @Test
+    void completeCheckpointRestoresIntoFreshStoreIncarnation() throws Exception {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 18);
+        final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("source"));
+        final Path checkpoint = tempDir.resolve("checkpoint-for-restore");
+        final byte[] key = KeyCodec.metaFixed(7);
+        final byte[] payload = Bytes.utf8("checkpoint-value");
+        final byte[] originalStoreIncarnation;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(sourceConfig);
+             ShardStore store = ShardStore.open(sourceConfig, shardId, resources)) {
+            originalStoreIncarnation = store.metadata().storeIncarnation();
+            store.write(batch -> batch.putValue(ColumnFamily.META, 7, key, payload));
+            store.createCheckpoint(checkpoint);
+        }
+
+        final ShardStoreConfig restoreConfig = ShardStoreConfig.defaults(tempDir.resolve("restored"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(restoreConfig);
+             ShardStore restored = ShardStore.restoreFromCheckpoint(restoreConfig, shardId, resources, checkpoint)) {
+            assertArrayEquals(payload, restored.getValue(ColumnFamily.META, key, 7).payload());
+            org.junit.jupiter.api.Assertions.assertFalse(
+                    java.util.Arrays.equals(originalStoreIncarnation, restored.metadata().storeIncarnation()));
+            assertNotEquals(sourceConfig.rootPath(), restoreConfig.rootPath());
         }
     }
 

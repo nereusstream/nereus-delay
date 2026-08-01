@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.HashSet;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -57,5 +58,17 @@ class ProtocolCodecTest {
         assertEquals(intent, decoded);
         assertThrows(IllegalArgumentException.class,
                 () -> CommandBodies.decodeSchedule(Arrays.copyOf(encoded, encoded.length - 1)));
+    }
+
+    @Test
+    void stableCodeRegistryIsClosedAndRoundTripsEveryValue() {
+        final HashSet<Integer> values = new HashSet<>();
+        for (StableCode code : StableCode.values()) {
+            org.junit.jupiter.api.Assertions.assertTrue(values.add(code.wireValue()),
+                    "duplicate stable code: " + code.wireValue());
+            assertEquals(code, StableCode.fromWire(code.wireValue()));
+        }
+        assertEquals(101, values.size());
+        assertThrows(IllegalArgumentException.class, () -> StableCode.fromWire(0x7fff));
     }
 }

@@ -7,13 +7,21 @@ import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.runtime.AdmissionGate;
 import io.nereusstream.delay.runtime.LaneRecord;
 import io.nereusstream.delay.runtime.RuntimeReadiness;
+import io.nereusstream.delay.store.ShardStore;
+import io.nereusstream.delay.store.ShardStoreConfig;
+import io.nereusstream.delay.store.SharedRocksDbResources;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class LaneSchedulerTest {
+    @TempDir
+    Path tempDir;
+
     @Test
     void blockedLaneDoesNotPauseHealthyLane() {
         final DestinationLaneId bad = lane(1);
@@ -54,6 +62,34 @@ class LaneSchedulerTest {
                 || secondVisit.stream().anyMatch(item -> item.laneId().equals(second)));
     }
 
+    @Test
+    void fairnessCountersSurviveOwnerRestart() {
+        final DestinationLaneId lane = lane(5);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 5);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir);
+        LaneScheduler.SchedulerSnapshot saved;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
+            scheduler.register(record(lane, 2));
+            scheduler.offer(item(lane, 1));
+            scheduler.poll(new SchedulerBudget(1, 1024, 1_000_000_000));
+            saved = scheduler.snapshot();
+        }
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
+            scheduler.register(record(lane, 2));
+            scheduler.restorePersistedState();
+            final LaneScheduler.LaneSnapshot restored = scheduler.snapshot().lanes().get(0);
+            final LaneScheduler.LaneSnapshot expected = saved.lanes().get(0);
+            assertEquals(expected.deficit(), restored.deficit());
+            assertEquals(expected.lastServedRound(), restored.lastServedRound());
+            assertEquals(expected.weight(), restored.weight());
+        }
+    }
+
     private static LaneRecord record(final DestinationLaneId lane, final int weight) {
         return new LaneRecord(lane, new byte[16], 1, 0, AdmissionGate.OPEN, RuntimeReadiness.READY, weight, 0);
     }
@@ -69,4 +105,3 @@ class LaneSchedulerTest {
         return new DestinationLaneId(bytes);
     }
 }
-
