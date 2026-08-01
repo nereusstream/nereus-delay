@@ -99,9 +99,18 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
         if (result == null) {
             return completed(uncertain(prepared, attempt, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN, null));
         }
-        return result.handle((value, error) -> error == null
-                ? project(prepared, request, attempt, value)
-                : uncertain(prepared, attempt, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN, null));
+        return result.handle((value, error) -> {
+            if (error != null) {
+                return uncertain(prepared, attempt, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN, null);
+            }
+            try {
+                return project(prepared, request, attempt, value);
+            } catch (RuntimeException ignored) {
+                // A malformed adapter result is not evidence of non-persistence.
+                return uncertain(prepared, attempt, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN,
+                        StableCode.INTEGRITY_ERROR.wireValue());
+            }
+        });
     }
 
     @Override
@@ -127,9 +136,12 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
 
     private SubmissionOutcomeMessageV1 persisted(final NativePreparedDeliveryV1 prepared, final byte[] attempt,
                                                  final PulsarSendResult result) {
-        if (!matchesPinnedResult(result) || result.evidence() == null) {
+        if (!matchesPinnedResult(result)) {
             return uncertain(prepared, attempt, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN,
                     StableCode.RESOURCE_INCARNATION_MISMATCH.wireValue());
+        }
+        if (result.evidence() == null) {
+            return uncertain(prepared, attempt, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN, null);
         }
         final CommandQueuedReceiptV1.PulsarQueuedAck ack = new CommandQueuedReceiptV1.PulsarQueuedAck(
                 result.authenticatedClusterId(), result.resourceIncarnation(), result.physicalTopic(),
