@@ -97,10 +97,11 @@ V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障
 | Time | Admission 使用 frozen decision interval + Broker persistence inequality；replay 不采样新墙钟 |
 
 当前代码已把 Lane 的 same-key ACTIVE/TERMINAL 分支和保守本地退休证明接入
-`DelayShard`；并已补齐 Registry-shaped `ActiveLaneStateV1` 的独立 canonical
-codec 与交叉校验。现有 `DelayShard` 仍通过兼容 `LaneRecord` 写入 ACTIVE
-分支，因此这不被误报为已经完成 full ActiveLaneState persistence、
-`ReadyCertificateV1` nested evidence、Oxia target registration 或
+`DelayShard`；并已补齐 Registry-shaped `ActiveLaneStateV1`、
+`LaneQuotaUsageEntryV1/MapV1` 与 `ReadyCertificateV1` 的独立 canonical codec
+与交叉校验。现有 `DelayShard` 仍通过兼容 `LaneRecord` 写入 ACTIVE 分支，
+因此这不被误报为已经完成 full ActiveLaneState persistence、typed
+ActivationBarrier/EvidenceCursor semantics、Oxia target registration 或
 Recovery-Floor/retention gate。
 
 ## Source locks

@@ -316,7 +316,8 @@ public final class PublishAdmissionBody {
                 actionAt);
     }
 
-    private static ReadyCertificate decodeReadyCertificate(final byte[] encoded) {
+    /** Validates and decodes a Registry ReadyCertificateV1 outside an Admission body. */
+    public static ReadyCertificate decodeReadyCertificate(final byte[] encoded) {
         final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "ReadyCertificate");
         requireExactFields(fields, 16, "ReadyCertificate");
         for (int number = 1; number <= 16; number++) {

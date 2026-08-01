@@ -35,11 +35,14 @@ class ActiveLaneStateV1Test {
                 null, 1, 1, destination, capability, tuple, 1, charge(), null, null,
                 LaneCircuitStateV1.CLOSED, 0, 0, 0, 0, null, null, null));
 
-        final byte[] certificate = CanonicalProtobuf.message(output -> CanonicalProtobuf.uint32(output, 1, 1));
+        final ShardId certificateShard = new ShardId(RouteIncarnation.random(), 0);
+        final byte[] certificate = PublishAdmissionBodyTest.Fixture.create(certificateShard)
+                .body();
+        final byte[] validCertificate = PublishAdmissionBody.decode(certificate).readyCertificate().canonicalBytes();
         final ActiveLaneStateV1 state = new ActiveLaneStateV1(
                 DestinationLaneId.derive(tuple), bytes(16, 3), AdmissionGate.OPEN, RuntimeReadiness.READY,
                 null, 1, 1, destination, capability, tuple, 1, charge(), null, 200L,
-                LaneCircuitStateV1.OPEN, 300, 0, 0, 0, Bytes.utf8("ready"), certificate, null);
+                LaneCircuitStateV1.OPEN, 300, 0, 0, 0, Bytes.utf8("ready"), validCertificate, null);
         final byte[] tampered = state.canonicalBytes();
         tampered[tampered.length - 1] ^= 1;
         assertThrows(IllegalArgumentException.class, () -> ActiveLaneStateV1.decode(tampered));

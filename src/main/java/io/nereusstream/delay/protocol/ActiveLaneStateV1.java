@@ -413,6 +413,9 @@ public final class ActiveLaneStateV1 {
                 }
             });
             QueryCodecSupport.requireCanonical(result, canonical, name);
+            if ("readyCertificate".equals(name)) {
+                ReadyCertificateV1.decode(result);
+            }
         }
         return result;
     }
