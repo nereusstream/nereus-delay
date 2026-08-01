@@ -60,9 +60,10 @@ to the intended modules:
 | Persistent scheduler fairness counters | Implemented (core subset) | `PersistentLaneScheduler`, `LaneSchedulerTest`; full `meta_cf/SCHEDULER` closed projections pending |
 | Worker-to-shard-to-lane bounded DRR | Implemented (core snapshot) | `WorkerScheduler`, `WorkerSchedulerTest`; durable outer scheduler projections and placement weights pending |
 | Closed Stable Code registry | Implemented | `StableCode`, `ProtocolCodecTest` |
+| Hard shard quota admission | Implemented (core subset) | `ShardQuota`, `DelayShardTest`; atomic multi-shard grants, control reserve and GC accounting pending |
 | Kafka/Pulsar ingress and target adapters | In progress (ingress SPI only) | release blocker until concrete pinned transports, target publish/evidence channels and real-broker tests exist |
 | Recovery Set/Floor, catalog and restore replay | Not started | release blocker |
-| Large payload, quota, control reserve and GC | Not started | release blocker |
+| Large payload, quota grants, control reserve and GC | In progress (shard hard-quota subset) | release blocker; large payload references, multi-shard grants, control reserve and GC accounting remain |
 | Query, control operations, DLQ and observability | Not started | release blocker |
 | Real-service, chaos, benchmark, soak and upgrade evidence | Not started | release blocker |
 

@@ -129,6 +129,37 @@ class DelayShardTest {
         }
     }
 
+    @Test
+    void hardQuotaRejectsNewScheduleAndReleasesOnCancel() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("quota"));
+        final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 1, 3, 1);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 3);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("quota-lane"));
+        final PreparedCommand first = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("abc")), 9_000);
+        final PreparedCommand second = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_100, 5_100,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("d")), 9_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, shardConfig);
+            assertEquals(StableCode.SCHEDULED, shard.apply(first, position(shardId, 0, 1_000)).stableCode());
+            assertEquals(1, shard.quota().pendingMessages());
+            assertEquals(3, shard.quota().pendingBytes());
+            assertEquals(StableCode.HARD_QUOTA_EXCEEDED,
+                    shard.apply(second, position(shardId, 1, 1_001)).stableCode());
+            final PreparedCommand cancel = PreparedCommand.cancel(shardId, first.delayMessageId(), 0, 9_000);
+            assertEquals(StableCode.CANCELED, shard.apply(cancel, position(shardId, 2, 1_002)).stableCode());
+            assertEquals(0, shard.quota().pendingMessages());
+            assertEquals(0, shard.quota().pendingBytes());
+            final PreparedCommand retry = PreparedCommand.schedule(shardId,
+                    new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_100, 5_100,
+                            OrderingMode.BEST_EFFORT, Bytes.utf8("d")), 9_000);
+            assertEquals(StableCode.SCHEDULED, shard.apply(retry, position(shardId, 3, 1_003)).stableCode());
+        }
+    }
+
     private static KafkaSourcePosition position(final ShardId shard, final long offset, final long timestamp) {
         return new KafkaSourcePosition(shard, "cluster-a", UUID.nameUUIDFromBytes(Bytes.utf8("topic")), offset,
                 1, timestamp);

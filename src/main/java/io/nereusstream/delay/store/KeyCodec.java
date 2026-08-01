@@ -132,6 +132,13 @@ public final class KeyCodec {
         return Bytes.concat(new byte[]{2, 1}, laneId.bytes());
     }
 
+    public static byte[] metaQuota(final int quotaClass) {
+        if (quotaClass <= 0 || quotaClass > 16) {
+            throw new IllegalArgumentException("unknown QUOTA meta key kind");
+        }
+        return new byte[]{3, 1, (byte) quotaClass};
+    }
+
     public static byte[] metaScheduler(final int schedulerKeyKind) {
         if (schedulerKeyKind <= 0 || schedulerKeyKind > 5) {
             throw new IllegalArgumentException("unknown SCHEDULER meta key kind");

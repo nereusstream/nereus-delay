@@ -24,11 +24,13 @@ import java.util.Objects;
 public final class DelayShard {
     private static final int META_APPLIED_SOURCE_POSITION = 3;
     private static final int META_MUTATION_SEQUENCE = 5;
+    private static final int META_QUOTA_USAGE = 1;
 
     private final ShardStore store;
     private final DelayShardConfig config;
     private SourcePosition lastAppliedSourcePosition;
     private long mutationSequence;
+    private ShardQuota quota;
 
     public DelayShard(final ShardStore store, final DelayShardConfig config) {
         this.store = Objects.requireNonNull(store, "store");
@@ -38,6 +40,8 @@ public final class DelayShard {
         lastAppliedSourcePosition = source == null ? null : SourcePositionCodec.decode(source);
         final var sequence = store.getValue(ColumnFamily.META, KeyCodec.metaFixed(META_MUTATION_SEQUENCE), 1);
         mutationSequence = sequence == null ? 0 : readSequence(sequence.payload());
+        final var quotaValue = store.getValue(ColumnFamily.META, KeyCodec.metaQuota(META_QUOTA_USAGE), 7);
+        quota = quotaValue == null ? ShardQuota.empty() : ShardQuota.decode(quotaValue.payload());
     }
 
     public synchronized CommandResult apply(final PreparedCommand command, final SourcePosition sourcePosition) {
@@ -132,6 +136,10 @@ public final class DelayShard {
         return mutationSequence;
     }
 
+    public synchronized ShardQuota quota() {
+        return quota;
+    }
+
     /** Returns due work without claiming it or changing authoritative state. */
     public synchronized List<TimelineWork> discoverDue(final long earliestEpochMs, final int limit) {
         if (earliestEpochMs < 0 || limit <= 0) {
@@ -195,6 +203,14 @@ public final class DelayShard {
         if (existing != null) {
             return rejected(StableCode.DELAY_MESSAGE_ID_CONFLICT, sourcePosition, existing.generation(),
                     existing.stateVersion(), existing.status());
+        }
+        final boolean newLane = existingLane == null;
+        if (newLane && quota.laneCount() >= config.maxLanes()) {
+            return rejected(StableCode.DESTINATION_LANE_LIMIT_EXCEEDED, sourcePosition, -1, 0, null);
+        }
+        if (quota.pendingMessages() >= config.maxPendingMessages()
+                || quota.pendingBytes() > config.maxPendingBytes() - intent.payload().length) {
+            return rejected(StableCode.HARD_QUOTA_EXCEEDED, sourcePosition, -1, 0, null);
         }
         final MessageRecord message = new MessageRecord(MessageStatus.SCHEDULED, 0, 1,
                 intent.deliverAtEpochMs(), intent.expireAtEpochMs(), intent.laneId(), intent.orderingMode(),
@@ -313,6 +329,8 @@ public final class DelayShard {
     private void persistResultAndPosition(final PreparedCommand command, final SourcePosition position,
                                           final CommandResult result, final MessageRecord next) {
         final MessageRecord prior = getMessage(command.delayMessageId());
+        final boolean existingLane = next != null && readLane(next.laneId()) != null;
+        final ShardQuota nextQuota = quotaAfter(prior, next, result, existingLane);
         store.write(batch -> {
             if (next != null) {
                 if (prior != null && prior.status() == MessageStatus.SCHEDULED) {
@@ -326,7 +344,7 @@ public final class DelayShard {
                     }
                 }
                 batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(command.delayMessageId()), next.encode());
-                if (result.stableCode() == StableCode.SCHEDULED && readLane(next.laneId()) == null) {
+                if (result.stableCode() == StableCode.SCHEDULED && !existingLane) {
                     batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(next.laneId()),
                             LaneRecord.initial(next.laneId(), position).encode());
                 }
@@ -343,10 +361,26 @@ public final class DelayShard {
             batch.putValue(ColumnFamily.DEDUPE, 2, KeyCodec.dedupeResult(command.commandId()), result.encode());
             batch.putValue(ColumnFamily.DEDUPE, 3, KeyCodec.dedupePosition(position.canonicalBytes()),
                     command.commandId().bytes());
+            if (!nextQuota.equals(quota)) {
+                batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(META_QUOTA_USAGE), nextQuota.encode());
+            }
             writePosition(batch, position);
         });
         lastAppliedSourcePosition = position;
         mutationSequence++;
+        quota = nextQuota;
+    }
+
+    private ShardQuota quotaAfter(final MessageRecord prior, final MessageRecord next, final CommandResult result,
+                                  final boolean existingLane) {
+        if (prior == null && next != null && result.stableCode() == StableCode.SCHEDULED) {
+            return quota.addSchedule(next.payload().length, !existingLane);
+        }
+        if (prior != null && prior.status() == MessageStatus.SCHEDULED && next != null
+                && next.status() == MessageStatus.CANCELED) {
+            return quota.removeSchedule(prior.payload().length);
+        }
+        return quota;
     }
 
     private void persistCommandOnly(final PreparedCommand command, final SourcePosition position) {
