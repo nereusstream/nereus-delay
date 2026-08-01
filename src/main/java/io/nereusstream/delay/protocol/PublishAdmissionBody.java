@@ -552,6 +552,57 @@ public final class PublishAdmissionBody {
             return Math.addExact(Math.addExact(resultBytes, systemMutationBytes),
                     Math.addExact(outcomeWalBytes, evidenceBytes));
         }
+
+        /** Canonical fields 1-17 projection used by QuotaGrantRefV1. */
+        public byte[] canonicalBytes() {
+            return CanonicalProtobuf.message(output -> {
+                CanonicalProtobuf.uint64(output, 1, activeMessages);
+                CanonicalProtobuf.uint64(output, 2, pendingPayloadBytes);
+                CanonicalProtobuf.uint64(output, 3, logicalStateBytes);
+                CanonicalProtobuf.uint64(output, 4, retainedBytes);
+                CanonicalProtobuf.uint64(output, 5, reservationMessages);
+                CanonicalProtobuf.uint64(output, 6, reservationPayloadBytes);
+                CanonicalProtobuf.uint64(output, 7, inflightMessages);
+                CanonicalProtobuf.uint64(output, 8, inflightBytes);
+                CanonicalProtobuf.uint64(output, 9, resultRecords);
+                CanonicalProtobuf.uint64(output, 10, resultBytes);
+                CanonicalProtobuf.uint64(output, 11, systemMutationRecords);
+                CanonicalProtobuf.uint64(output, 12, systemMutationBytes);
+                CanonicalProtobuf.uint64(output, 13, outcomeWalBytes);
+                CanonicalProtobuf.uint64(output, 14, evidenceRecords);
+                CanonicalProtobuf.uint64(output, 15, evidenceBytes);
+                CanonicalProtobuf.uint64(output, 16, laneCount);
+                CanonicalProtobuf.uint64(output, 17, strongLaneCount);
+            });
+        }
+
+        /** Strictly decodes canonical fields 1-17 of a ChargeVectorV1. */
+        public static ChargeVector decodeCanonical(final byte[] encoded) {
+            final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "ChargeVector");
+            requireExactFields(fields, 17, "ChargeVector");
+            final long[] values = new long[17];
+            for (int index = 0; index < values.length; index++) {
+                values[index] = unsigned(field(fields, index + 1), index + 1);
+            }
+            final ChargeVector result = new ChargeVector(values[0], values[1], values[2], values[3], values[4],
+                    values[5], values[6], values[7], values[8], values[9], values[10], values[11], values[12],
+                    values[13], values[14], values[15], values[16]);
+            if (!Arrays.equals(encoded, result.canonicalBytes())) {
+                throw new IllegalArgumentException("non-canonical ChargeVector");
+            }
+            return result;
+        }
+
+        /** Projects the 17 logical charge dimensions into the closed 66-dimensional vector. */
+        public CapacityVectorV1 toCapacityVector() {
+            final long[] amounts = new long[CapacityDimensionV1.COUNT];
+            final long[] charge = {activeMessages, pendingPayloadBytes, logicalStateBytes, retainedBytes,
+                    reservationMessages, reservationPayloadBytes, inflightMessages, inflightBytes, resultRecords,
+                    resultBytes, systemMutationRecords, systemMutationBytes, outcomeWalBytes, evidenceRecords,
+                    evidenceBytes, laneCount, strongLaneCount};
+            System.arraycopy(charge, 0, amounts, 0, charge.length);
+            return new CapacityVectorV1(amounts);
+        }
     }
 
     private static byte[] canonicalFields(final List<CanonicalProtobuf.Reader.Field> fields, final int through) {
