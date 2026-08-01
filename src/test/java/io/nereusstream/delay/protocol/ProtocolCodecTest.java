@@ -313,6 +313,40 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void nativeCapabilitySnapshotRoundTripsAndVerifiesIssuerSignature() throws Exception {
+        final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = keyPairGenerator.generateKeyPair();
+        final byte[] resource = nonZero(32, 3);
+        final PulsarBrokerResourceIdentityV1 target = new PulsarBrokerResourceIdentityV1(
+                "pulsar-snapshot", resource, "persistent://tenant/snapshot", 2_000);
+        final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("snapshot-destination"), 4,
+                Bytes.sha256(Bytes.utf8("snapshot-destination-semantic")), ProfileKindV1.DESTINATION);
+        final ProfileRefV1 capability = new ProfileRefV1(Bytes.utf8("snapshot-capability"), 5,
+                Bytes.sha256(Bytes.utf8("snapshot-capability-semantic")), ProfileKindV1.DELIVERY_CAPABILITY);
+        final TrustedUtcIntervalEvidence issuedAt = new TrustedUtcIntervalEvidence(2_100, 2_110,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("snapshot-clock"), 7, 8, 9,
+                Bytes.sha256(Bytes.utf8("snapshot-sample")), 0, null);
+
+        final NativeCapabilitySnapshotV1 snapshot = NativeCapabilitySnapshotV1.create(destination, capability, target,
+                6, Bytes.sha256(Bytes.utf8("guard-attestation")), 11, 12,
+                Bytes.sha256(Bytes.utf8("binding")), Bytes.sha256(Bytes.utf8("credential-fingerprint")),
+                Bytes.sha256(Bytes.utf8("principal-scope")), issuedAt, 3_000, 13, keyPair.getPrivate());
+        final NativeCapabilitySnapshotV1 decoded = NativeCapabilitySnapshotV1.decode(snapshot.canonicalBytes());
+
+        assertEquals(snapshot, decoded);
+        assertTrue(decoded.verifySignature(keyPair.getPublic()));
+        assertFalse(decoded.verifySignature(keyPairGenerator.generateKeyPair().getPublic()));
+
+        final byte[] tamperedSignature = snapshot.canonicalBytes();
+        tamperedSignature[tamperedSignature.length - 1] ^= 1;
+        assertFalse(NativeCapabilitySnapshotV1.decode(tamperedSignature).verifySignature(keyPair.getPublic()));
+        assertThrows(IllegalArgumentException.class, () -> NativeCapabilitySnapshotV1.create(destination, capability,
+                target, 6, Bytes.sha256(Bytes.utf8("guard-attestation")), 11, 12,
+                Bytes.sha256(Bytes.utf8("binding")), Bytes.sha256(Bytes.utf8("credential-fingerprint")),
+                Bytes.sha256(Bytes.utf8("principal-scope")), issuedAt, 2_110, 13, keyPair.getPrivate()));
+    }
+
+    @Test
     void publicQueryViewsRejectUnsafeBindingAndNonCanonicalBranchShape() {
         final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("destination"), 1,
                 Bytes.sha256(Bytes.utf8("destination-semantic")), ProfileKindV1.DESTINATION);
