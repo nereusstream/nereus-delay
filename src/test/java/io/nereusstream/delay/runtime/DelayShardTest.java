@@ -4,12 +4,15 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.AuthorIdentity;
 import io.nereusstream.delay.protocol.CanonicalProtobuf;
 import io.nereusstream.delay.protocol.DestinationLaneId;
+import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.OrderingMode;
 import io.nereusstream.delay.protocol.PayloadCommitProof;
 import io.nereusstream.delay.protocol.PayloadProofTrustSet;
 import io.nereusstream.delay.protocol.PreparedCommand;
+import io.nereusstream.delay.protocol.PublishAdmissionBody;
+import io.nereusstream.delay.protocol.PublishAdmissionBodyTest.Fixture;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.StableCode;
@@ -505,6 +508,47 @@ class DelayShardTest {
                     shard.applySystemMutation(mutation, outcomePosition, keyPair.getPublic()).stableCode());
             assertEquals(MessageStatus.PUBLISHED, shard.getMessage(schedule.delayMessageId()).status());
             assertNull(shard.findOpenPublishAttempt(attemptId));
+        }
+    }
+
+    @Test
+    void sourceOrderedPublishAdmissionPersistsAttemptAndMutationResultTogether() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-admission"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 15);
+        final DelayMessageId messageId = DelayMessageId.random(shardId);
+        final Fixture fixture = Fixture.create(shardId, messageId);
+        final DestinationLaneId lane = new DestinationLaneId(fixture.lane());
+        final PreparedCommand schedule = PreparedCommand.create(shardId, io.nereusstream.delay.protocol.CommandId.random(shardId),
+                messageId, io.nereusstream.delay.protocol.CommandType.SCHEDULE, 9_000,
+                io.nereusstream.delay.protocol.CommandBodies.schedule(new io.nereusstream.delay.protocol.ScheduleIntent(
+                        lane, 2_000, 5_000, OrderingMode.BEST_EFFORT, Bytes.utf8("hello"))));
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 2_001);
+        final java.security.KeyPairGenerator keyPairGenerator = java.security.KeyPairGenerator.getInstance("Ed25519");
+        final java.security.KeyPair keyPair = keyPairGenerator.generateKeyPair();
+        final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_ADMISSION, 9_000,
+                Bytes.sha256(Bytes.utf8("admission-operation")), fixture.body(), fixture.owner(), 1,
+                keyPair.getPrivate());
+        final PublishAdmissionBody parsed = PublishAdmissionBody.decode(fixture.body());
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+
+            final SystemMutationResult result = shard.applySystemMutation(mutation, admissionPosition,
+                    keyPair.getPublic());
+
+            assertEquals(StableCode.OK, result.stableCode());
+            assertEquals(MessageStatus.PUBLISHING, shard.getMessage(messageId).status());
+            final PublishAttemptLedger ledger = shard.findOpenPublishAttempt(parsed.publishAttemptId());
+            assertNotNull(ledger);
+            assertEquals(AttemptLedgerState.PUBLISHING, ledger.state());
+            assertEquals(parsed.descriptor().attemptNo(), ledger.attemptNo());
+            assertArrayEquals(fixture.body(), ledger.admissionBytes());
+            assertEquals(result, shard.getSystemMutationResult(mutation.systemMutationId()));
+            assertEquals(result, shard.applySystemMutation(mutation, admissionPosition, keyPair.getPublic()));
         }
     }
 

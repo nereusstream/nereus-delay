@@ -8,6 +8,7 @@ import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.PayloadCommitProof;
 import io.nereusstream.delay.protocol.PayloadProofTrustSet;
 import io.nereusstream.delay.protocol.PayloadReference;
+import io.nereusstream.delay.protocol.PublishAdmissionBody;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
@@ -191,6 +192,7 @@ public final class DelayShard {
         }
         try {
             return switch (mutation.type()) {
+                case PUBLISH_ADMISSION -> applyPublishAdmissionMutation(mutation, sourcePosition);
                 case EXPIRE_GENERATION -> applyExpireGenerationMutation(mutation, sourcePosition);
                 case PUBLISH_OUTCOME -> applyPublishOutcomeMutation(mutation, sourcePosition);
                 default -> throw new UnsupportedOperationException(
@@ -198,6 +200,47 @@ public final class DelayShard {
             };
         } catch (IllegalArgumentException exception) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+    }
+
+    private SystemMutationResult applyPublishAdmissionMutation(final SystemMutation mutation,
+                                                                final SourcePosition sourcePosition) {
+        final PublishAdmissionBody body = PublishAdmissionBody.decode(mutation.canonicalBody());
+        final io.nereusstream.delay.protocol.AuthorIdentity author =
+                io.nereusstream.delay.protocol.AuthorIdentity.decode(mutation.authorIdentity());
+        if (!Arrays.equals(body.ownerIdentity(), author.canonicalBytes())) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
+        body.requireTiming(body.descriptor().actionAtEpochMs(), body.descriptor().expireAtEpochMs());
+        final DelayMessageId messageId = new DelayMessageId(body.messageId());
+        final io.nereusstream.delay.protocol.DestinationLaneId laneId =
+                new io.nereusstream.delay.protocol.DestinationLaneId(body.laneId());
+        final PublishAttemptLedger open = findOpenPublishAttempt(body.publishAttemptId());
+        if (open != null) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+        final MessageRecord current = getMessage(messageId);
+        if (current == null || current.status() != MessageStatus.SCHEDULED
+                || current.generation() != body.generation() || !current.laneId().equals(laneId)
+                || current.deliverAtEpochMs() != body.descriptor().deliverAtEpochMs()
+                || current.expireAtEpochMs() != body.descriptor().expireAtEpochMs()) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+        final PublishAttemptLedger admission = PublishAttemptLedger.publishing(messageId, body.generation(),
+                body.publishAttemptId(), body.claimId(), author.generation(), body.descriptor().attemptNo(), laneId,
+                body.laneIncarnation(), body.ownerIdentity(), body.storeIncarnation(), body.preparedPublishHash(),
+                mutation.canonicalBody(), sourcePosition.canonicalBytes());
+        final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, StableCode.OK,
+                sourcePosition.canonicalBytes());
+        try {
+            admitPublishAttempt(admission, sourcePosition, result);
+            return result;
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }
     }
@@ -439,6 +482,12 @@ public final class DelayShard {
      */
     public synchronized PublishAttemptLedger admitPublishAttempt(final PublishAttemptLedger admission,
                                                                   final SourcePosition sourcePosition) {
+        return admitPublishAttempt(admission, sourcePosition, null);
+    }
+
+    private PublishAttemptLedger admitPublishAttempt(final PublishAttemptLedger admission,
+                                                     final SourcePosition sourcePosition,
+                                                     final SystemMutationResult systemResult) {
         Objects.requireNonNull(admission, "admission");
         validateMutationPosition(sourcePosition);
         if (admission.state() != AttemptLedgerState.PUBLISHING) {
@@ -478,6 +527,9 @@ public final class DelayShard {
             for (LaneProjection projection : projections.values()) {
                 deleteReadyKey(batch, projection.previousLane());
                 putReadyProjection(batch, projection);
+            }
+            if (systemResult != null) {
+                writeSystemResult(batch, systemResult);
             }
             writePosition(batch, sourcePosition);
         });
