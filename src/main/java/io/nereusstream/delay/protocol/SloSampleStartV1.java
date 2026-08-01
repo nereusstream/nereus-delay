@@ -20,6 +20,14 @@ public final class SloSampleStartV1 {
     private final Long timeoutAtEpochMs;
     private final byte[] startDigest;
 
+    public SloSampleStartV1(final SloObjectiveV1 objective, final SloPathV1 path,
+                            final SloSampleEventIdentityV1 eventIdentity, final SloTimeEndpointV1 start,
+                            final Long timeoutAtEpochMs) {
+        this(Objects.requireNonNull(objective, "objective").objectiveDigest(), objective.name(),
+                objective.population(), path, eventIdentity, start, timeoutAtEpochMs);
+        objective.validateStart(this);
+    }
+
     public SloSampleStartV1(final byte[] objectiveDigest, final SloObjectiveNameV1 objective,
                             final SloPopulationV1 population, final SloPathV1 path,
                             final SloSampleEventIdentityV1 eventIdentity, final SloTimeEndpointV1 start,
@@ -96,6 +104,31 @@ public final class SloSampleStartV1 {
 
     public byte[] startDigest() {
         return Bytes.copy(startDigest);
+    }
+
+    /** Validates this Start against the immutable objective catalog entry. */
+    public void validateAgainst(final SloObjectiveV1 objective) {
+        Objects.requireNonNull(objective, "objective");
+        if (!Arrays.equals(objectiveDigest, objective.objectiveDigest()) || this.objective != objective.name()
+                || population != objective.population()) {
+            throw new IllegalArgumentException("SLO Start does not match its objective digest/catalog entry");
+        }
+        if (objective.direction() == SloThresholdDirectionV1.AT_MOST) {
+            if (timeoutAtEpochMs == null) {
+                throw new IllegalArgumentException("AT_MOST SLO Start requires a timeout");
+            }
+            final long expectedTimeout;
+            try {
+                expectedTimeout = Math.addExact(start.earliestEpochMs(), objective.threshold());
+            } catch (ArithmeticException exception) {
+                throw new IllegalArgumentException("SLO timeout overflows epoch range", exception);
+            }
+            if (timeoutAtEpochMs != expectedTimeout) {
+                throw new IllegalArgumentException("SLO timeout does not match objective threshold");
+            }
+        } else if (timeoutAtEpochMs != null) {
+            throw new IllegalArgumentException("AT_LEAST SLO Start cannot carry a timeout");
+        }
     }
 
     public byte[] canonicalBytes() {
