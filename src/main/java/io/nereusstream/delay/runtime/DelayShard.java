@@ -1847,7 +1847,8 @@ public final class DelayShard {
         }
         final ResourceDeleteConfirmedRecord record = new ResourceDeleteConfirmedRecord(
                 mutation.systemMutationId(), mutation.mutationHash(), lookup.intent(), body.outcome(),
-                body.evidence().providerRequestIdHash(), body.evidence().observedImmutableVersion(),
+                Math.addExact(mutationSequence, 1), body.evidence().providerRequestIdHash(),
+                body.evidence().observedImmutableVersion(),
                 body.evidence().observedEtag(), body.evidence().responseHash(), body.evidence().observedAt().canonicalBytes(),
                 body.confirmedAt().canonicalBytes(), sourcePosition.canonicalBytes());
         final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, StableCode.OK,

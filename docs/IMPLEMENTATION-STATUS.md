@@ -83,6 +83,11 @@ checkpoint identity/version fields are compared when present, while real
 adapter ownership/attestation, Recovery Floor barriers, quota release and
 Lane terminal-guard replacement remain pending.
 
+`ResourceGcGuard` now exposes a read-only necessary-condition result: both the
+retire intent and delete confirmation must carry applied mutation sequences and
+their source positions must be at or below a candidate Floor. This predicate is
+not a catalog-ancestry proof and never authorizes deletion by itself.
+
 ## Current repository shape
 
 The repository is currently a single Gradle Java 21 library while the design's
@@ -135,7 +140,7 @@ to the intended modules:
 | Hard shard quota admission | Implemented (core subset) | `ShardQuota`, `DelayShardTest`; atomic multi-shard grants, control reserve and GC accounting pending |
 | Kafka/Pulsar ingress and target adapters | In progress (ingress SPI only) | release blocker until concrete pinned transports, target publish/evidence channels and real-broker tests exist |
 | Recovery Set/Floor, catalog and restore replay | In progress (local catalog/Floor subset) | release blocker; Oxia catalog/session pin, immutable publication, source/evidence replay and activation CAS remain |
-| Large payload, quota grants, control reserve and GC | In progress (reservation/commit, shard hard-quota, retire-intent and delete-confirmed subsets) | release blocker; `ResourceRetireIntentBody`/`ResourceRetireIntentRecord` and `ResourceDeleteConfirmedBody`/`ResourceDeleteConfirmedRecord` now provide canonical source-ordered `gc_cf/TASK` intent/tombstone persistence with applied mutation sequence plus local payload/checkpoint version/etag comparison, but Object Store/Oxia publication, multi-shard grants, control reserve, real provider delete attestation/ownership, Recovery Floor barrier, Lane terminal guard and guarded GC remain |
+| Large payload, quota grants, control reserve and GC | In progress (reservation/commit, shard hard-quota, retire-intent, delete-confirmed and local Floor-predicate subsets) | release blocker; `ResourceRetireIntentBody`/`ResourceRetireIntentRecord` and `ResourceDeleteConfirmedBody`/`ResourceDeleteConfirmedRecord` now provide canonical source-ordered `gc_cf/TASK` intent/tombstone persistence with applied mutation sequence, `ResourceGcGuard` checks the necessary source/sequence coverage, and local payload/checkpoint version/etag comparison is enforced, but Object Store/Oxia publication, multi-shard grants, control reserve, real provider delete attestation/ownership, catalog ancestry/Floor barrier, Lane terminal guard and guarded GC remain |
 | Query, control operations, DLQ and observability | In progress (bounded local Message/Reservation projection) | `MessageQuerySnapshot`, `ReservationQuerySnapshot`, `DelayShard.queryMessageSnapshot`, `DelayShard.queryReservationSnapshot`, `DelayShardTest`; full V1 query wire responses, receipt/barrier routing, authorization-safe binding/evidence/retention, control-operation query, DLQ and observability remain release blockers |
 | Real-service, chaos, benchmark, soak and upgrade evidence | Not started | release blocker |
 

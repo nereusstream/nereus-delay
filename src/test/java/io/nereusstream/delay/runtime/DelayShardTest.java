@@ -27,6 +27,7 @@ import io.nereusstream.delay.protocol.SystemMutationType;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.store.ColumnFamily;
 import io.nereusstream.delay.store.KeyCodec;
+import io.nereusstream.delay.store.RecoveryFloor;
 import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.ShardStoreConfig;
 import io.nereusstream.delay.store.SharedRocksDbResources;
@@ -1600,10 +1601,26 @@ class DelayShardTest {
                     ResourceKind.LOCAL_STORE, parsedRetire.resource().identityHash(), 3);
             assertNotNull(tombstone);
             assertEquals(outcome, tombstone.outcome());
+            assertEquals(2, tombstone.appliedMutationSequence());
             assertArrayEquals(retire.systemMutationId(), tombstone.retireIntent().mutationId());
             assertArrayEquals(confirmation.systemMutationId(), tombstone.confirmationMutationId());
-            assertNotNull(shard.getResourceRetireIntent(ResourceKind.LOCAL_STORE,
-                    parsedRetire.resource().identityHash(), 3));
+            final ResourceRetireIntentRecord stored = shard.getResourceRetireIntent(ResourceKind.LOCAL_STORE,
+                    parsedRetire.resource().identityHash(), 3);
+            assertNotNull(stored);
+            final RecoveryFloor beforeConfirmation = RecoveryFloor.create(
+                    java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("lineage")), 16),
+                    java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("checkpoint")), 16),
+                    Bytes.sha256(Bytes.utf8("manifest")), 1,
+                    position(shardId, 1, 1_001), 1, Bytes.sha256(Bytes.utf8("evidence")));
+            assertEquals(ResourceGcGuard.Decision.FLOOR_SOURCE_OR_SEQUENCE_NOT_COVERING,
+                    ResourceGcGuard.evaluate(stored, tombstone, beforeConfirmation));
+            final RecoveryFloor covering = RecoveryFloor.create(
+                    java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("lineage")), 16),
+                    java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("checkpoint")), 16),
+                    Bytes.sha256(Bytes.utf8("manifest")), 2,
+                    position(shardId, 1, 1_001), 2, Bytes.sha256(Bytes.utf8("evidence-2")));
+            assertEquals(ResourceGcGuard.Decision.SOURCE_AND_SEQUENCE_COVERED,
+                    ResourceGcGuard.evaluate(stored, tombstone, covering));
             assertEquals(applied, shard.applySystemMutation(confirmation, position(shardId, 1, 1_001),
                     keyPair.getPublic()));
 
