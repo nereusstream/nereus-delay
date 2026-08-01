@@ -11,6 +11,7 @@ public record PulsarSendRequest(
         String authenticatedClusterId,
         byte[] resourceIncarnation,
         String physicalTopic,
+        long physicalTopicCreationTimestamp,
         int partition,
         CommandId commandId,
         byte[] frame) {
@@ -21,7 +22,8 @@ public record PulsarSendRequest(
         Objects.requireNonNull(commandId, "commandId");
         Objects.requireNonNull(frame, "frame");
         Bytes.requireLength(resourceIncarnation, 32, "resourceIncarnation");
-        if (authenticatedClusterId.isBlank() || physicalTopic.isBlank() || partition < 0 || frame.length == 0) {
+        if (authenticatedClusterId.isBlank() || physicalTopic.isBlank() || physicalTopicCreationTimestamp < 0
+                || partition < 0 || frame.length == 0) {
             throw new IllegalArgumentException("invalid Pulsar send request");
         }
         resourceIncarnation = Bytes.copy(resourceIncarnation);
@@ -31,7 +33,8 @@ public record PulsarSendRequest(
     public static PulsarSendRequest from(final PulsarIngressResource resource, final PreparedCommand command,
                                          final byte[] frame) {
         return new PulsarSendRequest(resource.authenticatedClusterId(), resource.resourceIncarnation(),
-                resource.physicalTopic(), resource.partition(), command.commandId(), frame);
+                resource.physicalTopic(), resource.physicalTopicCreationTimestamp(), resource.partition(),
+                command.commandId(), frame);
     }
 
     @Override

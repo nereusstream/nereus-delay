@@ -63,7 +63,7 @@ class AdapterIngressTest {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 1);
         final byte[] token = Bytes.sha256(Bytes.utf8("token"));
         final PulsarIngressResource resource = new PulsarIngressResource(shard, "cluster", token,
-                "persistent://tenant/ns/command-1", 1);
+                "persistent://tenant/ns/command-1", 7001, 1);
         final PreparedCommand command = command(shard);
         final PinnedPulsarCommandIngress.PulsarSendTransport transport = request -> CompletableFuture.completedFuture(
                 PulsarSendResult.definitelyNotPersisted(StableCode.BROKER_DEFINITIVE_NOT_PERSISTED.wireValue(),
@@ -80,11 +80,14 @@ class AdapterIngressTest {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
         final byte[] token = Bytes.sha256(Bytes.utf8("token-2"));
         final PulsarIngressResource resource = new PulsarIngressResource(shard, "cluster", token,
-                "persistent://tenant/ns/command-3", 3);
+                "persistent://tenant/ns/command-3", 7003, 3);
         final PreparedCommand command = command(shard);
-        final PinnedPulsarCommandIngress.PulsarSendTransport transport = request -> CompletableFuture.completedFuture(
-                PulsarSendResult.persisted("cluster", token, resource.physicalTopic(), 3, 8, 9, 1, 2, true,
-                        1001, null));
+        final PinnedPulsarCommandIngress.PulsarSendTransport transport = request -> {
+            assertEquals(resource.physicalTopicCreationTimestamp(), request.physicalTopicCreationTimestamp());
+            return CompletableFuture.completedFuture(PulsarSendResult.persisted("cluster", token,
+                    resource.physicalTopic(), resource.physicalTopicCreationTimestamp(), 3, 8, 9, 1, 2, true,
+                    1001, null));
+        };
         try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
             final var outcome = adapter.enqueue(command).toCompletableFuture().join();
             assertTrue(outcome.status() == EnqueueStatus.QUEUED);
@@ -92,6 +95,23 @@ class AdapterIngressTest {
             assertEquals(1, position.normalizedBatchIndex());
             assertEquals(PulsarSourcePosition.EntryKind.BATCH, position.entryKind());
             assertFalse(position.canonicalBytes().length == 0);
+        }
+    }
+
+    @Test
+    void pulsarCreationIdentityMismatchIsUncertain() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
+        final byte[] token = Bytes.sha256(Bytes.utf8("token-3"));
+        final PulsarIngressResource resource = new PulsarIngressResource(shard, "cluster", token,
+                "persistent://tenant/ns/command-4", 7004, 4);
+        final PreparedCommand command = command(shard);
+        final PinnedPulsarCommandIngress.PulsarSendTransport transport = request -> CompletableFuture.completedFuture(
+                PulsarSendResult.persisted("cluster", token, resource.physicalTopic(), 7005, 4, 8, 9, 0, 1, false,
+                        1001, null));
+        try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
+            final var outcome = adapter.enqueue(command).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.ENQUEUE_UNCERTAIN, outcome.status());
+            assertEquals(StableCode.RESOURCE_INCARNATION_MISMATCH.wireValue(), outcome.stableCode());
         }
     }
 

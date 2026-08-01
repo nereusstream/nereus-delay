@@ -11,13 +11,15 @@ public record PulsarIngressResource(
         String authenticatedClusterId,
         byte[] resourceIncarnation,
         String physicalTopic,
+        long physicalTopicCreationTimestamp,
         int partition) {
     public PulsarIngressResource {
         Objects.requireNonNull(shardId, "shardId");
         Objects.requireNonNull(authenticatedClusterId, "authenticatedClusterId");
         Objects.requireNonNull(physicalTopic, "physicalTopic");
         Bytes.requireLength(resourceIncarnation, 32, "resourceIncarnation");
-        if (authenticatedClusterId.isBlank() || physicalTopic.isBlank() || partition < 0
+        if (authenticatedClusterId.isBlank() || physicalTopic.isBlank() || physicalTopicCreationTimestamp < 0
+                || partition < 0
                 || partition != shardId.partition()) {
             throw new IllegalArgumentException("invalid pinned Pulsar ingress resource");
         }

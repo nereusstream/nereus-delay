@@ -9,13 +9,15 @@ public record PulsarTargetResource(
         String authenticatedClusterId,
         byte[] resourceIncarnation,
         String physicalTopic,
+        long physicalTopicCreationTimestamp,
         int partition) {
     public PulsarTargetResource {
         Objects.requireNonNull(authenticatedClusterId, "authenticatedClusterId");
         Objects.requireNonNull(resourceIncarnation, "resourceIncarnation");
         Objects.requireNonNull(physicalTopic, "physicalTopic");
         Bytes.requireLength(resourceIncarnation, 32, "resourceIncarnation");
-        if (authenticatedClusterId.isBlank() || physicalTopic.isBlank() || partition < 0) {
+        if (authenticatedClusterId.isBlank() || physicalTopic.isBlank() || physicalTopicCreationTimestamp < 0
+                || partition < 0) {
             throw new IllegalArgumentException("invalid Pulsar target resource");
         }
         resourceIncarnation = Bytes.copy(resourceIncarnation);

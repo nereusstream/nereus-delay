@@ -11,6 +11,7 @@ public record PulsarDestinationRequest(
         String authenticatedClusterId,
         byte[] resourceIncarnation,
         String physicalTopic,
+        long physicalTopicCreationTimestamp,
         int partition,
         DestinationLaneId laneId,
         byte[] laneIncarnation,
@@ -32,7 +33,8 @@ public record PulsarDestinationRequest(
         Bytes.requireLength(resourceIncarnation, 32, "resourceIncarnation");
         Bytes.requireLength(laneIncarnation, 16, "laneIncarnation");
         Bytes.requireLength(publishAttemptId, 32, "publishAttemptId");
-        if (authenticatedClusterId.isBlank() || physicalTopic.isBlank() || partition < 0 || generation < 0
+        if (authenticatedClusterId.isBlank() || physicalTopic.isBlank() || physicalTopicCreationTimestamp < 0
+                || partition < 0 || generation < 0
                 || actionAtEpochMs < 0 || deliverAtEpochMs < actionAtEpochMs) {
             throw new IllegalArgumentException("invalid Pulsar destination request");
         }
@@ -46,7 +48,8 @@ public record PulsarDestinationRequest(
     public static PulsarDestinationRequest from(final PulsarTargetResource resource,
                                                 final DestinationPublishRequest request) {
         return new PulsarDestinationRequest(resource.authenticatedClusterId(), resource.resourceIncarnation(),
-                resource.physicalTopic(), resource.partition(), request.laneId(), request.laneIncarnation(),
+                resource.physicalTopic(), resource.physicalTopicCreationTimestamp(), resource.partition(),
+                request.laneId(), request.laneIncarnation(),
                 request.delayMessageId(), request.generation(), request.publishAttemptId(), request.actionAtEpochMs(),
                 request.deliverAtEpochMs(), request.payload(), request.adapterMetadata());
     }

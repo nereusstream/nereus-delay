@@ -74,6 +74,7 @@ public final class PinnedPulsarCommandIngress implements CommandIngressAdapter {
         if (!resource.authenticatedClusterId().equals(result.authenticatedClusterId())
                 || !java.util.Arrays.equals(resource.resourceIncarnation(), result.resourceIncarnation())
                 || !resource.physicalTopic().equals(result.physicalTopic())
+                || resource.physicalTopicCreationTimestamp() != result.physicalTopicCreationTimestamp()
                 || resource.partition() != result.partition()) {
             return EnqueueOutcome.uncertain(command, StableCode.RESOURCE_INCARNATION_MISMATCH.wireValue());
         }

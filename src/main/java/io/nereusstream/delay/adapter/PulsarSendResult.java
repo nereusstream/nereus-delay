@@ -10,6 +10,7 @@ public record PulsarSendResult(
         String authenticatedClusterId,
         byte[] resourceIncarnation,
         String physicalTopic,
+        long physicalTopicCreationTimestamp,
         int partition,
         long ledgerId,
         long entryId,
@@ -26,7 +27,8 @@ public record PulsarSendResult(
             Objects.requireNonNull(resourceIncarnation, "resourceIncarnation");
             Objects.requireNonNull(physicalTopic, "physicalTopic");
             Bytes.requireLength(resourceIncarnation, 32, "resourceIncarnation");
-            if (authenticatedClusterId.isBlank() || physicalTopic.isBlank() || partition < 0 || ledgerId < 0
+            if (authenticatedClusterId.isBlank() || physicalTopic.isBlank() || physicalTopicCreationTimestamp < 0
+                    || partition < 0 || ledgerId < 0
                     || entryId < 0 || batchIndex < 0 || batchSize <= 0 || batchIndex >= batchSize
                     || (!batched && (batchIndex != 0 || batchSize != 1)) || brokerEntryTimestampEpochMs < 0) {
                 throw new IllegalArgumentException("invalid persisted Pulsar result");
@@ -40,22 +42,24 @@ public record PulsarSendResult(
     }
 
     public static PulsarSendResult persisted(final String clusterId, final byte[] resourceIncarnation,
-                                             final String physicalTopic, final int partition, final long ledgerId,
+                                             final String physicalTopic, final long physicalTopicCreationTimestamp,
+                                             final int partition, final long ledgerId,
                                              final long entryId, final int batchIndex, final int batchSize,
                                              final boolean batched, final long brokerEntryTimestampEpochMs,
                                              final byte[] evidence) {
-        return new PulsarSendResult(Disposition.PERSISTED, clusterId, resourceIncarnation, physicalTopic, partition,
-                ledgerId, entryId, batchIndex, batchSize, batched, brokerEntryTimestampEpochMs, 0, evidence);
+        return new PulsarSendResult(Disposition.PERSISTED, clusterId, resourceIncarnation, physicalTopic,
+                physicalTopicCreationTimestamp, partition, ledgerId, entryId, batchIndex, batchSize, batched,
+                brokerEntryTimestampEpochMs, 0, evidence);
     }
 
     public static PulsarSendResult definitelyNotPersisted(final int stableCode, final byte[] evidence) {
         return new PulsarSendResult(Disposition.DEFINITIVELY_NOT_PERSISTED, null, null, null, -1, -1, -1, -1,
-                -1, false, -1, stableCode, evidence);
+                -1, -1, false, -1, stableCode, evidence);
     }
 
     public static PulsarSendResult unknown(final int stableCode, final byte[] evidence) {
-        return new PulsarSendResult(Disposition.UNKNOWN, null, null, null, -1, -1, -1, -1, -1, false, -1,
-                stableCode, evidence);
+        return new PulsarSendResult(Disposition.UNKNOWN, null, null, null, -1, -1, -1, -1, -1, -1, false,
+                -1, stableCode, evidence);
     }
 
     @Override
