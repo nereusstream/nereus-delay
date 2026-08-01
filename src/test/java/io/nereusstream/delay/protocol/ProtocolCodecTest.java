@@ -136,4 +136,37 @@ class ProtocolCodecTest {
         tampered[tampered.length - 1] ^= 1;
         assertFalse(PayloadCommitProof.decode(tampered).verifySignature(keyPair.getPublic()));
     }
+
+    @Test
+    void systemMutationEnvelopeIsCanonicalHashedAndSigned() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 7);
+        final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = keyPairGenerator.generateKeyPair();
+        final byte[] logicalIdentity = Bytes.sha256(Bytes.utf8("publish-attempt"));
+        final SystemMutation mutation = SystemMutation.signed(shard, SystemMutationType.PUBLISH_ADMISSION, 25_000,
+                logicalIdentity, Bytes.utf8("canonical-body"), Bytes.utf8("author-v1"), 3, keyPair.getPrivate());
+
+        final SystemMutation decoded = SystemMutation.decodeFrame(mutation.encodeFrame(), logicalIdentity);
+
+        assertEquals(mutation, decoded);
+        assertTrue(decoded.verifySignature(keyPair.getPublic()));
+        assertArrayEquals(mutation.mutationHash(), SystemMutation.computeMutationHash(shard, mutation.type(),
+                mutation.retryUntilEpochMs(), mutation.canonicalBody()));
+    }
+
+    @Test
+    void systemMutationRejectsWrongIdentityAndTampering() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 8);
+        final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = keyPairGenerator.generateKeyPair();
+        final byte[] logicalIdentity = Bytes.sha256(Bytes.utf8("control-target"));
+        final SystemMutation mutation = SystemMutation.signed(shard, SystemMutationType.APPLY_SHARD_CONTROL, 30_000,
+                logicalIdentity, new byte[]{1, 2}, new byte[]{3}, 1, keyPair.getPrivate());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> SystemMutation.decodeFrame(mutation.encodeFrame(), Bytes.sha256(Bytes.utf8("other"))));
+        final byte[] tampered = mutation.encodeFrame();
+        tampered[tampered.length - 5] ^= 1;
+        assertThrows(IllegalArgumentException.class, () -> SystemMutation.decodeFrame(tampered, logicalIdentity));
+    }
 }
