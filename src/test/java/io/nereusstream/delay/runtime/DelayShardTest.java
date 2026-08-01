@@ -1589,6 +1589,78 @@ class DelayShardTest {
     }
 
     @Test
+    void replayDeadLetterCreatesNextGenerationAndRetainsOldTerminalSummary() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("replay-dead-letter"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 32);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("replay-dead-letter-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("replay-dead-letter")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition resultPosition = position(shardId, 1, 2_100);
+        final KafkaSourcePosition replayPosition = position(shardId, 2, 2_200);
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final AuthorIdentity owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 42,
+                Bytes.sha256(Bytes.utf8("lease")));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final ClaimRecord claim = shard.claimForPublish(schedule.delayMessageId(), owner, 3_000,
+                    new byte[0], chargeVector());
+            final byte[] resultBody = claimResultBody(shardId, claim.claimId(), schedule.delayMessageId(), 0, lane,
+                    claim.laneIncarnation(), claim.laneControlVersion(), claim.runtimeLaneVersion(),
+                    claim.timelineKey(), owner.canonicalBytes(), store.metadata().storeIncarnation(), 3_000, 1,
+                    2_000, 2_000);
+            final SystemMutation resultMutation = SystemMutation.signed(shardId, SystemMutationType.CLAIM_RESULT,
+                    9_000, Bytes.sha256(Bytes.utf8("replay-dead-letter-claim-result")), resultBody,
+                    owner.canonicalBytes(), 1, keyPair.getPrivate());
+            assertEquals(StableCode.CLAIM_PERMANENT_FAILURE,
+                    shard.applySystemMutation(resultMutation, resultPosition, keyPair.getPublic()).stableCode());
+            final MessageRecord dead = shard.getMessage(schedule.delayMessageId());
+            assertEquals(MessageStatus.DEAD_LETTER, dead.status());
+            assertEquals(0, shard.quota().pendingMessages());
+
+            final ControlRef controlRef = new ControlRef(Bytes.sha256(Bytes.utf8("replay-operation")),
+                    Bytes.sha256(Bytes.utf8("replay-request")), 9);
+            final byte[] replayBody = replayDeadLetterBody(shardId, controlRef, schedule.delayMessageId(),
+                    dead.generation(), dead.stateVersion(), 3_000, 8_000);
+            final SystemMutation replay = SystemMutation.signed(shardId, SystemMutationType.REPLAY_DEAD_LETTER,
+                    9_000, controlRef.logicalOperationIdentity(SystemMutationType.REPLAY_DEAD_LETTER), replayBody,
+                    AuthorIdentity.control(Bytes.sha256(Bytes.utf8("actor")),
+                            Bytes.sha256(Bytes.utf8("role")), Bytes.sha256(Bytes.utf8("scope"))).canonicalBytes(),
+                    1, keyPair.getPrivate());
+            final SystemMutationResult replayResult = shard.applySystemMutation(replay, replayPosition,
+                    keyPair.getPublic());
+
+            assertEquals(StableCode.OK, replayResult.stableCode());
+            final MessageRecord next = shard.getMessage(schedule.delayMessageId());
+            assertEquals(MessageStatus.SCHEDULED, next.status());
+            assertEquals(1, next.generation());
+            assertEquals(3_000, next.deliverAtEpochMs());
+            assertEquals(8_000, next.expireAtEpochMs());
+            assertEquals(TimelineWorkKind.INITIAL_SCHEDULE, next.runtimeIndex().timeline().workKind());
+            assertEquals(0, next.runtimeIndex().admissionsUsed());
+            assertEquals(1, shard.quota().pendingMessages());
+            assertEquals(1, shard.discoverDue(3_000, 10).size());
+            assertEquals(MessageStatus.DEAD_LETTER,
+                    shard.getTerminalGeneration(schedule.delayMessageId(), 0).status());
+            assertEquals(replayResult, shard.applySystemMutation(replay, replayPosition, keyPair.getPublic()));
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(MessageStatus.SCHEDULED, reopened.getMessage(schedule.delayMessageId()).status());
+            assertEquals(1, reopened.getMessage(schedule.delayMessageId()).generation());
+            assertEquals(MessageStatus.DEAD_LETTER,
+                    reopened.getTerminalGeneration(schedule.delayMessageId(), 0).status());
+            assertEquals(1, reopened.quota().pendingMessages());
+        }
+    }
+
+    @Test
     void publishAdmissionConsumesExactLocalClaimBeforeCreatingAttemptLedger() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("claim-admission"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 24);
@@ -1909,6 +1981,28 @@ class DelayShardTest {
             CanonicalProtobuf.uint32(output, 18, 1);
             CanonicalProtobuf.uint32(output, 19, 0);
             CanonicalProtobuf.bytes(output, 20, acknowledgementHash);
+        });
+    }
+
+    private static byte[] replayDeadLetterBody(final ShardId shard, final ControlRef controlRef,
+                                               final DelayMessageId messageId, final int generation,
+                                               final long stateVersion, final long deliverAt, final long expireAt) {
+        final byte[] subject = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());
+            CanonicalProtobuf.uint32(output, 2, shard.partition());
+        });
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, subject);
+            CanonicalProtobuf.uint32(output, 2, SystemMutationType.REPLAY_DEAD_LETTER.wireValue());
+            CanonicalProtobuf.int64(output, 3, 9_000);
+            CanonicalProtobuf.bytes(output, 10, controlRef.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 11, messageId.bytes());
+            CanonicalProtobuf.uint32(output, 12, generation);
+            CanonicalProtobuf.uint32(output, 13, stateVersion);
+            CanonicalProtobuf.int64(output, 14, deliverAt);
+            CanonicalProtobuf.int64(output, 15, expireAt);
+            CanonicalProtobuf.bytes(output, 16, nestedPlaceholder());
+            CanonicalProtobuf.uint32(output, 17, 0);
         });
     }
 

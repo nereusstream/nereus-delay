@@ -14,6 +14,7 @@ import io.nereusstream.delay.protocol.PayloadReference;
 import io.nereusstream.delay.protocol.PublishAdmissionBody;
 import io.nereusstream.delay.protocol.PublishOutcomeBody;
 import io.nereusstream.delay.protocol.PreparedCommand;
+import io.nereusstream.delay.protocol.ReplayDeadLetterBody;
 import io.nereusstream.delay.protocol.ResolveUncertainBody;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
@@ -356,6 +357,7 @@ public final class DelayShard {
         try {
             return switch (mutation.type()) {
                 case PUBLISH_ADMISSION -> applyPublishAdmissionMutation(mutation, sourcePosition);
+                case REPLAY_DEAD_LETTER -> applyReplayDeadLetterMutation(mutation, sourcePosition);
                 case EXPIRE_GENERATION -> applyExpireGenerationMutation(mutation, sourcePosition);
                 case PUBLISH_OUTCOME -> applyPublishOutcomeMutation(mutation, sourcePosition);
                 case EVIDENCE_RESOLUTION -> applyEvidenceResolutionMutation(mutation, sourcePosition);
@@ -628,6 +630,114 @@ public final class DelayShard {
         });
         lastAppliedSourcePosition = sourcePosition;
         mutationSequence++;
+        return result;
+    }
+
+    /** Applies the bounded source-ordered Dead Letter replay generation transition. */
+    private SystemMutationResult applyReplayDeadLetterMutation(final SystemMutation mutation,
+                                                                final SourcePosition sourcePosition) {
+        final ReplayDeadLetterBody body = ReplayDeadLetterBody.decode(mutation.canonicalBody());
+        if (!Arrays.equals(mutation.logicalOperationIdentity(), body.controlRef()
+                .logicalOperationIdentity(SystemMutationType.REPLAY_DEAD_LETTER))) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
+        final MessageRecord current = getMessage(body.messageId());
+        if (current == null) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.NOT_FOUND);
+        }
+        if (current.generation() != body.expectedGeneration()) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    current.generation() > body.expectedGeneration()
+                            ? StableCode.GENERATION_SUPERSEDED : StableCode.STALE_SYSTEM_MUTATION);
+        }
+        if (current.stateVersion() != body.expectedStateVersion()) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.VERSION_CONFLICT);
+        }
+        if (current.status() != MessageStatus.DEAD_LETTER) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    current.status() == MessageStatus.PUBLISHED
+                            ? StableCode.ALREADY_PUBLISHED : StableCode.TOO_LATE);
+        }
+        final TerminalGenerationRecord summary = getTerminalGeneration(body.messageId(), body.expectedGeneration());
+        if (summary == null || summary.status() != MessageStatus.DEAD_LETTER) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.INTEGRITY_ERROR);
+        }
+        final boolean needsDuplicateAcknowledgement = summary.possibleDestinationDuplicate()
+                || !summary.openObligations().isEmpty();
+        if (needsDuplicateAcknowledgement != body.allowPossibleDuplicate()
+                || needsDuplicateAcknowledgement && body.acknowledgementHash().length == 0) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.TOO_LATE);
+        }
+        final LaneRecord lane = readLane(current.laneId());
+        if (lane == null) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.INTEGRITY_ERROR);
+        }
+        if (lane.admissionGate() == AdmissionGate.CLOSED || lane.admissionGate() == AdmissionGate.RETIRED) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.LANE_CLOSED);
+        }
+        if (lane.admissionGate() == AdmissionGate.ORDERING_BROKEN) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.ORDERING_DOMAIN_BROKEN);
+        }
+        if (body.expireAtEpochMs() <= sourcePosition.brokerPersistenceTimeEpochMs()) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.INVALID_DELIVERY_WINDOW);
+        }
+        final ShardQuota nextQuota;
+        try {
+            final long accountedBytes = Math.addExact(quota.pendingBytes(), quota.reservationBytes());
+            final long accountedMessages = Math.addExact(quota.pendingMessages(), quota.reservationMessages());
+            if (accountedMessages >= config.maxPendingMessages()
+                    || current.payloadLength() > config.maxPendingBytes() - accountedBytes) {
+                return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                        StableCode.HARD_QUOTA_EXCEEDED);
+            }
+            nextQuota = quota.addSchedule(current.payloadLength(), false);
+        } catch (ArithmeticException exception) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.HARD_QUOTA_EXCEEDED);
+        }
+        final int nextGeneration;
+        try {
+            nextGeneration = Math.addExact(current.generation(), 1);
+        } catch (ArithmeticException exception) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+        MessageRecord next = new MessageRecord(MessageStatus.SCHEDULED, nextGeneration,
+                Math.addExact(current.stateVersion(), 1), body.deliverAtEpochMs(), body.expireAtEpochMs(),
+                current.laneId(), current.orderingMode(), current.payload(), sourcePosition.canonicalBytes(),
+                current.payloadReference(), body.deliverAtEpochMs());
+        next = next.withRuntimeIndex(timelineRuntimeIndex(body.messageId(), next,
+                TimelineWorkKind.INITIAL_SCHEDULE, 1, next.stateVersion(), UncertainRetryAuthority.NONE,
+                null, null));
+        final MessageRecord nextForWrite = next;
+        final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
+                sourcePosition, body.messageId(), current, next, null);
+        final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, StableCode.OK,
+                sourcePosition.canonicalBytes());
+        store.write(batch -> {
+            batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(body.messageId()), nextForWrite.encode());
+            batch.putValue(ColumnFamily.TIMELINE, 1, timelineKey(body.messageId(), nextForWrite),
+                    new TimelineEntry(body.messageId(), nextGeneration).encode());
+            batch.putValue(ColumnFamily.TIMELINE, 1, expiryKey(body.messageId(), nextForWrite),
+                    new TimelineEntry(body.messageId(), nextGeneration).encode());
+            for (LaneProjection projection : projections.values()) {
+                deleteReadyKey(batch, projection.previousLane());
+                putReadyProjection(batch, projection);
+            }
+            batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(META_QUOTA_USAGE), nextQuota.encode());
+            writeSystemResult(batch, result);
+            writePosition(batch, sourcePosition);
+        });
+        lastAppliedSourcePosition = sourcePosition;
+        mutationSequence++;
+        quota = nextQuota;
         return result;
     }
 

@@ -25,6 +25,14 @@ work item without consuming the Admission counter. Resolve evidence attachment,
 possible-delivery terminalization, authenticated Oxia target registration and
 the remaining control-operation matrix are still release blockers.
 
+The bounded replay increment now covers `REPLAY_DEAD_LETTER_V1` after a
+`DEAD_LETTER` terminal decision: it checks the exact generation/state-version
+precondition, terminal summary and duplicate acknowledgement rule, lane gate,
+timing and shard quota, then atomically creates the next generation's
+`INITIAL_SCHEDULE` timeline while retaining the old summary and obligations.
+Immutable RetryPolicy/Profile binding, replay-window/fence proofs, Oxia target
+registration and full DLQ/replay retention remain pending.
+
 ## Current repository shape
 
 The repository is currently a single Gradle Java 21 library while the design's
