@@ -398,7 +398,7 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
-        if (body.controlKind() != 8 && body.controlKind() != 9) {
+        if (body.controlKind() < 8 || body.controlKind() > 11) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }
@@ -422,16 +422,42 @@ public final class DelayShard {
                     StableCode.VERSION_CONFLICT);
         }
 
+        if (body.controlKind() == 10
+                && (!body.hasAcknowledgement(1) || !body.hasAcknowledgement(3))) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
+        if (body.controlKind() == 11) {
+            final boolean orderedWork;
+            try {
+                orderedWork = laneHasOrderedWork(target.laneId());
+            } catch (IllegalStateException exception) {
+                return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                        StableCode.INTEGRITY_ERROR);
+            }
+            if (orderedWork && (!body.allowOrderBreak() || !body.hasAcknowledgement(1)
+                    || !body.hasAcknowledgement(3))) {
+                return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                        StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+            }
+        }
+
         final LaneRecord next;
         try {
-            next = body.controlKind() == 8 ? current.pauseByAdmin() : current.resumeByAdmin();
+            next = switch (body.controlKind()) {
+                case 8 -> current.pauseByAdmin();
+                case 9 -> current.resumeByAdmin();
+                case 10 -> current.breakOrdering();
+                case 11 -> current.closeForNewAdmission();
+                default -> throw new IllegalStateException("unsupported lane control kind");
+            };
         } catch (IllegalStateException exception) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.TOO_LATE);
         }
 
         final List<LaneClaimRollback> rollbacks;
         try {
-            rollbacks = body.controlKind() == 8 ? prepareLaneClaimRollbacks(target.laneId()) : List.of();
+            rollbacks = body.controlKind() == 9 ? List.of() : prepareLaneClaimRollbacks(target.laneId());
         } catch (IllegalStateException exception) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.INTEGRITY_ERROR);
@@ -505,6 +531,28 @@ public final class DelayShard {
             result.add(new LaneClaimRollback(claim, next));
         }
         return List.copyOf(result);
+    }
+
+    /** Bounded scan used only to decide whether a Close marker needs strict-order acknowledgements. */
+    private boolean laneHasOrderedWork(final io.nereusstream.delay.protocol.DestinationLaneId laneId) {
+        final int limit = boundedLimitPlusOne(config.maxPendingMessages());
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries = store.scan(ColumnFamily.ID,
+                new byte[]{1, 1}, new byte[]{2, 1}, limit);
+        if (entries.size() >= limit && config.maxPendingMessages() < Integer.MAX_VALUE) {
+            throw new IllegalStateException("message scan exceeded configured bound during lane Close");
+        }
+        for (var entry : entries) {
+            if (entry.key().length != 2 + DelayMessageId.LENGTH || entry.key()[0] != 1 || entry.key()[1] != 1) {
+                throw new IllegalStateException("invalid MESSAGE key during lane Close");
+            }
+            final MessageRecord message = MessageRecord.decode(
+                    io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), 1).payload());
+            if (message.laneId().equals(laneId) && !isTerminalStatus(message.status())
+                    && message.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private SystemMutationResult applyPublishAdmissionMutation(final SystemMutation mutation,

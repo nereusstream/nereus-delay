@@ -343,6 +343,52 @@ class DelayShardTest {
     }
 
     @Test
+    void sourceOrderedLaneBreakAndCloseRequireOrderLossAcknowledgements() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("lane-break-close"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 7);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("source-ordered-break-close"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.DELIVERY_TIME_FIFO, Bytes.utf8("strict-lane-control")), 9_000);
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final AuthorIdentity control = AuthorIdentity.control(Bytes.sha256(Bytes.utf8("break-close-actor")),
+                Bytes.sha256(Bytes.utf8("break-close-roles")), Bytes.sha256(Bytes.utf8("break-close-scope")));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED,
+                    shard.apply(schedule, position(shardId, 0, 1_000)).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final LaneRecord beforeBreak = shard.getLane(lane);
+            final ControlRef breakRef = new ControlRef(Bytes.sha256(Bytes.utf8("break-op")),
+                    Bytes.sha256(Bytes.utf8("break-request")), 1);
+            final byte[] breakBody = applyShardControlBody(shardId, breakRef, 10, lane,
+                    beforeBreak.laneIncarnation(), beforeBreak.laneControlVersion());
+            final SystemMutation breakMutation = SystemMutation.signed(shardId,
+                    SystemMutationType.APPLY_SHARD_CONTROL, 9_000, breakRef.logicalOperationIdentity(10),
+                    breakBody, control.canonicalBytes(), 1, keyPair.getPrivate());
+            assertEquals(StableCode.OK, shard.applySystemMutation(breakMutation,
+                    position(shardId, 1, 1_001), keyPair.getPublic()).stableCode());
+            assertEquals(AdmissionGate.ORDERING_BROKEN, shard.getLane(lane).admissionGate());
+            assertEquals(0, shard.discoverReady(10_000, 10).size());
+
+            final LaneRecord beforeClose = shard.getLane(lane);
+            final ControlRef closeRef = new ControlRef(Bytes.sha256(Bytes.utf8("close-op")),
+                    Bytes.sha256(Bytes.utf8("close-request")), 2);
+            final byte[] closeBody = applyShardControlBody(shardId, closeRef, 11, lane,
+                    beforeClose.laneIncarnation(), beforeClose.laneControlVersion());
+            final SystemMutation closeMutation = SystemMutation.signed(shardId,
+                    SystemMutationType.APPLY_SHARD_CONTROL, 9_000, closeRef.logicalOperationIdentity(11),
+                    closeBody, control.canonicalBytes(), 1, keyPair.getPrivate());
+            assertEquals(StableCode.OK, shard.applySystemMutation(closeMutation,
+                    position(shardId, 2, 1_002), keyPair.getPublic()).stableCode());
+            assertEquals(AdmissionGate.CLOSED, shard.getLane(lane).admissionGate());
+            assertEquals(0, shard.discoverReady(10_000, 10).size());
+        }
+    }
+
+    @Test
     void hardQuotaRejectsNewScheduleAndReleasesOnCancel() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("quota"));
         final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 1, 3, 1,
@@ -2020,10 +2066,24 @@ class DelayShardTest {
             CanonicalProtobuf.bytes(output, 2, laneIncarnation);
             CanonicalProtobuf.int64(output, 3, expectedControlVersion);
         });
-        final byte[] branch = CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.bytes(output, 1, laneTarget);
-            CanonicalProtobuf.bytes(output, 2, controlReason());
-        });
+        final byte[] branch = switch (controlKind) {
+            case 8, 9 -> CanonicalProtobuf.message(output -> {
+                CanonicalProtobuf.bytes(output, 1, laneTarget);
+                CanonicalProtobuf.bytes(output, 2, controlReason());
+            });
+            case 10 -> CanonicalProtobuf.message(output -> {
+                CanonicalProtobuf.bytes(output, 1, laneTarget);
+                CanonicalProtobuf.bytes(output, 2, acknowledgementSet());
+            });
+            case 11 -> CanonicalProtobuf.message(output -> {
+                CanonicalProtobuf.bytes(output, 1, laneTarget);
+                CanonicalProtobuf.bytes(output, 2, controlReason());
+                CanonicalProtobuf.uint32(output, 3, 1);
+                CanonicalProtobuf.uint32(output, 4, 1);
+                CanonicalProtobuf.bytes(output, 5, acknowledgementSet());
+            });
+            default -> throw new IllegalArgumentException("unsupported test lane control kind");
+        };
         final byte[] payload = CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, controlKind,
                 branch));
         return CanonicalProtobuf.message(output -> {
@@ -2041,6 +2101,24 @@ class DelayShardTest {
 
     private static byte[] controlReason() {
         return CanonicalProtobuf.message(output -> CanonicalProtobuf.uint32(output, 1, 1));
+    }
+
+    private static byte[] acknowledgementSet() {
+        final byte[] scope = Bytes.sha256(Bytes.utf8("lane-control-ack-scope"));
+        final byte[] possibleDuplicate = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint32(output, 1, 1);
+            CanonicalProtobuf.bytes(output, 2, Bytes.sha256(Bytes.utf8("possible-duplicate")));
+            CanonicalProtobuf.bytes(output, 3, scope);
+        });
+        final byte[] orderLoss = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint32(output, 1, 3);
+            CanonicalProtobuf.bytes(output, 2, Bytes.sha256(Bytes.utf8("order-loss")));
+            CanonicalProtobuf.bytes(output, 3, scope);
+        });
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, possibleDuplicate);
+            CanonicalProtobuf.bytes(output, 1, orderLoss);
+        });
     }
 
     private static byte[] publishOutcomeBody(final ShardId shard, final byte[] attemptId, final int sideEffect,

@@ -89,8 +89,52 @@ public final class ApplyShardControlBody {
         final long expectedVersion = unsigned(target.get(2), 3);
         if (controlKind == 8 || controlKind == 9) {
             validateControlReason(fields.get(1).rawValue());
+        } else if (controlKind == 10) {
+            validateAcknowledgementSet(fields.get(1).rawValue());
+        } else {
+            if (fields.get(2).number() != 3 || fields.get(2).wireType() != 0
+                    || fields.get(2).unsignedValue() != 1 || fields.get(3).number() != 4
+                    || fields.get(3).wireType() != 0 || fields.get(3).unsignedValue() > 1
+                    || fields.get(4).number() != 5 || fields.get(4).wireType() != 2) {
+                throw new IllegalArgumentException("invalid CloseDestinationLane payload");
+            }
+            validateControlReason(fields.get(1).rawValue());
+            validateAcknowledgementSet(fields.get(4).rawValue());
         }
         return new LaneTarget(new DestinationLaneId(laneId), laneIncarnation, expectedVersion);
+    }
+
+    /** Returns the close marker's order-loss permission; only valid for kind 11. */
+    public boolean allowOrderBreak() {
+        if (controlKind != 11) {
+            throw new IllegalStateException("control kind is not CLOSE_DESTINATION_LANE");
+        }
+        final List<CanonicalProtobuf.Reader.Field> fields = laneBranchFields();
+        return fields.get(3).unsignedValue() == 1;
+    }
+
+    /** Returns whether a required acknowledgement kind is present in a lane marker. */
+    public boolean hasAcknowledgement(final int acknowledgementKind) {
+        if (controlKind != 10 && controlKind != 11) {
+            throw new IllegalStateException("control kind has no acknowledgement set");
+        }
+        final List<CanonicalProtobuf.Reader.Field> fields = laneBranchFields();
+        final int acknowledgementField = controlKind == 10 ? 2 : 5;
+        final List<CanonicalProtobuf.Reader.Field> entries =
+                readAll(new CanonicalProtobuf.Reader(fields.get(acknowledgementField - 1).rawValue(), true));
+        for (CanonicalProtobuf.Reader.Field entry : entries) {
+            final List<CanonicalProtobuf.Reader.Field> ack = readAll(
+                    new CanonicalProtobuf.Reader(entry.rawValue()));
+            if (ack.get(0).unsignedValue() == acknowledgementKind) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private List<CanonicalProtobuf.Reader.Field> laneBranchFields() {
+        final List<CanonicalProtobuf.Reader.Field> branches = readAll(new CanonicalProtobuf.Reader(payload));
+        return readAll(new CanonicalProtobuf.Reader(bytes(branches, controlKind)));
     }
 
     private static void validateControlReason(final byte[] encoded) {
@@ -105,6 +149,34 @@ public final class ApplyShardControlBody {
                 throw new IllegalArgumentException("invalid ControlReason field");
             }
             Bytes.requireLength(field.rawValue(), ControlRef.HASH_LENGTH, "ControlReason hash");
+        }
+    }
+
+    private static void validateAcknowledgementSet(final byte[] encoded) {
+        final List<CanonicalProtobuf.Reader.Field> entries =
+                readAll(new CanonicalProtobuf.Reader(encoded, true));
+        int previousKind = 0;
+        for (CanonicalProtobuf.Reader.Field entry : entries) {
+            if (entry.number() != 1 || entry.wireType() != 2) {
+                throw new IllegalArgumentException("invalid AcknowledgementSet field");
+            }
+            final List<CanonicalProtobuf.Reader.Field> ack = readAll(
+                    new CanonicalProtobuf.Reader(entry.rawValue()));
+            if (ack.size() != 3 || ack.get(0).number() != 1 || ack.get(0).wireType() != 0
+                    || ack.get(0).unsignedValue() < 1 || ack.get(0).unsignedValue() > 3
+                    || ack.get(1).number() != 2 || ack.get(1).wireType() != 2
+                    || ack.get(2).number() != 3 || ack.get(2).wireType() != 2) {
+                throw new IllegalArgumentException("invalid Acknowledgement");
+            }
+            Bytes.requireLength(ack.get(1).rawValue(), ControlRef.HASH_LENGTH,
+                    "Acknowledgement hash");
+            Bytes.requireLength(ack.get(2).rawValue(), ControlRef.HASH_LENGTH,
+                    "Acknowledgement scope hash");
+            final int kind = Math.toIntExact(ack.get(0).unsignedValue());
+            if (kind <= previousKind) {
+                throw new IllegalArgumentException("Acknowledgements are not sorted and unique");
+            }
+            previousKind = kind;
         }
     }
 
