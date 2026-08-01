@@ -59,6 +59,15 @@ public record KafkaSourcePosition(
     }
 
     @Override
+    public boolean sameSourceIdentity(final SourcePosition other) {
+        if (!(other instanceof KafkaSourcePosition that)) {
+            return false;
+        }
+        return authenticatedClusterId.equals(that.authenticatedClusterId)
+                && nativeTopicUuid.equals(that.nativeTopicUuid);
+    }
+
+    @Override
     public int compareWithinShard(final SourcePosition other) {
         final KafkaSourcePosition that = (KafkaSourcePosition) other;
         int result = Long.compare(offset, that.offset);

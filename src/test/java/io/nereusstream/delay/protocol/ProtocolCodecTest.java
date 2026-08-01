@@ -8,6 +8,7 @@ import java.util.HashSet;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class ProtocolCodecTest {
@@ -82,5 +83,26 @@ class ProtocolCodecTest {
                 1, 2, 3, 4, PulsarSourcePosition.EntryKind.BATCH, 10);
         assertEquals(21, pulsar.sourceOrderToken().length);
         assertEquals(2, pulsar.sourceOrderToken()[0]);
+    }
+
+    @Test
+    void sourcePositionsCannotCompareAcrossPhysicalResourceIncarnations() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 5);
+        final java.util.UUID topic = java.util.UUID.randomUUID();
+        final KafkaSourcePosition kafkaA = new KafkaSourcePosition(shard, "cluster", topic, 1, null, 10);
+        final KafkaSourcePosition kafkaDifferentTopic = new KafkaSourcePosition(shard, "cluster",
+                java.util.UUID.randomUUID(), 2, null, 11);
+        assertFalse(kafkaA.sameSourceIdentity(kafkaDifferentTopic));
+        assertThrows(IllegalArgumentException.class, () -> kafkaA.compareTo(kafkaDifferentTopic));
+
+        final byte[] resource = new byte[32];
+        final PulsarSourcePosition pulsarA = new PulsarSourcePosition(shard, resource, "persistent://t/a",
+                1, 1, 0, 1, PulsarSourcePosition.EntryKind.NON_BATCH, 10);
+        final byte[] replacementResource = new byte[32];
+        replacementResource[0] = 1;
+        final PulsarSourcePosition pulsarReplacement = new PulsarSourcePosition(shard, replacementResource,
+                "persistent://t/a", 1, 2, 0, 1, PulsarSourcePosition.EntryKind.NON_BATCH, 11);
+        assertFalse(pulsarA.sameSourceIdentity(pulsarReplacement));
+        assertThrows(IllegalArgumentException.class, () -> pulsarA.compareTo(pulsarReplacement));
     }
 }

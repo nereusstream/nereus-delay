@@ -66,6 +66,15 @@ public record PulsarSourcePosition(
     }
 
     @Override
+    public boolean sameSourceIdentity(final SourcePosition other) {
+        if (!(other instanceof PulsarSourcePosition that)) {
+            return false;
+        }
+        return Arrays.equals(brokerResourceIncarnation, that.brokerResourceIncarnation)
+                && physicalTopic.equals(that.physicalTopic);
+    }
+
+    @Override
     public int compareWithinShard(final SourcePosition other) {
         final PulsarSourcePosition that = (PulsarSourcePosition) other;
         int result = Long.compare(ledgerId, that.ledgerId);

@@ -39,7 +39,7 @@ to the intended modules:
 | Self-routing IDs and CRC32C | Implemented | `ProtocolCodecTest` |
 | `commandId + commandHash` prepared before I/O | Implemented | `PreparedCommand`, `CommandHash`, `ProtocolCodecTest` |
 | NDL1 frame and canonical Client Command envelope | Implemented | `ShardLogFrame`, `CommandCodec`, registry frame vector test |
-| Kafka/Pulsar source order token encoding | Implemented (core codec) | `SourcePosition.sourceOrderToken`, `ProtocolCodecTest`; broker assignment/barrier adapters pending |
+| Kafka/Pulsar source order token and source identity fencing | Implemented (core codec) | `SourcePosition.sourceOrderToken`, physical-resource comparison guard, `ProtocolCodecTest`; broker assignment/barrier adapters pending |
 | Pinned Kafka/Pulsar command ingress outcome mapping | Implemented (transport SPI) | `PinnedKafkaCommandIngress`, `PinnedPulsarCommandIngress`, `AdapterIngressTest`; concrete pinned request transports and source assignment pending |
 | Target publish side-effect outcome boundary | Implemented (transport SPI) | `DestinationPublishAdapter`, `PinnedKafkaDestinationAdapter`, `PinnedPulsarDestinationAdapter`, `DestinationAdapterTest`; Publish Admission/attempt ledger/evidence journal pending |
 | One Delay Shard = one RocksDB DB | Implemented | `ShardStore`, `ShardStoreTest` |
