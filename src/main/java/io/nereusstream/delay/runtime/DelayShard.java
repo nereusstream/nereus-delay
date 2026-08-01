@@ -153,6 +153,10 @@ public final class DelayShard {
         return lastAppliedSourcePosition;
     }
 
+    public io.nereusstream.delay.protocol.ShardId shardId() {
+        return store.shardId();
+    }
+
     public synchronized long mutationSequence() {
         return mutationSequence;
     }

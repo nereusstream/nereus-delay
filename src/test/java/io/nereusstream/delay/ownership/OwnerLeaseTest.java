@@ -4,6 +4,7 @@ import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
+import io.nereusstream.delay.protocol.KafkaActivationBarrier;
 import io.nereusstream.delay.protocol.OrderingMode;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.ScheduleIntent;
@@ -50,11 +51,15 @@ class OwnerLeaseTest {
             final PreparedCommand command = PreparedCommand.schedule(shardId,
                     new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("owner-lane")), 2_000, 5_000,
                             OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
-            final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster", UUID.randomUUID(), 0,
+            final UUID topic = UUID.randomUUID();
+            final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster", topic, 0,
                     null, 1_000);
             org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
                     () -> owned.apply(command, position, 101));
-            owned.markCatchingUp();
+            owned.markCatchingUp(new KafkaActivationBarrier(shardId, "cluster", topic, 1));
+            org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                    () -> owned.activateForCommands(101));
+            owned.recordCatchup(position);
             owned.activateForCommands(101);
             assertTrue(owned.apply(command, position, 101).stableCode()
                     == io.nereusstream.delay.protocol.StableCode.SCHEDULED);
