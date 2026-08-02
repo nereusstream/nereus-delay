@@ -30,6 +30,10 @@ class ActivationBarrierV1Test {
                 () -> ActivationBarrierV1.pulsar(kafka, 0, 1, 1, 0, 1, 1, bytes(32, 3)));
         assertThrows(IllegalArgumentException.class,
                 () -> ActivationBarrierV1.empty(kafka, 0, 1L, null));
+        final BrokerResourceIdentityV1 pulsar = BrokerResourceIdentityV1.pulsar(
+                new PulsarBrokerResourceIdentityV1("cluster", bytes(32, 5), "topic", 1));
+        assertThrows(IllegalArgumentException.class,
+                () -> ActivationBarrierV1.empty(pulsar, 0, null, null));
         assertThrows(IllegalArgumentException.class,
                 () -> ActivationBarrierV1.pulsar(BrokerResourceIdentityV1.pulsar(
                         new PulsarBrokerResourceIdentityV1("cluster", bytes(32, 4), "topic", 1)),

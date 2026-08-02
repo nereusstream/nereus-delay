@@ -466,6 +466,9 @@ An empty Pulsar activation barrier still validates a non-null persisted cursor's
 resource incarnation and physical topic before declaring the barrier reached;
 an old DB from another Pulsar resource therefore cannot bypass source identity
 validation merely because no replay record is required.
+The canonical empty Pulsar barrier also requires the guarded source connection
+generation and resource-guard attestation digest as a pair; an unguarded empty
+Pulsar barrier cannot enter a Ready Certificate.
 The embedded queued-receipt query and applied-receipt projection apply the same
 canonical-position fence at a reached barrier: a same Kafka offset or Pulsar
 ledger/entry/batch token with different metadata is an integrity failure rather

@@ -64,6 +64,11 @@ public final class ActivationBarrierV1 {
                 && (guardedSourceConnectionGeneration != null || this.resourceGuardAttestationDigest != null)) {
             throw new IllegalArgumentException("Kafka empty barrier cannot carry connection guard fields");
         }
+        if (kind == Kind.EMPTY && resource.kind() == BrokerResourceIdentityV1.Kind.PULSAR
+                && (guardedSourceConnectionGeneration == null
+                || this.resourceGuardAttestationDigest == null)) {
+            throw new IllegalArgumentException("Pulsar empty barrier requires connection guard fields");
+        }
         if (kind == Kind.PULSAR && (guardedSourceConnectionGeneration == null
                 || this.resourceGuardAttestationDigest == null)) {
             throw new IllegalArgumentException("Pulsar barrier requires connection guard fields");

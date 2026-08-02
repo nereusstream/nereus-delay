@@ -7,6 +7,11 @@ normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20�
 the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
+The typed `ActivationBarrierV1` codec now enforces the Registry rule that an
+empty Pulsar barrier must carry the guarded source-connection generation and
+resource-guard attestation digest together; an unguarded empty Pulsar barrier
+is rejected before it can enter a Ready Certificate.
+
 The System Mutation outcome subset now also has explicit canonical body encoders:
 `PublishOutcomeBody.encodeInitial` closes the initial
 `PUBLISHED`/`NOT_PUBLISHED`/`UNKNOWN` combinations, while
