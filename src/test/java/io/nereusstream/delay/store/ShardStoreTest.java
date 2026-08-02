@@ -147,6 +147,39 @@ class ShardStoreTest {
     }
 
     @Test
+    void restoreCanReplaceAnOrphanIncarnationWhenActivePointerWasNotInstalled() throws Exception {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 24);
+        final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("orphan-source"));
+        final Path checkpoint = tempDir.resolve("orphan-checkpoint");
+        final byte[] key = KeyCodec.metaFixed(9);
+        final byte[] payload = Bytes.utf8("orphan-recovery");
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(sourceConfig);
+             ShardStore source = ShardStore.open(sourceConfig, shardId, resources)) {
+            source.write(batch -> batch.putValue(ColumnFamily.META, 9, key, payload));
+            source.createCheckpoint(checkpoint);
+        }
+
+        final ShardStoreConfig restoreConfig = ShardStoreConfig.defaults(tempDir.resolve("orphan-restore"));
+        final Path shardRoot = restoreConfig.rootPath().resolve("shards")
+                .resolve(shardId.routeIncarnation().uuid().toString())
+                .resolve(Integer.toString(shardId.partition()));
+        final Path orphanDb;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(restoreConfig);
+             ShardStore orphan = ShardStore.open(restoreConfig, shardId, resources)) {
+            orphanDb = orphan.dbPath();
+        }
+        Files.delete(shardRoot.resolve("ACTIVE"));
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(restoreConfig);
+             ShardStore restored = ShardStore.restoreFromCheckpoint(restoreConfig, shardId, resources, checkpoint)) {
+            assertArrayEquals(payload, restored.getValue(ColumnFamily.META, key, 9).payload());
+            assertNotEquals(orphanDb, restored.dbPath());
+            assertTrueFile(shardRoot.resolve("ACTIVE"));
+            assertTrueFile(orphanDb.resolve("CURRENT"));
+        }
+    }
+
+    @Test
     void catalogBoundRestoreRequiresPublishedFloorEligibleManifest() throws Exception {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 20);
         final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("catalog-source"));

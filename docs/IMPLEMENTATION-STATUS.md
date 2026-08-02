@@ -133,6 +133,9 @@ installation; it is released only after the active DB is opened or cleanup
 completes. `ShardStoreTest.completeCheckpointRestoresIntoFreshStoreIncarnation`
 also reacquires that slot immediately after a real restore returns, proving
 the slot is released before the caller closes the restored DB.
+Restore admission only treats a checksum-validated `ACTIVE` pointer target as
+the live incarnation; an orphan incarnation left before pointer installation
+does not block a new atomic restore and remains available for later repair.
 
 The checkpoint code now covers the local physical boundary: create the complete
 RocksDB image under the same-filesystem `checkpoint-tmp` namespace, atomically

@@ -240,6 +240,9 @@ loss 不会重复推进 Floor；不同 Floor 或 identity drift 仍 fail closed�
 `checkpoint-tmp` 命名空间，完成后才通过 atomic rename 安装到目标路径；已有
 目标会被拒绝，失败 staging 会清理。这闭合的是本地物理 checkpoint 边界，
 不代表 Object Store 上传、manifest publication 或 Oxia CAS 已完成。
+Restore admission 只把 checksum-validated `ACTIVE` pointer 指向的
+incarnation 视为 live DB；pointer 尚未切换时留下的 orphan incarnation 不会
+阻塞新的 atomic restore，且不会被悄悄当作 active 覆盖。
 
 `CheckpointUploadCoordinator` 现在在本地上传边界内先校验完整 checkpoint
 inventory、intent deadline 和 shard/lineage/owner/store/parent identity，取得

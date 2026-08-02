@@ -253,14 +253,16 @@ public final class ShardStore implements AutoCloseable {
     }
 
     private static boolean hasActiveDb(final Path shardRoot) throws IOException {
-        final Path incarnations = shardRoot.resolve("incarnations");
-        if (!Files.exists(incarnations)) {
+        final Path activePointer = shardRoot.resolve("ACTIVE");
+        if (!Files.exists(activePointer, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
             return false;
         }
-        try (var stream = Files.list(incarnations)) {
-            return stream.filter(Files::isDirectory)
-                    .anyMatch(path -> Files.isRegularFile(path.resolve("db").resolve("CURRENT")));
+        if (Files.isSymbolicLink(activePointer)) {
+            throw new IOException("ACTIVE pointer must not be a symbolic link");
         }
+        final UUID activeStore = readActivePointer(activePointer);
+        final Path activeDb = shardRoot.resolve("incarnations").resolve(activeStore.toString()).resolve("db");
+        return Files.isRegularFile(activeDb.resolve("CURRENT"), java.nio.file.LinkOption.NOFOLLOW_LINKS);
     }
 
     private static UUID storeUuidFromPath(final Path dbPath) throws IOException {
