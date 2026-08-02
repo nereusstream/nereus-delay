@@ -2,6 +2,7 @@ package io.nereusstream.delay.protocol;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
 import java.util.Arrays;
 import java.util.Objects;
 
@@ -18,10 +19,10 @@ public record PulsarSourcePosition(
         long brokerEntryTimestampEpochMs) implements SourcePosition {
     public PulsarSourcePosition {
         Objects.requireNonNull(shardId, "shardId");
-        Objects.requireNonNull(physicalTopic, "physicalTopic");
+        physicalTopic = canonicalText(physicalTopic, "physicalTopic");
         Objects.requireNonNull(entryKind, "entryKind");
         Bytes.requireLength(brokerResourceIncarnation, 32, "brokerResourceIncarnation");
-        if (physicalTopic.isBlank() || ledgerId < 0 || entryId < 0 || normalizedBatchIndex < 0
+        if (ledgerId < 0 || entryId < 0 || normalizedBatchIndex < 0
                 || batchSize <= 0 || normalizedBatchIndex >= batchSize || brokerEntryTimestampEpochMs < 0) {
             throw new IllegalArgumentException("invalid Pulsar source position");
         }
@@ -102,6 +103,16 @@ public record PulsarSourcePosition(
     public int hashCode() {
         return Objects.hash(shardId, Arrays.hashCode(brokerResourceIncarnation), physicalTopic, ledgerId, entryId,
                 normalizedBatchIndex, batchSize, entryKind, brokerEntryTimestampEpochMs);
+    }
+
+    private static String canonicalText(final String value, final String name) {
+        Objects.requireNonNull(value, name);
+        final String decoded = new String(value.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8);
+        if (!decoded.equals(value) || value.isBlank() || value.indexOf('\0') >= 0
+                || !value.equals(Normalizer.normalize(value, Normalizer.Form.NFC))) {
+            throw new IllegalArgumentException(name + " must be nonblank NFC UTF-8");
+        }
+        return value;
     }
 
     public enum EntryKind {

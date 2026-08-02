@@ -707,6 +707,22 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void sourcePositionsRejectNonCanonicalTextAtConstruction() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 8);
+        final UUID topic = UUID.randomUUID();
+        assertThrows(IllegalArgumentException.class,
+                () -> new KafkaSourcePosition(shard, "cluster\u0301", topic, 1, null, 10));
+
+        final byte[] resource = Bytes.sha256(Bytes.utf8("source-resource-nfc"));
+        assertThrows(IllegalArgumentException.class,
+                () -> new PulsarSourcePosition(shard, resource, "persistent://t/e\u0301", 1, 1, 0, 1,
+                        PulsarSourcePosition.EntryKind.NON_BATCH, 10));
+        assertThrows(IllegalArgumentException.class,
+                () -> new PulsarSourcePosition(shard, resource, "persistent://t/\uD800", 1, 1, 0, 1,
+                        PulsarSourcePosition.EntryKind.NON_BATCH, 10));
+    }
+
+    @Test
     void largeScheduleAndPayloadProofAreCanonicalAndSigned() throws Exception {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
         final LargeScheduleIntent intent = new LargeScheduleIntent(

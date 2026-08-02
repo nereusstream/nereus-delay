@@ -2,6 +2,7 @@ package io.nereusstream.delay.protocol;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -15,9 +16,9 @@ public record KafkaSourcePosition(
         long brokerLogAppendTimeEpochMs) implements SourcePosition {
     public KafkaSourcePosition {
         Objects.requireNonNull(shardId, "shardId");
-        Objects.requireNonNull(authenticatedClusterId, "authenticatedClusterId");
+        authenticatedClusterId = canonicalText(authenticatedClusterId, "authenticatedClusterId");
         Objects.requireNonNull(nativeTopicUuid, "nativeTopicUuid");
-        if (authenticatedClusterId.isBlank() || offset < 0 || brokerLogAppendTimeEpochMs < 0) {
+        if (offset < 0 || brokerLogAppendTimeEpochMs < 0) {
             throw new IllegalArgumentException("invalid Kafka source position");
         }
         if (leaderEpoch != null && leaderEpoch < 0) {
@@ -76,5 +77,15 @@ public record KafkaSourcePosition(
         // would let two canonical positions for one offset appear as a later
         // record and bypass the exact-position integrity fence.
         return Long.compare(offset, that.offset);
+    }
+
+    private static String canonicalText(final String value, final String name) {
+        Objects.requireNonNull(value, name);
+        final String decoded = new String(value.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8);
+        if (!decoded.equals(value) || value.isBlank() || value.indexOf('\0') >= 0
+                || !value.equals(Normalizer.normalize(value, Normalizer.Form.NFC))) {
+            throw new IllegalArgumentException(name + " must be nonblank NFC UTF-8");
+        }
+        return value;
     }
 }
