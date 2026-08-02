@@ -76,15 +76,16 @@ and Head prerequisite gate; it does not turn a catalog lookup into a source
 position activation receipt.
 The Control Operation request union now has local canonical codecs for all
 fifteen Registry branches, including the evidence/acknowledgement matrix. It
-is still only a request-value boundary: it is not a prepared operation,
-target-presence authority, authenticated actor/resource check or Oxia
-registration receipt.
-The Control target value layer similarly closes the six branch shapes and
-field-22 digest locally, but does not decide operation-specific target sets or
-construct/authorize source mutation identities.
-`PreparedControlOperationV1` now closes the pre-I/O request/target hashes,
-prepared digest and Ed25519 signature locally; its bytes are not an Oxia
-registration receipt and do not establish actor/role or target authority.
+remains a request-value boundary and does not authenticate an actor/resource,
+construct source mutations or produce an Oxia registration receipt.
+The Control target value layer closes the six branch shapes and field-22
+digest locally. `PreparedControlOperationV1` now additionally enforces the
+closed operation-specific target counts/kinds, mutation-identity presence and
+Profile/Quota request-to-target identity rules before hashing/signing; source
+mutation construction and authenticated target authority remain outside this
+local codec boundary.
+Its bytes are not an Oxia registration receipt and do not establish actor/role
+authority.
 The registration outcome/proof union is likewise local evidence projection:
 only authenticated Oxia response evidence can construct the conditional
 rejection branch, while timeout/session ambiguity remains `RECORD_UNCERTAIN`.

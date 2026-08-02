@@ -12,8 +12,8 @@ import java.util.Objects;
 
 /**
  * Canonical prepared Control Operation envelope.  All hashes/signature input
- * are fixed before registration I/O; the class does not perform Oxia or
- * target-presence authorization.
+ * and the operation-specific local target matrix are fixed before registration
+ * I/O; the class does not perform Oxia or actor/resource authorization.
  */
 public final class PreparedControlOperationV1 {
     public static final int VERSION = 1;
@@ -54,6 +54,7 @@ public final class PreparedControlOperationV1 {
             throw new IllegalArgumentException("requestHash mismatch");
         }
         this.targets = sortedTargets(targets);
+        validateTargetPresence(kind, request, this.targets);
         this.targetSnapshotHash = fixed(targetSnapshotHash, "targetSnapshotHash");
         if (!Bytes.constantTimeEquals(this.targetSnapshotHash, targetSnapshotHash(this.targets))) {
             throw new IllegalArgumentException("targetSnapshotHash mismatch");
@@ -88,6 +89,7 @@ public final class PreparedControlOperationV1 {
         Objects.requireNonNull(signingKey, "signingKey");
         final byte[] requestHash = requestHash(kind, request);
         final List<ControlTargetRefV1> sorted = sortedTargets(targets);
+        validateTargetPresence(kind, request, sorted);
         final byte[] snapshot = targetSnapshotHash(sorted);
         final byte[] digest = preparedDigest(operationId, kind, author, request, requestHash, sorted, snapshot,
                 controlQueryPolicyVersion, registrationRetryUntil);
@@ -202,6 +204,76 @@ public final class PreparedControlOperationV1 {
         return result;
     }
 
+    /** Validates the closed operation-kind/target-kind/presence matrix locally. */
+    public static void validateTargetPresence(final ControlOperationKindV1 kind,
+                                              final ControlOperationRequestV1 request,
+                                              final List<ControlTargetRefV1> targets) {
+        Objects.requireNonNull(kind, "kind");
+        Objects.requireNonNull(request, "request");
+        if (request.kind() != kind) {
+            throw new IllegalArgumentException("request kind does not match target operation kind");
+        }
+        final List<ControlTargetRefV1> values = Objects.requireNonNull(targets, "targets");
+        if (values.isEmpty()) {
+            throw new IllegalArgumentException("Control Operation requires at least one target");
+        }
+        switch (kind) {
+            case STOP_NEW_SCHEDULES -> {
+                requireOnlyKinds(values, ControlTargetKindV1.ROUTE, ControlTargetKindV1.SHARD);
+                requireCount(values, ControlTargetKindV1.ROUTE, 1, 1);
+                requireCount(values, ControlTargetKindV1.SHARD, 1, Integer.MAX_VALUE);
+                requireMutationPresence(values, ControlTargetKindV1.ROUTE, false);
+                requireMutationPresence(values, ControlTargetKindV1.SHARD, true);
+            }
+            case PAUSE_DESTINATION_LANE, RESUME_DESTINATION_LANE, CLOSE_DESTINATION_LANE,
+                    BREAK_ORDERING_DOMAIN -> {
+                requireOnlyKinds(values, ControlTargetKindV1.LANE);
+                requireCount(values, ControlTargetKindV1.LANE, 1, Integer.MAX_VALUE);
+                requireMutationPresence(values, ControlTargetKindV1.LANE, true);
+            }
+            case DRAIN_SHARD, FENCE_SHARD_FOR_MAINTENANCE, FORCE_CHECKPOINT, GET_CHECKPOINT_CATALOG -> {
+                requireOnlyKinds(values, ControlTargetKindV1.SHARD);
+                requireCount(values, ControlTargetKindV1.SHARD, 1, Integer.MAX_VALUE);
+                requireMutationPresence(values, ControlTargetKindV1.SHARD, false);
+            }
+            case REPLAY_DEAD_LETTER, RESOLVE_UNCERTAIN -> {
+                requireOnlyKinds(values, ControlTargetKindV1.MESSAGE);
+                requireCount(values, ControlTargetKindV1.MESSAGE, 1, 1);
+                requireMutationPresence(values, ControlTargetKindV1.MESSAGE, true);
+                validateMessageTarget(kind, request, values.get(0).message());
+            }
+            case PUBLISH_DESTINATION_PROFILE_VERSION, DEPRECATE_DESTINATION_PROFILE_VERSION -> {
+                requireOnlyKinds(values, ControlTargetKindV1.PROFILE, ControlTargetKindV1.SHARD);
+                requireCount(values, ControlTargetKindV1.PROFILE, 1, 1);
+                requireCount(values, ControlTargetKindV1.SHARD, 1, Integer.MAX_VALUE);
+                requireMutationPresence(values, ControlTargetKindV1.PROFILE, false);
+                requireMutationPresence(values, ControlTargetKindV1.SHARD, true);
+                validateProfileTarget(kind, request, findSingle(values, ControlTargetKindV1.PROFILE).profile());
+            }
+            case PUBLISH_QUOTA_GRANT -> {
+                requireOnlyKinds(values, ControlTargetKindV1.QUOTA_GRANT, ControlTargetKindV1.SHARD);
+                requireCount(values, ControlTargetKindV1.QUOTA_GRANT, 1, 1);
+                requireCount(values, ControlTargetKindV1.SHARD, 1, Integer.MAX_VALUE);
+                requireMutationPresence(values, ControlTargetKindV1.QUOTA_GRANT, false);
+                requireMutationPresence(values, ControlTargetKindV1.SHARD, true);
+                final PublishQuotaGrantRequestV1 branch = branch(request, PublishQuotaGrantRequestV1.class);
+                if (!branch.quotaGrant().equals(findSingle(values, ControlTargetKindV1.QUOTA_GRANT).quotaGrant())) {
+                    throw new IllegalArgumentException("quota target does not match request grant");
+                }
+            }
+            case ROTATE_EQUIVALENT_SECRET_REFERENCE -> {
+                requireOnlyKinds(values, ControlTargetKindV1.PROFILE);
+                requireCount(values, ControlTargetKindV1.PROFILE, 1, 1);
+                final ControlTargetRefV1 target = findSingle(values, ControlTargetKindV1.PROFILE);
+                requireMutationPresence(values, ControlTargetKindV1.PROFILE, false);
+                validateProfileTarget(kind, request, target.profile());
+                if (target.profile().expectedSecretGeneration() == null) {
+                    throw new IllegalArgumentException("secret rotation requires Profile generation preconditions");
+                }
+            }
+        }
+    }
+
     private void writeFieldsOneThroughTen(final ByteArrayOutputStream output) {
         CanonicalProtobuf.uint32(output, 1, VERSION);
         CanonicalProtobuf.bytes(output, 2, operationId);
@@ -283,6 +355,124 @@ public final class PreparedControlOperationV1 {
             previous = value.targetIndex();
         }
         return List.copyOf(copy);
+    }
+
+    private static void requireOnlyKinds(final List<ControlTargetRefV1> values,
+                                         final ControlTargetKindV1... allowed) {
+        for (ControlTargetRefV1 value : values) {
+            boolean found = false;
+            for (ControlTargetKindV1 candidate : allowed) {
+                found |= value.targetKind() == candidate;
+            }
+            if (!found) {
+                throw new IllegalArgumentException("Control Operation contains an unexpected target kind");
+            }
+        }
+    }
+
+    private static void requireCount(final List<ControlTargetRefV1> values, final ControlTargetKindV1 kind,
+                                     final int minimum, final int maximum) {
+        int count = 0;
+        for (ControlTargetRefV1 value : values) {
+            if (value.targetKind() == kind) {
+                count++;
+            }
+        }
+        if (count < minimum || count > maximum) {
+            throw new IllegalArgumentException("Control Operation has an invalid " + kind + " target count");
+        }
+    }
+
+    private static void requireMutationPresence(final List<ControlTargetRefV1> values,
+                                                final ControlTargetKindV1 kind, final boolean required) {
+        for (ControlTargetRefV1 value : values) {
+            if (value.targetKind() != kind) {
+                continue;
+            }
+            final boolean present = value.expectedMutationId() != null && value.expectedMutationHash() != null;
+            if (present != required) {
+                throw new IllegalArgumentException("target mutation identity presence does not match operation kind");
+            }
+        }
+    }
+
+    private static ControlTargetRefV1 findSingle(final List<ControlTargetRefV1> values,
+                                                 final ControlTargetKindV1 kind) {
+        for (ControlTargetRefV1 value : values) {
+            if (value.targetKind() == kind) {
+                return value;
+            }
+        }
+        throw new IllegalArgumentException("missing target kind " + kind);
+    }
+
+    private static void validateMessageTarget(final ControlOperationKindV1 kind,
+                                              final ControlOperationRequestV1 request,
+                                              final ControlMessageTargetV1 target) {
+        if (target == null) {
+            throw new IllegalArgumentException("message target branch is missing");
+        }
+        if (kind == ControlOperationKindV1.REPLAY_DEAD_LETTER && target.publishAttemptId() != null) {
+            throw new IllegalArgumentException("Replay target must not carry a publish attempt ID");
+        }
+        if (kind == ControlOperationKindV1.RESOLVE_UNCERTAIN) {
+            final ResolveUncertainRequestV1 branch = branch(request, ResolveUncertainRequestV1.class);
+            if (target.publishAttemptId() == null) {
+                throw new IllegalArgumentException("Resolve target requires a publish attempt ID");
+            }
+            if (branch.resolutionKind() == UncertainResolutionKindV1.RETRY_ALLOW_POSSIBLE_DUPLICATE
+                    || branch.resolutionKind() == UncertainResolutionKindV1.TERMINALIZE_POSSIBLE_DELIVERY) {
+                if (target.expectedGeneration() < 0) {
+                    throw new IllegalArgumentException("Resolve target generation is invalid");
+                }
+            }
+        }
+    }
+
+    private static void validateProfileTarget(final ControlOperationKindV1 kind,
+                                              final ControlOperationRequestV1 request,
+                                              final ProfileControlTargetV1 target) {
+        if (target == null) {
+            throw new IllegalArgumentException("Profile target branch is missing");
+        }
+        final ProfileRefV1 expected;
+        switch (kind) {
+            case PUBLISH_DESTINATION_PROFILE_VERSION -> {
+                final PublishDestinationProfileRequestV1 branch = branch(request,
+                        PublishDestinationProfileRequestV1.class);
+                expected = branch.profile().ref();
+                if (target.expectedSecretGeneration() != null) {
+                    throw new IllegalArgumentException("Profile publication target cannot carry rotation fields");
+                }
+            }
+            case DEPRECATE_DESTINATION_PROFILE_VERSION -> {
+                expected = branch(request, DeprecateDestinationProfileRequestV1.class).profile();
+                if (target.expectedSecretGeneration() != null) {
+                    throw new IllegalArgumentException("Profile deprecation target cannot carry rotation fields");
+                }
+            }
+            case ROTATE_EQUIVALENT_SECRET_REFERENCE -> {
+                final RotateEquivalentSecretRequestV1 branch = branch(request,
+                        RotateEquivalentSecretRequestV1.class);
+                expected = branch.profile();
+                if (!Objects.equals(target.expectedSecretGeneration(), branch.expectedSecretGeneration())
+                        || !Arrays.equals(target.expectedBindingDigest(), branch.expectedBindingDigest())
+                        || !Objects.equals(target.expectedBindingHeadRevision(), branch.expectedBindingHeadRevision())) {
+                    throw new IllegalArgumentException("secret rotation target preconditions do not match request");
+                }
+            }
+            default -> throw new IllegalArgumentException("operation does not use a Profile target");
+        }
+        if (!expected.equals(target.profile())) {
+            throw new IllegalArgumentException("Profile target does not match request Profile");
+        }
+    }
+
+    private static <T> T branch(final ControlOperationRequestV1 request, final Class<T> type) {
+        if (!type.isInstance(request.branch())) {
+            throw new IllegalArgumentException("request branch does not match operation kind");
+        }
+        return type.cast(request.branch());
     }
 
     private static List<CanonicalProtobuf.Reader.Field> readRepeated(final byte[] encoded) {
