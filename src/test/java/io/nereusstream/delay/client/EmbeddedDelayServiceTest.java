@@ -113,6 +113,30 @@ class EmbeddedDelayServiceTest {
     }
 
     @Test
+    void closeDrainsQueuedCommandsBeforeClosingTheShardDb() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 31);
+        final ScheduleIntent intent = new ScheduleIntent(
+                DestinationLaneId.derive(Bytes.utf8("close-drain-lane")), 2_000, 5_000,
+                OrderingMode.BEST_EFFORT, Bytes.utf8("payload"));
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("close-drain"));
+        final PreparedCommand command;
+        final CommandQueuedReceipt receipt;
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                config, shard, Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            command = service.prepareSchedule(intent, 10_000);
+            receipt = service.enqueue(command).toCompletableFuture().join().receipt();
+            assertEquals(1, service.pendingCommandCount());
+        }
+
+        try (EmbeddedDelayService reopened = new EmbeddedDelayService(
+                config, shard, Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final CommandResult result = reopened.awaitApplied(receipt).toCompletableFuture().join();
+            assertEquals(ApplyStatus.APPLIED, result.applyStatus());
+            assertEquals(0, reopened.pendingCommandCount());
+        }
+    }
+
+    @Test
     void reopenedEmbeddedServiceContinuesSourceOffsets() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 1);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("reopen"));

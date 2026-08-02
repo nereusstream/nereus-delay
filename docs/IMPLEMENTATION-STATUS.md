@@ -87,9 +87,13 @@ are checked before allocating a Source Position. A full buffer returns
 embedded source offset; draining releases the exact byte charge. The embedded
 defaults are conformance-harness values, not production Broker defaults. Real
 adapters still need equivalent Producer buffer, batch/linger,
-request/delivery-timeout and close-drain configuration. The count, byte,
-offset and release behavior is covered by
+request/delivery-timeout and close-drain configuration. The embedded `close()`
+now synchronously drains accepted records before closing the shard DB, and the
+drain queue keeps its head charged until `DelayShard.apply` returns. The count,
+byte, offset, release and close-drain behavior is covered by
 `EmbeddedDelayServiceTest.sdkBackpressureRejectsBeforeSourcePositionAndByteBudgetAreConsumed`.
+`EmbeddedDelayServiceTest.closeDrainsQueuedCommandsBeforeClosingTheShardDb`
+also verifies that a reopened service can read the applied result.
 
 `DelayShard` now rejects negative persisted mutation and Claim sequence values
 on reopen. These counters are encoded as checked non-negative u64 values;

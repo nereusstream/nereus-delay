@@ -66,8 +66,10 @@ V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障
 `EmbeddedDelayService` 的本地 ingress seam 现在在分配 Source Position 前同时
 限制 pending command count 和 canonical frame bytes；缓冲区满时返回 Registry
 的 `SDK_BACKPRESSURE_NOT_SUBMITTED` definitive local rejection，且不消耗嵌入式
-source offset，drain 后释放精确 byte charge。证据是
+source offset，drain 后释放精确 byte charge；`close()` 会先同步 drain，且
+队头只有在 `DelayShard.apply` 返回后才释放。证据是
 `EmbeddedDelayServiceTest.sdkBackpressureRejectsBeforeSourcePositionAndByteBudgetAreConsumed`。
+以及 `EmbeddedDelayServiceTest.closeDrainsQueuedCommandsBeforeClosingTheShardDb`。
 这只证明本地 SDK seam；Producer buffer、batch/linger、request/delivery timeout、
 close drain 以及真实 Broker response 仍属于真实适配器 release gate。
 

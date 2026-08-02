@@ -161,9 +161,13 @@ public final class EmbeddedDelayService implements DelayClient {
     public synchronized void drain() {
         ensureOpen();
         while (!pending.isEmpty()) {
-            final QueuedRecord record = pending.removeFirst();
-            pendingBytes -= record.frameBytes();
+            // Keep the head charged until apply returns.  A malformed or
+            // otherwise fatal local apply must not make close/drain silently
+            // forget the command that was already reported as QUEUED.
+            final QueuedRecord record = pending.peekFirst();
             shard.apply(record.command(), record.position());
+            pending.removeFirst();
+            pendingBytes -= record.frameBytes();
         }
     }
 
@@ -403,6 +407,12 @@ public final class EmbeddedDelayService implements DelayClient {
     @Override
     public synchronized void close() {
         if (!closed) {
+            // The embedded service has no asynchronous Broker producer to
+            // await, so its close-drain deadline is represented by a
+            // synchronous drain before the local DB is closed.  A failed
+            // apply leaves the service open and the head record charged for
+            // an explicit retry instead of acknowledging data loss.
+            drain();
             closed = true;
             store.close();
             resources.close();
