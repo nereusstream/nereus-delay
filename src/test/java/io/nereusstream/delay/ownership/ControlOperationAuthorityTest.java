@@ -29,6 +29,9 @@ class ControlOperationAuthorityTest {
         assertEquals(ControlOperationQueryResultV1.CURRENT,
                 authority.advance(receipt, 1, next).resultKind());
         assertEquals(ControlOperationQueryResultV1.INTEGRITY_ERROR,
+                authority.advance(receipt, 2, current(receipt, 4, ControlOperationStateV1.IN_PROGRESS))
+                        .resultKind());
+        assertEquals(ControlOperationQueryResultV1.INTEGRITY_ERROR,
                 authority.advance(receipt, 1, current(receipt, 3, ControlOperationStateV1.IN_PROGRESS))
                         .resultKind());
         assertEquals(next, authority.query(receipt, 2_000).current());

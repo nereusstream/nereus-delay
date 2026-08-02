@@ -65,7 +65,8 @@ public final class InMemoryControlOperationAuthority implements ControlOperation
         if (expectedRevision != existing.current().operationRevision()) {
             return ControlOperationQueryResponseV1.integrityError();
         }
-        if (next.operationRevision() <= expectedRevision) {
+        if (expectedRevision == Long.MAX_VALUE
+                || next.operationRevision() != expectedRevision + 1) {
             return ControlOperationQueryResponseV1.integrityError();
         }
         operations.put(key(receipt.operationId()), new Entry(receipt, next));
