@@ -77,8 +77,8 @@ public final class ControlTargetMutationBindingV1 {
         }
     }
 
-    private static SystemMutationType expectedMutationType(final ControlOperationKindV1 operationKind,
-                                                            final ControlTargetKindV1 targetKind) {
+    static SystemMutationType expectedMutationType(final ControlOperationKindV1 operationKind,
+                                                    final ControlTargetKindV1 targetKind) {
         return switch (operationKind) {
             case REPLAY_DEAD_LETTER -> requireTargetKind(targetKind, ControlTargetKindV1.MESSAGE,
                     SystemMutationType.REPLAY_DEAD_LETTER);
