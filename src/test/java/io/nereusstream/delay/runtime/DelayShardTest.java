@@ -8,6 +8,7 @@ import io.nereusstream.delay.protocol.CapacityGrantKindV1;
 import io.nereusstream.delay.protocol.CapacityGrantV1;
 import io.nereusstream.delay.protocol.CapacityVectorV1;
 import io.nereusstream.delay.protocol.ClaimResultBody;
+import io.nereusstream.delay.protocol.CommittedPayloadDescriptorV1;
 import io.nereusstream.delay.protocol.ControlRef;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.DelayMessageId;
@@ -300,6 +301,53 @@ class DelayShardTest {
             final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver);
             assertNotNull(reopened.getV1ScheduleBinding(schedule.delayMessageId()));
             assertNotNull(reopened.getV1ScheduleBinding(prepare.delayMessageId()));
+        }
+    }
+
+    @Test
+    void registryCommittedScheduleResolverPreservesOptionalEtag() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("registry-committed-schedule"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 33);
+        final ProfileRefV1 objectStore = new ProfileRefV1(Bytes.utf8("object-store"), 1, bytes(32, 4),
+                ProfileKindV1.OBJECT_STORE);
+        final CommittedPayloadDescriptorV1 descriptor = new CommittedPayloadDescriptorV1(objectStore,
+                Bytes.utf8("bucket"), Bytes.utf8("object"), Bytes.utf8("version"), null, 7,
+                Bytes.sha256(Bytes.utf8("committed")), bytes(32, 5), bytes(32, 6));
+        final ScheduleIntentV1 intent = ScheduleIntentV1.create(
+                new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 7), ProfileKindV1.DESTINATION),
+                new io.nereusstream.delay.protocol.RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 8)),
+                2_000, 5_000, io.nereusstream.delay.protocol.DeliveryMode.MANAGED,
+                OrderingMode.BEST_EFFORT, new byte[0], null, descriptor,
+                io.nereusstream.delay.protocol.AdapterMetadataV1.kafka(
+                        new io.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())), null, null);
+        final PreparedCommand command = PreparedCommand.scheduleV1(shardId, intent, 9_000);
+        final byte[] tuple = Bytes.utf8("committed-lane-tuple");
+        final DestinationLaneId lane = DestinationLaneId.derive(tuple);
+        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+            @Override
+            public ResolvedSchedule resolveSchedule(final ShardId shard, final DelayMessageId messageId,
+                                                     final ScheduleIntentV1 resolvedIntent,
+                                                     final io.nereusstream.delay.protocol.SourcePosition source) {
+                return new ResolvedSchedule(lane, tuple, null,
+                        io.nereusstream.delay.protocol.PayloadReference.fromDescriptor(
+                                resolvedIntent.committedPayload()));
+            }
+
+            @Override
+            public ResolvedPrepare resolvePrepare(final ShardId shard, final DelayMessageId messageId,
+                                                  final io.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1 body,
+                                                  final io.nereusstream.delay.protocol.SourcePosition source) {
+                throw new UnsupportedOperationException("not used by this test");
+            }
+        };
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver);
+            assertEquals(StableCode.SCHEDULED,
+                    shard.apply(command, position(shardId, 0, 1_000)).stableCode());
+            assertEquals(io.nereusstream.delay.protocol.PayloadReference.fromDescriptor(descriptor),
+                    shard.getMessage(command.delayMessageId()).payloadReference());
+            assertNull(shard.getMessage(command.delayMessageId()).payloadReference().etag());
         }
     }
 

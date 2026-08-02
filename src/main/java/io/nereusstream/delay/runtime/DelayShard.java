@@ -3356,13 +3356,13 @@ public final class DelayShard {
         }
         final var descriptor = intent.committedPayload();
         final PayloadReference reference = resolved.payloadReference();
-        if (reference == null || resolved.inlinePayload() != null || descriptor.etag() == null
+        if (reference == null || resolved.inlinePayload() != null
                 || !Bytes.constantTimeEquals(reference.objectStoreProfileHash(),
                 descriptor.objectStoreProfile().semanticHash())
                 || !Arrays.equals(reference.container(), descriptor.container())
                 || !Arrays.equals(reference.objectKey(), descriptor.objectKey())
                 || !Arrays.equals(reference.immutableObjectVersion(), descriptor.immutableObjectVersion())
-                || !Arrays.equals(reference.etag(), descriptor.etag())
+                || !optionalBytesEqual(reference.etag(), descriptor.etag())
                 || reference.length() != descriptor.length()
                 || !Bytes.constantTimeEquals(reference.payloadSha256(), descriptor.payloadSha256())) {
             throw new V1CommandResolutionException(StableCode.INVALID_COMMAND,
@@ -3471,8 +3471,14 @@ public final class DelayShard {
                 && java.util.Arrays.equals(proof.container(), reference.container())
                 && java.util.Arrays.equals(proof.objectKey(), reference.objectKey())
                 && java.util.Arrays.equals(proof.immutableObjectVersion(), reference.immutableObjectVersion())
-                && java.util.Arrays.equals(proof.etag(), reference.etag()) && proof.length() == reference.length()
+                && optionalBytesEqual(proof.etag(), reference.etag()) && proof.length() == reference.length()
                 && Bytes.constantTimeEquals(proof.payloadSha256(), reference.payloadSha256());
+    }
+
+    private static boolean optionalBytesEqual(final byte[] left, final byte[] right) {
+        final byte[] normalizedLeft = left == null || left.length == 0 ? null : left;
+        final byte[] normalizedRight = right == null || right.length == 0 ? null : right;
+        return Arrays.equals(normalizedLeft, normalizedRight);
     }
 
     private CommandResult applySchedule(final PreparedCommand command, final SourcePosition sourcePosition) {

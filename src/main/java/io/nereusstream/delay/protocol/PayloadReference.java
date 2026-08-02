@@ -18,7 +18,6 @@ public record PayloadReference(
         requireNonEmpty(container, "container");
         requireNonEmpty(objectKey, "objectKey");
         requireNonEmpty(immutableObjectVersion, "immutableObjectVersion");
-        Objects.requireNonNull(etag, "etag");
         Bytes.requireLength(payloadSha256, 32, "payloadSha256");
         if (length < 0) {
             throw new IllegalArgumentException("payload length must be non-negative");
@@ -27,8 +26,16 @@ public record PayloadReference(
         container = Bytes.copy(container);
         objectKey = Bytes.copy(objectKey);
         immutableObjectVersion = Bytes.copy(immutableObjectVersion);
-        etag = Bytes.copy(etag);
+        etag = optionalEtag(etag);
         payloadSha256 = Bytes.copy(payloadSha256);
+    }
+
+    /** Projects the Registry committed-payload descriptor without losing an absent etag. */
+    public static PayloadReference fromDescriptor(final CommittedPayloadDescriptorV1 descriptor) {
+        Objects.requireNonNull(descriptor, "descriptor");
+        return new PayloadReference(descriptor.objectStoreProfile().semanticHash(), descriptor.container(),
+                descriptor.objectKey(), descriptor.immutableObjectVersion(), descriptor.etag(), descriptor.length(),
+                descriptor.payloadSha256());
     }
 
     private static void requireNonEmpty(final byte[] value, final String name) {
@@ -55,7 +62,7 @@ public record PayloadReference(
     }
 
     public byte[] etag() {
-        return Bytes.copy(etag);
+        return etag == null ? null : Bytes.copy(etag);
     }
 
     public byte[] payloadSha256() {
@@ -82,7 +89,8 @@ public record PayloadReference(
 
     public byte[] encode() {
         return Bytes.concat(Bytes.u32be(1), objectStoreProfileHash, Bytes.lp32(container), Bytes.lp32(objectKey),
-                Bytes.lp32(immutableObjectVersion), Bytes.lp32(etag), Bytes.u64be(length), payloadSha256);
+                Bytes.lp32(immutableObjectVersion), Bytes.lp32(etag == null ? new byte[0] : etag),
+                Bytes.u64be(length), payloadSha256);
     }
 
     public static PayloadReference decode(final byte[] encoded) {
@@ -103,7 +111,8 @@ public record PayloadReference(
         if (input.hasRemaining()) {
             throw new IllegalArgumentException("payload reference has trailing bytes");
         }
-        final PayloadReference result = new PayloadReference(profile, container, key, version, etag, length, sha);
+        final PayloadReference result = new PayloadReference(profile, container, key, version,
+                etag.length == 0 ? null : etag, length, sha);
         if (!Arrays.equals(encoded, result.encode())) {
             throw new IllegalArgumentException("non-canonical payload reference");
         }
@@ -128,5 +137,9 @@ public record PayloadReference(
             throw new IllegalArgumentException("payload reference length outside value");
         }
         return readFixed(input, Math.toIntExact(length));
+    }
+
+    private static byte[] optionalEtag(final byte[] value) {
+        return value == null || value.length == 0 ? null : Bytes.copy(value);
     }
 }
