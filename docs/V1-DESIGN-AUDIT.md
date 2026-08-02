@@ -47,6 +47,15 @@ V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障
 
 ## Authority 与线性化点
 
+Registry credential-control-plane canonical values are locally closed by
+`CredentialEquivalenceAttestationV1`, `CredentialBindingV1`,
+`CredentialBindingHeadV1` and `CredentialBindingProtectionV1`. Their digests,
+candidate tuple agreement, Trusted-UTC interval ordering and Ed25519 signature
+projection are verified before a value is accepted. This is not an Oxia
+linearization receipt: activated trust-set membership, provider-side immutable
+version resolution, configured proof-age bounds, Head/protection monotonic
+CAS and durable reread remain external authority gates.
+
 | 事件 | 唯一 authority / 线性化点 | 明确不构成 authority 的事件 |
 |---|---|---|
 | Command 准备 | canonical Prepared Command bytes/hash 在首次 I/O 前完成 | Producer request、Broker position、wall clock |

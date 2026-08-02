@@ -26,6 +26,19 @@ Object Store safety booleans and Evidence Verifier validity bounds fail closed
 locally; immutable publication, credential binding and catalog resolution are
 still external authority work.
 
+The Registry credential-control-plane values now also have strict canonical
+codecs: `CredentialEquivalenceAttestationV1` binds the candidate generation,
+secret-reference digest, immutable authorization scope, verifier evidence,
+Trusted-UTC acceptance interval, domain-separated attestation digest and
+Ed25519 signature; `CredentialBindingV1` binds the private reference to that
+attestation and derives the immutable generation digest; and
+`CredentialBindingHeadV1` / `CredentialBindingProtectionV1` close the current
+pointer and monotonic protection projections. These codecs validate only local
+bytes, digest relationships, candidate agreement and signatures. Activated
+verifier trust, provider resolution, maximum proof age, Oxia Head/protection
+CAS and durable post-CAS observation remain external authority and release
+gates; no private reference or verifier evidence is projected to public data.
+
 The System Mutation outcome subset now also has explicit canonical body encoders:
 `PublishOutcomeBody.encodeInitial` closes the initial
 `PUBLISHED`/`NOT_PUBLISHED`/`UNKNOWN` combinations, while
