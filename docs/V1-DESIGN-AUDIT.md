@@ -65,6 +65,13 @@ successor, private-reference digest, attestation candidate and expected Head
 revision. They remain request-value codecs, not authenticated actor/target
 authorization or source-ordered Oxia mutation receipts.
 
+`ProfileCatalog`/`InMemoryProfileCatalog` now provide a strict local lookup
+projection for exact Profile semantic bytes, generation-1 and rotated private
+bindings, Head/protection records and deprecation intent. The projection is
+useful for recovery and tests, but it is not the Profile publication authority,
+does not create per-shard activation markers, and does not replace authenticated
+Oxia CAS or retained-generation policy.
+
 | 事件 | 唯一 authority / 线性化点 | 明确不构成 authority 的事件 |
 |---|---|---|
 | Command 准备 | canonical Prepared Command bytes/hash 在首次 I/O 前完成 | Producer request、Broker position、wall clock |
@@ -280,8 +287,10 @@ V1 必须经过显式 `V1ScheduleResolver`，校验 tuple 派生 Lane、payload 
 `ProfileBindingControlState` 现在也提供了 source-ordered first-binding marker
 投影；当 shard 已有 Profile marker 时，V1 Schedule/Prepare 会在 resolver 前
 按 activation/close 边界返回对应稳定码，marker 与 System Mutation result
-在同一 WriteBatch 持久化并可在 reopen 后恢复。immutable Profile catalog、
-签名 control target 与历史 binding lookup 仍是 release blocker。
+在同一 WriteBatch 持久化并可在 reopen 后恢复。`InMemoryProfileCatalog` 现在
+提供 exact immutable semantic/binding/head/protection lookup；签名 control
+target、source-ordered activation routing、历史 binding retention 与 provider
+verification 仍是 release blocker。
 CommitLargeSchedule V1 也有独立 canonical body 和嵌套
 `PayloadCommitProofV1` codec，校验 reservation/message identity、typed Object
 Store Profile、tenant scope、optional etag presence、proof ID/signature 后，
