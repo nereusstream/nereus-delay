@@ -79,6 +79,9 @@ fifteen Registry branches, including the evidence/acknowledgement matrix. It
 is still only a request-value boundary: it is not a prepared operation,
 target-presence authority, authenticated actor/resource check or Oxia
 registration receipt.
+The Control target value layer similarly closes the six branch shapes and
+field-22 digest locally, but does not decide operation-specific target sets or
+construct/authorize source mutation identities.
 
 | 事件 | 唯一 authority / 线性化点 | 明确不构成 authority 的事件 |
 |---|---|---|
