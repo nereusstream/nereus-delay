@@ -987,6 +987,8 @@ planned drain：
 
 `ACTIVE` 是 checksummed pointer record，只含 format version 与 current Store Incarnation。创建 fresh DB 或 restore 总是在 temp 完成；安装时 rename 到新的 `incarnations/<newStoreIncarnation>`，以 install-mode 打开并同步写入新的 Store Incarnation/owner-open metadata，关闭后才用 `ACTIVE.tmp -> ACTIVE` atomic rename 切换，并 fsync file 与父目录。Crash 在 pointer 前只留下 orphan incarnation；pointer 后即使尚未 normal open，下次启动也能验证并继续。禁止覆盖已打开 DB 或把完整 checkpoint merge 到另一个 DB。
 
+RocksDB 已经成功 `open` 后，任何 `meta_cf` 读取/解码、format/identity 校验或 install-mode 写入失败，都必须在释放 Worker 的 DB/owned-shard slot 前关闭 DB、所有 Column Family handle 及其 options；失败的 activation 不得遗留活跃 native handle 或文件锁。这个失败清理边界与 `restore-tmp` 的清理边界相同，保证下一次修复、重试或接管可以重新打开同一物理 DB，而不把一次本地校验异常变成永久资源泄漏。
+
 `meta_cf` 必须验证：
 
 ```text

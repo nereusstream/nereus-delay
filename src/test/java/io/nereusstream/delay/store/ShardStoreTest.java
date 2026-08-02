@@ -16,6 +16,12 @@ import io.nereusstream.delay.protocol.SloThresholdDirectionV1;
 import io.nereusstream.delay.protocol.SloThresholdUnitV1;
 import io.nereusstream.delay.protocol.SloTimeEndpointKindV1;
 import io.nereusstream.delay.protocol.SloTimeEndpointV1;
+import org.rocksdb.ColumnFamilyDescriptor;
+import org.rocksdb.ColumnFamilyHandle;
+import org.rocksdb.ColumnFamilyOptions;
+import org.rocksdb.DBOptions;
+import org.rocksdb.Options;
+import org.rocksdb.RocksDB;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -94,6 +100,22 @@ class ShardStoreTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
             assertThrows(IllegalStateException.class, () -> ShardStore.open(config, shardId, resources));
         }
+    }
+
+    @Test
+    void malformedExistingMetadataDoesNotLeaveRocksDbOpen() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("malformed-metadata"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 30);
+        final Path dbPath;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            dbPath = store.dbPath();
+            store.write(batch -> batch.put(ColumnFamily.META, KeyCodec.metaFixed(2), Bytes.utf8("malformed")));
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+            assertThrows(IllegalArgumentException.class, () -> ShardStore.open(config, shardId, resources));
+        }
+        assertRawRocksDbCanBeOpened(dbPath);
     }
 
     @Test
@@ -502,6 +524,29 @@ class ShardStoreTest {
     private static SloTimeEndpointV1 endpoint(final long epochMs) {
         return new SloTimeEndpointV1(SloTimeEndpointKindV1.SEMANTIC_FIXED_EPOCH, epochMs, epochMs,
                 bytes(32, (int) epochMs));
+    }
+
+    private static void assertRawRocksDbCanBeOpened(final Path dbPath) throws Exception {
+        final List<byte[]> names;
+        try (Options options = new Options()) {
+            names = RocksDB.listColumnFamilies(options, dbPath.toString());
+        }
+        final List<ColumnFamilyOptions> options = names.stream()
+                .map(ignored -> new ColumnFamilyOptions()).toList();
+        final List<ColumnFamilyDescriptor> descriptors = new java.util.ArrayList<>();
+        for (int index = 0; index < names.size(); index++) {
+            descriptors.add(new ColumnFamilyDescriptor(names.get(index), options.get(index)));
+        }
+        final List<ColumnFamilyHandle> handles = new java.util.ArrayList<>();
+        try (DBOptions dbOptions = new DBOptions().setCreateIfMissing(false)
+                .setCreateMissingColumnFamilies(false);
+             RocksDB db = RocksDB.open(dbOptions, dbPath.toString(), descriptors, handles)) {
+            assertEquals(names.size(), handles.size());
+            assertTrue(db.getLatestSequenceNumber() >= 0);
+        } finally {
+            handles.forEach(ColumnFamilyHandle::close);
+            options.forEach(ColumnFamilyOptions::close);
+        }
     }
 
     private static void assertTrueFile(final Path path) {

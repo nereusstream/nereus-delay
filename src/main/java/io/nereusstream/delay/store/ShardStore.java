@@ -413,72 +413,79 @@ public final class ShardStore implements AutoCloseable {
             dbOptions.close();
             throw exception;
         }
-        final Map<ColumnFamily, ColumnFamilyHandle> handles = new EnumMap<>(ColumnFamily.class);
-        for (int index = 0; index < ColumnFamily.values().length; index++) {
-            handles.put(ColumnFamily.values()[index], openedHandles.get(index + 1));
-        }
-        if (hasDefaultColumnFamilyData(db, openedHandles.get(0))) {
-            closeHandles(db, openedHandles, cfOptions, dbOptions);
-            throw new IllegalStateException("default RocksDB column family must remain empty");
-        }
-        final byte[] identityBytes = db.get(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_SHARD_IDENTITY));
-        StoreMetadata metadata;
-        if (identityBytes == null) {
-            if (existing) {
+        boolean keepOpen = false;
+        try {
+            final Map<ColumnFamily, ColumnFamilyHandle> handles = new EnumMap<>(ColumnFamily.class);
+            for (int index = 0; index < ColumnFamily.values().length; index++) {
+                handles.put(ColumnFamily.values()[index], openedHandles.get(index + 1));
+            }
+            if (hasDefaultColumnFamilyData(db, openedHandles.get(0))) {
+                throw new IllegalStateException("default RocksDB column family must remain empty");
+            }
+            final byte[] identityBytes = db.get(handles.get(ColumnFamily.META),
+                    KeyCodec.metaFixed(META_SHARD_IDENTITY));
+            StoreMetadata metadata;
+            if (identityBytes == null) {
+                if (existing) {
+                    throw new IllegalStateException("existing shard DB is missing meta_cf shard identity");
+                }
+                final UUID storeUuid;
+                try {
+                    storeUuid = UUID.fromString(dbPath.getParent().getFileName().toString());
+                } catch (IllegalArgumentException exception) {
+                    throw new IllegalStateException("DB path does not carry a valid store incarnation: " + dbPath,
+                            exception);
+                }
+                final byte[] storeIncarnation = java.nio.ByteBuffer.allocate(16)
+                        .putLong(storeUuid.getMostSignificantBits()).putLong(storeUuid.getLeastSignificantBits())
+                        .array();
+                final StoreMetadata created = new StoreMetadata(1, shardId, storeIncarnation, Bytes.sha256(
+                        Bytes.concat(Bytes.utf8("nereus-delay-db-identity-v1\0"), storeIncarnation,
+                                shardId.routeIncarnation().bytes(), Bytes.u32be(shardId.partition()))));
+                try (WriteBatch batch = new WriteBatch(); WriteOptions writeOptions = new WriteOptions().setSync(true)) {
+                    batch.put(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_STORE_FORMAT),
+                            java.nio.ByteBuffer.allocate(4).putInt(1).array());
+                    batch.put(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_SHARD_IDENTITY),
+                            created.encode());
+                    db.write(writeOptions, batch);
+                }
+                metadata = created;
+            } else {
+                metadata = StoreMetadata.decode(identityBytes);
+                if (!metadata.shardId().equals(shardId)) {
+                    throw new IllegalStateException("shard identity mismatch: expected " + shardId + " got "
+                            + metadata.shardId());
+                }
+                final UUID pathStoreIncarnation = incarnationFromPath(dbPath);
+                if (pathStoreIncarnation != null && !pathStoreIncarnation.equals(metadata.storeIncarnationUuid())) {
+                    throw new IllegalStateException("store incarnation does not match DB path: expected "
+                            + pathStoreIncarnation + " got " + metadata.storeIncarnationUuid());
+                }
+            }
+            if (restoreStoreIncarnation != null && identityBytes != null) {
+                final byte[] storeIncarnation = uuidBytes(restoreStoreIncarnation);
+                final StoreMetadata restored = new StoreMetadata(metadata.storeFormatVersion(), shardId,
+                        storeIncarnation, metadata.dbIdentity());
+                try (WriteBatch batch = new WriteBatch(); WriteOptions writeOptions = new WriteOptions().setSync(true)) {
+                    batch.put(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_SHARD_IDENTITY),
+                            restored.encode());
+                    db.write(writeOptions, batch);
+                }
+                metadata = restored;
+            }
+            final byte[] format = db.get(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_STORE_FORMAT));
+            if (format == null || format.length != 4 || java.nio.ByteBuffer.wrap(format).getInt() != 1) {
+                throw new IllegalStateException("missing or unsupported store format marker");
+            }
+            final ShardStore result = new ShardStore(config, shardId, dbPath, resources, db, dbOptions, cfOptions,
+                    handles, metadata, ownsShardSlot);
+            keepOpen = true;
+            return result;
+        } finally {
+            if (!keepOpen) {
                 closeHandles(db, openedHandles, cfOptions, dbOptions);
-                throw new IllegalStateException("existing shard DB is missing meta_cf shard identity");
-            }
-            final UUID storeUuid;
-            try {
-                storeUuid = UUID.fromString(dbPath.getParent().getFileName().toString());
-            } catch (IllegalArgumentException exception) {
-                closeHandles(db, openedHandles, cfOptions, dbOptions);
-                throw new IllegalStateException("DB path does not carry a valid store incarnation: " + dbPath,
-                        exception);
-            }
-            final byte[] storeIncarnation = java.nio.ByteBuffer.allocate(16)
-                    .putLong(storeUuid.getMostSignificantBits()).putLong(storeUuid.getLeastSignificantBits()).array();
-            final StoreMetadata created = new StoreMetadata(1, shardId, storeIncarnation, Bytes.sha256(
-                    Bytes.concat(Bytes.utf8("nereus-delay-db-identity-v1\0"), storeIncarnation,
-                            shardId.routeIncarnation().bytes(), Bytes.u32be(shardId.partition()))));
-            try (WriteBatch batch = new WriteBatch(); WriteOptions writeOptions = new WriteOptions().setSync(true)) {
-                batch.put(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_STORE_FORMAT),
-                        java.nio.ByteBuffer.allocate(4).putInt(1).array());
-                batch.put(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_SHARD_IDENTITY), created.encode());
-                db.write(writeOptions, batch);
-            }
-            metadata = created;
-        } else {
-            metadata = StoreMetadata.decode(identityBytes);
-            if (!metadata.shardId().equals(shardId)) {
-                closeHandles(db, openedHandles, cfOptions, dbOptions);
-                throw new IllegalStateException("shard identity mismatch: expected " + shardId + " got "
-                        + metadata.shardId());
-            }
-            final UUID pathStoreIncarnation = incarnationFromPath(dbPath);
-            if (pathStoreIncarnation != null && !pathStoreIncarnation.equals(metadata.storeIncarnationUuid())) {
-                closeHandles(db, openedHandles, cfOptions, dbOptions);
-                throw new IllegalStateException("store incarnation does not match DB path: expected "
-                        + pathStoreIncarnation + " got " + metadata.storeIncarnationUuid());
             }
         }
-        if (restoreStoreIncarnation != null && identityBytes != null) {
-            final byte[] storeIncarnation = uuidBytes(restoreStoreIncarnation);
-            final StoreMetadata restored = new StoreMetadata(metadata.storeFormatVersion(), shardId,
-                    storeIncarnation, metadata.dbIdentity());
-            try (WriteBatch batch = new WriteBatch(); WriteOptions writeOptions = new WriteOptions().setSync(true)) {
-                batch.put(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_SHARD_IDENTITY), restored.encode());
-                db.write(writeOptions, batch);
-            }
-            metadata = restored;
-        }
-        final byte[] format = db.get(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_STORE_FORMAT));
-        if (format == null || format.length != 4 || java.nio.ByteBuffer.wrap(format).getInt() != 1) {
-            closeHandles(db, openedHandles, cfOptions, dbOptions);
-            throw new IllegalStateException("missing or unsupported store format marker");
-        }
-        return new ShardStore(config, shardId, dbPath, resources, db, dbOptions, cfOptions, handles, metadata,
-                ownsShardSlot);
     }
 
     private static byte[] uuidBytes(final UUID uuid) {

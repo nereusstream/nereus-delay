@@ -294,6 +294,11 @@ metadata 变体不能被当作已覆盖的 retention boundary。
 `checkpoint-tmp` 命名空间，完成后才通过 atomic rename 安装到目标路径；已有
 目标会被拒绝，失败 staging 会清理。这闭合的是本地物理 checkpoint 边界，
 不代表 Object Store 上传、manifest publication 或 Oxia CAS 已完成。
+`ShardStore.openAtPathWithSlot` 也把 RocksDB 成功打开后的 metadata decode、
+format/identity validation 和 install-mode write 放在同一个失败清理边界内；
+任一失败都会先关闭 DB、Column Family handles 和 options，再释放 Worker slot。
+`ShardStoreTest.malformedExistingMetadataDoesNotLeaveRocksDbOpen` 随后用 raw
+RocksDB reopen 证明不会遗留 native 文件锁。
 Restore admission 只把 checksum-validated `ACTIVE` pointer 指向的
 incarnation 视为 live DB；pointer 尚未切换时留下的 orphan incarnation 不会
 阻塞新的 atomic restore，且不会被悄悄当作 active 覆盖。
