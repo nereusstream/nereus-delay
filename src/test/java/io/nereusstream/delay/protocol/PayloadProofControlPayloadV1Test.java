@@ -21,6 +21,17 @@ class PayloadProofControlPayloadV1Test {
                 new PayloadProofIssuanceClosePayloadV1(trustSet, 3, reason);
         assertEquals(close, PayloadProofIssuanceClosePayloadV1.decode(close.canonicalBytes()));
         assertEquals(reason, ControlReasonV1.decode(reason.canonicalBytes()));
+
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
+        final ControlRef controlRef = new ControlRef(Bytes.sha256(Bytes.utf8("operation")),
+                Bytes.sha256(Bytes.utf8("request")), 1);
+        final ApplyShardControlBody activateBody = ApplyShardControlBody.decode(controlBody(shard, controlRef, 12,
+                CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1, trustSet.canonicalBytes())),
+                trustSet.semanticHash()));
+        assertEquals(activate, activateBody.payloadProofTrustSetActivate());
+        final ApplyShardControlBody closeBody = ApplyShardControlBody.decode(controlBody(shard, controlRef, 13,
+                close.canonicalBytes(), trustSet.semanticHash()));
+        assertEquals(close, closeBody.payloadProofIssuanceClose());
     }
 
     @Test
@@ -45,5 +56,25 @@ class PayloadProofControlPayloadV1Test {
         // Optional presence is explicit; an empty present hash is not an omitted field.
         assertThrows(IllegalArgumentException.class,
                 () -> new ControlReasonV1(ControlReasonKindV1.INCIDENT, new byte[0], null));
+    }
+
+    private static byte[] controlBody(final ShardId shard, final ControlRef controlRef, final int controlKind,
+                                      final byte[] branch, final byte[] semanticHash) {
+        final byte[] subject = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());
+            CanonicalProtobuf.uint32(output, 2, shard.partition());
+        });
+        final byte[] payload = CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, controlKind,
+                branch));
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, subject);
+            CanonicalProtobuf.uint32(output, 2, SystemMutationType.APPLY_SHARD_CONTROL.wireValue());
+            CanonicalProtobuf.int64(output, 3, 9_000);
+            CanonicalProtobuf.bytes(output, 10, controlRef.canonicalBytes());
+            CanonicalProtobuf.uint32(output, 11, controlKind);
+            CanonicalProtobuf.uint32(output, 12, 1);
+            CanonicalProtobuf.bytes(output, 13, semanticHash);
+            CanonicalProtobuf.bytes(output, 15, payload);
+        });
     }
 }

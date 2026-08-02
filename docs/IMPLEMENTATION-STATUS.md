@@ -68,8 +68,9 @@ inputs, not inferred from this value codec.
 
 The closed control-payload branches for trust-set activation and issuance
 close now have typed `ControlReasonV1`/payload codecs with strict branch and
-optional-field ordering. They are protocol-only until an authenticated
-source-ordered control authority supplies the active set and close markers.
+optional-field ordering, and `ApplyShardControlBody` exposes their typed
+decoders. They are protocol-only until an authenticated source-ordered
+control authority supplies the active set and close markers.
 
 The local Owner Lease adapters now enforce the closed lifecycle transition
 matrix, including fail-closed backward transitions and fenced-lease

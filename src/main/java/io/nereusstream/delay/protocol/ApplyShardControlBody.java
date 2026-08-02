@@ -67,6 +67,18 @@ public final class ApplyShardControlBody {
         return Bytes.copy(payload);
     }
 
+    /** Decodes the field-12 trust-set activation branch. */
+    public PayloadProofTrustSetActivatePayloadV1 payloadProofTrustSetActivate() {
+        requireControlKind(12);
+        return PayloadProofTrustSetActivatePayloadV1.decode(branchPayload(12));
+    }
+
+    /** Decodes the field-13 trust-set issuance-close branch. */
+    public PayloadProofIssuanceClosePayloadV1 payloadProofIssuanceClose() {
+        requireControlKind(13);
+        return PayloadProofIssuanceClosePayloadV1.decode(branchPayload(13));
+    }
+
     public LaneTarget laneTarget() {
         if (controlKind < 8 || controlKind > 11) {
             throw new IllegalArgumentException("control kind is not a lane operation");
@@ -186,6 +198,17 @@ public final class ApplyShardControlBody {
             throw new IllegalArgumentException("ControlPayload branch does not match control kind");
         }
         readAll(new CanonicalProtobuf.Reader(branches.get(0).rawValue()));
+    }
+
+    private byte[] branchPayload(final int expectedControlKind) {
+        final List<CanonicalProtobuf.Reader.Field> branches = readAll(new CanonicalProtobuf.Reader(payload));
+        return bytes(branches, expectedControlKind);
+    }
+
+    private void requireControlKind(final int expectedControlKind) {
+        if (controlKind != expectedControlKind) {
+            throw new IllegalStateException("control kind is not " + expectedControlKind);
+        }
     }
 
     private static List<CanonicalProtobuf.Reader.Field> readAll(final CanonicalProtobuf.Reader reader) {
