@@ -103,6 +103,9 @@ evidence is `MessageRecordTest`.
 The persisted Claim value applies the same guard before LP32 length prefixes
 and u64/u32 fields; `ClaimRecordTest` covers every strict prefix of a valid
 Claim and confirms that the native decoder exception is not exposed.
+The publish-attempt ledger applies the same fixed-width guards and uses only
+the actual minimum framing prefix, so short valid LP32 values remain readable;
+`PublishAttemptLedgerTest` is the local evidence for both cases.
 
 当前 `PersistentLaneScheduler.rebuildFromAuthoritativeReady` 已提供 fenced 的本地
 恢复桥：它从 bounded `timeline_cf/READY` 扫描开始，严格校验对应的

@@ -174,7 +174,7 @@ public final class PublishAttemptLedger {
 
     public static PublishAttemptLedger decode(final byte[] encoded) {
         final ByteBuffer input = ByteBuffer.wrap(encoded);
-        requireRemaining(input, 4 + DelayMessageId.LENGTH + 4 + HASH_LENGTH * 3 + 8 + 4 + 32 + 16 + 1 + 16 + 32);
+        requireRemaining(input, Integer.BYTES);
         if (input.getInt() != 1) {
             throw new IllegalArgumentException("unsupported publish attempt ledger version");
         }
@@ -235,6 +235,7 @@ public final class PublishAttemptLedger {
     }
 
     private static int readU32Int(final ByteBuffer input, final String name) {
+        requireRemaining(input, Integer.BYTES);
         final long value = Integer.toUnsignedLong(input.getInt());
         if (value > Integer.MAX_VALUE) {
             throw new IllegalArgumentException(name + " exceeds Java int range");
@@ -243,6 +244,7 @@ public final class PublishAttemptLedger {
     }
 
     private static long readU64(final ByteBuffer input, final String name) {
+        requireRemaining(input, Long.BYTES);
         final long value = input.getLong();
         if (value < 0) {
             throw new IllegalArgumentException(name + " exceeds signed range");
