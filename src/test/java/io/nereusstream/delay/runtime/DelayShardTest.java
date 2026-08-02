@@ -2143,6 +2143,66 @@ class DelayShardTest {
     }
 
     @Test
+    void closedLaneUnknownOutcomeKeepsUncertainWithoutRetryTimeline() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-unknown-closed-lane"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 71);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("closed-unknown-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("closed-unknown")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 1_001);
+        final KafkaSourcePosition closePosition = position(shardId, 2, 1_002);
+        final KafkaSourcePosition outcomePosition = position(shardId, 3, 1_003);
+        final byte[] attemptId = Bytes.sha256(Bytes.utf8("closed-unknown-attempt"));
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final byte[] owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 42,
+                Bytes.sha256(Bytes.utf8("lease"))).canonicalBytes();
+        final TrustedUtcIntervalEvidence observedAt = new TrustedUtcIntervalEvidence(1_003, 1_003,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("clock"), 1, 6, 6,
+                Bytes.sha256(Bytes.utf8("closed-unknown-proof")), 0, null);
+        final byte[] unknownBody = publishOutcomeBody(shardId, attemptId, 3, 4,
+                StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, new byte[0], observedAt.canonicalBytes());
+        final SystemMutation unknown = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
+                Bytes.sha256(Bytes.utf8("closed-unknown-operation")), unknownBody, owner, 1,
+                keyPair.getPrivate());
+        final AuthorIdentity control = AuthorIdentity.control(Bytes.sha256(Bytes.utf8("unknown-closed-actor")),
+                Bytes.sha256(Bytes.utf8("unknown-closed-roles")), Bytes.sha256(Bytes.utf8("unknown-closed-scope")));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final PublishAttemptLedger admission = PublishAttemptLedger.publishing(schedule.delayMessageId(), 0,
+                    attemptId, Bytes.sha256(Bytes.utf8("claim")), 42, 1, lane, new byte[16],
+                    Bytes.sha256(Bytes.utf8("owner")), store.metadata().storeIncarnation(),
+                    Bytes.sha256(Bytes.utf8("prepared")), Bytes.utf8("admission"), admissionPosition.canonicalBytes());
+            shard.admitPublishAttempt(admission, admissionPosition);
+
+            final LaneRecord beforeClose = shard.getLane(lane);
+            final ControlRef closeRef = new ControlRef(Bytes.sha256(Bytes.utf8("unknown-close-op")),
+                    Bytes.sha256(Bytes.utf8("unknown-close-request")), 0);
+            final byte[] closeBody = applyShardControlBody(shardId, closeRef, 11, lane,
+                    beforeClose.laneIncarnation(), beforeClose.laneControlVersion());
+            final SystemMutation close = SystemMutation.signed(shardId,
+                    SystemMutationType.APPLY_SHARD_CONTROL, 9_000, closeRef.logicalOperationIdentity(11),
+                    closeBody, control.canonicalBytes(), 1, keyPair.getPrivate());
+            assertEquals(StableCode.OK, shard.applySystemMutation(close, closePosition, keyPair.getPublic())
+                    .stableCode());
+
+            final SystemMutationResult result = shard.applySystemMutation(unknown, outcomePosition,
+                    keyPair.getPublic());
+            assertEquals(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, result.stableCode());
+            assertEquals(MessageStatus.UNCERTAIN, shard.getMessage(schedule.delayMessageId()).status());
+            assertEquals(CurrentSendWorkKind.NONE, shard.getMessage(schedule.delayMessageId()).runtimeIndex()
+                    .currentWorkKind());
+            assertEquals(AttemptLedgerState.UNCERTAIN, shard.getPublishAttempt(attemptId, 42).state());
+            assertEquals(0, shard.discoverDue(10_000, 10).size());
+        }
+    }
+
+    @Test
     void sourceOrderedNotPublishedPermanentClosesGenerationAndReleasesQuota() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-outcome-permanent"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 17);

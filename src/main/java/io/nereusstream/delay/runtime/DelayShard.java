@@ -3331,7 +3331,11 @@ public final class DelayShard {
         if (current.status() != MessageStatus.PUBLISHING) {
             throw new IllegalStateException("unknown outcome is stale for the current message");
         }
-        final boolean scheduleUncertainRetry = retryDecision != null && retryDecision.kind() == 2;
+        final LaneRecord currentLane = readLane(current.laneId());
+        final boolean scheduleUncertainRetry = retryDecision != null && retryDecision.kind() == 2
+                && (currentLane == null
+                || (currentLane.admissionGate() != AdmissionGate.CLOSED
+                && currentLane.admissionGate() != AdmissionGate.RETIRED));
         final long retryAt;
         if (scheduleUncertainRetry) {
             final RetryPolicySemanticV1 pinnedPolicy = retryPolicyFor(currentLedger.delayMessageId(), current,

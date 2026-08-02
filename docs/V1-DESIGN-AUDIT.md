@@ -421,6 +421,8 @@ body codec 和本地 transition seam；当前 local transition 还验证了已 a
 generation 在 Close marker 后收到 definitive `NOT_PUBLISHED` 时固定写入
 `LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED` 并停止 retry。它不等于签名服务、真实
 Broker evidence、strong-capability retirement 或 production outcome authority 已完成。
+同一关闭边界下的 `UNKNOWN` 结果保留 `UNCERTAIN` obligation 且不创建新的
+`UNCERTAIN_RETRY` timeline；后续 Resolve retry 仍由 closed-Lane gate 拒绝。
 
 `PublishEvidenceV1`/`ExternalDeliveryIdentityV1` 进一步把 Registry 的
 `PublishEvidenceV1` 公共字段、kind 对应 oneof 分支、verification-status 语义、
