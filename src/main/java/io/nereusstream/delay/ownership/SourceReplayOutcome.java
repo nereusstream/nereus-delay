@@ -4,6 +4,7 @@ import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.runtime.CommandResult;
 import io.nereusstream.delay.runtime.SystemMutationResult;
 
+import java.util.Arrays;
 import java.util.Objects;
 
 /** Result of one ordered Shard Log replay entry. Exactly one branch is set. */
@@ -13,6 +14,14 @@ public record SourceReplayOutcome(SourcePosition position, CommandResult command
         Objects.requireNonNull(position, "position");
         if ((commandResult == null) == (systemMutationResult == null)) {
             throw new IllegalArgumentException("replay outcome must select exactly one result branch");
+        }
+        final byte[] sourceBytes = position.canonicalBytes();
+        if (commandResult != null && !Arrays.equals(sourceBytes, commandResult.appliedSourcePosition())) {
+            throw new IllegalArgumentException("command replay result source position does not match entry");
+        }
+        if (systemMutationResult != null
+                && !Arrays.equals(sourceBytes, systemMutationResult.appliedSourcePosition())) {
+            throw new IllegalArgumentException("system mutation replay result source position does not match entry");
         }
     }
 
