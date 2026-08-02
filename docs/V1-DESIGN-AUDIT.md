@@ -587,6 +587,12 @@ CURRENT 来冒充目标 revision 的成功。它不改变上述生产边界。
 该 adapter 还在远端调用前校验 receipt identity、register revision 和
 `expectedRevision + 1` 的连续性，避免把非法请求交给 authority。
 
+The local `DeliveryCapabilitySemanticV1` value codec now closes the Registry
+baseline/strong outcome branches and Kafka/Pulsar evidence-resource and timing
+compatibility checks. This is only semantic-value evidence; immutable Profile
+publication/catalog resolution and authenticated Broker prerequisite authority
+remain release blockers.
+
 ## Source locks
 
 | 依赖 | 审计锁 |

@@ -12,6 +12,13 @@ empty Pulsar barrier must carry the guarded source-connection generation and
 resource-guard attestation digest together; an unguarded empty Pulsar barrier
 is rejected before it can enter a Ready Certificate.
 
+The Registry-shaped `OutcomeCapabilityV1`, `TimingCapabilityV1` and
+`DeliveryCapabilitySemanticV1` codecs now enforce baseline versus strong
+Kafka/Pulsar evidence-resource branches, timing-bit adapter compatibility,
+nonzero prerequisite digests and canonical field ordering. This closes the
+local semantic-value boundary only; Profile publication/catalog authority and
+authenticated Broker prerequisite attestations remain release blockers.
+
 The System Mutation outcome subset now also has explicit canonical body encoders:
 `PublishOutcomeBody.encodeInitial` closes the initial
 `PUBLISHED`/`NOT_PUBLISHED`/`UNKNOWN` combinations, while
