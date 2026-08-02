@@ -157,6 +157,9 @@ Payload proof trust-set 也已补齐 canonical verifier-key list、semantic
 hash/ref、Ed25519 raw-key projection 和本地 source-time validity-window
 校验；source-ordered activation/issuance-close 及历史 key retention 仍不能
 由该 value codec 自行推断。
+对应的 `ControlReasonV1`、trust-set activate/issuance-close payload branches
+也已按 Registry 严格解码；没有把这些 payload codec 误报成已经接入 Oxia
+control authority。
 
 `OwnedDelayShard` 现在还提供了带 assignment/barrier/source-connection 校验的
 统一 `replay` seam，以及兼容性的 `replayCatchup`/`replaySystemMutations`：
