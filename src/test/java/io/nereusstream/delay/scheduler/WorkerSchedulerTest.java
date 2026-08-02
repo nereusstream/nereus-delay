@@ -39,6 +39,24 @@ class WorkerSchedulerTest {
     }
 
     @Test
+    void emptyShardDoesNotConsumeOuterDeficitVisit() {
+        final ShardId emptyShard = shard(5);
+        final ShardId healthyShard = shard(6);
+        final DestinationLaneId emptyLane = lane(5);
+        final DestinationLaneId healthyLane = lane(6);
+        final WorkerScheduler worker = new WorkerScheduler(10, 64);
+        worker.registerShard(emptyShard, 1, LaneScheduler.defaults());
+        worker.registerShard(healthyShard, 1, LaneScheduler.defaults());
+        worker.registerLane(emptyShard, laneRecord(emptyLane));
+        worker.registerLane(healthyShard, laneRecord(healthyLane));
+        worker.offer(item(healthyShard, healthyLane, 1));
+
+        final List<ScheduleWorkItem> result = worker.poll(new SchedulerBudget(1, 100, 1_000_000_000));
+
+        assertEquals(List.of(healthyLane), result.stream().map(ScheduleWorkItem::laneId).toList());
+    }
+
+    @Test
     void outerFairnessCountersCanBeRestored() {
         final ShardId first = shard(3);
         final ShardId second = shard(4);

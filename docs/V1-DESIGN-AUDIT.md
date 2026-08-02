@@ -106,6 +106,9 @@ digest 与 timeline value，再一次性替换内存 pending heads 与 active DR
 SCHEDULER projection 中持久化，恢复不会把 stale Lane 重新加入 ring。该实现证明
 的是单 DB 内的本地物理边界和确定性恢复顺序，不等于 Oxia owner/session fence、
 typed `ActiveLaneStateV1` 运行时切换或真实 Lane certificate/adapter activation。
+Worker 外层 DRR 也只把至少含有一个 schedulable pending head 的 shard 纳入 visit，
+空 shard 不会消耗外层 deficit；其 cursor/round 仍是跨独立 shard DB 的 bounded
+process state，不伪造跨 DB 的持久原子 ring。
 
 当前代码已把 Lane 的 same-key ACTIVE/TERMINAL 分支和保守本地退休证明接入
 `DelayShard`；并已补齐 Registry-shaped `ActiveLaneStateV1`、

@@ -180,7 +180,8 @@ public final class WorkerScheduler {
         }
 
         private boolean schedulable() {
-            return !blocked;
+            return !blocked && scheduler.snapshot().lanes().stream()
+                    .anyMatch(lane -> lane.schedulable() && lane.pendingItems() > 0);
         }
     }
 }
