@@ -343,8 +343,10 @@ owner identity 和 domain-separated `evidence_id` 固定在一个共享 codec �
 absence/non-submission 分支的 Adapter/target branch、strong-capability evidence
 resource presence、producer digest、credential binding and destination-channel
 holder-scope checks 收敛到同一 canonical implementation；Publish Admission、
-Ready Certificate 和 Evidence codec 复用该边界。当前分支检查覆盖 canonical
-shape、typed cursor、Broker/Channel/Profile nested identity 和 owner 匹配，但
+Ready Certificate 和 Evidence codec 复用该边界，且 Admission/Ready Certificate
+拒绝 credential binding drift 或 certificate 超过 protected Channel lease 的
+有效期。当前分支检查覆盖 canonical shape、typed cursor、Broker/Channel/Profile
+nested identity 和 owner 匹配，但
 真实 adapter 的 authenticated response、lease protection CAS/TTL authority、
 retention barrier、external proof ownership 仍是 release blocker。
 

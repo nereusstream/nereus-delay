@@ -26,6 +26,9 @@ and non-submission branches. `ChannelResourceIdentityV1Test`,
 provider ownership, authenticated Broker proofs, signing, Shard Log routing,
 lease protection CAS/TTL configuration and evidence retention remain outside
 this codec boundary.
+`ReadyCertificateV1` and `PublishAdmissionBody` additionally reject a
+certificate whose credential binding drifts from the Channel or whose expiry
+outlives the protected Channel lease.
 
 The bounded local Control Operation authority also rereads an exact CURRENT
 advance after response loss; it does not infer success for a later or

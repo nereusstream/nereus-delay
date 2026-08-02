@@ -178,6 +178,7 @@ public final class PublishAdmissionBody {
     }
 
     private void validateCrossObjectEqualities() {
+        final ChannelResourceIdentityV1 channelIdentity = ChannelResourceIdentityV1.decode(channel.canonicalBytes());
         if (!Arrays.equals(descriptor.destinationLaneId(), laneId)
                 || !Arrays.equals(descriptor.laneIncarnation(), laneIncarnation)
                 || !Arrays.equals(descriptor.channel(), channel.canonicalBytes())
@@ -215,6 +216,9 @@ public final class PublishAdmissionBody {
                 || !Arrays.equals(readyCertificate.credentialBindingDigest(), channel.credentialBindingDigest())
                 || !Arrays.equals(readyCertificate.credentialFingerprint(), channel.credentialFingerprint())) {
             throw new IllegalArgumentException("Publish Admission certificate/channel credential mismatch");
+        }
+        if (readyCertificate.validUntilEpochMs() > channelIdentity.credentialUseLease().validUntilEpochMs()) {
+            throw new IllegalArgumentException("Publish Admission certificate outlives channel credential lease");
         }
         if (descriptor.deliverAtEpochMs() < 0 || descriptor.expireAtEpochMs() < descriptor.deliverAtEpochMs()
                 || descriptor.actionAtEpochMs() < 0 || descriptor.actionAtEpochMs() != descriptor.deliverAtEpochMs()) {

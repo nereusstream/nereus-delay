@@ -15,13 +15,22 @@ public final class ReadyCertificateV1 {
 
     private ReadyCertificateV1(final PublishAdmissionBody.ReadyCertificate delegate) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
-        final PublishAdmissionBody.Channel channel = PublishAdmissionBody.decodeChannelIdentity(delegate.channel());
-        if (!Arrays.equals(delegate.destinationLaneId(), channel.laneId())
+        final ChannelResourceIdentityV1 channel = ChannelResourceIdentityV1.decode(delegate.channel());
+        if (!Arrays.equals(delegate.destinationLaneId(), channel.destinationLaneId())
                 || !Arrays.equals(delegate.laneIncarnation(), channel.laneIncarnation())) {
             throw new IllegalArgumentException("ReadyCertificate lane does not match ChannelResourceIdentity");
         }
+        if (delegate.credentialBindingGeneration() != channel.credentialBindingGeneration()
+                || !Arrays.equals(delegate.credentialBindingDigest(), channel.credentialBindingDigest())
+                || !Arrays.equals(delegate.credentialFingerprint(),
+                channel.resolvedCredentialVersionFingerprintDigest())) {
+            throw new IllegalArgumentException("ReadyCertificate credential binding does not match channel");
+        }
         if (delegate.validUntilEpochMs() <= delegate.issuedAt().latestEpochMs()) {
             throw new IllegalArgumentException("ReadyCertificate valid-until must exceed issued UTC interval");
+        }
+        if (delegate.validUntilEpochMs() > channel.credentialUseLease().validUntilEpochMs()) {
+            throw new IllegalArgumentException("ReadyCertificate outlives the channel credential lease");
         }
         validateNestedCanonical(delegate.canonicalBytes());
     }
