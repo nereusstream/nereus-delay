@@ -134,6 +134,11 @@ Owner Lease/session CAS；`CheckpointResourceV1` 与
 也已补齐 manifest-object identity 和 PENDING/PUBLISHED/REAPING 的 canonical
 state branches；`CheckpointUploadIntentStore` 还提供了 exact-value create
 idempotency 与本地 PENDING_UPLOAD -> PUBLISHED/REAPING revision CAS 投影。
+`OxiaRecoveryCatalog` 的 response boundary 现在会在 scalar/typed Floor CAS
+后 reread exact published manifest，并拒绝 lineage、manifest hash、source
+position、mutation sequence 或 typed evidence-cursor drift；typed 返回还必须
+与请求的 cursor 集合 byte-equal，缺失 manifest 也 fail closed。这只是远端
+响应验证，不等同于已经实现 Oxia transaction。
 这仍不是 Oxia 的 Owner Lease/session、lineage-head、catalog-generation
 transaction，也不执行 Object Store upload/attestation/delete。现有 `DelayShard` 仍
 通过兼容 `LaneRecord` 写入 ACTIVE 分支，因此这不被误报为已经完成 full

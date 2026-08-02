@@ -159,6 +159,12 @@ embedded `RecoveryCatalog` now selects and validates a published floor-eligible
 ancestry before local restore. Upload-intent catalog projection also accepts
 an exact same-checkpoint/manifest/object-identity reread after publication
 response loss while rejecting same-ID manifest-hash or object-version drift.
+The `OxiaRecoveryCatalog` response boundary now rereads the exact published
+manifest after scalar or typed Floor CAS and rejects returned lineage,
+manifest-hash, source-position, mutation-sequence, or evidence-cursor drift;
+typed responses must also be byte-equal to the requested cursor set. A missing
+manifest or malformed Floor response therefore fails closed instead of being
+accepted as a successful remote CAS.
 Typed `RecoveryCandidateRefV1` and
 `RecoveryPinV1` codecs now close the candidate branch and session-bound pin
 projection, but they are still local value codecs: immutable object publication,

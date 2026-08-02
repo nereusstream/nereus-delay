@@ -63,6 +63,7 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
         if (!Bytes.constantTimeEquals(evidenceCursorDigest, result.evidenceCursorDigest())) {
             throw new IllegalStateException("Oxia floor result changed evidence cursor digest");
         }
+        validateScalarFloorIdentity(result, publishedManifest(checkpointId));
         return result;
     }
 
@@ -73,12 +74,17 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
         if (expectedCatalogGeneration < 0) {
             throw new IllegalArgumentException("catalog generation must be non-negative");
         }
+        Objects.requireNonNull(evidenceCursors, "evidenceCursors");
         final RecoveryFloorRefV1 result = Objects.requireNonNull(backend.advanceFloor(checkpointId,
                 expectedCatalogGeneration, evidenceCursors), "Oxia typed Floor result");
         if (!Bytes.constantTimeEquals(checkpointId, result.checkpointId())
                 || result.catalogGeneration() <= expectedCatalogGeneration) {
             throw new IllegalStateException("Oxia typed Floor result is not bound to the requested CAS");
         }
+        if (!result.evidenceCursors().equals(evidenceCursors)) {
+            throw new IllegalStateException("Oxia typed Floor result changed evidence cursors");
+        }
+        validateTypedFloorIdentity(result, publishedManifest(checkpointId));
         return result;
     }
 
@@ -170,6 +176,35 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
                 || !Bytes.constantTimeEquals(requested.checkpointId(), result.manifest().checkpointId())
                 || !Bytes.constantTimeEquals(requested.manifestSha256(), result.manifest().manifestSha256())) {
             throw new IllegalStateException("Oxia catalog publication changed checkpoint identity");
+        }
+    }
+
+    private CheckpointManifest publishedManifest(final byte[] checkpointId) {
+        return manifest(checkpointId).orElseThrow(() ->
+                new IllegalStateException("Oxia Floor result refers to a missing checkpoint manifest"));
+    }
+
+    private static void validateScalarFloorIdentity(final RecoveryFloor result,
+                                                     final CheckpointManifest manifest) {
+        if (!Bytes.constantTimeEquals(result.recoveryLineageId(), manifest.recoveryLineageId())
+                || !Bytes.constantTimeEquals(result.checkpointId(), manifest.checkpointId())
+                || !Bytes.constantTimeEquals(result.manifestSha256(), manifest.manifestSha256())
+                || result.catalogGeneration() <= 0
+                || !result.appliedSourcePosition().equals(manifest.appliedShardLogPosition())
+                || result.includedMutationSequence() != manifest.shardMutationSequence()) {
+            throw new IllegalStateException("Oxia Floor result changed checkpoint identity or boundary");
+        }
+    }
+
+    private static void validateTypedFloorIdentity(final RecoveryFloorRefV1 result,
+                                                    final CheckpointManifest manifest) {
+        if (!Bytes.constantTimeEquals(result.recoveryLineageId(), manifest.recoveryLineageId())
+                || !Bytes.constantTimeEquals(result.checkpointId(), manifest.checkpointId())
+                || !Bytes.constantTimeEquals(result.manifestSha256(), manifest.manifestSha256())
+                || !result.appliedSourcePosition().equals(manifest.appliedShardLogPosition())
+                || result.includedMutationSequence() != manifest.shardMutationSequence()
+                || !result.evidenceCursors().equals(manifest.evidenceCursors())) {
+            throw new IllegalStateException("Oxia typed Floor result changed checkpoint identity or boundary");
         }
     }
 

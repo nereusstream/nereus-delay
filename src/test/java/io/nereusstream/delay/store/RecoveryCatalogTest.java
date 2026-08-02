@@ -343,6 +343,72 @@ class RecoveryCatalogTest {
                 () -> new OxiaRecoveryCatalog(malformed).publish(manifest, 0));
     }
 
+    @Test
+    void OxiaBoundaryRejectsTypedFloorBoundaryAndCursorDrift() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
+        final EvidenceCursorV1 cursor = EvidenceCursorV1.kafka(id32(56), id16(57), id16(58),
+                1, 1, 1_001, 2, 1);
+        final CheckpointManifest manifest = manifest(shard, UUID.randomUUID(), id16(53), id16(54), 0,
+                1, 1, null, List.of(cursor));
+        final RecoveryFloorRefV1 wrongManifest = new RecoveryFloorRefV1(manifest.recoveryLineageId(),
+                manifest.checkpointId(), id32(59), 2, manifest.appliedShardLogPosition(),
+                manifest.shardMutationSequence(), List.of(cursor));
+        final RecoveryFloorRefV1 wrongCursors = new RecoveryFloorRefV1(manifest.recoveryLineageId(),
+                manifest.checkpointId(), manifest.manifestSha256(), 2, manifest.appliedShardLogPosition(),
+                manifest.shardMutationSequence(), List.of());
+
+        final class Backend implements OxiaRecoveryCatalog.CasBackend {
+            private RecoveryFloorRefV1 typedResult = wrongManifest;
+
+            @Override
+            public RecoveryCatalog.Publication publish(final CheckpointManifest ignored, final long expected) {
+                return new RecoveryCatalog.Publication(manifest, expected + 1, null);
+            }
+
+            @Override
+            public RecoveryFloor advanceFloor(final byte[] ignored, final long expected, final byte[] digest) {
+                return RecoveryFloor.create(manifest.recoveryLineageId(), manifest.checkpointId(),
+                        manifest.manifestSha256(), expected + 1, manifest.appliedShardLogPosition(),
+                        manifest.shardMutationSequence(), digest);
+            }
+
+            @Override
+            public RecoveryFloorRefV1 advanceFloor(final byte[] ignored, final long expected,
+                                                   final List<EvidenceCursorV1> ignoredCursors) {
+                return typedResult;
+            }
+
+            @Override
+            public java.util.Optional<CheckpointManifest> manifest(final byte[] ignored) {
+                return java.util.Optional.of(manifest);
+            }
+
+            @Override
+            public java.util.Optional<RecoveryFloor> currentFloor() {
+                return java.util.Optional.empty();
+            }
+
+            @Override
+            public void validatePublishedRestoreCandidate(final CheckpointManifest ignored) {
+            }
+
+            @Override
+            public java.util.Optional<RecoveryCatalog.FloorCoverage> proveFloorCoverage(
+                    final byte[] ignored, final long sequence,
+                    final io.nereusstream.delay.protocol.SourcePosition... positions) {
+                return java.util.Optional.empty();
+            }
+        }
+
+        final Backend backend = new Backend();
+        final OxiaRecoveryCatalog authority = new OxiaRecoveryCatalog(backend);
+        assertThrows(IllegalStateException.class,
+                () -> authority.advanceFloor(manifest.checkpointId(), 1, List.of(cursor)));
+        backend.typedResult = wrongCursors;
+        assertThrows(IllegalStateException.class,
+                () -> authority.advanceFloor(manifest.checkpointId(), 1, List.of(cursor)));
+    }
+
     private static CheckpointManifest manifest(final ShardId shard, final UUID topic, final byte[] lineage,
                                                final byte[] checkpointId, final long lineageGeneration,
                                                final long offset, final long mutationSequence,
