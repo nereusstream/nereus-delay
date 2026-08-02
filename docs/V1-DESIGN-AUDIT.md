@@ -592,6 +592,12 @@ baseline/strong outcome branches and Kafka/Pulsar evidence-resource and timing
 compatibility checks. This is only semantic-value evidence; immutable Profile
 publication/catalog resolution and authenticated Broker prerequisite authority
 remain release blockers.
+The four Profile semantic body codecs and `ProfileSemanticEnvelopeV1` now add
+closed branch/kind checks, destination partition-policy validation, mandatory
+Object Store safety flags, verifier validity bounds and the Registry
+domain-separated semantic hash. They remain pure values; publication,
+credential-binding protection and catalog/authority transactions are not
+claimed complete.
 
 ## Source locks
 

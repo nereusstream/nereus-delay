@@ -19,6 +19,13 @@ nonzero prerequisite digests and canonical field ordering. This closes the
 local semantic-value boundary only; Profile publication/catalog authority and
 authenticated Broker prerequisite attestations remain release blockers.
 
+The four Registry §5.1.1 Profile semantic bodies now have strict canonical
+codecs, and `ProfileSemanticEnvelopeV1` binds their closed branch, kind, ID,
+version and domain-separated semantic hash. Destination partition policy,
+Object Store safety booleans and Evidence Verifier validity bounds fail closed
+locally; immutable publication, credential binding and catalog resolution are
+still external authority work.
+
 The System Mutation outcome subset now also has explicit canonical body encoders:
 `PublishOutcomeBody.encodeInitial` closes the initial
 `PUBLISHED`/`NOT_PUBLISHED`/`UNKNOWN` combinations, while

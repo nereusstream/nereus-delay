@@ -11,7 +11,7 @@ import java.util.Objects;
  * semantic hash. This value owns the adapter/capability/evidence prerequisite
  * invariants and has a strict canonical representation.</p>
  */
-public final class DeliveryCapabilitySemanticV1 {
+public final class DeliveryCapabilitySemanticV1 implements ProfileSemanticBodyV1 {
     public static final int ADAPTER_CONFORMANCE_VERSION_MIN = 1;
     public static final int REJECTION_CLASSIFIER_VERSION_MIN = 1;
     public static final int HASH_LENGTH = 32;
@@ -141,6 +141,16 @@ public final class DeliveryCapabilitySemanticV1 {
 
     public boolean requiresEvidenceResource() {
         return outcomeCapability != OutcomeCapabilityV1.AT_LEAST_ONCE;
+    }
+
+    @Override
+    public ProfileKindV1 profileKind() {
+        return ProfileKindV1.DELIVERY_CAPABILITY;
+    }
+
+    @Override
+    public int schemaVersion() {
+        return 1;
     }
 
     public byte[] canonicalBytes() {
