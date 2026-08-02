@@ -409,6 +409,11 @@ public final class OwnedDelayShard {
         return lease;
     }
 
+    /** Returns the single-writer shard used by this fenced owner view. */
+    public synchronized DelayShard shard() {
+        return delegate;
+    }
+
     public synchronized SourceAssignment sourceAssignment() {
         return sourceAssignment;
     }

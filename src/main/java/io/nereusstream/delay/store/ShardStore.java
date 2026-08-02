@@ -644,6 +644,11 @@ public final class ShardStore implements AutoCloseable {
         return metadata;
     }
 
+    /** Returns the process-wide resource envelope that owns this DB slot. */
+    public SharedRocksDbResources sharedResources() {
+        return resources;
+    }
+
     /** Returns the local mutable metadata projection; it is not remote authority. */
     public synchronized StoreRuntimeMetadata runtimeMetadata() {
         return runtimeMetadata;

@@ -358,6 +358,12 @@ quiescence 或 final checkpoint publication。
 `PUBLISHING`/`UNCERTAIN` ledger view，供 drain 等待 admitted callback 的本地轮询
 使用；重复 attempt identity 或超 bound 都 fail closed，不能把未知 obligation
 当作已清空。
+`OwnerDrainCoordinator` 将 source/scheduler stop、authority-gated `DRAINING`、
+Claim revoke、bounded callback poll、lease/deadline reread、flush/sync、可选
+final checkpoint、Store close 和 exact release 串成一个可重试的本地顺序；
+callback/source quiescence 仍由调用方和真实 transport 提供，超时保持
+`DRAINING` 而不伪造成功。`OwnerDrainCoordinatorTest` 覆盖成功与 deadline
+失败边界。
 Lease validity additionally rejects negative observation times even when a
 caller reaches `OwnerLease.validAt` directly rather than through an authority
 request; `OwnerLeaseTest.negativeClockCannotMakeOwnerLeaseValid` covers the
