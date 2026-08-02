@@ -12,6 +12,8 @@ import io.nereusstream.delay.protocol.CapacityGrantV1;
 import io.nereusstream.delay.protocol.CapacityVectorV1;
 import io.nereusstream.delay.protocol.CancelCommandBodyV1;
 import io.nereusstream.delay.protocol.CommitLargeScheduleBodyV1;
+import io.nereusstream.delay.protocol.ControlRef;
+import io.nereusstream.delay.protocol.ControlTargetRefV1;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.DlqExportResultBody;
@@ -34,6 +36,7 @@ import io.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1;
 import io.nereusstream.delay.protocol.PublishAdmissionBody;
 import io.nereusstream.delay.protocol.PublishOutcomeBody;
 import io.nereusstream.delay.protocol.PreparedCommand;
+import io.nereusstream.delay.protocol.PreparedControlOperationV1;
 import io.nereusstream.delay.protocol.ReplayDeadLetterBody;
 import io.nereusstream.delay.protocol.ResolveUncertainBody;
 import io.nereusstream.delay.protocol.RetryPolicyRefV1;
@@ -53,6 +56,7 @@ import io.nereusstream.delay.protocol.SystemMutationBodyCodec;
 import io.nereusstream.delay.protocol.SystemMutationType;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.protocol.V1ScheduleBinding;
+import io.nereusstream.delay.ownership.ControlTargetRegistrationAuthority;
 import io.nereusstream.delay.store.ColumnFamily;
 import io.nereusstream.delay.store.KeyCodec;
 import io.nereusstream.delay.store.RecoveryCatalogAuthority;
@@ -99,6 +103,7 @@ public final class DelayShard {
     private final PayloadProofTrustSet payloadProofTrustSet;
     private final PayloadProofTrustSetControlCatalog payloadProofTrustSetControlCatalog;
     private final RetryPolicyCatalog retryPolicyCatalog;
+    private final ControlTargetRegistrationAuthority controlTargetRegistrationAuthority;
     private PayloadProofTrustSetControlState payloadProofTrustSetControlState;
     private ProfileBindingControlState profileBindingControlState;
     private final ShardCapacityEnvelopeV1 capacityEnvelope;
@@ -174,11 +179,29 @@ public final class DelayShard {
                       final V1ScheduleResolver v1ScheduleResolver,
                       final PayloadProofTrustSetControlCatalog payloadProofTrustSetControlCatalog,
                       final RetryPolicyCatalog retryPolicyCatalog) {
+        this(store, config, payloadProofTrustSet, capacityEnvelope, v1ScheduleResolver,
+                payloadProofTrustSetControlCatalog, retryPolicyCatalog, null);
+    }
+
+    /**
+     * Opens a shard with an optional exact Control target-registration authority.
+     * When supplied, source-ordered Control markers are rejected before their
+     * local handlers run unless the immutable Prepared target registration is
+     * present and the marker bytes match it exactly.
+     */
+    public DelayShard(final ShardStore store, final DelayShardConfig config,
+                      final PayloadProofTrustSet payloadProofTrustSet,
+                      final ShardCapacityEnvelopeV1 capacityEnvelope,
+                      final V1ScheduleResolver v1ScheduleResolver,
+                      final PayloadProofTrustSetControlCatalog payloadProofTrustSetControlCatalog,
+                      final RetryPolicyCatalog retryPolicyCatalog,
+                      final ControlTargetRegistrationAuthority controlTargetRegistrationAuthority) {
         this.store = Objects.requireNonNull(store, "store");
         this.config = Objects.requireNonNull(config, "config");
         this.payloadProofTrustSet = payloadProofTrustSet;
         this.payloadProofTrustSetControlCatalog = payloadProofTrustSetControlCatalog;
         this.retryPolicyCatalog = retryPolicyCatalog;
+        this.controlTargetRegistrationAuthority = controlTargetRegistrationAuthority;
         this.capacityEnvelope = capacityEnvelope;
         this.v1ScheduleResolver = v1ScheduleResolver;
         final var sourceValue = store.getValue(ColumnFamily.META, KeyCodec.metaFixed(META_APPLIED_SOURCE_POSITION), 1);
@@ -959,6 +982,13 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED);
         }
+        if (controlTargetRegistrationAuthority != null && requiresControlTargetRegistration(mutation.type())) {
+            final SystemMutationResult registrationResult = validateRegisteredControlMutation(mutation,
+                    sourcePosition);
+            if (registrationResult != null) {
+                return registrationResult;
+            }
+        }
         try {
             return switch (mutation.type()) {
                 case APPLY_SHARD_CONTROL -> applyShardControlMutation(mutation, sourcePosition);
@@ -983,6 +1013,49 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }
+    }
+
+    private SystemMutationResult validateRegisteredControlMutation(final SystemMutation mutation,
+                                                                    final SourcePosition sourcePosition) {
+        try {
+            final ControlRef controlRef = controlRefFor(mutation);
+            final PreparedControlOperationV1 prepared = controlTargetRegistrationAuthority.find(
+                    controlRef.operationId()).orElse(null);
+            if (prepared == null) {
+                return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                        StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+            }
+            final ControlTargetRefV1 target = prepared.targets().stream()
+                    .filter(candidate -> candidate.targetIndex() == controlRef.targetIndex())
+                    .findFirst().orElse(null);
+            if (target == null) {
+                return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                        StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+            }
+            controlTargetRegistrationAuthority.validateMutation(prepared, target, mutation);
+            return null;
+        } catch (RuntimeException exception) {
+            // A configured target registry is a fail-closed boundary.  A
+            // missing/malformed/drifting registration must never reach a
+            // local Control handler and must still advance the source log.
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
+    }
+
+    private static boolean requiresControlTargetRegistration(final SystemMutationType type) {
+        return type == SystemMutationType.APPLY_SHARD_CONTROL
+                || type == SystemMutationType.REPLAY_DEAD_LETTER
+                || type == SystemMutationType.RESOLVE_UNCERTAIN;
+    }
+
+    private static ControlRef controlRefFor(final SystemMutation mutation) {
+        return switch (mutation.type()) {
+            case APPLY_SHARD_CONTROL -> ApplyShardControlBody.decode(mutation.canonicalBody()).controlRef();
+            case REPLAY_DEAD_LETTER -> ReplayDeadLetterBody.decode(mutation.canonicalBody()).controlRef();
+            case RESOLVE_UNCERTAIN -> ResolveUncertainBody.decode(mutation.canonicalBody()).controlRef();
+            default -> throw new IllegalArgumentException("mutation has no ControlRef");
+        };
     }
 
     /**

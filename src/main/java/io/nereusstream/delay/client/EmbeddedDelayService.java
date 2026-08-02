@@ -93,9 +93,10 @@ public final class EmbeddedDelayService implements DelayClient {
         this.clientConfig = Objects.requireNonNull(clientConfig, "clientConfig");
         resources = new SharedRocksDbResources(storeConfig);
         store = ShardStore.open(storeConfig, shardId, resources);
-        shard = new DelayShard(store, DelayShardConfig.defaults());
         controlOperationAuthority = new InMemoryControlOperationAuthority();
         controlTargetRegistrationAuthority = new InMemoryControlTargetRegistrationAuthority();
+        shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, null, null, null,
+                controlTargetRegistrationAuthority);
         final SourcePosition last = shard.lastAppliedSourcePosition();
         if (last != null) {
             if (!(last instanceof KafkaSourcePosition kafka)

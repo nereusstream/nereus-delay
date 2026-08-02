@@ -56,6 +56,7 @@ import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.SystemMutation;
 import io.nereusstream.delay.protocol.SystemMutationType;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
+import io.nereusstream.delay.ownership.InMemoryControlTargetRegistrationAuthority;
 import io.nereusstream.delay.store.ColumnFamily;
 import io.nereusstream.delay.store.KeyCodec;
 import io.nereusstream.delay.store.RecoveryFloor;
@@ -820,6 +821,36 @@ class DelayShardTest {
             shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
             assertEquals(1, shard.discoverReady(10_000, 10).size());
             assertEquals(schedule.delayMessageId(), shard.discoverReady(10_000, 10).get(0).messageId());
+        }
+    }
+
+    @Test
+    void configuredControlRegistrationRejectsUnregisteredMarkerBeforeHandler() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("unregistered-control-marker"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 66);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("unregistered-control-marker-lane"));
+        final byte[] laneIncarnation = bytes(16, 91);
+        final ControlRef controlRef = new ControlRef(Bytes.sha256(Bytes.utf8("unregistered-control-operation")),
+                Bytes.sha256(Bytes.utf8("unregistered-control-request")), 0);
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final AuthorIdentity control = AuthorIdentity.control(Bytes.sha256(Bytes.utf8("unregistered-control-actor")),
+                Bytes.sha256(Bytes.utf8("unregistered-control-roles")),
+                Bytes.sha256(Bytes.utf8("unregistered-control-scope")));
+        final byte[] body = applyShardControlBody(shardId, controlRef, 8, lane, laneIncarnation, 1);
+        final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.APPLY_SHARD_CONTROL,
+                9_000, controlRef.logicalOperationIdentity(8), body, control.canonicalBytes(), 1,
+                keyPair.getPrivate());
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, null, null, null,
+                    new InMemoryControlTargetRegistrationAuthority());
+
+            final SystemMutationResult result = shard.applySystemMutation(mutation, position(shardId, 0, 1_000),
+                    keyPair.getPublic());
+            assertEquals(ApplyStatus.REJECTED, result.applyStatus());
+            assertEquals(StableCode.UNAUTHORIZED_SYSTEM_MUTATION, result.stableCode());
+            assertNull(shard.getLane(lane));
         }
     }
 

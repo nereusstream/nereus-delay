@@ -118,8 +118,13 @@ The query-retention helper derives the boundary from trusted registration
 evidence with checked addition; policy publication and Oxia persistence remain
 external.
 The embedded service now runs the local target-registration plus operation-CAS
-path end to end, but it remains a test model and does not provide gateway
-authentication or a production Oxia transaction.
+path end to end. Its configured `DelayShard` also consumes the same local
+registration authority: `APPLY_SHARD_CONTROL`, `REPLAY_DEAD_LETTER` and
+`RESOLVE_UNCERTAIN` markers are rejected at their Source Position before any
+handler effect unless the exact Prepared target and mutation identity are
+registered. This proves the fail-closed local boundary only; it remains a test
+model and does not provide gateway authentication, target existence or a
+production Oxia transaction.
 The registration outcome/proof union is likewise local evidence projection:
 only authenticated Oxia response evidence can construct the conditional
 rejection branch, while timeout/session ambiguity remains `RECORD_UNCERTAIN`.
