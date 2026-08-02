@@ -49,7 +49,7 @@ public record LaneRecord(
         if (admissionGate != AdmissionGate.OPEN && next == RuntimeReadiness.READY) {
             throw new IllegalStateException("non-open lane cannot become READY");
         }
-        return new LaneRecord(laneId, laneIncarnation, laneControlVersion, laneVersion + 1,
+        return new LaneRecord(laneId, laneIncarnation, laneControlVersion, nextVersion(laneVersion, "laneVersion"),
                 admissionGate, next, weight, nextEligibleAtEpochMs);
     }
 
@@ -62,7 +62,7 @@ public record LaneRecord(
         if (next < 0) {
             throw new IllegalArgumentException("next eligible time must be non-negative");
         }
-        return new LaneRecord(laneId, laneIncarnation, laneControlVersion, laneVersion + 1,
+        return new LaneRecord(laneId, laneIncarnation, laneControlVersion, nextVersion(laneVersion, "laneVersion"),
                 admissionGate, runtimeReadiness, weight, next);
     }
 
@@ -74,7 +74,8 @@ public record LaneRecord(
         if (nextGate == AdmissionGate.RETIRED && admissionGate != AdmissionGate.CLOSED) {
             throw new IllegalStateException("only CLOSED can become RETIRED");
         }
-        return new LaneRecord(laneId, laneIncarnation, laneControlVersion + 1, laneVersion + 1,
+        return new LaneRecord(laneId, laneIncarnation, nextVersion(laneControlVersion, "laneControlVersion"),
+                nextVersion(laneVersion, "laneVersion"),
                 nextGate, nextGate == AdmissionGate.OPEN ? runtimeReadiness : RuntimeReadiness.BLOCKED,
                 weight, nextEligibleAtEpochMs);
     }
@@ -113,6 +114,13 @@ public record LaneRecord(
             throw new IllegalStateException("only a CLOSED lane can retire");
         }
         return withGate(AdmissionGate.RETIRED);
+    }
+
+    private static long nextVersion(final long value, final String name) {
+        if (value == Long.MAX_VALUE) {
+            throw new IllegalStateException(name + " exhausted");
+        }
+        return value + 1;
     }
 
     public byte[] encode() {

@@ -117,7 +117,9 @@ process state，不伪造跨 DB 的持久原子 ring。两级 scheduler 现在�
 saturating arithmetic；配置、注册或恢复导致的整数溢出不会 wrap 成可调度的错误预算。
 `LaneSchedulerTest.rejectsQuantumAndWeightArithmeticOverflow` 与
 `WorkerSchedulerTest.rejectsQuantumAndWeightArithmeticOverflow` 是本地回归证据，
-不等于 production placement/authority 已完成。
+不等于 production placement/authority 已完成。Lane runtime/control version 的
+checked increment 也在 `Long.MAX_VALUE` fail closed，避免 READY key 或管理 CAS
+版本回绕；`LaneRecordTest.versionCountersFailClosedBeforeLongOverflow` 覆盖该本地边界。
 
 当前代码已把 Lane 的 same-key ACTIVE/TERMINAL 分支和保守本地退休证明接入
 `DelayShard`；并已补齐 Registry-shaped `ActiveLaneStateV1`、

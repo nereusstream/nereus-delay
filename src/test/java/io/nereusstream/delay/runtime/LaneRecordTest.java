@@ -24,4 +24,17 @@ class LaneRecordTest {
         assertThrows(IllegalStateException.class, retired::resumeByAdmin);
         assertThrows(IllegalStateException.class, closed::breakOrdering);
     }
+
+    @Test
+    void versionCountersFailClosedBeforeLongOverflow() {
+        final DestinationLaneId lane = new DestinationLaneId(new byte[32]);
+        final LaneRecord runtimeExhausted = new LaneRecord(lane, new byte[16], 1, Long.MAX_VALUE,
+                AdmissionGate.OPEN, RuntimeReadiness.READY, 1, 0);
+        assertThrows(IllegalStateException.class,
+                () -> runtimeExhausted.withReadiness(RuntimeReadiness.BLOCKED));
+
+        final LaneRecord controlExhausted = new LaneRecord(lane, new byte[16], Long.MAX_VALUE, 0,
+                AdmissionGate.OPEN, RuntimeReadiness.READY, 1, 0);
+        assertThrows(IllegalStateException.class, controlExhausted::pauseByAdmin);
+    }
 }
