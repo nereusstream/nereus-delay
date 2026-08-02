@@ -252,6 +252,8 @@ second order dimension.  A replay that reuses the same offset/ledger-entry-
 batch token with different canonical metadata is rejected, so one physical
 record cannot be interpreted as a later Shard Log position or silently reuse a
 Command result.
+The same exact-position check is applied to the owner catch-up cursor before
+activation, not only to the subsequent Command/System Mutation WriteBatch.
 
 本地 `RecoveryCatalog.publishUploadedCheckpoint` 现在要求 PUBLISHED intent
 与完整 manifest 的 shard、lineage、checkpoint、manifest hash/length、owner

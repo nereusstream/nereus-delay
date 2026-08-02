@@ -10,6 +10,7 @@ import io.nereusstream.delay.runtime.CommandResult;
 import io.nereusstream.delay.runtime.DelayShard;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.security.PublicKey;
@@ -132,9 +133,7 @@ public final class OwnedDelayShard {
             activationBarrier.validatePosition(position);
             validateSourceConnection(position, sourceConnectionGeneration, guardAttestationDigest);
         }
-        if (lastCatchupPosition != null && position.compareTo(lastCatchupPosition) < 0) {
-            throw new IllegalStateException("catch-up position regressed");
-        }
+        validateCatchupOrder(position);
         lastCatchupPosition = position;
     }
 
@@ -170,9 +169,7 @@ public final class OwnedDelayShard {
                 validateSourceConnection(position, record.sourceConnectionGeneration(),
                         record.guardAttestationDigest());
             }
-            if (lastCatchupPosition != null && position.compareTo(lastCatchupPosition) < 0) {
-                throw new IllegalStateException("source replay position regressed");
-            }
+            validateCatchupOrder(position);
             final CommandResult result = delegate.apply(record.command(), position);
             lastCatchupPosition = position;
             results.add(result);
@@ -214,9 +211,7 @@ public final class OwnedDelayShard {
                 validateSourceConnection(position, record.sourceConnectionGeneration(),
                         record.guardAttestationDigest());
             }
-            if (lastCatchupPosition != null && position.compareTo(lastCatchupPosition) < 0) {
-                throw new IllegalStateException("system replay position regressed");
-            }
+            validateCatchupOrder(position);
             final SystemMutationResult result = delegate.applySystemMutation(record.mutation(), position,
                     verificationKey);
             lastCatchupPosition = position;
@@ -279,8 +274,19 @@ public final class OwnedDelayShard {
             activationBarrier.validatePosition(position);
             validateSourceConnection(position, sourceConnectionGeneration, guardAttestationDigest);
         }
-        if (lastCatchupPosition != null && position.compareTo(lastCatchupPosition) < 0) {
+        validateCatchupOrder(position);
+    }
+
+    private void validateCatchupOrder(final SourcePosition position) {
+        if (lastCatchupPosition == null) {
+            return;
+        }
+        final int order = position.compareTo(lastCatchupPosition);
+        if (order < 0) {
             throw new IllegalStateException("source replay position regressed");
+        }
+        if (order == 0 && !Arrays.equals(position.canonicalBytes(), lastCatchupPosition.canonicalBytes())) {
+            throw new IllegalStateException("source replay position has conflicting canonical identity");
         }
     }
 

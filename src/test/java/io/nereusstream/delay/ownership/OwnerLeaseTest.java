@@ -307,6 +307,27 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void catchupCursorRejectsSameKafkaOffsetWithDifferentCanonicalMetadata() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 16);
+        final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = authority.acquire(shardId, "worker-cursor-fence", 100, 100).orElseThrow();
+        final UUID topic = UUID.randomUUID();
+        final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 1);
+        final KafkaSourcePosition first = new KafkaSourcePosition(shardId, "cluster", topic, 0, 3, 1_000);
+        final KafkaSourcePosition conflicting = new KafkaSourcePosition(shardId, "cluster", topic, 0, 4, 1_001);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("catchup-cursor-fence"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            owned.markCatchingUp(new SourceAssignment(shardId,
+                    Bytes.sha256(Bytes.utf8("assignment-cursor-fence")), 1, barrier));
+            owned.recordCatchup(first);
+            assertThrows(IllegalStateException.class, () -> owned.recordCatchup(conflicting));
+            assertEquals(first, owned.lastCatchupPosition());
+        }
+    }
+
+    @Test
     void pulsarCatchupAndApplyRequireTheGuardedSourceConnectionGeneration() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 7);
         final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
