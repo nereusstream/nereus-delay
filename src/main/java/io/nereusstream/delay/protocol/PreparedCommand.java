@@ -44,12 +44,33 @@ public final class PreparedCommand {
                 CommandBodies.schedule(intent));
     }
 
+    /** Creates a command using the Registry-shaped ScheduleV1 body seam. */
+    public static PreparedCommand scheduleV1(final ShardId shardId, final ScheduleIntentV1 intent,
+                                             final long retryUntilEpochMs) {
+        final CommandId commandId = CommandId.random(shardId);
+        final DelayMessageId messageId = DelayMessageId.random(shardId);
+        return create(shardId, commandId, messageId, CommandType.SCHEDULE, retryUntilEpochMs,
+                CommandBodies.scheduleV1(messageId, retryUntilEpochMs, intent));
+    }
+
     public static PreparedCommand prepareLarge(final ShardId shardId, final LargeScheduleIntent intent,
                                                final long retryUntilEpochMs) {
         final CommandId commandId = CommandId.random(shardId);
         final DelayMessageId messageId = DelayMessageId.random(shardId);
         return create(shardId, commandId, messageId, CommandType.PREPARE_LARGE_SCHEDULE, retryUntilEpochMs,
                 CommandBodies.prepareLarge(intent));
+    }
+
+    /** Creates a command using the Registry-shaped PrepareLargeScheduleV1 body seam. */
+    public static PreparedCommand prepareLargeV1(final ShardId shardId, final ScheduleIntentV1 intentWithoutPayload,
+                                                 final long expectedPayloadLength, final byte[] payloadSha256,
+                                                 final long reservationTtlMs, final PayloadProofTrustSetRefV1 trustSet,
+                                                 final long retryUntilEpochMs) {
+        final CommandId commandId = CommandId.random(shardId);
+        final DelayMessageId messageId = DelayMessageId.random(shardId);
+        return create(shardId, commandId, messageId, CommandType.PREPARE_LARGE_SCHEDULE, retryUntilEpochMs,
+                CommandBodies.prepareLargeV1(messageId, retryUntilEpochMs, intentWithoutPayload,
+                        expectedPayloadLength, payloadSha256, reservationTtlMs, trustSet));
     }
 
     public static PreparedCommand commitLarge(final ShardId shardId, final DelayMessageId messageId,

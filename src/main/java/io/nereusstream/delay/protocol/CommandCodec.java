@@ -25,8 +25,19 @@ public final class CommandCodec {
         });
     }
 
+    /** Encodes a command after validating the currently supported V1 body branches. */
+    public static byte[] encodeEnvelopeV1(final PreparedCommand command) {
+        validateV1Body(command);
+        return encodeEnvelope(command);
+    }
+
     public static byte[] encodeFrame(final PreparedCommand command) {
         return ShardLogFrame.encodeClientCommand(encodeEnvelope(command));
+    }
+
+    /** Encodes a frame after validating the currently supported V1 body branches. */
+    public static byte[] encodeFrameV1(final PreparedCommand command) {
+        return ShardLogFrame.encodeClientCommand(encodeEnvelopeV1(command));
     }
 
     public static PreparedCommand decodeFrame(final byte[] frame) {
@@ -71,6 +82,44 @@ public final class CommandCodec {
             throw new IllegalArgumentException("command and message route mismatch");
         }
         return new PreparedCommand(shardId, commandId, messageId, type, retryUntil, body, hash);
+    }
+
+    /** Decodes and validates the Registry-shaped Schedule/Prepare body branches. */
+    public static PreparedCommand decodeEnvelopeV1(final byte[] envelope) {
+        final PreparedCommand command = decodeEnvelope(envelope);
+        validateV1Body(command);
+        return command;
+    }
+
+    /** Decodes a frame and validates the Registry-shaped Schedule/Prepare body branches. */
+    public static PreparedCommand decodeFrameV1(final byte[] frame) {
+        final ShardLogFrame.Decoded decoded = ShardLogFrame.decode(frame);
+        if (decoded.recordKind() != ShardLogFrame.CLIENT_COMMAND_KIND) {
+            throw new IllegalArgumentException("frame is not a Client Command");
+        }
+        return decodeEnvelopeV1(decoded.canonicalEnvelope());
+    }
+
+    private static void validateV1Body(final PreparedCommand command) {
+        switch (command.type()) {
+            case SCHEDULE -> {
+                final ScheduleCommandBodyV1 body = ScheduleCommandBodyV1.decode(command.canonicalBody());
+                requireCommonBodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
+            }
+            case PREPARE_LARGE_SCHEDULE -> {
+                final PrepareLargeScheduleBodyV1 body = PrepareLargeScheduleBodyV1.decode(command.canonicalBody());
+                requireCommonBodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
+            }
+            default -> throw new IllegalArgumentException("V1 body codec is not implemented for " + command.type());
+        }
+    }
+
+    private static void requireCommonBodyIdentity(final PreparedCommand command, final DelayMessageId bodyMessageId,
+                                                  final long bodyRetryUntilEpochMs) {
+        if (!command.delayMessageId().equals(bodyMessageId)
+                || command.retryUntilEpochMs() != bodyRetryUntilEpochMs) {
+            throw new IllegalArgumentException("Client body common fields do not match outer command");
+        }
     }
 
     private static List<CanonicalProtobuf.Reader.Field> readAll(final CanonicalProtobuf.Reader reader) {
