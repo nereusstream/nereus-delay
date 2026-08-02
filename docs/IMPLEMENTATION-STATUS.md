@@ -258,8 +258,10 @@ preserve idempotent registration, revision CAS and the fixed query retention
 boundary for tests. The Oxia validation adapter now requires an exact
 `CurrentControlOperationV1` (identity, revision, state, targets and typed
 result) for `advance` after response loss; a later or different CURRENT is not
-accepted as proof of that CAS. They do not provide production Oxia routing,
-authorization, or crash-durable control state.
+accepted as proof of that CAS. It also rejects receipt-identity drift and
+non-consecutive register/advance revisions before invoking the backend. They
+do not provide production Oxia routing, authorization, or crash-durable
+control state.
 
 The local Admission increment now decodes the closed 17-dimensional
 `ChargeVectorV1` and persists the non-borrowable outcome reserve usage in the

@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class ControlOperationAuthorityTest {
@@ -130,6 +131,42 @@ class ControlOperationAuthorityTest {
                     }
                 });
         assertThrows(IllegalStateException.class, () -> authority.advance(receipt, 1, requested));
+    }
+
+    @Test
+    void oxiaAdapterRejectsMalformedRegisterAndRevisionRequestsBeforeBackendCall() {
+        final ControlOperationReceiptV1 receipt = receipt(7, 4_000);
+        final CurrentControlOperationV1 wrongIdentity = current(receipt(8, 4_000), 1,
+                ControlOperationStateV1.PENDING);
+        final CurrentControlOperationV1 wrongRevision = current(receipt, 3, ControlOperationStateV1.IN_PROGRESS);
+        final boolean[] called = {false};
+        final OxiaControlOperationAuthority.CasBackend backend = new OxiaControlOperationAuthority.CasBackend() {
+            @Override
+            public ControlOperationQueryResponseV1 register(final ControlOperationReceiptV1 ignored,
+                                                             final CurrentControlOperationV1 ignoredInitial) {
+                called[0] = true;
+                return ControlOperationQueryResponseV1.current(ignoredInitial);
+            }
+
+            @Override
+            public ControlOperationQueryResponseV1 advance(final ControlOperationReceiptV1 ignored,
+                                                            final long ignoredRevision,
+                                                            final CurrentControlOperationV1 ignoredNext) {
+                called[0] = true;
+                return ControlOperationQueryResponseV1.current(ignoredNext);
+            }
+
+            @Override
+            public ControlOperationQueryResponseV1 query(final ControlOperationReceiptV1 ignored,
+                                                         final long ignoredNow) {
+                called[0] = true;
+                return ControlOperationQueryResponseV1.notFoundOrNotAuthorized();
+            }
+        };
+        final OxiaControlOperationAuthority authority = new OxiaControlOperationAuthority(backend);
+        assertThrows(IllegalArgumentException.class, () -> authority.register(receipt, wrongIdentity));
+        assertThrows(IllegalArgumentException.class, () -> authority.advance(receipt, 1, wrongRevision));
+        assertFalse(called[0]);
     }
 
     private static ControlOperationReceiptV1 receipt(final int seed, final long queryUntil) {

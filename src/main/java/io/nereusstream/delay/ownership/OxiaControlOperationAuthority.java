@@ -28,8 +28,11 @@ public final class OxiaControlOperationAuthority implements ControlOperationAuth
     @Override
     public ControlOperationQueryResponseV1 register(final ControlOperationReceiptV1 receipt,
                                                      final CurrentControlOperationV1 initial) {
+        Objects.requireNonNull(receipt, "receipt");
+        Objects.requireNonNull(initial, "initial");
+        validateIdentityAndRevision(receipt, initial, receipt.operationRevision(), "initial");
         final ControlOperationQueryResponseV1 response = Objects.requireNonNull(backend.register(
-                Objects.requireNonNull(receipt, "receipt"), Objects.requireNonNull(initial, "initial")),
+                receipt, initial),
                 "Oxia register response");
         validateCurrent(response, receipt, initial.operationRevision(), null);
         return response;
@@ -42,9 +45,14 @@ public final class OxiaControlOperationAuthority implements ControlOperationAuth
         if (expectedRevision <= 0) {
             throw new IllegalArgumentException("expectedRevision must be positive");
         }
+        Objects.requireNonNull(receipt, "receipt");
+        Objects.requireNonNull(next, "next");
+        if (expectedRevision == Long.MAX_VALUE) {
+            throw new IllegalArgumentException("expectedRevision cannot advance past Long.MAX_VALUE");
+        }
+        validateIdentityAndRevision(receipt, next, Math.addExact(expectedRevision, 1), "next");
         final ControlOperationQueryResponseV1 response = Objects.requireNonNull(backend.advance(
-                Objects.requireNonNull(receipt, "receipt"), expectedRevision,
-                Objects.requireNonNull(next, "next")), "Oxia advance response");
+                receipt, expectedRevision, next), "Oxia advance response");
         validateCurrent(response, receipt, next.operationRevision(), next);
         return response;
     }
@@ -79,6 +87,20 @@ public final class OxiaControlOperationAuthority implements ControlOperationAuth
         }
         if (expectedCurrent == null && expectedRevision > 0 && current.operationRevision() < expectedRevision) {
             throw new IllegalStateException("Oxia response regressed operation revision");
+        }
+    }
+
+    private static void validateIdentityAndRevision(final ControlOperationReceiptV1 receipt,
+                                                    final CurrentControlOperationV1 current,
+                                                    final long expectedRevision,
+                                                    final String name) {
+        if (!Bytes.constantTimeEquals(receipt.operationId(), current.operationId())
+                || !Bytes.constantTimeEquals(receipt.requestHash(), current.requestHash())
+                || !Bytes.constantTimeEquals(receipt.authenticatedScopeHash(), current.authenticatedScopeHash())) {
+            throw new IllegalArgumentException(name + " is not bound to the operation receipt");
+        }
+        if (current.operationRevision() != expectedRevision) {
+            throw new IllegalArgumentException(name + " revision must be exactly " + expectedRevision);
         }
     }
 
