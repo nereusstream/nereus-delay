@@ -52,6 +52,28 @@ public final class ControlOperationReceiptV1 {
                 operationRevision, registeredAt, queryUntilEpochMs, Bytes.sha256(fields));
     }
 
+    /** Creates a receipt with the Registry's checked fixed-retention boundary. */
+    public static ControlOperationReceiptV1 createWithQueryWindow(final byte[] operationId,
+                                                                  final byte[] requestHash,
+                                                                  final byte[] authenticatedScopeHash,
+                                                                  final byte[] targetSnapshotHash,
+                                                                  final long operationRevision,
+                                                                  final TrustedUtcIntervalEvidence registeredAt,
+                                                                  final long controlOperationQueryWindowMs) {
+        Objects.requireNonNull(registeredAt, "registeredAt");
+        if (controlOperationQueryWindowMs < 0) {
+            throw new IllegalArgumentException("control operation query window must be non-negative");
+        }
+        final long queryUntil;
+        try {
+            queryUntil = Math.addExact(registeredAt.latestEpochMs(), controlOperationQueryWindowMs);
+        } catch (ArithmeticException overflow) {
+            throw new IllegalArgumentException("control operation query boundary overflow", overflow);
+        }
+        return create(operationId, requestHash, authenticatedScopeHash, targetSnapshotHash, operationRevision,
+                registeredAt, queryUntil);
+    }
+
     public static ControlOperationReceiptV1 decodeFrame(final byte[] frame) {
         final ReceiptFrame.Decoded decoded = ReceiptFrame.decode(frame);
         if (decoded.kind() != ReceiptKind.CONTROL_OPERATION) {

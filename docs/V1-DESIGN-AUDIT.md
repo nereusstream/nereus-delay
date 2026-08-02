@@ -114,6 +114,9 @@ an Oxia registration or target-existence proof.
 `ControlRegistrationProjectionV1` keeps the receipt and that initial CURRENT
 projection together, but still does not claim the Oxia one-transaction
 registration boundary.
+The query-retention helper derives the boundary from trusted registration
+evidence with checked addition; policy publication and Oxia persistence remain
+external.
 The registration outcome/proof union is likewise local evidence projection:
 only authenticated Oxia response evidence can construct the conditional
 rejection branch, while timeout/session ambiguity remains `RECORD_UNCERTAIN`.

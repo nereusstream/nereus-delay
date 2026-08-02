@@ -54,6 +54,27 @@ class ControlRegistrationProjectionV1Test {
                         List.of(), null)));
     }
 
+    @Test
+    void queryWindowUsesTrustedLatestAndFailsClosedOnOverflow() throws Exception {
+        final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final ControlOperationRequestV1 request = ControlOperationRequestV1.forceCheckpoint(
+                new ForceCheckpointRequestV1(new ControlReasonV1(ControlReasonKindV1.MAINTENANCE, null, null)));
+        final ControlTargetRefV1 target = new ControlTargetRefV1(0, ControlTargetKindV1.SHARD,
+                new ShardSubjectV1(new ShardId(new RouteIncarnation(bytes(16, 24)), 0)), null, null);
+        final PreparedControlOperationV1 prepared = PreparedControlOperationV1.prepare(bytes(32, 25),
+                request.kind(), new ControlAuthorV1(bytes(32, 26), bytes(32, 27), bytes(32, 28)), request,
+                List.of(target), 1, 2, 1, keyPair.getPrivate());
+        final TrustedUtcIntervalEvidence time = new TrustedUtcIntervalEvidence(Long.MAX_VALUE - 10,
+                Long.MAX_VALUE - 1, TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                Bytes.utf8("clock"), 1, 2, 3, bytes(32, 29), 0, null);
+        final ControlRegistrationProjectionV1 projection = ControlRegistrationProjectionV1.initialWithQueryWindow(
+                prepared, time, 1);
+        assertEquals(Long.MAX_VALUE, projection.receipt().queryUntilEpochMs());
+        assertThrows(IllegalArgumentException.class, () -> ControlOperationReceiptV1.createWithQueryWindow(
+                prepared.operationId(), prepared.requestHash(), prepared.author().tenantResourceScopeHash(),
+                prepared.targetSnapshotHash(), 1, time, 2));
+    }
+
     private static byte[] bytes(final int length, final int seed) {
         final byte[] value = new byte[length];
         for (int index = 0; index < length; index++) {

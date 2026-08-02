@@ -34,4 +34,16 @@ public record ControlRegistrationProjectionV1(ControlOperationReceiptV1 receipt,
         final CurrentControlOperationV1 current = prepared.initialCurrentOperation();
         return new ControlRegistrationProjectionV1(receipt, current);
     }
+
+    /** Creates the same projection from a fixed control query window. */
+    public static ControlRegistrationProjectionV1 initialWithQueryWindow(
+            final PreparedControlOperationV1 prepared, final TrustedUtcIntervalEvidence registeredAt,
+            final long controlOperationQueryWindowMs) {
+        Objects.requireNonNull(prepared, "prepared");
+        final ControlOperationReceiptV1 receipt = ControlOperationReceiptV1.createWithQueryWindow(
+                prepared.operationId(), prepared.requestHash(), prepared.author().tenantResourceScopeHash(),
+                prepared.targetSnapshotHash(), 1, Objects.requireNonNull(registeredAt, "registeredAt"),
+                controlOperationQueryWindowMs);
+        return new ControlRegistrationProjectionV1(receipt, prepared.initialCurrentOperation());
+    }
 }
