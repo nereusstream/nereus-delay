@@ -49,6 +49,23 @@ class LaneRecordEnvelopeV1Test {
         final LaneRecordEnvelopeV1 decoded = LaneRecordEnvelopeV1.decode(envelope.canonicalBytes());
         assertEquals(state, decoded.activeState());
         assertEquals(java.util.Optional.of(state), decoded.typedActiveState());
+        final var outer = QueryCodecSupport.read(envelope.canonicalBytes(), "LaneRecordEnvelopeV1");
+        final var typed = QueryCodecSupport.read(QueryCodecSupport.nested(outer.get(1), 10),
+                "ActiveLaneStateV1");
+        assertEquals(0, typed.get(0).wireType());
+    }
+
+    @Test
+    void malformedTypedStateIsNotDowngradedToLegacyAdapter() {
+        final byte[] malformedState = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint32(output, 1, 1);
+            CanonicalProtobuf.bytes(output, 2, bytes(32, 12));
+        });
+        final byte[] envelope = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint32(output, 1, 1);
+            CanonicalProtobuf.bytes(output, 10, malformedState);
+        });
+        assertThrows(IllegalArgumentException.class, () -> LaneRecordEnvelopeV1.decode(envelope));
     }
 
     @Test

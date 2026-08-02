@@ -7,11 +7,12 @@ import java.util.Optional;
 /**
  * Closed value stored at one {@code meta_cf/LANE} key.
  *
- * <p>The active branch deliberately carries the current local active-state
- * adapter bytes while the richer ActiveLaneStateV1 projection is completed.
- * The branch boundary itself is already durable and closed: a terminal guard
- * is never decoded as an active record and cannot be reopened by a normal lane
- * mutation.</p>
+ * <p>The typed active branch carries the Registry {@link ActiveLaneStateV1}
+ * directly.  The old adapter sub-message remains readable for V1 databases
+ * written before the typed cutover; it is never confused with malformed typed
+ * state because the two encodings use different wire types for field 1.  The
+ * branch boundary itself is closed: a terminal guard is never decoded as an
+ * active record and cannot be reopened by a normal lane mutation.</p>
  */
 public final class LaneRecordEnvelopeV1 {
     private static final byte[] ACTIVE_ADAPTER_DIGEST_DOMAIN =
@@ -44,10 +45,11 @@ public final class LaneRecordEnvelopeV1 {
 
     private final Kind kind;
     private final byte[] activeStateBytes;
+    private final boolean typedActiveState;
     private final LaneTerminalGuardV1 terminalGuard;
 
     private LaneRecordEnvelopeV1(final Kind kind, final byte[] activeStateBytes,
-                                 final LaneTerminalGuardV1 terminalGuard) {
+                                 final LaneTerminalGuardV1 terminalGuard, final boolean typedActiveState) {
         this.kind = Objects.requireNonNull(kind, "kind");
         if (kind == Kind.ACTIVE_LANE) {
             Objects.requireNonNull(activeStateBytes, "activeStateBytes");
@@ -58,17 +60,22 @@ public final class LaneRecordEnvelopeV1 {
                 throw new IllegalArgumentException("active lane cannot carry a terminal guard");
             }
             this.activeStateBytes = Bytes.copy(activeStateBytes);
+            this.typedActiveState = typedActiveState;
+            if (typedActiveState) {
+                ActiveLaneStateV1.decode(this.activeStateBytes);
+            }
         } else {
             if (activeStateBytes != null || terminalGuard == null) {
                 throw new IllegalArgumentException("terminal lane must carry only a terminal guard");
             }
             this.activeStateBytes = null;
+            this.typedActiveState = false;
         }
         this.terminalGuard = terminalGuard;
     }
 
     public static LaneRecordEnvelopeV1 active(final byte[] activeStateBytes) {
-        return new LaneRecordEnvelopeV1(Kind.ACTIVE_LANE, activeStateBytes, null);
+        return new LaneRecordEnvelopeV1(Kind.ACTIVE_LANE, activeStateBytes, null, false);
     }
 
     /**
@@ -80,12 +87,13 @@ public final class LaneRecordEnvelopeV1 {
      * the branch cannot silently carry a non-canonical state.</p>
      */
     public static LaneRecordEnvelopeV1 active(final ActiveLaneStateV1 state) {
-        return active(Objects.requireNonNull(state, "state").canonicalBytes());
+        return new LaneRecordEnvelopeV1(Kind.ACTIVE_LANE,
+                Objects.requireNonNull(state, "state").canonicalBytes(), null, true);
     }
 
     public static LaneRecordEnvelopeV1 terminal(final LaneTerminalGuardV1 guard) {
         return new LaneRecordEnvelopeV1(Kind.TERMINAL_GUARD, null,
-                Objects.requireNonNull(guard, "guard"));
+                Objects.requireNonNull(guard, "guard"), false);
     }
 
     public Kind kind() {
@@ -112,6 +120,9 @@ public final class LaneRecordEnvelopeV1 {
         if (!isActive()) {
             throw new IllegalStateException("lane value is terminal");
         }
+        if (!typedActiveState) {
+            throw new IllegalArgumentException("lane value is a legacy adapter, not ActiveLaneStateV1");
+        }
         return ActiveLaneStateV1.decode(activeStateBytes);
     }
 
@@ -123,9 +134,12 @@ public final class LaneRecordEnvelopeV1 {
         if (!isActive()) {
             return Optional.empty();
         }
+        if (!typedActiveState) {
+            return Optional.empty();
+        }
         try {
             return Optional.of(ActiveLaneStateV1.decode(activeStateBytes));
-        } catch (IllegalArgumentException legacyAdapter) {
+        } catch (IllegalArgumentException malformedTypedState) {
             return Optional.empty();
         }
     }
@@ -141,7 +155,7 @@ public final class LaneRecordEnvelopeV1 {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, kind.wireValue());
             if (isActive()) {
-                CanonicalProtobuf.bytes(output, 10, activeAdapterBytes());
+                CanonicalProtobuf.bytes(output, 10, typedActiveState ? activeStateBytes : activeAdapterBytes());
             } else {
                 CanonicalProtobuf.bytes(output, 11, terminalGuard.canonicalBytes());
             }
@@ -159,7 +173,18 @@ public final class LaneRecordEnvelopeV1 {
             if (fields.get(1).number() != 10) {
                 throw new IllegalArgumentException("active lane must use field 10");
             }
-            result = active(decodeActiveAdapter(QueryCodecSupport.nested(fields.get(1), 10)));
+            final byte[] active = QueryCodecSupport.nested(fields.get(1), 10);
+            final var activeFields = QueryCodecSupport.read(active, "ActiveLaneStateOrAdapterV1");
+            if (activeFields.isEmpty()) {
+                throw new IllegalArgumentException("active lane state must not be empty");
+            }
+            // ActiveLaneStateV1 field 1 is a varint version.  The legacy
+            // adapter's field 1 is length-delimited state bytes.  This lets
+            // malformed typed state fail closed instead of being accepted as
+            // an opaque legacy payload.
+            result = activeFields.get(0).wireType() == 0
+                    ? active(ActiveLaneStateV1.decode(active))
+                    : active(decodeActiveAdapter(active));
         } else {
             if (fields.get(1).number() != 11) {
                 throw new IllegalArgumentException("terminal lane must use field 11");
