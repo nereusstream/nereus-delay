@@ -987,22 +987,31 @@ class DelayShardTest {
                     position(shardId, 1, 1_001), keyPair.getPublic()).stableCode());
             assertEquals(0, shard.quota().pendingMessages());
             assertNotNull(shard.getLaneCloseCursor(lane));
+            final List<DelayShard.LaneCloseMaterializationWork> discovered =
+                    shard.discoverLaneCloseMaterialization(1);
+            assertEquals(1, discovered.size());
+            assertEquals(lane, discovered.get(0).laneId());
+            assertEquals(0, discovered.get(0).nextEligibleAtEpochMs());
+            assertThrows(IllegalArgumentException.class, () -> shard.discoverLaneCloseMaterialization(0));
 
             final PreparedCommand cancel = PreparedCommand.cancel(shardId, schedule.delayMessageId(), 0, 9_000);
             assertEquals(StableCode.ALREADY_DEAD_LETTERED,
                     shard.apply(cancel, position(shardId, 2, 1_002)).stableCode());
 
-            final DelayShard.LaneCloseMaterializationResult messageBatch = shard.materializeClosedLane(lane, 1);
-            assertEquals(1, messageBatch.materializedMessages());
-            assertFalse(messageBatch.complete());
+            final LaneCloseMaterializer materializer = new LaneCloseMaterializer();
+            final LaneCloseMaterializer.TurnResult messageTurn = materializer.runTurn(shard, 1, 1);
+            assertEquals(1, messageTurn.materializedMessages());
+            assertFalse(messageTurn.complete());
             assertEquals(MessageStatus.DEAD_LETTER, shard.getMessage(schedule.delayMessageId()).status());
             assertEquals(StableCode.LANE_CLOSED_BEFORE_ADMISSION,
                     shard.getTerminalGeneration(schedule.delayMessageId(), 0).terminalCode());
             assertNotNull(shard.getLaneCloseCursor(lane));
 
-            final DelayShard.LaneCloseMaterializationResult reservationBatch = shard.materializeClosedLane(lane, 1);
-            assertTrue(reservationBatch.complete());
+            final LaneCloseMaterializer.TurnResult reservationTurn = materializer.runTurn(shard, 1, 1);
+            assertEquals(0, reservationTurn.materializedReservations());
+            assertTrue(reservationTurn.complete());
             assertNull(shard.getLaneCloseCursor(lane));
+            assertTrue(shard.discoverLaneCloseMaterialization(1).isEmpty());
         }
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {

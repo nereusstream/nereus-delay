@@ -14,6 +14,7 @@ import io.nereusstream.delay.protocol.CancelCommandBodyV1;
 import io.nereusstream.delay.protocol.CommitLargeScheduleBodyV1;
 import io.nereusstream.delay.protocol.ControlRef;
 import io.nereusstream.delay.protocol.ControlTargetRefV1;
+import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.DlqExportResultBody;
@@ -1539,6 +1540,29 @@ public final class DelayShard {
                                          final long closeVersion) {
         return KeyCodec.timelineSystem(LaneCloseMaterializationCursor.SYSTEM_WORK_KIND, 0,
                 laneId.bytes(), closeVersion);
+    }
+
+    private static SystemTimelineKey decodeLaneCloseWorkKey(final byte[] key) {
+        Objects.requireNonNull(key, "system work key");
+        if (key.length < 3 + Long.BYTES + Integer.BYTES + Long.BYTES || key[0] != 6 || key[1] != 1
+                || key[2] != LaneCloseMaterializationCursor.SYSTEM_WORK_KIND) {
+            throw new IllegalStateException("invalid Lane close system work key");
+        }
+        final ByteBuffer input = ByteBuffer.wrap(key);
+        input.position(3);
+        final long nextEligibleAt = input.getLong();
+        final int workIdLength = input.getInt();
+        if (nextEligibleAt < 0 || workIdLength != DestinationLaneId.LENGTH
+                || input.remaining() != workIdLength + Long.BYTES) {
+            throw new IllegalStateException("invalid Lane close system work key fields");
+        }
+        final byte[] workId = new byte[workIdLength];
+        input.get(workId);
+        final long workVersion = input.getLong();
+        if (workVersion <= 0) {
+            throw new IllegalStateException("Lane close system work version must be positive");
+        }
+        return new SystemTimelineKey(nextEligibleAt, workId, workVersion);
     }
 
     /** Bounded scan used only to decide whether a Close marker needs strict-order acknowledgements. */
@@ -3567,6 +3591,46 @@ public final class DelayShard {
         final var value = store.getValue(ColumnFamily.TIMELINE,
                 closeCursorKey(laneId, lane.laneControlVersion()), LaneCloseMaterializationCursor.VALUE_TYPE);
         return value == null ? null : LaneCloseMaterializationCursor.decode(value.payload());
+    }
+
+    /**
+     * Discovers the durable close-materialization work queue. Close cursors
+     * live in the System timeline namespace rather than the due-publish
+     * namespaces, so a normal due scan must never silently consume them.
+     * Every returned entry is checked against the cursor value and the
+     * current closed Lane before it becomes scheduler input.
+     */
+    public synchronized List<LaneCloseMaterializationWork> discoverLaneCloseMaterialization(final int limit) {
+        if (limit <= 0) {
+            throw new IllegalArgumentException("limit must be positive");
+        }
+        final int scanLimit = limit == Integer.MAX_VALUE ? Integer.MAX_VALUE : Math.addExact(limit, 1);
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries = store.scan(ColumnFamily.TIMELINE,
+                new byte[]{6, 1, LaneCloseMaterializationCursor.SYSTEM_WORK_KIND},
+                new byte[]{6, 1, (byte) (LaneCloseMaterializationCursor.SYSTEM_WORK_KIND + 1)}, scanLimit);
+        if (entries.size() > limit) {
+            throw new IllegalStateException("Lane close materialization work exceeds scheduler bound");
+        }
+        final List<LaneCloseMaterializationWork> result = new ArrayList<>(entries.size());
+        for (var entry : entries) {
+            final SystemTimelineKey key = decodeLaneCloseWorkKey(entry.key());
+            final LaneCloseMaterializationCursor cursor = LaneCloseMaterializationCursor.decode(
+                    ValueEnvelope.decode(entry.value(), LaneCloseMaterializationCursor.VALUE_TYPE).payload());
+            final DestinationLaneId laneId = new DestinationLaneId(key.workId());
+            if (!cursor.laneId().equals(laneId) || cursor.closeVersion() != key.workVersion()
+                    || key.nextEligibleAtEpochMs() != 0) {
+                throw new IllegalStateException("Lane close system work key/value identity mismatch");
+            }
+            final LaneRecord lane = readLane(laneId);
+            if (lane == null || lane.admissionGate() != AdmissionGate.CLOSED
+                    || lane.laneControlVersion() != cursor.closeVersion()
+                    || !Arrays.equals(lane.laneIncarnation(), cursor.laneIncarnation())) {
+                throw new IllegalStateException("Lane close system work points to a non-closed Lane");
+            }
+            result.add(new LaneCloseMaterializationWork(laneId, cursor.closeVersion(), key.nextEligibleAtEpochMs(),
+                    cursor));
+        }
+        return List.copyOf(result);
     }
 
     /**
@@ -5698,6 +5762,22 @@ public final class DelayShard {
         }
     }
 
+    /** A validated durable cursor ready for a bounded close-materializer turn. */
+    public record LaneCloseMaterializationWork(
+            DestinationLaneId laneId,
+            long closeVersion,
+            long nextEligibleAtEpochMs,
+            LaneCloseMaterializationCursor cursor) {
+        public LaneCloseMaterializationWork {
+            Objects.requireNonNull(laneId, "laneId");
+            Objects.requireNonNull(cursor, "cursor");
+            if (closeVersion <= 0 || nextEligibleAtEpochMs < 0 || !laneId.equals(cursor.laneId())
+                    || closeVersion != cursor.closeVersion()) {
+                throw new IllegalArgumentException("invalid Lane close materialization work");
+            }
+        }
+    }
+
     /** Result of one bounded local Lane-close materialization turn. */
     public record LaneCloseMaterializationResult(
             io.nereusstream.delay.protocol.DestinationLaneId laneId,
@@ -5712,6 +5792,17 @@ public final class DelayShard {
                     || materializedReservations < 0 || materializedMessages + materializedReservations > scannedRecords) {
                 throw new IllegalArgumentException("invalid Lane close materialization result");
             }
+        }
+    }
+
+    private record SystemTimelineKey(long nextEligibleAtEpochMs, byte[] workId, long workVersion) {
+        private SystemTimelineKey {
+            workId = Bytes.copy(workId);
+        }
+
+        @Override
+        public byte[] workId() {
+            return Bytes.copy(workId);
         }
     }
 }

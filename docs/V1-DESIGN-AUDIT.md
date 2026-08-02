@@ -512,8 +512,12 @@ admitted-obligation set 的 generation 才会物化为
 `LANE_CLOSED_BEFORE_ADMISSION`，`PUBLISHING`/`UNCERTAIN` 保留。证据为
 `LaneCloseMaterializationCursorTest` 与
 `DelayShardTest.closeTransfersUnadmittedQuotaAndResumesBoundedMaterializationCursor`。
-这仍不证明 close-owned Claim 标记、admitted outcome retirement、对象句柄
-quiescence/GC、Recovery-Floor retention 或真实 materializer 调度已经闭合。
+`DelayShard.discoverLaneCloseMaterialization` 还严格校验
+`timeline/SYSTEM(kind=2)` 的 key/value/Lane identity，`LaneCloseMaterializer`
+提供不作新语义选择的 bounded local turn；这让本地调度器可以从持久 cursor
+继续执行而不会把它混入 due-publish scan。它仍不证明 close-owned Claim 标记、
+admitted outcome retirement、对象句柄 quiescence/GC、Recovery-Floor retention
+或 owner/Oxia 负责的生产 materializer 编排已经闭合。
 `ShardStore.flushAndSync` 还提供 drain 的物理 flush/WAL-sync 原语，重开回归为
 `ShardStoreTest.flushAndSyncMakesTheShardBoundaryExplicit`；它不替代远端 callback
 quiescence 或 final checkpoint publication。
