@@ -153,6 +153,23 @@ class AdapterIngressTest {
     }
 
     @Test
+    void pulsarManagedTransportFailureUsesManagedUncertainCode() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 20);
+        final byte[] token = Bytes.sha256(Bytes.utf8("managed-uncertain-token"));
+        final PulsarIngressResource resource = new PulsarIngressResource(shard, "cluster-managed-uncertain", token,
+                "persistent://tenant/ns/command-20", 7020, 20);
+        final PreparedCommand command = command(shard);
+        final PinnedPulsarCommandIngress.PulsarSendTransport transport = request -> {
+            throw new IllegalStateException("connection lost after producer ownership");
+        };
+        try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
+            final var outcome = adapter.enqueue(command).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.ENQUEUE_UNCERTAIN, outcome.status());
+            assertEquals(StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue(), outcome.stableCode());
+        }
+    }
+
+    @Test
     void persistedPulsarResultCarriesBatchAwareSourcePosition() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
         final byte[] token = Bytes.sha256(Bytes.utf8("token-2"));

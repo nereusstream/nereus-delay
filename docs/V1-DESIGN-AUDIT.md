@@ -207,6 +207,12 @@ local projection 自行推断。
 也已按 Registry 严格解码；这些本地 marker apply 仍没有被误报成已经接入
 Oxia control authority。
 
+Managed Kafka/Pulsar ingress 的 transport exception、空结果或 failed stage
+现在统一映射为 Registry 的 `ENQUEUE_RESULT_UNCERTAIN`；只有
+`PinnedPulsarNativeSubmissionAdapter` 使用 `NATIVE_ENQUEUE_RESULT_UNCERTAIN`。
+该分支映射由 `AdapterIngressTest` 覆盖，避免把 managed Command 的 retry contract
+误标成 native submission。
+
 `OwnedDelayShard` 现在还提供了带 assignment/barrier/source-connection 校验的
 统一 `replay` seam，以及兼容性的 `replayCatchup`/`replaySystemMutations`：
 Command 和 signed System Mutation 通过 `SourceReplayEntry` 在同一个

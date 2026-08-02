@@ -49,13 +49,13 @@ public final class PinnedPulsarCommandIngress implements WireCommandIngressAdapt
         try {
             result = transport.send(request);
         } catch (RuntimeException exception) {
-            return completed(EnqueueOutcome.uncertain(command, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN.wireValue()));
+            return completed(EnqueueOutcome.uncertain(command, StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue()));
         }
         if (result == null) {
-            return completed(EnqueueOutcome.uncertain(command, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN.wireValue()));
+            return completed(EnqueueOutcome.uncertain(command, StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue()));
         }
         return result.handle((send, error) -> error == null ? map(command, send)
-                : EnqueueOutcome.uncertain(command, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN.wireValue()));
+                : EnqueueOutcome.uncertain(command, StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue()));
     }
 
     @Override
