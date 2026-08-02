@@ -49,6 +49,19 @@ class WorkerPlacementPolicyTest {
     }
 
     @Test
+    void minimumResidenceWinsBeforeAHealthyMoveIsAllowed() {
+        final WorkerPlacementPolicy policy = new WorkerPlacementPolicy(new WorkerPlacementPolicy.Configuration(
+                1_000, 500, 0, 0, 0));
+        final WorkerPlacementPolicy.Decision decision = policy.select(List.of(
+                candidate("current", 8, 0, 1_000, false, 900, 80),
+                candidate("new", 8, 0, 1_000, false, 0, 10)),
+                vector(CapacityDimensionV1.DB_INSTANCES, 1), CapacityVectorV1.empty(), CapacityVectorV1.empty(),
+                "current", 1_000, 0);
+        assertEquals("current", decision.workerId());
+        assertEquals(WorkerPlacementPolicy.DecisionReason.MINIMUM_RESIDENCE, decision.reason());
+    }
+
+    @Test
     void staleTelemetryIsPenalizedWithoutBecomingAnUnrepresentableDecision() {
         final WorkerPlacementPolicy policy = new WorkerPlacementPolicy(new WorkerPlacementPolicy.Configuration(
                 100, 0, 0, 0.50, 0));
