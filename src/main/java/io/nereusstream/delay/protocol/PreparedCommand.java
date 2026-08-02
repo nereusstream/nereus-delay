@@ -82,6 +82,14 @@ public final class PreparedCommand {
                 retryUntilEpochMs, CommandBodies.commitLarge(proof));
     }
 
+    /** Creates a command using the Registry-shaped CancelV1 body seam. */
+    public static PreparedCommand cancelV1(final ShardId shardId, final DelayMessageId messageId,
+                                           final MessagePreconditionV1 precondition,
+                                           final long retryUntilEpochMs) {
+        return create(shardId, CommandId.random(shardId), messageId, CommandType.CANCEL, retryUntilEpochMs,
+                CommandBodies.cancelV1(messageId, retryUntilEpochMs, precondition));
+    }
+
     public static PreparedCommand cancel(final ShardId shardId, final DelayMessageId messageId,
                                          final int expectedGeneration, final long retryUntilEpochMs) {
         return create(shardId, CommandId.random(shardId), messageId, CommandType.CANCEL, retryUntilEpochMs,
@@ -93,6 +101,14 @@ public final class PreparedCommand {
                                              final long expireAt, final long retryUntilEpochMs) {
         return create(shardId, CommandId.random(shardId), messageId, CommandType.RESCHEDULE, retryUntilEpochMs,
                 CommandBodies.reschedule(expectedGeneration, deliverAt, expireAt));
+    }
+
+    /** Creates a command using the Registry-shaped RescheduleV1 body seam. */
+    public static PreparedCommand rescheduleV1(final ShardId shardId, final DelayMessageId messageId,
+                                               final MessagePreconditionV1 precondition, final long deliverAt,
+                                               final long expireAt, final long retryUntilEpochMs) {
+        return create(shardId, CommandId.random(shardId), messageId, CommandType.RESCHEDULE, retryUntilEpochMs,
+                CommandBodies.rescheduleV1(messageId, retryUntilEpochMs, precondition, deliverAt, expireAt));
     }
 
     public static PreparedCommand create(final ShardId shardId, final CommandId commandId,

@@ -131,6 +131,17 @@ public final class CommandBodies {
         return input.getInt();
     }
 
+    /** Encodes the Registry-shaped {@code CancelV1} body. */
+    public static byte[] cancelV1(final DelayMessageId delayMessageId, final long retryUntilEpochMs,
+                                  final MessagePreconditionV1 precondition) {
+        return new CancelCommandBodyV1(delayMessageId, retryUntilEpochMs, precondition).canonicalBytes();
+    }
+
+    /** Decodes the Registry-shaped {@code CancelV1} body. */
+    public static CancelCommandBodyV1 decodeCancelV1(final byte[] body) {
+        return CancelCommandBodyV1.decode(body);
+    }
+
     public static byte[] reschedule(final int expectedGeneration, final long deliverAt, final long expireAt) {
         if (expectedGeneration < -1 || deliverAt < 0 || expireAt < deliverAt) {
             throw new IllegalArgumentException("invalid reschedule body");
@@ -153,6 +164,19 @@ public final class CommandBodies {
             throw new IllegalArgumentException("invalid reschedule window");
         }
         return result;
+    }
+
+    /** Encodes the Registry-shaped {@code RescheduleV1} body. */
+    public static byte[] rescheduleV1(final DelayMessageId delayMessageId, final long retryUntilEpochMs,
+                                      final MessagePreconditionV1 precondition, final long deliverAt,
+                                      final long expireAt) {
+        return new RescheduleCommandBodyV1(delayMessageId, retryUntilEpochMs, precondition, deliverAt,
+                expireAt).canonicalBytes();
+    }
+
+    /** Decodes the Registry-shaped {@code RescheduleV1} body. */
+    public static RescheduleCommandBodyV1 decodeRescheduleV1(final byte[] body) {
+        return RescheduleCommandBodyV1.decode(body);
     }
 
     public record RescheduleValues(int expectedGeneration, long deliverAtEpochMs, long expireAtEpochMs) {

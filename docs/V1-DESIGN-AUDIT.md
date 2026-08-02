@@ -136,8 +136,9 @@ wire/value 校验；`ScheduleCommandBodyV1` 与 `PrepareLargeScheduleBodyV1` 现
 按 Registry 写入 Client common fields 1–3，`CommandBodies.*V1` 只作为显式迁移
 seam；`PreparedCommand`/`CommandCodec.*V1` 还会把这些 fields 与 outer
 message/type/retry identity 逐项比较。它不等于 Command runtime 已切换：当前
-`DelayShard`
-仍通过旧 `ScheduleIntent` 兼容适配层。`RetryPolicySemanticV1`
+`DelayShard` 仍通过旧 `ScheduleIntent`/fixed Cancel/Reschedule 兼容适配层；
+`MessagePreconditionV1` 和剩余两类 V1 body 现在只作为显式 migration seam。
+`RetryPolicySemanticV1`
 现在也能按 Registry 公式重算 semantic hash、生成 typed ref，并拒绝 uncertain/
 DLQ 分支和 backoff arithmetic 漂移；但 policy publication/source-position
 activation、Schedule 的历史 policy binding、Profile/Adapter 运行时绑定和真实

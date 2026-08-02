@@ -110,6 +110,14 @@ public final class CommandCodec {
                 final PrepareLargeScheduleBodyV1 body = PrepareLargeScheduleBodyV1.decode(command.canonicalBody());
                 requireCommonBodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
             }
+            case CANCEL -> {
+                final CancelCommandBodyV1 body = CancelCommandBodyV1.decode(command.canonicalBody());
+                requireCommonBodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
+            }
+            case RESCHEDULE -> {
+                final RescheduleCommandBodyV1 body = RescheduleCommandBodyV1.decode(command.canonicalBody());
+                requireCommonBodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
+            }
             default -> throw new IllegalArgumentException("V1 body codec is not implemented for " + command.type());
         }
     }
