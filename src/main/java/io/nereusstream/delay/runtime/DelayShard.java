@@ -2493,7 +2493,7 @@ public final class DelayShard {
         final ResourceRetireIntentRecord record = new ResourceRetireIntentRecord(mutation.systemMutationId(),
                 mutation.mutationHash(), body.resourceKind(), body.resource().canonicalBytes(),
                 body.resource().identityHash(), body.expectedResourceStateVersion(),
-                Math.addExact(mutationSequence, 1),
+                nextMutationSequence(),
                 body.protections().canonicalBytes(), sourcePosition.canonicalBytes());
         final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, StableCode.OK,
                 sourcePosition.canonicalBytes());
@@ -2540,7 +2540,7 @@ public final class DelayShard {
         }
         final ResourceDeleteConfirmedRecord record = new ResourceDeleteConfirmedRecord(
                 mutation.systemMutationId(), mutation.mutationHash(), lookup.intent(), body.outcome(),
-                Math.addExact(mutationSequence, 1), body.evidence().providerRequestIdHash(),
+                nextMutationSequence(), body.evidence().providerRequestIdHash(),
                 body.evidence().observedImmutableVersion(),
                 body.evidence().observedEtag(), body.evidence().responseHash(), body.evidence().observedAt().canonicalBytes(),
                 body.confirmedAt().canonicalBytes(), sourcePosition.canonicalBytes());
@@ -4894,7 +4894,17 @@ public final class DelayShard {
         batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(META_APPLIED_SOURCE_POSITION),
                 position.canonicalBytes());
         batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(META_MUTATION_SEQUENCE),
-                Bytes.u64be(Math.addExact(mutationSequence, 1)));
+                Bytes.u64be(nextMutationSequence()));
+    }
+
+    /**
+     * Computes the next persisted shard mutation sequence without permitting a
+     * signed-long wrap. Every source-ordered WriteBatch calls this helper before
+     * it can publish a new position; the in-memory counter is advanced only after
+     * RocksDB acknowledges that batch.
+     */
+    private long nextMutationSequence() {
+        return Math.addExact(mutationSequence, 1);
     }
 
     private static long readSequence(final byte[] bytes) {

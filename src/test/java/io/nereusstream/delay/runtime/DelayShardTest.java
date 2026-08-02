@@ -107,6 +107,32 @@ class DelayShardTest {
     }
 
     @Test
+    void mutationSequenceExhaustionFailsClosedBeforeCommandMutation() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("mutation-sequence-exhaustion"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 52);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("mutation-sequence-exhaustion-lane"));
+        final PreparedCommand command = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("mutation-sequence-exhaustion")), 9_000);
+        final SourcePosition sourcePosition = position(shardId, 0, 1_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(5),
+                    Bytes.u64be(Long.MAX_VALUE)));
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+
+            assertEquals(Long.MAX_VALUE, shard.mutationSequence());
+            assertThrows(ArithmeticException.class, () -> shard.apply(command, sourcePosition));
+            assertNull(shard.getMessage(command.delayMessageId()));
+            assertNull(shard.lastAppliedSourcePosition());
+            assertEquals(Long.MAX_VALUE, shard.mutationSequence());
+            assertEquals(Long.MAX_VALUE, ByteBuffer.wrap(store.getValue(ColumnFamily.META,
+                    KeyCodec.metaFixed(5), 1).payload()).getLong());
+        }
+    }
+
+    @Test
     void admissionBudgetConfigRequiresAPositiveTotalAndSmallerUncertainBudget() {
         assertThrows(IllegalArgumentException.class,
                 () -> new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,

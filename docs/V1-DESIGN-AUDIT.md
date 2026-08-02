@@ -119,6 +119,11 @@ Persisted Delay Shard mutation and Claim sequence metadata applies the same
 non-negative u64 boundary on activation; a high-bit-set value is treated as
 corrupt and cannot become a wrapped local sequence. The local evidence is
 `DelayShardTest.rejectsNegativePersistedShardSequences`.
+Every source-position WriteBatch computes its successor through one checked
+mutation-sequence helper, including the applied sequence captured by resource
+retire/delete records. At `Long.MAX_VALUE` the WriteBatch fails before any
+authoritative command or position state is committed; the local evidence is
+`DelayShardTest.mutationSequenceExhaustionFailsClosedBeforeCommandMutation`.
 Kafka's exclusive activation LSO uses the same fail-closed boundary handling:
 an applied offset at `Long.MAX_VALUE` proves a `Long.MAX_VALUE` exclusive
 barrier without wrapping the successor calculation. The local evidence is

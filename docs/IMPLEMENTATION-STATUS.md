@@ -86,6 +86,12 @@ accepting a high-bit-set value would turn corrupt metadata into a wrapped local
 sequence and could poison resource-retirement or Claim identity derivation.
 `DelayShardTest.rejectsNegativePersistedShardSequences` covers both sequence
 metadata keys and verifies the shard fails closed before activation.
+The next mutation sequence is computed through one checked helper before every
+source-position WriteBatch; resource-retirement and delete-confirmed records use
+the same helper. At `Long.MAX_VALUE`, the batch is rejected before any command,
+result, or source-position state is written, so the in-memory and persisted
+sequence cannot diverge or wrap. `DelayShardTest.mutationSequenceExhaustionFailsClosedBeforeCommandMutation`
+covers the exhausted boundary.
 
 `KafkaActivationBarrier` now saturates the exclusive next-readable offset at
 `Long.MAX_VALUE`; a source record at the largest representable offset no
