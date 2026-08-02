@@ -21,6 +21,11 @@ projection, but they are still local value codecs: immutable object publication,
 durable Oxia catalog/session pin CAS, and Kafka/Pulsar source replay remain
 release blockers below.
 
+`EvidenceCursorV1` now also exposes the Registry cursor identity and
+same-generation dominance rules: Kafka requires non-regressing offset/LSO/time
+watermarks, while Pulsar compares the inclusive ledger/entry/batch member and
+the same Broker-time anchor. Cross-generation cursors remain incomparable.
+
 The AUTO_FAST native submission boundary now has a local, identity-pinned
 Pulsar transport SPI. `PinnedPulsarNativeSubmissionAdapter` verifies the
 signed capability snapshot, expiry, prepared target and physical attempt

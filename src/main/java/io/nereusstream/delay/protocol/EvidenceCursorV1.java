@@ -256,6 +256,50 @@ public final class EvidenceCursorV1 implements Comparable<EvidenceCursorV1> {
         return Long.compareUnsigned(evidenceGeneration, other.evidenceGeneration);
     }
 
+    /**
+     * Returns whether two cursors describe the same comparable evidence
+     * stream. The evidence generation is part of this identity; cursors from
+     * different generations are intentionally incomparable.
+     */
+    public boolean sameIdentity(final EvidenceCursorV1 other) {
+        return other != null && compareTo(other) == 0;
+    }
+
+    /**
+     * Returns whether this cursor dominates {@code older} on the same
+     * evidence stream. Kafka advances both the exclusive offset and LSO
+     * watermark; Pulsar advances the inclusive ledger/entry/batch member.
+     * Both branches must retain a non-regressing Broker-time anchor.
+     */
+    public boolean dominates(final EvidenceCursorV1 older) {
+        if (!sameIdentity(older)
+                || maxBrokerPersistedAtThroughCursor < older.maxBrokerPersistedAtThroughCursor) {
+            return false;
+        }
+        if (kafka) {
+            return nextOffsetExclusive >= older.nextOffsetExclusive
+                    && lastObservedLsoExclusive >= older.lastObservedLsoExclusive;
+        }
+        return comparePulsarMember(older) >= 0;
+    }
+
+    /** Returns whether this cursor is a strict successor of {@code older}. */
+    public boolean strictlyDominates(final EvidenceCursorV1 older) {
+        return dominates(older) && !equals(older);
+    }
+
+    private int comparePulsarMember(final EvidenceCursorV1 other) {
+        int result = Long.compareUnsigned(ledgerId, other.ledgerId);
+        if (result != 0) {
+            return result;
+        }
+        result = Long.compareUnsigned(entryId, other.entryId);
+        if (result != 0) {
+            return result;
+        }
+        return Integer.compare(normalizedBatchIndex, other.normalizedBatchIndex);
+    }
+
     private static long nonNegative(final long value, final String name) {
         if (value < 0) {
             throw new IllegalArgumentException(name + " must be non-negative");

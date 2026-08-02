@@ -104,7 +104,9 @@ V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障
 `RecoveryFloorRefV1` 已补齐 lineage/checkpoint/source/typed-cursor-array 的
 canonical floor reference codec，`RecoveryCandidateRefV1` 与 `RecoveryPinV1`
 也已补齐 candidate branch、lineage binding 和 session-identity digest 的
-canonical value codecs；本地 `RecoveryCatalog` 现在对同一 shard 提供
+canonical value codecs；`EvidenceCursorV1` 现在还提供同 generation
+identity/dominance 校验（Kafka offset/LSO、Pulsar inclusive member 和
+Broker-time anchor），跨 generation 保持 incomparable；本地 `RecoveryCatalog` 现在对同一 shard 提供
 current Floor/catalog generation 绑定的单 active-pin create/idempotent reread/release
 投影，但这仍不是 Oxia Owner Lease/session CAS；`CheckpointResourceV1` 与
 `CheckpointUploadIntentV1`
