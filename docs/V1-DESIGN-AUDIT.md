@@ -90,6 +90,10 @@ external registration; it does not replace Oxia or writer authentication.
 `ControlOperationAuthorizationV1` additionally checks the authenticator's
 actor/role/scope hash projection and the minimum V1 role matrix before that
 step; its explicit scope proof remains an external authorization input.
+`ControlRegistrationBindingV1` binds all three local registration outcome
+branches back to the exact Prepared operation and rejects receipt/request,
+scope, target-snapshot or revision drift; transport classification and Oxia
+persistence proof remain external.
 Its bytes are not an Oxia registration receipt and do not establish actor/role
 authority.
 The registration outcome/proof union is likewise local evidence projection:
