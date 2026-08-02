@@ -16,6 +16,9 @@ matrix, including fail-closed backward transitions and fenced-lease
 non-reactivation; the real Oxia ephemeral session/CAS authority remains a
 release blocker.
 
+Shared RocksDB resources also retain checkpoint create/upload slot counts and
+reject close while either bounded worker operation is still in flight.
+
 The checkpoint code now covers the local physical boundary: create the complete
 RocksDB image under the same-filesystem `checkpoint-tmp` namespace, atomically
 rename it into the requested checkpoint path, checksum the full directory,

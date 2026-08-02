@@ -24,6 +24,8 @@ public final class SharedRocksDbResources implements AutoCloseable {
     private final AtomicBoolean closed = new AtomicBoolean();
     private int ownedShardCount;
     private int openDbCount;
+    private int checkpointCreateCount;
+    private int checkpointUploadCount;
 
     public SharedRocksDbResources(final ShardStoreConfig config) {
         this(config, null);
@@ -99,25 +101,35 @@ public final class SharedRocksDbResources implements AutoCloseable {
         openDbSlots.release();
     }
 
-    public void acquireCheckpointCreateSlot() {
+    public synchronized void acquireCheckpointCreateSlot() {
         ensureOpen();
         if (!checkpointCreateSlots.tryAcquire()) {
             throw new IllegalStateException("worker checkpoint create concurrency limit reached");
         }
+        checkpointCreateCount++;
     }
 
-    public void releaseCheckpointCreateSlot() {
+    public synchronized void releaseCheckpointCreateSlot() {
+        if (checkpointCreateCount <= 0) {
+            throw new IllegalStateException("checkpoint create slot released without an active operation");
+        }
+        checkpointCreateCount--;
         checkpointCreateSlots.release();
     }
 
-    public void acquireCheckpointUploadSlot() {
+    public synchronized void acquireCheckpointUploadSlot() {
         ensureOpen();
         if (!checkpointUploadSlots.tryAcquire()) {
             throw new IllegalStateException("worker checkpoint upload concurrency limit reached");
         }
+        checkpointUploadCount++;
     }
 
-    public void releaseCheckpointUploadSlot() {
+    public synchronized void releaseCheckpointUploadSlot() {
+        if (checkpointUploadCount <= 0) {
+            throw new IllegalStateException("checkpoint upload slot released without an active operation");
+        }
+        checkpointUploadCount--;
         checkpointUploadSlots.release();
     }
 
@@ -126,8 +138,8 @@ public final class SharedRocksDbResources implements AutoCloseable {
         if (closed.get()) {
             return;
         }
-        if (openDbCount != 0 || ownedShardCount != 0) {
-            throw new IllegalStateException("cannot close shared RocksDB resources while a shard DB is open");
+        if (openDbCount != 0 || ownedShardCount != 0 || checkpointCreateCount != 0 || checkpointUploadCount != 0) {
+            throw new IllegalStateException("cannot close shared RocksDB resources while work is in flight");
         }
         closed.set(true);
         rateLimiter.close();

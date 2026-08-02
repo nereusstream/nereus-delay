@@ -231,6 +231,23 @@ class ShardStoreTest {
     }
 
     @Test
+    void sharedResourcesCannotCloseWhileCheckpointOperationHoldsWorkerSlot() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("checkpoint-resource-lifecycle"));
+        final SharedRocksDbResources resources = new SharedRocksDbResources(config);
+        try {
+            resources.acquireCheckpointCreateSlot();
+            assertThrows(IllegalStateException.class, resources::close);
+            resources.releaseCheckpointCreateSlot();
+
+            resources.acquireCheckpointUploadSlot();
+            assertThrows(IllegalStateException.class, resources::close);
+            resources.releaseCheckpointUploadSlot();
+        } finally {
+            resources.close();
+        }
+    }
+
+    @Test
     void restoreWithManifestRejectsFileIdentityDrift() throws Exception {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 19);
         final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("manifest-source"));

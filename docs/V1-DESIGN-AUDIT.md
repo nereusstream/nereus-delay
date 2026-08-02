@@ -163,6 +163,9 @@ attestation、Object Store immutability 或 Oxia intent/catalog transaction；
 同一 pending intent 在 response-loss 重试中会先精确重读已提交的
 PUBLISHED successor，且不再次调用 adapter。
 
+`SharedRocksDbResources` 现在也把 checkpoint create/upload slot 纳入进程级
+关闭保护；后台 checkpoint 或上传操作持有 slot 时，资源 close 会 fail closed。
+
 查询层也已补齐 `CheckpointSummaryV1`/`CheckpointCatalogResultV1` 的
 canonical checkpoint-catalog projection，包含 shard identity、Floor identity
 和严格排序的 summary array；它仍只是 public query value codec，不代表
