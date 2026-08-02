@@ -15,10 +15,17 @@ The shared `PublishEvidenceV1`/`ExternalDeliveryIdentityV1` codec now closes
 the evidence kind/status/id/branch envelope and evidence digest, and is reused
 by Publish Outcome and DLQ Export Result. Definitive transfers are checked as
 canonical `ChargeVectorV1` values before the encoder's decode round-trip.
+`ChannelKindV1`, `CredentialUseKindV1`, `CredentialUseLeaseV1` and
+`ChannelResourceIdentityV1` now provide the shared canonical channel/lease
+identity checks: adapter/target branch, strong-capability evidence resource
+presence, producer digest, binding generation/digests and destination-channel
+holder scope. `PublishEvidenceV1` uses this codec for channel-bearing absence
+and non-submission branches. `ChannelResourceIdentityV1Test`,
 `PublishEvidenceV1Test`, `PublishOutcomeBodyTest`, `DlqExportResultBodyTest`,
 `DlqExportApplyTest` and the updated `DelayShardTest` provide local evidence;
 provider ownership, authenticated Broker proofs, signing, Shard Log routing,
-and evidence retention remain outside this codec boundary.
+lease protection CAS/TTL configuration and evidence retention remain outside
+this codec boundary.
 
 The bounded local Control Operation authority also rereads an exact CURRENT
 advance after response loss; it does not infer success for a later or

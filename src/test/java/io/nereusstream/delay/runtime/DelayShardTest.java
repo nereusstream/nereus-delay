@@ -3818,7 +3818,8 @@ class DelayShardTest {
             CanonicalProtobuf.bytes(output, 7, Bytes.sha256(Bytes.utf8("prepared-evidence")));
             CanonicalProtobuf.bytes(output, 8, Bytes.sha256(Bytes.utf8("response-evidence")));
         }) : CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.bytes(output, 1, nestedPlaceholder());
+            CanonicalProtobuf.bytes(output, 1,
+                    io.nereusstream.delay.protocol.ProtocolTestFixtures.baselineKafkaChannel());
             CanonicalProtobuf.bytes(output, 2, owner);
             CanonicalProtobuf.bytes(output, 3, Bytes.sha256(Bytes.utf8("prepared-evidence")));
             CanonicalProtobuf.uint32(output, 4, 1);

@@ -148,7 +148,7 @@ class PublishOutcomeBodyTest {
     }
 
     private static byte[] nestedMarker() {
-        return CanonicalProtobuf.message(output -> CanonicalProtobuf.uint32(output, 1, 1));
+        return ProtocolTestFixtures.baselineKafkaChannel();
     }
 
     private static TrustedUtcIntervalEvidence observedAt() {

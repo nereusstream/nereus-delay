@@ -85,7 +85,7 @@ class PublishEvidenceV1Test {
     }
 
     private static byte[] nestedMarker() {
-        return CanonicalProtobuf.message(output -> CanonicalProtobuf.uint32(output, 1, 1));
+        return ProtocolTestFixtures.baselineKafkaChannel();
     }
 
     private static byte[] hash(final String value) {

@@ -198,7 +198,7 @@ public final class PublishEvidenceV1 {
     private static void validateKafkaAbsence(final List<CanonicalProtobuf.Reader.Field> fields) {
         requireNumbers(fields, new int[]{1, 2, 3, 4, 5});
         EvidenceCursorV1.decode(nested(fields, 1));
-        nested(fields, 2);
+        ChannelResourceIdentityV1.decode(nested(fields, 2));
         ExternalDeliveryIdentityV1.decode(nested(fields, 3));
         fixed(fields, 4);
         fixed(fields, 5);
@@ -242,7 +242,7 @@ public final class PublishEvidenceV1 {
     private static void validatePulsarAbsence(final List<CanonicalProtobuf.Reader.Field> fields) {
         requireNumbers(fields, new int[]{1, 2, 3, 4, 5, 6, 7});
         EvidenceCursorV1.decode(nested(fields, 1));
-        nested(fields, 2);
+        ChannelResourceIdentityV1.decode(nested(fields, 2));
         ExternalDeliveryIdentityV1.decode(nested(fields, 3));
         fixed(fields, 4);
         fixed(fields, 5);
@@ -288,7 +288,7 @@ public final class PublishEvidenceV1 {
 
     private static void validateAdapterNonSubmission(final List<CanonicalProtobuf.Reader.Field> fields) {
         requireNumbers(fields, new int[]{1, 2, 3, 4, 5, 6, 7});
-        nested(fields, 1);
+        ChannelResourceIdentityV1.decode(nested(fields, 1));
         ExternalDeliveryIdentityV1.decode(nested(fields, 2));
         fixed(fields, 3);
         if (uint(fields, 4) < 1 || uint(fields, 4) > 2) {

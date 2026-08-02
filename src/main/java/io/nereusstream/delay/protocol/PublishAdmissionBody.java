@@ -223,49 +223,11 @@ public final class PublishAdmissionBody {
     }
 
     private static Channel decodeChannel(final byte[] encoded) {
-        final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "ChannelResourceIdentity");
-        requireFieldCountRange(fields, 15, 17, "ChannelResourceIdentity");
-        final long adapterKind = unsigned(field(fields, 1), 1);
-        if (adapterKind < 1 || adapterKind > 2) {
-            throw new IllegalArgumentException("invalid channel adapter kind");
-        }
-        final long channelKind = unsigned(field(fields, 2), 2);
-        if (channelKind < 1 || channelKind > 5) {
-            throw new IllegalArgumentException("invalid channel kind");
-        }
-        fixed(bytes(field(fields, 3), 3), HASH_LENGTH, 3);
-        fixed(bytes(field(fields, 4), 4), INCARNATION_LENGTH, 4);
-        final byte[] targetResource = nested(field(fields, 5), 5);
-        validateBrokerResource(targetResource);
-        unsigned(field(fields, 6), 6);
-        if (unsigned(field(fields, 7), 7) == 0) {
-            throw new IllegalArgumentException("channel generation must be positive");
-        }
-        unsigned(field(fields, 8), 8);
-        final byte[] producerIdentity = bytes(field(fields, 9), 9);
-        nonEmpty(producerIdentity, 9);
-        final byte[] producerHash = bytes(field(fields, 10), 10);
-        if (!Arrays.equals(producerHash, Bytes.sha256(producerIdentity))) {
-            throw new IllegalArgumentException("channel producer identity digest mismatch");
-        }
-        final boolean evidenceResource = has(fields, 11);
-        final boolean evidenceGeneration = has(fields, 12);
-        if (evidenceResource != evidenceGeneration) {
-            throw new IllegalArgumentException("channel evidence fields must be paired");
-        }
-        final byte[] lease = nested(field(fields, 17), 17);
-        final LeaseValues leaseValues = decodeLease(lease);
-        final byte[] bindingDigest = bytes(field(fields, 15), 15);
-        final byte[] fingerprint = bytes(field(fields, 16), 16);
-        if (leaseValues.kind() != 1 || leaseValues.secretGeneration() != unsigned(field(fields, 14), 14)
-                || !Arrays.equals(leaseValues.bindingDigest(), bindingDigest)
-                || !Arrays.equals(leaseValues.fingerprint(), fingerprint)) {
-            throw new IllegalArgumentException("channel credential lease mismatch");
-        }
-        fixed(bytes(field(fields, 13), 13), HASH_LENGTH, 13);
-        return new Channel(encoded, bytes(field(fields, 3), 3), bytes(field(fields, 4), 4),
-                targetResource, bytes(field(fields, 9), 9), unsigned(field(fields, 14), 14),
-                bindingDigest, fingerprint);
+        final ChannelResourceIdentityV1 identity = ChannelResourceIdentityV1.decode(encoded);
+        return new Channel(encoded, identity.destinationLaneId(), identity.laneIncarnation(),
+                identity.targetResource().canonicalBytes(), identity.producerOrTransactionalIdentity(),
+                identity.credentialBindingGeneration(), identity.credentialBindingDigest(),
+                identity.resolvedCredentialVersionFingerprintDigest());
     }
 
     private static Descriptor decodeDescriptor(final byte[] encoded) {
@@ -395,29 +357,6 @@ public final class PublishAdmissionBody {
         return new ClaimPrecondition(encoded, bytes(field(fields, 1), 1), bytes(field(fields, 2), 2),
                 intValue(field(fields, 3), 3), bytes(field(fields, 5), 5), bytes(field(fields, 6), 6), owner,
                 bytes(field(fields, 15), 15), materialization);
-    }
-
-    private static LeaseValues decodeLease(final byte[] encoded) {
-        final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "CredentialUseLease");
-        requireExactFields(fields, 11, "CredentialUseLease");
-        if (unsigned(field(fields, 1), 1) != 1 || unsigned(field(fields, 3), 3) != 1) {
-            throw new IllegalArgumentException("unsupported CredentialUseLease version/kind");
-        }
-        validateProfileRef(nested(field(fields, 2), 2));
-        nested(field(fields, 8), 8);
-        final long validUntil = unsigned(field(fields, 9), 9);
-        final TrustedUtcIntervalEvidence issuedAt = TrustedUtcIntervalEvidence.decode(nested(field(fields, 8), 8));
-        if (validUntil <= issuedAt.latestEpochMs() || unsigned(field(fields, 10), 10) == 0) {
-            throw new IllegalArgumentException("invalid CredentialUseLease timing");
-        }
-        final byte[] digest = bytes(field(fields, 11), 11);
-        final byte[] expected = Bytes.sha256(Bytes.utf8("nereus-delay-credential-use-lease-v1\0"),
-                canonicalFields(fields, 10));
-        if (!Arrays.equals(digest, expected)) {
-            throw new IllegalArgumentException("CredentialUseLease digest mismatch");
-        }
-        return new LeaseValues(unsigned(field(fields, 3), 3), unsigned(field(fields, 5), 5),
-                bytes(field(fields, 6), 6), bytes(field(fields, 7), 7));
     }
 
     private static void validateProfileRef(final byte[] encoded) {
@@ -1105,23 +1044,6 @@ public final class PublishAdmissionBody {
 
         public byte[] materialization() {
             return copy(materialization);
-        }
-    }
-
-    private record LeaseValues(long kind, long secretGeneration, byte[] bindingDigest, byte[] fingerprint) {
-        private LeaseValues {
-            bindingDigest = copy(bindingDigest);
-            fingerprint = copy(fingerprint);
-        }
-
-        @Override
-        public byte[] bindingDigest() {
-            return copy(bindingDigest);
-        }
-
-        @Override
-        public byte[] fingerprint() {
-            return copy(fingerprint);
         }
     }
 

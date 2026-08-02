@@ -111,8 +111,10 @@ public class PublishAdmissionBodyTest {
             final byte[] bindingDigest = Bytes.sha256(Bytes.utf8("binding"));
             final byte[] fingerprint = Bytes.sha256(Bytes.utf8("fingerprint"));
             final byte[] time = trustedTime(1_000, 1_000);
-            final byte[] lease = lease(destinationProfile, bindingDigest, fingerprint, time);
-            final byte[] channel = channel(lane, laneIncarnation, target, bindingDigest, fingerprint, lease);
+            final byte[] channelPrefix = channelPrefix(lane, laneIncarnation, target);
+            final byte[] lease = lease(destinationProfile, bindingDigest, fingerprint, time,
+                    CredentialUseLeaseV1.destinationChannelHolderScope(channelPrefix));
+            final byte[] channel = channel(channelPrefix, bindingDigest, fingerprint, lease);
             final byte[] payload = payload(Bytes.utf8("hello"));
             final byte[] metadata = metadata();
             final byte[] attempt = Bytes.sha256(Bytes.utf8("attempt"));
@@ -193,12 +195,12 @@ public class PublishAdmissionBodyTest {
         }
 
         private static byte[] lease(final byte[] profile, final byte[] bindingDigest, final byte[] fingerprint,
-                                    final byte[] issuedAt) {
+                                    final byte[] issuedAt, final byte[] holderScope) {
             final byte[] prefix = CanonicalProtobuf.message(output -> {
                 CanonicalProtobuf.uint32(output, 1, 1);
                 CanonicalProtobuf.bytes(output, 2, profile);
                 CanonicalProtobuf.uint32(output, 3, 1);
-                CanonicalProtobuf.bytes(output, 4, Bytes.sha256(Bytes.utf8("holder")));
+                CanonicalProtobuf.bytes(output, 4, holderScope);
                 CanonicalProtobuf.uint32(output, 5, 1);
                 CanonicalProtobuf.bytes(output, 6, bindingDigest);
                 CanonicalProtobuf.bytes(output, 7, fingerprint);
@@ -209,8 +211,8 @@ public class PublishAdmissionBodyTest {
             return appendHash(prefix, 11, "nereus-delay-credential-use-lease-v1\0");
         }
 
-        private static byte[] channel(final byte[] lane, final byte[] laneIncarnation, final byte[] target,
-                                      final byte[] bindingDigest, final byte[] fingerprint, final byte[] lease) {
+        private static byte[] channelPrefix(final byte[] lane, final byte[] laneIncarnation,
+                                            final byte[] target) {
             return CanonicalProtobuf.message(output -> {
                 CanonicalProtobuf.uint32(output, 1, 1);
                 CanonicalProtobuf.uint32(output, 2, 1);
@@ -223,6 +225,21 @@ public class PublishAdmissionBodyTest {
                 CanonicalProtobuf.bytes(output, 9, Bytes.utf8("producer"));
                 CanonicalProtobuf.bytes(output, 10, Bytes.sha256(Bytes.utf8("producer")));
                 CanonicalProtobuf.bytes(output, 13, Bytes.sha256(Bytes.utf8("guard")));
+            });
+        }
+
+        private static byte[] channel(final byte[] channelPrefix, final byte[] bindingDigest,
+                                      final byte[] fingerprint, final byte[] lease) {
+            return CanonicalProtobuf.message(output -> {
+                final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(channelPrefix);
+                while (reader.hasRemaining()) {
+                    final CanonicalProtobuf.Reader.Field field = reader.next();
+                    if (field.wireType() == 0) {
+                        CanonicalProtobuf.uint64(output, field.number(), field.unsignedValue());
+                    } else {
+                        CanonicalProtobuf.bytes(output, field.number(), field.rawValue());
+                    }
+                }
                 CanonicalProtobuf.uint32(output, 14, 1);
                 CanonicalProtobuf.bytes(output, 15, bindingDigest);
                 CanonicalProtobuf.bytes(output, 16, fingerprint);
