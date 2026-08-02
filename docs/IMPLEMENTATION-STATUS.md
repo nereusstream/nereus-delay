@@ -93,6 +93,12 @@ longer causes an arithmetic exception while proving an already-reached LSO.
 `SourceActivationBarrierTest.KafkaBarrierSaturatesExclusiveNextOffsetAtLongMaximum`
 covers this physical-offset boundary.
 
+`EmbeddedDelayService` applies the same saturation when reconstructing its
+next Kafka offset from persisted shard state. Reopening after a record at
+`Long.MAX_VALUE` now succeeds and keeps enqueue fail-closed at the exhausted
+boundary; `EmbeddedDelayServiceTest.reopenedEmbeddedServiceSaturatesPersistedSourceOffsetExhaustion`
+covers the restart path.
+
 The Registry-shaped `ScheduleIntentV1` value is now implemented as a strict
 canonical codec: it binds the destination `ProfileRefV1`, `RetryPolicyRefV1`,
 delivery/order fields, the closed inline-versus-committed payload union,

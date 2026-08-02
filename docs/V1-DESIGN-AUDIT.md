@@ -123,6 +123,10 @@ Kafka's exclusive activation LSO uses the same fail-closed boundary handling:
 an applied offset at `Long.MAX_VALUE` proves a `Long.MAX_VALUE` exclusive
 barrier without wrapping the successor calculation. The local evidence is
 `SourceActivationBarrierTest.KafkaBarrierSaturatesExclusiveNextOffsetAtLongMaximum`.
+The embedded source counter also saturates while reconstructing its next offset
+from persisted state, so restart after the maximum offset remains a controlled
+exhaustion rather than an arithmetic-open failure; the evidence is
+`EmbeddedDelayServiceTest.reopenedEmbeddedServiceSaturatesPersistedSourceOffsetExhaustion`.
 
 当前 `PersistentLaneScheduler.rebuildFromAuthoritativeReady` 已提供 fenced 的本地
 恢复桥：它从 bounded `timeline_cf/READY` 扫描开始，严格校验对应的

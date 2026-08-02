@@ -113,6 +113,26 @@ class EmbeddedDelayServiceTest {
     }
 
     @Test
+    void reopenedEmbeddedServiceSaturatesPersistedSourceOffsetExhaustion() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 20);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("reopen-offset-exhaustion"));
+        final ScheduleIntent intent = new ScheduleIntent(
+                DestinationLaneId.derive(Bytes.utf8("reopen-offset-exhaustion-lane")), 2_000, 5_000,
+                OrderingMode.BEST_EFFORT, Bytes.utf8("payload"));
+        try (EmbeddedDelayService first = new EmbeddedDelayService(config, shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final PreparedCommand command = first.prepareSchedule(intent, 10_000);
+            first.shard().apply(command, new KafkaSourcePosition(shard, "embedded",
+                    UUID.nameUUIDFromBytes(Bytes.utf8("embedded-command-topic")), Long.MAX_VALUE, null, 1_000));
+        }
+        try (EmbeddedDelayService second = new EmbeddedDelayService(config, shard,
+                Clock.fixed(Instant.ofEpochMilli(1_001), ZoneOffset.UTC))) {
+            final PreparedCommand command = second.prepareCancel(DelayMessageId.random(shard), -1, 10_000);
+            assertThrows(IllegalStateException.class, () -> second.enqueue(command));
+        }
+    }
+
+    @Test
     void boundedLocalProjectorRequiresSafeBindingAndPreservesRuntimeStates() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 2);
         final KafkaSourcePosition source = new KafkaSourcePosition(shard, "projector", UUID.randomUUID(), 4, 1, 1_000);

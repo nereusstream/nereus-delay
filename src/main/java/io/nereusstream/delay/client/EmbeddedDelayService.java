@@ -85,7 +85,7 @@ public final class EmbeddedDelayService implements DelayClient {
                     || !kafka.nativeTopicUuid().equals(EMBEDDED_TOPIC_UUID)) {
                 throw new IllegalStateException("embedded service cannot reopen a shard with another source identity");
             }
-            nextOffset = Math.addExact(kafka.offset(), 1);
+            nextOffset = kafka.offset() == Long.MAX_VALUE ? Long.MAX_VALUE : kafka.offset() + 1;
         }
     }
 
