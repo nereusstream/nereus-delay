@@ -74,9 +74,11 @@ Oxia CAS or retained-generation policy.
 `ProfileCatalogV1ScheduleResolver` uses that seam only as a local exact-profile
 and Head prerequisite gate; it does not turn a catalog lookup into a source
 position activation receipt.
-The Control Operation kind/acknowledgement/close-policy/uncertain-resolution
-and quota-transfer support values are similarly local canonical codecs, not a
-prepared operation or target-presence authority.
+The Control Operation request union now has local canonical codecs for all
+fifteen Registry branches, including the evidence/acknowledgement matrix. It
+is still only a request-value boundary: it is not a prepared operation,
+target-presence authority, authenticated actor/resource check or Oxia
+registration receipt.
 
 | 事件 | 唯一 authority / 线性化点 | 明确不构成 authority 的事件 |
 |---|---|---|

@@ -4,7 +4,7 @@ import java.util.List;
 import java.util.Objects;
 
 /** Registry §6.3 request that publishes one immutable Destination Profile version. */
-public final class PublishDestinationProfileRequestV1 {
+public final class PublishDestinationProfileRequestV1 implements ControlOperationRequestBranchV1 {
     public static final int INITIAL_SECRET_GENERATION = 1;
 
     private final ProfileSemanticEnvelopeV1 profile;
@@ -31,6 +31,7 @@ public final class PublishDestinationProfileRequestV1 {
         return credentialBinding;
     }
 
+    @Override
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, profile.canonicalBytes());

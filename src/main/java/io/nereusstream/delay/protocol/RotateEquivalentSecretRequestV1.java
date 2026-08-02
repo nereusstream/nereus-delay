@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Objects;
 
 /** Registry §6.3 request for checked rotation of an equivalent credential reference. */
-public final class RotateEquivalentSecretRequestV1 {
+public final class RotateEquivalentSecretRequestV1 implements ControlOperationRequestBranchV1 {
     public static final int ROTATION_PROTOCOL_VERSION = CredentialBindingV1.BINDING_PROTOCOL_VERSION;
     public static final int HASH_LENGTH = CredentialBindingV1.HASH_LENGTH;
 
@@ -89,6 +89,7 @@ public final class RotateEquivalentSecretRequestV1 {
                 equivalenceAttestation);
     }
 
+    @Override
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, profile.canonicalBytes());

@@ -4,7 +4,7 @@ import java.util.List;
 import java.util.Objects;
 
 /** Registry §6.3 request that source-orders deprecation of one Destination Profile version. */
-public final class DeprecateDestinationProfileRequestV1 {
+public final class DeprecateDestinationProfileRequestV1 implements ControlOperationRequestBranchV1 {
     private final ProfileRefV1 profile;
     private final ControlReasonV1 reason;
 
@@ -24,6 +24,7 @@ public final class DeprecateDestinationProfileRequestV1 {
         return reason;
     }
 
+    @Override
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, profile.canonicalBytes());
