@@ -2,6 +2,7 @@ package io.nereusstream.delay.protocol;
 
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Closed value stored at one {@code meta_cf/LANE} key.
@@ -70,6 +71,18 @@ public final class LaneRecordEnvelopeV1 {
         return new LaneRecordEnvelopeV1(Kind.ACTIVE_LANE, activeStateBytes, null);
     }
 
+    /**
+     * Constructs the typed ACTIVE branch from the closed Registry state.
+     *
+     * <p>The byte-array overload remains for reopening V1 databases written by
+     * the legacy {@code LaneRecord} adapter.  New callers that have the full
+     * immutable Profile/tuple/certificate inputs should use this overload so
+     * the branch cannot silently carry a non-canonical state.</p>
+     */
+    public static LaneRecordEnvelopeV1 active(final ActiveLaneStateV1 state) {
+        return active(Objects.requireNonNull(state, "state").canonicalBytes());
+    }
+
     public static LaneRecordEnvelopeV1 terminal(final LaneTerminalGuardV1 guard) {
         return new LaneRecordEnvelopeV1(Kind.TERMINAL_GUARD, null,
                 Objects.requireNonNull(guard, "guard"));
@@ -88,6 +101,33 @@ public final class LaneRecordEnvelopeV1 {
             throw new IllegalStateException("lane value is terminal");
         }
         return Bytes.copy(activeStateBytes);
+    }
+
+    /**
+     * Decodes the typed Registry ACTIVE state.  Legacy adapter bytes are
+     * intentionally not guessed or upgraded: callers must supply the missing
+     * immutable Profile and tuple inputs before a typed state can be written.
+     */
+    public ActiveLaneStateV1 activeState() {
+        if (!isActive()) {
+            throw new IllegalStateException("lane value is terminal");
+        }
+        return ActiveLaneStateV1.decode(activeStateBytes);
+    }
+
+    /**
+     * Returns the typed state when this ACTIVE branch contains one; legacy
+     * adapter bytes produce an empty result without weakening decode checks.
+     */
+    public Optional<ActiveLaneStateV1> typedActiveState() {
+        if (!isActive()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(ActiveLaneStateV1.decode(activeStateBytes));
+        } catch (IllegalArgumentException legacyAdapter) {
+            return Optional.empty();
+        }
     }
 
     public LaneTerminalGuardV1 terminalGuard() {

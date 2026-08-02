@@ -119,7 +119,11 @@ transaction，也不执行 Object Store upload/attestation/delete。现有 `Dela
 通过兼容 `LaneRecord` 写入 ACTIVE 分支，因此这不被误报为已经完成 full
 ActiveLaneState persistence、quota-map revision coupling、Oxia target
 registration、Oxia Recovery Pin/Floor CAS、source/evidence replay 或
-Recovery-Floor/retention gate。
+Recovery-Floor/retention gate。`LaneRecordEnvelopeV1` 现在还提供 typed
+`ACTIVE` branch 的构造、严格解码和 legacy-adapter 区分；不过当前
+`ScheduleIntent` 只带 `destinationLaneId`，无法无损提供完整 active state 所需的
+immutable Profile refs、canonical tuple、READY certificate 和 quota 输入，所以
+`DelayShard` 仍明确停留在兼容 adapter 路径，不能把这一步误报成运行时 cutover。
 
 `OwnedDelayShard` 现在还提供了带 assignment/barrier/source-connection 校验的
 统一 `replay` seam，以及兼容性的 `replayCatchup`/`replaySystemMutations`：

@@ -14,6 +14,8 @@ class LaneRecordEnvelopeV1Test {
     void activeAndTerminalBranchesAreCanonicalAndClosed() {
         final LaneRecordEnvelopeV1 active = LaneRecordEnvelopeV1.active(Bytes.utf8("legacy-active-state"));
         assertEquals(active, LaneRecordEnvelopeV1.decode(active.canonicalBytes()));
+        assertEquals(java.util.Optional.empty(), active.typedActiveState());
+        assertThrows(IllegalArgumentException.class, active::activeState);
 
         final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
         final KafkaSourcePosition source = new KafkaSourcePosition(shard, "cluster", UUID.randomUUID(), 7,
@@ -27,6 +29,26 @@ class LaneRecordEnvelopeV1Test {
         final LaneRecordEnvelopeV1 terminal = LaneRecordEnvelopeV1.terminal(guard);
         assertEquals(terminal, LaneRecordEnvelopeV1.decode(terminal.canonicalBytes()));
         assertArrayEquals(guard.canonicalBytes(), terminal.terminalGuard().canonicalBytes());
+    }
+
+    @Test
+    void typedActiveBranchRoundTripsWithoutAcceptingLegacyBytesAsFullState() {
+        final byte[] tuple = Bytes.utf8("typed-lane-tuple");
+        final ProfileRefV1 destination = new ProfileRefV1(bytes(4, 7), 1, bytes(32, 8),
+                ProfileKindV1.DESTINATION);
+        final ProfileRefV1 capability = new ProfileRefV1(bytes(4, 9), 1, bytes(32, 10),
+                ProfileKindV1.DELIVERY_CAPABILITY);
+        final ActiveLaneStateV1 state = new ActiveLaneStateV1(
+                DestinationLaneId.derive(tuple), bytes(16, 11), io.nereusstream.delay.runtime.AdmissionGate.OPEN,
+                io.nereusstream.delay.runtime.RuntimeReadiness.BLOCKED,
+                LaneRuntimeBlockReasonV1.CAPABILITY, 1, 1, destination, capability, tuple, 3,
+                new PublishAdmissionBody.ChargeVector(1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+                null, null, LaneCircuitStateV1.CLOSED, 0, 0, 0, 0, null, null, null);
+
+        final LaneRecordEnvelopeV1 envelope = LaneRecordEnvelopeV1.active(state);
+        final LaneRecordEnvelopeV1 decoded = LaneRecordEnvelopeV1.decode(envelope.canonicalBytes());
+        assertEquals(state, decoded.activeState());
+        assertEquals(java.util.Optional.of(state), decoded.typedActiveState());
     }
 
     @Test
