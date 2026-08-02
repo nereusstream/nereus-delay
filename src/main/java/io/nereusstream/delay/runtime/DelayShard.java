@@ -1221,7 +1221,7 @@ public final class DelayShard {
                 ? getClaim(body.claimId(), author.generation()) : null;
         final AdmissionReplayState replayState;
         try {
-            replayState = validatePublishAdmissionReplayState(body, current, lane, localClaim);
+            replayState = validatePublishAdmissionReplayState(body, current, lane, localClaim, sourcePosition);
         } catch (IllegalArgumentException | IllegalStateException exception) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
@@ -1530,7 +1530,10 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.TOO_LATE);
         }
-        if (current.runtimeIndex().admissionsUsed() >= config.maxPublishAdmissions()) {
+        final RetryPolicySemanticV1 pinnedPolicy = retryPolicyFor(body.messageId(), current, sourcePosition);
+        final int maxPublishAdmissions = pinnedPolicy == null
+                ? config.maxPublishAdmissions() : pinnedPolicy.maxPublishAdmissions();
+        if (current.runtimeIndex().admissionsUsed() >= maxPublishAdmissions) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.TOO_LATE);
         }
@@ -1911,7 +1914,8 @@ public final class DelayShard {
     private AdmissionReplayState validatePublishAdmissionReplayState(final PublishAdmissionBody body,
                                                                        final MessageRecord current,
                                                                        final LaneRecord lane,
-                                                                       final ClaimRecord localClaim) {
+                                                                       final ClaimRecord localClaim,
+                                                                       final SourcePosition sourcePosition) {
         final ClaimResultBody.ClaimPrecondition precondition =
                 ClaimResultBody.decodePrecondition(body.claimPrecondition().canonicalBytes());
         final DelayMessageId messageId = new DelayMessageId(body.messageId());
@@ -1996,17 +2000,24 @@ public final class DelayShard {
         } else if (sourceWorkKind == TimelineWorkKind.UNCERTAIN_RETRY) {
             throw new IllegalStateException("UNCERTAIN_RETRY has no older UNCERTAIN obligation");
         }
-        validateAdmissionBudget(index, uncertainRetry);
+        validateAdmissionBudget(new DelayMessageId(body.messageId()), current, index, uncertainRetry,
+                sourcePosition);
         return new AdmissionReplayState(localClaim == null, uncertainRetry);
     }
 
-    private void validateAdmissionBudget(final GenerationRuntimeIndex index,
-                                         final boolean uncertainRetryAdmission) {
-        if (index.admissionsUsed() >= config.maxPublishAdmissions()) {
+    private void validateAdmissionBudget(final DelayMessageId messageId, final MessageRecord current,
+                                         final GenerationRuntimeIndex index, final boolean uncertainRetryAdmission,
+                                         final SourcePosition sourcePosition) {
+        final RetryPolicySemanticV1 policy = retryPolicyFor(messageId, current, sourcePosition);
+        final int maxPublishAdmissions = policy == null
+                ? config.maxPublishAdmissions() : policy.maxPublishAdmissions();
+        final int maxUncertainRetries = policy == null
+                ? config.maxUncertainRetries() : policy.maxUncertainRetries();
+        if (index.admissionsUsed() >= maxPublishAdmissions) {
             throw new IllegalStateException("generation publish admission budget is exhausted");
         }
         if (uncertainRetryAdmission
-                && index.uncertainRetryAdmissionsUsed() >= config.maxUncertainRetries()) {
+                && index.uncertainRetryAdmissionsUsed() >= maxUncertainRetries) {
             throw new IllegalStateException("generation uncertain-retry admission budget is exhausted");
         }
     }
@@ -2724,7 +2735,8 @@ public final class DelayShard {
                 || current.generation() != admission.generation() || !current.laneId().equals(admission.laneId())) {
             throw new IllegalStateException("publish admission is stale for the current message generation");
         }
-        validateAdmissionBudget(current.runtimeIndex(), uncertainRetryAdmission);
+        validateAdmissionBudget(admission.delayMessageId(), current, current.runtimeIndex(), uncertainRetryAdmission,
+                sourcePosition);
         final ClaimRecord claim = current.status() == MessageStatus.CLAIMED
                 ? getClaim(admission.claimId(), admission.ownerEpoch()) : null;
         if (current.status() == MessageStatus.CLAIMED
@@ -2877,11 +2889,17 @@ public final class DelayShard {
         final boolean scheduleUncertainRetry = retryDecision != null && retryDecision.kind() == 2;
         final long retryAt;
         if (scheduleUncertainRetry) {
+            final RetryPolicySemanticV1 pinnedPolicy = retryPolicyFor(currentLedger.delayMessageId(), current,
+                    sourcePosition);
+            final int maxUncertainRetries = pinnedPolicy == null
+                    ? config.maxUncertainRetries() : pinnedPolicy.maxUncertainRetries();
+            final int maxPublishAdmissions = pinnedPolicy == null
+                    ? config.maxPublishAdmissions() : pinnedPolicy.maxPublishAdmissions();
             if (current.orderingMode() != io.nereusstream.delay.protocol.OrderingMode.BEST_EFFORT
                     || !retryDecision.hasNextRetryAt()
-                    || config.maxUncertainRetries() == 0
-                    || current.runtimeIndex().uncertainRetryAdmissionsUsed() >= config.maxUncertainRetries()
-                    || current.runtimeIndex().admissionsUsed() >= config.maxPublishAdmissions()) {
+                    || maxUncertainRetries == 0
+                    || current.runtimeIndex().uncertainRetryAdmissionsUsed() >= maxUncertainRetries
+                    || current.runtimeIndex().admissionsUsed() >= maxPublishAdmissions) {
                 throw new IllegalArgumentException("uncertain retry is not within the pinned budget");
             }
             retryAt = Math.max(current.deliverAtEpochMs(), retryDecision.nextRetryAt());
@@ -3578,6 +3596,48 @@ public final class DelayShard {
             throw new V1CommandResolutionException(StableCode.INVALID_COMMAND,
                     "Retry Policy is incompatible with the requested ordering mode");
         }
+        ensureRetryPolicyFitsConfig(semantic);
+    }
+
+    private void ensureRetryPolicyFitsConfig(final RetryPolicySemanticV1 semantic) {
+        if (semantic.maxPublishAdmissions() > config.maxPublishAdmissions()
+                || semantic.maxUncertainRetries() > config.maxUncertainRetries()) {
+            throw new V1CommandResolutionException(StableCode.INVALID_COMMAND,
+                    "local shard limits cannot honor the immutable Retry Policy budget");
+        }
+    }
+
+    /** Resolves the policy pinned by an accepted V1 binding for later replay turns. */
+    private RetryPolicySemanticV1 retryPolicyFor(final DelayMessageId messageId,
+                                                 final MessageRecord message,
+                                                 final SourcePosition sourcePosition) {
+        if (retryPolicyCatalog == null) {
+            return null;
+        }
+        final V1ScheduleBinding binding = getV1ScheduleBinding(messageId);
+        if (binding == null) {
+            return null;
+        }
+        final RetryPolicyRefV1 reference;
+        if (binding.commandType() == io.nereusstream.delay.protocol.CommandType.SCHEDULE) {
+            reference = CommandBodies.decodeScheduleV1(binding.canonicalBody()).intent().retryPolicy();
+        } else {
+            reference = CommandBodies.decodePrepareLargeV1(binding.canonicalBody())
+                    .intentWithoutPayload().retryPolicy();
+        }
+        final RetryPolicySemanticV1 semantic = retryPolicyCatalog.resolve(reference, sourcePosition);
+        if (semantic == null || !reference.matches(semantic)) {
+            throw new V1CommandResolutionException(StableCode.RETRY_POLICY_NOT_ACTIVE_AT_SOURCE_POSITION,
+                    "pinned Retry Policy is unavailable or mismatched for replay");
+        }
+        try {
+            semantic.validateFor(message.orderingMode());
+        } catch (IllegalArgumentException exception) {
+            throw new V1CommandResolutionException(StableCode.INVALID_COMMAND,
+                    "pinned Retry Policy no longer matches message ordering");
+        }
+        ensureRetryPolicyFitsConfig(semantic);
+        return semantic;
     }
 
     private static void validateResolvedSchedulePayload(final ScheduleIntentV1 intent,
@@ -4489,7 +4549,15 @@ public final class DelayShard {
 
     private void validateMessageRuntimeBranches(final DelayMessageId messageId, final MessageRecord message) {
         final GenerationRuntimeIndex index = message.runtimeIndex();
-        if (index.admissionsUsed() > config.maxPublishAdmissions()) {
+        final RetryPolicySemanticV1 pinnedPolicy = retryPolicyCatalog == null
+                ? null : retryPolicyFor(messageId, message,
+                SourcePositionCodec.decode(message.scheduleSourcePosition()));
+        final int maxPublishAdmissions = pinnedPolicy == null
+                ? config.maxPublishAdmissions() : pinnedPolicy.maxPublishAdmissions();
+        final int maxUncertainRetries = pinnedPolicy == null
+                ? config.maxUncertainRetries() : pinnedPolicy.maxUncertainRetries();
+        if (index.admissionsUsed() > maxPublishAdmissions
+                || index.uncertainRetryAdmissionsUsed() > maxUncertainRetries) {
             throw new IllegalStateException("persisted generation exceeds publish admission budget");
         }
         if (index.currentWorkKind() == CurrentSendWorkKind.CLAIMED

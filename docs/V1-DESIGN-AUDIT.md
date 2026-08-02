@@ -174,7 +174,9 @@ DLQ 分支和 backoff arithmetic 漂移；`RetryPolicyCatalog` 接入后，V1
 Schedule/Prepare 会在 resolver 前校验 exact ref/hash 的 source-position 可见性，
 并执行 ordering-mode guard，缺失语义返回
 `RETRY_POLICY_NOT_ACTIVE_AT_SOURCE_POSITION`。这仍只是 authority seam；policy
-publication/source-position activation authority、历史 policy binding retention、
+publication/source-position activation authority 之外，已接受 binding 的后续
+Admission、UNCERTAIN retry 和 reopen 也会在 catalog 可用时重新使用其 immutable
+budget，而不会回退到较宽的 shard default；历史 policy binding retention、
 Profile/Adapter 运行时绑定和真实 ingress 迁移仍是 release blocker。
 Payload proof trust-set 也已补齐 canonical verifier-key list、semantic
 hash/ref、Ed25519 raw-key projection 和本地 source-time validity-window
