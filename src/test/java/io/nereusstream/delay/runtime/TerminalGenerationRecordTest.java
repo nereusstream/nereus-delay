@@ -8,10 +8,12 @@ import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.store.KeyCodec;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class TerminalGenerationRecordTest {
     @Test
@@ -47,5 +49,19 @@ class TerminalGenerationRecordTest {
         assertEquals(messageId, decoded.messageId());
         assertEquals(List.of(), decoded.openObligations());
         assertArrayEquals(sourcePosition, decoded.appliedSourcePosition());
+    }
+
+    @Test
+    void decodeRejectsEveryCanonicalPrefixTruncationAsValidationError() {
+        final TerminalGenerationRecord record = new TerminalGenerationRecord(
+                DelayMessageId.random(new ShardId(RouteIncarnation.random(), 2)), 0,
+                MessageStatus.DEAD_LETTER, StableCode.ALREADY_DEAD_LETTERED, 2, new byte[]{9, 8}, false);
+        final byte[] encoded = record.encode();
+        for (int length = 0; length < encoded.length; length++) {
+            final byte[] truncated = Arrays.copyOf(encoded, length);
+            assertThrows(IllegalArgumentException.class, () -> TerminalGenerationRecord.decode(truncated),
+                    "truncated terminal generation length=" + length);
+        }
+        assertEquals(record.messageId(), TerminalGenerationRecord.decode(encoded).messageId());
     }
 }

@@ -79,49 +79,37 @@ public record TerminalGenerationRecord(
 
     public static TerminalGenerationRecord decode(final byte[] encoded) {
         final ByteBuffer input = ByteBuffer.wrap(encoded);
-        if (input.remaining() < 4 + DelayMessageId.LENGTH + 4 + 1 + 4 + 8 + 1 + 4) {
-            throw new IllegalArgumentException("terminal generation record is truncated");
-        }
-        final int version = input.getInt();
+        final int version = readInt(input, "version");
         if (version != 1 && version != VERSION) {
             throw new IllegalArgumentException("unsupported terminal generation version");
         }
-        final byte[] message = new byte[DelayMessageId.LENGTH];
-        input.get(message);
-        final int generation = input.getInt();
-        final MessageStatus status = MessageStatus.fromWire(input.get() & 0xff);
+        final byte[] message = readBytes(input, DelayMessageId.LENGTH, "messageId");
+        final int generation = readInt(input, "generation");
+        final MessageStatus status = MessageStatus.fromWire(readUnsignedByte(input, "status"));
         final io.nereusstream.delay.protocol.StableCode code =
-                io.nereusstream.delay.protocol.StableCode.fromWire(input.getInt());
-        final long stateVersion = input.getLong();
-        final int duplicate = input.get() & 0xff;
+                io.nereusstream.delay.protocol.StableCode.fromWire(readInt(input, "terminalCode"));
+        final long stateVersion = readLong(input, "stateVersion");
+        final int duplicate = readUnsignedByte(input, "duplicate-risk flag");
         if (duplicate > 1) {
             throw new IllegalArgumentException("invalid duplicate-risk flag");
         }
-        final long sourceLength = Integer.toUnsignedLong(input.getInt());
+        final long sourceLength = Integer.toUnsignedLong(readInt(input, "source position length"));
         if (sourceLength > input.remaining()) {
             throw new IllegalArgumentException("invalid terminal source position length");
         }
-        final byte[] source = new byte[Math.toIntExact(sourceLength)];
-        input.get(source);
+        final byte[] source = readBytes(input, Math.toIntExact(sourceLength), "source position");
         final List<AttemptObligationRef> obligations = new ArrayList<>();
         if (version == VERSION) {
-            if (input.remaining() < 4) {
-                throw new IllegalArgumentException("terminal obligation count is truncated");
-            }
-            final long count = Integer.toUnsignedLong(input.getInt());
+            final long count = Integer.toUnsignedLong(readInt(input, "terminal obligation count"));
             if (count > input.remaining() / 4L) {
                 throw new IllegalArgumentException("terminal obligation count is invalid");
             }
             for (long index = 0; index < count; index++) {
-                if (input.remaining() < 4) {
-                    throw new IllegalArgumentException("terminal obligation length is truncated");
-                }
-                final long length = Integer.toUnsignedLong(input.getInt());
+                final long length = Integer.toUnsignedLong(readInt(input, "terminal obligation length"));
                 if (length > input.remaining()) {
                     throw new IllegalArgumentException("terminal obligation bytes are truncated");
                 }
-                final byte[] obligation = new byte[Math.toIntExact(length)];
-                input.get(obligation);
+                final byte[] obligation = readBytes(input, Math.toIntExact(length), "terminal obligation");
                 obligations.add(AttemptObligationRef.decode(obligation));
             }
         }
@@ -134,6 +122,34 @@ public record TerminalGenerationRecord(
             throw new IllegalArgumentException("non-canonical terminal generation record");
         }
         return result;
+    }
+
+    private static int readInt(final ByteBuffer input, final String name) {
+        requireRemaining(input, Integer.BYTES, name);
+        return input.getInt();
+    }
+
+    private static long readLong(final ByteBuffer input, final String name) {
+        requireRemaining(input, Long.BYTES, name);
+        return input.getLong();
+    }
+
+    private static int readUnsignedByte(final ByteBuffer input, final String name) {
+        requireRemaining(input, Byte.BYTES, name);
+        return input.get() & 0xff;
+    }
+
+    private static byte[] readBytes(final ByteBuffer input, final int length, final String name) {
+        requireRemaining(input, length, name);
+        final byte[] result = new byte[length];
+        input.get(result);
+        return result;
+    }
+
+    private static void requireRemaining(final ByteBuffer input, final int length, final String name) {
+        if (length < 0 || input.remaining() < length) {
+            throw new IllegalArgumentException("terminal generation " + name + " is truncated");
+        }
     }
 
     private static int compareObligations(final AttemptObligationRef left, final AttemptObligationRef right) {

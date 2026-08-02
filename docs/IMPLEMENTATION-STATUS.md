@@ -69,6 +69,11 @@ truncated reservation values fail as validation errors before a missing
 committed-payload branch can be consumed. `PayloadReservationTest` covers
 every strict prefix.
 
+`TerminalGenerationRecord.decode` now bounds the terminal source and
+obligation count/length fields through named fixed-width readers. Its legacy
+and v2 branches both reject strict-prefix truncation as codec validation;
+`TerminalGenerationRecordTest` covers the canonical v2 path.
+
 The Registry-shaped `ScheduleIntentV1` value is now implemented as a strict
 canonical codec: it binds the destination `ProfileRefV1`, `RetryPolicyRefV1`,
 delivery/order fields, the closed inline-versus-committed payload union,

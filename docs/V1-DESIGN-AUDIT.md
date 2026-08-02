@@ -109,6 +109,9 @@ the actual minimum framing prefix, so short valid LP32 values remain readable;
 The large-payload reservation value applies the same guards to its post-intent
 numeric and presence fields; `PayloadReservationTest` covers strict-prefix
 rejection before payload-reference decoding.
+Terminal generation history uses the same guarded reads for source and
+obligation framing in both legacy and v2 branches; the local prefix evidence
+is `TerminalGenerationRecordTest`.
 
 当前 `PersistentLaneScheduler.rebuildFromAuthoritativeReady` 已提供 fenced 的本地
 恢复桥：它从 bounded `timeline_cf/READY` 扫描开始，严格校验对应的
