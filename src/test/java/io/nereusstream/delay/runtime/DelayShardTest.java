@@ -23,6 +23,12 @@ import io.nereusstream.delay.protocol.PayloadCommitProof;
 import io.nereusstream.delay.protocol.PayloadCommitProofV1;
 import io.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
 import io.nereusstream.delay.protocol.PayloadProofTrustSet;
+import io.nereusstream.delay.protocol.PayloadProofTrustSetSemanticV1;
+import io.nereusstream.delay.protocol.PayloadProofVerifierKeyV1;
+import io.nereusstream.delay.protocol.PayloadProofIssuanceClosePayloadV1;
+import io.nereusstream.delay.protocol.PayloadProofTrustSetActivatePayloadV1;
+import io.nereusstream.delay.protocol.ControlReasonKindV1;
+import io.nereusstream.delay.protocol.ControlReasonV1;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
@@ -595,6 +601,65 @@ class DelayShardTest {
                     position(shardId, 2, 1_002), keyPair.getPublic()).stableCode());
             assertEquals(AdmissionGate.CLOSED, shard.getLane(lane).admissionGate());
             assertEquals(0, shard.discoverReady(10_000, 10).size());
+        }
+    }
+
+    @Test
+    void sourceOrderedTrustSetControlsPersistMarkersAndCloseFirstSeenIssuance() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("trust-set-controls"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 18);
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final PayloadProofVerifierKeyV1 verifier = PayloadProofVerifierKeyV1.fromPublicKey(
+                7, keyPair.getPublic(), 0, 10_000);
+        final PayloadProofTrustSetSemanticV1 semantic = new PayloadProofTrustSetSemanticV1(4,
+                List.of(verifier));
+        final PayloadProofTrustSetControlCatalog catalog = reference -> reference.equals(semantic.ref())
+                ? semantic : null;
+        final AuthorIdentity control = AuthorIdentity.control(Bytes.sha256(Bytes.utf8("trust-control-actor")),
+                Bytes.sha256(Bytes.utf8("trust-control-roles")), Bytes.sha256(Bytes.utf8("trust-control-scope")));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, null, catalog);
+            final ControlRef activateRef = new ControlRef(Bytes.sha256(Bytes.utf8("trust-activate-op")),
+                    Bytes.sha256(Bytes.utf8("trust-activate-request")), 1);
+            final byte[] activateBody = trustSetControlBody(shardId, activateRef, 12, semantic.ref(),
+                    new PayloadProofTrustSetActivatePayloadV1(semantic.ref()).canonicalBytes());
+            final SystemMutation activate = SystemMutation.signed(shardId, SystemMutationType.APPLY_SHARD_CONTROL,
+                    9_000, activateRef.logicalOperationIdentity(12), activateBody, control.canonicalBytes(), 1,
+                    keyPair.getPrivate());
+            assertEquals(StableCode.OK, shard.applySystemMutation(activate, position(shardId, 1, 1_001),
+                    keyPair.getPublic()).stableCode());
+            assertTrue(shard.payloadProofTrustSetControlState().activatedAt(semantic.ref(),
+                    position(shardId, 1, 1_001)));
+            assertTrue(shard.payloadProofTrustSetControlState().firstSeenIssuanceOpen(semantic.ref(), 7,
+                    position(shardId, 1, 1_001)));
+
+            final ControlRef closeRef = new ControlRef(Bytes.sha256(Bytes.utf8("trust-close-op")),
+                    Bytes.sha256(Bytes.utf8("trust-close-request")), 2);
+            final PayloadProofIssuanceClosePayloadV1 closePayload = new PayloadProofIssuanceClosePayloadV1(
+                    semantic.ref(), 7, new ControlReasonV1(ControlReasonKindV1.INCIDENT,
+                    Bytes.sha256(Bytes.utf8("incident")), null));
+            final byte[] closeBody = trustSetControlBody(shardId, closeRef, 13, semantic.ref(),
+                    closePayload.canonicalBytes());
+            final SystemMutation close = SystemMutation.signed(shardId, SystemMutationType.APPLY_SHARD_CONTROL,
+                    9_000, closeRef.logicalOperationIdentity(13), closeBody, control.canonicalBytes(), 1,
+                    keyPair.getPrivate());
+            assertEquals(StableCode.OK, shard.applySystemMutation(close, position(shardId, 2, 1_002),
+                    keyPair.getPublic()).stableCode());
+            assertFalse(shard.payloadProofTrustSetControlState().firstSeenIssuanceOpen(semantic.ref(), 7,
+                    position(shardId, 3, 1_003)));
+            assertTrue(shard.payloadProofTrustSetControlState().historicalVerificationAllowed(semantic.ref(), 7,
+                    position(shardId, 3, 1_003)));
+            assertNotNull(store.getValue(ColumnFamily.META, KeyCodec.metaFixed(12), 9));
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults(), null, null, null, catalog);
+            assertFalse(reopened.payloadProofTrustSetControlState().firstSeenIssuanceOpen(semantic.ref(), 7,
+                    position(shardId, 3, 1_003)));
+            assertTrue(reopened.payloadProofTrustSetControlState().historicalVerificationAllowed(semantic.ref(), 7,
+                    position(shardId, 3, 1_003)));
         }
     }
 
@@ -2829,6 +2894,28 @@ class DelayShardTest {
             CanonicalProtobuf.uint32(output, 12, 1);
             CanonicalProtobuf.bytes(output, 13, Bytes.sha256(Bytes.utf8("lane-control-semantic")));
             CanonicalProtobuf.int64(output, 14, expectedControlVersion);
+            CanonicalProtobuf.bytes(output, 15, payload);
+        });
+    }
+
+    private static byte[] trustSetControlBody(final ShardId shard, final ControlRef controlRef,
+                                              final int controlKind,
+                                              final PayloadProofTrustSetRefV1 trustSet,
+                                              final byte[] branch) {
+        final byte[] subject = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());
+            CanonicalProtobuf.uint32(output, 2, shard.partition());
+        });
+        final byte[] payload = CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, controlKind,
+                branch));
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, subject);
+            CanonicalProtobuf.uint32(output, 2, SystemMutationType.APPLY_SHARD_CONTROL.wireValue());
+            CanonicalProtobuf.int64(output, 3, 9_000);
+            CanonicalProtobuf.bytes(output, 10, controlRef.canonicalBytes());
+            CanonicalProtobuf.uint32(output, 11, controlKind);
+            CanonicalProtobuf.uint32(output, 12, trustSet.version());
+            CanonicalProtobuf.bytes(output, 13, trustSet.semanticHash());
             CanonicalProtobuf.bytes(output, 15, payload);
         });
     }

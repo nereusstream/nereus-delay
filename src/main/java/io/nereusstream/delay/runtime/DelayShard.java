@@ -21,6 +21,9 @@ import io.nereusstream.delay.protocol.LaneRetirementProgressV1;
 import io.nereusstream.delay.protocol.LaneTerminalGuardV1;
 import io.nereusstream.delay.protocol.PayloadCommitProofView;
 import io.nereusstream.delay.protocol.PayloadProofTrustSet;
+import io.nereusstream.delay.protocol.PayloadProofTrustSetControlState;
+import io.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
+import io.nereusstream.delay.protocol.PayloadProofTrustSetSemanticV1;
 import io.nereusstream.delay.protocol.PayloadReference;
 import io.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1;
 import io.nereusstream.delay.protocol.PublishAdmissionBody;
@@ -69,6 +72,8 @@ public final class DelayShard {
     private static final int META_CLOSED_INGRESS_DEADLINE = 4;
     private static final int META_MUTATION_SEQUENCE = 5;
     private static final int META_CLAIM_SEQUENCE = 11;
+    private static final int META_PAYLOAD_PROOF_CONTROL_STATE = 12;
+    private static final int PAYLOAD_PROOF_CONTROL_VALUE_TYPE = 9;
     private static final int META_QUOTA_USAGE = 1;
     private static final int META_OUTCOME_RESERVE_USAGE = 2;
     private static final int CAPACITY_RESERVE_VALUE_TYPE = 8;
@@ -79,6 +84,8 @@ public final class DelayShard {
     private final ShardStore store;
     private final DelayShardConfig config;
     private final PayloadProofTrustSet payloadProofTrustSet;
+    private final PayloadProofTrustSetControlCatalog payloadProofTrustSetControlCatalog;
+    private PayloadProofTrustSetControlState payloadProofTrustSetControlState;
     private final ShardCapacityEnvelopeV1 capacityEnvelope;
     private final V1ScheduleResolver v1ScheduleResolver;
     /** Single-writer scratch; consumed by the same apply turn before the batch is written. */
@@ -94,12 +101,12 @@ public final class DelayShard {
     private final Map<Integer, CapacityVectorV1> controlReserveUsage = new HashMap<>();
 
     public DelayShard(final ShardStore store, final DelayShardConfig config) {
-        this(store, config, null, null);
+        this(store, config, null, null, null, null);
     }
 
     public DelayShard(final ShardStore store, final DelayShardConfig config,
                       final PayloadProofTrustSet payloadProofTrustSet) {
-        this(store, config, payloadProofTrustSet, null);
+        this(store, config, payloadProofTrustSet, null, null, null);
     }
 
     /**
@@ -111,7 +118,7 @@ public final class DelayShard {
     public DelayShard(final ShardStore store, final DelayShardConfig config,
                       final PayloadProofTrustSet payloadProofTrustSet,
                       final ShardCapacityEnvelopeV1 capacityEnvelope) {
-        this(store, config, payloadProofTrustSet, capacityEnvelope, null);
+        this(store, config, payloadProofTrustSet, capacityEnvelope, null, null);
     }
 
     /**
@@ -124,9 +131,23 @@ public final class DelayShard {
                       final PayloadProofTrustSet payloadProofTrustSet,
                       final ShardCapacityEnvelopeV1 capacityEnvelope,
                       final V1ScheduleResolver v1ScheduleResolver) {
+        this(store, config, payloadProofTrustSet, capacityEnvelope, v1ScheduleResolver, null);
+    }
+
+    /**
+     * Opens a shard with the local source-ordered trust-set marker projection.
+     * The catalog is required before kind-12/kind-13 controls can mutate the
+     * projection; missing or mismatched semantic bytes fail closed.
+     */
+    public DelayShard(final ShardStore store, final DelayShardConfig config,
+                      final PayloadProofTrustSet payloadProofTrustSet,
+                      final ShardCapacityEnvelopeV1 capacityEnvelope,
+                      final V1ScheduleResolver v1ScheduleResolver,
+                      final PayloadProofTrustSetControlCatalog payloadProofTrustSetControlCatalog) {
         this.store = Objects.requireNonNull(store, "store");
         this.config = Objects.requireNonNull(config, "config");
         this.payloadProofTrustSet = payloadProofTrustSet;
+        this.payloadProofTrustSetControlCatalog = payloadProofTrustSetControlCatalog;
         this.capacityEnvelope = capacityEnvelope;
         this.v1ScheduleResolver = v1ScheduleResolver;
         final var sourceValue = store.getValue(ColumnFamily.META, KeyCodec.metaFixed(META_APPLIED_SOURCE_POSITION), 1);
@@ -139,6 +160,11 @@ public final class DelayShard {
         mutationSequence = sequence == null ? 0 : readSequence(sequence.payload());
         final var claimSequenceValue = store.getValue(ColumnFamily.META, KeyCodec.metaFixed(META_CLAIM_SEQUENCE), 1);
         claimSequence = claimSequenceValue == null ? 0 : readSequence(claimSequenceValue.payload());
+        final var payloadProofControlValue = store.getValue(ColumnFamily.META,
+                KeyCodec.metaFixed(META_PAYLOAD_PROOF_CONTROL_STATE), PAYLOAD_PROOF_CONTROL_VALUE_TYPE);
+        payloadProofTrustSetControlState = payloadProofControlValue == null
+                ? PayloadProofTrustSetControlState.empty()
+                : PayloadProofTrustSetControlState.decode(payloadProofControlValue.payload());
         final var quotaValue = store.getValue(ColumnFamily.META, KeyCodec.metaQuota(META_QUOTA_USAGE), 7);
         quota = quotaValue == null ? ShardQuota.empty() : ShardQuota.decode(quotaValue.payload());
         final var outcomeReserveValue = store.getValue(ColumnFamily.META,
@@ -156,6 +182,11 @@ public final class DelayShard {
             throw new IllegalStateException("persisted outcome reserve projections disagree");
         }
         validateRuntimeObligationIndexes();
+    }
+
+    /** Returns the persisted source-ordered trust-set marker projection. */
+    public synchronized PayloadProofTrustSetControlState payloadProofTrustSetControlState() {
+        return payloadProofTrustSetControlState;
     }
 
     public synchronized CommandResult apply(final PreparedCommand command, final SourcePosition sourcePosition) {
@@ -810,6 +841,9 @@ public final class DelayShard {
                 default -> persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                         StableCode.STALE_SYSTEM_MUTATION);
             };
+        } catch (V1CommandResolutionException exception) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    exception.stableCode());
         } catch (IllegalArgumentException exception) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.STALE_SYSTEM_MUTATION);
@@ -828,6 +862,9 @@ public final class DelayShard {
                 body.controlRef().logicalOperationIdentity(body.controlKind()))) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
+        if (body.controlKind() == 12 || body.controlKind() == 13) {
+            return applyPayloadProofTrustSetControlMutation(body, mutation, sourcePosition);
         }
         if (body.controlKind() < 8 || body.controlKind() > 11) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
@@ -919,6 +956,70 @@ public final class DelayShard {
         lastAppliedSourcePosition = sourcePosition;
         mutationSequence++;
         return result;
+    }
+
+    /**
+     * Applies the source-ordered trust-set marker subset and persists the
+     * marker state in the same batch as the mutation result and source cursor.
+     * The immutable semantic value is resolved before the batch; this local
+     * path does not claim Oxia/catalog durability for that authority.
+     */
+    private SystemMutationResult applyPayloadProofTrustSetControlMutation(
+            final ApplyShardControlBody body, final SystemMutation mutation,
+            final SourcePosition sourcePosition) {
+        final PayloadProofTrustSetRefV1 trustSet;
+        final PayloadProofTrustSetControlState next;
+        if (payloadProofTrustSetControlCatalog == null) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.ROUTE_SNAPSHOT_UNAVAILABLE);
+        }
+        if (body.controlKind() == 12) {
+            final var payload = body.payloadProofTrustSetActivate();
+            trustSet = payload.trustSet();
+            requireTrustSetSemantic(trustSet);
+            if (body.semanticVersion() != trustSet.version()
+                    || !Bytes.constantTimeEquals(body.semanticHash(), trustSet.semanticHash())) {
+                return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                        StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+            }
+            next = payloadProofTrustSetControlState.activate(trustSet, sourcePosition);
+        } else {
+            final var payload = body.payloadProofIssuanceClose();
+            trustSet = payload.trustSet();
+            final PayloadProofTrustSetSemanticV1 semantic = requireTrustSetSemantic(trustSet);
+            if (semantic.keys().stream().noneMatch(key -> key.keyVersion() == payload.proofKeyVersion())) {
+                return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                        StableCode.PAYLOAD_PROOF_KEY_NOT_AUTHORIZED_AT_SOURCE_POSITION);
+            }
+            if (body.semanticVersion() != trustSet.version()
+                    || !Bytes.constantTimeEquals(body.semanticHash(), trustSet.semanticHash())) {
+                return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                        StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+            }
+            next = payloadProofTrustSetControlState.close(payload, sourcePosition);
+        }
+        final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, StableCode.OK,
+                sourcePosition.canonicalBytes());
+        store.write(batch -> {
+            batch.putValue(ColumnFamily.META, PAYLOAD_PROOF_CONTROL_VALUE_TYPE,
+                    KeyCodec.metaFixed(META_PAYLOAD_PROOF_CONTROL_STATE), next.canonicalBytes());
+            writeSystemResult(batch, result);
+            writePosition(batch, sourcePosition);
+        });
+        payloadProofTrustSetControlState = next;
+        lastAppliedSourcePosition = sourcePosition;
+        mutationSequence++;
+        return result;
+    }
+
+    private PayloadProofTrustSetSemanticV1 requireTrustSetSemantic(final PayloadProofTrustSetRefV1 reference) {
+        final PayloadProofTrustSetSemanticV1 semantic =
+                payloadProofTrustSetControlCatalog.resolve(reference);
+        if (semantic == null || !semantic.ref().equals(reference)) {
+            throw new V1CommandResolutionException(StableCode.ROUTE_SNAPSHOT_UNAVAILABLE,
+                    "trust-set semantic value is unavailable or does not match its reference");
+        }
+        return semantic;
     }
 
     /** Builds the exact reversible timeline projection that Pause must restore in its own batch. */
@@ -3309,6 +3410,12 @@ public final class DelayShard {
         final V1ScheduleResolver.ResolvedPrepare resolved = Objects.requireNonNull(
                 resolver.resolvePrepare(command.shardId(), command.delayMessageId(), body, sourcePosition),
                 "resolved PrepareLargeSchedule projection");
+        if (payloadProofTrustSetControlCatalog != null
+                && !payloadProofTrustSetControlState.activatedAt(body.trustSet(), sourcePosition)) {
+            throw new V1CommandResolutionException(
+                    StableCode.PAYLOAD_PROOF_KEY_NOT_AUTHORIZED_AT_SOURCE_POSITION,
+                    "PrepareLargeSchedule trust set is not active at its source position");
+        }
         lastResolvedPrepare = resolved;
         final ScheduleIntentV1 intent = body.intentWithoutPayload();
         return new LargeScheduleIntent(resolved.laneId(), intent.deliverAtEpochMs(), intent.expireAtEpochMs(),
@@ -3413,6 +3520,7 @@ public final class DelayShard {
 
     private CommandResult applyCommitLarge(final PreparedCommand command, final SourcePosition sourcePosition) {
         final PayloadCommitProofView proof;
+        final boolean registryBody = CommandBodies.isRegistryClientBodyV1(command.canonicalBody());
         if (CommandBodies.isRegistryClientBodyV1(command.canonicalBody())) {
             final CommitLargeScheduleBodyV1 body = CommandBodies.decodeCommitLargeV1(command.canonicalBody());
             requireV1BodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
@@ -3449,8 +3557,23 @@ public final class DelayShard {
                 || !Bytes.constantTimeEquals(proof.payloadSha256(), reservation.intent().payloadSha256())) {
             return persistRejected(command, sourcePosition, StableCode.PAYLOAD_PROOF_INVALID);
         }
-        if (payloadProofTrustSet == null || !payloadProofTrustSet.verifies(proof,
-                sourcePosition.brokerPersistenceTimeEpochMs())) {
+        final PayloadProofTrustSetRefV1 pinnedTrustSet = registryBody && payloadProofTrustSetControlCatalog != null
+                ? pinnedPrepareTrustSet(command.delayMessageId()) : null;
+        final boolean proofAuthorized;
+        if (pinnedTrustSet != null && payloadProofTrustSetControlCatalog != null) {
+            if (proof.trustSetVersion() != pinnedTrustSet.version()
+                    || !payloadProofTrustSetControlState.firstSeenIssuanceOpen(pinnedTrustSet,
+                    proof.proofKeyVersion(), sourcePosition)) {
+                return persistRejected(command, sourcePosition,
+                        StableCode.PAYLOAD_PROOF_KEY_NOT_AUTHORIZED_AT_SOURCE_POSITION);
+            }
+            proofAuthorized = PayloadProofTrustSet.fromSemantic(requireTrustSetSemantic(pinnedTrustSet))
+                    .verifies(proof, sourcePosition.brokerPersistenceTimeEpochMs());
+        } else {
+            proofAuthorized = payloadProofTrustSet != null && payloadProofTrustSet.verifies(proof,
+                    sourcePosition.brokerPersistenceTimeEpochMs());
+        }
+        if (!proofAuthorized) {
             return persistRejected(command, sourcePosition,
                     StableCode.PAYLOAD_PROOF_KEY_NOT_AUTHORIZED_AT_SOURCE_POSITION);
         }
@@ -3468,6 +3591,15 @@ public final class DelayShard {
         final CommandResult result = applied(StableCode.SCHEDULED, sourcePosition, message);
         persistMutation(command, sourcePosition, result, message, committed, nextQuota);
         return result;
+    }
+
+    private PayloadProofTrustSetRefV1 pinnedPrepareTrustSet(final DelayMessageId messageId) {
+        final V1ScheduleBinding binding = getV1ScheduleBinding(messageId);
+        if (binding == null || binding.commandType() != io.nereusstream.delay.protocol.CommandType.PREPARE_LARGE_SCHEDULE) {
+            throw new V1CommandResolutionException(StableCode.ROUTE_SNAPSHOT_UNAVAILABLE,
+                    "V1 Commit has no durable Prepare trust-set binding");
+        }
+        return CommandBodies.decodePrepareLargeV1(binding.canonicalBody()).trustSet();
     }
 
     private static byte[] reservationId(final PreparedCommand command) {
