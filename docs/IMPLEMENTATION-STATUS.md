@@ -14,6 +14,9 @@ different revision.
 The local Recovery Catalog likewise rereads an exact legacy or typed Floor
 successor after a lost CAS response without advancing the Floor twice.
 
+Exact already-published manifests are similarly reread before generation CAS;
+same-checkpoint hash drift remains an integrity conflict.
+
 The local Owner Lease adapters now enforce the closed lifecycle transition
 matrix, including fail-closed backward transitions and fenced-lease
 non-reactivation; the real Oxia ephemeral session/CAS authority remains a

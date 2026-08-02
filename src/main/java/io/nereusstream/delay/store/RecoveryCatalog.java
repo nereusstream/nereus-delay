@@ -35,9 +35,6 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
 
     public synchronized Publication publish(final CheckpointManifest manifest, final long expectedCatalogGeneration) {
         Objects.requireNonNull(manifest, "manifest");
-        if (expectedCatalogGeneration != catalogGeneration) {
-            throw new IllegalStateException("checkpoint catalog generation conflict");
-        }
         if (catalogShard != null && !catalogShard.equals(manifest.shardId())) {
             throw new IllegalArgumentException("checkpoint catalog is bound to a different shard");
         }
@@ -48,6 +45,9 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
                 throw new IllegalStateException("checkpoint identity conflict");
             }
             return new Publication(existing, catalogGeneration, floor);
+        }
+        if (expectedCatalogGeneration != catalogGeneration) {
+            throw new IllegalStateException("checkpoint catalog generation conflict");
         }
         if (manifest.parentCheckpoint() == null && manifest.lineageGeneration() != 0) {
             throw new IllegalArgumentException("genesis checkpoint must have lineage generation zero");

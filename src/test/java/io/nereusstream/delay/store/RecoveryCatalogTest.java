@@ -44,6 +44,7 @@ class RecoveryCatalogTest {
         final RecoveryFloor firstFloor = catalog.advanceFloor(genesis.checkpointId(), 2, id32(4));
         assertArrayEquals(genesis.checkpointId(), firstFloor.checkpointId());
         assertEquals(firstFloor, catalog.advanceFloor(genesis.checkpointId(), 2, id32(4)));
+        assertEquals(child, catalog.publish(child, 1).manifest());
         assertEquals(List.of(genesis, child), catalog.recoverySet(child.checkpointId()));
 
         final RecoveryFloor secondFloor = catalog.advanceFloor(child.checkpointId(), 3, id32(5));

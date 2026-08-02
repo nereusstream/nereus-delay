@@ -154,6 +154,9 @@ Legacy/typed local Recovery Floor CAS 也支持 exact successor reread（含
 checkpoint、manifest、source/mutation 和 evidence/cursor identity），response
 loss 不会重复推进 Floor；不同 Floor 或 identity drift 仍 fail closed。
 
+普通 local catalog publish 对已存在的 exact manifest 也先做 identity reread，
+因此 catalog generation 推进不会把一次已成功的 checkpoint insert 误报为冲突。
+
 `ShardStore.createCheckpoint` 现在先把完整 RocksDB 镜像写入同文件系统的
 `checkpoint-tmp` 命名空间，完成后才通过 atomic rename 安装到目标路径；已有
 目标会被拒绝，失败 staging 会清理。这闭合的是本地物理 checkpoint 边界，
