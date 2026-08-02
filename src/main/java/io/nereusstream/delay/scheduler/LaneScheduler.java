@@ -113,9 +113,10 @@ public final class LaneScheduler {
             }
             lane.queue.removeFirst();
             lane.deficit -= head.accountedBytes();
-            lane.lastServedRound = ++roundGeneration;
+            roundGeneration = nextRoundGeneration(roundGeneration);
+            lane.lastServedRound = roundGeneration;
             result.add(head);
-            bytes += head.accountedBytes();
+            bytes = Math.addExact(bytes, head.accountedBytes());
         }
         return result;
     }
@@ -292,6 +293,10 @@ public final class LaneScheduler {
 
     private static long saturatingAdd(final long left, final long right) {
         return left > Long.MAX_VALUE - right ? Long.MAX_VALUE : left + right;
+    }
+
+    private static long nextRoundGeneration(final long current) {
+        return current == Long.MAX_VALUE ? Long.MAX_VALUE : current + 1;
     }
 
     public record SchedulerSnapshot(int cursor, long roundGeneration, List<LaneSnapshot> lanes) {

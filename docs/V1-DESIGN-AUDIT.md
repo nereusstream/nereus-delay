@@ -145,6 +145,10 @@ Cancel/Reschedule 及其 replay projection 中也使用 checked increment；达�
 Java 表示上限时先以 `INVALID_COMMAND` 持久拒绝，不会把负值写入 Message 或
 timeline。`DelayShardTest.messageGenerationAndStateVersionOverflowFailClosedBeforeMutation`
 覆盖这两个边界。
+Scheduler round generations and persisted service-gap counters now saturate at
+`Long.MAX_VALUE`, and inner scheduler byte accumulation is checked; the local
+regressions are `LaneSchedulerTest.saturatesRoundGenerationBeforeServingAtLongMaximum`
+and `WorkerSchedulerTest.saturatesRoundGenerationBeforeServingAtLongMaximum`。
 
 当前代码已把 Lane 的 same-key ACTIVE/TERMINAL 分支和保守本地退休证明接入
 `DelayShard`；并已补齐 Registry-shaped `ActiveLaneStateV1`、

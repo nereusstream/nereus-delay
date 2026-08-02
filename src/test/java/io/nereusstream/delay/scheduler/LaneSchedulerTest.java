@@ -102,6 +102,21 @@ class LaneSchedulerTest {
     }
 
     @Test
+    void saturatesRoundGenerationBeforeServingAtLongMaximum() {
+        final DestinationLaneId lane = lane(22);
+        final LaneScheduler scheduler = new LaneScheduler(10, 1);
+        scheduler.register(record(lane, 1));
+        scheduler.offer(item(lane, 1));
+        scheduler.restore(new LaneScheduler.SchedulerSnapshot(0, Long.MAX_VALUE,
+                List.of(new LaneScheduler.LaneSnapshot(lane, 1, 10, Long.MAX_VALUE, 1, true))));
+
+        assertEquals(List.of(lane), scheduler.poll(new SchedulerBudget(1, 100, 1_000_000_000)).stream()
+                .map(ScheduleWorkItem::laneId).toList());
+        assertEquals(Long.MAX_VALUE, scheduler.snapshot().roundGeneration());
+        assertEquals(Long.MAX_VALUE, scheduler.snapshot().lanes().get(0).lastServedRound());
+    }
+
+    @Test
     void fairnessCountersSurviveOwnerRestart() {
         final DestinationLaneId lane = lane(5);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 5);

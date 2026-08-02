@@ -129,6 +129,13 @@ historical retention remain external-authority blockers.
 The local source-history gate also rejects a same-token visibility lookup or
 publication when the canonical Source Position metadata differs.
 
+Scheduler round generations and Lane/Shard `lastServedRound` now saturate at
+`Long.MAX_VALUE`, while inner scheduler byte-budget accumulation uses checked
+addition; a long-running or restored scheduler cannot wrap its service-gap
+evidence into a negative value. `LaneSchedulerTest.saturatesRoundGenerationBeforeServingAtLongMaximum`
+and `WorkerSchedulerTest.saturatesRoundGenerationBeforeServingAtLongMaximum`
+cover the two scheduler levels.
+
 `ProfileBindingActivatePayloadV1` and `ProfileNewBindingClosePayloadV1` now
 close the Registry control branches for Profile first-binding lifecycle.
 `ProfileBindingControlState` persists strictly source-ordered activation and

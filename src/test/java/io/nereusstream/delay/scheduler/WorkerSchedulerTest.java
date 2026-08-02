@@ -84,6 +84,23 @@ class WorkerSchedulerTest {
     }
 
     @Test
+    void saturatesRoundGenerationBeforeServingAtLongMaximum() {
+        final ShardId shard = shard(22);
+        final DestinationLaneId lane = lane(22);
+        final WorkerScheduler worker = new WorkerScheduler(10, 1);
+        worker.registerShard(shard, 1, LaneScheduler.defaults());
+        worker.registerLane(shard, laneRecord(lane));
+        worker.offer(item(shard, lane, 1));
+        worker.restore(new WorkerScheduler.WorkerSnapshot(0, Long.MAX_VALUE,
+                List.of(new WorkerScheduler.ShardSnapshot(shard, 1, 10, Long.MAX_VALUE, false))));
+
+        assertEquals(List.of(lane), worker.poll(new SchedulerBudget(1, 100, 1_000_000_000)).stream()
+                .map(ScheduleWorkItem::laneId).toList());
+        assertEquals(Long.MAX_VALUE, worker.snapshot().roundGeneration());
+        assertEquals(Long.MAX_VALUE, worker.snapshot().shards().get(0).lastServedRound());
+    }
+
+    @Test
     void outerFairnessCountersCanBeRestored() {
         final ShardId first = shard(3);
         final ShardId second = shard(4);

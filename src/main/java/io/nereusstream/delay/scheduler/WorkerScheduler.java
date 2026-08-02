@@ -102,7 +102,8 @@ public final class WorkerScheduler {
                 visitBytes = Math.addExact(visitBytes, item.accountedBytes());
             }
             shard.deficit = Math.max(0, shard.deficit - visitBytes);
-            shard.lastServedRound = ++roundGeneration;
+            roundGeneration = nextRoundGeneration(roundGeneration);
+            shard.lastServedRound = roundGeneration;
             bytes = Math.addExact(bytes, visitBytes);
         }
         return result;
@@ -171,6 +172,10 @@ public final class WorkerScheduler {
 
     private static long saturatingAdd(final long left, final long right) {
         return left > Long.MAX_VALUE - right ? Long.MAX_VALUE : left + right;
+    }
+
+    private static long nextRoundGeneration(final long current) {
+        return current == Long.MAX_VALUE ? Long.MAX_VALUE : current + 1;
     }
 
     public record WorkerSnapshot(int cursor, long roundGeneration, List<ShardSnapshot> shards) {
