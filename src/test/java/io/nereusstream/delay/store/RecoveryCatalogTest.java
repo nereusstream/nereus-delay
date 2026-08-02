@@ -1,8 +1,13 @@
 package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.CheckpointResourceV1;
+import io.nereusstream.delay.protocol.CheckpointUploadIntentV1;
+import io.nereusstream.delay.protocol.CheckpointUploadStateV1;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.OwnerIdentityV1;
+import io.nereusstream.delay.protocol.ProfileKindV1;
+import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.RecoveryCandidateKindV1;
 import io.nereusstream.delay.protocol.RecoveryCandidateRefV1;
 import io.nereusstream.delay.protocol.RecoveryFloorRefV1;
@@ -10,6 +15,7 @@ import io.nereusstream.delay.protocol.RecoveryPinV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.ShardSubjectV1;
+import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -125,6 +131,34 @@ class RecoveryCatalogTest {
     }
 
     @Test
+    void catalogPublicationRequiresExactPublishedUploadIntentIdentity() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 11);
+        final byte[] lineage = id16(70);
+        final CheckpointManifest manifest = manifest(shard, UUID.randomUUID(), lineage, id16(71), 0, 1, 1, null);
+        final RecoveryCatalog catalog = new RecoveryCatalog();
+        catalog.publish(manifest, 0);
+        final ProfileRefV1 profile = new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, id32(72),
+                ProfileKindV1.OBJECT_STORE);
+        final OwnerIdentityV1 owner = new OwnerIdentityV1(manifest.createdBy().deploymentId(),
+                manifest.createdBy().workerRunId(), manifest.createdBy().ownerEpoch(), id32(73));
+        final CheckpointUploadIntentV1 published = new CheckpointUploadIntentV1(
+                new ShardSubjectV1(shard), lineage, manifest.checkpointId(), owner,
+                uuidBytes(manifest.sourceStoreIncarnation()), id32(74), 1,
+                null, null, profile, evidence(1_000), 5_000,
+                CheckpointUploadStateV1.PUBLISHED, 2,
+                new CheckpointResourceV1(lineage, manifest.checkpointId(), profile, Bytes.utf8("bucket"),
+                        Bytes.utf8("checkpoint/71/manifest"), Bytes.utf8("version-1"),
+                        manifest.canonicalJsonBytes().length, manifest.manifestSha256()), null);
+
+        assertEquals(1, catalog.publishUploadedCheckpoint(published, manifest, 1).catalogGeneration());
+        assertThrows(IllegalArgumentException.class, () -> catalog.publishUploadedCheckpoint(
+                new CheckpointUploadIntentV1(new ShardSubjectV1(shard), lineage, manifest.checkpointId(), owner,
+                        uuidBytes(manifest.sourceStoreIncarnation()), id32(75), 1, null, null, profile,
+                        evidence(1_000), 5_000, CheckpointUploadStateV1.PENDING_UPLOAD, 1, null, null),
+                manifest, 2));
+    }
+
+    @Test
     void rejectsParentHashLineageAndSourceIdentityViolations() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 1);
         final byte[] lineage = id16(10);
@@ -214,5 +248,16 @@ class RecoveryCatalogTest {
         final byte[] bytes = new byte[32];
         bytes[31] = (byte) value;
         return bytes;
+    }
+
+    private static TrustedUtcIntervalEvidence evidence(final long time) {
+        return new TrustedUtcIntervalEvidence(time, time + 1,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, id32(76), 1, 2, 3,
+                id32(77), 0, null);
+    }
+
+    private static byte[] uuidBytes(final UUID value) {
+        return java.nio.ByteBuffer.allocate(16).putLong(value.getMostSignificantBits())
+                .putLong(value.getLeastSignificantBits()).array();
     }
 }

@@ -1,6 +1,7 @@
 package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.RecoveryPinV1;
+import io.nereusstream.delay.protocol.CheckpointUploadIntentV1;
 import io.nereusstream.delay.protocol.SourcePosition;
 
 import java.util.Optional;
@@ -14,6 +15,17 @@ public interface RecoveryCatalogAuthority {
     RecoveryCatalog.Publication publish(CheckpointManifest manifest, long expectedCatalogGeneration);
 
     RecoveryFloor advanceFloor(byte[] checkpointId, long expectedCatalogGeneration, byte[] evidenceCursorDigest);
+
+    /**
+     * Publishes a complete manifest only after an exact PUBLISHED upload intent
+     * has bound its identity to the requested catalog generation. Production
+     * implementations must perform this check in the same Oxia transaction.
+     */
+    default RecoveryCatalog.Publication publishUploadedCheckpoint(
+            final CheckpointUploadIntentV1 publishedIntent, final CheckpointManifest manifest,
+            final long expectedCatalogGeneration) {
+        throw new UnsupportedOperationException("upload-intent/catalog CAS is not implemented");
+    }
 
     Optional<CheckpointManifest> manifest(byte[] checkpointId);
 

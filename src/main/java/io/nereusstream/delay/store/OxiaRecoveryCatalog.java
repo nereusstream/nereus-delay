@@ -1,6 +1,7 @@
 package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.CheckpointUploadIntentV1;
 import io.nereusstream.delay.protocol.RecoveryPinV1;
 import io.nereusstream.delay.protocol.SourcePosition;
 
@@ -58,6 +59,21 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
         }
         if (!Bytes.constantTimeEquals(evidenceCursorDigest, result.evidenceCursorDigest())) {
             throw new IllegalStateException("Oxia floor result changed evidence cursor digest");
+        }
+        return result;
+    }
+
+    @Override
+    public RecoveryCatalog.Publication publishUploadedCheckpoint(final CheckpointUploadIntentV1 publishedIntent,
+                                                                  final CheckpointManifest manifest,
+                                                                  final long expectedCatalogGeneration) {
+        final RecoveryCatalog.Publication result = Objects.requireNonNull(backend.publishUploadedCheckpoint(
+                Objects.requireNonNull(publishedIntent, "publishedIntent"),
+                Objects.requireNonNull(manifest, "manifest"), expectedCatalogGeneration),
+                "Oxia upload-intent publication result");
+        validatePublicationIdentity(manifest, result);
+        if (result.catalogGeneration() <= expectedCatalogGeneration) {
+            throw new IllegalStateException("Oxia upload-intent publication did not advance catalog generation");
         }
         return result;
     }
@@ -137,6 +153,12 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
     public interface CasBackend {
         RecoveryCatalog.Publication publish(CheckpointManifest manifest, long expectedCatalogGeneration);
 
+        default RecoveryCatalog.Publication publishUploadedCheckpoint(
+                final CheckpointUploadIntentV1 publishedIntent, final CheckpointManifest manifest,
+                final long expectedCatalogGeneration) {
+            throw new UnsupportedOperationException("upload-intent/catalog CAS is not implemented");
+        }
+
         RecoveryFloor advanceFloor(byte[] checkpointId, long expectedCatalogGeneration,
                                    byte[] evidenceCursorDigest);
 
@@ -174,6 +196,13 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
         public RecoveryCatalog.Publication publish(final CheckpointManifest manifest,
                                                    final long expectedCatalogGeneration) {
             return delegate.publish(manifest, expectedCatalogGeneration);
+        }
+
+        @Override
+        public RecoveryCatalog.Publication publishUploadedCheckpoint(final CheckpointUploadIntentV1 publishedIntent,
+                                                                       final CheckpointManifest manifest,
+                                                                       final long expectedCatalogGeneration) {
+            return delegate.publishUploadedCheckpoint(publishedIntent, manifest, expectedCatalogGeneration);
         }
 
         @Override

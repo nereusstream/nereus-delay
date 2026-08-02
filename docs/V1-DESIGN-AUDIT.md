@@ -123,6 +123,11 @@ Recovery-Floor/retention gate。
 WriteBatch，成功后才推进 catch-up cursor。它仍不等同于真实 Kafka/Pulsar
 consumer、System Mutation replay 或生产 activation transaction。
 
+本地 `RecoveryCatalog.publishUploadedCheckpoint` 现在要求 PUBLISHED intent
+与完整 manifest 的 shard、lineage、checkpoint、manifest hash/length、owner
+和 store incarnation 完全一致后才接受 catalog projection；这仍不等于
+Object Store 真实性或 Oxia transaction。
+
 查询层也已补齐 `CheckpointSummaryV1`/`CheckpointCatalogResultV1` 的
 canonical checkpoint-catalog projection，包含 shard identity、Floor identity
 和严格排序的 summary array；它仍只是 public query value codec，不代表

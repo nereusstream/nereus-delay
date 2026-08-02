@@ -1,12 +1,15 @@
 package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.CheckpointUploadIntentV1;
+import io.nereusstream.delay.protocol.CheckpointUploadStateV1;
 import io.nereusstream.delay.protocol.RecoveryCandidateKindV1;
 import io.nereusstream.delay.protocol.RecoveryPinV1;
 import io.nereusstream.delay.protocol.ShardSubjectV1;
 import io.nereusstream.delay.protocol.SourcePosition;
 
 import java.util.ArrayList;
+import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -85,6 +88,51 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
                 candidate.manifestSha256(), catalogGeneration, candidate.appliedShardLogPosition(),
                 candidate.shardMutationSequence(), evidenceCursorDigest);
         return floor;
+    }
+
+    /**
+     * Binds local catalog publication to a complete PUBLISHED upload intent.
+     * The production equivalent must compare the same identities and the
+     * active Owner Lease/session in one Oxia transaction.
+     */
+    @Override
+    public synchronized Publication publishUploadedCheckpoint(final CheckpointUploadIntentV1 publishedIntent,
+                                                               final CheckpointManifest manifest,
+                                                               final long expectedCatalogGeneration) {
+        Objects.requireNonNull(publishedIntent, "publishedIntent");
+        Objects.requireNonNull(manifest, "manifest");
+        if (publishedIntent.state() != CheckpointUploadStateV1.PUBLISHED
+                || publishedIntent.publishedManifest() == null) {
+            throw new IllegalArgumentException("catalog publication requires a PUBLISHED upload intent");
+        }
+        if (expectedCatalogGeneration != publishedIntent.baseCatalogGeneration()) {
+            throw new IllegalStateException("upload intent base catalog generation does not match publication CAS");
+        }
+        if (!publishedIntent.shard().shardId().equals(manifest.shardId())
+                || !Bytes.constantTimeEquals(publishedIntent.recoveryLineageId(), manifest.recoveryLineageId())
+                || !Bytes.constantTimeEquals(publishedIntent.checkpointId(), manifest.checkpointId())) {
+            throw new IllegalArgumentException("upload intent and manifest shard/checkpoint identity differ");
+        }
+        final io.nereusstream.delay.protocol.CheckpointResourceV1 resource = publishedIntent.publishedManifest();
+        if (!Bytes.constantTimeEquals(resource.manifestSha256(), manifest.manifestSha256())
+                || resource.manifestLength() != manifest.canonicalJsonBytes().length) {
+            throw new IllegalArgumentException("published manifest object identity does not match manifest bytes");
+        }
+        if (!Bytes.constantTimeEquals(publishedIntent.owner().deploymentId(), manifest.createdBy().deploymentId())
+                || !Bytes.constantTimeEquals(publishedIntent.owner().workerRunId(), manifest.createdBy().workerRunId())
+                || publishedIntent.owner().ownerEpoch() != manifest.createdBy().ownerEpoch()) {
+            throw new IllegalArgumentException("upload intent owner does not match manifest creator");
+        }
+        if (!Bytes.constantTimeEquals(publishedIntent.sourceStoreIncarnation(), uuidBytes(manifest.sourceStoreIncarnation()))) {
+            throw new IllegalArgumentException("upload intent store incarnation does not match manifest");
+        }
+        final CheckpointManifest.ParentCheckpoint parent = manifest.parentCheckpoint();
+        if (!sameBytes(publishedIntent.parentCheckpointId(), parent == null ? null : parent.checkpointId())
+                || !sameHashHex(publishedIntent.parentManifestSha256(),
+                parent == null ? null : parent.manifestSha256())) {
+            throw new IllegalArgumentException("upload intent parent checkpoint identity does not match manifest");
+        }
+        return publish(manifest, expectedCatalogGeneration);
     }
 
     public synchronized Optional<CheckpointManifest> manifest(final byte[] checkpointId) {
@@ -307,6 +355,19 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
     private static String key(final byte[] checkpointId) {
         Bytes.requireLength(checkpointId, 16, "checkpointId");
         return Bytes.hex(checkpointId);
+    }
+
+    private static boolean sameBytes(final byte[] left, final byte[] right) {
+        return left == null ? right == null : right != null && Bytes.constantTimeEquals(left, right);
+    }
+
+    private static boolean sameHashHex(final byte[] left, final String right) {
+        return left == null ? right == null : right != null && Bytes.hex(left).equals(right);
+    }
+
+    private static byte[] uuidBytes(final java.util.UUID value) {
+        return ByteBuffer.allocate(16).putLong(value.getMostSignificantBits()).putLong(value.getLeastSignificantBits())
+                .array();
     }
 
     public record Publication(CheckpointManifest manifest, long catalogGeneration, RecoveryFloor floor) {
