@@ -74,12 +74,7 @@ class CredentialBindingV1Test {
         final CredentialEquivalenceAttestationV1 unsigned = CredentialEquivalenceAttestationV1.signed(
                 profile, 1, Bytes.sha256(reference), bytes(32, 5), bytes(32, 6), 1,
                 Bytes.utf8("verifier"), trustedTime(), 1_100, bytes(32, 7), 1, keyPair.getPrivate());
-        final byte[] signature = unsigned.signature();
-        signature[0] ^= 1;
-        final CredentialEquivalenceAttestationV1 altered = new CredentialEquivalenceAttestationV1(profile, 1,
-                Bytes.sha256(reference), bytes(32, 5), bytes(32, 6), 1, Bytes.utf8("verifier"), trustedTime(),
-                1_100, bytes(32, 7), unsigned.attestationDigest(), 1, signature);
-        assertFalse(altered.verifySignature(keyPair.getPublic()));
+        assertFalse(unsigned.verifySignature(ed25519().getPublic()));
     }
 
     private static ProfileRefV1 profile() {

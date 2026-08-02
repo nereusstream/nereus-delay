@@ -59,6 +59,12 @@ locally requires the matching Profile kind, binding/fingerprint tuple and
 kind-specific protection-until bound; it does not reread Oxia for each provider
 call.
 
+The Profile publication/deprecation/equivalent-rotation request values are
+also canonical and fail closed on envelope/binding identity, generation
+successor, private-reference digest, attestation candidate and expected Head
+revision. They remain request-value codecs, not authenticated actor/target
+authorization or source-ordered Oxia mutation receipts.
+
 | 事件 | 唯一 authority / 线性化点 | 明确不构成 authority 的事件 |
 |---|---|---|
 | Command 准备 | canonical Prepared Command bytes/hash 在首次 I/O 前完成 | Producer request、Broker position、wall clock |
