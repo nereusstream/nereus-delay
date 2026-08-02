@@ -314,6 +314,10 @@ source/scheduler stop, authority-gated `DRAINING` CAS, owner Claim rollback,
 bounded callback polling, lease/deadline rereads, flush/WAL sync, optional
 physical final checkpoint, Store close and exact lease release (an empty
 current-lease reread is accepted only as release response-loss evidence).
+When the caller supplies the final checkpoint's exact 16-byte identity,
+`OwnerDrainCoordinator` passes it into `ShardStore.createCheckpoint`; the
+identity is therefore present in the copied DB metadata, while the legacy
+path without an identity remains local-only.
 Callback quiescence and source hint commit remain caller/transport boundaries;
 timeout leaves the DB and lease in visible `DRAINING` for a safe retry rather
 than claiming completion. `OwnerDrainCoordinatorTest` covers success and

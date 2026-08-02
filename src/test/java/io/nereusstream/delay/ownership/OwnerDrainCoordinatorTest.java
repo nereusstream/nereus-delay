@@ -36,6 +36,7 @@ class OwnerDrainCoordinatorTest {
         final OwnerLease acquired = backend.acquire(shardId, "worker-drain", 100, 500).orElseThrow();
         final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
         final Path checkpoint = tempDir.resolve("drain-final-checkpoint");
+        final byte[] checkpointId = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("drain-checkpoint")), 16);
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
             final ShardStore store = ShardStore.open(config, shardId, resources);
             final OwnedDelayShard owned = activeOwnedShard(store, acquired, authority, shardId);
@@ -43,7 +44,7 @@ class OwnerDrainCoordinatorTest {
             final OwnerDrainCoordinator coordinator = new OwnerDrainCoordinator(owned, store, resources, authority);
 
             final OwnerDrainCoordinator.DrainResult result = coordinator.drain(
-                    new OwnerDrainCoordinator.DrainRequest(500, 0, checkpoint), () -> 101,
+                    new OwnerDrainCoordinator.DrainRequest(500, 0, checkpoint, checkpointId), () -> 101,
                     stopCalls::incrementAndGet);
 
             assertEquals(0, result.revokedClaims());
@@ -54,6 +55,8 @@ class OwnerDrainCoordinatorTest {
             assertEquals(ShardLifecycleState.FENCED, owned.state());
             assertTrue(backend.current(shardId).isEmpty());
             assertEquals(1, store.runtimeMetadata().lastOpenedOwnerEpoch());
+            org.junit.jupiter.api.Assertions.assertArrayEquals(checkpointId,
+                    store.runtimeMetadata().lastCheckpointId());
             store.close();
         }
     }

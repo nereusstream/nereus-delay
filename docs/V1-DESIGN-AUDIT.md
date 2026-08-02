@@ -361,6 +361,8 @@ quiescence 或 final checkpoint publication。
 `OwnerDrainCoordinator` 将 source/scheduler stop、authority-gated `DRAINING`、
 Claim revoke、bounded callback poll、lease/deadline reread、flush/sync、可选
 final checkpoint、Store close 和 exact release 串成一个可重试的本地顺序；
+如果 caller 提供 final checkpoint 的 exact 16-byte identity，coordinator 会把
+它传入 `ShardStore.createCheckpoint`，让完整镜像携带对应 `lastCheckpointId`；
 callback/source quiescence 仍由调用方和真实 transport 提供，超时保持
 `DRAINING` 而不伪造成功。`OwnerDrainCoordinatorTest` 覆盖成功与 deadline
 失败边界。

@@ -961,7 +961,9 @@ planned drain：
 2. 撤销 `CLAIMED`；
 3. 在 lease 有效期内有界等待已 admitted callback；
 4. flush/sync DB，提交不超过 DB 的 source hint；
-5. 可选 final checkpoint；
+5. 可选 final checkpoint；若编排器已取得该 manifest 的 16-byte `checkpointId`，
+   必须把 identity 传入物理 checkpoint primitive，使完整镜像中的
+   `lastCheckpointId` 与该产物绑定；
 6. close DB，释放 lease。
 
 超时/宕机依赖 session expiry；旧 Admission 在新 Owner 下先重放为同一 `PUBLISHING`，再由新 Owner 的 exact recovery-unknown Outcome 进入 `UNCERTAIN`。

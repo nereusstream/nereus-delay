@@ -1,5 +1,6 @@
 package io.nereusstream.delay.ownership;
 
+import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.runtime.DelayShard;
 import io.nereusstream.delay.runtime.PublishAttemptLedger;
 import io.nereusstream.delay.store.ShardStore;
@@ -78,7 +79,9 @@ public final class OwnerDrainCoordinator {
             store.flushAndSync();
             Path finalCheckpoint = null;
             if (request.finalCheckpointPath() != null) {
-                finalCheckpoint = store.createCheckpoint(request.finalCheckpointPath());
+                finalCheckpoint = request.finalCheckpointId() == null
+                        ? store.createCheckpoint(request.finalCheckpointPath())
+                        : store.createCheckpoint(request.finalCheckpointPath(), request.finalCheckpointId());
             }
             RuntimeException closeFailure = null;
             try {
@@ -155,11 +158,36 @@ public final class OwnerDrainCoordinator {
         return now;
     }
 
-    public record DrainRequest(long deadlineEpochMs, int maxCallbackPolls, Path finalCheckpointPath) {
+    public record DrainRequest(long deadlineEpochMs, int maxCallbackPolls, Path finalCheckpointPath,
+                               byte[] finalCheckpointId) {
+        public DrainRequest(final long deadlineEpochMs, final int maxCallbackPolls,
+                            final Path finalCheckpointPath) {
+            this(deadlineEpochMs, maxCallbackPolls, finalCheckpointPath, null);
+        }
+
         public DrainRequest {
             if (deadlineEpochMs < 0 || maxCallbackPolls < 0) {
                 throw new IllegalArgumentException("invalid owner drain bounds");
             }
+            if (finalCheckpointId != null) {
+                Bytes.requireLength(finalCheckpointId, 16, "finalCheckpointId");
+                boolean nonZero = false;
+                for (byte value : finalCheckpointId) {
+                    nonZero |= value != 0;
+                }
+                if (!nonZero) {
+                    throw new IllegalArgumentException("finalCheckpointId must be non-zero");
+                }
+                if (finalCheckpointPath == null) {
+                    throw new IllegalArgumentException("finalCheckpointId requires a checkpoint path");
+                }
+                finalCheckpointId = Bytes.copy(finalCheckpointId);
+            }
+        }
+
+        @Override
+        public byte[] finalCheckpointId() {
+            return finalCheckpointId == null ? null : Bytes.copy(finalCheckpointId);
         }
     }
 
