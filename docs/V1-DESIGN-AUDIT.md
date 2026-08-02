@@ -126,6 +126,16 @@ legacy-adapter 区分，并对 malformed typed bytes fail closed；不过当前
 immutable Profile refs、canonical tuple、READY certificate 和 quota 输入，所以
 `DelayShard` 仍明确停留在兼容 adapter 路径，不能把这一步误报成运行时 cutover。
 
+协议边界也已开始按 Registry 收敛：`ScheduleIntentV1` 及其
+`RetryPolicyRefV1`、`AdapterMetadataV1`、`KafkaMetadataV1`、
+`CommittedPayloadDescriptorV1` 已提供严格 canonical value codec，覆盖
+Schedule 的 Profile/Retry/时间/Delivery/Ordering、inline-versus-committed
+payload、Kafka/Pulsar metadata、可选 business/event 字段和 quota version；
+`forPrepare` 明确表示 PrepareLargeSchedule 的无 payload 形态。该增量只证明
+wire/value 校验，不等于 Command Body 已切换：当前 `CommandBodies`/
+`PreparedCommand` 仍通过旧 `ScheduleIntent` 兼容适配层，Retry Policy semantic
+authority、Profile/Adapter 运行时绑定和真实 ingress 迁移仍是 release blocker。
+
 `OwnedDelayShard` 现在还提供了带 assignment/barrier/source-connection 校验的
 统一 `replay` seam，以及兼容性的 `replayCatchup`/`replaySystemMutations`：
 Command 和 signed System Mutation 通过 `SourceReplayEntry` 在同一个

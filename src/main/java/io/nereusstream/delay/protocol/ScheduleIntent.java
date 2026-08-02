@@ -4,7 +4,13 @@ import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Objects;
 
-/** Canonical managed Schedule intent used by the embedded and broker adapters. */
+/**
+ * Legacy embedded Schedule shape retained as a compatibility adapter.
+ *
+ * <p>The V1 wire contract is {@link ScheduleIntentV1}; this pre-Registry
+ * record intentionally remains available until command-body ingress is
+ * migrated to the closed V1 value.</p>
+ */
 public record ScheduleIntent(
         DestinationLaneId laneId,
         long deliverAtEpochMs,

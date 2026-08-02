@@ -148,7 +148,7 @@ public final class PulsarMetadataV1 {
         }
 
         public Property(final byte[] keyUtf8, final byte[] valueUtf8) {
-            this.keyUtf8 = validateUtf8Nfc(keyUtf8, "property key", true);
+            this.keyUtf8 = validateCallerMetadataName(keyUtf8, "property key");
             this.valueUtf8 = validateUtf8Nfc(valueUtf8, "property value", false);
         }
 
@@ -218,10 +218,19 @@ public final class PulsarMetadataV1 {
         Objects.requireNonNull(value, name);
         final String decoded = new String(value, StandardCharsets.UTF_8);
         if (!Arrays.equals(decoded.getBytes(StandardCharsets.UTF_8), value)
+                || decoded.indexOf('\0') >= 0
                 || !decoded.equals(Normalizer.normalize(decoded, Normalizer.Form.NFC))
                 || (nonBlank && decoded.isBlank())) {
             throw new IllegalArgumentException(name + " must be valid UTF-8 NFC");
         }
         return Bytes.copy(value);
+    }
+
+    private static byte[] validateCallerMetadataName(final byte[] value, final String name) {
+        final byte[] canonical = validateUtf8Nfc(value, name, true);
+        if (new String(canonical, StandardCharsets.UTF_8).startsWith("nereus.delay.")) {
+            throw new IllegalArgumentException(name + " uses a reserved Nereus metadata prefix");
+        }
+        return canonical;
     }
 }
