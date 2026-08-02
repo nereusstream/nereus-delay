@@ -103,6 +103,14 @@ public final class OwnerDrainCoordinator {
                 storeClosed = true;
                 closeFailure = failure;
             }
+            if (closeFailure != null) {
+                // A failed close does not prove that the old DB stopped
+                // owning its files.  Keep the authoritative lease in
+                // DRAINING for a visible retry; releasing it here could let a
+                // new owner open the same shard while this DB is still live.
+                ownedShard.fence();
+                throw closeFailure;
+            }
             try {
                 // A drain callback may renew the same lease while it waits for
                 // an in-flight attempt.  Release the exact current lease
@@ -111,9 +119,6 @@ public final class OwnerDrainCoordinator {
                 releaseExactLease(ownedShard.lease());
             } finally {
                 ownedShard.fence();
-            }
-            if (closeFailure != null) {
-                throw closeFailure;
             }
             return new DrainResult(revokedClaims, callbackPolls, finalCheckpoint);
         } finally {

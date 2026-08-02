@@ -544,6 +544,8 @@ recovery authority。物理 final checkpoint 安装完成后也会再次检查 l
 这条检查通过才会关闭 Store 和执行 exact release，从而把 checkpoint 期间的
 lease 丢失转换为本地 fence，而不会让旧 owner 继续操作新 owner 的状态；
 `OwnerDrainCoordinatorTest` 覆盖该边界。
+如果 Store close 本身失败，也只本地 fence 并保留 authoritative `DRAINING`
+lease，等待可见重试，不会在 DB 未确认关闭时释放 lease。
 callback/source quiescence 仍由调用方和真实 transport 提供，超时保持
 `DRAINING` 而不伪造成功。`OwnerDrainCoordinatorTest` 覆盖成功与 deadline
 失败边界。
