@@ -187,6 +187,44 @@ class OxiaOwnerLeaseStoreTest {
                 .orElseThrow());
     }
 
+    @Test
+    void transitionOrReadDoesNotTurnAnIllegalTransitionIntoSuccess() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 17);
+        final OwnerLease restoring = new OwnerLease(shard, "worker-illegal-transition", 1,
+                nonZero(32, 8), 200, null, ShardLifecycleState.RESTORING);
+        final OwnerLease acquiring = new OwnerLease(shard, "worker-illegal-transition", 1,
+                restoring.leaseToken(), 200, null, ShardLifecycleState.ACQUIRING);
+        final OxiaOwnerLeaseStore.LeaseCasBackend backend = new OxiaOwnerLeaseStore.LeaseCasBackend() {
+            @Override
+            public Optional<OwnerLease> acquire(final ShardId ignored, final String ownerId, final long now,
+                                                final long duration) {
+                return Optional.empty();
+            }
+
+            @Override
+            public Optional<OwnerLease> renew(final OwnerLease ignored, final long now, final long duration) {
+                return Optional.empty();
+            }
+
+            @Override
+            public boolean release(final OwnerLease ignored) {
+                return false;
+            }
+
+            @Override
+            public Optional<OwnerLease> transition(final OwnerLease ignored, final ShardLifecycleState next) {
+                return Optional.empty();
+            }
+
+            @Override
+            public Optional<OwnerLease> current(final ShardId ignored) {
+                return Optional.of(acquiring);
+            }
+        };
+        final OxiaOwnerLeaseStore store = new OxiaOwnerLeaseStore(backend);
+        assertTrue(store.transitionOrRead(restoring, ShardLifecycleState.ACQUIRING).isEmpty());
+    }
+
     private static byte[] nonZero(final int length, final int firstByte) {
         final byte[] value = new byte[length];
         value[0] = (byte) firstByte;

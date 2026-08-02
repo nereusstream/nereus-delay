@@ -116,9 +116,12 @@ The local Owner Lease adapters now enforce the closed lifecycle transition
 matrix, including fail-closed backward transitions and fenced-lease
 non-reactivation; renewal also rejects a response that changes the expected
 lifecycle state, rather than silently accepting a same-identity lease in a
-different state. The real Oxia ephemeral session/CAS authority remains a
-release blocker. Activation also rereads an exact same-identity
-`ACTIVE_FOR_COMMANDS` successor after a lost transition response.
+different state. `transitionOrRead` only performs response-loss rereads for a
+transition allowed by that lifecycle graph, so an illegal request cannot be
+turned into success by a coincidental current state. The real Oxia ephemeral
+session/CAS authority remains a release blocker. Activation also rereads an
+exact same-identity `ACTIVE_FOR_COMMANDS` successor after a lost transition
+response.
 
 `CheckpointScheduler` now provides a bounded process-local schedule for each
 owned shard: interval and deterministic per-shard jitter are validated, due

@@ -97,6 +97,11 @@ public final class OxiaOwnerLeaseStore implements OwnerLeaseStore {
      * assignment/session identity is not accepted as the response.
      */
     public Optional<OwnerLease> transitionOrRead(final OwnerLease expected, final ShardLifecycleState nextState) {
+        Objects.requireNonNull(expected, "expected");
+        Objects.requireNonNull(nextState, "nextState");
+        if (!expected.state().canTransitionTo(nextState)) {
+            return Optional.empty();
+        }
         final Optional<OwnerLease> transitioned = transition(expected, nextState);
         if (transitioned.isPresent()) {
             return transitioned;
