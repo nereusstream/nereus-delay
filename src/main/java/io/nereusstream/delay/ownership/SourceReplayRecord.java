@@ -13,7 +13,8 @@ import java.util.Objects;
  * barrier before applying the command.
  */
 public record SourceReplayRecord(PreparedCommand command, SourcePosition position,
-                                 Long sourceConnectionGeneration, byte[] guardAttestationDigest) {
+                                 Long sourceConnectionGeneration, byte[] guardAttestationDigest)
+        implements SourceReplayEntry {
     public SourceReplayRecord {
         Objects.requireNonNull(command, "command");
         Objects.requireNonNull(position, "position");

@@ -122,10 +122,12 @@ registration、Oxia Recovery Pin/Floor CAS、source/evidence replay 或
 Recovery-Floor/retention gate。
 
 `OwnedDelayShard` 现在还提供了带 assignment/barrier/source-connection 校验的
-`replayCatchup`/`replaySystemMutations` 提供了带 assignment/barrier/source-
-connection 校验的本地 Command 和 signed System Mutation replay seam：每条
-记录先走同一 shard WriteBatch，成功后才推进 catch-up cursor。它仍不等同于
-真实 Kafka/Pulsar consumer、生产 mixed-record ordering 或 activation transaction。
+统一 `replay` seam，以及兼容性的 `replayCatchup`/`replaySystemMutations`：
+Command 和 signed System Mutation 通过 `SourceReplayEntry` 在同一个
+source-order stream 中选择分支，每条记录先走同一 shard WriteBatch，成功后才
+推进 catch-up cursor，并返回带分支类型的 `SourceReplayOutcome`。它仍不等同于
+真实 Kafka/Pulsar consumer、Oxia session/ephemeral authority、broker assignment/
+guard 或 production activation transaction。
 
 本地 `RecoveryCatalog.publishUploadedCheckpoint` 现在要求 PUBLISHED intent
 与完整 manifest 的 shard、lineage、checkpoint、manifest hash/length、owner

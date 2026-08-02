@@ -214,6 +214,65 @@ public final class OwnedDelayShard {
         return List.copyOf(results);
     }
 
+    /**
+     * Replays the single mixed Command/System Mutation Shard Log in source
+     * order.  Both branches use the same physical source guard and cursor;
+     * the cursor advances only after the selected delegate WriteBatch has
+     * committed.  The local seam still does not own a Kafka/Pulsar consumer or
+     * the production assignment/activation transaction.
+     */
+    public synchronized List<SourceReplayOutcome> replay(
+            final Iterable<? extends SourceReplayEntry> records, final PublicKey verificationKey,
+            final long nowEpochMs) {
+        Objects.requireNonNull(records, "records");
+        Objects.requireNonNull(verificationKey, "verificationKey");
+        ensureReplayWindow(nowEpochMs);
+        final List<SourceReplayOutcome> results = new ArrayList<>();
+        for (SourceReplayEntry record : records) {
+            Objects.requireNonNull(record, "source replay entry");
+            final SourcePosition position = record.position();
+            validateReplayPosition(position, record.sourceConnectionGeneration(), record.guardAttestationDigest());
+            if (record instanceof SourceReplayRecord commandRecord) {
+                final CommandResult result = delegate.apply(commandRecord.command(), position);
+                lastCatchupPosition = position;
+                results.add(SourceReplayOutcome.command(position, result));
+            } else if (record instanceof SourceReplayMutation mutationRecord) {
+                final SystemMutationResult result = delegate.applySystemMutation(mutationRecord.mutation(), position,
+                        verificationKey);
+                lastCatchupPosition = position;
+                results.add(SourceReplayOutcome.systemMutation(position, result));
+            } else {
+                throw new IllegalArgumentException("unsupported source replay entry: " + record.getClass());
+            }
+        }
+        return List.copyOf(results);
+    }
+
+    private void ensureReplayWindow(final long nowEpochMs) {
+        if (state != ShardLifecycleState.CATCHING_UP) {
+            throw new IllegalStateException("shard is not catching up");
+        }
+        if (!lease.validAt(nowEpochMs)) {
+            state = ShardLifecycleState.FENCED;
+            throw new IllegalStateException("owner lease expired during source catch-up");
+        }
+    }
+
+    private void validateReplayPosition(final SourcePosition position, final Long sourceConnectionGeneration,
+                                        final byte[] guardAttestationDigest) {
+        Objects.requireNonNull(position, "source replay position");
+        if (!delegate.shardId().equals(position.shardId())) {
+            throw new IllegalArgumentException("source replay position does not belong to shard");
+        }
+        if (activationBarrier != null) {
+            activationBarrier.validatePosition(position);
+            validateSourceConnection(position, sourceConnectionGeneration, guardAttestationDigest);
+        }
+        if (lastCatchupPosition != null && position.compareTo(lastCatchupPosition) < 0) {
+            throw new IllegalStateException("source replay position regressed");
+        }
+    }
+
     private void validateSourceConnection(final SourcePosition position, final Long connectionGeneration,
                                           final byte[] guardAttestationDigest) {
         if (!(position instanceof io.nereusstream.delay.protocol.PulsarSourcePosition)

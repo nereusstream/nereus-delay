@@ -150,6 +150,52 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void mixedCatchupReplayKeepsCommandAndSystemMutationInOneSourceOrder() throws Exception {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 14);
+        final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = authority.acquire(shardId, "worker-mixed-replay", 100, 100).orElseThrow();
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("mixed-catchup-replay"));
+        final UUID topic = UUID.randomUUID();
+        final KafkaSourcePosition commandPosition = new KafkaSourcePosition(shardId, "cluster", topic, 0,
+                null, 1_000);
+        final KafkaSourcePosition mutationPosition = new KafkaSourcePosition(shardId, "cluster", topic, 1,
+                null, 1_001);
+        final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 2);
+        final PreparedCommand command = PreparedCommand.schedule(shardId,
+                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("mixed-replay-lane")), 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final TrustedUtcIntervalEvidence proof = new TrustedUtcIntervalEvidence(2_000, 2_000,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("mixed-replay-clock"),
+                1, 1, 1, Bytes.sha256(Bytes.utf8("mixed-replay-proof")), 0, null);
+        final byte[] proofId = Bytes.sha256(Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                shardId.routeIncarnation().bytes(), Bytes.u32be(shardId.partition()), Bytes.i64be(2_000),
+                Bytes.u32be(1), Bytes.lp32(proof.canonicalBytes()));
+        final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.TIME_FENCE, 9_000,
+                proofId, timeFenceBody(shardId, 2_000, 1, proofId, proof.canonicalBytes()),
+                AuthorIdentity.fence(Bytes.utf8("mixed-replay-fence"), 1).canonicalBytes(), 1,
+                keyPair.getPrivate());
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            owned.markCatchingUp(new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("assignment-mixed-replay")),
+                    1, barrier));
+            final List<SourceReplayOutcome> outcomes = owned.replay(List.of(
+                    new SourceReplayRecord(command, commandPosition, null, null),
+                    new SourceReplayMutation(mutation, mutationPosition, null, null)), keyPair.getPublic(), 101);
+            assertEquals(2, outcomes.size());
+            assertTrue(outcomes.get(0).isCommand());
+            assertEquals(StableCode.SCHEDULED, outcomes.get(0).commandResult().stableCode());
+            assertFalse(outcomes.get(1).isCommand());
+            assertEquals(StableCode.OK, outcomes.get(1).systemMutationResult().stableCode());
+            assertEquals(mutationPosition, owned.lastCatchupPosition());
+            owned.activateForCommands(101);
+            assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, owned.state());
+        }
+    }
+
+    @Test
     void sourceAssignmentMustMatchLeaseContextAndActivationUsesAuthorityCas() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 8);
         final UUID topic = UUID.randomUUID();

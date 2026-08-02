@@ -8,7 +8,8 @@ import java.util.Objects;
 
 /** One signed System Mutation record replayed from the assigned Shard Log. */
 public record SourceReplayMutation(SystemMutation mutation, SourcePosition position,
-                                   Long sourceConnectionGeneration, byte[] guardAttestationDigest) {
+                                   Long sourceConnectionGeneration, byte[] guardAttestationDigest)
+        implements SourceReplayEntry {
     public SourceReplayMutation {
         Objects.requireNonNull(mutation, "mutation");
         Objects.requireNonNull(position, "position");
