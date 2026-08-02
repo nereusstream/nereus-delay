@@ -146,6 +146,11 @@ public final class PreparedControlOperationV1 {
         return Bytes.copy(signature);
     }
 
+    /** Validates a completed source mutation against this operation's exact target snapshot. */
+    public void validateTargetMutation(final ControlTargetRefV1 target, final SystemMutation mutation) {
+        ControlTargetMutationBindingV1.validate(this, target, mutation);
+    }
+
     public boolean verifySignature(final PublicKey verificationKey) {
         Objects.requireNonNull(verificationKey, "verificationKey");
         try {
@@ -318,8 +323,9 @@ public final class PreparedControlOperationV1 {
         }));
     }
 
-    private static byte[] requestHash(final ControlOperationKindV1 kind,
-                                      final ControlOperationRequestV1 request) {
+    /** Computes the canonical request hash before any Control registration I/O. */
+    public static byte[] requestHash(final ControlOperationKindV1 kind,
+                                     final ControlOperationRequestV1 request) {
         Objects.requireNonNull(kind, "kind");
         Objects.requireNonNull(request, "request");
         if (request.kind() != kind) {

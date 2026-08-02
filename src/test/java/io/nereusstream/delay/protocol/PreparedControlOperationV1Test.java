@@ -85,6 +85,112 @@ class PreparedControlOperationV1Test {
                 force.kind(), force, List.of(forceTargetWithMutation)));
     }
 
+    @Test
+    void bindsPreparedReplayTargetToCompletedSystemMutation() throws Exception {
+        final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final RetryPolicyRefV1 retryPolicy = new RetryPolicyRefV1(bytes(16, 21), 1, bytes(32, 22));
+        final ControlOperationRequestV1 request = ControlOperationRequestV1.replayDeadLetter(
+                new ReplayDeadLetterRequestV1(100, 200, retryPolicy, false, AcknowledgementSetV1.empty()));
+        final ShardId shardId = new ShardId(new RouteIncarnation(bytes(16, 23)), 4);
+        final DelayMessageId messageId = DelayMessageId.random(shardId);
+        final byte[] operationId = bytes(32, 24);
+        final byte[] requestHash = PreparedControlOperationV1.requestHash(request.kind(), request);
+        final ControlRef controlRef = new ControlRef(operationId, requestHash, 0);
+        final long retryUntil = 9_000;
+        final byte[] body = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, new ShardSubjectV1(shardId).canonicalBytes());
+            CanonicalProtobuf.uint32(output, 2, SystemMutationType.REPLAY_DEAD_LETTER.wireValue());
+            CanonicalProtobuf.int64(output, 3, retryUntil);
+            CanonicalProtobuf.bytes(output, 10, controlRef.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 11, messageId.bytes());
+            CanonicalProtobuf.uint32(output, 12, 0);
+            CanonicalProtobuf.uint64(output, 13, 7);
+            CanonicalProtobuf.int64(output, 14, 100);
+            CanonicalProtobuf.int64(output, 15, 200);
+            CanonicalProtobuf.bytes(output, 16, retryPolicy.canonicalBytes());
+            CanonicalProtobuf.uint32(output, 17, 0);
+        });
+        final byte[] mutationHash = SystemMutation.computeMutationHash(shardId,
+                SystemMutationType.REPLAY_DEAD_LETTER, retryUntil, body);
+        final byte[] mutationId = SystemMutation.computeSystemMutationId(shardId,
+                SystemMutationType.REPLAY_DEAD_LETTER,
+                controlRef.logicalOperationIdentity(SystemMutationType.REPLAY_DEAD_LETTER), mutationHash);
+        final ControlTargetRefV1 target = new ControlTargetRefV1(0, ControlTargetKindV1.MESSAGE,
+                new ControlMessageTargetV1(messageId, 0, 7, null), mutationId, mutationHash);
+        final PreparedControlOperationV1 prepared = PreparedControlOperationV1.prepare(operationId, request.kind(),
+                new ControlAuthorV1(bytes(32, 25), bytes(32, 26), bytes(32, 27)), request, List.of(target),
+                1, 2, 1, keyPair.getPrivate());
+        final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.REPLAY_DEAD_LETTER,
+                retryUntil, controlRef.logicalOperationIdentity(SystemMutationType.REPLAY_DEAD_LETTER), body,
+                AuthorIdentity.control(bytes(32, 28), bytes(32, 29), bytes(32, 30)).canonicalBytes(), 1,
+                keyPair.getPrivate());
+
+        prepared.validateTargetMutation(target, mutation);
+        final byte[] alteredBody = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, new ShardSubjectV1(shardId).canonicalBytes());
+            CanonicalProtobuf.uint32(output, 2, SystemMutationType.REPLAY_DEAD_LETTER.wireValue());
+            CanonicalProtobuf.int64(output, 3, retryUntil);
+            CanonicalProtobuf.bytes(output, 10,
+                    new ControlRef(operationId, bytes(32, 31), 0).canonicalBytes());
+            CanonicalProtobuf.bytes(output, 11, messageId.bytes());
+            CanonicalProtobuf.uint32(output, 12, 0);
+            CanonicalProtobuf.uint64(output, 13, 7);
+            CanonicalProtobuf.int64(output, 14, 100);
+            CanonicalProtobuf.int64(output, 15, 200);
+            CanonicalProtobuf.bytes(output, 16, retryPolicy.canonicalBytes());
+            CanonicalProtobuf.uint32(output, 17, 0);
+        });
+        final SystemMutation altered = SystemMutation.signed(shardId, SystemMutationType.REPLAY_DEAD_LETTER,
+                retryUntil, new ControlRef(operationId, bytes(32, 31), 0)
+                        .logicalOperationIdentity(SystemMutationType.REPLAY_DEAD_LETTER), alteredBody,
+                AuthorIdentity.control(bytes(32, 28), bytes(32, 29), bytes(32, 30)).canonicalBytes(), 1,
+                keyPair.getPrivate());
+        assertThrows(IllegalArgumentException.class, () -> prepared.validateTargetMutation(target, altered));
+    }
+
+    @Test
+    void bindsPreparedLaneTargetToApplyShardControlBody() throws Exception {
+        final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final ControlReasonV1 reason = new ControlReasonV1(ControlReasonKindV1.OPERATOR_REQUEST, null, null);
+        final ControlOperationRequestV1 request = ControlOperationRequestV1.pauseDestinationLane(reason);
+        final ShardId shardId = new ShardId(new RouteIncarnation(bytes(16, 32)), 2);
+        final LaneControlTargetV1 lane = new LaneControlTargetV1(bytes(32, 33), bytes(16, 34), 5);
+        final byte[] operationId = bytes(32, 35);
+        final byte[] requestHash = PreparedControlOperationV1.requestHash(request.kind(), request);
+        final ControlRef controlRef = new ControlRef(operationId, requestHash, 0);
+        final byte[] payloadBranch = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, lane.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 2, reason.canonicalBytes());
+        });
+        final byte[] payload = CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 8, payloadBranch));
+        final long retryUntil = 9_000;
+        final byte[] body = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, new ShardSubjectV1(shardId).canonicalBytes());
+            CanonicalProtobuf.uint32(output, 2, SystemMutationType.APPLY_SHARD_CONTROL.wireValue());
+            CanonicalProtobuf.int64(output, 3, retryUntil);
+            CanonicalProtobuf.bytes(output, 10, controlRef.canonicalBytes());
+            CanonicalProtobuf.uint32(output, 11, 8);
+            CanonicalProtobuf.uint64(output, 12, 1);
+            CanonicalProtobuf.bytes(output, 13, bytes(32, 36));
+            CanonicalProtobuf.bytes(output, 15, payload);
+        });
+        final byte[] mutationHash = SystemMutation.computeMutationHash(shardId,
+                SystemMutationType.APPLY_SHARD_CONTROL, retryUntil, body);
+        final byte[] mutationId = SystemMutation.computeSystemMutationId(shardId,
+                SystemMutationType.APPLY_SHARD_CONTROL, controlRef.logicalOperationIdentity(8), mutationHash);
+        final ControlTargetRefV1 target = new ControlTargetRefV1(0, ControlTargetKindV1.LANE, lane,
+                mutationId, mutationHash);
+        final PreparedControlOperationV1 prepared = PreparedControlOperationV1.prepare(operationId, request.kind(),
+                new ControlAuthorV1(bytes(32, 37), bytes(32, 38), bytes(32, 39)), request, List.of(target),
+                1, 2, 1, keyPair.getPrivate());
+        final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.APPLY_SHARD_CONTROL,
+                retryUntil, controlRef.logicalOperationIdentity(8), body,
+                AuthorIdentity.control(bytes(32, 40), bytes(32, 41), bytes(32, 42)).canonicalBytes(), 1,
+                keyPair.getPrivate());
+
+        prepared.validateTargetMutation(target, mutation);
+    }
+
     private static byte[] bytes(final int length, final int seed) {
         final byte[] value = new byte[length];
         for (int index = 0; index < length; index++) {

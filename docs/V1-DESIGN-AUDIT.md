@@ -83,7 +83,10 @@ digest locally. `PreparedControlOperationV1` now additionally enforces the
 closed operation-specific target counts/kinds, mutation-identity presence and
 Profile/Quota request-to-target identity rules before hashing/signing; source
 mutation construction and authenticated target authority remain outside this
-local codec boundary.
+local codec boundary. `ControlTargetMutationBindingV1` then validates a
+completed source mutation's ControlRef, logical identity, computed ID/hash,
+target Shard/Message and the covered Replay/Resolve/Lane body fields before
+external registration; it does not replace Oxia or writer authentication.
 Its bytes are not an Oxia registration receipt and do not establish actor/role
 authority.
 The registration outcome/proof union is likewise local evidence projection:
