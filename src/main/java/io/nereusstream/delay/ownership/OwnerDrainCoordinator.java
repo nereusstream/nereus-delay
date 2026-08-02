@@ -88,6 +88,12 @@ public final class OwnerDrainCoordinator {
                 finalCheckpoint = request.finalCheckpointId() == null
                         ? store.createCheckpoint(request.finalCheckpointPath())
                         : store.createCheckpoint(request.finalCheckpointPath(), request.finalCheckpointId());
+                // Checkpoint creation can include a long RocksDB file walk and
+                // hard-link phase.  Revalidate the lease after that boundary
+                // before closing the DB or attempting release; otherwise a
+                // lease loss during checkpointing could make this owner act
+                // on a newer owner’s state.
+                ensureLeaseStillDraining(expectedLease, request, clock);
             }
             RuntimeException closeFailure = null;
             try {

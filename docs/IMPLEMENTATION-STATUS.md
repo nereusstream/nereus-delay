@@ -505,7 +505,11 @@ path without an identity remains local-only.
 After `flushAndSync`, an optional `commitSourceHint` callback receives only the
 last persisted `SourcePosition`; the coordinator rereads the draining lease
 after that transport-owned callback before continuing.  The hint is never the
-recovery authority.
+recovery authority.  It also rereads the lease after the physical final
+checkpoint has been installed, before Store close or exact release, so a lease
+loss during a long RocksDB checkpoint cannot make the old owner close or
+release a newer owner's state. `OwnerDrainCoordinatorTest` covers this
+post-checkpoint fence.
 Callback quiescence and source hint commit remain caller/transport boundaries;
 timeout leaves the DB and lease in visible `DRAINING` for a safe retry rather
 than claiming completion. `OwnerDrainCoordinatorTest` covers success and

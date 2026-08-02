@@ -147,6 +147,32 @@ class OwnerDrainCoordinatorTest {
         }
     }
 
+    @Test
+    void leaseLossAfterFinalCheckpointFencesWithoutClosingOrReleasingTheNewOwner() throws Exception {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 50);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("drain-checkpoint-lease-loss"));
+        final InMemoryOwnerLeaseStore delegate = new InMemoryOwnerLeaseStore();
+        final OwnerLease acquired = delegate.acquire(shardId, "worker-checkpoint-lease-loss", 100, 500).orElseThrow();
+        final OwnerLease replacement = new OwnerLease(shardId, "worker-new", acquired.ownerEpoch() + 1,
+                Bytes.sha256(Bytes.utf8("replacement-lease")), 500, null, ShardLifecycleState.DRAINING);
+        final Path checkpoint = tempDir.resolve("drain-checkpoint-lease-loss-output");
+        final LeaseLossAfterCheckpointBackend backend =
+                new LeaseLossAfterCheckpointBackend(delegate, replacement, checkpoint);
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = activeOwnedShard(store, acquired, authority, shardId);
+            final OwnerDrainCoordinator coordinator = new OwnerDrainCoordinator(owned, store, resources, authority);
+
+            assertThrows(IllegalStateException.class, () -> coordinator.drain(
+                    new OwnerDrainCoordinator.DrainRequest(5_000, 0, checkpoint), () -> 101, () -> { }));
+
+            assertEquals(ShardLifecycleState.FENCED, owned.state());
+            assertTrue(Files.isRegularFile(checkpoint.resolve("CURRENT")));
+            assertEquals(replacement, backend.current(shardId).orElseThrow());
+        }
+    }
+
     private static OwnedDelayShard activeOwnedShard(final ShardStore store, final OwnerLease lease,
                                                     final OxiaOwnerLeaseStore authority, final ShardId shardId) {
         final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
@@ -200,6 +226,54 @@ class OwnerDrainCoordinatorTest {
         @Override
         public Optional<OwnerLease> current(final ShardId shardId) {
             return delegate.current(shardId);
+        }
+    }
+
+    private static final class LeaseLossAfterCheckpointBackend implements OxiaOwnerLeaseStore.LeaseCasBackend {
+        private final InMemoryOwnerLeaseStore delegate;
+        private final OwnerLease replacement;
+        private final Path checkpoint;
+
+        private LeaseLossAfterCheckpointBackend(final InMemoryOwnerLeaseStore delegate,
+                                                final OwnerLease replacement, final Path checkpoint) {
+            this.delegate = delegate;
+            this.replacement = replacement;
+            this.checkpoint = checkpoint;
+        }
+
+        @Override
+        public Optional<OwnerLease> acquire(final ShardId shardId, final String ownerId,
+                                            final long nowEpochMs, final long leaseDurationMs) {
+            return delegate.acquire(shardId, ownerId, nowEpochMs, leaseDurationMs);
+        }
+
+        @Override
+        public Optional<OwnerLease> acquire(final SourceAssignment assignment, final String ownerId,
+                                            final byte[] sessionIdentity, final long nowEpochMs,
+                                            final long leaseDurationMs) {
+            return delegate.acquire(assignment, ownerId, sessionIdentity, nowEpochMs, leaseDurationMs);
+        }
+
+        @Override
+        public Optional<OwnerLease> renew(final OwnerLease expected, final long nowEpochMs,
+                                          final long leaseDurationMs) {
+            return delegate.renew(expected, nowEpochMs, leaseDurationMs);
+        }
+
+        @Override
+        public boolean release(final OwnerLease expected) {
+            return delegate.release(expected);
+        }
+
+        @Override
+        public Optional<OwnerLease> transition(final OwnerLease expected, final ShardLifecycleState nextState) {
+            return delegate.transition(expected, nextState);
+        }
+
+        @Override
+        public Optional<OwnerLease> current(final ShardId shardId) {
+            return Files.isRegularFile(checkpoint.resolve("CURRENT"))
+                    ? Optional.of(replacement) : delegate.current(shardId);
         }
     }
 }

@@ -536,7 +536,10 @@ final checkpoint、Store close 和 exact release 串成一个可重试的本地�
 它传入 `ShardStore.createCheckpoint`，让完整镜像携带对应 `lastCheckpointId`；
 `flushAndSync` 后的可选 `commitSourceHint` 只收到最后已持久化的
 `SourcePosition`，callback 返回后还会重新检查 draining lease；该 hint 仍不是
-recovery authority。
+recovery authority。物理 final checkpoint 安装完成后也会再次检查 lease，只有
+这条检查通过才会关闭 Store 和执行 exact release，从而把 checkpoint 期间的
+lease 丢失转换为本地 fence，而不会让旧 owner 继续操作新 owner 的状态；
+`OwnerDrainCoordinatorTest` 覆盖该边界。
 callback/source quiescence 仍由调用方和真实 transport 提供，超时保持
 `DRAINING` 而不伪造成功。`OwnerDrainCoordinatorTest` 覆盖成功与 deadline
 失败边界。
