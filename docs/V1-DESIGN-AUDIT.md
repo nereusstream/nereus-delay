@@ -74,6 +74,9 @@ Oxia CAS or retained-generation policy.
 `ProfileCatalogV1ScheduleResolver` uses that seam only as a local exact-profile
 and Head prerequisite gate; it does not turn a catalog lookup into a source
 position activation receipt.
+The Control Operation kind/acknowledgement/close-policy/uncertain-resolution
+and quota-transfer support values are similarly local canonical codecs, not a
+prepared operation or target-presence authority.
 
 | 事件 | 唯一 authority / 线性化点 | 明确不构成 authority 的事件 |
 |---|---|---|
