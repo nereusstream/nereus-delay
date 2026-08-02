@@ -31,6 +31,64 @@ public final class PublishOutcomeBody {
         this.retryDecision = Objects.requireNonNull(retryDecision, "retryDecision");
     }
 
+    /**
+     * Encodes the canonical body of an initial {@code PUBLISH_OUTCOME_V1}.
+     * The body is decoded again before it is returned so callers cannot emit a
+     * field-shape or side-effect combination that this local V1 parser would
+     * reject.  Signing, Shard Log enqueue and source-ordered apply remain
+     * outside this codec.
+     */
+    public static byte[] encodeInitial(final ShardId shardId, final long retryUntilEpochMs,
+                                       final byte[] publishAttemptId, final int sideEffect,
+                                       final int disposition, final StableCode stableCode,
+                                       final byte[] evidence, final byte[] transfer,
+                                       final TrustedUtcIntervalEvidence observedAt,
+                                       final byte[] retryDecision) {
+        final byte[] encoded = encodeCommon(shardId, retryUntilEpochMs, SystemMutationType.PUBLISH_OUTCOME,
+                output -> {
+                    CanonicalProtobuf.bytes(output, 10, fixed(publishAttemptId, "publishAttemptId"));
+                    CanonicalProtobuf.uint32(output, 11, sideEffect);
+                    CanonicalProtobuf.uint32(output, 12, disposition);
+                    CanonicalProtobuf.uint32(output, 13, Objects.requireNonNull(stableCode, "stableCode").wireValue());
+                    if (evidence != null && evidence.length != 0) {
+                        CanonicalProtobuf.bytes(output, 14, evidence);
+                    }
+                    CanonicalProtobuf.bytes(output, 15, nested(transfer, "transfer"));
+                    CanonicalProtobuf.bytes(output, 16, Objects.requireNonNull(observedAt, "observedAt")
+                            .canonicalBytes());
+                    CanonicalProtobuf.bytes(output, 17, nested(retryDecision, "retryDecision"));
+                });
+        decode(encoded);
+        return encoded;
+    }
+
+    /** Encodes the canonical body of a verified {@code EVIDENCE_RESOLUTION_V1}. */
+    public static byte[] encodeEvidenceResolution(final ShardId shardId, final long retryUntilEpochMs,
+                                                   final byte[] publishAttemptId,
+                                                   final EvidenceCursorV1 evidenceCursor,
+                                                   final byte[] evidence, final StableCode stableCode,
+                                                   final int sideEffect, final int disposition,
+                                                   final byte[] transfer,
+                                                   final TrustedUtcIntervalEvidence observedAt,
+                                                   final byte[] retryDecision) {
+        final byte[] encoded = encodeCommon(shardId, retryUntilEpochMs, SystemMutationType.EVIDENCE_RESOLUTION,
+                output -> {
+                    CanonicalProtobuf.bytes(output, 10, fixed(publishAttemptId, "publishAttemptId"));
+                    CanonicalProtobuf.bytes(output, 11, Objects.requireNonNull(evidenceCursor, "evidenceCursor")
+                            .canonicalBytes());
+                    CanonicalProtobuf.bytes(output, 12, nonEmpty(evidence, "evidence"));
+                    CanonicalProtobuf.uint32(output, 13, Objects.requireNonNull(stableCode, "stableCode").wireValue());
+                    CanonicalProtobuf.uint32(output, 14, sideEffect);
+                    CanonicalProtobuf.uint32(output, 15, disposition);
+                    CanonicalProtobuf.bytes(output, 16, nested(transfer, "transfer"));
+                    CanonicalProtobuf.bytes(output, 17, Objects.requireNonNull(observedAt, "observedAt")
+                            .canonicalBytes());
+                    CanonicalProtobuf.bytes(output, 18, nested(retryDecision, "retryDecision"));
+                });
+        decodeEvidenceResolution(encoded);
+        return encoded;
+    }
+
     /** Parses all common fields and strictly validates the definitive PUBLISHED/NOT_PUBLISHED branches. */
     public static PublishOutcomeBody decode(final byte[] canonicalBody) {
         final List<CanonicalProtobuf.Reader.Field> fields =
@@ -70,7 +128,7 @@ public final class PublishOutcomeBody {
     public static PublishOutcomeBody decodeEvidenceResolution(final byte[] canonicalBody) {
         final List<CanonicalProtobuf.Reader.Field> fields =
                 SystemMutationBodyCodec.fields(SystemMutationType.EVIDENCE_RESOLUTION, canonicalBody);
-        nested(field(fields, 11), 11); // EvidenceCursorV1
+        EvidenceCursorV1.decode(nested(field(fields, 11), 11));
         final byte[] evidence = nested(field(fields, 12), 12);
         final StableCode stableCode = StableCode.fromWire(intValue(field(fields, 13), 13));
         final int sideEffect = intValue(field(fields, 14), 14);
@@ -121,13 +179,7 @@ public final class PublishOutcomeBody {
     }
 
     private static void validateChargeVector(final byte[] encoded) {
-        final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "ChargeVector");
-        if (fields.size() != 17) {
-            throw new IllegalArgumentException("ChargeVector has unexpected field count");
-        }
-        for (int number = 1; number <= 17; number++) {
-            unsigned(field(fields, number), number);
-        }
+        PublishAdmissionBody.ChargeVector.decodeCanonical(encoded);
     }
 
     private static void validateDefinitiveCombination(final int sideEffect, final int disposition,
@@ -200,6 +252,38 @@ public final class PublishOutcomeBody {
     private static byte[] fixed(final byte[] value, final String name) {
         Bytes.requireLength(value, HASH_LENGTH, name);
         return copy(value);
+    }
+
+    private static byte[] nonEmpty(final byte[] value, final String name) {
+        Objects.requireNonNull(value, name);
+        if (value.length == 0) {
+            throw new IllegalArgumentException(name + " must not be empty");
+        }
+        return copy(value);
+    }
+
+    private static byte[] nested(final byte[] value, final String name) {
+        return nonEmpty(value, name);
+    }
+
+    private static byte[] encodeCommon(final ShardId shardId, final long retryUntilEpochMs,
+                                       final SystemMutationType type,
+                                       final CanonicalProtobuf.FieldWriter fields) {
+        Objects.requireNonNull(shardId, "shardId");
+        Objects.requireNonNull(type, "type");
+        if (retryUntilEpochMs < 0) {
+            throw new IllegalArgumentException("retryUntilEpochMs must be non-negative");
+        }
+        final byte[] subject = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, shardId.routeIncarnation().bytes());
+            CanonicalProtobuf.uint32(output, 2, shardId.partition());
+        });
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, subject);
+            CanonicalProtobuf.uint32(output, 2, type.wireValue());
+            CanonicalProtobuf.int64(output, 3, retryUntilEpochMs);
+            fields.writeTo(output);
+        });
     }
 
     private static byte[] copy(final byte[] value) {

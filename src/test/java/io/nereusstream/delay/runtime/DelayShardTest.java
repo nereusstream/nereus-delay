@@ -13,6 +13,7 @@ import io.nereusstream.delay.protocol.ControlRef;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
+import io.nereusstream.delay.protocol.EvidenceCursorV1;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.LaneRetirementProgressV1;
 import io.nereusstream.delay.protocol.LaneTerminalGuardV1;
@@ -3444,7 +3445,7 @@ class DelayShardTest {
             CanonicalProtobuf.uint32(output, 2, SystemMutationType.EVIDENCE_RESOLUTION.wireValue());
             CanonicalProtobuf.int64(output, 3, 9_000);
             CanonicalProtobuf.bytes(output, 10, attemptId);
-            CanonicalProtobuf.bytes(output, 11, nestedPlaceholder());
+            CanonicalProtobuf.bytes(output, 11, evidenceCursor());
             CanonicalProtobuf.bytes(output, 12, nestedPlaceholder());
             CanonicalProtobuf.uint32(output, 13, stableCode.wireValue());
             CanonicalProtobuf.uint32(output, 14, sideEffect);
@@ -3791,6 +3792,12 @@ class DelayShardTest {
 
     private static byte[] nestedPlaceholder() {
         return CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1, new byte[]{1}));
+    }
+
+    private static byte[] evidenceCursor() {
+        return EvidenceCursorV1.kafka(Bytes.sha256(Bytes.utf8("evidence-resolution-lane")), new byte[16],
+                java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("evidence-resolution-topic")), 16), 0, 1,
+                2_002, 1, 1).canonicalBytes();
     }
 
     private static int compareObligations(final AttemptObligationRef left, final AttemptObligationRef right) {

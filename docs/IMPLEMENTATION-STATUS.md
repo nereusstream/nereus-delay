@@ -7,6 +7,15 @@ normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20�
 the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
+The System Mutation outcome subset now also has explicit canonical body encoders:
+`PublishOutcomeBody.encodeInitial` closes the initial
+`PUBLISHED`/`NOT_PUBLISHED`/`UNKNOWN` combinations, while
+`encodeEvidenceResolution` requires a typed canonical `EvidenceCursorV1`.
+Definitive transfers are checked as canonical `ChargeVectorV1` values before
+the encoder's decode round-trip. `PublishOutcomeBodyTest` and the updated
+`DelayShardTest` provide local evidence; signing, Shard Log routing, and real
+Broker evidence remain outside this codec boundary.
+
 The bounded local Control Operation authority also rereads an exact CURRENT
 advance after response loss; it does not infer success for a later or
 different revision.

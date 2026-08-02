@@ -324,6 +324,17 @@ zombie 和 response completion。该组件只是进程内可重建的资源闸�
 `ActiveLaneState`/`ReadyCertificate`、Owner/Lease/Oxia authority、真实 channel
 teardown 或 Broker evidence journal，因此不能宣称 production admission 已闭合。
 
+`PublishOutcomeBody.encodeInitial` 和
+`PublishOutcomeBody.encodeEvidenceResolution` 现在复用 Registry 的 common fields
+1–3，并在返回前执行本地 decode round-trip；初始 Outcome 的
+`PUBLISHED`/`NOT_PUBLISHED`/`UNKNOWN` side-effect/disposition/stable-code/retry
+组合因此不会由调用方随意拼出，definitive transfer 必须是 canonical
+`ChargeVectorV1`，Evidence Resolution 的 cursor 必须是 typed canonical
+`EvidenceCursorV1`。`PublishOutcomeBodyTest` 与 `DelayShardTest` 覆盖编码器、非规范
+ChargeVector、typed cursor 以及 source-ordered close/requeue；这仍只是 canonical
+body codec 和本地 transition seam，不等于签名服务、真实 Broker evidence 或
+production outcome authority 已完成。
+
 `OwnedDelayShard` 现在还提供了带 assignment/barrier/source-connection 校验的
 统一 `replay` seam，以及兼容性的 `replayCatchup`/`replaySystemMutations`：
 Command 和 signed System Mutation 通过 `SourceReplayEntry` 在同一个
