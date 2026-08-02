@@ -138,7 +138,9 @@ desired-placement plan 或 Owner Lease authority。
 
 本地 `RecoveryCatalog.publishUploadedCheckpoint` 现在要求 PUBLISHED intent
 与完整 manifest 的 shard、lineage、checkpoint、manifest hash/length、owner
-和 store incarnation 完全一致后才接受 catalog projection；这仍不等于
+和 store incarnation 完全一致后才接受 catalog projection；同一 checkpoint
+的 exact manifest 在 response-loss 重试中会作为幂等 reread 返回，即使 catalog
+generation 已被其它操作推进；同 ID 不同 hash 仍 fail closed。这仍不等于
 Object Store 真实性或 Oxia transaction。
 
 `ShardStore.createCheckpoint` 现在先把完整 RocksDB 镜像写入同文件系统的

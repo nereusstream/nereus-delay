@@ -160,6 +160,40 @@ class RecoveryCatalogTest {
     }
 
     @Test
+    void uploadedCheckpointPublicationRereadsExactManifestAfterResponseLoss() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 13);
+        final byte[] lineage = id16(90);
+        final UUID topic = UUID.randomUUID();
+        final CheckpointManifest parent = manifest(shard, topic, lineage, id16(89), 0, 0, 0, null);
+        final CheckpointManifest manifest = manifest(shard, topic, lineage, id16(91), 1, 1, 1,
+                new CheckpointManifest.ParentCheckpoint(parent.checkpointId(), Bytes.hex(parent.manifestSha256())));
+        final ProfileRefV1 profile = new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, id32(92),
+                ProfileKindV1.OBJECT_STORE);
+        final OwnerIdentityV1 owner = new OwnerIdentityV1(manifest.createdBy().deploymentId(),
+                manifest.createdBy().workerRunId(), manifest.createdBy().ownerEpoch(), id32(93));
+        final CheckpointUploadIntentV1 published = new CheckpointUploadIntentV1(
+                new ShardSubjectV1(shard), lineage, manifest.checkpointId(), owner,
+                uuidBytes(manifest.sourceStoreIncarnation()), id32(94), 1,
+                parent.checkpointId(), parent.manifestSha256(), profile, evidence(2_000), 6_000,
+                CheckpointUploadStateV1.PUBLISHED, 2,
+                new CheckpointResourceV1(lineage, manifest.checkpointId(), profile, Bytes.utf8("bucket"),
+                        Bytes.utf8("checkpoint/91/manifest"), Bytes.utf8("version-1"),
+                        manifest.canonicalJsonBytes().length, manifest.manifestSha256()), null);
+
+        final RecoveryCatalog catalog = new RecoveryCatalog();
+        assertEquals(1, catalog.publish(parent, 0).catalogGeneration());
+        final RecoveryCatalog.Publication first = catalog.publishUploadedCheckpoint(published, manifest, 1);
+        assertEquals(2, first.catalogGeneration());
+
+        // Advance the catalog after the original publication, then retry with
+        // the same base generation as the lost response's original CAS.
+        catalog.advanceFloor(manifest.checkpointId(), 2, id32(95));
+        final RecoveryCatalog.Publication reread = catalog.publishUploadedCheckpoint(published, manifest, 1);
+        assertEquals(3, reread.catalogGeneration());
+        assertEquals(manifest, reread.manifest());
+    }
+
+    @Test
     void typedFloorRequiresSameGenerationCursorDominance() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 12);
         final byte[] lineage = id16(80);

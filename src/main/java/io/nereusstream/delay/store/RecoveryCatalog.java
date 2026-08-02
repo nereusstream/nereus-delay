@@ -159,6 +159,9 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
                 || publishedIntent.publishedManifest() == null) {
             throw new IllegalArgumentException("catalog publication requires a PUBLISHED upload intent");
         }
+        if (expectedCatalogGeneration < 0) {
+            throw new IllegalArgumentException("catalog generation must be non-negative");
+        }
         if (expectedCatalogGeneration != publishedIntent.baseCatalogGeneration()) {
             throw new IllegalStateException("upload intent base catalog generation does not match publication CAS");
         }
@@ -185,6 +188,19 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
                 || !sameHashHex(publishedIntent.parentManifestSha256(),
                 parent == null ? null : parent.manifestSha256())) {
             throw new IllegalArgumentException("upload intent parent checkpoint identity does not match manifest");
+        }
+
+        // A successful Oxia CAS may have returned no response. Once the exact
+        // manifest is already in the catalog, an exact checkpoint reread is
+        // success even if another catalog operation advanced the
+        // generation in the meantime. A same-ID/different-hash value remains
+        // an integrity conflict and is rejected by the normal publish path.
+        final CheckpointManifest existing = manifests.get(key(manifest.checkpointId()));
+        if (existing != null) {
+            if (!Bytes.constantTimeEquals(existing.manifestSha256(), manifest.manifestSha256())) {
+                throw new IllegalStateException("checkpoint identity conflict");
+            }
+            return new Publication(existing, catalogGeneration, floor);
         }
         return publish(manifest, expectedCatalogGeneration);
     }
