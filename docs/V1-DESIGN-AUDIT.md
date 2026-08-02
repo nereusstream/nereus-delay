@@ -87,6 +87,9 @@ local codec boundary. `ControlTargetMutationBindingV1` then validates a
 completed source mutation's ControlRef, logical identity, computed ID/hash,
 target Shard/Message and the covered Replay/Resolve/Lane body fields before
 external registration; it does not replace Oxia or writer authentication.
+`ControlOperationAuthorizationV1` additionally checks the authenticator's
+actor/role/scope hash projection and the minimum V1 role matrix before that
+step; its explicit scope proof remains an external authorization input.
 Its bytes are not an Oxia registration receipt and do not establish actor/role
 authority.
 The registration outcome/proof union is likewise local evidence projection:
