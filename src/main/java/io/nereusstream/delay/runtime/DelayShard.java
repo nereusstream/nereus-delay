@@ -3449,7 +3449,8 @@ public final class DelayShard {
                 || !Bytes.constantTimeEquals(proof.payloadSha256(), reservation.intent().payloadSha256())) {
             return persistRejected(command, sourcePosition, StableCode.PAYLOAD_PROOF_INVALID);
         }
-        if (payloadProofTrustSet == null || !payloadProofTrustSet.verifies(proof)) {
+        if (payloadProofTrustSet == null || !payloadProofTrustSet.verifies(proof,
+                sourcePosition.brokerPersistenceTimeEpochMs())) {
             return persistRejected(command, sourcePosition,
                     StableCode.PAYLOAD_PROOF_KEY_NOT_AUTHORIZED_AT_SOURCE_POSITION);
         }

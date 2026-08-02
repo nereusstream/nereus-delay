@@ -41,4 +41,25 @@ class PayloadProofTrustSetSemanticV1Test {
         tampered[tampered.length - 1] ^= 1;
         assertThrows(IllegalArgumentException.class, () -> PayloadProofTrustSetSemanticV1.decode(tampered));
     }
+
+    @Test
+    void localVerifierAdapterAppliesSourceTimeValidityWindow() throws Exception {
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final var keyPair = generator.generateKeyPair();
+        final var key = PayloadProofVerifierKeyV1.fromPublicKey(4, keyPair.getPublic(), 100, 200);
+        final PayloadProofTrustSetSemanticV1 semantic = new PayloadProofTrustSetSemanticV1(9, List.of(key));
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 1);
+        final DelayMessageId messageId = DelayMessageId.random(shard);
+        final PayloadCommitProofV1 proof = PayloadCommitProofV1.signed(Bytes.sha256(Bytes.utf8("reservation")),
+                Bytes.sha256(Bytes.utf8("scope")), shard.routeIncarnation().bytes(), shard.partition(), messageId,
+                new ProfileRefV1(Bytes.utf8("object-store"), 1, Bytes.sha256(Bytes.utf8("profile")),
+                        ProfileKindV1.OBJECT_STORE), 9, 4, Bytes.utf8("bucket"), Bytes.utf8("key"),
+                Bytes.utf8("version"), null, 1, Bytes.sha256(Bytes.utf8("payload")), 200,
+                keyPair.getPrivate());
+        final PayloadProofTrustSet adapter = PayloadProofTrustSet.fromSemantic(semantic);
+
+        org.junit.jupiter.api.Assertions.assertTrue(adapter.verifies(proof, 150));
+        org.junit.jupiter.api.Assertions.assertFalse(adapter.verifies(proof, 99));
+        org.junit.jupiter.api.Assertions.assertFalse(adapter.verifies(proof, 201));
+    }
 }

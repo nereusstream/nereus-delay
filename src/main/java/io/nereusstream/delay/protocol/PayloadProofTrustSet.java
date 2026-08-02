@@ -9,6 +9,7 @@ import java.util.Objects;
 public final class PayloadProofTrustSet {
     private final long version;
     private final Map<Integer, PublicKey> keys;
+    private final Map<Integer, KeyWindow> keyWindows;
 
     public PayloadProofTrustSet(final long version, final Map<Integer, PublicKey> keys) {
         if (version <= 0) {
@@ -25,16 +26,24 @@ public final class PayloadProofTrustSet {
         }
         this.version = version;
         this.keys = Map.copyOf(keys);
+        final Map<Integer, KeyWindow> windows = new HashMap<>();
+        for (Integer keyVersion : keys.keySet()) {
+            windows.put(keyVersion, new KeyWindow(0, Long.MAX_VALUE));
+        }
+        this.keyWindows = Map.copyOf(windows);
     }
 
     /** Builds the local verifier adapter from the canonical Registry semantic value. */
     public static PayloadProofTrustSet fromSemantic(final PayloadProofTrustSetSemanticV1 semantic) {
         Objects.requireNonNull(semantic, "semantic");
         final Map<Integer, PublicKey> keys = new HashMap<>();
+        final Map<Integer, KeyWindow> windows = new HashMap<>();
         for (PayloadProofVerifierKeyV1 key : semantic.keys()) {
             keys.put(key.keyVersion(), key.toPublicKey());
+            windows.put(key.keyVersion(), new KeyWindow(key.verifyNotBeforeEpochMs(),
+                    key.verifyNotAfterEpochMs()));
         }
-        return new PayloadProofTrustSet(semantic.version(), keys);
+        return new PayloadProofTrustSet(semantic.version(), keys, windows);
     }
 
     public long version() {
@@ -42,10 +51,30 @@ public final class PayloadProofTrustSet {
     }
 
     public boolean verifies(final PayloadCommitProofView proof) {
+        return verifies(proof, Long.MAX_VALUE);
+    }
+
+    /** Verifies a proof and applies the key's source-time validity window. */
+    public boolean verifies(final PayloadCommitProofView proof, final long sourceEpochMs) {
+        if (sourceEpochMs < 0) {
+            throw new IllegalArgumentException("sourceEpochMs must be non-negative");
+        }
         if (proof.trustSetVersion() != version) {
             return false;
         }
         final PublicKey key = keys.get(proof.proofKeyVersion());
-        return key != null && proof.verifySignature(key);
+        final KeyWindow window = keyWindows.get(proof.proofKeyVersion());
+        return key != null && window != null && sourceEpochMs >= window.notBeforeEpochMs()
+                && sourceEpochMs <= window.notAfterEpochMs() && proof.verifySignature(key);
+    }
+
+    private PayloadProofTrustSet(final long version, final Map<Integer, PublicKey> keys,
+                                 final Map<Integer, KeyWindow> keyWindows) {
+        this.version = version;
+        this.keys = Map.copyOf(keys);
+        this.keyWindows = Map.copyOf(keyWindows);
+    }
+
+    private record KeyWindow(long notBeforeEpochMs, long notAfterEpochMs) {
     }
 }
