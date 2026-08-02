@@ -18,20 +18,36 @@ public record DestinationPublishResult(
     public DestinationPublishResult {
         Objects.requireNonNull(disposition, "disposition");
         Objects.requireNonNull(stableCode, "stableCode");
-        if (disposition == Disposition.PUBLISHED && brokerPersistenceTimeEpochMs < 0) {
-            throw new IllegalArgumentException("published result requires a broker persistence time");
-        }
-        if (disposition != Disposition.PUBLISHED && brokerPersistenceTimeEpochMs >= 0) {
-            throw new IllegalArgumentException("non-published result cannot carry a persistence time");
-        }
-        if (externalDeliveryIdentity != null && externalDeliveryIdentity.length == 0) {
-            throw new IllegalArgumentException("external delivery identity must be non-empty");
-        }
-        if (disposition == Disposition.PUBLISHED && brokerPartition < -1) {
-            throw new IllegalArgumentException("broker partition is outside the local range");
-        }
-        if (disposition != Disposition.PUBLISHED && (brokerResource != null || brokerPartition != -1)) {
-            throw new IllegalArgumentException("non-published result cannot carry Broker resource identity");
+        if (disposition == Disposition.PUBLISHED) {
+            if (stableCode != StableCode.OK) {
+                throw new IllegalArgumentException("published result must use stable code OK");
+            }
+            if (brokerPersistenceTimeEpochMs < 0) {
+                throw new IllegalArgumentException("published result requires a broker persistence time");
+            }
+            if (externalDeliveryIdentity == null || externalDeliveryIdentity.length == 0) {
+                throw new IllegalArgumentException("published result requires a delivery identity");
+            }
+            if (evidence == null || evidence.length == 0) {
+                throw new IllegalArgumentException("published result requires side-effect evidence");
+            }
+            if (brokerResource == null && brokerPartition != -1
+                    || brokerResource != null && brokerPartition < 0) {
+                throw new IllegalArgumentException("published Broker resource and partition must be paired");
+            }
+        } else {
+            if (stableCode == StableCode.OK) {
+                throw new IllegalArgumentException("non-published result cannot use stable code OK");
+            }
+            if (brokerPersistenceTimeEpochMs >= 0) {
+                throw new IllegalArgumentException("non-published result cannot carry a persistence time");
+            }
+            if (externalDeliveryIdentity != null) {
+                throw new IllegalArgumentException("non-published result cannot carry a delivery identity");
+            }
+            if (brokerResource != null || brokerPartition != -1) {
+                throw new IllegalArgumentException("non-published result cannot carry Broker resource identity");
+            }
         }
         externalDeliveryIdentity = externalDeliveryIdentity == null ? null : Bytes.copy(externalDeliveryIdentity);
         evidence = evidence == null ? null : Bytes.copy(evidence);

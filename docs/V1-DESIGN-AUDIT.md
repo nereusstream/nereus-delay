@@ -303,6 +303,15 @@ Managed Kafka/Pulsar ingress 的 transport exception、空结果或 failed stage
 该分支映射由 `AdapterIngressTest` 覆盖，避免把 managed Command 的 retry contract
 误标成 native submission；managed null-result 和 native-code 泄漏也有回归向量。
 
+Target publish 的本地 transport 结果现在也在 adapter 边界执行 closed-product
+校验：`PUBLISHED` 必须携带非空 delivery identity、非空 side-effect evidence、
+`StableCode.OK` 和非负 Broker persistence time；若返回 pinned Broker resource，
+必须同时携带非负 physical partition；`UNKNOWN`/`DEFINITIVELY_NOT_PUBLISHED`
+不得携带成功码、delivery identity、persistence time 或 Broker resource。证据是
+`DestinationPublishResult` 与 `DestinationAdapterTest` 的非法组合回归。这只收紧
+transport result 的本地输入边界；physical evidence journal、Lane/Worker/target
+cluster admission 和真实 Broker outcome proof 仍是 release blocker。
+
 `OwnedDelayShard` 现在还提供了带 assignment/barrier/source-connection 校验的
 统一 `replay` seam，以及兼容性的 `replayCatchup`/`replaySystemMutations`：
 Command 和 signed System Mutation 通过 `SourceReplayEntry` 在同一个

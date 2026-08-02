@@ -16,6 +16,7 @@ import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DestinationAdapterTest {
@@ -98,6 +99,24 @@ class DestinationAdapterTest {
             assertTrue(result.disposition() == DestinationPublishResult.Disposition.UNKNOWN);
             assertEquals(StableCode.DESTINATION_OUTCOME_UNKNOWN, result.stableCode());
         }
+    }
+
+    @Test
+    void publishedResultRequiresIdentityAndEvidence() {
+        assertThrows(IllegalArgumentException.class,
+                () -> DestinationPublishResult.published(null, 2_001, Bytes.utf8("evidence")));
+        assertThrows(IllegalArgumentException.class,
+                () -> DestinationPublishResult.published(Bytes.utf8("record"), 2_001, null));
+    }
+
+    @Test
+    void nonPublishedResultCannotPretendSuccess() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new DestinationPublishResult(DestinationPublishResult.Disposition.UNKNOWN,
+                        StableCode.OK, null, -1, null, null, -1));
+        assertThrows(IllegalArgumentException.class,
+                () -> new DestinationPublishResult(DestinationPublishResult.Disposition.DEFINITIVELY_NOT_PUBLISHED,
+                        StableCode.INVALID_METADATA, Bytes.utf8("delivery"), -1, null, null, -1));
     }
 
     private static DestinationPublishRequest request(final long actionAt, final long deliverAt) {
