@@ -161,6 +161,59 @@ public final class LaneScheduler {
         cursor = ring.isEmpty() ? 0 : cursor % ring.size();
     }
 
+    /** Replaces the active ring with an authority-validated successor order. */
+    public synchronized void rebuildActiveRing(final List<DestinationLaneId> activeOrder) {
+        Objects.requireNonNull(activeOrder, "activeOrder");
+        final Set<DestinationLaneId> seen = new HashSet<>();
+        final List<DestinationLaneId> rebuilt = new ArrayList<>();
+        for (DestinationLaneId laneId : activeOrder) {
+            if (seen.add(laneId) && lanes.containsKey(laneId)) {
+                rebuilt.add(laneId);
+            }
+        }
+        ring.clear();
+        ring.addAll(rebuilt);
+        cursor = ring.isEmpty() ? 0 : cursor % ring.size();
+    }
+
+    /** Adds one registered Lane to the active ring after a READY transition. */
+    public synchronized void activateLane(final DestinationLaneId laneId) {
+        requireLane(laneId);
+        if (!ring.contains(laneId)) {
+            ring.add(laneId);
+        }
+    }
+
+    /** Removes one Lane from the active ring after a fenced readiness loss. */
+    public synchronized void deactivateLane(final DestinationLaneId laneId) {
+        requireLane(laneId);
+        final int removed = ring.indexOf(laneId);
+        if (removed < 0) {
+            return;
+        }
+        ring.remove(removed);
+        if (ring.isEmpty()) {
+            cursor = 0;
+        } else if (removed < cursor) {
+            cursor--;
+        } else {
+            cursor %= ring.size();
+        }
+    }
+
+    /** Replaces all in-memory work with the exact READY projection recovered from storage. */
+    public synchronized void replacePending(final List<ScheduleWorkItem> items) {
+        Objects.requireNonNull(items, "items");
+        lanes.values().forEach(lane -> lane.queue.clear());
+        for (ScheduleWorkItem item : items) {
+            final LaneQueue lane = requireLane(item.laneId());
+            if (!lane.schedulable()) {
+                throw new IllegalStateException("READY work belongs to a non-schedulable lane: " + item.laneId());
+            }
+            lane.queue.addLast(item);
+        }
+    }
+
     /** Restores fair-scheduling counters after all current Lane records are registered. */
     public synchronized void restore(final SchedulerSnapshot snapshot) {
         Objects.requireNonNull(snapshot, "snapshot");

@@ -2,11 +2,18 @@ package io.nereusstream.delay.scheduler;
 
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DestinationLaneId;
+import io.nereusstream.delay.protocol.KafkaSourcePosition;
+import io.nereusstream.delay.protocol.LaneRecordEnvelopeV1;
+import io.nereusstream.delay.protocol.OrderingMode;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.SchedulerProjectionsV1;
 import io.nereusstream.delay.protocol.ShardId;
+import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.runtime.AdmissionGate;
 import io.nereusstream.delay.runtime.LaneRecord;
+import io.nereusstream.delay.runtime.MessageRecord;
+import io.nereusstream.delay.runtime.MessageStatus;
+import io.nereusstream.delay.runtime.ReadyIndexValue;
 import io.nereusstream.delay.runtime.RuntimeReadiness;
 import io.nereusstream.delay.store.ColumnFamily;
 import io.nereusstream.delay.store.KeyCodec;
@@ -18,6 +25,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -119,6 +127,40 @@ class LaneSchedulerTest {
                     KeyCodec.metaScheduler(2), 5).payload());
             SchedulerProjectionsV1.Round.decode(store.getValue(ColumnFamily.META,
                     KeyCodec.metaScheduler(4), 5).payload());
+        }
+    }
+
+    @Test
+    void fencedRecoveryRebuildsReadyQueueFromLaneAndMessageIndexes() {
+        final DestinationLaneId lane = lane(7);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 7);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir);
+        final SourcePosition source = new KafkaSourcePosition(shardId, "cluster", UUID.randomUUID(), 4,
+                null, 1_004);
+        final LaneRecord laneRecord = new LaneRecord(lane, new byte[16], 1, 1, AdmissionGate.OPEN,
+                RuntimeReadiness.READY, 2, 1_000);
+        final DelayMessageId messageId = DelayMessageId.random(shardId);
+        final MessageRecord message = new MessageRecord(MessageStatus.SCHEDULED, 3, 4, 1_000, 9_000, lane,
+                OrderingMode.BEST_EFFORT, new byte[]{1, 2, 3}, source.canonicalBytes());
+        final byte[] readyKey = KeyCodec.timelineReady(1_000, lane, laneRecord.laneVersion());
+        final ReadyIndexValue ready = new ReadyIndexValue(lane, 1_000, laneRecord.laneVersion(), messageId,
+                message.generation(), new byte[32]);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(lane),
+                        LaneRecordEnvelopeV1.active(laneRecord.encode()).canonicalBytes());
+                batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(messageId), message.encode());
+                batch.putValue(ColumnFamily.TIMELINE, 3, readyKey, ready.encode());
+            });
+            final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
+            scheduler.register(laneRecord);
+
+            org.junit.jupiter.api.Assertions.assertEquals(1, scheduler.rebuildFromAuthoritativeReady(1));
+            assertEquals(1, scheduler.snapshot().lanes().get(0).pendingItems());
+            assertEquals(messageId, scheduler.poll(new SchedulerBudget(1, 1024, 1_000_000_000)).get(0).messageId());
+            final SchedulerProjectionsV1.ReadyDiscoveryCursor cursor = scheduler.discoveryCursor();
+            org.junit.jupiter.api.Assertions.assertArrayEquals(readyKey, cursor.lastScannedReadyKey());
         }
     }
 

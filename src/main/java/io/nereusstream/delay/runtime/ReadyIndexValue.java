@@ -14,11 +14,11 @@ import java.util.Arrays;
  * the same physical identity checks (lane, lane version and exact timeline
  * work) in a fixed binary value until the registry binding is wired in.</p>
  */
-record ReadyIndexValue(DestinationLaneId laneId, long nextEligibleAtEpochMs, long laneVersion,
-                       DelayMessageId messageId, int generation, byte[] timelineKeySha256) {
+public record ReadyIndexValue(DestinationLaneId laneId, long nextEligibleAtEpochMs, long laneVersion,
+                              DelayMessageId messageId, int generation, byte[] timelineKeySha256) {
     private static final int VERSION = 1;
 
-    ReadyIndexValue {
+    public ReadyIndexValue {
         if (nextEligibleAtEpochMs < 0 || laneVersion < 0 || generation < 0) {
             throw new IllegalArgumentException("invalid READY value");
         }
@@ -31,13 +31,13 @@ record ReadyIndexValue(DestinationLaneId laneId, long nextEligibleAtEpochMs, lon
         return Bytes.copy(timelineKeySha256);
     }
 
-    byte[] encode() {
+    public byte[] encode() {
         return ByteBuffer.allocate(4 + 32 + 8 + 8 + DelayMessageId.LENGTH + 4 + 32)
                 .putInt(VERSION).put(laneId.bytes()).putLong(nextEligibleAtEpochMs).putLong(laneVersion)
                 .put(messageId.bytes()).putInt(generation).put(timelineKeySha256).array();
     }
 
-    static ReadyIndexValue decode(final byte[] encoded) {
+    public static ReadyIndexValue decode(final byte[] encoded) {
         final int expectedLength = 4 + 32 + 8 + 8 + DelayMessageId.LENGTH + 4 + 32;
         if (encoded.length != expectedLength) {
             throw new IllegalArgumentException("invalid READY value length");
