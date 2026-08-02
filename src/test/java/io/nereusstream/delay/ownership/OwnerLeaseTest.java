@@ -292,6 +292,10 @@ class OwnerLeaseTest {
             final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 0);
             owned.markCatchingUp(new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("assignment-empty")), 1,
                     barrier));
+            final KafkaSourcePosition sameSource = new KafkaSourcePosition(shardId, "cluster", topic, 0, null,
+                    1_000);
+            assertThrows(IllegalArgumentException.class,
+                    () -> owned.recordCatchup(sameSource, 1L, Bytes.sha256(Bytes.utf8("unexpected-proof"))));
             owned.activateForCommands(101);
             final PreparedCommand command = PreparedCommand.schedule(shardId,
                     new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("empty-barrier-lane")), 2_000, 5_000,

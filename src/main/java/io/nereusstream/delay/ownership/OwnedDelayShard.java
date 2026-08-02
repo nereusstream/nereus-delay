@@ -286,8 +286,13 @@ public final class OwnedDelayShard {
 
     private void validateSourceConnection(final SourcePosition position, final Long connectionGeneration,
                                           final byte[] guardAttestationDigest) {
-        if (!(position instanceof io.nereusstream.delay.protocol.PulsarSourcePosition)
-                || !(activationBarrier instanceof PulsarActivationBarrier pulsarBarrier)) {
+        if (!(position instanceof io.nereusstream.delay.protocol.PulsarSourcePosition)) {
+            if (connectionGeneration != null || guardAttestationDigest != null) {
+                throw new IllegalArgumentException("source connection proof is only valid for Pulsar");
+            }
+            return;
+        }
+        if (!(activationBarrier instanceof PulsarActivationBarrier pulsarBarrier)) {
             return;
         }
         if (connectionGeneration == null || connectionGeneration <= 0 || guardAttestationDigest == null) {

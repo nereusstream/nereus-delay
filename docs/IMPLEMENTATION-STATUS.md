@@ -17,6 +17,9 @@ successor after a lost CAS response without advancing the Floor twice.
 Exact already-published manifests are similarly reread before generation CAS;
 same-checkpoint hash drift remains an integrity conflict.
 
+Source replay rejects a connection-generation/guard proof on Kafka positions;
+that proof is reserved for the guarded Pulsar source branch.
+
 The local Owner Lease adapters now enforce the closed lifecycle transition
 matrix, including fail-closed backward transitions and fenced-lease
 non-reactivation; the real Oxia ephemeral session/CAS authority remains a

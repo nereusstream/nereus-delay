@@ -142,6 +142,8 @@ Owner Lease 的本地 CAS 投影现在还按 V1 lifecycle graph 拒绝回退状�
 仍未完成。Activation 的本地 Oxia adapter 还会在 CAS response loss 后
 仅接受同一 fencing/assignment/session identity 的 exact `ACTIVE_FOR_COMMANDS`
 重读。
+Kafka source records now reject an unexpected Pulsar connection proof instead
+of silently ignoring it.
 
 本地 `RecoveryCatalog.publishUploadedCheckpoint` 现在要求 PUBLISHED intent
 与完整 manifest 的 shard、lineage、checkpoint、manifest hash/length、owner
