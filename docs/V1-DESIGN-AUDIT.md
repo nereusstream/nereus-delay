@@ -63,6 +63,14 @@ V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障
 | Lane READY | exact Ready Certificate、channel/evidence/credential prerequisites 和 READY key 同步成立 | target 健康猜测、admin OPEN 单独存在 |
 | GC/delete 完成 | source-ordered retire intent、保护集、external delete confirmation 和 Recovery Floor 全满足 | delete request、timeout、listing absence 单独存在 |
 
+`EmbeddedDelayService` 的本地 ingress seam 现在在分配 Source Position 前同时
+限制 pending command count 和 canonical frame bytes；缓冲区满时返回 Registry
+的 `SDK_BACKPRESSURE_NOT_SUBMITTED` definitive local rejection，且不消耗嵌入式
+source offset，drain 后释放精确 byte charge。证据是
+`EmbeddedDelayServiceTest.sdkBackpressureRejectsBeforeSourcePositionAndByteBudgetAreConsumed`。
+这只证明本地 SDK seam；Producer buffer、batch/linger、request/delivery timeout、
+close drain 以及真实 Broker response 仍属于真实适配器 release gate。
+
 ## 故障域闭合
 
 | 故障域 | 允许影响 | 不允许传播为 |

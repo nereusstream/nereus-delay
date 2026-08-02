@@ -3,6 +3,7 @@ package io.nereusstream.delay.client;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CommandAppliedReceiptV1;
 import io.nereusstream.delay.protocol.CommandApplyStatusV1;
+import io.nereusstream.delay.protocol.CommandCodec;
 import io.nereusstream.delay.protocol.CommandQueuedReceiptV1;
 import io.nereusstream.delay.protocol.CommandQueuedReceiptV1.KafkaQueuedAck;
 import io.nereusstream.delay.protocol.CommandQueryResponseV1;
@@ -63,17 +64,25 @@ public final class EmbeddedDelayService implements DelayClient {
     private final ShardStore store;
     private final DelayShard shard;
     private final ControlOperationAuthority controlOperationAuthority;
+    private final EmbeddedDelayServiceConfig clientConfig;
     private final Deque<QueuedRecord> pending = new ArrayDeque<>();
     private long nextOffset;
+    private long pendingBytes;
     private boolean closed;
 
     public EmbeddedDelayService(final ShardStoreConfig storeConfig, final ShardId shardId) {
-        this(storeConfig, shardId, Clock.systemUTC());
+        this(storeConfig, shardId, Clock.systemUTC(), EmbeddedDelayServiceConfig.defaults());
     }
 
     public EmbeddedDelayService(final ShardStoreConfig storeConfig, final ShardId shardId, final Clock clock) {
+        this(storeConfig, shardId, clock, EmbeddedDelayServiceConfig.defaults());
+    }
+
+    public EmbeddedDelayService(final ShardStoreConfig storeConfig, final ShardId shardId, final Clock clock,
+                                final EmbeddedDelayServiceConfig clientConfig) {
         this.shardId = Objects.requireNonNull(shardId, "shardId");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.clientConfig = Objects.requireNonNull(clientConfig, "clientConfig");
         resources = new SharedRocksDbResources(storeConfig);
         store = ShardStore.open(storeConfig, shardId, resources);
         shard = new DelayShard(store, DelayShardConfig.defaults());
@@ -123,6 +132,13 @@ public final class EmbeddedDelayService implements DelayClient {
         if (!shardId.equals(command.shardId())) {
             return CompletableFuture.completedFuture(EnqueueOutcome.definitelyNotQueued(command, 0x110a));
         }
+        final int frameBytes = CommandCodec.encodeFrame(command).length;
+        if (pending.size() >= clientConfig.maxPendingCommandCount()
+                || (long) frameBytes > clientConfig.maxPendingCommandBytes()
+                || pendingBytes > clientConfig.maxPendingCommandBytes() - frameBytes) {
+            return CompletableFuture.completedFuture(EnqueueOutcome.definitelyNotQueued(command,
+                    StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED.wireValue()));
+        }
         final long now = clock.millis();
         if (nextOffset == Long.MAX_VALUE) {
             throw new IllegalStateException("embedded Kafka source offset exhausted");
@@ -136,7 +152,8 @@ public final class EmbeddedDelayService implements DelayClient {
         nextOffset = Math.addExact(offset, 1);
         final CommandQueuedReceipt receipt = new CommandQueuedReceipt(command.commandId(), command.delayMessageId(),
                 shardId, position);
-        pending.addLast(new QueuedRecord(command, position));
+        pending.addLast(new QueuedRecord(command, position, frameBytes));
+        pendingBytes = Math.addExact(pendingBytes, frameBytes);
         return CompletableFuture.completedFuture(EnqueueOutcome.queued(command, receipt));
     }
 
@@ -145,8 +162,17 @@ public final class EmbeddedDelayService implements DelayClient {
         ensureOpen();
         while (!pending.isEmpty()) {
             final QueuedRecord record = pending.removeFirst();
+            pendingBytes -= record.frameBytes();
             shard.apply(record.command(), record.position());
         }
+    }
+
+    public synchronized int pendingCommandCount() {
+        return pending.size();
+    }
+
+    public synchronized long pendingCommandBytes() {
+        return pendingBytes;
     }
 
     @Override
@@ -417,6 +443,6 @@ public final class EmbeddedDelayService implements DelayClient {
         return nowEpochMs == Long.MAX_VALUE ? Long.MAX_VALUE : nowEpochMs + 1;
     }
 
-    private record QueuedRecord(PreparedCommand command, SourcePosition position) {
+    private record QueuedRecord(PreparedCommand command, SourcePosition position, int frameBytes) {
     }
 }

@@ -80,6 +80,17 @@ validated successfully. `EmbeddedDelayServiceTest` covers the
 `Long.MAX_VALUE` boundary, so a failed enqueue cannot wrap the in-memory
 offset into a negative value.
 
+`EmbeddedDelayService` now applies an explicit bounded client buffer through
+`EmbeddedDelayServiceConfig`: pending command count and canonical frame bytes
+are checked before allocating a Source Position. A full buffer returns
+`DEFINITELY_NOT_QUEUED(SDK_BACKPRESSURE_NOT_SUBMITTED)` without advancing the
+embedded source offset; draining releases the exact byte charge. The embedded
+defaults are conformance-harness values, not production Broker defaults. Real
+adapters still need equivalent Producer buffer, batch/linger,
+request/delivery-timeout and close-drain configuration. The count, byte,
+offset and release behavior is covered by
+`EmbeddedDelayServiceTest.sdkBackpressureRejectsBeforeSourcePositionAndByteBudgetAreConsumed`.
+
 `DelayShard` now rejects negative persisted mutation and Claim sequence values
 on reopen. These counters are encoded as checked non-negative u64 values;
 accepting a high-bit-set value would turn corrupt metadata into a wrapped local

@@ -46,6 +46,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class EmbeddedDelayServiceTest {
     @TempDir
@@ -67,6 +68,47 @@ class EmbeddedDelayServiceTest {
             final CommandResultView result = new CommandResultView(
                     service.awaitApplied(outcome.receipt()).toCompletableFuture().join().stableCode());
             assertEquals(StableCode.SCHEDULED, result.code());
+        }
+    }
+
+    @Test
+    void sdkBackpressureRejectsBeforeSourcePositionAndByteBudgetAreConsumed() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 30);
+        final ScheduleIntent intent = new ScheduleIntent(
+                DestinationLaneId.derive(Bytes.utf8("backpressure-lane")), 2_000, 5_000,
+                OrderingMode.BEST_EFFORT, Bytes.utf8("payload"));
+        final EmbeddedDelayServiceConfig bounded = new EmbeddedDelayServiceConfig(1, Long.MAX_VALUE);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("backpressure-count")), shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC), bounded)) {
+            final PreparedCommand first = service.prepareSchedule(intent, 10_000);
+            final PreparedCommand second = service.prepareSchedule(intent, 10_000);
+            assertEquals(EnqueueStatus.QUEUED, service.enqueue(first).toCompletableFuture().join().status());
+            final EnqueueOutcome rejected = service.enqueue(second).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.DEFINITELY_NOT_QUEUED, rejected.status());
+            assertEquals(StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED.wireValue(), rejected.stableCode());
+            assertEquals(1, service.pendingCommandCount());
+            assertTrue(service.pendingCommandBytes() > 0);
+
+            service.drain();
+            assertEquals(0, service.pendingCommandCount());
+            assertEquals(0, service.pendingCommandBytes());
+            final PreparedCommand third = service.prepareSchedule(intent, 10_000);
+            final EnqueueOutcome afterDrain = service.enqueue(third).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.QUEUED, afterDrain.status());
+            assertEquals(1, ((KafkaSourcePosition) afterDrain.receipt().sourcePosition()).offset());
+        }
+
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("backpressure-bytes")), shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC),
+                new EmbeddedDelayServiceConfig(4, 1))) {
+            final PreparedCommand command = service.prepareSchedule(intent, 10_000);
+            final EnqueueOutcome rejected = service.enqueue(command).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.DEFINITELY_NOT_QUEUED, rejected.status());
+            assertEquals(StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED.wireValue(), rejected.stableCode());
+            assertEquals(0, service.pendingCommandCount());
+            assertEquals(0, service.pendingCommandBytes());
         }
     }
 
