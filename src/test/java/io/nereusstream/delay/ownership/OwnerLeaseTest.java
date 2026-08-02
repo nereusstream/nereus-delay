@@ -63,6 +63,42 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void authoritativeApplyFencesAStillLocallyValidStaleLease() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 18);
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = backend.acquire(shardId, "worker-stale", 100, 100).orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("authoritative-apply"));
+        final UUID topic = UUID.randomUUID();
+        final KafkaSourcePosition firstPosition = new KafkaSourcePosition(shardId, "cluster", topic, 0, null, 1_000);
+        final KafkaSourcePosition secondPosition = new KafkaSourcePosition(shardId, "cluster", topic, 1, null, 1_001);
+        final PreparedCommand first = PreparedCommand.schedule(shardId,
+                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("authoritative-first")), 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("first")), 10_000);
+        final PreparedCommand second = PreparedCommand.schedule(shardId,
+                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("authoritative-second")), 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("second")), 10_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            owned.markCatchingUp(new SourceAssignment(shardId,
+                    Bytes.sha256(Bytes.utf8("authoritative-assignment")), 1,
+                    new KafkaActivationBarrier(shardId, "cluster", topic, 0)));
+            owned.recordCatchup(firstPosition);
+            owned.activateForCommands(authority, 101);
+            assertEquals(StableCode.SCHEDULED,
+                    owned.applyAuthoritatively(authority, first, firstPosition, 101).stableCode());
+
+            assertTrue(backend.release(owned.lease()));
+            backend.acquire(shardId, "worker-new", 150, 100).orElseThrow();
+            assertThrows(IllegalStateException.class,
+                    () -> owned.applyAuthoritatively(authority, second, secondPosition, 151));
+            assertEquals(ShardLifecycleState.FENCED, owned.state());
+            assertEquals(null, owned.shard().getMessage(second.delayMessageId()));
+        }
+    }
+
+    @Test
     void ownerCannotApplyBeforeRestoreAndCatchUpBarriers() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 1);
         final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();

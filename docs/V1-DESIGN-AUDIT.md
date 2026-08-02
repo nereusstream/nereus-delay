@@ -475,6 +475,10 @@ canonical Source Position 的 broker redelivery 可以由 durable apply 幂等�
 catch-up 中途过期会在下一条记录前 fence，cursor 保留在最后已提交的位置，
 不会继续用旧 owner 写入。固定 `nowEpochMs` overload 仅保留给确定性兼容调用，
 `OwnerLeaseTest.liveCatchupClockFencesBeforeApplyingAfterLeaseExpiry` 覆盖该边界。
+正常 source apply 还可使用 `OwnedDelayShard.applyAuthoritatively`，在每次
+delegate WriteBatch 前 reread Oxia lease；同 identity 的续租可以更新本地 expiry，
+而 owner/epoch/token/session、状态或 expiry 回退都会在写入前 fence。旧的本地
+apply overload 仍明确只是 embedded seam。
 
 Worker 资源侧现在还提供了本地 `WorkerLoadVector` 与
 `WorkerPlacementPolicy`：它们先按完整 committed capacity、固定/transition

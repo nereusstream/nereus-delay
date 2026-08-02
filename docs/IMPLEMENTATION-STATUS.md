@@ -455,6 +455,10 @@ view on mid-replay expiry, and leave the durable source cursor at the last
 committed record; the fixed-time overloads remain deterministic compatibility
 seams. `OwnerLeaseTest.liveCatchupClockFencesBeforeApplyingAfterLeaseExpiry`
 covers the command replay boundary.
+`OwnedDelayShard.applyAuthoritatively` adds the corresponding per-command
+authority reread for the post-activation path: a missing, changed, non-active,
+expired or regressed-expiry Oxia lease fences before the delegate WriteBatch;
+only an exact same-identity expiry extension is adopted locally.
 
 `CheckpointScheduler` now provides a bounded process-local schedule for each
 owned shard: interval and deterministic per-shard jitter are validated, due

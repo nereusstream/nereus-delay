@@ -53,6 +53,28 @@ public final class OwnedDelayShard {
         return delegate.apply(command, position);
     }
 
+    /**
+     * Applies one command only after rereading the authoritative Oxia lease.
+     * The local-only overload remains useful for the embedded conformance
+     * service; source writers with a live Owner Lease should use this boundary
+     * so a same-process stale lease cannot outlive an Oxia owner change.
+     */
+    public synchronized CommandResult applyAuthoritatively(final OxiaOwnerLeaseStore authority,
+                                                            final PreparedCommand command,
+                                                            final SourcePosition position, final long nowEpochMs) {
+        return applyAuthoritatively(authority, command, position, nowEpochMs, null, null);
+    }
+
+    /** Applies one guarded command after an authoritative lease reread. */
+    public synchronized CommandResult applyAuthoritatively(final OxiaOwnerLeaseStore authority,
+                                                            final PreparedCommand command,
+                                                            final SourcePosition position, final long nowEpochMs,
+                                                            final Long sourceConnectionGeneration,
+                                                            final byte[] guardAttestationDigest) {
+        ensureAuthoritativeActive(authority, nowEpochMs);
+        return apply(command, position, nowEpochMs, sourceConnectionGeneration, guardAttestationDigest);
+    }
+
     public synchronized void updateLease(final OwnerLease renewed) {
         Objects.requireNonNull(renewed, "renewed");
         if (!lease.sameIdentity(renewed) || renewed.state() != lease.state()
@@ -463,6 +485,25 @@ public final class OwnedDelayShard {
         }
         if (state != ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
             throw new IllegalStateException("shard lifecycle is not active for commands: " + state);
+        }
+    }
+
+    private void ensureAuthoritativeActive(final OxiaOwnerLeaseStore authority, final long nowEpochMs) {
+        Objects.requireNonNull(authority, "authority");
+        ensureActive(nowEpochMs);
+        final OwnerLease observed = authority.current(lease.shardId()).orElse(null);
+        if (observed == null || !lease.sameIdentity(observed)
+                || observed.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
+                || !observed.validAt(nowEpochMs)) {
+            state = ShardLifecycleState.FENCED;
+            throw new IllegalStateException("authoritative owner lease changed before command apply");
+        }
+        if (observed.expiresAtEpochMs() < lease.expiresAtEpochMs()) {
+            state = ShardLifecycleState.FENCED;
+            throw new IllegalStateException("authoritative owner lease expiry regressed before command apply");
+        }
+        if (observed.expiresAtEpochMs() > lease.expiresAtEpochMs()) {
+            lease = observed;
         }
     }
 }
