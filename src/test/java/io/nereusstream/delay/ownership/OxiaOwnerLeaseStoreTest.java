@@ -36,6 +36,7 @@ class OxiaOwnerLeaseStoreTest {
         assertEquals(acquired.state(), renewed.state());
         final OwnerLease restoring = store.transition(renewed, ShardLifecycleState.RESTORING).orElseThrow();
         assertEquals(ShardLifecycleState.RESTORING, restoring.state());
+        assertTrue(store.transition(restoring, ShardLifecycleState.ACQUIRING).isEmpty());
         assertTrue(store.transition(renewed, ShardLifecycleState.CATCHING_UP).isEmpty());
         assertFalse(store.acquire(assignment, "worker-b", session, 120, 50).isPresent());
     }

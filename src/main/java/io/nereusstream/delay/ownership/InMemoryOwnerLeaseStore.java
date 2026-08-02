@@ -84,6 +84,9 @@ public final class InMemoryOwnerLeaseStore implements OwnerLeaseStore {
         if (!same(current, expected) || current.state() != expected.state()) {
             return Optional.empty();
         }
+        if (!current.state().canTransitionTo(nextState)) {
+            return Optional.empty();
+        }
         final OwnerLease next = new OwnerLease(current.shardId(), current.ownerId(), current.ownerEpoch(),
                 current.leaseToken(), current.expiresAtEpochMs(), current.context(), nextState);
         leases.put(expected.shardId(), next);

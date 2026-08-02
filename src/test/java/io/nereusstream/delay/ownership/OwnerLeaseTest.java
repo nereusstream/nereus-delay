@@ -244,6 +244,20 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void lifecycleCasRejectsBackwardTransitionsAndFencedLeaseReactivation() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 15);
+        final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
+        final OwnerLease acquiring = authority.acquire(shard, "worker-lifecycle", 100, 100).orElseThrow();
+        final OwnerLease active = authority.transition(acquiring, ShardLifecycleState.ACTIVE_FOR_COMMANDS)
+                .orElseThrow();
+        assertTrue(authority.transition(active, ShardLifecycleState.RESTORING).isEmpty());
+
+        final OwnerLease fenced = authority.transition(active, ShardLifecycleState.FENCED).orElseThrow();
+        assertTrue(authority.transition(fenced, ShardLifecycleState.ACTIVE_FOR_COMMANDS).isEmpty());
+        assertTrue(authority.transition(fenced, ShardLifecycleState.ACQUIRING).isPresent());
+    }
+
+    @Test
     void leaseRenewalCannotChangeTokenOrMoveExpiryBackwards() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 2);
         final OwnerLease lease = new OwnerLease(shard, "worker-a", 7, new byte[32], 200);

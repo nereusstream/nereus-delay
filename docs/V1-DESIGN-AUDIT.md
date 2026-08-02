@@ -136,6 +136,11 @@ demand 以及 owned/open DB slots 做 hard filter，再以 dominant-resource/loa
 movement cost；这只是可复现的评分 seam，不是 Kafka cooperative assignor、Oxia
 desired-placement plan 或 Owner Lease authority。
 
+Owner Lease 的本地 CAS 投影现在还按 V1 lifecycle graph 拒绝回退状态和
+`FENCED -> ACTIVE_FOR_COMMANDS` 复活；允许的前向 acquisition/activation
+跳转、fence 和 fenced recycle 都保留，真实 Oxia ephemeral session/CAS
+仍未完成。
+
 本地 `RecoveryCatalog.publishUploadedCheckpoint` 现在要求 PUBLISHED intent
 与完整 manifest 的 shard、lineage、checkpoint、manifest hash/length、owner
 和 store incarnation 完全一致后才接受 catalog projection；同一 checkpoint

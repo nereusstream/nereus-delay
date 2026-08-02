@@ -75,6 +75,9 @@ public final class OxiaOwnerLeaseStore implements OwnerLeaseStore {
     public Optional<OwnerLease> transition(final OwnerLease expected, final ShardLifecycleState nextState) {
         Objects.requireNonNull(expected, "expected");
         Objects.requireNonNull(nextState, "nextState");
+        if (!expected.state().canTransitionTo(nextState)) {
+            return Optional.empty();
+        }
         final Optional<OwnerLease> result = backend.transition(expected, nextState);
         if (result.isEmpty()) {
             return Optional.empty();

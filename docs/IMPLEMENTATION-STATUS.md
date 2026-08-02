@@ -7,6 +7,11 @@ normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20�
 the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
+The local Owner Lease adapters now enforce the closed lifecycle transition
+matrix, including fail-closed backward transitions and fenced-lease
+non-reactivation; the real Oxia ephemeral session/CAS authority remains a
+release blocker.
+
 The checkpoint code now covers the local physical boundary: create the complete
 RocksDB image under the same-filesystem `checkpoint-tmp` namespace, atomically
 rename it into the requested checkpoint path, checksum the full directory,
