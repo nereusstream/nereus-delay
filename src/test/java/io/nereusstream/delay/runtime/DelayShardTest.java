@@ -9,12 +9,17 @@ import io.nereusstream.delay.protocol.CapacityGrantV1;
 import io.nereusstream.delay.protocol.CapacityVectorV1;
 import io.nereusstream.delay.protocol.ClaimResultBody;
 import io.nereusstream.delay.protocol.CommittedPayloadDescriptorV1;
+import io.nereusstream.delay.protocol.ControlAuthorV1;
+import io.nereusstream.delay.protocol.ControlOperationRequestV1;
 import io.nereusstream.delay.protocol.ControlRef;
+import io.nereusstream.delay.protocol.ControlTargetKindV1;
+import io.nereusstream.delay.protocol.ControlTargetRefV1;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.EvidenceCursorV1;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
+import io.nereusstream.delay.protocol.LaneControlTargetV1;
 import io.nereusstream.delay.protocol.LaneRetirementProgressV1;
 import io.nereusstream.delay.protocol.LaneTerminalGuardV1;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
@@ -37,6 +42,7 @@ import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
+import io.nereusstream.delay.protocol.PreparedControlOperationV1;
 import io.nereusstream.delay.protocol.PublishAdmissionBody;
 import io.nereusstream.delay.protocol.PublishAdmissionBodyTest.Fixture;
 import io.nereusstream.delay.protocol.PublishOutcomeBody;
@@ -851,6 +857,56 @@ class DelayShardTest {
             assertEquals(ApplyStatus.REJECTED, result.applyStatus());
             assertEquals(StableCode.UNAUTHORIZED_SYSTEM_MUTATION, result.stableCode());
             assertNull(shard.getLane(lane));
+        }
+    }
+
+    @Test
+    void configuredControlRegistrationAppliesExactRegisteredMarker() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("registered-control-marker"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 67);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("registered-control-marker-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("registered-control-marker")), 9_000);
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final AuthorIdentity control = AuthorIdentity.control(Bytes.sha256(Bytes.utf8("registered-control-actor")),
+                Bytes.sha256(Bytes.utf8("registered-control-roles")),
+                Bytes.sha256(Bytes.utf8("registered-control-scope")));
+        final InMemoryControlTargetRegistrationAuthority authority =
+                new InMemoryControlTargetRegistrationAuthority();
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, null, null, null,
+                    authority);
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, position(shardId, 0, 1_000)).stableCode());
+            final LaneRecord laneRecord = shard.getLane(lane);
+            final ControlReasonV1 reason = new ControlReasonV1(ControlReasonKindV1.OPERATOR_REQUEST, null, null);
+            final ControlOperationRequestV1 request = ControlOperationRequestV1.pauseDestinationLane(reason);
+            final byte[] operationId = Bytes.sha256(Bytes.utf8("registered-control-operation"));
+            final ControlRef controlRef = new ControlRef(operationId,
+                    PreparedControlOperationV1.requestHash(request.kind(), request), 0);
+            final byte[] body = applyShardControlBody(shardId, controlRef, 8, lane,
+                    laneRecord.laneIncarnation(), laneRecord.laneControlVersion());
+            final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.APPLY_SHARD_CONTROL,
+                    9_000, controlRef.logicalOperationIdentity(8), body, control.canonicalBytes(), 1,
+                    keyPair.getPrivate());
+            final ControlTargetRefV1 target = new ControlTargetRefV1(0, ControlTargetKindV1.LANE,
+                    new LaneControlTargetV1(lane.bytes(), laneRecord.laneIncarnation(),
+                            laneRecord.laneControlVersion()), mutation.systemMutationId(), mutation.mutationHash());
+            final PreparedControlOperationV1 prepared = PreparedControlOperationV1.prepare(operationId,
+                    request.kind(), new ControlAuthorV1(Bytes.sha256(Bytes.utf8("registered-control-author")),
+                            Bytes.sha256(Bytes.utf8("registered-control-author-roles")),
+                            Bytes.sha256(Bytes.utf8("registered-control-author-scope"))), request, List.of(target),
+                    1, 9_000, 1, keyPair.getPrivate());
+            assertEquals(io.nereusstream.delay.ownership.ControlTargetRegistrationAuthority.RegistrationResult.RECORDED,
+                    authority.register(prepared));
+
+            final SystemMutationResult result = shard.applySystemMutation(mutation, position(shardId, 1, 1_001),
+                    keyPair.getPublic());
+            assertEquals(ApplyStatus.APPLIED, result.applyStatus());
+            assertEquals(StableCode.OK, result.stableCode());
+            assertEquals(AdmissionGate.ADMIN_PAUSED, shard.getLane(lane).admissionGate());
         }
     }
 
