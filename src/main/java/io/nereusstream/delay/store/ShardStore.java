@@ -751,11 +751,42 @@ public final class ShardStore implements AutoCloseable {
         }
     }
 
-    public Path createCheckpoint(final Path checkpointPath) {
+    public synchronized Path createCheckpoint(final Path checkpointPath) {
+        return createCheckpoint(checkpointPath, null);
+    }
+
+    /**
+     * Creates a physical checkpoint whose local runtime metadata carries the
+     * exact 16-byte checkpoint identity inside the copied DB image.
+     *
+     * <p>The identity is written before RocksDB snapshots the files, so a
+     * restored image can prove which checkpoint it represents.  If physical
+     * creation fails, the previous local projection is synchronously restored;
+     * a failed attempt must not leave a live DB claiming a checkpoint that was
+     * never produced.</p>
+     */
+    public synchronized Path createCheckpoint(final Path checkpointPath, final byte[] checkpointId) {
         Objects.requireNonNull(checkpointPath, "checkpointPath");
-        resources.acquireCheckpointCreateSlot();
+        if (checkpointId != null) {
+            Bytes.requireLength(checkpointId, 16, "checkpointId");
+            boolean nonZero = false;
+            for (byte value : checkpointId) {
+                nonZero |= value != 0;
+            }
+            if (!nonZero) {
+                throw new IllegalArgumentException("checkpointId must not be all zero");
+            }
+        }
+        ensureOpen();
+        final StoreRuntimeMetadata previousMetadata = runtimeMetadata;
+        if (checkpointId != null) {
+            recordLastCheckpointId(checkpointId);
+        }
+        boolean slotAcquired = false;
         Path temporary = null;
         try {
+            resources.acquireCheckpointCreateSlot();
+            slotAcquired = true;
             if (Files.exists(checkpointPath, java.nio.file.LinkOption.NOFOLLOW_LINKS)
                     || Files.isSymbolicLink(checkpointPath)) {
                 throw new IOException("checkpoint target already exists: " + checkpointPath);
@@ -781,7 +812,14 @@ public final class ShardStore implements AutoCloseable {
             temporary = null;
             forceDirectory(parent);
             return checkpointPath;
-        } catch (RocksDBException | IOException exception) {
+        } catch (RocksDBException | IOException | RuntimeException exception) {
+            if (checkpointId != null) {
+                try {
+                    persistRuntimeMetadata(previousMetadata);
+                } catch (RuntimeException rollbackFailure) {
+                    exception.addSuppressed(rollbackFailure);
+                }
+            }
             throw new IllegalStateException("cannot create RocksDB checkpoint", exception);
         } finally {
             if (temporary != null) {
@@ -792,7 +830,9 @@ public final class ShardStore implements AutoCloseable {
                     // under the bounded checkpoint-tmp namespace for repair.
                 }
             }
-            resources.releaseCheckpointCreateSlot();
+            if (slotAcquired) {
+                resources.releaseCheckpointCreateSlot();
+            }
         }
     }
 

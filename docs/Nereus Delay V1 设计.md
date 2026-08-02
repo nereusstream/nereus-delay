@@ -1011,6 +1011,12 @@ lastOpenedOwnerEpoch
 cleanCloseMarker
 ```
 
+本地物理 checkpoint primitive 若已经取得本次 checkpoint 的 16-byte
+`checkpointId`，必须在创建 RocksDB 镜像前把它写入上述 `lastCheckpointId`，使
+该 metadata 随完整 DB 镜像一起恢复；物理创建失败时要同步恢复此前的 projection，
+不能让运行中的 DB 声称一个并不存在的 checkpoint。未携带 checkpoint identity
+的兼容性调用只能创建本地镜像，不能宣称已经完成 manifest/catalog publication。
+
 ### 10.2 固定 Column Families
 
 “固定七个”指七个 application CF。RocksDB mandatory `default` CF 作为第八个 physical CF 一并 open，但 application 禁止读写且必须为空；它仍计入 descriptor、cache/memtable/file budgets、checkpoint manifest 与 restore/open validation。缺任一 application/default CF、出现未知 CF，或 default 非空都 fail activation。

@@ -154,6 +154,26 @@ class ShardStoreTest {
     }
 
     @Test
+    void checkpointIdentityIsCopiedWithTheDbAndFailedAttemptRollsBackProjection() {
+        final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("checkpoint-identity"));
+        final ShardStoreConfig restoreConfig = ShardStoreConfig.defaults(tempDir.resolve("checkpoint-identity-restored"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 34);
+        final byte[] checkpointId = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("checkpoint-id")), 16);
+        final Path checkpoint = tempDir.resolve("checkpoint-with-identity");
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(sourceConfig);
+             ShardStore source = ShardStore.open(sourceConfig, shardId, resources)) {
+            source.createCheckpoint(checkpoint, checkpointId);
+            assertArrayEquals(checkpointId, source.runtimeMetadata().lastCheckpointId());
+            assertThrows(IllegalStateException.class, () -> source.createCheckpoint(checkpoint, checkpointId));
+            assertArrayEquals(checkpointId, source.runtimeMetadata().lastCheckpointId());
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(restoreConfig);
+             ShardStore restored = ShardStore.restoreFromCheckpoint(restoreConfig, shardId, resources, checkpoint)) {
+            assertArrayEquals(checkpointId, restored.runtimeMetadata().lastCheckpointId());
+        }
+    }
+
+    @Test
     void flushAndSyncMakesTheShardBoundaryExplicit() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("flush-sync"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 32);

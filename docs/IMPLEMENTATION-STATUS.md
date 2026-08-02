@@ -354,6 +354,11 @@ evidence: it does not create Oxia lease/catalog authority or certify a remote
 Broker fence.  `StoreRuntimeMetadataTest` covers codec and lifecycle behavior,
 and `ShardStoreTest.malformedRuntimeMetadataDoesNotLeaveRocksDbOpen` covers the
 activation failure cleanup path.
+`ShardStore.createCheckpoint(path, checkpointId)` additionally writes the exact
+16-byte identity before taking the RocksDB image, so a restored checkpoint
+retains the identity it represents; a failed physical attempt restores the
+previous projection.  The legacy path without an identity remains a local
+physical primitive only and does not claim manifest/catalog publication.
 The source-ordered `TIME_FENCE` apply path now writes its verified
 `lastIngressFenceProofId` in that same batch as the mutation result and source
 position, including the idempotent lower-watermark branch; the time-fence

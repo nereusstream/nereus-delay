@@ -15,6 +15,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -80,6 +81,27 @@ class OwnerDrainCoordinatorTest {
         }
     }
 
+    @Test
+    void drainReleasesTheCurrentLeaseAfterAQuiescenceRenewal() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 48);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("drain-renewal"));
+        final RecordingLeaseBackend backend = new RecordingLeaseBackend();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        final OwnerLease acquired = authority.acquire(shardId, "worker-renewal", 100, 500).orElseThrow();
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = activeOwnedShard(store, acquired, authority, shardId);
+            final OwnerDrainCoordinator coordinator = new OwnerDrainCoordinator(owned, store, resources, authority);
+
+            coordinator.drain(new OwnerDrainCoordinator.DrainRequest(5_000, 0, null), () -> 101, () -> {
+                final OwnerLease renewed = authority.renew(owned.lease(), 110, 1_000).orElseThrow();
+                owned.updateLease(renewed);
+            });
+
+            assertEquals(1_110, backend.releasedLease.expiresAtEpochMs());
+        }
+    }
+
     private static OwnedDelayShard activeOwnedShard(final ShardStore store, final OwnerLease lease,
                                                     final OxiaOwnerLeaseStore authority, final ShardId shardId) {
         final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
@@ -90,5 +112,49 @@ class OwnerDrainCoordinatorTest {
         owned.recordCatchup(position);
         owned.activateForCommands(authority, 101);
         return owned;
+    }
+
+    private static final class RecordingLeaseBackend implements OxiaOwnerLeaseStore.LeaseCasBackend {
+        private final InMemoryOwnerLeaseStore delegate = new InMemoryOwnerLeaseStore();
+        private OwnerLease releasedLease;
+
+        @Override
+        public Optional<OwnerLease> acquire(final ShardId shardId, final String ownerId,
+                                            final long nowEpochMs, final long leaseDurationMs) {
+            return delegate.acquire(shardId, ownerId, nowEpochMs, leaseDurationMs);
+        }
+
+        @Override
+        public Optional<OwnerLease> acquire(final SourceAssignment assignment, final String ownerId,
+                                            final byte[] sessionIdentity, final long nowEpochMs,
+                                            final long leaseDurationMs) {
+            return delegate.acquire(assignment, ownerId, sessionIdentity, nowEpochMs, leaseDurationMs);
+        }
+
+        @Override
+        public Optional<OwnerLease> renew(final OwnerLease expected, final long nowEpochMs,
+                                          final long leaseDurationMs) {
+            return delegate.renew(expected, nowEpochMs, leaseDurationMs);
+        }
+
+        @Override
+        public boolean release(final OwnerLease expected) {
+            final OwnerLease current = delegate.current(expected.shardId()).orElse(null);
+            if (current == null || current.expiresAtEpochMs() != expected.expiresAtEpochMs()) {
+                return false;
+            }
+            releasedLease = expected;
+            return delegate.release(expected);
+        }
+
+        @Override
+        public Optional<OwnerLease> transition(final OwnerLease expected, final ShardLifecycleState nextState) {
+            return delegate.transition(expected, nextState);
+        }
+
+        @Override
+        public Optional<OwnerLease> current(final ShardId shardId) {
+            return delegate.current(shardId);
+        }
     }
 }

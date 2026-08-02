@@ -89,7 +89,11 @@ public final class OwnerDrainCoordinator {
                 closeFailure = failure;
             }
             try {
-                releaseExactLease(expectedLease);
+                // A drain callback may renew the same lease while it waits for
+                // an in-flight attempt.  Release the exact current lease
+                // value, not the acquisition-time snapshot, so a backend that
+                // includes expiry in its CAS cannot reject a valid renewal.
+                releaseExactLease(ownedShard.lease());
             } finally {
                 ownedShard.fence();
             }

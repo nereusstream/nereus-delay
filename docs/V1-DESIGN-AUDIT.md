@@ -459,6 +459,10 @@ WAL-sync 边界。`StoreRuntimeMetadataTest` 和
 或真实 Broker fence authority。`TIME_FENCE` 的 verified proof ID 现在与
 mutation result/source position 在同一 batch 原子落盘，重开回归也验证该 proof
 identity。
+带 identity 的 `ShardStore.createCheckpoint(path, checkpointId)` 会先把 exact
+16-byte checkpoint identity 写入 live DB，再拍摄完整镜像；物理失败会同步恢复
+旧 projection，恢复后的 DB 因而保留它所代表的 checkpoint identity。无 identity
+的兼容性调用仍只证明本地物理镜像，不冒充 manifest/catalog publication。
 
 `CheckpointUploadCoordinator` 现在在本地上传边界内先校验完整 checkpoint
 inventory、intent deadline 和 shard/lineage/owner/store/parent identity，取得
