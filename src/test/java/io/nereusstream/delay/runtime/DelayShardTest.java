@@ -2516,10 +2516,12 @@ class DelayShardTest {
             assertEquals(1, reopened.claimSequence());
             assertEquals(MessageStatus.CLAIMED, reopened.getMessage(schedule.delayMessageId()).status());
             assertEquals(claim, reopened.getClaim(claim.claimId(), owner.generation()));
-            final MessageRecord restored = reopened.revokeClaim(claim.claimId(), owner.generation());
+            assertEquals(1, reopened.revokeClaimsForOwner(owner.generation()));
+            final MessageRecord restored = reopened.getMessage(schedule.delayMessageId());
             assertEquals(MessageStatus.SCHEDULED, restored.status());
             assertEquals(CurrentSendWorkKind.TIMELINE, restored.runtimeIndex().currentWorkKind());
             assertNull(reopened.getClaim(claim.claimId(), owner.generation()));
+            assertEquals(0, reopened.revokeClaimsForOwner(owner.generation()));
             assertNotNull(reopenedStore.getValue(ColumnFamily.TIMELINE, timelineKey, 1));
             assertEquals(1, reopened.discoverReady(10_000, 10).size());
         }

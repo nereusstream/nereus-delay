@@ -343,7 +343,11 @@ loss 只有在 owner/epoch/token/assignment/session 完全一致且在观测时�
 successor 被重读时才算成功，否则本地视图转为 `FENCED`。
 `OwnerLeaseTest.authorityGatedDrainRequiresTheExactLeaseSuccessor` 与
 `OwnerLeaseTest.authorityGatedDrainFailsClosedWhenLeaseIsExpired` 覆盖该本地边界。
-它只关闭新的 command admission；claim revoke、in-flight publish quiescence、final
+`DelayShard.revokeClaimsForOwner` 现在还提供 bounded 的 local `CLAIMED`
+rollback：在单写锁内按 exact Owner Epoch 扫描并逐 Claim 原子恢复
+timeline/Message/READY，超 bound fail closed，重复执行返回零；证据为
+`DelayShardTest.localClaimIsDurableAndRevokeRestoresTimelineAtomically`。它只
+关闭新的 command admission 并撤销可逆 Claim；in-flight publish quiescence、final
 checkpoint 和 lease release 仍是生产 drain gate。
 Lease validity additionally rejects negative observation times even when a
 caller reaches `OwnerLease.validAt` directly rather than through an authority

@@ -293,6 +293,13 @@ registered; `ShardStoreTest.drainSlotIsWorkerBoundedAndCloseProtected` covers
 contention, release and close protection. The slot is a limiter for worker
 orchestration; the full claim-quiescence/final-checkpoint/lease-release
 sequence remains a separate production drain blocker.
+`DelayShard.revokeClaimsForOwner` now supplies the bounded local drain step for
+reversible `CLAIMED` work: it scans the exact Owner Epoch under the shard
+single-writer lock and restores each Claim through the existing atomic
+timeline/Message/READY rollback. An over-bound scan fails closed, and a second
+pass is idempotent; `DelayShardTest.localClaimIsDurableAndRevokeRestoresTimelineAtomically`
+covers the persisted path. This does not revoke already-admitted
+`PUBLISHING`/`UNCERTAIN` obligations or prove callback quiescence.
 Restore admission only treats a checksum-validated `ACTIVE` pointer target as
 the live incarnation; an orphan incarnation left before pointer installation
 does not block a new atomic restore and remains available for later repair.

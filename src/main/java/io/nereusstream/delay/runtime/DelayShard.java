@@ -677,6 +677,41 @@ public final class DelayShard {
         return next;
     }
 
+    /**
+     * Revokes every live reversible Claim owned by one Owner Epoch.
+     *
+     * <p>The bounded scan is performed while the shard single-writer lock is
+     * held, so the discovered Claim identities cannot change between the scan
+     * and the individual atomic rollback batches.  A scan over the configured
+     * bound fails closed instead of silently leaving an unknown Claim during
+     * owner drain.</p>
+     */
+    public synchronized int revokeClaimsForOwner(final long ownerEpoch) {
+        if (ownerEpoch <= 0) {
+            throw new IllegalArgumentException("ownerEpoch must be positive");
+        }
+        final int limit = boundedLimitPlusOne(config.maxPendingMessages());
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries = store.scan(ColumnFamily.INFLIGHT,
+                new byte[]{INFLIGHT_CLAIMED_KIND, 1}, new byte[]{INFLIGHT_PUBLISHING_KIND, 1}, limit);
+        if (entries.size() >= limit && config.maxPendingMessages() < Integer.MAX_VALUE) {
+            throw new IllegalStateException("Claim scan exceeded configured bound during owner drain");
+        }
+        final List<ClaimRecord> ownedClaims = new ArrayList<>();
+        for (var entry : entries) {
+            final ClaimRecord claim = decodeClaim(entry);
+            if (claim.ownerEpoch() == ownerEpoch) {
+                ownedClaims.add(claim);
+            }
+        }
+        int revoked = 0;
+        for (ClaimRecord claim : ownedClaims) {
+            if (revokeClaim(claim.claimId(), ownerEpoch) != null) {
+                revoked++;
+            }
+        }
+        return revoked;
+    }
+
     public synchronized PayloadReservation getReservation(final byte[] reservationId) {
         final var value = store.getValue(ColumnFamily.ID, KeyCodec.idReservation(reservationId), 2);
         return value == null ? null : effectiveReservation(PayloadReservation.decode(value.payload()));
