@@ -57,6 +57,6 @@ public record OwnerLease(
     }
 
     public boolean validAt(final long nowEpochMs) {
-        return nowEpochMs < expiresAtEpochMs;
+        return nowEpochMs >= 0 && nowEpochMs < expiresAtEpochMs;
     }
 }

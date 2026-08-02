@@ -248,6 +248,10 @@ Activation 的本地 Oxia adapter 还会在 CAS response loss 后仅接受同一
 fencing/assignment/session identity 的 exact `ACTIVE_FOR_COMMANDS` 重读；
 `transitionOrRead` 在 lifecycle graph 禁止的请求上不会执行重读，因此
 非法 transition 不会被 coincidental current state 掩盖。
+Lease validity additionally rejects negative observation times even when a
+caller reaches `OwnerLease.validAt` directly rather than through an authority
+request; `OwnerLeaseTest.negativeClockCannotMakeOwnerLeaseValid` covers the
+fail-closed local gate.
 Kafka source records now reject an unexpected Pulsar connection proof instead
 of silently ignoring it.
 

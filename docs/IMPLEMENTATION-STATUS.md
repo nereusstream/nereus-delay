@@ -137,6 +137,10 @@ turned into success by a coincidental current state. The real Oxia ephemeral
 session/CAS authority remains a release blocker. Activation also rereads an
 exact same-identity `ACTIVE_FOR_COMMANDS` successor after a lost transition
 response.
+`OwnerLease.validAt` also requires a non-negative observation time, so a
+directly reached local shard gate cannot turn a negative clock into ownership
+authority; `OwnerLeaseTest.negativeClockCannotMakeOwnerLeaseValid` covers this
+fail-closed boundary.
 
 `CheckpointScheduler` now provides a bounded process-local schedule for each
 owned shard: interval and deterministic per-shard jitter are validated, due

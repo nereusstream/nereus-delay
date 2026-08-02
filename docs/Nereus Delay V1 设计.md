@@ -951,6 +951,8 @@ Worker 使用 Oxia session activity + monotonic local deadline 建立比 server 
 
 关闭后禁止新 command batch、Claim、Admission、callback mutation 和 checkpoint publication。正确性不依赖 watch callback 及时到达。
 
+Lease validity 只对非负的观测时间成立：`nowEpochMs >= 0 && nowEpochMs < expiresAtEpochMs`。所有接收时间的 authority API 都必须拒绝负值；本地 shard gate 也不能因为绕过 authority 直接调用 `validAt(-1)` 而重新获得 mutation 或 publication authority。
+
 ### 9.4 Drain
 
 planned drain：

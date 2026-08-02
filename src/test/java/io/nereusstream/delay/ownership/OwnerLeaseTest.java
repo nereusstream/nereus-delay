@@ -41,6 +41,16 @@ class OwnerLeaseTest {
     Path tempDir;
 
     @Test
+    void negativeClockCannotMakeOwnerLeaseValid() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
+        final OwnerLease lease = new OwnerLease(shard, "worker-a", 1, new byte[32], 100);
+
+        assertFalse(lease.validAt(-1));
+        assertTrue(lease.validAt(0));
+        assertFalse(lease.validAt(100));
+    }
+
+    @Test
     void epochsFenceOldOwnerAndLeaseLossStopsLocalWork() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
         final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
