@@ -4901,11 +4901,18 @@ public final class DelayShard {
         if (bytes.length != 8) {
             throw new IllegalStateException("invalid shard mutation sequence");
         }
-        return ByteBuffer.wrap(bytes).getLong();
+        final long value = ByteBuffer.wrap(bytes).getLong();
+        if (value < 0) {
+            throw new IllegalStateException("negative persisted shard sequence");
+        }
+        return value;
     }
 
     private static long readNonNegativeSequence(final byte[] bytes) {
-        final long value = readSequence(bytes);
+        if (bytes.length != 8) {
+            throw new IllegalStateException("invalid persisted ingress deadline");
+        }
+        final long value = ByteBuffer.wrap(bytes).getLong();
         if (value < 0) {
             throw new IllegalStateException("negative persisted ingress deadline");
         }

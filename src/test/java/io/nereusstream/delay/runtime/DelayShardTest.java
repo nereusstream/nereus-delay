@@ -64,6 +64,7 @@ import io.nereusstream.delay.store.SharedRocksDbResources;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -83,6 +84,27 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class DelayShardTest {
     @TempDir
     Path tempDir;
+
+    @Test
+    void rejectsNegativePersistedShardSequences() {
+        for (final int metadataKey : List.of(5, 11)) {
+            final ShardStoreConfig config = ShardStoreConfig.defaults(
+                    tempDir.resolve("negative-sequence-" + metadataKey));
+            final ShardId shardId = new ShardId(RouteIncarnation.random(), 40 + metadataKey);
+            try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                 ShardStore store = ShardStore.open(config, shardId, resources)) {
+                final byte[] negativeSequence = ByteBuffer.allocate(Long.BYTES).putLong(-1).array();
+                store.write(batch -> batch.putValue(ColumnFamily.META, 1,
+                        KeyCodec.metaFixed(metadataKey), negativeSequence));
+            }
+            try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                 ShardStore store = ShardStore.open(config, shardId, resources)) {
+                final IllegalStateException exception = assertThrows(IllegalStateException.class,
+                        () -> new DelayShard(store, DelayShardConfig.defaults()));
+                assertEquals("negative persisted shard sequence", exception.getMessage());
+            }
+        }
+    }
 
     @Test
     void admissionBudgetConfigRequiresAPositiveTotalAndSmallerUncertainBudget() {
