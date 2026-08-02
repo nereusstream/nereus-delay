@@ -561,10 +561,10 @@ class ProtocolCodecTest {
         final KeyPair keyPair = keyPairGenerator.generateKeyPair();
         final ShardId shard = new ShardId(RouteIncarnation.random(), 2);
         final DelayMessageId messageId = DelayMessageId.random(shard);
-        final PayloadCommitProof proof = PayloadCommitProof.signed(1, 1, shard.routeIncarnation().bytes(),
-                shard.partition(), messageId, nonZero(32, 22), objectStore.semanticHash(), Bytes.utf8("bucket"),
-                Bytes.utf8("key"), Bytes.utf8("version"), new byte[0], 3, Bytes.sha256(Bytes.utf8("payload")),
-                7_000, keyPair.getPrivate());
+        final PayloadCommitProofV1 proof = PayloadCommitProofV1.signed(nonZero(32, 22), nonZero(32, 23),
+                shard.routeIncarnation().bytes(), shard.partition(), messageId, objectStore, 1, 1,
+                Bytes.utf8("bucket"), Bytes.utf8("key"), Bytes.utf8("version"), new byte[0], 3,
+                Bytes.sha256(Bytes.utf8("payload")), 7_000, keyPair.getPrivate());
         final PayloadAttestationResponseV1 attested = PayloadAttestationResponseV1.attested(proof);
         assertEquals(attested, PayloadAttestationResponseV1.decode(attested.canonicalBytes()));
         final StableErrorV1 notReadyError = StableErrorV1.of(FailureStageV1.PAYLOAD,

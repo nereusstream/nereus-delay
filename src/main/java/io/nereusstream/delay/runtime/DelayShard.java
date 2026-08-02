@@ -19,7 +19,7 @@ import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.LaneRecordEnvelopeV1;
 import io.nereusstream.delay.protocol.LaneRetirementProgressV1;
 import io.nereusstream.delay.protocol.LaneTerminalGuardV1;
-import io.nereusstream.delay.protocol.PayloadCommitProof;
+import io.nereusstream.delay.protocol.PayloadCommitProofView;
 import io.nereusstream.delay.protocol.PayloadProofTrustSet;
 import io.nereusstream.delay.protocol.PayloadReference;
 import io.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1;
@@ -3412,7 +3412,7 @@ public final class DelayShard {
     }
 
     private CommandResult applyCommitLarge(final PreparedCommand command, final SourcePosition sourcePosition) {
-        final PayloadCommitProof proof;
+        final PayloadCommitProofView proof;
         if (CommandBodies.isRegistryClientBodyV1(command.canonicalBody())) {
             final CommitLargeScheduleBodyV1 body = CommandBodies.decodeCommitLargeV1(command.canonicalBody());
             requireV1BodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
@@ -3474,7 +3474,7 @@ public final class DelayShard {
                 command.delayMessageId().bytes(), command.commandHash());
     }
 
-    private static boolean proofMatches(final PayloadCommitProof proof, final PayloadReference reference) {
+    private static boolean proofMatches(final PayloadCommitProofView proof, final PayloadReference reference) {
         return Bytes.constantTimeEquals(proof.objectStoreProfileHash(), reference.objectStoreProfileHash())
                 && java.util.Arrays.equals(proof.container(), reference.container())
                 && java.util.Arrays.equals(proof.objectKey(), reference.objectKey())

@@ -30,7 +30,7 @@ public final class PayloadProofTrustSet {
         return version;
     }
 
-    public boolean verifies(final PayloadCommitProof proof) {
+    public boolean verifies(final PayloadCommitProofView proof) {
         if (proof.trustSetVersion() != version) {
             return false;
         }

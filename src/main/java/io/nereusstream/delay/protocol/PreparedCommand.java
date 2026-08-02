@@ -84,7 +84,7 @@ public final class PreparedCommand {
 
     /** Creates a command using the Registry-shaped CommitLargeScheduleV1 body seam. */
     public static PreparedCommand commitLargeV1(final ShardId shardId, final DelayMessageId messageId,
-                                                final byte[] reservationId, final PayloadCommitProof proof,
+                                                final byte[] reservationId, final PayloadCommitProofV1 proof,
                                                 final long retryUntilEpochMs) {
         return create(shardId, CommandId.random(shardId), messageId, CommandType.COMMIT_LARGE_SCHEDULE,
                 retryUntilEpochMs, CommandBodies.commitLargeV1(messageId, retryUntilEpochMs, reservationId, proof));

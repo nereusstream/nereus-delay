@@ -129,9 +129,9 @@ public final class CommandBodies {
         return PayloadCommitProof.decode(body);
     }
 
-    /** Encodes the Registry-shaped CommitLargeSchedule body around the legacy proof projection. */
+    /** Encodes the Registry-shaped CommitLargeSchedule body with a typed proof. */
     public static byte[] commitLargeV1(final DelayMessageId delayMessageId, final long retryUntilEpochMs,
-                                       final byte[] reservationId, final PayloadCommitProof proof) {
+                                       final byte[] reservationId, final PayloadCommitProofV1 proof) {
         return new CommitLargeScheduleBodyV1(delayMessageId, retryUntilEpochMs, reservationId, proof)
                 .canonicalBytes();
     }

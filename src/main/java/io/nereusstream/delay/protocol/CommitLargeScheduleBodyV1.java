@@ -6,10 +6,9 @@ import java.util.Objects;
 /**
  * Registry-shaped CommitLargeSchedule client body.
  *
- * <p>The body/common-field boundary is canonical V1.  Until the dedicated
- * Protobuf {@code PayloadCommitProofV1} codec is cut over, field 11 carries
- * the existing strict proof projection as bytes; the decoder never accepts a
- * proof whose reservation or message identity disagrees with the body.</p>
+ * <p>The body/common-field boundary and nested proof are canonical V1. The
+ * decoder never accepts a proof whose reservation or message identity
+ * disagrees with the body.</p>
  */
 public final class CommitLargeScheduleBodyV1 {
     private static final int COMMAND_TYPE = 3;
@@ -18,10 +17,10 @@ public final class CommitLargeScheduleBodyV1 {
     private final DelayMessageId delayMessageId;
     private final long retryUntilEpochMs;
     private final byte[] reservationId;
-    private final PayloadCommitProof proof;
+    private final PayloadCommitProofV1 proof;
 
     public CommitLargeScheduleBodyV1(final DelayMessageId delayMessageId, final long retryUntilEpochMs,
-                                     final byte[] reservationId, final PayloadCommitProof proof) {
+                                     final byte[] reservationId, final PayloadCommitProofV1 proof) {
         this.delayMessageId = Objects.requireNonNull(delayMessageId, "delayMessageId");
         if (retryUntilEpochMs < 0) {
             throw new IllegalArgumentException("retryUntil must be non-negative");
@@ -50,7 +49,7 @@ public final class CommitLargeScheduleBodyV1 {
         return Bytes.copy(reservationId);
     }
 
-    public PayloadCommitProof proof() {
+    public PayloadCommitProofV1 proof() {
         return proof;
     }
 
@@ -75,7 +74,7 @@ public final class CommitLargeScheduleBodyV1 {
                 new DelayMessageId(QueryCodecSupport.fixed(fields.get(0), 1, DelayMessageId.LENGTH)),
                 QueryCodecSupport.uint(fields.get(2), 3),
                 QueryCodecSupport.fixed(fields.get(3), 10, HASH_LENGTH),
-                PayloadCommitProof.decode(QueryCodecSupport.bytes(fields.get(4), 11)));
+                PayloadCommitProofV1.decode(QueryCodecSupport.nested(fields.get(4), 11)));
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "CommitLargeScheduleBodyV1");
         return result;
     }

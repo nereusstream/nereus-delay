@@ -142,9 +142,12 @@ V1 必须经过显式 `V1ScheduleResolver`，校验 tuple 派生 Lane、payload 
 固定返回 `ROUTE_SNAPSHOT_UNAVAILABLE`，不会降级到旧 body；旧
 `ScheduleIntent`/`LargeScheduleIntent` 只服务于非 V1 兼容命令。这个 resolver
 仍是本地 authority seam，不等于 Profile/Policy/Oxia/真实 Adapter 已接入。
-CommitLargeSchedule V1 也有独立 canonical body，校验 reservation 与
-`PayloadCommitProof` 身份后复用现有 reservation commit 状态机；专用嵌套
-proof codec 及 Object Store/trust-set authority 仍是 release blocker。
+CommitLargeSchedule V1 也有独立 canonical body 和嵌套
+`PayloadCommitProofV1` codec，校验 reservation/message identity、typed Object
+Store Profile、tenant scope、optional etag presence、proof ID/signature 后，
+通过统一 proof view 复用现有 reservation commit 状态机；source-position
+trust-set authority、Object Store attestation/ownership 和完整 reservation
+binding 仍是 release blocker。
 `RetryPolicySemanticV1`
 现在也能按 Registry 公式重算 semantic hash、生成 typed ref，并拒绝 uncertain/
 DLQ 分支和 backoff arithmetic 漂移；但 policy publication/source-position

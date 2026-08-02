@@ -29,7 +29,7 @@ public record PayloadCommitProof(
         byte[] payloadSha256,
         long notAfterEpochMs,
         byte[] proofId,
-        byte[] signature) {
+        byte[] signature) implements PayloadCommitProofView {
     private static final int PROOF_ID_LENGTH = 32;
     private static final int SIGNATURE_LENGTH = 64;
 

@@ -16,10 +16,12 @@ class CommitLargeScheduleBodyV1Test {
         final byte[] reservationId = Bytes.sha256(Bytes.utf8("reservation"));
         final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
         final KeyPair keyPair = generator.generateKeyPair();
-        final PayloadCommitProof proof = PayloadCommitProof.signed(3, 1, shard.routeIncarnation().bytes(),
-                shard.partition(), messageId, reservationId, Bytes.sha256(Bytes.utf8("profile")),
-                Bytes.utf8("bucket"), Bytes.utf8("object"), Bytes.utf8("version"), new byte[0], 7,
-                Bytes.sha256(Bytes.utf8("payload")), 10_000, keyPair.getPrivate());
+        final ProfileRefV1 profile = new ProfileRefV1(Bytes.utf8("object-store"), 1,
+                Bytes.sha256(Bytes.utf8("profile")), ProfileKindV1.OBJECT_STORE);
+        final PayloadCommitProofV1 proof = PayloadCommitProofV1.signed(reservationId,
+                Bytes.sha256(Bytes.utf8("tenant-scope")), shard.routeIncarnation().bytes(), shard.partition(),
+                messageId, profile, 3, 1, Bytes.utf8("bucket"), Bytes.utf8("object"), Bytes.utf8("version"),
+                new byte[0], 7, Bytes.sha256(Bytes.utf8("payload")), 10_000, keyPair.getPrivate());
         final CommitLargeScheduleBodyV1 body = new CommitLargeScheduleBodyV1(messageId, 20_000,
                 reservationId, proof);
 
@@ -39,10 +41,12 @@ class CommitLargeScheduleBodyV1Test {
         final byte[] reservationId = Bytes.sha256(Bytes.utf8("reservation"));
         final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
         final KeyPair keyPair = generator.generateKeyPair();
-        final PayloadCommitProof proof = PayloadCommitProof.signed(3, 1, shard.routeIncarnation().bytes(),
-                shard.partition(), messageId, reservationId, Bytes.sha256(Bytes.utf8("profile")),
-                Bytes.utf8("bucket"), Bytes.utf8("object"), Bytes.utf8("version"), new byte[0], 7,
-                Bytes.sha256(Bytes.utf8("payload")), 10_000, keyPair.getPrivate());
+        final ProfileRefV1 profile = new ProfileRefV1(Bytes.utf8("object-store"), 1,
+                Bytes.sha256(Bytes.utf8("profile")), ProfileKindV1.OBJECT_STORE);
+        final PayloadCommitProofV1 proof = PayloadCommitProofV1.signed(reservationId,
+                Bytes.sha256(Bytes.utf8("tenant-scope")), shard.routeIncarnation().bytes(), shard.partition(),
+                messageId, profile, 3, 1, Bytes.utf8("bucket"), Bytes.utf8("object"), Bytes.utf8("version"),
+                new byte[0], 7, Bytes.sha256(Bytes.utf8("payload")), 10_000, keyPair.getPrivate());
         final byte[] differentReservation = Bytes.sha256(Bytes.utf8("different-reservation"));
         assertThrows(IllegalArgumentException.class,
                 () -> new CommitLargeScheduleBodyV1(messageId, 20_000, differentReservation, proof));

@@ -20,6 +20,7 @@ import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.MessagePreconditionV1;
 import io.nereusstream.delay.protocol.OrderingMode;
 import io.nereusstream.delay.protocol.PayloadCommitProof;
+import io.nereusstream.delay.protocol.PayloadCommitProofV1;
 import io.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
 import io.nereusstream.delay.protocol.PayloadProofTrustSet;
 import io.nereusstream.delay.protocol.ProfileKindV1;
@@ -714,10 +715,13 @@ class DelayShardTest {
                     shard.apply(abandon, position(shardId, 2, 1_002)).stableCode());
             assertEquals(1, shard.quota().reservationMessages());
 
-            final PayloadCommitProof proof = PayloadCommitProof.signed(9, 2, shardId.routeIncarnation().bytes(),
-                    shardId.partition(), prepare.delayMessageId(), reservationId, Bytes.sha256(Bytes.utf8("profile")),
-                    Bytes.utf8("bucket"), Bytes.utf8("key"), Bytes.utf8("v1"), new byte[0],
-                    intent.expectedPayloadLength(), intent.payloadSha256(), 5_000, keyPair.getPrivate());
+            final ProfileRefV1 profile = new ProfileRefV1(Bytes.utf8("object-store"), 1,
+                    Bytes.sha256(Bytes.utf8("profile")), ProfileKindV1.OBJECT_STORE);
+            final PayloadCommitProofV1 proof = PayloadCommitProofV1.signed(reservationId,
+                    Bytes.sha256(Bytes.utf8("tenant-scope")), shardId.routeIncarnation().bytes(), shardId.partition(),
+                    prepare.delayMessageId(), profile, 9, 2, Bytes.utf8("bucket"), Bytes.utf8("key"),
+                    Bytes.utf8("v1"), new byte[0], intent.expectedPayloadLength(), intent.payloadSha256(), 5_000,
+                    keyPair.getPrivate());
             final PreparedCommand commit = PreparedCommand.commitLargeV1(shardId, prepare.delayMessageId(),
                     reservationId, proof, 9_000);
             assertEquals(StableCode.SCHEDULED,

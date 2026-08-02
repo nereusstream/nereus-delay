@@ -5,11 +5,11 @@ import java.util.Objects;
 /** Closed payload-attestation response with payload-scoped stable errors. */
 public final class PayloadAttestationResponseV1 {
     private final PayloadAttestationOutcomeV1 outcome;
-    private final PayloadCommitProof proof;
+    private final PayloadCommitProofV1 proof;
     private final StableErrorV1 error;
 
     private PayloadAttestationResponseV1(final PayloadAttestationOutcomeV1 outcome,
-                                         final PayloadCommitProof proof, final StableErrorV1 error) {
+                                         final PayloadCommitProofV1 proof, final StableErrorV1 error) {
         this.outcome = Objects.requireNonNull(outcome, "outcome");
         if ((outcome == PayloadAttestationOutcomeV1.ATTESTED) != (proof != null)
                 || (outcome == PayloadAttestationOutcomeV1.ATTESTED) == (error != null)) {
@@ -22,7 +22,7 @@ public final class PayloadAttestationResponseV1 {
                         || outcome == PayloadAttestationOutcomeV1.SHARD_TRANSITIONING);
     }
 
-    public static PayloadAttestationResponseV1 attested(final PayloadCommitProof proof) {
+    public static PayloadAttestationResponseV1 attested(final PayloadCommitProofV1 proof) {
         return new PayloadAttestationResponseV1(PayloadAttestationOutcomeV1.ATTESTED,
                 Objects.requireNonNull(proof, "proof"), null);
     }
@@ -39,7 +39,7 @@ public final class PayloadAttestationResponseV1 {
         return outcome;
     }
 
-    public PayloadCommitProof proof() {
+    public PayloadCommitProofV1 proof() {
         return proof;
     }
 
@@ -70,7 +70,7 @@ public final class PayloadAttestationResponseV1 {
             throw new IllegalArgumentException("payload attestation branch does not match outcome");
         }
         final PayloadAttestationResponseV1 result = outcome == PayloadAttestationOutcomeV1.ATTESTED
-                ? attested(PayloadCommitProof.decode(QueryCodecSupport.bytes(fields.get(1), 10)))
+                ? attested(PayloadCommitProofV1.decode(QueryCodecSupport.nested(fields.get(1), 10)))
                 : error(outcome, StableErrorV1.decode(QueryCodecSupport.nested(fields.get(1), expectedField)));
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "PayloadAttestationResponseV1");
         return result;
