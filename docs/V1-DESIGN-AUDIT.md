@@ -82,6 +82,9 @@ registration receipt.
 The Control target value layer similarly closes the six branch shapes and
 field-22 digest locally, but does not decide operation-specific target sets or
 construct/authorize source mutation identities.
+`PreparedControlOperationV1` now closes the pre-I/O request/target hashes,
+prepared digest and Ed25519 signature locally; its bytes are not an Oxia
+registration receipt and do not establish actor/role or target authority.
 
 | 事件 | 唯一 authority / 线性化点 | 明确不构成 authority 的事件 |
 |---|---|---|
