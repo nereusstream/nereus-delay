@@ -353,6 +353,39 @@ public final class OwnedDelayShard {
         state = ShardLifecycleState.DRAINING;
     }
 
+    /**
+     * Begins the owner drain only after the authoritative lease performs the
+     * same-identity lifecycle CAS. A lost transition response is accepted
+     * only when {@link OxiaOwnerLeaseStore#transitionOrRead(OwnerLease,
+     * ShardLifecycleState)} rereads that exact successor; a different owner,
+     * epoch, token, assignment or session never opens the local drain gate.
+     *
+     * <p>The local transition only closes new command admission. Claim
+     * revocation, in-flight publish quiescence, the final checkpoint and lease
+     * release remain explicit drain steps owned by the surrounding worker
+     * orchestration.</p>
+     */
+    public synchronized void beginDrain(final OxiaOwnerLeaseStore authority) {
+        Objects.requireNonNull(authority, "authority");
+        if (state != ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
+            throw new IllegalStateException("only an active shard can drain");
+        }
+        final OwnerLease transitioned;
+        try {
+            transitioned = authority.transitionOrRead(lease, ShardLifecycleState.DRAINING)
+                    .orElseThrow(() -> new IllegalStateException("owner lease drain CAS was lost"));
+        } catch (RuntimeException failure) {
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        }
+        if (!lease.sameIdentity(transitioned) || transitioned.state() != ShardLifecycleState.DRAINING) {
+            state = ShardLifecycleState.FENCED;
+            throw new IllegalStateException("owner lease drain CAS changed fencing identity");
+        }
+        lease = transitioned;
+        state = ShardLifecycleState.DRAINING;
+    }
+
     public synchronized OwnerLease lease() {
         return lease;
     }

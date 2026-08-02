@@ -237,6 +237,14 @@ turned into success by a coincidental current state. The real Oxia ephemeral
 session/CAS authority remains a release blocker. Activation also rereads an
 exact same-identity `ACTIVE_FOR_COMMANDS` successor after a lost transition
 response.
+The authority-gated `OwnedDelayShard.beginDrain(OxiaOwnerLeaseStore)` now uses
+the same exact-successor CAS boundary for `ACTIVE_FOR_COMMANDS -> DRAINING`;
+response loss is accepted only for a same owner/epoch/token/assignment/session
+successor, and a failed or identity-changing transition fences the local view.
+`OwnerLeaseTest.authorityGatedDrainRequiresTheExactLeaseSuccessor` covers the
+local projection. This only closes new command admission; claim revocation,
+publish callback quiescence, final checkpoint and lease release still require
+the surrounding worker drain orchestration and real Oxia authority.
 `OwnerLease.validAt` also requires a non-negative observation time, so a
 directly reached local shard gate cannot turn a negative clock into ownership
 authority; `OwnerLeaseTest.negativeClockCannotMakeOwnerLeaseValid` covers this

@@ -95,6 +95,32 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void authorityGatedDrainRequiresTheExactLeaseSuccessor() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 18);
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease acquired = backend.acquire(shardId, "worker-drain", 100, 100).orElseThrow();
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("authority-drain"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()),
+                    acquired);
+            final UUID topic = UUID.randomUUID();
+            final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster", topic, 0,
+                    null, 1_000);
+            owned.markCatchingUp(new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("drain-assignment")), 1,
+                    new KafkaActivationBarrier(shardId, "cluster", topic, 0)));
+            owned.recordCatchup(position);
+            final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+            owned.activateForCommands(authority, 101);
+            owned.beginDrain(authority);
+            assertEquals(ShardLifecycleState.DRAINING, owned.state());
+            assertEquals(ShardLifecycleState.DRAINING, authority.current(shardId).orElseThrow().state());
+            assertEquals(acquired.ownerEpoch(), owned.lease().ownerEpoch());
+            assertThrows(IllegalStateException.class, () -> owned.beginDrain(authority));
+        }
+    }
+
+    @Test
     void catchupReplayAppliesCommandsBeforeActivationAndAdvancesOnlyAfterCommit() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 10);
         final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
