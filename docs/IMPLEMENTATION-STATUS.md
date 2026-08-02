@@ -23,6 +23,9 @@ Published checkpoint ancestry also keeps every parent evidence cursor present
 at the same identity in the child and requires the child cursor to dominate it;
 cursor disappearance or generation replacement is rejected before catalog
 generation advances.
+Floor coverage and local GC proofs likewise require canonical Source Position
+bytes when the covered and required order tokens are equal; a same-offset or
+same-ledger/entry/batch metadata variant cannot satisfy a retention barrier.
 
 Exact already-published manifests are similarly reread before generation CAS;
 same-checkpoint hash drift remains an integrity conflict.

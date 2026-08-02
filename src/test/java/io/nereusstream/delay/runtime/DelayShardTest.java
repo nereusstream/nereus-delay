@@ -2322,6 +2322,12 @@ class DelayShardTest {
                     position(shardId, 1, 1_001), 2, Bytes.sha256(Bytes.utf8("evidence-2")));
             assertEquals(ResourceGcGuard.Decision.SOURCE_AND_SEQUENCE_COVERED,
                     ResourceGcGuard.evaluate(stored, tombstone, covering));
+            final RecoveryFloor conflictingPosition = RecoveryFloor.create(
+                    covering.recoveryLineageId(), covering.checkpointId(), covering.manifestSha256(),
+                    covering.catalogGeneration(), position(shardId, 1, 1_002), covering.includedMutationSequence(),
+                    covering.evidenceCursorDigest());
+            assertEquals(ResourceGcGuard.Decision.FLOOR_SOURCE_OR_SEQUENCE_NOT_COVERING,
+                    ResourceGcGuard.evaluate(stored, tombstone, conflictingPosition));
             assertEquals(applied, shard.applySystemMutation(confirmation, position(shardId, 1, 1_001),
                     keyPair.getPublic()));
 

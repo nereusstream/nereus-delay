@@ -50,8 +50,8 @@ public final class ResourceGcGuard {
         try {
             intentPosition = SourcePositionCodec.decode(intent.appliedSourcePosition());
             confirmationPosition = SourcePositionCodec.decode(confirmation.appliedSourcePosition());
-            if (floor.appliedSourcePosition().compareTo(intentPosition) < 0
-                    || floor.appliedSourcePosition().compareTo(confirmationPosition) < 0) {
+            if (!coversPosition(floor.appliedSourcePosition(), intentPosition)
+                    || !coversPosition(floor.appliedSourcePosition(), confirmationPosition)) {
                 return Decision.FLOOR_SOURCE_OR_SEQUENCE_NOT_COVERING;
             }
         } catch (IllegalArgumentException exception) {
@@ -93,6 +93,16 @@ public final class ResourceGcGuard {
                 confirmationPosition).isPresent()
                 ? Decision.SOURCE_AND_SEQUENCE_COVERED
                 : Decision.FLOOR_SOURCE_OR_SEQUENCE_NOT_COVERING;
+    }
+
+    private static boolean coversPosition(final SourcePosition covered, final SourcePosition required) {
+        try {
+            final int order = covered.compareTo(required);
+            return order > 0 || (order == 0
+                    && Bytes.constantTimeEquals(covered.canonicalBytes(), required.canonicalBytes()));
+        } catch (IllegalArgumentException exception) {
+            return false;
+        }
     }
 
     private static boolean sameIntent(final ResourceRetireIntentRecord left,

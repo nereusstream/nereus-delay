@@ -69,6 +69,11 @@ class RecoveryCatalogTest {
         catalog.advanceFloor(genesis.checkpointId(), 2, id32(43));
 
         assertTrue(catalog.proveFloorCoverage(child.checkpointId(), 10, genesis.appliedShardLogPosition()).isPresent());
+        final KafkaSourcePosition conflictingSameOffset = (KafkaSourcePosition) genesis.appliedShardLogPosition();
+        assertFalse(catalog.proveFloorCoverage(child.checkpointId(), 10,
+                new KafkaSourcePosition(shard, conflictingSameOffset.authenticatedClusterId(),
+                        conflictingSameOffset.nativeTopicUuid(), conflictingSameOffset.offset(), 7,
+                        conflictingSameOffset.brokerLogAppendTimeEpochMs() + 1)).isPresent());
         assertFalse(catalog.proveFloorCoverage(child.checkpointId(), 11, genesis.appliedShardLogPosition()).isPresent());
         assertFalse(catalog.proveFloorCoverage(genesis.checkpointId(), 10,
                 new KafkaSourcePosition(shard, "cluster", topic, 11, null, 1_011)).isPresent());

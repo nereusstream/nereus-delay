@@ -275,6 +275,9 @@ generation 相等的 exact reread，但拒绝 generation 回退。
 Legacy/typed local Recovery Floor CAS 也支持 exact successor reread（含
 checkpoint、manifest、source/mutation 和 evidence/cursor identity），response
 loss 不会重复推进 Floor；不同 Floor 或 identity drift 仍 fail closed。
+Floor coverage 与本地 GC guard 在 order token 相等时还要求 Source Position
+canonical bytes 完全一致；同一 Kafka offset 或 Pulsar ledger/entry/batch 的
+metadata 变体不能被当作已覆盖的 retention boundary。
 
 普通 local catalog publish 对已存在的 exact manifest 也先做 identity reread，
 因此 catalog generation 推进不会把一次已成功的 checkpoint insert 误报为冲突。

@@ -358,11 +358,7 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
             return Optional.empty();
         }
         for (SourcePosition requiredPosition : requiredPositions) {
-            try {
-                if (currentFloor.appliedSourcePosition().compareTo(requiredPosition) < 0) {
-                    return Optional.empty();
-                }
-            } catch (IllegalArgumentException exception) {
+            if (!coversPosition(currentFloor.appliedSourcePosition(), requiredPosition)) {
                 return Optional.empty();
             }
         }
@@ -480,6 +476,22 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
             }
         }
         return -1;
+    }
+
+    /**
+     * A Floor strictly after a required position covers it.  If the order
+     * token is equal, the canonical position bytes must also be equal; Kafka
+     * offset or Pulsar ledger/entry/batch equality alone is not an integrity
+     * proof for a retained source position.
+     */
+    private static boolean coversPosition(final SourcePosition covered, final SourcePosition required) {
+        try {
+            final int order = covered.compareTo(required);
+            return order > 0 || (order == 0
+                    && Bytes.constantTimeEquals(covered.canonicalBytes(), required.canonicalBytes()));
+        } catch (IllegalArgumentException exception) {
+            return false;
+        }
     }
 
     private static String key(final byte[] checkpointId) {
