@@ -21,6 +21,9 @@ status and evidence matrix are maintained in
 [`docs/IMPLEMENTATION-STATUS.md`](docs/IMPLEMENTATION-STATUS.md).
 The role and authority order of the design, Registry, ADR, status, and audit
 documents is summarized in [`docs/README.md`](docs/README.md).
+The terminology glossary is [`CONTEXT.md`](CONTEXT.md); it explains the fixed
+meaning of names such as `deliverAt` and `Source Position` without replacing the
+normative design.
 
 Run the build with an isolated Gradle cache when the host Gradle native cache is
 not writable:
