@@ -170,6 +170,61 @@ class AdapterIngressTest {
     }
 
     @Test
+    void pulsarManagedNullResultUsesManagedUncertainCode() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 21);
+        final PulsarIngressResource resource = new PulsarIngressResource(shard, "cluster-managed-null",
+                Bytes.sha256(Bytes.utf8("managed-null-token")), "persistent://tenant/ns/command-21", 7021, 21);
+        final PreparedCommand command = command(shard);
+        final PinnedPulsarCommandIngress.PulsarSendTransport transport = request ->
+                CompletableFuture.completedFuture(null);
+        try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
+            final var outcome = adapter.enqueue(command).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.ENQUEUE_UNCERTAIN, outcome.status());
+            assertEquals(StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue(), outcome.stableCode());
+        }
+    }
+
+    @Test
+    void managedIngressDoesNotLeakNativeUncertainCode() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 22);
+        final UUID topic = UUID.randomUUID();
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-managed-code", topic, 22);
+        final PreparedCommand command = command(shard);
+        final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request ->
+                CompletableFuture.completedFuture(KafkaProduceResult.unknown(
+                        StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN.wireValue(), Bytes.utf8("native-code")));
+        try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
+            final var outcome = adapter.enqueue(command).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.ENQUEUE_UNCERTAIN, outcome.status());
+            assertEquals(StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue(), outcome.stableCode());
+            final var wire = adapter.enqueueOutcomeV1(command, 5_000,
+                    java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("managed-code-attempt")), 16))
+                    .toCompletableFuture().join();
+            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(StableCode.ENQUEUE_RESULT_UNCERTAIN, wire.uncertain().error().code());
+        }
+    }
+
+    @Test
+    void managedIngressNormalizesNativeGuardCode() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 23);
+        final UUID topic = UUID.randomUUID();
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-managed-guard", topic, 23);
+        final PreparedCommand command = command(shard);
+        final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request ->
+                CompletableFuture.completedFuture(KafkaProduceResult.definitelyNotPersisted(
+                        StableCode.NATIVE_GUARD_DEFINITIVE_NOT_PERSISTED.wireValue(), Bytes.utf8("guard-code")));
+        try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
+            final var wire = adapter.enqueueOutcomeV1(command, 5_000,
+                    java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("managed-guard-attempt")), 16))
+                    .toCompletableFuture().join();
+            assertEquals(EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED, wire.kind());
+            assertEquals(StableCode.BROKER_DEFINITIVE_NOT_PERSISTED,
+                    wire.definitelyNotQueued().error().code());
+        }
+    }
+
+    @Test
     void persistedPulsarResultCarriesBatchAwareSourcePosition() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
         final byte[] token = Bytes.sha256(Bytes.utf8("token-2"));

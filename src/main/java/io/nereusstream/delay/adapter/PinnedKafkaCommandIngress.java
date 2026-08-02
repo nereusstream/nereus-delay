@@ -109,9 +109,11 @@ public final class PinnedKafkaCommandIngress implements WireCommandIngressAdapte
         if (result == null) {
             return EnqueueOutcome.uncertain(command, StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue());
         }
+        final StableCode code = WireIngressOutcomeSupport.managedCode(
+                WireIngressOutcomeSupport.stableCode(result.stableCode(), StableCode.INTEGRITY_ERROR));
         return switch (result.disposition()) {
-            case DEFINITIVELY_NOT_PERSISTED -> EnqueueOutcome.definitelyNotQueued(command, result.stableCode());
-            case UNKNOWN -> EnqueueOutcome.uncertain(command, result.stableCode());
+            case DEFINITIVELY_NOT_PERSISTED -> EnqueueOutcome.definitelyNotQueued(command, code.wireValue());
+            case UNKNOWN -> EnqueueOutcome.uncertain(command, code.wireValue());
             case PERSISTED -> persisted(command, result);
         };
     }
@@ -136,8 +138,8 @@ public final class PinnedKafkaCommandIngress implements WireCommandIngressAdapte
             return WireIngressOutcomeSupport.uncertain(command, physicalAttemptId,
                     StableCode.ENQUEUE_RESULT_UNCERTAIN, null);
         }
-        final StableCode code = WireIngressOutcomeSupport.stableCode(result.stableCode(),
-                StableCode.INTEGRITY_ERROR);
+        final StableCode code = WireIngressOutcomeSupport.managedCode(
+                WireIngressOutcomeSupport.stableCode(result.stableCode(), StableCode.INTEGRITY_ERROR));
         return switch (result.disposition()) {
             case DEFINITIVELY_NOT_PERSISTED -> WireIngressOutcomeSupport.brokerDefinite(command, physicalAttemptId,
                     code, NonPersistenceProofKindV1.KAFKA_DEFINITIVE_REJECTION,

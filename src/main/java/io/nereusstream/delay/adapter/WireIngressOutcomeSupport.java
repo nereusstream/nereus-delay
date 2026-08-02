@@ -61,6 +61,19 @@ final class WireIngressOutcomeSupport {
         }
     }
 
+    /**
+     * Managed Command outcomes must not expose the native-only error family.
+     * A transport implementation may share result plumbing with AUTO_FAST,
+     * but the public branch is still selected by the prepared submission type.
+     */
+    static StableCode managedCode(final StableCode code) {
+        return switch (Objects.requireNonNull(code, "code")) {
+            case NATIVE_GUARD_DEFINITIVE_NOT_PERSISTED -> StableCode.BROKER_DEFINITIVE_NOT_PERSISTED;
+            case NATIVE_ENQUEUE_RESULT_UNCERTAIN -> StableCode.ENQUEUE_RESULT_UNCERTAIN;
+            default -> code;
+        };
+    }
+
     static byte[] requireAttempt(final byte[] physicalAttemptId) {
         Bytes.requireLength(physicalAttemptId, NonPersistenceProofV1.ATTEMPT_ID_LENGTH,
                 "physicalEnqueueAttemptId");
@@ -73,7 +86,8 @@ final class WireIngressOutcomeSupport {
     }
 
     private static StableCode exactRetryCode(final StableCode code) {
-        return RetryabilityV1.forCode(code) == RetryabilityV1.RETRY_EXACT_BYTES
-                ? code : StableCode.ENQUEUE_RESULT_UNCERTAIN;
+        final StableCode managed = managedCode(code);
+        return RetryabilityV1.forCode(managed) == RetryabilityV1.RETRY_EXACT_BYTES
+                ? managed : StableCode.ENQUEUE_RESULT_UNCERTAIN;
     }
 }
