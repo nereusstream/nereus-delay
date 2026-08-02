@@ -718,8 +718,8 @@ class DelayShardTest {
                     shardId.partition(), prepare.delayMessageId(), reservationId, Bytes.sha256(Bytes.utf8("profile")),
                     Bytes.utf8("bucket"), Bytes.utf8("key"), Bytes.utf8("v1"), new byte[0],
                     intent.expectedPayloadLength(), intent.payloadSha256(), 5_000, keyPair.getPrivate());
-            final PreparedCommand commit = PreparedCommand.commitLarge(shardId, prepare.delayMessageId(), proof,
-                    9_000);
+            final PreparedCommand commit = PreparedCommand.commitLargeV1(shardId, prepare.delayMessageId(),
+                    reservationId, proof, 9_000);
             assertEquals(StableCode.SCHEDULED,
                     shard.apply(commit, position(shardId, 3, 1_003)).stableCode());
             final MessageRecord message = shard.getMessage(prepare.delayMessageId());

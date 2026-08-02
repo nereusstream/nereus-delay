@@ -129,6 +129,18 @@ public final class CommandBodies {
         return PayloadCommitProof.decode(body);
     }
 
+    /** Encodes the Registry-shaped CommitLargeSchedule body around the legacy proof projection. */
+    public static byte[] commitLargeV1(final DelayMessageId delayMessageId, final long retryUntilEpochMs,
+                                       final byte[] reservationId, final PayloadCommitProof proof) {
+        return new CommitLargeScheduleBodyV1(delayMessageId, retryUntilEpochMs, reservationId, proof)
+                .canonicalBytes();
+    }
+
+    /** Decodes the Registry-shaped CommitLargeSchedule body. */
+    public static CommitLargeScheduleBodyV1 decodeCommitLargeV1(final byte[] body) {
+        return CommitLargeScheduleBodyV1.decode(body);
+    }
+
     public static byte[] cancel(final int expectedGeneration) {
         final ByteBuffer result = ByteBuffer.allocate(8);
         result.putInt(1).putInt(expectedGeneration).flip();

@@ -11,6 +11,7 @@ import io.nereusstream.delay.protocol.CapacityDimensionV1;
 import io.nereusstream.delay.protocol.CapacityGrantV1;
 import io.nereusstream.delay.protocol.CapacityVectorV1;
 import io.nereusstream.delay.protocol.CancelCommandBodyV1;
+import io.nereusstream.delay.protocol.CommitLargeScheduleBodyV1;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.DlqExportResultBody;
@@ -3411,7 +3412,14 @@ public final class DelayShard {
     }
 
     private CommandResult applyCommitLarge(final PreparedCommand command, final SourcePosition sourcePosition) {
-        final PayloadCommitProof proof = CommandBodies.decodeCommitLarge(command.canonicalBody());
+        final PayloadCommitProof proof;
+        if (CommandBodies.isRegistryClientBodyV1(command.canonicalBody())) {
+            final CommitLargeScheduleBodyV1 body = CommandBodies.decodeCommitLargeV1(command.canonicalBody());
+            requireV1BodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
+            proof = body.proof();
+        } else {
+            proof = CommandBodies.decodeCommitLarge(command.canonicalBody());
+        }
         final PayloadReservation reservation = getReservation(proof.reservationId());
         if (reservation == null || !reservation.delayMessageId().equals(command.delayMessageId())) {
             return persistRejected(command, sourcePosition, StableCode.RESERVATION_NOT_COMMITTED);

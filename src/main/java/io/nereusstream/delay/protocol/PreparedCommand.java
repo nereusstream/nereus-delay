@@ -82,6 +82,14 @@ public final class PreparedCommand {
                 retryUntilEpochMs, CommandBodies.commitLarge(proof));
     }
 
+    /** Creates a command using the Registry-shaped CommitLargeScheduleV1 body seam. */
+    public static PreparedCommand commitLargeV1(final ShardId shardId, final DelayMessageId messageId,
+                                                final byte[] reservationId, final PayloadCommitProof proof,
+                                                final long retryUntilEpochMs) {
+        return create(shardId, CommandId.random(shardId), messageId, CommandType.COMMIT_LARGE_SCHEDULE,
+                retryUntilEpochMs, CommandBodies.commitLargeV1(messageId, retryUntilEpochMs, reservationId, proof));
+    }
+
     /** Creates a command using the Registry-shaped CancelV1 body seam. */
     public static PreparedCommand cancelV1(final ShardId shardId, final DelayMessageId messageId,
                                            final MessagePreconditionV1 precondition,

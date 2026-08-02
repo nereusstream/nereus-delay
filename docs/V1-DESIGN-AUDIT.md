@@ -135,13 +135,16 @@ payload、Kafka/Pulsar metadata、可选 business/event 字段和 quota version�
 wire/value 校验；`ScheduleCommandBodyV1` 与 `PrepareLargeScheduleBodyV1` 现在也
 按 Registry 写入 Client common fields 1–3，`CommandBodies.*V1` 只作为显式迁移
 seam；`PreparedCommand`/`CommandCodec.*V1` 还会把这些 fields 与 outer
-message/type/retry identity 逐项比较。`DelayShard` 已把四类 body 分成明确
+message/type/retry identity 逐项比较。`DelayShard` 已把五类 body 分成明确
 的运行时边界：Cancel/Reschedule V1 直接进入原子状态迁移；Schedule/Prepare
 V1 必须经过显式 `V1ScheduleResolver`，校验 tuple 派生 Lane、payload 投影，
 并把 canonical body/tuple 写入 `V1ScheduleBinding` sidecar。缺少 resolver 时
 固定返回 `ROUTE_SNAPSHOT_UNAVAILABLE`，不会降级到旧 body；旧
 `ScheduleIntent`/`LargeScheduleIntent` 只服务于非 V1 兼容命令。这个 resolver
 仍是本地 authority seam，不等于 Profile/Policy/Oxia/真实 Adapter 已接入。
+CommitLargeSchedule V1 也有独立 canonical body，校验 reservation 与
+`PayloadCommitProof` 身份后复用现有 reservation commit 状态机；专用嵌套
+proof codec 及 Object Store/trust-set authority 仍是 release blocker。
 `RetryPolicySemanticV1`
 现在也能按 Registry 公式重算 semantic hash、生成 typed ref，并拒绝 uncertain/
 DLQ 分支和 backoff arithmetic 漂移；但 policy publication/source-position

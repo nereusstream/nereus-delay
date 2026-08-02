@@ -110,6 +110,10 @@ public final class CommandCodec {
                 final PrepareLargeScheduleBodyV1 body = PrepareLargeScheduleBodyV1.decode(command.canonicalBody());
                 requireCommonBodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
             }
+            case COMMIT_LARGE_SCHEDULE -> {
+                final CommitLargeScheduleBodyV1 body = CommitLargeScheduleBodyV1.decode(command.canonicalBody());
+                requireCommonBodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
+            }
             case CANCEL -> {
                 final CancelCommandBodyV1 body = CancelCommandBodyV1.decode(command.canonicalBody());
                 requireCommonBodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
