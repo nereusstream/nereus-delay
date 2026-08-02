@@ -102,6 +102,9 @@ authority.
 The local operation authority now also applies the closed monotonic operation
 and target-marker transition graph before its in-memory revision CAS; this is
 projection validation only and does not provide durable Oxia operation state.
+`OxiaControlTargetRegistrationAuthority` applies the same exact Prepared-byte
+and operation-ID checks around its injected backend; it is a validation
+adapter, not a real Oxia client or transport classifier.
 The registration outcome/proof union is likewise local evidence projection:
 only authenticated Oxia response evidence can construct the conditional
 rejection branch, while timeout/session ambiguity remains `RECORD_UNCERTAIN`.
