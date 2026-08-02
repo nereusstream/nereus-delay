@@ -22,12 +22,14 @@ public final class SharedRocksDbResources implements AutoCloseable {
     private final Semaphore checkpointCreateSlots;
     private final Semaphore checkpointUploadSlots;
     private final Semaphore checkpointDownloadSlots;
+    private final Semaphore drainSlots;
     private final AtomicBoolean closed = new AtomicBoolean();
     private int ownedShardCount;
     private int openDbCount;
     private int checkpointCreateCount;
     private int checkpointUploadCount;
     private int checkpointDownloadCount;
+    private int drainCount;
 
     public SharedRocksDbResources(final ShardStoreConfig config) {
         this(config, null);
@@ -53,6 +55,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
         checkpointCreateSlots = new Semaphore(config.maxConcurrentCheckpointCreatesPerWorker(), true);
         checkpointUploadSlots = new Semaphore(config.maxConcurrentCheckpointUploadsPerWorker(), true);
         checkpointDownloadSlots = new Semaphore(config.maxConcurrentCheckpointDownloadsPerWorker(), true);
+        drainSlots = new Semaphore(config.maxConcurrentDrainsPerWorker(), true);
     }
 
     public Cache blockCache() {
@@ -153,13 +156,30 @@ public final class SharedRocksDbResources implements AutoCloseable {
         checkpointDownloadSlots.release();
     }
 
+    /** Reserves one process-wide slot for the complete owner-drain window. */
+    public synchronized void acquireDrainSlot() {
+        ensureOpen();
+        if (!drainSlots.tryAcquire()) {
+            throw new IllegalStateException("worker drain concurrency limit reached");
+        }
+        drainCount++;
+    }
+
+    public synchronized void releaseDrainSlot() {
+        if (drainCount <= 0) {
+            throw new IllegalStateException("drain slot released without an active drain");
+        }
+        drainCount--;
+        drainSlots.release();
+    }
+
     @Override
     public synchronized void close() {
         if (closed.get()) {
             return;
         }
         if (openDbCount != 0 || ownedShardCount != 0 || checkpointCreateCount != 0 || checkpointUploadCount != 0
-                || checkpointDownloadCount != 0) {
+                || checkpointDownloadCount != 0 || drainCount != 0) {
             throw new IllegalStateException("cannot close shared RocksDB resources while work is in flight");
         }
         closed.set(true);

@@ -475,6 +475,23 @@ class ShardStoreTest {
     }
 
     @Test
+    void drainSlotIsWorkerBoundedAndCloseProtected() {
+        final ShardStoreConfig config = new ShardStoreConfig(tempDir.resolve("drain-slot"), 1, 1, 32, 32,
+                1, 1024 * 1024, 1024 * 1024, 1, 1, 1, 1024, 1);
+        final SharedRocksDbResources resources = new SharedRocksDbResources(config);
+        try {
+            resources.acquireDrainSlot();
+            assertThrows(IllegalStateException.class, resources::acquireDrainSlot);
+            assertThrows(IllegalStateException.class, resources::close);
+            resources.releaseDrainSlot();
+            resources.acquireDrainSlot();
+            resources.releaseDrainSlot();
+        } finally {
+            resources.close();
+        }
+    }
+
+    @Test
     void sharedResourcesCannotCloseWhileCheckpointOperationHoldsWorkerSlot() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("checkpoint-resource-lifecycle"));
         final SharedRocksDbResources resources = new SharedRocksDbResources(config);

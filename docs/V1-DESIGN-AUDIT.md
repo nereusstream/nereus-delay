@@ -447,6 +447,10 @@ jitter、due claim 上限和 in-flight fence 提供错峰调度；completion 必
 `claimDue` 返回的 exact process-local 句柄，只有当前 claim 才能推进 next due，
 shard-only 或迟到旧 claim 都 fail closed。它是 process-local 调度器，不冒充
 checkpoint manifest、Upload Intent 或 Oxia catalog authority。
+同一资源封套现在还提供 `maxConcurrentDrainsPerWorker` 的独立 drain slot，
+争用和资源 close 保护由 `ShardStoreTest.drainSlotIsWorkerBoundedAndCloseProtected`
+覆盖；这只证明进程级 drain 并发限额，不能替代 claim quiescence、final checkpoint
+和 lease release 的生产编排。
 
 查询层也已补齐 `CheckpointSummaryV1`/`CheckpointCatalogResultV1` 的
 canonical checkpoint-catalog projection，包含 shard identity、Floor identity

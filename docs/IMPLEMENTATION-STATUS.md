@@ -285,6 +285,14 @@ installation; it is released only after the active DB is opened or cleanup
 completes. `ShardStoreTest.completeCheckpointRestoresIntoFreshStoreIncarnation`
 also reacquires that slot immediately after a real restore returns, proving
 the slot is released before the caller closes the restored DB.
+The same process-level resource envelope now exposes
+`maxConcurrentDrainsPerWorker` and a shared drain slot. It is bounded
+independently from DB and checkpoint slots and prevents
+`SharedRocksDbResources` from closing while an owner-drain window is still
+registered; `ShardStoreTest.drainSlotIsWorkerBoundedAndCloseProtected` covers
+contention, release and close protection. The slot is a limiter for worker
+orchestration; the full claim-quiescence/final-checkpoint/lease-release
+sequence remains a separate production drain blocker.
 Restore admission only treats a checksum-validated `ACTIVE` pointer target as
 the live incarnation; an orphan incarnation left before pointer installation
 does not block a new atomic restore and remains available for later repair.
