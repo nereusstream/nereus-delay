@@ -3322,8 +3322,8 @@ class DelayShardTest {
             CanonicalProtobuf.uint32(output, 11, sideEffect);
             CanonicalProtobuf.uint32(output, 12, disposition);
             CanonicalProtobuf.uint32(output, 13, stableCode.wireValue());
-            if (evidence.length != 0) {
-                CanonicalProtobuf.bytes(output, 14, evidence);
+            if (sideEffect != 3) {
+                CanonicalProtobuf.bytes(output, 14, publishEvidence(attemptId, sideEffect == 1, stableCode));
             }
             CanonicalProtobuf.bytes(output, 15, sideEffect == 3 ? nestedPlaceholder() : chargeVector());
             CanonicalProtobuf.bytes(output, 16, observedAt);
@@ -3406,7 +3406,8 @@ class DelayShardTest {
             CanonicalProtobuf.uint32(output, 11, 2);
             CanonicalProtobuf.uint32(output, 12, disposition);
             CanonicalProtobuf.uint32(output, 13, stableCode.wireValue());
-            CanonicalProtobuf.bytes(output, 14, nestedPlaceholder());
+            CanonicalProtobuf.bytes(output, 14,
+                    publishEvidence(attemptId, false, stableCode));
             CanonicalProtobuf.bytes(output, 15, chargeVector());
             CanonicalProtobuf.bytes(output, 16, new TrustedUtcIntervalEvidence(2_002, 2_002,
                     TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("clock"), 1, 4, 4,
@@ -3446,7 +3447,8 @@ class DelayShardTest {
             CanonicalProtobuf.int64(output, 3, 9_000);
             CanonicalProtobuf.bytes(output, 10, attemptId);
             CanonicalProtobuf.bytes(output, 11, evidenceCursor());
-            CanonicalProtobuf.bytes(output, 12, nestedPlaceholder());
+            CanonicalProtobuf.bytes(output, 12,
+                    publishEvidence(attemptId, sideEffect == 1, stableCode));
             CanonicalProtobuf.uint32(output, 13, stableCode.wireValue());
             CanonicalProtobuf.uint32(output, 14, sideEffect);
             CanonicalProtobuf.uint32(output, 15, disposition);
@@ -3798,6 +3800,38 @@ class DelayShardTest {
         return EvidenceCursorV1.kafka(Bytes.sha256(Bytes.utf8("evidence-resolution-lane")), new byte[16],
                 java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("evidence-resolution-topic")), 16), 0, 1,
                 2_002, 1, 1).canonicalBytes();
+    }
+
+    private static byte[] publishEvidence(final byte[] attemptId, final boolean published,
+                                          final StableCode stableCode) {
+        final byte[] owner = io.nereusstream.delay.protocol.ExternalDeliveryIdentityV1.publishAttempt(attemptId)
+                .canonicalBytes();
+        final byte[] branch = published ? CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, io.nereusstream.delay.protocol.BrokerResourceIdentityV1.kafka(
+                    new io.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1("cluster-a",
+                            java.util.UUID.nameUUIDFromBytes(Bytes.utf8("publish-evidence-topic"))))
+                    .canonicalBytes());
+            CanonicalProtobuf.uint32(output, 2, 0);
+            CanonicalProtobuf.uint64(output, 3, 1);
+            CanonicalProtobuf.uint64(output, 5, 2_002);
+            CanonicalProtobuf.bytes(output, 6, owner);
+            CanonicalProtobuf.bytes(output, 7, Bytes.sha256(Bytes.utf8("prepared-evidence")));
+            CanonicalProtobuf.bytes(output, 8, Bytes.sha256(Bytes.utf8("response-evidence")));
+        }) : CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, nestedPlaceholder());
+            CanonicalProtobuf.bytes(output, 2, owner);
+            CanonicalProtobuf.bytes(output, 3, Bytes.sha256(Bytes.utf8("prepared-evidence")));
+            CanonicalProtobuf.uint32(output, 4, 1);
+            CanonicalProtobuf.bytes(output, 5, Bytes.sha256(Bytes.utf8("request-evidence")));
+            CanonicalProtobuf.uint32(output, 6, 1);
+            CanonicalProtobuf.uint32(output, 7, stableCode.wireValue());
+        });
+        return io.nereusstream.delay.protocol.PublishEvidenceV1.create(
+                published ? io.nereusstream.delay.protocol.PublishEvidenceKindV1.KAFKA_PRODUCE_ACK
+                        : io.nereusstream.delay.protocol.PublishEvidenceKindV1.ADAPTER_NON_SUBMISSION,
+                published ? io.nereusstream.delay.protocol.EvidenceVerificationStatusV1.VERIFIED_PUBLISHED
+                        : io.nereusstream.delay.protocol.EvidenceVerificationStatusV1.VERIFIED_NOT_PUBLISHED,
+                branch).canonicalBytes();
     }
 
     private static int compareObligations(final AttemptObligationRef left, final AttemptObligationRef right) {

@@ -105,7 +105,7 @@ class DlqExportApplyTest {
             CanonicalProtobuf.uint32(output, 16, 1);
             CanonicalProtobuf.uint32(output, 17, 0);
             CanonicalProtobuf.uint32(output, 18, StableCode.OK.wireValue());
-            CanonicalProtobuf.bytes(output, 19, evidence());
+            CanonicalProtobuf.bytes(output, 19, evidence(pending.dlqExportId()));
             CanonicalProtobuf.bytes(output, 20, chargeVector());
             CanonicalProtobuf.bytes(output, 21, observed.canonicalBytes());
             CanonicalProtobuf.bytes(output, 22, retryDecision());
@@ -114,13 +114,25 @@ class DlqExportApplyTest {
         });
     }
 
-    private static byte[] evidence() {
-        return CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.uint32(output, 1, 1);
-            CanonicalProtobuf.uint32(output, 2, 1);
-            CanonicalProtobuf.bytes(output, 3, Bytes.sha256(Bytes.utf8("dlq-evidence")));
-            CanonicalProtobuf.bytes(output, 10, nestedMarker());
+    private static byte[] evidence(final byte[] exportId) {
+        final byte[] branch = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, io.nereusstream.delay.protocol.BrokerResourceIdentityV1.kafka(
+                    new io.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1("cluster-a",
+                            java.util.UUID.nameUUIDFromBytes(Bytes.utf8("dlq-topic"))))
+                    .canonicalBytes());
+            CanonicalProtobuf.uint32(output, 2, 0);
+            CanonicalProtobuf.uint64(output, 3, 1);
+            CanonicalProtobuf.uint64(output, 5, 2_001);
+            CanonicalProtobuf.bytes(output, 6,
+                    io.nereusstream.delay.protocol.ExternalDeliveryIdentityV1.dlqExport(exportId)
+                            .canonicalBytes());
+            CanonicalProtobuf.bytes(output, 7, Bytes.sha256(Bytes.utf8("dlq-prepared")));
+            CanonicalProtobuf.bytes(output, 8, Bytes.sha256(Bytes.utf8("dlq-response")));
         });
+        return io.nereusstream.delay.protocol.PublishEvidenceV1.create(
+                io.nereusstream.delay.protocol.PublishEvidenceKindV1.KAFKA_PRODUCE_ACK,
+                io.nereusstream.delay.protocol.EvidenceVerificationStatusV1.VERIFIED_PUBLISHED, branch)
+                .canonicalBytes();
     }
 
     private static byte[] retryDecision() {

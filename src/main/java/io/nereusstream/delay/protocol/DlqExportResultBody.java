@@ -81,6 +81,7 @@ public final class DlqExportResultBody {
         final int disposition = boundedInt(unsigned(field(fields, 17), 17), "disposition");
         final StableCode stableCode = StableCode.fromWire(boundedInt(unsigned(field(fields, 18), 18), "stableCode"));
         final byte[] evidence = optionalNested(fields, 19);
+        final PublishEvidenceV1 evidenceValue = evidence.length == 0 ? null : PublishEvidenceV1.decode(evidence);
         final byte[] transfer = nested(field(fields, 20), 20);
         validateChargeVector(transfer);
         final TrustedUtcIntervalEvidence observedAt = TrustedUtcIntervalEvidence.decode(
@@ -93,9 +94,8 @@ public final class DlqExportResultBody {
         final DlqExportResultBody result = new DlqExportResultBody(exportId, messageId, generation,
                 terminalRevision, envelopeHash, eventKind, sideEffect, disposition, stableCode, evidence, transfer,
                 observedAt, retryDecision, resultingState, physicalAttemptNo);
-        if (eventKind == 2) {
-            // Evidence resolution uses an evidence identity, not an enqueue-attempt token.
-            evidenceId(evidence);
+        if (evidenceValue != null) {
+            evidenceValue.requireDlqMutation(exportId, sideEffect == 1);
         }
         return result;
     }
@@ -243,25 +243,11 @@ public final class DlqExportResultBody {
     }
 
     private static void validateChargeVector(final byte[] encoded) {
-        final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "ChargeVector");
-        if (fields.size() != 17) {
-            throw new IllegalArgumentException("ChargeVector has unexpected field count");
-        }
-        for (int number = 1; number <= 17; number++) {
-            unsigned(field(fields, number), number);
-        }
+        PublishAdmissionBody.ChargeVector.decodeCanonical(encoded);
     }
 
     private static byte[] evidenceId(final byte[] encoded) {
-        if (encoded.length == 0) {
-            throw new IllegalArgumentException("DLQ evidence is required for this event");
-        }
-        final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "PublishEvidence");
-        final byte[] id = fixed(field(fields, 3), 3, HASH_LENGTH);
-        if (unsigned(field(fields, 1), 1) <= 0 || unsigned(field(fields, 2), 2) <= 0) {
-            throw new IllegalArgumentException("DLQ evidence kind/status must be nonzero");
-        }
-        return id;
+        return PublishEvidenceV1.decode(encoded).evidenceId();
     }
 
     private static byte[] optionalNested(final List<CanonicalProtobuf.Reader.Field> fields, final int number) {

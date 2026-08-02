@@ -335,6 +335,14 @@ ChargeVector、typed cursor 以及 source-ordered close/requeue；这仍只是 c
 body codec 和本地 transition seam，不等于签名服务、真实 Broker evidence 或
 production outcome authority 已完成。
 
+`PublishEvidenceV1`/`ExternalDeliveryIdentityV1` 进一步把 Registry 的
+`PublishEvidenceV1` 公共字段、kind 对应 oneof 分支、verification-status 语义、
+owner identity 和 domain-separated `evidence_id` 固定在一个共享 codec 中；
+`PUBLISH_OUTCOME_V1` 与 `DLQ_EXPORT_RESULT_V1` 不再只接受任意非空 nested bytes。
+当前分支检查覆盖 canonical shape、typed cursor、Broker/Channel/Profile nested
+identity 和 owner 匹配，但真实 adapter 的 authenticated response、retention
+barrier、external proof ownership 仍是 release blocker。
+
 `OwnedDelayShard` 现在还提供了带 assignment/barrier/source-connection 校验的
 统一 `replay` seam，以及兼容性的 `replayCatchup`/`replaySystemMutations`：
 Command 和 signed System Mutation 通过 `SourceReplayEntry` 在同一个

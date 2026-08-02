@@ -14,7 +14,7 @@ class DlqExportResultBodyTest {
         final byte[] exportId = nonZero(32, 1);
         final byte[] messageId = nonZero(41, 2);
         final byte[] envelope = nonZero(32, 3);
-        final byte[] evidence = evidence(1, 1, nonZero(32, 4));
+        final byte[] evidence = evidence(exportId);
         final byte[] body = body(exportId, messageId, envelope, 1, 1, 0, StableCode.OK.wireValue(), evidence,
                 retry(1, StableCode.OK.wireValue(), 2), 3, 1);
 
@@ -22,7 +22,7 @@ class DlqExportResultBodyTest {
         assertEquals(DlqExportStateV1.PUBLISHED, decoded.resultingState());
         assertArrayEquals(SystemMutation.computeDlqExportAttemptLogicalIdentity(exportId, 1),
                 decoded.logicalOperationIdentity());
-        assertArrayEquals(nonZero(32, 4), decoded.evidenceId());
+        assertArrayEquals(PublishEvidenceV1.decode(evidence).evidenceId(), decoded.evidenceId());
     }
 
     @Test
@@ -36,12 +36,12 @@ class DlqExportResultBodyTest {
         assertEquals(DlqExportStateV1.UNCERTAIN, DlqExportResultBody.decode(unknown).resultingState());
 
         final byte[] badEvidence = body(exportId, messageId, envelope, 1, 3, 4,
-                StableCode.DLQ_EXPORT_OUTCOME_UNKNOWN.wireValue(), evidence(1, 1, nonZero(32, 8)),
+                StableCode.DLQ_EXPORT_OUTCOME_UNKNOWN.wireValue(), evidence(exportId),
                 retry(5, StableCode.DLQ_EXPORT_OUTCOME_UNKNOWN.wireValue(), 2), 4, 1);
         assertThrows(IllegalArgumentException.class, () -> DlqExportResultBody.decode(badEvidence));
 
         final byte[] wrongDomain = body(exportId, messageId, envelope, 1, 1, 0, StableCode.OK.wireValue(),
-                evidence(1, 1, nonZero(32, 9)), retry(1, StableCode.OK.wireValue(), 1, 1), 3, 1);
+                evidence(exportId), retry(1, StableCode.OK.wireValue(), 1, 1), 3, 1);
         assertThrows(IllegalArgumentException.class, () -> DlqExportResultBody.decode(wrongDomain));
     }
 
@@ -92,13 +92,24 @@ class DlqExportResultBodyTest {
         });
     }
 
-    private static byte[] evidence(final int kind, final int status, final byte[] id) {
-        return CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.uint32(output, 1, kind);
-            CanonicalProtobuf.uint32(output, 2, status);
-            CanonicalProtobuf.bytes(output, 3, id);
-            CanonicalProtobuf.bytes(output, 10, nestedMarker());
+    private static byte[] evidence(final byte[] exportId) {
+        final byte[] branch = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, kafkaResource());
+            CanonicalProtobuf.uint32(output, 2, 0);
+            CanonicalProtobuf.uint64(output, 3, 1);
+            CanonicalProtobuf.uint64(output, 5, 1_001);
+            CanonicalProtobuf.bytes(output, 6, ExternalDeliveryIdentityV1.dlqExport(exportId)
+                    .canonicalBytes());
+            CanonicalProtobuf.bytes(output, 7, nonZero(32, 12));
+            CanonicalProtobuf.bytes(output, 8, nonZero(32, 13));
         });
+        return PublishEvidenceV1.create(PublishEvidenceKindV1.KAFKA_PRODUCE_ACK,
+                EvidenceVerificationStatusV1.VERIFIED_PUBLISHED, branch).canonicalBytes();
+    }
+
+    private static byte[] kafkaResource() {
+        return BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1("cluster-a",
+                java.util.UUID.nameUUIDFromBytes(Bytes.utf8("topic")))).canonicalBytes();
     }
 
     private static byte[] nestedMarker() {

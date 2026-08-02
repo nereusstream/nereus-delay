@@ -99,6 +99,7 @@ public final class PublishOutcomeBody {
             throw new IllegalArgumentException("invalid publish outcome side effect/disposition");
         }
         final StableCode stableCode = StableCode.fromWire(intValue(field(fields, 13), 13));
+        final byte[] attemptId = bytes(field(fields, 10), 10);
         final byte[] evidence = optionalNested(fields, 14);
         final byte[] transfer = nested(field(fields, 15), 15);
         // UNKNOWN is intentionally an evidence-only branch.  Older producers
@@ -113,11 +114,12 @@ public final class PublishOutcomeBody {
         final RetryDecision retryDecision = sideEffect == 3
                 ? RetryDecision.decodeUnknown(retryBytes) : RetryDecision.decode(retryBytes);
         if (sideEffect == 1 || sideEffect == 2) {
+            PublishEvidenceV1.decode(evidence).requireBusinessMutation(attemptId, sideEffect == 1);
             validateDefinitiveCombination(sideEffect, disposition, stableCode, evidence, retryDecision);
         } else if (disposition == 0 || stableCode == StableCode.OK || evidence.length != 0) {
             throw new IllegalArgumentException("invalid UNKNOWN outcome combination");
         }
-        return new PublishOutcomeBody(bytes(field(fields, 10), 10), sideEffect, disposition, stableCode, evidence,
+        return new PublishOutcomeBody(attemptId, sideEffect, disposition, stableCode, evidence,
                 transfer, observedAt, retryDecision);
     }
 
@@ -129,6 +131,7 @@ public final class PublishOutcomeBody {
         final List<CanonicalProtobuf.Reader.Field> fields =
                 SystemMutationBodyCodec.fields(SystemMutationType.EVIDENCE_RESOLUTION, canonicalBody);
         EvidenceCursorV1.decode(nested(field(fields, 11), 11));
+        final byte[] attemptId = bytes(field(fields, 10), 10);
         final byte[] evidence = nested(field(fields, 12), 12);
         final StableCode stableCode = StableCode.fromWire(intValue(field(fields, 13), 13));
         final int sideEffect = intValue(field(fields, 14), 14);
@@ -141,8 +144,9 @@ public final class PublishOutcomeBody {
         if (sideEffect != 1 && sideEffect != 2) {
             throw new IllegalArgumentException("only verified Evidence Resolution outcomes are implemented");
         }
+        PublishEvidenceV1.decode(evidence).requireBusinessMutation(attemptId, sideEffect == 1);
         validateDefinitiveCombination(sideEffect, disposition, stableCode, evidence, retryDecision);
-        return new PublishOutcomeBody(bytes(field(fields, 10), 10), sideEffect, disposition, stableCode, evidence,
+        return new PublishOutcomeBody(attemptId, sideEffect, disposition, stableCode, evidence,
                 transfer, observedAt, retryDecision);
     }
 
