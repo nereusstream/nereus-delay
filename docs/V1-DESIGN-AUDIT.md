@@ -504,6 +504,16 @@ timeline/Message/READY，超 bound fail closed，重复执行返回零；证据�
 `DelayShardTest.localClaimIsDurableAndRevokeRestoresTimelineAtomically`。它只
 关闭新的 command admission 并撤销可逆 Claim；in-flight publish quiescence、final
 checkpoint 和 lease release 仍是生产 drain gate。
+Close marker 现在额外把未 admitted 的 message/reservation quota 在同一个
+WriteBatch 一次性转移，并写入已注册的 `timeline/SYSTEM` kind-2
+`LaneCloseMaterializationCursor`。`materializeClosedLane` 按 canonical `id_cf`
+key 顺序分 message/reservation bounded batch，重启从 cursor 继续；只有空
+admitted-obligation set 的 generation 才会物化为
+`LANE_CLOSED_BEFORE_ADMISSION`，`PUBLISHING`/`UNCERTAIN` 保留。证据为
+`LaneCloseMaterializationCursorTest` 与
+`DelayShardTest.closeTransfersUnadmittedQuotaAndResumesBoundedMaterializationCursor`。
+这仍不证明 close-owned Claim 标记、admitted outcome retirement、对象句柄
+quiescence/GC、Recovery-Floor retention 或真实 materializer 调度已经闭合。
 `ShardStore.flushAndSync` 还提供 drain 的物理 flush/WAL-sync 原语，重开回归为
 `ShardStoreTest.flushAndSyncMakesTheShardBoundaryExplicit`；它不替代远端 callback
 quiescence 或 final checkpoint publication。

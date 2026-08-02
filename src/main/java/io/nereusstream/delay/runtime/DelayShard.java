@@ -795,8 +795,13 @@ public final class DelayShard {
     }
 
     public synchronized PayloadReservation getReservation(final byte[] reservationId) {
+        final PayloadReservation stored = readStoredReservation(reservationId);
+        return stored == null ? null : effectiveReservation(stored);
+    }
+
+    private PayloadReservation readStoredReservation(final byte[] reservationId) {
         final var value = store.getValue(ColumnFamily.ID, KeyCodec.idReservation(reservationId), 2);
-        return value == null ? null : effectiveReservation(PayloadReservation.decode(value.payload()));
+        return value == null ? null : PayloadReservation.decode(value.payload());
     }
 
     /**
@@ -831,6 +836,11 @@ public final class DelayShard {
             return null;
         }
         final PayloadReservation current = PayloadReservation.decode(value.payload());
+        final LaneRecord lane = readLane(current.intent().laneId());
+        if (lane != null && lane.admissionGate() == AdmissionGate.CLOSED
+                && current.status() == PayloadReservationStatus.RESERVED) {
+            return effectiveReservation(current);
+        }
         if (current.status() != PayloadReservationStatus.RESERVED
                 || closedIngressDeadlineThrough < current.reservationExpiryEpochMs()) {
             return effectiveReservation(current);
@@ -1141,6 +1151,34 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.INTEGRITY_ERROR);
         }
+        final CloseAccounting closeAccounting;
+        final LaneCloseMaterializationCursor closeCursor;
+        try {
+            if (body.controlKind() == 11) {
+                closeAccounting = prepareCloseAccounting(target.laneId(), rollbacks);
+                closeCursor = new LaneCloseMaterializationCursor(target.laneId(), next.laneIncarnation(),
+                        next.laneControlVersion(), sourcePosition.canonicalBytes(),
+                        LaneCloseMaterializationCursor.Phase.MESSAGES, null,
+                        closeAccounting.pendingMessages(), closeAccounting.pendingBytes(),
+                        closeAccounting.reservationMessages(), closeAccounting.reservationBytes());
+            } else {
+                closeAccounting = CloseAccounting.empty();
+                closeCursor = null;
+            }
+        } catch (IllegalStateException exception) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.INTEGRITY_ERROR);
+        }
+        final ShardQuota nextQuota;
+        try {
+            nextQuota = body.controlKind() == 11
+                    ? quota.removeSchedules(closeAccounting.pendingMessages(), closeAccounting.pendingBytes())
+                    .removeReservations(closeAccounting.reservationMessages(), closeAccounting.reservationBytes())
+                    : quota;
+        } catch (IllegalStateException exception) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.INTEGRITY_ERROR);
+        }
         final TimelineCandidate candidate = body.controlKind() == 9
                 ? findLaneCandidate(target.laneId(), null, -1, null, null) : null;
         final LaneProjection projection = projectLane(target.laneId(), current, next, candidate);
@@ -1161,11 +1199,19 @@ public final class DelayShard {
                                 .encode());
             }
             putReadyProjection(batch, projection);
+            if (closeCursor != null) {
+                batch.putValue(ColumnFamily.TIMELINE, LaneCloseMaterializationCursor.VALUE_TYPE,
+                        closeCursorKey(closeCursor), closeCursor.canonicalBytes());
+            }
+            if (!nextQuota.equals(quota)) {
+                batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(META_QUOTA_USAGE), nextQuota.encode());
+            }
             writeSystemResult(batch, result);
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
         mutationSequence++;
+        quota = nextQuota;
         return result;
     }
 
@@ -1332,6 +1378,167 @@ public final class DelayShard {
             result.add(new LaneClaimRollback(claim, next));
         }
         return List.copyOf(result);
+    }
+
+    /**
+     * Computes the one-time quota transfer owned by a Close marker.  The scan
+     * is deliberately bounded by the shard's hard pending-message limit: if a
+     * complete proof cannot be made, the source mutation is rejected rather
+     * than installing a close overlay with guessed counters.
+     */
+    private CloseAccounting prepareCloseAccounting(
+            final io.nereusstream.delay.protocol.DestinationLaneId laneId,
+            final List<LaneClaimRollback> rollbacks) {
+        final int limit = boundedLimitPlusOne(config.maxPendingMessages());
+        final Map<DelayMessageId, MessageRecord> rollbackMessages = new HashMap<>();
+        for (LaneClaimRollback rollback : rollbacks) {
+            rollbackMessages.put(rollback.claim().delayMessageId(), rollback.nextMessage());
+        }
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> messages = store.scan(ColumnFamily.ID,
+                new byte[]{1, 1}, new byte[]{2, 1}, limit);
+        if (messages.size() >= limit && config.maxPendingMessages() < Integer.MAX_VALUE) {
+            throw new IllegalStateException("message scan exceeded configured bound during lane close");
+        }
+        long pendingMessages = 0;
+        long pendingBytes = 0;
+        for (var entry : messages) {
+            final MessageRecord stored = decodeMessageEntry(entry, "lane close accounting");
+            final MessageRecord message = rollbackMessages.getOrDefault(messageIdFromEntry(entry), stored);
+            if (message.laneId().equals(laneId) && isUnadmittedGeneration(message)) {
+                pendingMessages = Math.addExact(pendingMessages, 1);
+                pendingBytes = Math.addExact(pendingBytes, message.payloadLength());
+            }
+        }
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> reservations = store.scan(ColumnFamily.ID,
+                new byte[]{2, 1}, new byte[]{3, 1}, limit);
+        if (reservations.size() >= limit && config.maxPendingMessages() < Integer.MAX_VALUE) {
+            throw new IllegalStateException("reservation scan exceeded configured bound during lane close");
+        }
+        long reservationMessages = 0;
+        long reservationBytes = 0;
+        for (var entry : reservations) {
+            final PayloadReservation reservation = decodeReservationEntry(entry, "lane close accounting");
+            if (reservation.intent().laneId().equals(laneId)
+                    && reservation.status() == PayloadReservationStatus.RESERVED) {
+                reservationMessages = Math.addExact(reservationMessages, 1);
+                reservationBytes = Math.addExact(reservationBytes,
+                        reservation.intent().expectedPayloadLength());
+            }
+        }
+        return new CloseAccounting(pendingMessages, pendingBytes, reservationMessages, reservationBytes);
+    }
+
+    private static boolean isUnadmittedGeneration(final MessageRecord message) {
+        return (message.status() == MessageStatus.SCHEDULED || message.status() == MessageStatus.CLAIMED)
+                && message.runtimeIndex().attemptObligations().isEmpty();
+    }
+
+    private static MessageRecord decodeMessageEntry(
+            final io.nereusstream.delay.store.ShardStore.KeyValue entry, final String context) {
+        if (entry.key().length != 2 + DelayMessageId.LENGTH || entry.key()[0] != 1 || entry.key()[1] != 1) {
+            throw new IllegalStateException("invalid MESSAGE key during " + context);
+        }
+        return MessageRecord.decode(ValueEnvelope.decode(entry.value(), 1).payload());
+    }
+
+    private static DelayMessageId messageIdFromEntry(
+            final io.nereusstream.delay.store.ShardStore.KeyValue entry) {
+        return new DelayMessageId(Arrays.copyOfRange(entry.key(), 2, entry.key().length));
+    }
+
+    private static PayloadReservation decodeReservationEntry(
+            final io.nereusstream.delay.store.ShardStore.KeyValue entry, final String context) {
+        if (entry.key().length != 2 + 32 || entry.key()[0] != 2 || entry.key()[1] != 1) {
+            throw new IllegalStateException("invalid RESERVATION key during " + context);
+        }
+        return PayloadReservation.decode(ValueEnvelope.decode(entry.value(), 2).payload());
+    }
+
+    private List<ClosedMessageAction> prepareClosedMessageActions(
+            final LaneCloseMaterializationCursor cursor,
+            final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries,
+            final SourcePosition closePosition) {
+        final List<ClosedMessageAction> result = new ArrayList<>();
+        for (var entry : entries) {
+            final DelayMessageId messageId = messageIdFromEntry(entry);
+            final MessageRecord current = decodeMessageEntry(entry, "Lane close materialization");
+            if (!current.laneId().equals(cursor.laneId()) || !isUnadmittedGeneration(current)) {
+                continue;
+            }
+            final ClaimRecord claim = current.status() == MessageStatus.CLAIMED
+                    ? findClaimForMessage(messageId) : null;
+            if (current.status() == MessageStatus.CLAIMED && claim == null) {
+                throw new IllegalStateException("closed CLAIMED message has no durable Claim");
+            }
+            if (claim != null && (!claim.delayMessageId().equals(messageId)
+                    || claim.generation() != current.generation()
+                    || claim.runtimeRevision() != current.stateVersion())) {
+                throw new IllegalStateException("closed Claim does not match current message");
+            }
+            final long nextStateVersion = Math.addExact(current.stateVersion(), 1);
+            final MessageRecord terminalMessage = new MessageRecord(MessageStatus.DEAD_LETTER,
+                    current.generation(), nextStateVersion, current.deliverAtEpochMs(), current.expireAtEpochMs(),
+                    current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
+                    current.payloadReference(), current.retryEligibilityAtEpochMs()).withRuntimeIndex(
+                    GenerationRuntimeIndex.none(GenerationAggregateState.DEAD_LETTER, List.of(),
+                            current.runtimeIndex().admissionsUsed(),
+                            current.runtimeIndex().uncertainRetryAdmissionsUsed(), false, nextStateVersion));
+            final TerminalGenerationRecord terminal = new TerminalGenerationRecord(messageId,
+                    current.generation(), MessageStatus.DEAD_LETTER, StableCode.LANE_CLOSED_BEFORE_ADMISSION,
+                    nextStateVersion, closePosition.canonicalBytes(), false, List.of());
+            result.add(new ClosedMessageAction(messageId, current, claim,
+                    claim == null ? timelineKey(messageId, current) : claim.timelineKey(),
+                    expiryKey(messageId, current), terminalMessage, terminal));
+        }
+        return List.copyOf(result);
+    }
+
+    private List<ClosedReservationAction> prepareClosedReservationActions(
+            final LaneCloseMaterializationCursor cursor,
+            final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries,
+            final SourcePosition closePosition) {
+        final List<ClosedReservationAction> result = new ArrayList<>();
+        for (var entry : entries) {
+            final PayloadReservation reservation = decodeReservationEntry(entry,
+                    "Lane close materialization");
+            if (!reservation.intent().laneId().equals(cursor.laneId())
+                    || reservation.status() != PayloadReservationStatus.RESERVED) {
+                continue;
+            }
+            final PayloadReservation closed = new PayloadReservation(reservation.shardId(),
+                    reservation.reservationId(), reservation.commandId(), reservation.delayMessageId(),
+                    reservation.commandHash(), reservation.intent(), reservation.reservationExpiryEpochMs(),
+                    PayloadReservationStatus.ABANDONED, Math.addExact(reservation.stateVersion(), 1),
+                    closePosition.canonicalBytes(), null);
+            result.add(new ClosedReservationAction(reservation, closed));
+        }
+        return List.copyOf(result);
+    }
+
+    private CursorScan scanAfter(final ColumnFamily family, final byte[] lowerInclusive,
+                                 final byte[] upperExclusive, final byte[] lastKey, final int limit) {
+        final int requestLimit = limit == Integer.MAX_VALUE ? limit : Math.addExact(limit, 1);
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> scanned = store.scan(family,
+                lastKey.length == 0 ? lowerInclusive : lastKey, upperExclusive, requestLimit);
+        int start = 0;
+        if (lastKey.length != 0 && !scanned.isEmpty() && Arrays.equals(scanned.get(0).key(), lastKey)) {
+            start = 1;
+        }
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> after = scanned.subList(start, scanned.size());
+        final boolean more = after.size() > limit;
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries = more
+                ? after.subList(0, limit) : after;
+        return new CursorScan(List.copyOf(entries), more);
+    }
+
+    private static byte[] closeCursorKey(final LaneCloseMaterializationCursor cursor) {
+        return closeCursorKey(cursor.laneId(), cursor.closeVersion());
+    }
+
+    private static byte[] closeCursorKey(final io.nereusstream.delay.protocol.DestinationLaneId laneId,
+                                         final long closeVersion) {
+        return KeyCodec.timelineSystem(LaneCloseMaterializationCursor.SYSTEM_WORK_KIND, 0,
+                laneId.bytes(), closeVersion);
     }
 
     /** Bounded scan used only to decide whether a Close marker needs strict-order acknowledgements. */
@@ -2497,6 +2704,12 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }
+        final LaneRecord lane = readLane(current.laneId());
+        if (lane != null && lane.admissionGate() == AdmissionGate.CLOSED
+                && isUnadmittedGeneration(current)) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.LANE_CLOSED_BEFORE_ADMISSION);
+        }
         if (current.status() == MessageStatus.EXPIRED) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.ALREADY_EXPIRED);
         }
@@ -3343,6 +3556,103 @@ public final class DelayShard {
         return readLane(laneId);
     }
 
+    /** Returns the durable local close cursor, if this Lane has not finished materialization. */
+    public synchronized LaneCloseMaterializationCursor getLaneCloseCursor(
+            final io.nereusstream.delay.protocol.DestinationLaneId laneId) {
+        Objects.requireNonNull(laneId, "laneId");
+        final LaneRecord lane = readLane(laneId);
+        if (lane == null || lane.admissionGate() != AdmissionGate.CLOSED) {
+            return null;
+        }
+        final var value = store.getValue(ColumnFamily.TIMELINE,
+                closeCursorKey(laneId, lane.laneControlVersion()), LaneCloseMaterializationCursor.VALUE_TYPE);
+        return value == null ? null : LaneCloseMaterializationCursor.decode(value.payload());
+    }
+
+    /**
+     * Applies one bounded, quota-neutral close-materialization batch. The
+     * source-ordered marker is the semantic boundary; this method only resumes
+     * the persisted cursor and never reclassifies an admitted obligation.
+     */
+    public synchronized LaneCloseMaterializationResult materializeClosedLane(
+            final io.nereusstream.delay.protocol.DestinationLaneId laneId, final int maxRecords) {
+        Objects.requireNonNull(laneId, "laneId");
+        if (maxRecords <= 0) {
+            throw new IllegalArgumentException("maxRecords must be positive");
+        }
+        final LaneCloseMaterializationCursor cursor = getLaneCloseCursor(laneId);
+        if (cursor == null) {
+            return new LaneCloseMaterializationResult(laneId, 0, 0, 0, 0, true);
+        }
+        if (!cursor.laneId().equals(laneId)) {
+            throw new IllegalStateException("Lane close cursor identity mismatch");
+        }
+        final LaneRecord lane = readLane(laneId);
+        if (lane == null || lane.admissionGate() != AdmissionGate.CLOSED
+                || lane.laneControlVersion() != cursor.closeVersion()
+                || !Arrays.equals(lane.laneIncarnation(), cursor.laneIncarnation())) {
+            throw new IllegalStateException("Lane close cursor does not match the closed Lane");
+        }
+        final SourcePosition closePosition = SourcePositionCodec.decode(cursor.closeSourcePosition());
+        if (!store.shardId().equals(closePosition.shardId())) {
+            throw new IllegalStateException("Lane close cursor source position belongs to another shard");
+        }
+        final int bound = Math.min(maxRecords, boundedLimit(config.maxPendingMessages()));
+        final CursorScan scan = cursor.phase() == LaneCloseMaterializationCursor.Phase.MESSAGES
+                ? scanAfter(ColumnFamily.ID, new byte[]{1, 1}, new byte[]{2, 1}, cursor.lastKey(), bound)
+                : scanAfter(ColumnFamily.ID, new byte[]{2, 1}, new byte[]{3, 1}, cursor.lastKey(), bound);
+        final List<ClosedMessageAction> messageActions = cursor.phase()
+                == LaneCloseMaterializationCursor.Phase.MESSAGES
+                ? prepareClosedMessageActions(cursor, scan.entries(), closePosition) : List.of();
+        final List<ClosedReservationAction> reservationActions = cursor.phase()
+                == LaneCloseMaterializationCursor.Phase.RESERVATIONS
+                ? prepareClosedReservationActions(cursor, scan.entries(), closePosition) : List.of();
+        final LaneCloseMaterializationCursor nextCursor;
+        if (scan.hasMore()) {
+            nextCursor = cursor.advance(scan.entries().get(scan.entries().size() - 1).key());
+        } else if (cursor.phase() == LaneCloseMaterializationCursor.Phase.MESSAGES) {
+            nextCursor = cursor.nextPhase();
+        } else {
+            nextCursor = null;
+        }
+        store.write(batch -> {
+            for (ClosedMessageAction action : messageActions) {
+                batch.delete(ColumnFamily.TIMELINE, action.timelineKey());
+                batch.delete(ColumnFamily.TIMELINE, action.expiryKey());
+                if (action.claim() != null) {
+                    batch.delete(ColumnFamily.INFLIGHT, action.claim().encodedKey());
+                }
+                batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(action.messageId()),
+                        action.terminalMessage().encode());
+                batch.putValue(ColumnFamily.TERMINAL, 1,
+                        KeyCodec.terminalGeneration(action.messageId(), action.terminalMessage().generation()),
+                        action.terminal().encode());
+                final DlqExportRecord dlqExport = DlqExportRecord.notConfigured(action.messageId(),
+                        action.terminalMessage().generation(), action.terminalMessage().stateVersion(),
+                        action.terminal().appliedSourcePosition());
+                batch.putValue(ColumnFamily.TERMINAL, DlqExportRecord.VALUE_TYPE,
+                        KeyCodec.terminalDlqExport(dlqExport.dlqExportId()), dlqExport.encode());
+            }
+            for (ClosedReservationAction action : reservationActions) {
+                batch.putValue(ColumnFamily.ID, 2, KeyCodec.idReservation(action.reservation().reservationId()),
+                        action.closedReservation().encode());
+                batch.delete(ColumnFamily.TIMELINE, KeyCodec.reservationExpiry(
+                        action.reservation().reservationExpiryEpochMs(), action.reservation().reservationId()));
+            }
+            if (nextCursor == null) {
+                batch.delete(ColumnFamily.TIMELINE, closeCursorKey(cursor));
+            } else {
+                batch.putValue(ColumnFamily.TIMELINE, LaneCloseMaterializationCursor.VALUE_TYPE,
+                        closeCursorKey(nextCursor), nextCursor.canonicalBytes());
+                if (!Arrays.equals(closeCursorKey(cursor), closeCursorKey(nextCursor))) {
+                    batch.delete(ColumnFamily.TIMELINE, closeCursorKey(cursor));
+                }
+            }
+        });
+        return new LaneCloseMaterializationResult(laneId, cursor.closeVersion(), scan.entries().size(),
+                messageActions.size(), reservationActions.size(), nextCursor == null);
+    }
+
     /** Applies an owner/runtime readiness transition without changing admission semantics. */
     public synchronized LaneRecord updateLaneReadiness(
             final io.nereusstream.delay.protocol.DestinationLaneId laneId,
@@ -3943,10 +4253,16 @@ public final class DelayShard {
         } else {
             proof = CommandBodies.decodeCommitLarge(command.canonicalBody());
         }
-        final PayloadReservation reservation = getReservation(proof.reservationId());
-        if (reservation == null || !reservation.delayMessageId().equals(command.delayMessageId())) {
+        final PayloadReservation storedReservation = readStoredReservation(proof.reservationId());
+        if (storedReservation == null || !storedReservation.delayMessageId().equals(command.delayMessageId())) {
             return persistRejected(command, sourcePosition, StableCode.RESERVATION_NOT_COMMITTED);
         }
+        final LaneRecord reservationLane = readLane(storedReservation.intent().laneId());
+        if (reservationLane != null && reservationLane.admissionGate() == AdmissionGate.CLOSED
+                && storedReservation.status() == PayloadReservationStatus.RESERVED) {
+            return persistRejected(command, sourcePosition, StableCode.PAYLOAD_RESERVATION_CLOSED);
+        }
+        final PayloadReservation reservation = effectiveReservation(storedReservation);
         if (reservation.status() == PayloadReservationStatus.COMMITTED) {
             if (reservation.committedPayload() != null && proofMatches(proof, reservation.committedPayload())) {
                 final CommandResult result = applied(StableCode.ALREADY_COMMITTED, sourcePosition, null);
@@ -4116,6 +4432,11 @@ public final class DelayShard {
                         reservation.stateVersion())) {
                     return applied(StableCode.VERSION_CONFLICT, sourcePosition, null);
                 }
+                final LaneRecord reservationLane = readLane(reservation.intent().laneId());
+                if (reservationLane != null && reservationLane.admissionGate() == AdmissionGate.CLOSED
+                        && reservation.status() == PayloadReservationStatus.RESERVED) {
+                    return applied(StableCode.PAYLOAD_RESERVATION_CLOSED, sourcePosition, null);
+                }
                 return switch (reservation.status()) {
                     case RESERVED -> applied(StableCode.PAYLOAD_RESERVATION_ABANDONED, sourcePosition, null);
                     case ABANDONED -> applied(StableCode.ALREADY_ABANDONED, sourcePosition, null);
@@ -4129,9 +4450,21 @@ public final class DelayShard {
                 existing.stateVersion())) {
             return applied(StableCode.VERSION_CONFLICT, sourcePosition, existing);
         }
+        final LaneRecord lane = readLane(existing.laneId());
+        if (lane != null && lane.admissionGate() == AdmissionGate.CLOSED
+                && isUnadmittedGeneration(existing)) {
+            return applied(StableCode.ALREADY_DEAD_LETTERED, sourcePosition, existing);
+        }
         if ((existing.status() == MessageStatus.SCHEDULED || existing.status() == MessageStatus.CLAIMED)
                 && hasUncertainObligation(existing.runtimeIndex())) {
             return applied(StableCode.TOO_LATE, sourcePosition, existing);
+        }
+        if (existing.status() == MessageStatus.DEAD_LETTER) {
+            final TerminalGenerationRecord terminal = getTerminalGeneration(command.delayMessageId(),
+                    existing.generation());
+            if (terminal != null && terminal.terminalCode() == StableCode.LANE_CLOSED_BEFORE_ADMISSION) {
+                return applied(StableCode.ALREADY_DEAD_LETTERED, sourcePosition, existing);
+            }
         }
         return switch (existing.status()) {
             case SCHEDULED, CLAIMED -> applied(StableCode.CANCELED, sourcePosition,
@@ -4156,9 +4489,21 @@ public final class DelayShard {
                 existing.stateVersion())) {
             return applied(StableCode.VERSION_CONFLICT, sourcePosition, existing);
         }
+        final LaneRecord lane = readLane(existing.laneId());
+        if (lane != null && lane.admissionGate() == AdmissionGate.CLOSED
+                && isUnadmittedGeneration(existing)) {
+            return applied(StableCode.LANE_CLOSED, sourcePosition, existing);
+        }
         if ((existing.status() == MessageStatus.SCHEDULED || existing.status() == MessageStatus.CLAIMED)
                 && hasUncertainObligation(existing.runtimeIndex())) {
             return applied(StableCode.TOO_LATE, sourcePosition, existing);
+        }
+        if (existing.status() == MessageStatus.DEAD_LETTER) {
+            final TerminalGenerationRecord terminal = getTerminalGeneration(command.delayMessageId(),
+                    existing.generation());
+            if (terminal != null && terminal.terminalCode() == StableCode.LANE_CLOSED_BEFORE_ADMISSION) {
+                return applied(StableCode.LANE_CLOSED, sourcePosition, existing);
+            }
         }
         if (existing.status() != MessageStatus.SCHEDULED && existing.status() != MessageStatus.CLAIMED) {
             return applied(StableCode.TOO_LATE, sourcePosition, existing);
@@ -5219,6 +5564,42 @@ public final class DelayShard {
     private record LaneClaimRollback(ClaimRecord claim, MessageRecord nextMessage) {
     }
 
+    private record CloseAccounting(long pendingMessages, long pendingBytes,
+                                   long reservationMessages, long reservationBytes) {
+        private static CloseAccounting empty() {
+            return new CloseAccounting(0, 0, 0, 0);
+        }
+    }
+
+    private record CursorScan(List<io.nereusstream.delay.store.ShardStore.KeyValue> entries, boolean hasMore) {
+        private CursorScan {
+            entries = List.copyOf(entries);
+        }
+    }
+
+    private record ClosedMessageAction(DelayMessageId messageId, MessageRecord current, ClaimRecord claim,
+                                       byte[] timelineKey, byte[] expiryKey, MessageRecord terminalMessage,
+                                       TerminalGenerationRecord terminal) {
+        private ClosedMessageAction {
+            timelineKey = Bytes.copy(timelineKey);
+            expiryKey = Bytes.copy(expiryKey);
+        }
+
+        @Override
+        public byte[] timelineKey() {
+            return Bytes.copy(timelineKey);
+        }
+
+        @Override
+        public byte[] expiryKey() {
+            return Bytes.copy(expiryKey);
+        }
+    }
+
+    private record ClosedReservationAction(PayloadReservation reservation,
+                                           PayloadReservation closedReservation) {
+    }
+
     private record AdmissionReplayState(boolean claimMayBeMissing, boolean uncertainRetryAdmission) {
     }
 
@@ -5314,6 +5695,23 @@ public final class DelayShard {
         @Override
         public byte[] reservationId() {
             return Bytes.copy(reservationId);
+        }
+    }
+
+    /** Result of one bounded local Lane-close materialization turn. */
+    public record LaneCloseMaterializationResult(
+            io.nereusstream.delay.protocol.DestinationLaneId laneId,
+            long closeVersion,
+            int scannedRecords,
+            int materializedMessages,
+            int materializedReservations,
+            boolean complete) {
+        public LaneCloseMaterializationResult {
+            Objects.requireNonNull(laneId, "laneId");
+            if (closeVersion < 0 || scannedRecords < 0 || materializedMessages < 0
+                    || materializedReservations < 0 || materializedMessages + materializedReservations > scannedRecords) {
+                throw new IllegalArgumentException("invalid Lane close materialization result");
+            }
         }
     }
 }

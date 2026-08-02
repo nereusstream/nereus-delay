@@ -957,6 +957,130 @@ class DelayShardTest {
     }
 
     @Test
+    void closeTransfersUnadmittedQuotaAndResumesBoundedMaterializationCursor() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("lane-close-materialization"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 68);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("lane-close-materialization"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("close-me")), 9_000);
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final AuthorIdentity control = AuthorIdentity.control(Bytes.sha256(Bytes.utf8("close-materialize-actor")),
+                Bytes.sha256(Bytes.utf8("close-materialize-roles")),
+                Bytes.sha256(Bytes.utf8("close-materialize-scope")));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, position(shardId, 0, 1_000)).stableCode());
+            assertEquals(1, shard.quota().pendingMessages());
+            final LaneRecord beforeClose = shard.getLane(lane);
+            final ControlRef closeRef = new ControlRef(Bytes.sha256(Bytes.utf8("close-materialize-op")),
+                    Bytes.sha256(Bytes.utf8("close-materialize-request")), 0);
+            final byte[] closeBody = applyShardControlBody(shardId, closeRef, 11, lane,
+                    beforeClose.laneIncarnation(), beforeClose.laneControlVersion());
+            final SystemMutation closeMutation = SystemMutation.signed(shardId,
+                    SystemMutationType.APPLY_SHARD_CONTROL, 9_000,
+                    closeRef.logicalOperationIdentity(11), closeBody, control.canonicalBytes(), 1,
+                    keyPair.getPrivate());
+            assertEquals(StableCode.OK, shard.applySystemMutation(closeMutation,
+                    position(shardId, 1, 1_001), keyPair.getPublic()).stableCode());
+            assertEquals(0, shard.quota().pendingMessages());
+            assertNotNull(shard.getLaneCloseCursor(lane));
+
+            final PreparedCommand cancel = PreparedCommand.cancel(shardId, schedule.delayMessageId(), 0, 9_000);
+            assertEquals(StableCode.ALREADY_DEAD_LETTERED,
+                    shard.apply(cancel, position(shardId, 2, 1_002)).stableCode());
+
+            final DelayShard.LaneCloseMaterializationResult messageBatch = shard.materializeClosedLane(lane, 1);
+            assertEquals(1, messageBatch.materializedMessages());
+            assertFalse(messageBatch.complete());
+            assertEquals(MessageStatus.DEAD_LETTER, shard.getMessage(schedule.delayMessageId()).status());
+            assertEquals(StableCode.LANE_CLOSED_BEFORE_ADMISSION,
+                    shard.getTerminalGeneration(schedule.delayMessageId(), 0).terminalCode());
+            assertNotNull(shard.getLaneCloseCursor(lane));
+
+            final DelayShard.LaneCloseMaterializationResult reservationBatch = shard.materializeClosedLane(lane, 1);
+            assertTrue(reservationBatch.complete());
+            assertNull(shard.getLaneCloseCursor(lane));
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(MessageStatus.DEAD_LETTER, reopened.getMessage(schedule.delayMessageId()).status());
+            assertEquals(StableCode.LANE_CLOSED_BEFORE_ADMISSION,
+                    reopened.getTerminalGeneration(schedule.delayMessageId(), 0).terminalCode());
+            assertNull(reopened.getLaneCloseCursor(lane));
+        }
+    }
+
+    @Test
+    void closeAbandonsUncommittedReservationWithoutReleasingQuotaTwice() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("lane-close-reservation"));
+        final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,
+                3, 100, 10_000);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 69);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("lane-close-reservation"));
+        final LargeScheduleIntent intent = new LargeScheduleIntent(lane, 2_000, 5_000,
+                OrderingMode.BEST_EFFORT, 8, Bytes.sha256(Bytes.utf8("lane-close-reservation-payload")),
+                4_000, 9);
+        final PreparedCommand prepare = PreparedCommand.prepareLarge(shardId, intent, 9_000);
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final PayloadProofTrustSet trustSet = new PayloadProofTrustSet(9, Map.of(2, keyPair.getPublic()));
+        final byte[] reservationId = Bytes.sha256(Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                prepare.commandId().bytes(), prepare.delayMessageId().bytes(), prepare.commandHash());
+        final AuthorIdentity control = AuthorIdentity.control(Bytes.sha256(Bytes.utf8("close-reservation-actor")),
+                Bytes.sha256(Bytes.utf8("close-reservation-roles")),
+                Bytes.sha256(Bytes.utf8("close-reservation-scope")));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, shardConfig, trustSet);
+            assertEquals(StableCode.OK, shard.apply(prepare, position(shardId, 0, 1_000)).stableCode());
+            assertEquals(1, shard.quota().reservationMessages());
+            final LaneRecord beforeClose = shard.getLane(lane);
+            final ControlRef closeRef = new ControlRef(Bytes.sha256(Bytes.utf8("close-reservation-op")),
+                    Bytes.sha256(Bytes.utf8("close-reservation-request")), 0);
+            final byte[] closeBody = applyShardControlBody(shardId, closeRef, 11, lane,
+                    beforeClose.laneIncarnation(), beforeClose.laneControlVersion());
+            final SystemMutation closeMutation = SystemMutation.signed(shardId,
+                    SystemMutationType.APPLY_SHARD_CONTROL, 9_000,
+                    closeRef.logicalOperationIdentity(11), closeBody, control.canonicalBytes(), 1,
+                    keyPair.getPrivate());
+            assertEquals(StableCode.OK, shard.applySystemMutation(closeMutation,
+                    position(shardId, 1, 1_001), keyPair.getPublic()).stableCode());
+            assertEquals(0, shard.quota().reservationMessages());
+            assertEquals(StableCode.PAYLOAD_RESERVATION_CLOSED,
+                    shard.apply(PreparedCommand.commitLarge(shardId, prepare.delayMessageId(),
+                                    PayloadCommitProof.signed(9, 2, shardId.routeIncarnation().bytes(),
+                                            shardId.partition(), prepare.delayMessageId(), reservationId,
+                                            Bytes.sha256(Bytes.utf8("close-reservation-profile")),
+                                            Bytes.utf8("bucket"), Bytes.utf8("key"), Bytes.utf8("v1"), new byte[0],
+                                            intent.expectedPayloadLength(), intent.payloadSha256(), 5_000,
+                                            keyPair.getPrivate()), 9_000),
+                            position(shardId, 2, 1_002)).stableCode());
+            final DelayShard.LaneCloseMaterializationResult phase = shard.materializeClosedLane(lane, 1);
+            assertFalse(phase.complete());
+            assertEquals(LaneCloseMaterializationCursor.Phase.RESERVATIONS,
+                    shard.getLaneCloseCursor(lane).phase());
+            assertEquals(0, shard.quota().reservationMessages());
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard reopened = new DelayShard(store, shardConfig, trustSet);
+            assertEquals(LaneCloseMaterializationCursor.Phase.RESERVATIONS,
+                    reopened.getLaneCloseCursor(lane).phase());
+            final DelayShard.LaneCloseMaterializationResult done = reopened.materializeClosedLane(lane, 1);
+            assertTrue(done.complete());
+            assertEquals(PayloadReservationStatus.ABANDONED, reopened.getReservation(reservationId).status());
+            assertEquals(0, reopened.quota().reservationMessages());
+            assertNull(store.getValue(ColumnFamily.TIMELINE,
+                    KeyCodec.reservationExpiry(intent.reservationTtlMs() + 1_000, reservationId), 5));
+            assertNull(reopened.getLaneCloseCursor(lane));
+        }
+    }
+
+    @Test
     void sourceOrderedTrustSetControlsPersistMarkersAndCloseFirstSeenIssuance() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("trust-set-controls"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 18);

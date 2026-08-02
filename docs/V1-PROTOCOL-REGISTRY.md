@@ -1127,6 +1127,18 @@ meta/RECOVERY:        07 01 | recoveryKeyKind:u8
 meta/SLO_OUTBOX:      08 01 | sampleId[32]
 ```
 
+For `timeline/SYSTEM systemWorkKind=2`, the ValueEnvelope payload is the
+canonical `LaneCloseMaterializationCursorV1` (local value type 11): fields are
+1 version=1; 2 `DestinationLaneId[32]`; 3 Lane Incarnation[16]; 4 nonzero
+`closeVersion`; 5 canonical `SourcePositionV1 closeSourcePosition`; 6 phase
+(`MESSAGES=1` or `RESERVATIONS=2`); optional 7 exclusive-resume `lastKey`; 8
+transferred pending-message count; 9 transferred pending bytes; 10 transferred
+reservation count; 11 transferred reservation bytes; 12 digest. The digest is
+`SHA-256("nereus-delay-lane-close-cursor-v1\\0" || canonical fields 1–11)`.
+The marker transfers counters once; cursor batches are quota-neutral and may
+only materialize unadmitted records. A generation with any admitted
+`PUBLISHING`/`UNCERTAIN` obligation is never converted by this cursor.
+
 `sourceOrderToken` 是 closed self-delimiting fixed variant：Kafka `01 | offset:u64be`；Pulsar `02 | ledgerId:u64be | entryId:u64be | normalizedBatchIndex:u32be`。一个 Route adapter 固定一种 variant。
 
 For `timeline/ORDERED`, `deliverAt` is the business-order component, not the wake timestamp. Its V1 value schema must retain canonical `actionAt`, current `retryEligibilityAt`, and head-blocking state; the Lane READY projection uses `headEligibilityAt=max(actionAt,retryEligibilityAt)`. Ordinary managed delivery requires `actionAt=deliverAt`. Certified Pulsar handoff requires the one fixed handoff lead of the pinned Profile version, so `actionAt=checkedSubtract(deliverAt,handoffLead)` is order-preserving inside that Lane; V1 rejects underflow and any per-message handoff lead. Changing this relationship requires a new ORDERED key/value version.

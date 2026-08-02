@@ -33,6 +33,18 @@ public record ShardQuota(long pendingMessages, long pendingBytes, long reservati
                 laneCount, Math.addExact(usageRevision, 1));
     }
 
+    /** Removes the unadmitted message charge transferred by one Lane close. */
+    public ShardQuota removeSchedules(final long messages, final long bytes) {
+        if (messages < 0 || bytes < 0 || pendingMessages < messages || pendingBytes < bytes) {
+            throw new IllegalStateException("shard quota message usage underflow");
+        }
+        if (messages == 0 && bytes == 0) {
+            return this;
+        }
+        return new ShardQuota(pendingMessages - messages, pendingBytes - bytes, reservationMessages,
+                reservationBytes, laneCount, Math.addExact(usageRevision, 1));
+    }
+
     public ShardQuota addReservation(final long bytes, final boolean newLane) {
         return new ShardQuota(pendingMessages, pendingBytes, Math.addExact(reservationMessages, 1),
                 Math.addExact(reservationBytes, bytes), Math.addExact(laneCount, newLane ? 1 : 0),
@@ -44,6 +56,18 @@ public record ShardQuota(long pendingMessages, long pendingBytes, long reservati
             throw new IllegalStateException("shard quota reservation underflow");
         }
         return new ShardQuota(pendingMessages, pendingBytes, reservationMessages - 1,
+                reservationBytes - bytes, laneCount, Math.addExact(usageRevision, 1));
+    }
+
+    /** Removes the uncommitted reservation charge transferred by one Lane close. */
+    public ShardQuota removeReservations(final long messages, final long bytes) {
+        if (messages < 0 || bytes < 0 || reservationMessages < messages || reservationBytes < bytes) {
+            throw new IllegalStateException("shard quota reservation usage underflow");
+        }
+        if (messages == 0 && bytes == 0) {
+            return this;
+        }
+        return new ShardQuota(pendingMessages, pendingBytes, reservationMessages - messages,
                 reservationBytes - bytes, laneCount, Math.addExact(usageRevision, 1));
     }
 
