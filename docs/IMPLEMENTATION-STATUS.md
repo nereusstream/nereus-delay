@@ -305,6 +305,10 @@ explicit by waiting for all Column Family flushes and then synchronizing the
 WAL; `ShardStoreTest.flushAndSyncMakesTheShardBoundaryExplicit` verifies the
 value after a close/reopen. It is a local physical primitive, not proof that
 all remote callbacks have quiesced.
+`DelayShard.listOpenPublishAttempts` provides the corresponding bounded local
+view of live `PUBLISHING`/`UNCERTAIN` ledgers for drain/recovery polling; it
+rejects duplicate attempt identities and over-bound scans instead of guessing.
+The admission regression asserts the exact ledger is visible in this view.
 Restore admission only treats a checksum-validated `ACTIVE` pointer target as
 the live incarnation; an orphan incarnation left before pointer installation
 does not block a new atomic restore and remains available for later repair.

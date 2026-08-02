@@ -352,6 +352,10 @@ checkpoint 和 lease release 仍是生产 drain gate。
 `ShardStore.flushAndSync` 还提供 drain 的物理 flush/WAL-sync 原语，重开回归为
 `ShardStoreTest.flushAndSyncMakesTheShardBoundaryExplicit`；它不替代远端 callback
 quiescence 或 final checkpoint publication。
+`DelayShard.listOpenPublishAttempts` 还提供 bounded 的
+`PUBLISHING`/`UNCERTAIN` ledger view，供 drain 等待 admitted callback 的本地轮询
+使用；重复 attempt identity 或超 bound 都 fail closed，不能把未知 obligation
+当作已清空。
 Lease validity additionally rejects negative observation times even when a
 caller reaches `OwnerLease.validAt` directly rather than through an authority
 request; `OwnerLeaseTest.negativeClockCannotMakeOwnerLeaseValid` covers the

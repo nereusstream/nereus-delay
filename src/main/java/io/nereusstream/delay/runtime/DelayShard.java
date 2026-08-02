@@ -2738,6 +2738,31 @@ public final class DelayShard {
     }
 
     /**
+     * Returns the bounded set of all live PUBLISHING/UNCERTAIN ledgers.
+     * Drain and recovery callers can use this as a callback-quiescence view;
+     * the method never guesses when the persisted inflight set exceeds the
+     * configured shard bound.
+     */
+    public synchronized List<PublishAttemptLedger> listOpenPublishAttempts() {
+        final int limit = boundedLimitPlusOne(config.maxPendingMessages());
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries = store.scan(ColumnFamily.INFLIGHT,
+                new byte[]{INFLIGHT_PUBLISHING_KIND, 1}, new byte[]{4, 1}, limit);
+        if (entries.size() >= limit && config.maxPendingMessages() < Integer.MAX_VALUE) {
+            throw new IllegalStateException("open publish attempt scan exceeded configured bound");
+        }
+        final Set<String> identities = new HashSet<>();
+        final List<PublishAttemptLedger> result = new ArrayList<>();
+        for (var entry : entries) {
+            final PublishAttemptLedger ledger = decodePublishAttempt(entry);
+            if (!identities.add(Bytes.hex(ledger.publishAttemptId()))) {
+                throw new IllegalStateException("publish attempt ID has multiple live ledgers");
+            }
+            result.add(ledger);
+        }
+        return List.copyOf(result);
+    }
+
+    /**
      * Applies the durable part of Publish Admission. The complete signed Registry body is retained verbatim in the
      * ledger, while nested Claim/Certificate/Channel validation is deliberately owned by the pending admission
      * body codec. The message, timeline, READY projection, attempt key and source position commit in one batch.

@@ -3006,6 +3006,7 @@ class DelayShardTest {
             assertEquals(MessageStatus.PUBLISHING, shard.getMessage(schedule.delayMessageId()).status());
             assertNull(shard.getClaim(claim.claimId(), owner.generation()));
             assertEquals(admission, shard.getPublishAttempt(attemptId, owner.generation()));
+            assertEquals(List.of(admission), shard.listOpenPublishAttempts());
             assertNull(store.getValue(ColumnFamily.TIMELINE, claim.timelineKey(), 1));
             assertNull(store.getValue(ColumnFamily.TIMELINE,
                     KeyCodec.timelineExpiry(5_000, lane, schedule.delayMessageId(), 0), 1));
