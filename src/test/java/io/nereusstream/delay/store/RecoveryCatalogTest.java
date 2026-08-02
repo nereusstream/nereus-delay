@@ -477,6 +477,12 @@ class RecoveryCatalogTest {
                         manifest.appliedShardLogPosition()));
         backend.coverage = java.util.Optional.of(new RecoveryCatalog.FloorCoverage(validFloor, manifest,
                 List.of(manifest)));
+        final KafkaSourcePosition actualPosition = (KafkaSourcePosition) manifest.appliedShardLogPosition();
+        final KafkaSourcePosition conflictingPosition = new KafkaSourcePosition(shard,
+                actualPosition.authenticatedClusterId(), actualPosition.nativeTopicUuid(), actualPosition.offset(), 7,
+                actualPosition.brokerLogAppendTimeEpochMs() + 1);
+        assertThrows(IllegalStateException.class,
+                () -> authority.proveFloorCoverage(manifest.checkpointId(), 0, conflictingPosition));
         assertTrue(authority.proveFloorCoverage(manifest.checkpointId(), 0,
                 manifest.appliedShardLogPosition()).isPresent());
     }

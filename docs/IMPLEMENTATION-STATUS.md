@@ -183,7 +183,9 @@ typed responses must also be byte-equal to the requested cursor set. A missing
 manifest or malformed Floor response therefore fails closed instead of being
 accepted as a successful remote CAS. Read-only `currentFloor`/
 `currentFloorRef` responses and `proveFloorCoverage` results apply the same
-manifest binding, candidate/floor identity, and ancestry-endpoint checks.
+manifest binding, candidate/floor identity, requested mutation/source-boundary
+coverage, and ancestry-endpoint checks; equal source order tokens still require
+canonical Source Position equality.
 Typed `RecoveryCandidateRefV1` and
 `RecoveryPinV1` codecs now close the candidate branch and session-bound pin
 projection, but they are still local value codecs: immutable object publication,

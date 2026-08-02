@@ -144,7 +144,9 @@ position、mutation sequence 或 typed evidence-cursor drift；typed 返回还�
 与请求的 cursor 集合 byte-equal，缺失 manifest 也 fail closed。这只是远端
 响应验证，不等同于已经实现 Oxia transaction。`currentFloor`/
 `currentFloorRef` 和 `proveFloorCoverage` 的只读响应也会绑定已发布
-manifest、candidate/Floor identity 与 ancestry 末端，拒绝漂移或缺失 Floor。
+manifest、candidate/Floor identity、请求的 mutation/source boundary 与
+ancestry 末端，拒绝漂移或缺失 Floor；equal order token 仍要求 canonical
+Source Position 完全一致。
 Publication 及 upload-intent publication 返回的可选 Floor 也会绑定到其已发布
 manifest、同一 shard，并要求 Floor catalog generation 不晚于 publication
 generation；因此 catalog publication response 不能夹带另一条 shard 或更高代的

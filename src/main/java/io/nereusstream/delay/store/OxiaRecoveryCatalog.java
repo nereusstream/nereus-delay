@@ -147,6 +147,10 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
         if (requiredMutationSequence < 0) {
             throw new IllegalArgumentException("required mutation sequence must be non-negative");
         }
+        Objects.requireNonNull(requiredPositions, "requiredPositions");
+        for (SourcePosition requiredPosition : requiredPositions) {
+            Objects.requireNonNull(requiredPosition, "required source position");
+        }
         final Optional<RecoveryCatalog.FloorCoverage> result = Objects.requireNonNull(
                 backend.proveFloorCoverage(candidateCheckpointId, requiredMutationSequence, requiredPositions),
                 "Oxia floor coverage result");
@@ -157,7 +161,17 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
             final CheckpointManifest candidate = publishedManifest(candidateCheckpointId);
             validateManifestIdentity(coverage.candidate(), candidate,
                     "Oxia floor coverage changed candidate manifest");
-            validateScalarFloorIdentity(coverage.floor(), publishedManifest(coverage.floor().checkpointId()));
+            final CheckpointManifest floorManifest = publishedManifest(coverage.floor().checkpointId());
+            validateScalarFloorIdentity(coverage.floor(), floorManifest);
+            if (!candidate.shardId().equals(floorManifest.shardId())
+                    || coverage.floor().includedMutationSequence() < requiredMutationSequence) {
+                throw new IllegalStateException("Oxia floor coverage does not cover the requested boundary");
+            }
+            for (SourcePosition requiredPosition : requiredPositions) {
+                if (!coversPosition(coverage.floor().appliedSourcePosition(), requiredPosition)) {
+                    throw new IllegalStateException("Oxia floor coverage has an unbound source boundary");
+                }
+            }
             final List<CheckpointManifest> ancestry = coverage.ancestry();
             if (ancestry.isEmpty()
                     || !Bytes.constantTimeEquals(ancestry.get(ancestry.size() - 1).checkpointId(),
@@ -238,6 +252,16 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
                 || actual.shardMutationSequence() != expected.shardMutationSequence()
                 || !actual.evidenceCursors().equals(expected.evidenceCursors())) {
             throw new IllegalStateException(message);
+        }
+    }
+
+    private static boolean coversPosition(final SourcePosition covered, final SourcePosition required) {
+        try {
+            final int order = covered.compareTo(required);
+            return order > 0 || (order == 0
+                    && Bytes.constantTimeEquals(covered.canonicalBytes(), required.canonicalBytes()));
+        } catch (IllegalArgumentException exception) {
+            return false;
         }
     }
 
