@@ -164,6 +164,21 @@ public final class ShardStore implements AutoCloseable {
                 exception.addSuppressed(cleanupException);
             }
             throw new IllegalStateException("cannot restore shard checkpoint", exception);
+        } catch (RuntimeException exception) {
+            // A failed staged open/metadata validation can surface as a
+            // runtime exception after restore-tmp has already been created.
+            // Preserve a pre-acquisition concurrency error verbatim, but once
+            // the slot is held, clean the private staging tree just like the
+            // checked I/O failure path.
+            if (!downloadSlotAcquired) {
+                throw exception;
+            }
+            try {
+                deleteTree(restoreRoot);
+            } catch (IOException cleanupException) {
+                exception.addSuppressed(cleanupException);
+            }
+            throw new IllegalStateException("cannot restore shard checkpoint", exception);
         } finally {
             if (downloadSlotAcquired) {
                 resources.releaseCheckpointDownloadSlot();

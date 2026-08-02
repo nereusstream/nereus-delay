@@ -243,6 +243,9 @@ loss 不会重复推进 Floor；不同 Floor 或 identity drift 仍 fail closed�
 Restore admission 只把 checksum-validated `ACTIVE` pointer 指向的
 incarnation 视为 live DB；pointer 尚未切换时留下的 orphan incarnation 不会
 阻塞新的 atomic restore，且不会被悄悄当作 active 覆盖。
+staged open/metadata validation 的 runtime failure 也会清理 private
+`restore-tmp`，而 download-slot 尚未取得时仍保留原始 bounded-concurrency
+错误。
 
 `CheckpointUploadCoordinator` 现在在本地上传边界内先校验完整 checkpoint
 inventory、intent deadline 和 shard/lineage/owner/store/parent identity，取得

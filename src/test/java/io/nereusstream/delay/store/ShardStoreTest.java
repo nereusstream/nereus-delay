@@ -29,6 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ShardStoreTest {
     @TempDir
@@ -176,6 +177,32 @@ class ShardStoreTest {
             assertNotEquals(orphanDb, restored.dbPath());
             assertTrueFile(shardRoot.resolve("ACTIVE"));
             assertTrueFile(orphanDb.resolve("CURRENT"));
+        }
+    }
+
+    @Test
+    void failedStagedRestoreCleansRuntimeValidationTree() throws Exception {
+        final ShardId sourceShard = new ShardId(RouteIncarnation.random(), 25);
+        final ShardId targetShard = new ShardId(RouteIncarnation.random(), 25);
+        final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("failed-restore-source"));
+        final Path checkpoint = tempDir.resolve("failed-restore-checkpoint");
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(sourceConfig);
+             ShardStore source = ShardStore.open(sourceConfig, sourceShard, resources)) {
+            source.createCheckpoint(checkpoint);
+        }
+
+        final ShardStoreConfig targetConfig = ShardStoreConfig.defaults(tempDir.resolve("failed-restore-target"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(targetConfig)) {
+            assertThrows(IllegalStateException.class,
+                    () -> ShardStore.restoreFromCheckpoint(targetConfig, targetShard, resources, checkpoint));
+        }
+        final Path restoreTmp = targetConfig.rootPath().resolve("shards")
+                .resolve(targetShard.routeIncarnation().uuid().toString())
+                .resolve(Integer.toString(targetShard.partition())).resolve("restore-tmp");
+        if (Files.exists(restoreTmp)) {
+            try (var paths = Files.list(restoreTmp)) {
+                assertTrue(paths.toList().isEmpty());
+            }
         }
     }
 
