@@ -309,6 +309,16 @@ source-order stream 中选择分支，每条记录先走同一 shard WriteBatch�
 真实 Kafka/Pulsar consumer、Oxia session/ephemeral authority、broker assignment/
 guard 或 production activation transaction。
 
+V1 的 assignment 接管路径现在还会显式 pin `SourceReplaySuccessor`：同一
+canonical Source Position 的 broker redelivery 可以由 durable apply 幂等处理，
+但任何后继位置都必须由 adapter proof 判定为 immediate successor；内置的
+`strictKafka()` 在 offset gap 处 fail closed，`strictPulsarBatchMember()` 只覆盖
+同一 batch entry，跨 entry 仍要求真实 Pulsar adapter 提供 successor 证明。
+`SourceReplaySuccessorTest` 和
+`OwnerLeaseTest.v1CatchupPinsTheAdapterSuccessorAndRejectsAKafkaGapBeforeApplyingIt`
+证明跳过的 Kafka record 不会被静默重放。旧的 assignment-only overload 保留为
+兼容性 monotonic seam，不能作为 V1 source-gap evidence。
+
 Worker 资源侧现在还提供了本地 `WorkerLoadVector` 与
 `WorkerPlacementPolicy`：它们先按完整 committed capacity、固定/transition
 demand 以及 owned/open DB slots 做 hard filter，再以 dominant-resource/load

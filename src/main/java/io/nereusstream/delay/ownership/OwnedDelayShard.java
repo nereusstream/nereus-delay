@@ -10,7 +10,6 @@ import io.nereusstream.delay.runtime.CommandResult;
 import io.nereusstream.delay.runtime.DelayShard;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.security.PublicKey;
@@ -22,6 +21,7 @@ public final class OwnedDelayShard {
     private ShardLifecycleState state;
     private SourceActivationBarrier activationBarrier;
     private SourceAssignment sourceAssignment;
+    private SourceReplaySuccessor replaySuccessor = SourceReplaySuccessor.monotonic();
     private SourcePosition lastCatchupPosition;
 
     public OwnedDelayShard(final DelayShard delegate, final OwnerLease lease) {
@@ -92,12 +92,31 @@ public final class OwnedDelayShard {
         markCatchingUp(sourceAssignment);
     }
 
-    /** Accepts the exact assignment/barrier pair supplied by the source adapter. */
+    /**
+     * Accepts the exact assignment/barrier pair supplied by the source
+     * adapter, using the legacy monotonic-only compatibility seam.
+     *
+     * <p>V1 source adapters must use
+     * {@link #markCatchingUp(SourceAssignment, SourceReplaySuccessor)} so a
+     * source gap cannot be mistaken for a caught-up shard.</p>
+     */
     public synchronized void markCatchingUp(final SourceAssignment assignment) {
+        markCatchingUp(assignment, SourceReplaySuccessor.monotonic());
+    }
+
+    /**
+     * Accepts an assignment and pins its adapter-defined replay successor for
+     * the complete catch-up window.  The successor cannot be changed halfway
+     * through replay, which prevents a caller from weakening a gap proof after
+     * the first record has been applied.
+     */
+    public synchronized void markCatchingUp(final SourceAssignment assignment,
+                                             final SourceReplaySuccessor successor) {
         if (state != ShardLifecycleState.RESTORING) {
             throw new IllegalStateException("shard is not restoring");
         }
         Objects.requireNonNull(assignment, "assignment");
+        Objects.requireNonNull(successor, "successor");
         if (!delegate.shardId().equals(assignment.shardId())) {
             throw new IllegalArgumentException("source assignment does not belong to shard");
         }
@@ -111,6 +130,7 @@ public final class OwnedDelayShard {
         }
         sourceAssignment = assignment;
         activationBarrier = assignment.activationBarrier();
+        replaySuccessor = successor;
         lastCatchupPosition = delegate.lastAppliedSourcePosition();
         state = ShardLifecycleState.CATCHING_UP;
     }
@@ -281,13 +301,7 @@ public final class OwnedDelayShard {
         if (lastCatchupPosition == null) {
             return;
         }
-        final int order = position.compareTo(lastCatchupPosition);
-        if (order < 0) {
-            throw new IllegalStateException("source replay position regressed");
-        }
-        if (order == 0 && !Arrays.equals(position.canonicalBytes(), lastCatchupPosition.canonicalBytes())) {
-            throw new IllegalStateException("source replay position has conflicting canonical identity");
-        }
+        replaySuccessor.validate(lastCatchupPosition, position);
     }
 
     private void validateSourceConnection(final SourcePosition position, final Long connectionGeneration,

@@ -176,6 +176,35 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void v1CatchupPinsTheAdapterSuccessorAndRejectsAKafkaGapBeforeApplyingIt() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 11);
+        final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = authority.acquire(shardId, "worker-gap", 100, 100).orElseThrow();
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("catchup-gap"));
+        final UUID topic = UUID.randomUUID();
+        final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 3);
+        final KafkaSourcePosition first = new KafkaSourcePosition(shardId, "cluster", topic, 0, null, 1_000);
+        final KafkaSourcePosition gap = new KafkaSourcePosition(shardId, "cluster", topic, 2, null, 1_002);
+        final PreparedCommand firstCommand = PreparedCommand.schedule(shardId,
+                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("gap-lane-1")), 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("first")), 10_000);
+        final PreparedCommand gapCommand = PreparedCommand.schedule(shardId,
+                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("gap-lane-2")), 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("gap")), 10_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            owned.markCatchingUp(new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("gap-assignment")), 1,
+                    barrier), SourceReplaySuccessor.strictKafka());
+            assertThrows(IllegalStateException.class,
+                    () -> owned.replayCatchup(List.of(
+                            new SourceReplayRecord(firstCommand, first, null, null),
+                            new SourceReplayRecord(gapCommand, gap, null, null)), 101));
+            assertEquals(first, owned.lastCatchupPosition());
+        }
+    }
+
+    @Test
     void catchupReplayAppliesSignedSystemMutationsBeforeActivation() throws Exception {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 13);
         final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
