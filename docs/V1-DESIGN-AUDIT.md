@@ -133,8 +133,11 @@ Schedule 的 Profile/Retry/时间/Delivery/Ordering、inline-versus-committed
 payload、Kafka/Pulsar metadata、可选 business/event 字段和 quota version；
 `forPrepare` 明确表示 PrepareLargeSchedule 的无 payload 形态。该增量只证明
 wire/value 校验，不等于 Command Body 已切换：当前 `CommandBodies`/
-`PreparedCommand` 仍通过旧 `ScheduleIntent` 兼容适配层，Retry Policy semantic
-authority、Profile/Adapter 运行时绑定和真实 ingress 迁移仍是 release blocker。
+`PreparedCommand` 仍通过旧 `ScheduleIntent` 兼容适配层。`RetryPolicySemanticV1`
+现在也能按 Registry 公式重算 semantic hash、生成 typed ref，并拒绝 uncertain/
+DLQ 分支和 backoff arithmetic 漂移；但 policy publication/source-position
+activation、Schedule 的历史 policy binding、Profile/Adapter 运行时绑定和真实
+ingress 迁移仍是 release blocker。
 
 `OwnedDelayShard` 现在还提供了带 assignment/barrier/source-connection 校验的
 统一 `replay` seam，以及兼容性的 `replayCatchup`/`replaySystemMutations`：

@@ -37,6 +37,13 @@ public final class RetryPolicyRefV1 {
         return Bytes.copy(semanticHash);
     }
 
+    /** Returns whether this reference is the exact immutable semantic value. */
+    public boolean matches(final RetryPolicySemanticV1 semantic) {
+        Objects.requireNonNull(semantic, "semantic");
+        return version == semantic.version() && Arrays.equals(policyId, semantic.policyId())
+                && Bytes.constantTimeEquals(semanticHash, semantic.semanticHash());
+    }
+
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, policyId);
