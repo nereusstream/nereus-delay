@@ -23,14 +23,14 @@ class StoreRuntimeMetadataTest {
 
     @Test
     void canonicalProjectionRoundTripsAndKeepsEvidenceSorted() {
-        final StoreRuntimeMetadata value = new StoreRuntimeMetadata(bytes(1), bytes(2), 42, true,
+        final StoreRuntimeMetadata value = new StoreRuntimeMetadata(bytes(1), fixedBytes(2, 16), 42, true,
                 List.of(kafkaCursor(1)));
 
         final StoreRuntimeMetadata decoded = StoreRuntimeMetadata.decode(value.canonicalBytes());
 
         assertEquals(value, decoded);
         assertArrayEquals(bytes(1), decoded.lastIngressFenceProofId());
-        assertArrayEquals(bytes(2), decoded.lastCheckpointId());
+        assertArrayEquals(fixedBytes(2, 16), decoded.lastCheckpointId());
         assertEquals(42, decoded.lastOpenedOwnerEpoch());
         assertTrue(decoded.cleanCloseMarker());
         assertEquals(1, decoded.evidenceCursors().size());
@@ -54,7 +54,7 @@ class StoreRuntimeMetadataTest {
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             assertFalse(store.runtimeMetadata().cleanCloseMarker());
             store.recordLastIngressFenceProofId(bytes(3));
-            store.recordLastCheckpointId(bytes(4));
+            store.recordLastCheckpointId(fixedBytes(4, 16));
             store.recordOpenedOwnerEpoch(7);
             store.recordEvidenceCursors(List.of(kafkaCursor(2)));
             assertThrows(IllegalArgumentException.class, () -> store.recordOpenedOwnerEpoch(6));
@@ -64,7 +64,7 @@ class StoreRuntimeMetadataTest {
             final ShardStore reopened = ShardStore.open(config, shardId, resources);
             final StoreRuntimeMetadata projection = reopened.runtimeMetadata();
             assertArrayEquals(bytes(3), projection.lastIngressFenceProofId());
-            assertArrayEquals(bytes(4), projection.lastCheckpointId());
+            assertArrayEquals(fixedBytes(4, 16), projection.lastCheckpointId());
             assertEquals(7, projection.lastOpenedOwnerEpoch());
             assertEquals(List.of(kafkaCursor(2)), projection.evidenceCursors());
             assertFalse(projection.cleanCloseMarker());
@@ -82,6 +82,10 @@ class StoreRuntimeMetadataTest {
 
     private static byte[] bytes(final int seed) {
         return Bytes.sha256(Bytes.utf8("store-runtime-" + seed));
+    }
+
+    private static byte[] fixedBytes(final int seed, final int length) {
+        return java.util.Arrays.copyOf(bytes(seed), length);
     }
 
     private static byte[] uuidBytes(final int seed) {

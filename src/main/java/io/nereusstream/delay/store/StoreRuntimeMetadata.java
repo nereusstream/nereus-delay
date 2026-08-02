@@ -22,13 +22,15 @@ public record StoreRuntimeMetadata(
         long lastOpenedOwnerEpoch,
         boolean cleanCloseMarker,
         List<EvidenceCursorV1> evidenceCursors) {
-    public static final int ID_LENGTH = 32;
+    public static final int FENCE_PROOF_ID_LENGTH = 32;
+    public static final int CHECKPOINT_ID_LENGTH = 16;
     public static final int MAX_EVIDENCE_CURSORS = 1024;
     public static final int MAX_CANONICAL_BYTES = 1 << 20;
 
     public StoreRuntimeMetadata {
-        lastIngressFenceProofId = optionalIdentity(lastIngressFenceProofId, "lastIngressFenceProofId");
-        lastCheckpointId = optionalIdentity(lastCheckpointId, "lastCheckpointId");
+        lastIngressFenceProofId = optionalIdentity(lastIngressFenceProofId, FENCE_PROOF_ID_LENGTH,
+                "lastIngressFenceProofId");
+        lastCheckpointId = optionalIdentity(lastCheckpointId, CHECKPOINT_ID_LENGTH, "lastCheckpointId");
         if (lastOpenedOwnerEpoch < 0) {
             throw new IllegalArgumentException("lastOpenedOwnerEpoch must be non-negative");
         }
@@ -119,10 +121,10 @@ public record StoreRuntimeMetadata(
         byte[] fenceProof = null;
         byte[] checkpoint = null;
         if (index < fields.size() && fields.get(index).number() == 1) {
-            fenceProof = fixedIdentity(fields.get(index++), 1, "lastIngressFenceProofId");
+            fenceProof = fixedIdentity(fields.get(index++), 1, FENCE_PROOF_ID_LENGTH, "lastIngressFenceProofId");
         }
         if (index < fields.size() && fields.get(index).number() == 2) {
-            checkpoint = fixedIdentity(fields.get(index++), 2, "lastCheckpointId");
+            checkpoint = fixedIdentity(fields.get(index++), 2, CHECKPOINT_ID_LENGTH, "lastCheckpointId");
         }
         if (index >= fields.size() || fields.get(index).number() != 3) {
             throw new IllegalArgumentException("StoreRuntimeMetadata is missing owner epoch");
@@ -154,11 +156,11 @@ public record StoreRuntimeMetadata(
         return result;
     }
 
-    private static byte[] optionalIdentity(final byte[] value, final String name) {
+    private static byte[] optionalIdentity(final byte[] value, final int length, final String name) {
         if (value == null) {
             return null;
         }
-        Bytes.requireLength(value, ID_LENGTH, name);
+        Bytes.requireLength(value, length, name);
         boolean nonZero = false;
         for (byte current : value) {
             nonZero |= current != 0;
@@ -170,10 +172,10 @@ public record StoreRuntimeMetadata(
     }
 
     private static byte[] fixedIdentity(final CanonicalProtobuf.Reader.Field field, final int number,
-                                        final String name) {
+                                        final int length, final String name) {
         final byte[] value = bytes(field, number);
-        Bytes.requireLength(value, ID_LENGTH, name);
-        return optionalIdentity(value, name);
+        Bytes.requireLength(value, length, name);
+        return optionalIdentity(value, length, name);
     }
 
     private static byte[] bytes(final CanonicalProtobuf.Reader.Field field, final int number) {
