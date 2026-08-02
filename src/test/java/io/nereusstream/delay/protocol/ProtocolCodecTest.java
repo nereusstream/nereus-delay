@@ -688,6 +688,25 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void sourcePositionDecoderRejectsNonCanonicalUtf8Bytes() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 7);
+        final KafkaSourcePosition kafka = new KafkaSourcePosition(shard, "cluster", java.util.UUID.randomUUID(),
+                3, null, 10);
+        final byte[] kafkaBytes = kafka.canonicalBytes();
+        final int kafkaClusterByte = 1 + 16 + 4;
+        kafkaBytes[kafkaClusterByte] = (byte) 0xc3;
+        assertThrows(IllegalArgumentException.class, () -> SourcePositionCodec.decode(kafkaBytes));
+
+        final byte[] resource = Bytes.sha256(Bytes.utf8("source-resource"));
+        final PulsarSourcePosition pulsar = new PulsarSourcePosition(shard, resource, "persistent://t/topic",
+                2, 4, 0, 1, PulsarSourcePosition.EntryKind.NON_BATCH, 11);
+        final byte[] pulsarBytes = pulsar.canonicalBytes();
+        final int topicByte = 1 + 16 + 4 + resource.length + 4;
+        pulsarBytes[topicByte] = (byte) 0xc3;
+        assertThrows(IllegalArgumentException.class, () -> SourcePositionCodec.decode(pulsarBytes));
+    }
+
+    @Test
     void largeScheduleAndPayloadProofAreCanonicalAndSigned() throws Exception {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
         final LargeScheduleIntent intent = new LargeScheduleIntent(

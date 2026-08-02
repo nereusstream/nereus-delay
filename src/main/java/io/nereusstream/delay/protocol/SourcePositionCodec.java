@@ -2,6 +2,8 @@ package io.nereusstream.delay.protocol;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.Objects;
 import java.util.UUID;
 
 /** Decoder for the closed canonical Source Position variants. */
@@ -10,6 +12,15 @@ public final class SourcePositionCodec {
     }
 
     public static SourcePosition decode(final byte[] bytes) {
+        Objects.requireNonNull(bytes, "bytes");
+        final SourcePosition decoded = decodeInternal(bytes);
+        if (!Arrays.equals(bytes, decoded.canonicalBytes())) {
+            throw new IllegalArgumentException("source position is not canonical");
+        }
+        return decoded;
+    }
+
+    private static SourcePosition decodeInternal(final byte[] bytes) {
         final ByteBuffer input = ByteBuffer.wrap(bytes);
         if (!input.hasRemaining()) {
             throw new IllegalArgumentException("empty source position");
@@ -93,4 +104,3 @@ public final class SourcePositionCodec {
         }
     }
 }
-

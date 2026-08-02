@@ -678,6 +678,10 @@ Kafka 的 `sourceOrderToken` 是 offset 的 8-byte unsigned big-endian 编码。
 
 Kafka successor 是 `offset + 1`。Pulsar checkpoint 若停在 batch member，则 restore seek 到包含它的 entry，逐 member 重放并用 position audit/dedupe 跳过已应用成员；subscription cursor 只在整个 entry 处理完成后 ACK。
 
+`canonicalSourcePosition` 的解码必须重新编码为完全相同的字节；非法 UTF-8、替换字符
+或任何其它非 canonical wire 变体都不是合法 Source Position，必须在进入
+`meta_cf`、dedupe、receipt 或 checkpoint manifest 前 fail closed。
+
 Activation Barrier 是带 Broker 类型和边界方向的 cursor，不与普通 record Source Position 混用：
 
 - Kafka：取得 lease 后从一个 pinned Fetch v13+ response 的同一 exact topic UUID partition block 捕获 read-committed `lastStableOffset`，保存为 `KAFKA_EXCLUSIVE_OFFSET(b)`；当 consumer 的 next fetch position `>= b` 时达到 barrier。`ListOffsets/endOffsets` 只有 topic name，禁止作为 correctness barrier。事务 marker、aborted record 会形成 offset gap，但不要求伪造 position audit。

@@ -501,7 +501,7 @@ Field 18 and `RetryPolicyRefV1.semantic_hash` must match. `PayloadProofTrustSetS
 
 `QuotaGrantRefV1.grant_semantic_hash` equals SHA-256 of domain `nereus-delay-quota-grant-semantic-v1\0` plus grant ID[32], grant version and canonical `ChargeVectorV1 limit`. These formulas, not an Oxia serializer or display JSON, define semantic equality.
 
-`KafkaSourcePositionV1` exact fields: 1 Route UUID[16]; 2 authenticated cluster ID bytes; 3 native topic UUID[16]; 4 partition `uint32`; 5 offset `uint64`; optional 6 leader epoch `uint32`; 7 broker log-append time `int64`. `PulsarSourcePositionV1`: 1 Route UUID[16]; 2 Broker resource incarnation bytes; 3 canonical physical-topic UTF-8 bytes; 4 partition `uint32`; 5 ledger ID `uint64`; 6 entry ID `uint64`; 7 normalized batch index `uint32`; 8 batch size `uint32`; 9 entry kind (1 non-batch, 2 batch); 10 broker entry timestamp `int64`.
+`KafkaSourcePositionV1` exact fields: 1 Route UUID[16]; 2 authenticated cluster ID bytes; 3 native topic UUID[16]; 4 partition `uint32`; 5 offset `uint64`; optional 6 leader epoch `uint32`; 7 broker log-append time `int64`. `PulsarSourcePositionV1`: 1 Route UUID[16]; 2 Broker resource incarnation bytes; 3 canonical physical-topic UTF-8 bytes; 4 partition `uint32`; 5 ledger ID `uint64`; 6 entry ID `uint64`; 7 normalized batch index `uint32`; 8 batch size `uint32`; 9 entry kind (1 non-batch, 2 batch); 10 broker entry timestamp `int64`. A decoded Source Position must byte-round-trip to the exact input; malformed UTF-8 or any non-canonical alternate encoding is rejected before persistence.
 
 `ProtocolTupleV1` exact fields: 1 `uint32 framing_version`; 2 `uint32 log_envelope_version`; 3 `RecordKindV1 record_kind`; 4 `uint32 envelope_version`; 5 `uint32 body_version`.
 
