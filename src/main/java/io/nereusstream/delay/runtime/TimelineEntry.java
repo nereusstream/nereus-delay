@@ -6,18 +6,18 @@ import io.nereusstream.delay.protocol.DelayMessageId;
 import java.nio.ByteBuffer;
 
 /** Current-work reference stored in timeline_cf. */
-record TimelineEntry(DelayMessageId messageId, int generation) {
-    TimelineEntry {
+public record TimelineEntry(DelayMessageId messageId, int generation) {
+    public TimelineEntry {
         if (generation < 0) {
             throw new IllegalArgumentException("generation must be non-negative");
         }
     }
 
-    byte[] encode() {
+    public byte[] encode() {
         return Bytes.concat(Bytes.u32be(1), messageId.bytes(), Bytes.u32be(generation));
     }
 
-    static TimelineEntry decode(final byte[] bytes) {
+    public static TimelineEntry decode(final byte[] bytes) {
         if (bytes.length != 4 + DelayMessageId.LENGTH + 4) {
             throw new IllegalArgumentException("invalid timeline entry length");
         }
@@ -34,4 +34,3 @@ record TimelineEntry(DelayMessageId messageId, int generation) {
         return result;
     }
 }
-

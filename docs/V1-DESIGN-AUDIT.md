@@ -99,8 +99,9 @@ V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障
 当前 `PersistentLaneScheduler.rebuildFromAuthoritativeReady` 已提供 fenced 的本地
 恢复桥：它从 bounded `timeline_cf/READY` 扫描开始，严格校验对应的
 `meta_cf/LANE` incarnation/version/gate/readiness、`id_cf/MESSAGE` 的当前
-generation/status，再一次性替换内存 pending heads 与 active DRR ring；旧、孤儿、
-重复或非 schedulable projection 会 fail closed。`ReadyDiscoveryCursor` 的
+generation/status，并从 Message 的 source position 重算 exact timeline key、
+digest 与 timeline value，再一次性替换内存 pending heads 与 active DRR ring；旧、
+孤儿、重复或非 schedulable projection 会 fail closed。`ReadyDiscoveryCursor` 的
 `lastScannedReadyKey`、`wrapGeneration` 和 active-ring generation 也会在同一组
 SCHEDULER projection 中持久化，恢复不会把 stale Lane 重新加入 ring。该实现证明
 的是单 DB 内的本地物理边界和确定性恢复顺序，不等于 Oxia owner/session fence、

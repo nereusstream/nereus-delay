@@ -6,10 +6,12 @@ import io.nereusstream.delay.protocol.ActiveLaneStateV1;
 import io.nereusstream.delay.protocol.LaneRecordEnvelopeV1;
 import io.nereusstream.delay.protocol.OwnerIdentityV1;
 import io.nereusstream.delay.protocol.SchedulerProjectionsV1;
+import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.runtime.LaneRecord;
 import io.nereusstream.delay.runtime.MessageRecord;
 import io.nereusstream.delay.runtime.MessageStatus;
 import io.nereusstream.delay.runtime.ReadyIndexValue;
+import io.nereusstream.delay.runtime.TimelineEntry;
 import io.nereusstream.delay.store.ColumnFamily;
 import io.nereusstream.delay.store.KeyCodec;
 import io.nereusstream.delay.store.ShardStore;
@@ -293,6 +295,28 @@ public final class PersistentLaneScheduler {
         if (message.status() != MessageStatus.SCHEDULED || message.generation() != value.generation()
                 || !message.laneId().equals(key.laneId())) {
             throw new IllegalStateException("READY points to a non-current scheduled message: " + value.messageId());
+        }
+        final long timelineEligibleAt = message.orderingMode()
+                == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO
+                ? message.deliverAtEpochMs() : message.retryEligibilityAtEpochMs();
+        final byte[] timelineKey = message.orderingMode()
+                == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO
+                ? KeyCodec.timelineOrdered(message.laneId(), timelineEligibleAt,
+                SourcePositionCodec.decode(message.scheduleSourcePosition()).sourceOrderToken(), value.messageId(),
+                message.generation())
+                : KeyCodec.timelineDue(message.laneId(), timelineEligibleAt,
+                SourcePositionCodec.decode(message.scheduleSourcePosition()).sourceOrderToken(), value.messageId(),
+                message.generation());
+        if (!Bytes.constantTimeEquals(value.timelineKeySha256(), Bytes.sha256(timelineKey))) {
+            throw new IllegalStateException("READY timeline digest mismatch: " + value.messageId());
+        }
+        final byte[] timelineBytes = store.get(ColumnFamily.TIMELINE, timelineKey);
+        if (timelineBytes == null) {
+            throw new IllegalStateException("READY points to a missing timeline entry: " + value.messageId());
+        }
+        final TimelineEntry timeline = TimelineEntry.decode(ValueEnvelope.decode(timelineBytes, 1).payload());
+        if (!timeline.messageId().equals(value.messageId()) || timeline.generation() != message.generation()) {
+            throw new IllegalStateException("READY timeline identity mismatch: " + value.messageId());
         }
         final long accountedBytes = Math.max(1, message.payloadLength());
         return new ReadyProjection(lane, new ScheduleWorkItem(key.laneId(), value.messageId(), value.generation(),

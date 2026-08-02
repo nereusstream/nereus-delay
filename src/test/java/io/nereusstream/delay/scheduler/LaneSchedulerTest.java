@@ -1,5 +1,6 @@
 package io.nereusstream.delay.scheduler;
 
+import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
@@ -14,6 +15,7 @@ import io.nereusstream.delay.runtime.LaneRecord;
 import io.nereusstream.delay.runtime.MessageRecord;
 import io.nereusstream.delay.runtime.MessageStatus;
 import io.nereusstream.delay.runtime.ReadyIndexValue;
+import io.nereusstream.delay.runtime.TimelineEntry;
 import io.nereusstream.delay.runtime.RuntimeReadiness;
 import io.nereusstream.delay.store.ColumnFamily;
 import io.nereusstream.delay.store.KeyCodec;
@@ -143,14 +145,18 @@ class LaneSchedulerTest {
         final MessageRecord message = new MessageRecord(MessageStatus.SCHEDULED, 3, 4, 1_000, 9_000, lane,
                 OrderingMode.BEST_EFFORT, new byte[]{1, 2, 3}, source.canonicalBytes());
         final byte[] readyKey = KeyCodec.timelineReady(1_000, lane, laneRecord.laneVersion());
+        final byte[] timelineKey = KeyCodec.timelineDue(lane, 1_000, source.sourceOrderToken(), messageId,
+                message.generation());
         final ReadyIndexValue ready = new ReadyIndexValue(lane, 1_000, laneRecord.laneVersion(), messageId,
-                message.generation(), new byte[32]);
+                message.generation(), Bytes.sha256(timelineKey));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             store.write(batch -> {
                 batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(lane),
                         LaneRecordEnvelopeV1.active(laneRecord.encode()).canonicalBytes());
                 batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(messageId), message.encode());
+                batch.putValue(ColumnFamily.TIMELINE, 1, timelineKey,
+                        new TimelineEntry(messageId, message.generation()).encode());
                 batch.putValue(ColumnFamily.TIMELINE, 3, readyKey, ready.encode());
             });
             final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
