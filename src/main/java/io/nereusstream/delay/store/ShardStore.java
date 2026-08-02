@@ -455,6 +455,12 @@ public final class ShardStore implements AutoCloseable {
                 throw new IllegalStateException("shard identity mismatch: expected " + shardId + " got "
                         + metadata.shardId());
             }
+            final UUID pathStoreIncarnation = incarnationFromPath(dbPath);
+            if (pathStoreIncarnation != null && !pathStoreIncarnation.equals(metadata.storeIncarnationUuid())) {
+                closeHandles(db, openedHandles, cfOptions, dbOptions);
+                throw new IllegalStateException("store incarnation does not match DB path: expected "
+                        + pathStoreIncarnation + " got " + metadata.storeIncarnationUuid());
+            }
         }
         if (restoreStoreIncarnation != null && identityBytes != null) {
             final byte[] storeIncarnation = uuidBytes(restoreStoreIncarnation);
@@ -478,6 +484,19 @@ public final class ShardStore implements AutoCloseable {
     private static byte[] uuidBytes(final UUID uuid) {
         return java.nio.ByteBuffer.allocate(16).putLong(uuid.getMostSignificantBits())
                 .putLong(uuid.getLeastSignificantBits()).array();
+    }
+
+    private static UUID incarnationFromPath(final Path dbPath) throws IOException {
+        final Path incarnation = dbPath.getParent();
+        final Path container = incarnation == null ? null : incarnation.getParent();
+        if (container == null || !"incarnations".equals(container.getFileName().toString())) {
+            return null;
+        }
+        try {
+            return UUID.fromString(incarnation.getFileName().toString());
+        } catch (IllegalArgumentException exception) {
+            throw new IOException("DB path has an invalid store incarnation: " + dbPath, exception);
+        }
     }
 
     private static void copyTree(final Path source, final Path target) throws IOException {

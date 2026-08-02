@@ -80,6 +80,23 @@ class ShardStoreTest {
     }
 
     @Test
+    void reopenRejectsStoreIncarnationMetadataNotMatchingPath() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("incarnation-mismatch"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 29);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final StoreMetadata original = store.metadata();
+            final byte[] otherIncarnation = java.util.Arrays.copyOf(
+                    Bytes.sha256(Bytes.utf8("other-store-incarnation")), 16);
+            store.write(batch -> batch.put(ColumnFamily.META, KeyCodec.metaFixed(2),
+                    new StoreMetadata(1, shardId, otherIncarnation, original.dbIdentity()).encode()));
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+            assertThrows(IllegalStateException.class, () -> ShardStore.open(config, shardId, resources));
+        }
+    }
+
+    @Test
     void checkpointUsesTemporaryNamespaceAndRejectsExistingTarget() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("checkpoint-atomic"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 23);

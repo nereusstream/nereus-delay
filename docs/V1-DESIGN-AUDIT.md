@@ -276,6 +276,9 @@ live-incarnation pointer 使用同一 fail-closed 边界；restore 也不会把
 已有 RocksDB 如果缺少 `meta_cf` 的 shard-identity marker 也不再被当成 fresh
 DB 初始化；只有没有 `CURRENT` 的真正新目录才允许写入初始 metadata，已有目录
 缺 marker 会在 activation 前 fail closed，`ShardStoreTest` 覆盖该重开路径。
+正常 incarnation 目录还会把路径 UUID 与 metadata 的 `storeIncarnation` 做交叉
+校验，并拒绝全零 Store/DB identity；restore-tmp 在 install-mode 完成新 identity
+写入前不套用这条路径检查，安装到 `incarnations/` 后再由正常 open 验证。
 staged open/metadata validation 的 runtime failure 也会清理 private
 `restore-tmp`，而 download-slot 尚未取得时仍保留原始 bounded-concurrency
 错误。

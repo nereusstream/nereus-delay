@@ -17,8 +17,8 @@ public record StoreMetadata(
         if (storeFormatVersion != 1) {
             throw new IllegalArgumentException("unsupported store format version");
         }
-        Bytes.requireLength(storeIncarnation, 16, "storeIncarnation");
-        Bytes.requireLength(dbIdentity, 32, "dbIdentity");
+        requireNonZero(storeIncarnation, 16, "storeIncarnation");
+        requireNonZero(dbIdentity, 32, "dbIdentity");
         storeIncarnation = Bytes.copy(storeIncarnation);
         dbIdentity = Bytes.copy(dbIdentity);
     }
@@ -60,5 +60,14 @@ public record StoreMetadata(
         final ByteBuffer input = ByteBuffer.wrap(storeIncarnation);
         return new UUID(input.getLong(), input.getLong());
     }
-}
 
+    private static void requireNonZero(final byte[] value, final int length, final String name) {
+        Bytes.requireLength(value, length, name);
+        for (byte item : value) {
+            if (item != 0) {
+                return;
+            }
+        }
+        throw new IllegalArgumentException(name + " must be non-zero");
+    }
+}
