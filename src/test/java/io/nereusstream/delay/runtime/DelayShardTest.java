@@ -29,6 +29,9 @@ import io.nereusstream.delay.protocol.PayloadProofIssuanceClosePayloadV1;
 import io.nereusstream.delay.protocol.PayloadProofTrustSetActivatePayloadV1;
 import io.nereusstream.delay.protocol.ControlReasonKindV1;
 import io.nereusstream.delay.protocol.ControlReasonV1;
+import io.nereusstream.delay.protocol.ProfileAcceptanceV1;
+import io.nereusstream.delay.protocol.ProfileBindingActivatePayloadV1;
+import io.nereusstream.delay.protocol.ProfileNewBindingClosePayloadV1;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
@@ -308,6 +311,77 @@ class DelayShardTest {
             final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver);
             assertNotNull(reopened.getV1ScheduleBinding(schedule.delayMessageId()));
             assertNotNull(reopened.getV1ScheduleBinding(prepare.delayMessageId()));
+        }
+    }
+
+    @Test
+    void profileBindingControlsGateNewRegistryBindingsBySourcePosition() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("profile-binding-controls"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 34);
+        final ProfileRefV1 profile = new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 21),
+                ProfileKindV1.DESTINATION);
+        final io.nereusstream.delay.protocol.RetryPolicyRefV1 retryPolicy =
+                new io.nereusstream.delay.protocol.RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 22));
+        final ScheduleIntentV1 intent = ScheduleIntentV1.create(profile, retryPolicy, 2_000, 5_000,
+                io.nereusstream.delay.protocol.DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT,
+                Bytes.utf8("ordering"), Bytes.utf8("profile-gated"), null,
+                io.nereusstream.delay.protocol.AdapterMetadataV1.kafka(
+                        new io.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())), null, null);
+        final byte[] tuple = Bytes.utf8("profile-gated-lane");
+        final DestinationLaneId lane = DestinationLaneId.derive(tuple);
+        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+            @Override
+            public ResolvedSchedule resolveSchedule(final ShardId shard, final DelayMessageId messageId,
+                                                     final ScheduleIntentV1 schedule,
+                                                     final io.nereusstream.delay.protocol.SourcePosition source) {
+                return new ResolvedSchedule(lane, tuple, schedule.inlinePayload(), null);
+            }
+
+            @Override
+            public ResolvedPrepare resolvePrepare(final ShardId shard, final DelayMessageId messageId,
+                                                  final io.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1 body,
+                                                  final io.nereusstream.delay.protocol.SourcePosition source) {
+                return new ResolvedPrepare(lane, tuple);
+            }
+        };
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final AuthorIdentity control = AuthorIdentity.control(Bytes.sha256(Bytes.utf8("profile-control-actor")),
+                Bytes.sha256(Bytes.utf8("profile-control-roles")), Bytes.sha256(Bytes.utf8("profile-control-scope")));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver);
+            final ControlRef activateRef = new ControlRef(Bytes.sha256(Bytes.utf8("profile-activate-op")),
+                    Bytes.sha256(Bytes.utf8("profile-activate-request")), 1);
+            final byte[] activateBody = profileControlBody(shardId, activateRef, 2, profile,
+                    new ProfileBindingActivatePayloadV1(profile).canonicalBytes());
+            final SystemMutation activate = SystemMutation.signed(shardId, SystemMutationType.APPLY_SHARD_CONTROL,
+                    9_000, activateRef.logicalOperationIdentity(2), activateBody, control.canonicalBytes(), 1,
+                    keyPair.getPrivate());
+            assertEquals(StableCode.OK, shard.applySystemMutation(activate, position(shardId, 0, 1_000),
+                    keyPair.getPublic()).stableCode());
+            assertEquals(StableCode.SCHEDULED,
+                    shard.apply(PreparedCommand.scheduleV1(shardId, intent, 9_000), position(shardId, 1, 1_001))
+                            .stableCode());
+
+            final ControlRef closeRef = new ControlRef(Bytes.sha256(Bytes.utf8("profile-close-op")),
+                    Bytes.sha256(Bytes.utf8("profile-close-request")), 2);
+            final ProfileNewBindingClosePayloadV1 closePayload = new ProfileNewBindingClosePayloadV1(profile,
+                    new ControlReasonV1(ControlReasonKindV1.POLICY_CHANGE,
+                            Bytes.sha256(Bytes.utf8("profile-close-ticket")), null));
+            final byte[] closeBody = profileControlBody(shardId, closeRef, 3, profile,
+                    closePayload.canonicalBytes());
+            final SystemMutation close = SystemMutation.signed(shardId, SystemMutationType.APPLY_SHARD_CONTROL,
+                    9_000, closeRef.logicalOperationIdentity(3), closeBody, control.canonicalBytes(), 1,
+                    keyPair.getPrivate());
+            assertEquals(StableCode.OK, shard.applySystemMutation(close, position(shardId, 2, 1_002),
+                    keyPair.getPublic()).stableCode());
+            final PreparedCommand later = PreparedCommand.scheduleV1(shardId, intent, 9_000);
+            assertEquals(StableCode.PROFILE_DEPRECATED_FOR_NEW_USE,
+                    shard.apply(later, position(shardId, 3, 1_003)).stableCode());
+            assertEquals(ProfileAcceptanceV1.CLOSED_FOR_FIRST_BINDING,
+                    shard.profileBindingControlState().firstBindingAcceptance(profile,
+                            position(shardId, 3, 1_003)));
         }
     }
 
@@ -2916,6 +2990,27 @@ class DelayShardTest {
             CanonicalProtobuf.uint32(output, 11, controlKind);
             CanonicalProtobuf.uint32(output, 12, trustSet.version());
             CanonicalProtobuf.bytes(output, 13, trustSet.semanticHash());
+            CanonicalProtobuf.bytes(output, 15, payload);
+        });
+    }
+
+    private static byte[] profileControlBody(final ShardId shard, final ControlRef controlRef,
+                                             final int controlKind, final ProfileRefV1 profile,
+                                             final byte[] branch) {
+        final byte[] subject = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());
+            CanonicalProtobuf.uint32(output, 2, shard.partition());
+        });
+        final byte[] payload = CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, controlKind,
+                branch));
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, subject);
+            CanonicalProtobuf.uint32(output, 2, SystemMutationType.APPLY_SHARD_CONTROL.wireValue());
+            CanonicalProtobuf.int64(output, 3, 9_000);
+            CanonicalProtobuf.bytes(output, 10, controlRef.canonicalBytes());
+            CanonicalProtobuf.uint32(output, 11, controlKind);
+            CanonicalProtobuf.uint32(output, 12, profile.version());
+            CanonicalProtobuf.bytes(output, 13, profile.semanticHash());
             CanonicalProtobuf.bytes(output, 15, payload);
         });
     }

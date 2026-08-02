@@ -157,7 +157,7 @@ public final class KeyCodec {
     }
 
     public static byte[] metaFixed(final int fixedKeyKind) {
-        if (fixedKeyKind <= 0 || fixedKeyKind > 12) {
+        if (fixedKeyKind <= 0 || fixedKeyKind > 13) {
             throw new IllegalArgumentException("unknown FIXED meta key kind");
         }
         return new byte[]{1, 1, (byte) fixedKeyKind};

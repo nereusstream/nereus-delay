@@ -25,6 +25,11 @@ import io.nereusstream.delay.protocol.PayloadProofTrustSetControlState;
 import io.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
 import io.nereusstream.delay.protocol.PayloadProofTrustSetSemanticV1;
 import io.nereusstream.delay.protocol.PayloadReference;
+import io.nereusstream.delay.protocol.ProfileAcceptanceV1;
+import io.nereusstream.delay.protocol.ProfileBindingActivatePayloadV1;
+import io.nereusstream.delay.protocol.ProfileBindingControlState;
+import io.nereusstream.delay.protocol.ProfileNewBindingClosePayloadV1;
+import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1;
 import io.nereusstream.delay.protocol.PublishAdmissionBody;
 import io.nereusstream.delay.protocol.PublishOutcomeBody;
@@ -73,7 +78,9 @@ public final class DelayShard {
     private static final int META_MUTATION_SEQUENCE = 5;
     private static final int META_CLAIM_SEQUENCE = 11;
     private static final int META_PAYLOAD_PROOF_CONTROL_STATE = 12;
+    private static final int META_PROFILE_CONTROL_STATE = 13;
     private static final int PAYLOAD_PROOF_CONTROL_VALUE_TYPE = 9;
+    private static final int PROFILE_CONTROL_VALUE_TYPE = 10;
     private static final int META_QUOTA_USAGE = 1;
     private static final int META_OUTCOME_RESERVE_USAGE = 2;
     private static final int CAPACITY_RESERVE_VALUE_TYPE = 8;
@@ -86,6 +93,7 @@ public final class DelayShard {
     private final PayloadProofTrustSet payloadProofTrustSet;
     private final PayloadProofTrustSetControlCatalog payloadProofTrustSetControlCatalog;
     private PayloadProofTrustSetControlState payloadProofTrustSetControlState;
+    private ProfileBindingControlState profileBindingControlState;
     private final ShardCapacityEnvelopeV1 capacityEnvelope;
     private final V1ScheduleResolver v1ScheduleResolver;
     /** Single-writer scratch; consumed by the same apply turn before the batch is written. */
@@ -165,6 +173,11 @@ public final class DelayShard {
         payloadProofTrustSetControlState = payloadProofControlValue == null
                 ? PayloadProofTrustSetControlState.empty()
                 : PayloadProofTrustSetControlState.decode(payloadProofControlValue.payload());
+        final var profileControlValue = store.getValue(ColumnFamily.META,
+                KeyCodec.metaFixed(META_PROFILE_CONTROL_STATE), PROFILE_CONTROL_VALUE_TYPE);
+        profileBindingControlState = profileControlValue == null
+                ? ProfileBindingControlState.empty()
+                : ProfileBindingControlState.decode(profileControlValue.payload());
         final var quotaValue = store.getValue(ColumnFamily.META, KeyCodec.metaQuota(META_QUOTA_USAGE), 7);
         quota = quotaValue == null ? ShardQuota.empty() : ShardQuota.decode(quotaValue.payload());
         final var outcomeReserveValue = store.getValue(ColumnFamily.META,
@@ -187,6 +200,11 @@ public final class DelayShard {
     /** Returns the persisted source-ordered trust-set marker projection. */
     public synchronized PayloadProofTrustSetControlState payloadProofTrustSetControlState() {
         return payloadProofTrustSetControlState;
+    }
+
+    /** Returns the persisted source-ordered Profile first-binding projection. */
+    public synchronized ProfileBindingControlState profileBindingControlState() {
+        return profileBindingControlState;
     }
 
     public synchronized CommandResult apply(final PreparedCommand command, final SourcePosition sourcePosition) {
@@ -866,6 +884,9 @@ public final class DelayShard {
         if (body.controlKind() == 12 || body.controlKind() == 13) {
             return applyPayloadProofTrustSetControlMutation(body, mutation, sourcePosition);
         }
+        if (body.controlKind() == 2 || body.controlKind() == 3) {
+            return applyProfileBindingControlMutation(body, mutation, sourcePosition);
+        }
         if (body.controlKind() < 8 || body.controlKind() > 11) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
@@ -1020,6 +1041,64 @@ public final class DelayShard {
                     "trust-set semantic value is unavailable or does not match its reference");
         }
         return semantic;
+    }
+
+    private SystemMutationResult applyProfileBindingControlMutation(
+            final ApplyShardControlBody body, final SystemMutation mutation,
+            final SourcePosition sourcePosition) {
+        final ProfileRefV1 profile;
+        final ProfileBindingControlState next;
+        if (body.controlKind() == 2) {
+            final ProfileBindingActivatePayloadV1 payload = body.profileBindingActivate();
+            profile = payload.profile();
+            if (!profileReferenceMatchesBody(body, profile)) {
+                return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                        StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+            }
+            next = profileBindingControlState.activate(profile, sourcePosition);
+        } else {
+            final ProfileNewBindingClosePayloadV1 payload = body.profileNewBindingClose();
+            profile = payload.profile();
+            if (!profileReferenceMatchesBody(body, profile)) {
+                return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                        StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+            }
+            next = profileBindingControlState.close(payload, sourcePosition);
+        }
+        final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, StableCode.OK,
+                sourcePosition.canonicalBytes());
+        store.write(batch -> {
+            batch.putValue(ColumnFamily.META, PROFILE_CONTROL_VALUE_TYPE,
+                    KeyCodec.metaFixed(META_PROFILE_CONTROL_STATE), next.canonicalBytes());
+            writeSystemResult(batch, result);
+            writePosition(batch, sourcePosition);
+        });
+        profileBindingControlState = next;
+        lastAppliedSourcePosition = sourcePosition;
+        mutationSequence++;
+        return result;
+    }
+
+    private static boolean profileReferenceMatchesBody(final ApplyShardControlBody body,
+                                                       final ProfileRefV1 profile) {
+        return body.semanticVersion() == profile.version()
+                && Bytes.constantTimeEquals(body.semanticHash(), profile.semanticHash());
+    }
+
+    private void requireProfileFirstBinding(final ProfileRefV1 profile, final SourcePosition sourcePosition) {
+        if (!profileBindingControlState.hasMarkers()) {
+            return;
+        }
+        final ProfileAcceptanceV1 acceptance = profileBindingControlState.firstBindingAcceptance(profile,
+                sourcePosition);
+        if (acceptance == ProfileAcceptanceV1.ABSENT) {
+            throw new V1CommandResolutionException(StableCode.PROFILE_VERSION_NOT_ACTIVE_AT_SOURCE_POSITION,
+                    "Profile version is not active for first binding at this source position");
+        }
+        if (acceptance == ProfileAcceptanceV1.CLOSED_FOR_FIRST_BINDING) {
+            throw new V1CommandResolutionException(StableCode.PROFILE_DEPRECATED_FOR_NEW_USE,
+                    "Profile version is closed for first binding at this source position");
+        }
     }
 
     /** Builds the exact reversible timeline projection that Pause must restore in its own batch. */
@@ -3406,6 +3485,7 @@ public final class DelayShard {
         }
         final PrepareLargeScheduleBodyV1 body = CommandBodies.decodePrepareLargeV1(command.canonicalBody());
         requireV1BodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
+        requireProfileFirstBinding(body.intentWithoutPayload().profile(), sourcePosition);
         final V1ScheduleResolver resolver = requireV1ScheduleResolver();
         final V1ScheduleResolver.ResolvedPrepare resolved = Objects.requireNonNull(
                 resolver.resolvePrepare(command.shardId(), command.delayMessageId(), body, sourcePosition),
@@ -3432,6 +3512,7 @@ public final class DelayShard {
         }
         final ScheduleCommandBodyV1 body = CommandBodies.decodeScheduleV1(command.canonicalBody());
         requireV1BodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
+        requireProfileFirstBinding(body.intent().profile(), sourcePosition);
         final V1ScheduleResolver resolver = requireV1ScheduleResolver();
         final V1ScheduleResolver.ResolvedSchedule resolved = Objects.requireNonNull(
                 resolver.resolveSchedule(command.shardId(), command.delayMessageId(), body.intent(), sourcePosition),

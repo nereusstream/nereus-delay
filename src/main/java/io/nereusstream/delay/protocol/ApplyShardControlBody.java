@@ -73,6 +73,18 @@ public final class ApplyShardControlBody {
         return PayloadProofTrustSetActivatePayloadV1.decode(branchPayload(12));
     }
 
+    /** Decodes the field-2 Profile first-binding activation branch. */
+    public ProfileBindingActivatePayloadV1 profileBindingActivate() {
+        requireControlKind(2);
+        return ProfileBindingActivatePayloadV1.decode(branchPayload(2));
+    }
+
+    /** Decodes the field-3 Profile first-binding close branch. */
+    public ProfileNewBindingClosePayloadV1 profileNewBindingClose() {
+        requireControlKind(3);
+        return ProfileNewBindingClosePayloadV1.decode(branchPayload(3));
+    }
+
     /** Decodes the field-13 trust-set issuance-close branch. */
     public PayloadProofIssuanceClosePayloadV1 payloadProofIssuanceClose() {
         requireControlKind(13);
