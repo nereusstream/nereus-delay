@@ -258,6 +258,10 @@ An empty Pulsar activation barrier still validates a non-null persisted cursor's
 resource incarnation and physical topic before declaring the barrier reached;
 an old DB from another Pulsar resource therefore cannot bypass source identity
 validation merely because no replay record is required.
+The embedded queued-receipt query and applied-receipt projection apply the same
+canonical-position fence at a reached barrier: a same Kafka offset or Pulsar
+ledger/entry/batch token with different metadata is an integrity failure rather
+than a successful query or applied frame.
 
 本地 `RecoveryCatalog.publishUploadedCheckpoint` 现在要求 PUBLISHED intent
 与完整 manifest 的 shard、lineage、checkpoint、manifest hash/length、owner

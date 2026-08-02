@@ -237,9 +237,13 @@ public final class EmbeddedDelayService implements DelayClient {
             if (!current.sameSourceIdentity(awaited)) {
                 return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
             }
-            if (current.compareTo(awaited) < 0) {
+            final int order = current.compareTo(awaited);
+            if (order < 0) {
                 return CommandQueryResponseV1.pending(new io.nereusstream.delay.protocol.PendingCommandViewV1(
                         awaited, current, safeRetryAt(nowEpochMs)));
+            }
+            if (order == 0 && !Bytes.constantTimeEquals(current.canonicalBytes(), awaited.canonicalBytes())) {
+                return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
             }
         } catch (IllegalArgumentException mismatch) {
             return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
@@ -270,9 +274,13 @@ public final class EmbeddedDelayService implements DelayClient {
             throw new IllegalArgumentException("full result retention deadline must be non-negative");
         }
         final SourcePosition current = shard.lastAppliedSourcePosition();
-        if (current == null || !current.sameSourceIdentity(queuedReceipt.sourcePosition())
-                || current.compareTo(queuedReceipt.sourcePosition()) < 0) {
+        if (current == null || !current.sameSourceIdentity(queuedReceipt.sourcePosition())) {
             throw new IllegalStateException("command has not crossed its source barrier");
+        }
+        final int order = current.compareTo(queuedReceipt.sourcePosition());
+        if (order < 0 || (order == 0 && !Bytes.constantTimeEquals(current.canonicalBytes(),
+                queuedReceipt.sourcePosition().canonicalBytes()))) {
+            throw new IllegalStateException("command has not crossed its exact source barrier");
         }
         final CommandResult result = shard.getCommandResult(queuedReceipt.command().commandId());
         if (result == null) {

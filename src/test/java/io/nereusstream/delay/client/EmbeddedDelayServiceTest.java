@@ -4,6 +4,7 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.AdapterKindV1;
 import io.nereusstream.delay.protocol.CommandAppliedReceiptV1;
 import io.nereusstream.delay.protocol.CommandQueryResult;
+import io.nereusstream.delay.protocol.CommandQueuedReceiptV1;
 import io.nereusstream.delay.protocol.ControlOperationQueryResultV1;
 import io.nereusstream.delay.protocol.ControlOperationReceiptV1;
 import io.nereusstream.delay.protocol.ControlOperationStateV1;
@@ -166,6 +167,36 @@ class EmbeddedDelayServiceTest {
                     service.queryMessage(DelayMessageId.random(shard), publicBinding(),
                             DlqExportStateV1.NOT_CONFIGURED, null,
                             io.nereusstream.delay.protocol.FirstScheduleEligibilityV1.NOT_PROVEN).resultKind());
+        }
+    }
+
+    @Test
+    void embeddedQueryRejectsSameOffsetReceiptWithConflictingCanonicalMetadata() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 18);
+        final Clock clock = Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("query-position-fence")), shard, clock)) {
+            final PreparedCommand command = service.prepareSchedule(new ScheduleIntent(
+                    DestinationLaneId.derive(Bytes.utf8("query-position-fence-lane")), 2_000, 5_000,
+                    OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+            final EnqueueOutcome outcome = service.enqueue(command).toCompletableFuture().join();
+            final byte[] attemptId = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("query-position-attempt")), 16);
+            final CommandQueuedReceiptV1 queued = service.queuedReceiptV1(outcome, 10_000, attemptId);
+            final KafkaSourcePosition actual = (KafkaSourcePosition) queued.sourcePosition();
+            final KafkaSourcePosition conflicting = new KafkaSourcePosition(shard,
+                    actual.authenticatedClusterId(), actual.nativeTopicUuid(), actual.offset(), 7,
+                    Math.addExact(actual.brokerLogAppendTimeEpochMs(), 1));
+            final CommandQueuedReceiptV1 forged = CommandQueuedReceiptV1.create(command, conflicting,
+                    new CommandQueuedReceiptV1.KafkaQueuedAck(actual.authenticatedClusterId(), actual.nativeTopicUuid(),
+                            shard.partition(), actual.offset(), 7, conflicting.brokerLogAppendTimeEpochMs(),
+                            Bytes.sha256(Bytes.utf8("query-position-conflicting-ack"))),
+                    10_000, attemptId);
+
+            service.drain();
+            assertEquals(io.nereusstream.delay.protocol.CommandQueryResult.INTEGRITY_ERROR,
+                    service.queryCommand(forged, 1_000, 10_000, publicBinding()).resultKind());
+            assertThrows(IllegalStateException.class,
+                    () -> service.appliedReceiptV1(forged, 10_000, publicBinding()));
         }
     }
 

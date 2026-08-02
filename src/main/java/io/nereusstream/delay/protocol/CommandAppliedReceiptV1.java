@@ -238,8 +238,13 @@ public final class CommandAppliedReceiptV1 {
     private static void validateAppliedPosition(final SourcePosition queuedPosition,
                                                 final SourcePosition appliedPosition) {
         if (!queuedPosition.sameSourceIdentity(appliedPosition) || !queuedPosition.shardId().equals(
-                appliedPosition.shardId()) || appliedPosition.compareTo(queuedPosition) < 0) {
+                appliedPosition.shardId())) {
             throw new IllegalArgumentException("applied Source Position is not after queued position");
+        }
+        final int order = appliedPosition.compareTo(queuedPosition);
+        if (order < 0 || (order == 0 && !Bytes.constantTimeEquals(appliedPosition.canonicalBytes(),
+                queuedPosition.canonicalBytes()))) {
+            throw new IllegalArgumentException("applied Source Position is not the exact queued position");
         }
     }
 }

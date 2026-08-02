@@ -2097,6 +2097,12 @@ absent or ambiguous lease
 appliedShardLogPosition >= receipt.sourcePosition
 ```
 
+这里的 `>=` 只在 Source Position canonical bytes 完全一致或当前 position
+严格晚于 receipt position 时成立；同一 Kafka offset 或 Pulsar
+ledger/entry/batch token 携带不同 leader/append-time、batch 或其它 canonical
+metadata 时必须返回 integrity failure，不能把 comparator equality 当作已跨过
+receipt barrier。
+
 之前 Queued locator 可返回 `PENDING + currentPosition`。达到 barrier 后不能返回 `UNKNOWN`：必须返回 exact result、compact `RESULT_EXPIRED`、caller receipt/position audit `RECEIPT_MISMATCH`，或 contractually expired audit 的 `RESULT_EVIDENCE_EXPIRED`。`RECEIPT_MISMATCH` 是不可信 locator 的 typed error，不是服务端 `INTEGRITY_ERROR`；safe mismatch details 只在 tenant authorization 后可见。Bare locator 可 `UNKNOWN`，但没有 barrier，绝不返回 `PENDING`。
 
 `CommandQueryResult` 是 closed union：

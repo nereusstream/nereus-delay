@@ -218,6 +218,10 @@ class ProtocolCodecTest {
                 999);
         assertThrows(IllegalArgumentException.class, () -> CommandAppliedReceiptV1.create(queued,
                 CommandApplyStatusV1.APPLIED, StableCode.OK, beforeQueued, 0, 1L, publicBinding(), 3_000));
+        final KafkaSourcePosition conflictingSameOffset = new KafkaSourcePosition(shard, "cluster-applied", topic,
+                10, 2, 1_002);
+        assertThrows(IllegalArgumentException.class, () -> CommandAppliedReceiptV1.create(queued,
+                CommandApplyStatusV1.APPLIED, StableCode.OK, conflictingSameOffset, 0, 1L, publicBinding(), 3_000));
         assertThrows(IllegalArgumentException.class, () -> CommandAppliedReceiptV1.create(queued,
                 CommandApplyStatusV1.REJECTED, StableCode.INVALID_COMMAND, appliedPosition, 0, 1L, publicBinding(),
                 3_000));
