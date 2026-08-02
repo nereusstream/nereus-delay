@@ -114,7 +114,9 @@ blockers, so the local marker apply does not claim production trust authority.
 
 The local Owner Lease adapters now enforce the closed lifecycle transition
 matrix, including fail-closed backward transitions and fenced-lease
-non-reactivation; the real Oxia ephemeral session/CAS authority remains a
+non-reactivation; renewal also rejects a response that changes the expected
+lifecycle state, rather than silently accepting a same-identity lease in a
+different state. The real Oxia ephemeral session/CAS authority remains a
 release blocker. Activation also rereads an exact same-identity
 `ACTIVE_FOR_COMMANDS` successor after a lost transition response.
 

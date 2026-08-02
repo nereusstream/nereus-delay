@@ -57,7 +57,8 @@ public final class OxiaOwnerLeaseStore implements OwnerLeaseStore {
             return Optional.empty();
         }
         final OwnerLease renewed = result.get();
-        if (!sameIdentity(expected, renewed) || renewed.expiresAtEpochMs() < expected.expiresAtEpochMs()
+        if (!sameIdentity(expected, renewed) || renewed.state() != expected.state()
+                || renewed.expiresAtEpochMs() < expected.expiresAtEpochMs()
                 || !renewed.validAt(nowEpochMs)) {
             throw new IllegalStateException("Oxia lease renewal changed fenced identity or expiry");
         }

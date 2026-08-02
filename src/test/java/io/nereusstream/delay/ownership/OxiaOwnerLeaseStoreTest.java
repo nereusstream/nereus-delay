@@ -115,6 +115,38 @@ class OxiaOwnerLeaseStoreTest {
     }
 
     @Test
+    void rejectsRenewalThatChangesLifecycleState() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
+        final OwnerLease expected = new OwnerLease(shard, "worker-a", 4, nonZero(32, 3), 200,
+                null, ShardLifecycleState.RESTORING);
+        final OxiaOwnerLeaseStore.LeaseCasBackend backend = new OxiaOwnerLeaseStore.LeaseCasBackend() {
+            @Override
+            public Optional<OwnerLease> acquire(final ShardId ignored, final String ownerId, final long now,
+                                                 final long duration) {
+                return Optional.empty();
+            }
+
+            @Override
+            public Optional<OwnerLease> renew(final OwnerLease ignored, final long now, final long duration) {
+                return Optional.of(new OwnerLease(shard, "worker-a", 4, nonZero(32, 3), now + duration,
+                        null, ShardLifecycleState.FENCED));
+            }
+
+            @Override
+            public boolean release(final OwnerLease ignored) {
+                return false;
+            }
+
+            @Override
+            public Optional<OwnerLease> current(final ShardId ignored) {
+                return Optional.empty();
+            }
+        };
+        final OxiaOwnerLeaseStore store = new OxiaOwnerLeaseStore(backend);
+        assertThrows(IllegalStateException.class, () -> store.renew(expected, 150, 20));
+    }
+
+    @Test
     void transitionOrReadAcceptsOnlyExactSuccessorAfterResponseLoss() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 16);
         final OwnerLease acquiring = new OwnerLease(shard, "worker-response-loss", 1, nonZero(32, 7), 200);
