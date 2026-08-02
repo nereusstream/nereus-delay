@@ -120,7 +120,9 @@ counts and reject close while any bounded worker operation is still in flight.
 Checkpoint restore/download staging now holds its own Worker-level slot across
 manifest/file validation, restore-tmp copy, validation opens, and atomic
 installation; it is released only after the active DB is opened or cleanup
-completes.
+completes. `ShardStoreTest.completeCheckpointRestoresIntoFreshStoreIncarnation`
+also reacquires that slot immediately after a real restore returns, proving
+the slot is released before the caller closes the restored DB.
 
 The checkpoint code now covers the local physical boundary: create the complete
 RocksDB image under the same-filesystem `checkpoint-tmp` namespace, atomically

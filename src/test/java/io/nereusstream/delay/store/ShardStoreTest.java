@@ -136,6 +136,13 @@ class ShardStoreTest {
             org.junit.jupiter.api.Assertions.assertFalse(
                     java.util.Arrays.equals(originalStoreIncarnation, restored.metadata().storeIncarnation()));
             assertNotEquals(sourceConfig.rootPath(), restoreConfig.rootPath());
+
+            // restoreFromCheckpoint must release the worker-wide download slot
+            // before returning the opened active DB, not only after the caller
+            // closes that DB.  This exercises the real restore path rather
+            // than only testing the semaphore API in isolation.
+            resources.acquireCheckpointDownloadSlot();
+            resources.releaseCheckpointDownloadSlot();
         }
     }
 
