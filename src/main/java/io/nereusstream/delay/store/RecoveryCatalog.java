@@ -26,6 +26,7 @@ import java.util.Optional;
  */
 public final class RecoveryCatalog implements RecoveryCatalogAuthority {
     private final Map<String, CheckpointManifest> manifests = new HashMap<>();
+    private final Map<String, io.nereusstream.delay.protocol.CheckpointResourceV1> manifestResources = new HashMap<>();
     private long catalogGeneration;
     private RecoveryFloor floor;
     private RecoveryFloorRefV1 typedFloorRef;
@@ -200,9 +201,22 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
             if (!Bytes.constantTimeEquals(existing.manifestSha256(), manifest.manifestSha256())) {
                 throw new IllegalStateException("checkpoint identity conflict");
             }
+            final io.nereusstream.delay.protocol.CheckpointResourceV1 existingResource =
+                    manifestResources.get(key(manifest.checkpointId()));
+            if (existingResource != null && !existingResource.equals(resource)) {
+                throw new IllegalStateException("checkpoint object identity conflict");
+            }
+            if (existingResource == null) {
+                // A legacy local publish may have recorded the manifest before
+                // this upload-intent projection was introduced. Bind the exact
+                // immutable object identity on the first compatible reread.
+                manifestResources.put(key(manifest.checkpointId()), resource);
+            }
             return new Publication(existing, catalogGeneration, floor);
         }
-        return publish(manifest, expectedCatalogGeneration);
+        final Publication publication = publish(manifest, expectedCatalogGeneration);
+        manifestResources.put(key(manifest.checkpointId()), resource);
+        return publication;
     }
 
     public synchronized Optional<CheckpointManifest> manifest(final byte[] checkpointId) {

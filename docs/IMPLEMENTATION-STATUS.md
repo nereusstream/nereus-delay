@@ -22,8 +22,9 @@ local store uses an `ACTIVE` checksummed pointer and an
 manifest-object identity and PENDING/PUBLISHED/REAPING branch rules. The
 embedded `RecoveryCatalog` now selects and validates a published floor-eligible
 ancestry before local restore. Upload-intent catalog projection also accepts
-an exact same-checkpoint/manifest reread after publication response loss while
-rejecting same-ID hash drift. Typed `RecoveryCandidateRefV1` and
+an exact same-checkpoint/manifest/object-identity reread after publication
+response loss while rejecting same-ID manifest-hash or object-version drift.
+Typed `RecoveryCandidateRefV1` and
 `RecoveryPinV1` codecs now close the candidate branch and session-bound pin
 projection, but they are still local value codecs: immutable object publication,
 durable Oxia catalog/session pin CAS, and Kafka/Pulsar source replay remain

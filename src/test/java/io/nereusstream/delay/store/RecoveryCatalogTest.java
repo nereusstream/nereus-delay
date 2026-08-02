@@ -194,6 +194,38 @@ class RecoveryCatalogTest {
     }
 
     @Test
+    void uploadedCheckpointPublicationRejectsSameManifestWithDifferentObjectIdentity() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 14);
+        final byte[] lineage = id16(100);
+        final CheckpointManifest manifest = manifest(shard, UUID.randomUUID(), lineage, id16(101), 0,
+                1, 1, null);
+        final ProfileRefV1 profile = new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, id32(102),
+                ProfileKindV1.OBJECT_STORE);
+        final OwnerIdentityV1 owner = new OwnerIdentityV1(manifest.createdBy().deploymentId(),
+                manifest.createdBy().workerRunId(), manifest.createdBy().ownerEpoch(), id32(103));
+        final CheckpointResourceV1 resource = new CheckpointResourceV1(lineage, manifest.checkpointId(), profile,
+                Bytes.utf8("bucket"), Bytes.utf8("checkpoint/101/manifest"), Bytes.utf8("version-1"),
+                manifest.canonicalJsonBytes().length, manifest.manifestSha256());
+        final CheckpointUploadIntentV1 published = new CheckpointUploadIntentV1(
+                new ShardSubjectV1(shard), lineage, manifest.checkpointId(), owner,
+                uuidBytes(manifest.sourceStoreIncarnation()), id32(104), 1, null, null, profile,
+                evidence(3_000), 7_000, CheckpointUploadStateV1.PUBLISHED, 2, resource, null);
+        final CheckpointUploadIntentV1 conflicting = new CheckpointUploadIntentV1(
+                new ShardSubjectV1(shard), lineage, manifest.checkpointId(), owner,
+                uuidBytes(manifest.sourceStoreIncarnation()), id32(105), 1, null, null, profile,
+                evidence(3_000), 7_000, CheckpointUploadStateV1.PUBLISHED, 2,
+                new CheckpointResourceV1(lineage, manifest.checkpointId(), profile, Bytes.utf8("bucket"),
+                        Bytes.utf8("checkpoint/101/manifest"), Bytes.utf8("version-2"),
+                        manifest.canonicalJsonBytes().length, manifest.manifestSha256()), null);
+
+        final RecoveryCatalog catalog = new RecoveryCatalog();
+        catalog.publish(manifest, 0);
+        catalog.publishUploadedCheckpoint(published, manifest, 1);
+        assertThrows(IllegalStateException.class,
+                () -> catalog.publishUploadedCheckpoint(conflicting, manifest, 1));
+    }
+
+    @Test
     void typedFloorRequiresSameGenerationCursorDominance() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 12);
         final byte[] lineage = id16(80);
