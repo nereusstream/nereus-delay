@@ -354,8 +354,8 @@ class DelayShardTest {
         final KafkaSourcePosition source = position(shardId, 0, 1_000);
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
-            final RetryPolicyCatalog catalog = (reference, sourcePosition) -> reference.matches(policy)
-                    ? policy : null;
+            final InMemoryRetryPolicyCatalog catalog = new InMemoryRetryPolicyCatalog();
+            catalog.publish(policy, source);
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver, null,
                     catalog);
             assertEquals(StableCode.SCHEDULED, shard.apply(schedule, source).stableCode());
