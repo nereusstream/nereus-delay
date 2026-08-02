@@ -31,7 +31,7 @@ public final class OxiaControlOperationAuthority implements ControlOperationAuth
         final ControlOperationQueryResponseV1 response = Objects.requireNonNull(backend.register(
                 Objects.requireNonNull(receipt, "receipt"), Objects.requireNonNull(initial, "initial")),
                 "Oxia register response");
-        validateCurrent(response, receipt, initial.operationRevision());
+        validateCurrent(response, receipt, initial.operationRevision(), null);
         return response;
     }
 
@@ -45,7 +45,7 @@ public final class OxiaControlOperationAuthority implements ControlOperationAuth
         final ControlOperationQueryResponseV1 response = Objects.requireNonNull(backend.advance(
                 Objects.requireNonNull(receipt, "receipt"), expectedRevision,
                 Objects.requireNonNull(next, "next")), "Oxia advance response");
-        validateCurrent(response, receipt, next.operationRevision());
+        validateCurrent(response, receipt, next.operationRevision(), next);
         return response;
     }
 
@@ -56,13 +56,14 @@ public final class OxiaControlOperationAuthority implements ControlOperationAuth
         }
         final ControlOperationQueryResponseV1 response = Objects.requireNonNull(backend.query(
                 Objects.requireNonNull(receipt, "receipt"), nowEpochMs), "Oxia query response");
-        validateCurrent(response, receipt, -1);
+        validateCurrent(response, receipt, -1, null);
         return response;
     }
 
     private static void validateCurrent(final ControlOperationQueryResponseV1 response,
                                         final ControlOperationReceiptV1 receipt,
-                                        final long expectedRevision) {
+                                        final long expectedRevision,
+                                        final CurrentControlOperationV1 expectedCurrent) {
         if (response.resultKind() != io.nereusstream.delay.protocol.ControlOperationQueryResultV1.CURRENT) {
             return;
         }
@@ -72,7 +73,11 @@ public final class OxiaControlOperationAuthority implements ControlOperationAuth
                 || !Bytes.constantTimeEquals(receipt.authenticatedScopeHash(), current.authenticatedScopeHash())) {
             throw new IllegalStateException("Oxia response is not bound to the requested operation");
         }
-        if (expectedRevision > 0 && current.operationRevision() < expectedRevision) {
+        if (expectedCurrent != null
+                && (current.operationRevision() != expectedRevision || !current.equals(expectedCurrent))) {
+            throw new IllegalStateException("Oxia response did not prove the requested operation revision");
+        }
+        if (expectedCurrent == null && expectedRevision > 0 && current.operationRevision() < expectedRevision) {
             throw new IllegalStateException("Oxia response regressed operation revision");
         }
     }

@@ -102,6 +102,36 @@ class ControlOperationAuthorityTest {
         assertThrows(IllegalStateException.class, () -> authority.register(receipt, initial));
     }
 
+    @Test
+    void oxiaAdvanceRequiresTheExactRequestedCurrentAfterResponseLoss() {
+        final ControlOperationReceiptV1 receipt = receipt(6, 4_000);
+        final CurrentControlOperationV1 initial = current(receipt, 1, ControlOperationStateV1.PENDING);
+        final CurrentControlOperationV1 requested = current(receipt, 2, ControlOperationStateV1.IN_PROGRESS);
+        final CurrentControlOperationV1 later = current(receipt, 3, ControlOperationStateV1.REJECTED);
+        final OxiaControlOperationAuthority authority = new OxiaControlOperationAuthority(
+                new OxiaControlOperationAuthority.CasBackend() {
+                    @Override
+                    public ControlOperationQueryResponseV1 register(final ControlOperationReceiptV1 ignored,
+                                                                     final CurrentControlOperationV1 ignoredInitial) {
+                        return ControlOperationQueryResponseV1.current(initial);
+                    }
+
+                    @Override
+                    public ControlOperationQueryResponseV1 advance(final ControlOperationReceiptV1 ignored,
+                                                                    final long ignoredRevision,
+                                                                    final CurrentControlOperationV1 ignoredNext) {
+                        return ControlOperationQueryResponseV1.current(later);
+                    }
+
+                    @Override
+                    public ControlOperationQueryResponseV1 query(final ControlOperationReceiptV1 ignored,
+                                                                 final long ignoredNow) {
+                        return ControlOperationQueryResponseV1.current(later);
+                    }
+                });
+        assertThrows(IllegalStateException.class, () -> authority.advance(receipt, 1, requested));
+    }
+
     private static ControlOperationReceiptV1 receipt(final int seed, final long queryUntil) {
         final byte[] operation = bytes(32, seed);
         final TrustedUtcIntervalEvidence registered = new TrustedUtcIntervalEvidence(1_000, 1_100,

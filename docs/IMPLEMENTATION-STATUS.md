@@ -245,8 +245,11 @@ release blockers.
 The embedded conformance service now exposes the local Control Operation
 register/advance/query entry points over the receipt-bound authority. They
 preserve idempotent registration, revision CAS and the fixed query retention
-boundary for tests; they do not provide production Oxia routing, authorization,
-or crash-durable control state.
+boundary for tests. The Oxia validation adapter now requires an exact
+`CurrentControlOperationV1` (identity, revision, state, targets and typed
+result) for `advance` after response loss; a later or different CURRENT is not
+accepted as proof of that CAS. They do not provide production Oxia routing,
+authorization, or crash-durable control state.
 
 The local Admission increment now decodes the closed 17-dimensional
 `ChargeVectorV1` and persists the non-borrowable outcome reserve usage in the
