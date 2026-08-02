@@ -6,11 +6,26 @@ import java.nio.ByteBuffer;
  * Command body codecs.
  *
  * <p>The original methods remain legacy embedded adapters. The explicit
- * {@code *V1} methods below emit Registry-shaped Client Body common fields and
- * are not yet wired into the legacy {@link PreparedCommand} runtime path.</p>
+ * {@code *V1} methods below emit Registry-shaped Client Body common fields.
+ * Runtime application is enabled per command type as its semantic resolver is
+ * implemented; callers must not silently fall back from a malformed V1 body
+ * to a legacy body.</p>
  */
 public final class CommandBodies {
     private CommandBodies() {
+    }
+
+    /**
+     * Returns whether a body is shaped like a Registry Client Body V1.
+     *
+     * <p>All Client Body V1 branches begin with required bytes field 1, whose
+     * canonical protobuf tag is {@code 0x0a}. The legacy fixed-width adapters
+     * begin with a four-byte version integer and therefore cannot be mistaken
+     * for this discriminator. The branch codec remains responsible for full
+     * canonical validation.</p>
+     */
+    public static boolean isRegistryClientBodyV1(final byte[] body) {
+        return body != null && body.length > 0 && (body[0] & 0xff) == 0x0a;
     }
 
     public static byte[] schedule(final ScheduleIntent intent) {

@@ -10,6 +10,7 @@ import io.nereusstream.delay.protocol.CanonicalProtobuf;
 import io.nereusstream.delay.protocol.CapacityDimensionV1;
 import io.nereusstream.delay.protocol.CapacityGrantV1;
 import io.nereusstream.delay.protocol.CapacityVectorV1;
+import io.nereusstream.delay.protocol.CancelCommandBodyV1;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.DlqExportResultBody;
@@ -28,6 +29,7 @@ import io.nereusstream.delay.protocol.ResolveUncertainBody;
 import io.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
 import io.nereusstream.delay.protocol.ResourceKind;
 import io.nereusstream.delay.protocol.ResourceRetireIntentBody;
+import io.nereusstream.delay.protocol.RescheduleCommandBodyV1;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.StableCode;
@@ -3424,12 +3426,13 @@ public final class DelayShard {
     }
 
     private CommandResult applyCancel(final PreparedCommand command, final SourcePosition sourcePosition) {
+        final CancelRequest request = decodeCancelRequest(command);
         final MessageRecord existing = getMessage(command.delayMessageId());
         if (existing == null) {
             final PayloadReservation reservation = findReservationForMessage(command.delayMessageId());
             if (reservation != null) {
-                final int expectedGeneration = CommandBodies.decodeCancel(command.canonicalBody());
-                if (expectedGeneration >= 0 && expectedGeneration != 0) {
+                if (!matchesPrecondition(request.expectedGeneration(), request.expectedStateVersion(), 0,
+                        reservation.stateVersion())) {
                     return applied(StableCode.VERSION_CONFLICT, sourcePosition, null);
                 }
                 return switch (reservation.status()) {
@@ -3441,8 +3444,8 @@ public final class DelayShard {
             }
             return applied(StableCode.NOT_FOUND, sourcePosition, null);
         }
-        final int expectedGeneration = CommandBodies.decodeCancel(command.canonicalBody());
-        if (expectedGeneration >= 0 && expectedGeneration != existing.generation()) {
+        if (!matchesPrecondition(request.expectedGeneration(), request.expectedStateVersion(), existing.generation(),
+                existing.stateVersion())) {
             return applied(StableCode.VERSION_CONFLICT, sourcePosition, existing);
         }
         if ((existing.status() == MessageStatus.SCHEDULED || existing.status() == MessageStatus.CLAIMED)
@@ -3462,12 +3465,13 @@ public final class DelayShard {
     }
 
     private CommandResult applyReschedule(final PreparedCommand command, final SourcePosition sourcePosition) {
+        final RescheduleRequest request = decodeRescheduleRequest(command);
         final MessageRecord existing = getMessage(command.delayMessageId());
         if (existing == null) {
             return applied(StableCode.NOT_FOUND, sourcePosition, null);
         }
-        final CommandBodies.RescheduleValues values = CommandBodies.decodeReschedule(command.canonicalBody());
-        if (values.expectedGeneration() >= 0 && values.expectedGeneration() != existing.generation()) {
+        if (!matchesPrecondition(request.expectedGeneration(), request.expectedStateVersion(), existing.generation(),
+                existing.stateVersion())) {
             return applied(StableCode.VERSION_CONFLICT, sourcePosition, existing);
         }
         if ((existing.status() == MessageStatus.SCHEDULED || existing.status() == MessageStatus.CLAIMED)
@@ -3477,12 +3481,51 @@ public final class DelayShard {
         if (existing.status() != MessageStatus.SCHEDULED && existing.status() != MessageStatus.CLAIMED) {
             return applied(StableCode.TOO_LATE, sourcePosition, existing);
         }
-        validateWindow(values.deliverAtEpochMs(), values.expireAtEpochMs(), sourcePosition.brokerPersistenceTimeEpochMs());
+        validateWindow(request.deliverAtEpochMs(), request.expireAtEpochMs(),
+                sourcePosition.brokerPersistenceTimeEpochMs());
         final MessageRecord replacement = new MessageRecord(MessageStatus.SCHEDULED, existing.generation() + 1,
-                existing.stateVersion() + 1, values.deliverAtEpochMs(), values.expireAtEpochMs(), existing.laneId(),
+                existing.stateVersion() + 1, request.deliverAtEpochMs(), request.expireAtEpochMs(), existing.laneId(),
                 existing.orderingMode(), existing.payload(), sourcePosition.canonicalBytes(),
                 existing.payloadReference());
         return applied(StableCode.SUPERSEDED, sourcePosition, replacement);
+    }
+
+    private CancelRequest decodeCancelRequest(final PreparedCommand command) {
+        if (CommandBodies.isRegistryClientBodyV1(command.canonicalBody())) {
+            final CancelCommandBodyV1 body = CommandBodies.decodeCancelV1(command.canonicalBody());
+            requireV1BodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
+            return new CancelRequest(body.precondition().expectedGeneration(),
+                    body.precondition().expectedStateVersion());
+        }
+        final int expectedGeneration = CommandBodies.decodeCancel(command.canonicalBody());
+        return new CancelRequest(expectedGeneration < 0 ? null : (long) expectedGeneration, null);
+    }
+
+    private RescheduleRequest decodeRescheduleRequest(final PreparedCommand command) {
+        if (CommandBodies.isRegistryClientBodyV1(command.canonicalBody())) {
+            final RescheduleCommandBodyV1 body = CommandBodies.decodeRescheduleV1(command.canonicalBody());
+            requireV1BodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
+            return new RescheduleRequest(body.precondition().expectedGeneration(),
+                    body.precondition().expectedStateVersion(), body.newDeliverAtEpochMs(),
+                    body.newExpireAtEpochMs());
+        }
+        final CommandBodies.RescheduleValues values = CommandBodies.decodeReschedule(command.canonicalBody());
+        return new RescheduleRequest(values.expectedGeneration() < 0 ? null : (long) values.expectedGeneration(), null,
+                values.deliverAtEpochMs(), values.expireAtEpochMs());
+    }
+
+    private static void requireV1BodyIdentity(final PreparedCommand command, final DelayMessageId bodyMessageId,
+                                              final long bodyRetryUntilEpochMs) {
+        if (!command.delayMessageId().equals(bodyMessageId)
+                || command.retryUntilEpochMs() != bodyRetryUntilEpochMs) {
+            throw new IllegalArgumentException("Client body common fields do not match outer command");
+        }
+    }
+
+    private static boolean matchesPrecondition(final Long expectedGeneration, final Long expectedStateVersion,
+                                               final long generation, final long stateVersion) {
+        return (expectedGeneration == null || expectedGeneration == generation)
+                && (expectedStateVersion == null || expectedStateVersion == stateVersion);
     }
 
     private void validateWindow(final long deliverAt, final long expireAt, final long brokerTime) {
@@ -3846,7 +3889,7 @@ public final class DelayShard {
 
     private MessageRecord rescheduledMessage(final PreparedCommand command, final SourcePosition position,
                                              final MessageRecord prior) {
-        final var values = CommandBodies.decodeReschedule(command.canonicalBody());
+        final RescheduleRequest values = decodeRescheduleRequest(command);
         return new MessageRecord(MessageStatus.SCHEDULED, prior.generation() + 1, prior.stateVersion() + 1,
                 values.deliverAtEpochMs(), values.expireAtEpochMs(), prior.laneId(), prior.orderingMode(),
                 prior.payload(), position.canonicalBytes(), prior.payloadReference());
@@ -4435,6 +4478,13 @@ public final class DelayShard {
     }
 
     private record GenerationIdentity(DelayMessageId messageId, int generation) {
+    }
+
+    private record CancelRequest(Long expectedGeneration, Long expectedStateVersion) {
+    }
+
+    private record RescheduleRequest(Long expectedGeneration, Long expectedStateVersion,
+                                     long deliverAtEpochMs, long expireAtEpochMs) {
     }
 
     private static int compareUnsigned(final byte[] left, final byte[] right) {

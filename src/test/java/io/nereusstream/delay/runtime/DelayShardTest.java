@@ -16,6 +16,7 @@ import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.LaneRetirementProgressV1;
 import io.nereusstream.delay.protocol.LaneTerminalGuardV1;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
+import io.nereusstream.delay.protocol.MessagePreconditionV1;
 import io.nereusstream.delay.protocol.OrderingMode;
 import io.nereusstream.delay.protocol.PayloadCommitProof;
 import io.nereusstream.delay.protocol.PayloadProofTrustSet;
@@ -185,6 +186,42 @@ class DelayShardTest {
             final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults());
             assertEquals(position2, reopened.lastAppliedSourcePosition());
             assertEquals(MessageStatus.CANCELED, reopened.getMessage(schedule.delayMessageId()).status());
+        }
+    }
+
+    @Test
+    void appliesRegistryCancelAndRescheduleWithGenerationAndStateVersionPreconditions() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("registry-cancel-reschedule"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 31);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("registry-cancel-reschedule-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("registry-body")), 9_000);
+        final KafkaSourcePosition position0 = position(shardId, 0, 1_000);
+        final KafkaSourcePosition position1 = position(shardId, 1, 1_001);
+        final KafkaSourcePosition position2 = position(shardId, 2, 1_002);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, position0).stableCode());
+
+            final PreparedCommand reschedule = PreparedCommand.rescheduleV1(shardId, schedule.delayMessageId(),
+                    new MessagePreconditionV1(0L, 1L), 3_000, 6_000, 9_000);
+            assertEquals(StableCode.SUPERSEDED, shard.apply(reschedule, position1).stableCode());
+            assertEquals(1, shard.getMessage(schedule.delayMessageId()).generation());
+            assertEquals(2, shard.getMessage(schedule.delayMessageId()).stateVersion());
+
+            final PreparedCommand staleCancel = PreparedCommand.cancelV1(shardId, schedule.delayMessageId(),
+                    new MessagePreconditionV1(0L, 1L), 9_000);
+            assertEquals(StableCode.VERSION_CONFLICT,
+                    shard.apply(staleCancel, position2).stableCode());
+            assertEquals(MessageStatus.SCHEDULED, shard.getMessage(schedule.delayMessageId()).status());
+
+            final PreparedCommand cancel = PreparedCommand.cancelV1(shardId, schedule.delayMessageId(),
+                    new MessagePreconditionV1(1L, 2L), 9_000);
+            assertEquals(StableCode.CANCELED,
+                    shard.apply(cancel, position(shardId, 3, 1_003)).stableCode());
+            assertEquals(MessageStatus.CANCELED, shard.getMessage(schedule.delayMessageId()).status());
         }
     }
 
