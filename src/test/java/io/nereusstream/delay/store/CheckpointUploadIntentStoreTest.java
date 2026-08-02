@@ -51,7 +51,7 @@ class CheckpointUploadIntentStoreTest {
         final CheckpointUploadIntentStore store = new CheckpointUploadIntentStore();
         final CheckpointUploadIntentV1 pending = intent(CheckpointUploadStateV1.PENDING_UPLOAD, 2, null, null);
         store.create(pending);
-        final TrustedUtcIntervalEvidence reapingEvidence = evidence(2_000);
+        final TrustedUtcIntervalEvidence reapingEvidence = evidence(5_000);
 
         final CheckpointUploadIntentV1 reaping = store.beginReaping(pending, reapingEvidence);
         assertEquals(CheckpointUploadStateV1.REAPING, reaping.state());
@@ -61,7 +61,18 @@ class CheckpointUploadIntentStoreTest {
         assertThrows(IllegalStateException.class, () -> store.publish(pending, resource()));
         assertEquals(reaping, store.beginReaping(pending, reapingEvidence));
         assertThrows(IllegalStateException.class,
-                () -> store.beginReaping(pending, evidence(2_001)));
+                () -> store.beginReaping(pending, evidence(5_001)));
+    }
+
+    @Test
+    void reapingRejectsTrustedTimeBeforeUploadDeadline() {
+        final CheckpointUploadIntentStore store = new CheckpointUploadIntentStore();
+        final CheckpointUploadIntentV1 pending = intent(CheckpointUploadStateV1.PENDING_UPLOAD, 2, null, null);
+        store.create(pending);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> store.beginReaping(pending, evidence(4_999)));
+        assertEquals(CheckpointUploadStateV1.PENDING_UPLOAD, store.current().orElseThrow().state());
     }
 
     @Test

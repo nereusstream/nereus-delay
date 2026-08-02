@@ -351,6 +351,10 @@ REAPING successor after a lost transition response; a different reaping
 evidence value or pending identity remains a CAS conflict. This only closes
 the local intent projection; quiescence, exact-version Object Store deletion,
 final prefix sweep and Oxia authority remain pending.
+The local REAPING transition now also requires the trusted UTC interval's
+earliest bound to be at least `uploadDeadlineEpochMs`; evidence before the
+deadline leaves the intent PENDING. Owner abandonment/lease-loss authority,
+provider quiescence and deletion remain external blockers.
 embedded `RecoveryCatalog` now selects and validates a published floor-eligible
 ancestry before local restore. Upload-intent catalog projection also accepts
 an exact same-checkpoint/manifest/object-identity reread after publication

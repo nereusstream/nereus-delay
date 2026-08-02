@@ -213,7 +213,9 @@ state branches；`CheckpointUploadIntentStore` 还提供了 exact-value create
 idempotency 与本地 PENDING_UPLOAD -> PUBLISHED/REAPING revision CAS 投影。
 其中 REAPING 竞争在 response loss 后可用相同 pending identity 和
 `reapingStartedAt` evidence 精确重读同一 successor；不同 evidence 仍 fail
-closed。该边界不等于 quiescence、exact-version Object Store delete/final
+closed，且 evidence 的 earliest trusted time 必须达到 upload deadline；
+deadline 前的 reaper 证据不会推进状态。该边界不等于 owner abandonment/
+lease-loss authority、quiescence、exact-version Object Store delete/final
 prefix sweep 或 Oxia transaction。
 `OxiaRecoveryCatalog` 的 response boundary 现在会在 scalar/typed Floor CAS
 后 reread exact published manifest，并拒绝 lineage、manifest hash、source

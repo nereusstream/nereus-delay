@@ -70,7 +70,9 @@ public final class CheckpointUploadIntentStore {
     /**
      * Atomically competes for the PENDING_UPLOAD to REAPING transition.  The
      * evidence is retained in the value so a later reaper cannot treat a
-     * deadline alone as delete authority.
+     * deadline alone as delete authority.  The local projection enforces the
+     * trusted-time lower bound; the caller must still prove owner abandonment
+     * or lease loss through the external authority before invoking it.
      */
     public synchronized CheckpointUploadIntentV1 beginReaping(
             final CheckpointUploadIntentV1 expectedPending,
@@ -78,6 +80,7 @@ public final class CheckpointUploadIntentStore {
         Objects.requireNonNull(expectedPending, "expectedPending");
         requireState(expectedPending, CheckpointUploadStateV1.PENDING_UPLOAD);
         Objects.requireNonNull(evidence, "evidence");
+        evidence.requireEarliestAtLeast(expectedPending.uploadDeadlineEpochMs());
         if (current != null && current.state() == CheckpointUploadStateV1.REAPING) {
             final CheckpointUploadIntentV1 expectedReaping = next(expectedPending,
                     CheckpointUploadStateV1.REAPING, null, evidence);
