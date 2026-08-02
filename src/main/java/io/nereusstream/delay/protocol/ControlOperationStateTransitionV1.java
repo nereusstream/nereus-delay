@@ -58,8 +58,8 @@ public final class ControlOperationStateTransitionV1 {
         if (next.isEmpty()) {
             throw new IllegalArgumentException("Control Operation target set cannot disappear");
         }
-        final Set<Integer> currentIndexes = indexes(current);
-        final Set<Integer> nextIndexes = indexes(next);
+        final Set<Long> currentIndexes = indexes(current);
+        final Set<Long> nextIndexes = indexes(next);
         if (!currentIndexes.equals(nextIndexes)) {
             throw new IllegalArgumentException("Control Operation target set cannot change");
         }
@@ -106,8 +106,8 @@ public final class ControlOperationStateTransitionV1 {
         }
     }
 
-    private static Set<Integer> indexes(final List<ControlTargetStateViewV1> states) {
-        final Set<Integer> indexes = new HashSet<>();
+    private static Set<Long> indexes(final List<ControlTargetStateViewV1> states) {
+        final Set<Long> indexes = new HashSet<>();
         for (ControlTargetStateViewV1 state : states) {
             Objects.requireNonNull(state, "target state");
             if (!indexes.add(state.targetIndex())) {

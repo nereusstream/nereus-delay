@@ -13,6 +13,26 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PreparedControlOperationV1Test {
     @Test
+    void initialCurrentOperationProjectsEveryPreparedTarget() throws Exception {
+        final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final ControlOperationRequestV1 request = ControlOperationRequestV1.forceCheckpoint(
+                new ForceCheckpointRequestV1(new ControlReasonV1(ControlReasonKindV1.MAINTENANCE, null, null)));
+        final ControlTargetRefV1 first = new ControlTargetRefV1(0, ControlTargetKindV1.SHARD,
+                new ShardSubjectV1(new ShardId(new RouteIncarnation(bytes(16, 1)), 0)), null, null);
+        final ControlTargetRefV1 second = new ControlTargetRefV1(1, ControlTargetKindV1.SHARD,
+                new ShardSubjectV1(new ShardId(new RouteIncarnation(bytes(16, 2)), 1)), null, null);
+        final PreparedControlOperationV1 prepared = PreparedControlOperationV1.prepare(bytes(32, 3),
+                request.kind(), new ControlAuthorV1(bytes(32, 4), bytes(32, 5), bytes(32, 6)), request,
+                List.of(first, second), 1, 2, 1, keyPair.getPrivate());
+        final CurrentControlOperationV1 current = prepared.initialCurrentOperation();
+        assertEquals(ControlOperationStateV1.PENDING, current.state());
+        assertEquals(1, current.operationRevision());
+        assertEquals(2, current.targetStates().size());
+        assertEquals(TargetMarkerStateV1.PENDING, current.targetStates().get(0).markerState());
+        assertEquals(TargetMarkerStateV1.PENDING, current.targetStates().get(1).markerState());
+    }
+
+    @Test
     void preparesSignsAndRoundTripsCanonicalEnvelope() throws Exception {
         final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final ControlReasonV1 reason = new ControlReasonV1(ControlReasonKindV1.MAINTENANCE,

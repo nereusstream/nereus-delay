@@ -146,6 +146,17 @@ public final class PreparedControlOperationV1 {
         return Bytes.copy(signature);
     }
 
+    /** Builds the canonical revision-one PENDING projection for registration. */
+    public CurrentControlOperationV1 initialCurrentOperation() {
+        final List<ControlTargetStateViewV1> states = targets.stream()
+                .map(target -> new ControlTargetStateViewV1(target.targetIndex(),
+                        TargetMarkerStateV1.PENDING,
+                        StableCode.OK, 0, null))
+                .toList();
+        return new CurrentControlOperationV1(operationId, requestHash, author.tenantResourceScopeHash(),
+                ControlOperationStateV1.PENDING, 1, states, null);
+    }
+
     /** Validates a completed source mutation against this operation's exact target snapshot. */
     public void validateTargetMutation(final ControlTargetRefV1 target, final SystemMutation mutation) {
         ControlTargetMutationBindingV1.validate(this, target, mutation);

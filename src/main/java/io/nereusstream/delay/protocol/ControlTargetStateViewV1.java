@@ -8,18 +8,18 @@ public final class ControlTargetStateViewV1 {
     private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-control-target-state-v1\0");
     private static final int HASH_LENGTH = 32;
 
-    private final int targetIndex;
+    private final long targetIndex;
     private final TargetMarkerStateV1 markerState;
     private final StableCode stableCode;
     private final long targetRevision;
     private final SourcePosition appliedSourcePosition;
     private final byte[] targetResultDigest;
 
-    public ControlTargetStateViewV1(final int targetIndex, final TargetMarkerStateV1 markerState,
+    public ControlTargetStateViewV1(final long targetIndex, final TargetMarkerStateV1 markerState,
                                    final StableCode stableCode, final long targetRevision,
                                    final SourcePosition appliedSourcePosition) {
-        if (targetIndex < 0) {
-            throw new IllegalArgumentException("targetIndex must be non-negative");
+        if (targetIndex < 0 || targetIndex > 0xffff_ffffL) {
+            throw new IllegalArgumentException("targetIndex must be an unsigned uint32");
         }
         this.targetIndex = targetIndex;
         this.markerState = Objects.requireNonNull(markerState, "markerState");
@@ -32,11 +32,11 @@ public final class ControlTargetStateViewV1 {
         this.targetResultDigest = Bytes.sha256(DIGEST_DOMAIN, fieldsOneToFive());
     }
 
-    private ControlTargetStateViewV1(final int targetIndex, final TargetMarkerStateV1 markerState,
+    private ControlTargetStateViewV1(final long targetIndex, final TargetMarkerStateV1 markerState,
                                      final StableCode stableCode, final long targetRevision,
                                      final SourcePosition appliedSourcePosition, final byte[] digest) {
-        if (targetIndex < 0) {
-            throw new IllegalArgumentException("targetIndex must be non-negative");
+        if (targetIndex < 0 || targetIndex > 0xffff_ffffL) {
+            throw new IllegalArgumentException("targetIndex must be an unsigned uint32");
         }
         this.targetIndex = targetIndex;
         this.markerState = Objects.requireNonNull(markerState, "markerState");
@@ -50,7 +50,7 @@ public final class ControlTargetStateViewV1 {
         this.targetResultDigest = Bytes.copy(digest);
     }
 
-    public int targetIndex() {
+    public long targetIndex() {
         return targetIndex;
     }
 
@@ -96,7 +96,7 @@ public final class ControlTargetStateViewV1 {
         final SourcePosition source = sourceIndex < 0 ? null
                 : QueryCodecSupport.decodeSourcePosition(QueryCodecSupport.nested(fields.get(sourceIndex), 5));
         final ControlTargetStateViewV1 result = new ControlTargetStateViewV1(
-                QueryCodecSupport.uint32(fields.get(0), 1),
+                QueryCodecSupport.uint(fields.get(0), 1),
                 TargetMarkerStateV1.fromWire(QueryCodecSupport.uint32(fields.get(1), 2)),
                 StableCode.fromWire(QueryCodecSupport.uint32(fields.get(2), 3)),
                 QueryCodecSupport.uint(fields.get(3), 4), source,

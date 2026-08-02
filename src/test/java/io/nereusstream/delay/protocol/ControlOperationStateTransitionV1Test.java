@@ -41,4 +41,14 @@ class ControlOperationStateTransitionV1Test {
         assertThrows(IllegalArgumentException.class, () -> ControlOperationStateTransitionV1.validateTargets(
                 List.of(pending), List.of(another)));
     }
+
+    @Test
+    void targetIndexUsesTheFullUnsigned32BitRange() {
+        final long highIndex = 0xffff_ffffL;
+        final ControlTargetStateViewV1 state = new ControlTargetStateViewV1(highIndex,
+                TargetMarkerStateV1.PENDING, StableCode.OK, 0, null);
+        assertDoesNotThrow(() -> ControlTargetStateViewV1.decode(state.canonicalBytes()));
+        assertThrows(IllegalArgumentException.class, () -> new ControlTargetStateViewV1(
+                highIndex + 1, TargetMarkerStateV1.PENDING, StableCode.OK, 0, null));
+    }
 }

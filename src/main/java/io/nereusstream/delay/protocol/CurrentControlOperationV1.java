@@ -121,7 +121,7 @@ public final class CurrentControlOperationV1 {
     private static List<ControlTargetStateViewV1> sortedTargets(final List<ControlTargetStateViewV1> values) {
         Objects.requireNonNull(values, "targetStates");
         final List<ControlTargetStateViewV1> copy = new ArrayList<>(values);
-        copy.sort(java.util.Comparator.comparingInt(ControlTargetStateViewV1::targetIndex));
+        copy.sort(java.util.Comparator.comparingLong(ControlTargetStateViewV1::targetIndex));
         for (int index = 1; index < copy.size(); index++) {
             if (copy.get(index - 1).targetIndex() >= copy.get(index).targetIndex()) {
                 throw new IllegalArgumentException("control targets must be strictly index-sorted");

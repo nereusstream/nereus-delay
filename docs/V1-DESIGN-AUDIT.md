@@ -108,6 +108,9 @@ adapter, not a real Oxia client or transport classifier.
 `ControlSystemMutationFactoryV1` now centralizes the signed envelope and
 logical-identity derivation, while operation-specific body encoding and
 service-key trust remain outside this local seam.
+The initial operation projection now covers every target and preserves the
+Registry uint32 target index; this is a local codec/projection guarantee, not
+an Oxia registration or target-existence proof.
 The registration outcome/proof union is likewise local evidence projection:
 only authenticated Oxia response evidence can construct the conditional
 rejection branch, while timeout/session ambiguity remains `RECORD_UNCERTAIN`.
