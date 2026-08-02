@@ -70,20 +70,11 @@ public record KafkaSourcePosition(
     @Override
     public int compareWithinShard(final SourcePosition other) {
         final KafkaSourcePosition that = (KafkaSourcePosition) other;
-        int result = Long.compare(offset, that.offset);
-        if (result == 0) {
-            result = compareNullable(leaderEpoch, that.leaderEpoch);
-        }
-        if (result == 0) {
-            result = Long.compare(brokerLogAppendTimeEpochMs, that.brokerLogAppendTimeEpochMs);
-        }
-        return result;
-    }
-
-    private static int compareNullable(final Integer left, final Integer right) {
-        if (left == null) {
-            return right == null ? 0 : -1;
-        }
-        return right == null ? 1 : Integer.compare(left, right);
+        // A Kafka partition offset is the physical Shard Log order.  Leader
+        // epoch and append time are authenticated metadata on that record,
+        // not a second order dimension.  Treating either field as a tie-break
+        // would let two canonical positions for one offset appear as a later
+        // record and bypass the exact-position integrity fence.
+        return Long.compare(offset, that.offset);
     }
 }

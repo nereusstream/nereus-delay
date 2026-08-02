@@ -242,6 +242,10 @@ public final class DelayShard {
             if (order == 0) {
                 final CommandDedupeRecord prior = readCommandDedupe(command.commandId());
                 if (prior != null && Bytes.constantTimeEquals(prior.commandHash(), command.commandHash())) {
+                    if (!Bytes.constantTimeEquals(prior.result().appliedSourcePosition(),
+                            sourcePosition.canonicalBytes())) {
+                        throw new IllegalStateException("duplicate command position has conflicting source identity");
+                    }
                     return prior.result();
                 }
                 throw new IllegalStateException("duplicate source position without matching command evidence");

@@ -246,6 +246,13 @@ fencing/assignment/session identity 的 exact `ACTIVE_FOR_COMMANDS` 重读；
 Kafka source records now reject an unexpected Pulsar connection proof instead
 of silently ignoring it.
 
+Kafka Source Position ordering now uses the physical partition offset only;
+leader epoch and append time remain authenticated metadata rather than a
+second order dimension.  A replay that reuses the same offset/ledger-entry-
+batch token with different canonical metadata is rejected, so one physical
+record cannot be interpreted as a later Shard Log position or silently reuse a
+Command result.
+
 本地 `RecoveryCatalog.publishUploadedCheckpoint` 现在要求 PUBLISHED intent
 与完整 manifest 的 shard、lineage、checkpoint、manifest hash/length、owner
 和 store incarnation 完全一致后才接受 catalog projection；同一 checkpoint

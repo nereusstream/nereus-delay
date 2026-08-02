@@ -208,6 +208,26 @@ class DelayShardTest {
     }
 
     @Test
+    void sameKafkaOffsetWithDifferentCanonicalMetadataCannotReplayAsAnotherPosition() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("same-kafka-offset"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 32);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("same-kafka-offset-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("same-kafka-offset")), 9_000);
+        final UUID topic = UUID.randomUUID();
+        final KafkaSourcePosition first = new KafkaSourcePosition(shardId, "cluster", topic, 7, 3, 1_000);
+        final KafkaSourcePosition conflicting = new KafkaSourcePosition(shardId, "cluster", topic, 7, 4, 1_001);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, first).stableCode());
+            assertThrows(IllegalStateException.class, () -> shard.apply(schedule, conflicting));
+            assertEquals(first, shard.lastAppliedSourcePosition());
+        }
+    }
+
+    @Test
     void appliesRegistryCancelAndRescheduleWithGenerationAndStateVersionPreconditions() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("registry-cancel-reschedule"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 31);
