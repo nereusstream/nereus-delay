@@ -233,21 +233,25 @@ class RecoveryCatalogTest {
     void typedFloorRequiresSameGenerationCursorDominance() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 12);
         final byte[] lineage = id16(80);
-        final CheckpointManifest genesis = manifest(shard, UUID.randomUUID(), lineage, id16(81), 0, 1, 1, null);
-        final RecoveryCatalog catalog = new RecoveryCatalog();
-        catalog.publish(genesis, 0);
         final EvidenceCursorV1 older = EvidenceCursorV1.kafka(id32(82), id16(83), id16(84),
                 1, 4, 100, 11, 10);
+        final CheckpointManifest genesis = manifest(shard, UUID.randomUUID(), lineage, id16(81), 0, 1, 1, null,
+                List.of(older));
+        final RecoveryCatalog catalog = new RecoveryCatalog();
+        catalog.publish(genesis, 0);
+        assertThrows(IllegalArgumentException.class,
+                () -> catalog.advanceFloor(genesis.checkpointId(), 1, List.of()));
         final RecoveryFloorRefV1 first = catalog.advanceFloor(genesis.checkpointId(), 1, List.of(older));
         assertEquals(first, catalog.currentFloorRef().orElseThrow());
         assertEquals(first, catalog.advanceFloor(genesis.checkpointId(), 1, List.of(older)));
 
-        final CheckpointManifest child = manifest(shard, ((KafkaSourcePosition) genesis.appliedShardLogPosition())
-                .nativeTopicUuid(), lineage, id16(85), 1, 2, 2,
-                new CheckpointManifest.ParentCheckpoint(genesis.checkpointId(), Bytes.hex(genesis.manifestSha256())));
-        catalog.publish(child, 2);
         final EvidenceCursorV1 newer = EvidenceCursorV1.kafka(id32(82), id16(83), id16(84),
                 1, 4, 101, 12, 11);
+        final CheckpointManifest child = manifest(shard, ((KafkaSourcePosition) genesis.appliedShardLogPosition())
+                .nativeTopicUuid(), lineage, id16(85), 1, 2, 2,
+                new CheckpointManifest.ParentCheckpoint(genesis.checkpointId(), Bytes.hex(genesis.manifestSha256())),
+                List.of(newer));
+        catalog.publish(child, 2);
         final RecoveryFloorRefV1 second = catalog.advanceFloor(child.checkpointId(), 3, List.of(newer));
         assertEquals(second, catalog.currentFloorRef().orElseThrow());
 
@@ -328,6 +332,15 @@ class RecoveryCatalogTest {
                                                final byte[] checkpointId, final long lineageGeneration,
                                                final long offset, final long mutationSequence,
                                                final CheckpointManifest.ParentCheckpoint parent) {
+        return manifest(shard, topic, lineage, checkpointId, lineageGeneration, offset, mutationSequence, parent,
+                List.of());
+    }
+
+    private static CheckpointManifest manifest(final ShardId shard, final UUID topic, final byte[] lineage,
+                                               final byte[] checkpointId, final long lineageGeneration,
+                                               final long offset, final long mutationSequence,
+                                               final CheckpointManifest.ParentCheckpoint parent,
+                                               final List<EvidenceCursorV1> evidenceCursors) {
         final KafkaSourcePosition position = new KafkaSourcePosition(shard, "cluster", topic, offset, null,
                 1_000 + offset);
         final CheckpointManifest.FileEntry file = new CheckpointManifest.FileEntry("CURRENT", 1, id32(20),
@@ -336,7 +349,7 @@ class RecoveryCatalogTest {
                 new CheckpointManifest.CreatedBy(id32(21), id32(22), 1),
                 new CheckpointManifest.CreatedAt(1_000, 1_001, "TEST", id32(23), 1, offset, offset,
                         id32(24), 0, null), shard, id32(25), UUID.randomUUID(), 1, mutationSequence, position,
-                id32(26), id32(27), List.of(file));
+                id32(26), id32(27), evidenceCursors, List.of(file));
     }
 
     private static byte[] id16(final int value) {

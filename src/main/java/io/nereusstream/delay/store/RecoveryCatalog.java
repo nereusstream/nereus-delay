@@ -142,6 +142,9 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
         if (candidate == null) {
             throw new IllegalArgumentException("checkpoint is not published");
         }
+        if (!candidate.evidenceCursors().equals(evidenceCursors)) {
+            throw new IllegalArgumentException("typed Recovery Floor cursors do not match checkpoint manifest");
+        }
         if (floor != null) {
             recoverySet(checkpointId);
             if (!Bytes.constantTimeEquals(floor.recoveryLineageId(), candidate.recoveryLineageId())
