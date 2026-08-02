@@ -356,6 +356,11 @@ retention barrier、external proof ownership 仍是 release blocker。
 匹配；Resolve 的 source-ordered attachment apply、retry/charge projection
 和 authenticated control authority 仍未完成。
 
+Evidence branch validation also checks the adapter-specific target resource
+and cursor/channel branch, so a Kafka evidence envelope cannot carry a Pulsar
+resource (or vice versa); authenticated Broker response and external proof
+ownership remain separate release gates.
+
 `OwnedDelayShard` 现在还提供了带 assignment/barrier/source-connection 校验的
 统一 `replay` seam，以及兼容性的 `replayCatchup`/`replaySystemMutations`：
 Command 和 signed System Mutation 通过 `SourceReplayEntry` 在同一个

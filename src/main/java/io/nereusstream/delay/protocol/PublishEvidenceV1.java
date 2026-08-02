@@ -174,7 +174,8 @@ public final class PublishEvidenceV1 {
         } else {
             throw new IllegalArgumentException("KafkaProduceAckEvidenceV1 has an unexpected field count");
         }
-        BrokerResourceIdentityV1.decode(nested(fields, 1));
+        requireBrokerKind(BrokerResourceIdentityV1.decode(nested(fields, 1)), BrokerResourceIdentityV1.Kind.KAFKA,
+                "Kafka Produce Ack");
         uint(fields, 2);
         uint(fields, 3);
         uint(fields, 5);
@@ -185,11 +186,13 @@ public final class PublishEvidenceV1 {
 
     private static void validateKafkaTransactional(final List<CanonicalProtobuf.Reader.Field> fields) {
         requireNumbers(fields, new int[]{1, 2, 3, 4, 5, 6, 7, 8});
-        EvidenceCursorV1.decode(nested(fields, 1));
+        requireCursorKind(EvidenceCursorV1.decode(nested(fields, 1)), EvidenceKindV1.KAFKA_RECEIPT_CONTIGUOUS,
+                "Kafka transactional receipt");
         uint(fields, 2);
         ExternalDeliveryIdentityV1.decode(nested(fields, 3));
         fixed(fields, 4);
-        BrokerResourceIdentityV1.decode(nested(fields, 5));
+        requireBrokerKind(BrokerResourceIdentityV1.decode(nested(fields, 5)), BrokerResourceIdentityV1.Kind.KAFKA,
+                "Kafka transactional receipt");
         uint(fields, 6);
         fixed(fields, 7);
         fixed(fields, 8);
@@ -197,8 +200,10 @@ public final class PublishEvidenceV1 {
 
     private static void validateKafkaAbsence(final List<CanonicalProtobuf.Reader.Field> fields) {
         requireNumbers(fields, new int[]{1, 2, 3, 4, 5});
-        EvidenceCursorV1.decode(nested(fields, 1));
-        ChannelResourceIdentityV1.decode(nested(fields, 2));
+        requireCursorKind(EvidenceCursorV1.decode(nested(fields, 1)), EvidenceKindV1.KAFKA_RECEIPT_CONTIGUOUS,
+                "Kafka receipt absence");
+        requireChannelAdapter(ChannelResourceIdentityV1.decode(nested(fields, 2)), AdapterKindV1.KAFKA,
+                "Kafka receipt absence");
         ExternalDeliveryIdentityV1.decode(nested(fields, 3));
         fixed(fields, 4);
         fixed(fields, 5);
@@ -206,7 +211,8 @@ public final class PublishEvidenceV1 {
 
     private static void validatePulsarAck(final List<CanonicalProtobuf.Reader.Field> fields) {
         requireNumbers(fields, new int[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11});
-        BrokerResourceIdentityV1.decode(nested(fields, 1));
+        requireBrokerKind(BrokerResourceIdentityV1.decode(nested(fields, 1)), BrokerResourceIdentityV1.Kind.PULSAR,
+                "Pulsar Send Ack");
         uint(fields, 2);
         uint(fields, 3);
         uint(fields, 4);
@@ -228,7 +234,8 @@ public final class PublishEvidenceV1 {
         } else {
             throw new IllegalArgumentException("PulsarAttemptJournalEvidenceV1 has an unexpected field count");
         }
-        EvidenceCursorV1.decode(nested(fields, 1));
+        requireCursorKind(EvidenceCursorV1.decode(nested(fields, 1)),
+                EvidenceKindV1.PULSAR_ATTEMPT_JOURNAL_CONTIGUOUS, "Pulsar attempt journal");
         uint(fields, 2);
         uint(fields, 3);
         uint(fields, 4);
@@ -241,8 +248,10 @@ public final class PublishEvidenceV1 {
 
     private static void validatePulsarAbsence(final List<CanonicalProtobuf.Reader.Field> fields) {
         requireNumbers(fields, new int[]{1, 2, 3, 4, 5, 6, 7});
-        EvidenceCursorV1.decode(nested(fields, 1));
-        ChannelResourceIdentityV1.decode(nested(fields, 2));
+        requireCursorKind(EvidenceCursorV1.decode(nested(fields, 1)),
+                EvidenceKindV1.PULSAR_ATTEMPT_JOURNAL_CONTIGUOUS, "Pulsar journal absence");
+        requireChannelAdapter(ChannelResourceIdentityV1.decode(nested(fields, 2)), AdapterKindV1.PULSAR,
+                "Pulsar journal absence");
         ExternalDeliveryIdentityV1.decode(nested(fields, 3));
         fixed(fields, 4);
         fixed(fields, 5);
@@ -303,8 +312,11 @@ public final class PublishEvidenceV1 {
 
     private static void validateBrokerRejection(final List<CanonicalProtobuf.Reader.Field> fields) {
         requireNumbers(fields, new int[]{1, 2, 3, 4, 5, 6, 7, 8, 9});
-        AdapterKindV1.fromWire(uint(fields, 1));
-        BrokerResourceIdentityV1.decode(nested(fields, 2));
+        final AdapterKindV1 adapter = AdapterKindV1.fromWire(uint(fields, 1));
+        final BrokerResourceIdentityV1 target = BrokerResourceIdentityV1.decode(nested(fields, 2));
+        requireBrokerKind(target, adapter == AdapterKindV1.KAFKA
+                ? BrokerResourceIdentityV1.Kind.KAFKA : BrokerResourceIdentityV1.Kind.PULSAR,
+                "Broker definitive rejection");
         uint(fields, 3);
         ExternalDeliveryIdentityV1.decode(nested(fields, 4));
         fixed(fields, 5);
@@ -360,6 +372,27 @@ public final class PublishEvidenceV1 {
             throw new IllegalArgumentException(name + " exceeds runtime range");
         }
         return (int) value;
+    }
+
+    private static void requireCursorKind(final EvidenceCursorV1 cursor, final EvidenceKindV1 expected,
+                                          final String branch) {
+        if (cursor.evidenceKind() != expected) {
+            throw new IllegalArgumentException(branch + " cursor kind mismatch");
+        }
+    }
+
+    private static void requireChannelAdapter(final ChannelResourceIdentityV1 channel,
+                                              final AdapterKindV1 expected, final String branch) {
+        if (channel.adapterKind() != expected) {
+            throw new IllegalArgumentException(branch + " channel adapter mismatch");
+        }
+    }
+
+    private static void requireBrokerKind(final BrokerResourceIdentityV1 resource,
+                                          final BrokerResourceIdentityV1.Kind expected, final String branch) {
+        if (resource.kind() != expected) {
+            throw new IllegalArgumentException(branch + " Broker resource branch mismatch");
+        }
     }
 
     private static byte[] nonZero(final byte[] value, final String name) {

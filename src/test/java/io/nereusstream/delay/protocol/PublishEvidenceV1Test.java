@@ -79,6 +79,27 @@ class PublishEvidenceV1Test {
                 EvidenceVerificationStatusV1.VERIFIED_NOT_PUBLISHED, branch));
     }
 
+    @Test
+    void rejectsKafkaEvidenceWithPulsarTargetResource() {
+        final byte[] attemptId = hash("wrong-target-attempt");
+        final byte[] pulsarResource = BrokerResourceIdentityV1.pulsar(new PulsarBrokerResourceIdentityV1(
+                "cluster-a", hash("pulsar-resource"), "persistent://tenant/ns/topic", 1)).canonicalBytes();
+        final byte[] branch = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, pulsarResource);
+            CanonicalProtobuf.uint32(output, 2, 0);
+            CanonicalProtobuf.uint64(output, 3, 1);
+            CanonicalProtobuf.uint64(output, 5, 1_000);
+            CanonicalProtobuf.bytes(output, 6, ExternalDeliveryIdentityV1.publishAttempt(attemptId)
+                    .canonicalBytes());
+            CanonicalProtobuf.bytes(output, 7, hash("prepared"));
+            CanonicalProtobuf.bytes(output, 8, hash("response"));
+        });
+
+        assertThrows(IllegalArgumentException.class, () -> PublishEvidenceV1.create(
+                PublishEvidenceKindV1.KAFKA_PRODUCE_ACK,
+                EvidenceVerificationStatusV1.VERIFIED_PUBLISHED, branch));
+    }
+
     private static byte[] kafkaResource() {
         return BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
                 "cluster-a", UUID.nameUUIDFromBytes(Bytes.utf8("topic")))).canonicalBytes();
