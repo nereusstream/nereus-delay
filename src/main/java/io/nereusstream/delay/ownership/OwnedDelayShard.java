@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.security.PublicKey;
+import java.util.function.LongSupplier;
 
 /** Fenced owner view; lease loss closes all new local authority gates. */
 public final class OwnedDelayShard {
@@ -169,16 +170,26 @@ public final class OwnedDelayShard {
      */
     public synchronized List<CommandResult> replayCatchup(final Iterable<SourceReplayRecord> records,
                                                            final long nowEpochMs) {
+        return replayCatchup(records, () -> nowEpochMs);
+    }
+
+    /**
+     * Replays catch-up records while rereading the owner clock before every
+     * record. The fixed-time overload remains a compatibility seam for
+     * deterministic callers; source consumers should provide a live clock so
+     * a long replay cannot continue after the lease expires.
+     */
+    public synchronized List<CommandResult> replayCatchup(final Iterable<SourceReplayRecord> records,
+                                                           final LongSupplier clock) {
         Objects.requireNonNull(records, "records");
+        Objects.requireNonNull(clock, "clock");
         if (state != ShardLifecycleState.CATCHING_UP) {
             throw new IllegalStateException("shard is not catching up");
         }
-        if (!lease.validAt(nowEpochMs)) {
-            state = ShardLifecycleState.FENCED;
-            throw new IllegalStateException("owner lease expired during source catch-up");
-        }
+        ensureReplayWindow(readClock(clock));
         final List<CommandResult> results = new ArrayList<>();
         for (SourceReplayRecord record : records) {
+            ensureReplayWindow(readClock(clock));
             Objects.requireNonNull(record, "source replay record");
             final SourcePosition position = record.position();
             if (!delegate.shardId().equals(position.shardId())) {
@@ -210,17 +221,23 @@ public final class OwnedDelayShard {
     public synchronized List<SystemMutationResult> replaySystemMutations(
             final Iterable<SourceReplayMutation> records, final PublicKey verificationKey,
             final long nowEpochMs) {
+        return replaySystemMutations(records, verificationKey, () -> nowEpochMs);
+    }
+
+    /** Replays signed System Mutations with a live per-record lease check. */
+    public synchronized List<SystemMutationResult> replaySystemMutations(
+            final Iterable<SourceReplayMutation> records, final PublicKey verificationKey,
+            final LongSupplier clock) {
         Objects.requireNonNull(records, "records");
         Objects.requireNonNull(verificationKey, "verificationKey");
+        Objects.requireNonNull(clock, "clock");
         if (state != ShardLifecycleState.CATCHING_UP) {
             throw new IllegalStateException("shard is not catching up");
         }
-        if (!lease.validAt(nowEpochMs)) {
-            state = ShardLifecycleState.FENCED;
-            throw new IllegalStateException("owner lease expired during system-mutation catch-up");
-        }
+        ensureReplayWindow(readClock(clock));
         final List<SystemMutationResult> results = new ArrayList<>();
         for (SourceReplayMutation record : records) {
+            ensureReplayWindow(readClock(clock));
             Objects.requireNonNull(record, "source replay mutation");
             final SourcePosition position = record.position();
             if (!delegate.shardId().equals(position.shardId())) {
@@ -250,11 +267,20 @@ public final class OwnedDelayShard {
     public synchronized List<SourceReplayOutcome> replay(
             final Iterable<? extends SourceReplayEntry> records, final PublicKey verificationKey,
             final long nowEpochMs) {
+        return replay(records, verificationKey, () -> nowEpochMs);
+    }
+
+    /** Replays mixed source entries with a live per-record lease check. */
+    public synchronized List<SourceReplayOutcome> replay(
+            final Iterable<? extends SourceReplayEntry> records, final PublicKey verificationKey,
+            final LongSupplier clock) {
         Objects.requireNonNull(records, "records");
         Objects.requireNonNull(verificationKey, "verificationKey");
-        ensureReplayWindow(nowEpochMs);
+        Objects.requireNonNull(clock, "clock");
+        ensureReplayWindow(readClock(clock));
         final List<SourceReplayOutcome> results = new ArrayList<>();
         for (SourceReplayEntry record : records) {
+            ensureReplayWindow(readClock(clock));
             Objects.requireNonNull(record, "source replay entry");
             final SourcePosition position = record.position();
             validateReplayPosition(position, record.sourceConnectionGeneration(), record.guardAttestationDigest());
@@ -282,6 +308,14 @@ public final class OwnedDelayShard {
             state = ShardLifecycleState.FENCED;
             throw new IllegalStateException("owner lease expired during source catch-up");
         }
+    }
+
+    private static long readClock(final LongSupplier clock) {
+        final long nowEpochMs = clock.getAsLong();
+        if (nowEpochMs < 0) {
+            throw new IllegalArgumentException("owner clock returned a negative time");
+        }
+        return nowEpochMs;
     }
 
     private void validateReplayPosition(final SourcePosition position, final Long sourceConnectionGeneration,

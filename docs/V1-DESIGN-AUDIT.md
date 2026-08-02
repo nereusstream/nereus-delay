@@ -471,6 +471,10 @@ canonical Source Position 的 broker redelivery 可以由 durable apply 幂等�
 `OwnerLeaseTest.v1CatchupPinsTheAdapterSuccessorAndRejectsAKafkaGapBeforeApplyingIt`
 证明跳过的 Kafka record 不会被静默重放。旧的 assignment-only overload 保留为
 兼容性 monotonic seam，不能作为 V1 source-gap evidence。
+接管 replay 还提供 live-clock overload，并在每条记录前重新检查 lease；长时间
+catch-up 中途过期会在下一条记录前 fence，cursor 保留在最后已提交的位置，
+不会继续用旧 owner 写入。固定 `nowEpochMs` overload 仅保留给确定性兼容调用，
+`OwnerLeaseTest.liveCatchupClockFencesBeforeApplyingAfterLeaseExpiry` 覆盖该边界。
 
 Worker 资源侧现在还提供了本地 `WorkerLoadVector` 与
 `WorkerPlacementPolicy`：它们先按完整 committed capacity、固定/transition

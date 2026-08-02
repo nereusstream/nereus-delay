@@ -449,6 +449,12 @@ monotonic-only and is not V1 source-gap evidence. `SourceReplaySuccessorTest`
 and `OwnerLeaseTest.v1CatchupPinsTheAdapterSuccessorAndRejectsAKafkaGapBeforeApplyingIt`
 cover the local fence; real broker fetch/assignment continuity evidence is
 still a release blocker.
+`OwnedDelayShard` also exposes live-clock overloads for catch-up and mixed
+source replay. They reread lease validity before every record, fence the local
+view on mid-replay expiry, and leave the durable source cursor at the last
+committed record; the fixed-time overloads remain deterministic compatibility
+seams. `OwnerLeaseTest.liveCatchupClockFencesBeforeApplyingAfterLeaseExpiry`
+covers the command replay boundary.
 
 `CheckpointScheduler` now provides a bounded process-local schedule for each
 owned shard: interval and deterministic per-shard jitter are validated, due

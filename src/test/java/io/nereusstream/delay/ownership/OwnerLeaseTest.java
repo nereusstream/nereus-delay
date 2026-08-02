@@ -30,6 +30,7 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -172,6 +173,40 @@ class OwnerLeaseTest {
             assertThrows(IllegalStateException.class,
                     () -> owned.replayCatchup(List.of(new SourceReplayRecord(command,
                             new KafkaSourcePosition(shardId, "cluster", topic, 0, null, 999), null, null)), 101));
+        }
+    }
+
+    @Test
+    void liveCatchupClockFencesBeforeApplyingAfterLeaseExpiry() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 15);
+        final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = authority.acquire(shardId, "worker-live-clock", 100, 100).orElseThrow();
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("live-catchup-clock"));
+        final UUID topic = UUID.randomUUID();
+        final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 2);
+        final KafkaSourcePosition firstPosition = new KafkaSourcePosition(shardId, "cluster", topic, 0, null, 1_000);
+        final KafkaSourcePosition secondPosition = new KafkaSourcePosition(shardId, "cluster", topic, 1, null, 1_001);
+        final PreparedCommand first = PreparedCommand.schedule(shardId,
+                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("live-clock-first")), 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("first")), 10_000);
+        final PreparedCommand second = PreparedCommand.schedule(shardId,
+                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("live-clock-second")), 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("second")), 10_000);
+        final AtomicInteger clockReads = new AtomicInteger();
+        final java.util.function.LongSupplier liveClock = () -> clockReads.getAndIncrement() < 2 ? 101 : 200;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            owned.markCatchingUp(new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("live-clock-assignment")), 1,
+                    barrier));
+
+            assertThrows(IllegalStateException.class, () -> owned.replayCatchup(List.of(
+                    new SourceReplayRecord(first, firstPosition, null, null),
+                    new SourceReplayRecord(second, secondPosition, null, null)), liveClock));
+
+            assertEquals(ShardLifecycleState.FENCED, owned.state());
+            assertEquals(firstPosition, owned.lastCatchupPosition());
+            assertEquals(null, owned.shard().getMessage(second.delayMessageId()));
         }
     }
 
