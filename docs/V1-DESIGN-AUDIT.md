@@ -145,6 +145,10 @@ position、mutation sequence 或 typed evidence-cursor drift；typed 返回还�
 响应验证，不等同于已经实现 Oxia transaction。`currentFloor`/
 `currentFloorRef` 和 `proveFloorCoverage` 的只读响应也会绑定已发布
 manifest、candidate/Floor identity 与 ancestry 末端，拒绝漂移或缺失 Floor。
+Publication 及 upload-intent publication 返回的可选 Floor 也会绑定到其已发布
+manifest、同一 shard，并要求 Floor catalog generation 不晚于 publication
+generation；因此 catalog publication response 不能夹带另一条 shard 或更高代的
+伪造 Floor。这仍只是 adapter response fence。
 这仍不是 Oxia 的 Owner Lease/session、lineage-head、catalog-generation
 transaction，也不执行 Object Store upload/attestation/delete。现有 `DelayShard` 仍
 通过兼容 `LaneRecord` 写入 ACTIVE 分支，因此这不被误报为已经完成 full

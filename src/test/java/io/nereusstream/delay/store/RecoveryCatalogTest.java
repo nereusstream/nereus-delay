@@ -344,6 +344,59 @@ class RecoveryCatalogTest {
     }
 
     @Test
+    void OxiaBoundaryRejectsPublicationFloorDrift() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 24);
+        final CheckpointManifest manifest = manifest(shard, UUID.randomUUID(), id16(240), id16(241), 0,
+                1, 1, null);
+        final RecoveryCatalog delegate = new RecoveryCatalog();
+        delegate.publish(manifest, 0);
+        final RecoveryFloor wrongLineage = RecoveryFloor.create(id16(242), manifest.checkpointId(),
+                manifest.manifestSha256(), 1, manifest.appliedShardLogPosition(), manifest.shardMutationSequence(),
+                id32(243));
+        final RecoveryFloor newerThanPublication = RecoveryFloor.create(manifest.recoveryLineageId(),
+                manifest.checkpointId(), manifest.manifestSha256(), 2, manifest.appliedShardLogPosition(),
+                manifest.shardMutationSequence(), id32(244));
+        final RecoveryFloor[] returned = {wrongLineage};
+        final OxiaRecoveryCatalog.CasBackend backend = new OxiaRecoveryCatalog.CasBackend() {
+            @Override
+            public RecoveryCatalog.Publication publish(final CheckpointManifest ignored, final long expected) {
+                return new RecoveryCatalog.Publication(manifest, expected + 1, returned[0]);
+            }
+
+            @Override
+            public RecoveryFloor advanceFloor(final byte[] ignored, final long expected, final byte[] digest) {
+                return null;
+            }
+
+            @Override
+            public java.util.Optional<CheckpointManifest> manifest(final byte[] checkpointId) {
+                return delegate.manifest(checkpointId);
+            }
+
+            @Override
+            public java.util.Optional<RecoveryFloor> currentFloor() {
+                return java.util.Optional.empty();
+            }
+
+            @Override
+            public void validatePublishedRestoreCandidate(final CheckpointManifest ignored) {
+            }
+
+            @Override
+            public java.util.Optional<RecoveryCatalog.FloorCoverage> proveFloorCoverage(
+                    final byte[] ignored, final long sequence,
+                    final io.nereusstream.delay.protocol.SourcePosition... positions) {
+                return java.util.Optional.empty();
+            }
+        };
+        final OxiaRecoveryCatalog authority = new OxiaRecoveryCatalog(backend);
+        assertThrows(IllegalStateException.class, () -> authority.publish(manifest, 0));
+
+        returned[0] = newerThanPublication;
+        assertThrows(IllegalStateException.class, () -> authority.publish(manifest, 0));
+    }
+
+    @Test
     void OxiaBoundaryBindsReadFloorAndCoverageResponsesToPublishedManifests() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 7);
         final CheckpointManifest manifest = manifest(shard, UUID.randomUUID(), id16(73), id16(74), 0,

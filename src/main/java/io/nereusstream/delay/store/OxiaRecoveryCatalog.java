@@ -39,6 +39,7 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
         final RecoveryCatalog.Publication result = Objects.requireNonNull(
                 backend.publish(manifest, expectedCatalogGeneration), "Oxia publish result");
         validatePublicationIdentity(manifest, result);
+        validatePublicationFloor(manifest, result);
         if (result.catalogGeneration() < expectedCatalogGeneration) {
             throw new IllegalStateException("Oxia catalog generation regressed");
         }
@@ -97,6 +98,7 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
                 Objects.requireNonNull(manifest, "manifest"), expectedCatalogGeneration),
                 "Oxia upload-intent publication result");
         validatePublicationIdentity(manifest, result);
+        validatePublicationFloor(manifest, result);
         if (result.catalogGeneration() < expectedCatalogGeneration) {
             throw new IllegalStateException("Oxia upload-intent publication regressed catalog generation");
         }
@@ -206,6 +208,22 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
                 || !Bytes.constantTimeEquals(requested.manifestSha256(), result.manifest().manifestSha256())) {
             throw new IllegalStateException("Oxia catalog publication changed checkpoint identity");
         }
+    }
+
+    private void validatePublicationFloor(final CheckpointManifest requested,
+                                          final RecoveryCatalog.Publication result) {
+        final RecoveryFloor publicationFloor = result.floor();
+        if (publicationFloor == null) {
+            return;
+        }
+        if (publicationFloor.catalogGeneration() > result.catalogGeneration()) {
+            throw new IllegalStateException("Oxia publication returned a Floor newer than its catalog generation");
+        }
+        final CheckpointManifest floorManifest = publishedManifest(publicationFloor.checkpointId());
+        if (!requested.shardId().equals(floorManifest.shardId())) {
+            throw new IllegalStateException("Oxia publication returned a Floor for another shard");
+        }
+        validateScalarFloorIdentity(publicationFloor, floorManifest);
     }
 
     private static void validateManifestIdentity(final CheckpointManifest actual,
