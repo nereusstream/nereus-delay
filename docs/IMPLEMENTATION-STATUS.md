@@ -318,6 +318,10 @@ When the caller supplies the final checkpoint's exact 16-byte identity,
 `OwnerDrainCoordinator` passes it into `ShardStore.createCheckpoint`; the
 identity is therefore present in the copied DB metadata, while the legacy
 path without an identity remains local-only.
+After `flushAndSync`, an optional `commitSourceHint` callback receives only the
+last persisted `SourcePosition`; the coordinator rereads the draining lease
+after that transport-owned callback before continuing.  The hint is never the
+recovery authority.
 Callback quiescence and source hint commit remain caller/transport boundaries;
 timeout leaves the DB and lease in visible `DRAINING` for a safe retry rather
 than claiming completion. `OwnerDrainCoordinatorTest` covers success and

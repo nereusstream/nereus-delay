@@ -3,8 +3,13 @@ package io.nereusstream.delay.ownership;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.KafkaActivationBarrier;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
+import io.nereusstream.delay.protocol.DestinationLaneId;
+import io.nereusstream.delay.protocol.OrderingMode;
+import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.RouteIncarnation;
+import io.nereusstream.delay.protocol.ScheduleIntent;
 import io.nereusstream.delay.protocol.ShardId;
+import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.runtime.DelayShard;
 import io.nereusstream.delay.runtime.DelayShardConfig;
 import io.nereusstream.delay.store.ShardStore;
@@ -18,6 +23,7 @@ import java.nio.file.Path;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -102,6 +108,42 @@ class OwnerDrainCoordinatorTest {
             });
 
             assertEquals(1_110, backend.releasedLease.expiresAtEpochMs());
+        }
+    }
+
+    @Test
+    void drainOffersOnlyTheLastDurablyAppliedSourcePositionToTheHintCommitter() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 49);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("drain-source-hint"));
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease acquired = backend.acquire(shardId, "worker-source-hint", 100, 500).orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = activeOwnedShard(store, acquired, authority, shardId);
+            final UUID topic = UUID.randomUUID();
+            final KafkaSourcePosition persisted = new KafkaSourcePosition(shardId, "drain-source-hint-cluster",
+                    topic, 1, null, 1_001);
+            final PreparedCommand command = PreparedCommand.schedule(shardId,
+                    new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("drain-source-hint-lane")),
+                            2_000, 5_000, OrderingMode.BEST_EFFORT, Bytes.utf8("hint")), 9_000);
+            owned.shard().apply(command, persisted);
+            final AtomicReference<SourcePosition> committedHint = new AtomicReference<>();
+            final OwnerDrainCoordinator coordinator = new OwnerDrainCoordinator(owned, store, resources, authority);
+
+            coordinator.drain(new OwnerDrainCoordinator.DrainRequest(5_000, 0, null), () -> 101,
+                    new OwnerDrainCoordinator.DrainCallbacks() {
+                        @Override
+                        public void stopSourceAndScheduling() {
+                        }
+
+                        @Override
+                        public void commitSourceHint(final SourcePosition persistedPosition) {
+                            committedHint.set(persistedPosition);
+                        }
+                    });
+
+            assertEquals(persisted, committedHint.get());
         }
     }
 

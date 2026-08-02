@@ -960,7 +960,8 @@ planned drain：
 1. 停止 source fetch、due Claim 和新 Admission；
 2. 撤销 `CLAIMED`；
 3. 在 lease 有效期内有界等待已 admitted callback；
-4. flush/sync DB，提交不超过 DB 的 source hint；
+4. flush/sync DB；如提交 source hint，必须只提交不超过该次 flush 已持久化的
+   `appliedShardLogPosition`，并在 transport callback 返回后重新确认 lease；
 5. 可选 final checkpoint；若编排器已取得该 manifest 的 16-byte `checkpointId`，
    必须把 identity 传入物理 checkpoint primitive，使完整镜像中的
    `lastCheckpointId` 与该产物绑定；

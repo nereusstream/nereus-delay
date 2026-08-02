@@ -363,6 +363,9 @@ Claim revoke、bounded callback poll、lease/deadline reread、flush/sync、可�
 final checkpoint、Store close 和 exact release 串成一个可重试的本地顺序；
 如果 caller 提供 final checkpoint 的 exact 16-byte identity，coordinator 会把
 它传入 `ShardStore.createCheckpoint`，让完整镜像携带对应 `lastCheckpointId`；
+`flushAndSync` 后的可选 `commitSourceHint` 只收到最后已持久化的
+`SourcePosition`，callback 返回后还会重新检查 draining lease；该 hint 仍不是
+recovery authority。
 callback/source quiescence 仍由调用方和真实 transport 提供，超时保持
 `DRAINING` 而不伪造成功。`OwnerDrainCoordinatorTest` 覆盖成功与 deadline
 失败边界。

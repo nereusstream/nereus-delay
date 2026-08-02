@@ -1,6 +1,7 @@
 package io.nereusstream.delay.ownership;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.runtime.DelayShard;
 import io.nereusstream.delay.runtime.PublishAttemptLedger;
 import io.nereusstream.delay.store.ShardStore;
@@ -77,6 +78,11 @@ public final class OwnerDrainCoordinator {
             }
             ensureLeaseStillDraining(expectedLease, request, clock);
             store.flushAndSync();
+            final SourcePosition persistedPosition = shard.lastAppliedSourcePosition();
+            if (persistedPosition != null) {
+                callbacks.commitSourceHint(persistedPosition);
+                ensureLeaseStillDraining(expectedLease, request, clock);
+            }
             Path finalCheckpoint = null;
             if (request.finalCheckpointPath() != null) {
                 finalCheckpoint = request.finalCheckpointId() == null
@@ -205,6 +211,16 @@ public final class OwnerDrainCoordinator {
                                               final int pollNumber) {
             // No-op is useful for a caller that only expects the bounded
             // budget to fail closed while an external callback is pending.
+        }
+
+        /**
+         * Commits an optional broker/source hint after the DB flush boundary.
+         * The callback must never acknowledge a position greater than the
+         * supplied durable shard position; it is a transport hint, not a
+         * replacement for the RocksDB recovery cursor.
+         */
+        default void commitSourceHint(final SourcePosition persistedPosition) {
+            // Source hint commits are optional and remain transport-owned.
         }
     }
 
