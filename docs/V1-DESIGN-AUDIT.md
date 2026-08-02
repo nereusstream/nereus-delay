@@ -138,7 +138,9 @@ idempotency 与本地 PENDING_UPLOAD -> PUBLISHED/REAPING revision CAS 投影。
 后 reread exact published manifest，并拒绝 lineage、manifest hash、source
 position、mutation sequence 或 typed evidence-cursor drift；typed 返回还必须
 与请求的 cursor 集合 byte-equal，缺失 manifest 也 fail closed。这只是远端
-响应验证，不等同于已经实现 Oxia transaction。
+响应验证，不等同于已经实现 Oxia transaction。`currentFloor`/
+`currentFloorRef` 和 `proveFloorCoverage` 的只读响应也会绑定已发布
+manifest、candidate/Floor identity 与 ancestry 末端，拒绝漂移或缺失 Floor。
 这仍不是 Oxia 的 Owner Lease/session、lineage-head、catalog-generation
 transaction，也不执行 Object Store upload/attestation/delete。现有 `DelayShard` 仍
 通过兼容 `LaneRecord` 写入 ACTIVE 分支，因此这不被误报为已经完成 full

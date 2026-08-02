@@ -118,12 +118,18 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
 
     @Override
     public Optional<RecoveryFloor> currentFloor() {
-        return Objects.requireNonNull(backend.currentFloor(), "Oxia current floor result");
+        final Optional<RecoveryFloor> result = Objects.requireNonNull(backend.currentFloor(),
+                "Oxia current floor result");
+        result.ifPresent(floor -> validateScalarFloorIdentity(floor, publishedManifest(floor.checkpointId())));
+        return result;
     }
 
     @Override
     public Optional<RecoveryFloorRefV1> currentFloorRef() {
-        return Objects.requireNonNull(backend.currentFloorRef(), "Oxia typed Floor result");
+        final Optional<RecoveryFloorRefV1> result = Objects.requireNonNull(backend.currentFloorRef(),
+                "Oxia typed Floor result");
+        result.ifPresent(floor -> validateTypedFloorIdentity(floor, publishedManifest(floor.checkpointId())));
+        return result;
     }
 
     @Override
@@ -145,6 +151,29 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
         result.ifPresent(coverage -> {
             if (!Bytes.constantTimeEquals(candidateCheckpointId, coverage.candidate().checkpointId())) {
                 throw new IllegalStateException("Oxia floor coverage returned another candidate");
+            }
+            final CheckpointManifest candidate = publishedManifest(candidateCheckpointId);
+            validateManifestIdentity(coverage.candidate(), candidate,
+                    "Oxia floor coverage changed candidate manifest");
+            validateScalarFloorIdentity(coverage.floor(), publishedManifest(coverage.floor().checkpointId()));
+            final List<CheckpointManifest> ancestry = coverage.ancestry();
+            if (ancestry.isEmpty()
+                    || !Bytes.constantTimeEquals(ancestry.get(ancestry.size() - 1).checkpointId(),
+                    candidate.checkpointId())
+                    || !Bytes.constantTimeEquals(ancestry.get(ancestry.size() - 1).manifestSha256(),
+                    candidate.manifestSha256())) {
+                throw new IllegalStateException("Oxia floor coverage ancestry does not end at candidate");
+            }
+            boolean floorFound = false;
+            for (CheckpointManifest ancestor : ancestry) {
+                if (Bytes.constantTimeEquals(ancestor.checkpointId(), coverage.floor().checkpointId())
+                        && Bytes.constantTimeEquals(ancestor.manifestSha256(), coverage.floor().manifestSha256())) {
+                    floorFound = true;
+                    break;
+                }
+            }
+            if (!floorFound) {
+                throw new IllegalStateException("Oxia floor coverage ancestry omits the returned Floor");
             }
         });
         return result;
@@ -176,6 +205,21 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
                 || !Bytes.constantTimeEquals(requested.checkpointId(), result.manifest().checkpointId())
                 || !Bytes.constantTimeEquals(requested.manifestSha256(), result.manifest().manifestSha256())) {
             throw new IllegalStateException("Oxia catalog publication changed checkpoint identity");
+        }
+    }
+
+    private static void validateManifestIdentity(final CheckpointManifest actual,
+                                                 final CheckpointManifest expected,
+                                                 final String message) {
+        if (!actual.shardId().equals(expected.shardId())
+                || !Bytes.constantTimeEquals(actual.checkpointId(), expected.checkpointId())
+                || !Bytes.constantTimeEquals(actual.recoveryLineageId(), expected.recoveryLineageId())
+                || !Bytes.constantTimeEquals(actual.manifestSha256(), expected.manifestSha256())
+                || actual.lineageGeneration() != expected.lineageGeneration()
+                || !actual.appliedShardLogPosition().equals(expected.appliedShardLogPosition())
+                || actual.shardMutationSequence() != expected.shardMutationSequence()
+                || !actual.evidenceCursors().equals(expected.evidenceCursors())) {
+            throw new IllegalStateException(message);
         }
     }
 
