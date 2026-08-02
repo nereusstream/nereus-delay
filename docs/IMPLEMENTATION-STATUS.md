@@ -19,6 +19,10 @@ covered by that checkpoint cannot be promoted into the Floor projection.
 The legacy scalar-Floor compatibility path applies the same manifest-cursor
 check when creating a typed Recovery Pin, so compatibility does not create a
 weaker evidence boundary.
+Published checkpoint ancestry also keeps every parent evidence cursor present
+at the same identity in the child and requires the child cursor to dominate it;
+cursor disappearance or generation replacement is rejected before catalog
+generation advances.
 
 Exact already-published manifests are similarly reread before generation CAS;
 same-checkpoint hash drift remains an integrity conflict.

@@ -126,7 +126,9 @@ typed Floor advancement/current-FloorRef 和同一 shard 的 Floor/catalog gener
 传入 cursor 集合与候选 checkpoint manifest 的 evidence-cursor 数组 byte-equal，
 再执行同 generation dominance，避免把 checkpoint 未覆盖的 evidence 推进到
 Floor；legacy scalar Floor 创建 typed Recovery Pin 时也执行相同的 manifest
-cursor 绑定。但这仍不是 Oxia
+cursor 绑定；checkpoint parent lineage 还要求每个父 cursor 在子 manifest
+中保持同一 identity 并单调 dominate，不能通过 source position 前进掩盖
+evidence cursor 回退。但这仍不是 Oxia
 Owner Lease/session CAS；`CheckpointResourceV1` 与
 `CheckpointUploadIntentV1`
 也已补齐 manifest-object identity 和 PENDING/PUBLISHED/REAPING 的 canonical

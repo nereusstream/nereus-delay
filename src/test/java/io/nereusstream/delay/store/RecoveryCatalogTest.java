@@ -249,6 +249,13 @@ class RecoveryCatalogTest {
         catalog.publish(genesis, 0);
         assertThrows(IllegalArgumentException.class,
                 () -> catalog.advanceFloor(genesis.checkpointId(), 1, List.of()));
+        final EvidenceCursorV1 regressedChildCursor = EvidenceCursorV1.kafka(id32(82), id16(83), id16(84),
+                1, 4, 99, 10, 9);
+        final CheckpointManifest regressedChild = manifest(shard,
+                ((KafkaSourcePosition) genesis.appliedShardLogPosition()).nativeTopicUuid(), lineage, id16(86), 1,
+                2, 2, new CheckpointManifest.ParentCheckpoint(genesis.checkpointId(),
+                        Bytes.hex(genesis.manifestSha256())), List.of(regressedChildCursor));
+        assertThrows(IllegalArgumentException.class, () -> catalog.publish(regressedChild, 1));
         final RecoveryFloorRefV1 first = catalog.advanceFloor(genesis.checkpointId(), 1, List.of(older));
         assertEquals(first, catalog.currentFloorRef().orElseThrow());
         assertEquals(first, catalog.advanceFloor(genesis.checkpointId(), 1, List.of(older)));

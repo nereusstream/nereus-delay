@@ -459,6 +459,13 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
                 || manifest.lineageGeneration() != Math.addExact(parent.lineageGeneration(), 1)) {
             throw new IllegalArgumentException("checkpoint lineage does not extend parent");
         }
+        for (EvidenceCursorV1 parentCursor : parent.evidenceCursors()) {
+            final EvidenceCursorV1 childCursor = manifest.evidenceCursors().stream()
+                    .filter(cursor -> cursor.sameIdentity(parentCursor)).findFirst().orElse(null);
+            if (childCursor == null || !childCursor.dominates(parentCursor)) {
+                throw new IllegalArgumentException("checkpoint evidence cursor regressed or disappeared");
+            }
+        }
         final SourcePosition position = manifest.appliedShardLogPosition();
         if (position.compareTo(parent.appliedShardLogPosition()) <= 0
                 || manifest.shardMutationSequence() <= parent.shardMutationSequence()) {
