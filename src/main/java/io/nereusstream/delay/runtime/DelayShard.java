@@ -36,6 +36,8 @@ import io.nereusstream.delay.protocol.PublishOutcomeBody;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.ReplayDeadLetterBody;
 import io.nereusstream.delay.protocol.ResolveUncertainBody;
+import io.nereusstream.delay.protocol.RetryPolicyRefV1;
+import io.nereusstream.delay.protocol.RetryPolicySemanticV1;
 import io.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
 import io.nereusstream.delay.protocol.ResourceKind;
 import io.nereusstream.delay.protocol.ResourceRetireIntentBody;
@@ -92,6 +94,7 @@ public final class DelayShard {
     private final DelayShardConfig config;
     private final PayloadProofTrustSet payloadProofTrustSet;
     private final PayloadProofTrustSetControlCatalog payloadProofTrustSetControlCatalog;
+    private final RetryPolicyCatalog retryPolicyCatalog;
     private PayloadProofTrustSetControlState payloadProofTrustSetControlState;
     private ProfileBindingControlState profileBindingControlState;
     private final ShardCapacityEnvelopeV1 capacityEnvelope;
@@ -152,10 +155,26 @@ public final class DelayShard {
                       final ShardCapacityEnvelopeV1 capacityEnvelope,
                       final V1ScheduleResolver v1ScheduleResolver,
                       final PayloadProofTrustSetControlCatalog payloadProofTrustSetControlCatalog) {
+        this(store, config, payloadProofTrustSet, capacityEnvelope, v1ScheduleResolver,
+                payloadProofTrustSetControlCatalog, null);
+    }
+
+    /**
+     * Opens a shard with an optional source-position-pinned Retry Policy
+     * catalog. A supplied catalog turns on fail-closed semantic lookup for
+     * V1 Schedule/Prepare; older constructors retain compatibility behavior.
+     */
+    public DelayShard(final ShardStore store, final DelayShardConfig config,
+                      final PayloadProofTrustSet payloadProofTrustSet,
+                      final ShardCapacityEnvelopeV1 capacityEnvelope,
+                      final V1ScheduleResolver v1ScheduleResolver,
+                      final PayloadProofTrustSetControlCatalog payloadProofTrustSetControlCatalog,
+                      final RetryPolicyCatalog retryPolicyCatalog) {
         this.store = Objects.requireNonNull(store, "store");
         this.config = Objects.requireNonNull(config, "config");
         this.payloadProofTrustSet = payloadProofTrustSet;
         this.payloadProofTrustSetControlCatalog = payloadProofTrustSetControlCatalog;
+        this.retryPolicyCatalog = retryPolicyCatalog;
         this.capacityEnvelope = capacityEnvelope;
         this.v1ScheduleResolver = v1ScheduleResolver;
         final var sourceValue = store.getValue(ColumnFamily.META, KeyCodec.metaFixed(META_APPLIED_SOURCE_POSITION), 1);
@@ -3486,6 +3505,8 @@ public final class DelayShard {
         final PrepareLargeScheduleBodyV1 body = CommandBodies.decodePrepareLargeV1(command.canonicalBody());
         requireV1BodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
         requireProfileFirstBinding(body.intentWithoutPayload().profile(), sourcePosition);
+        requireRetryPolicy(body.intentWithoutPayload().retryPolicy(), body.intentWithoutPayload().orderingMode(),
+                sourcePosition);
         final V1ScheduleResolver resolver = requireV1ScheduleResolver();
         final V1ScheduleResolver.ResolvedPrepare resolved = Objects.requireNonNull(
                 resolver.resolvePrepare(command.shardId(), command.delayMessageId(), body, sourcePosition),
@@ -3513,6 +3534,7 @@ public final class DelayShard {
         final ScheduleCommandBodyV1 body = CommandBodies.decodeScheduleV1(command.canonicalBody());
         requireV1BodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
         requireProfileFirstBinding(body.intent().profile(), sourcePosition);
+        requireRetryPolicy(body.intent().retryPolicy(), body.intent().orderingMode(), sourcePosition);
         final V1ScheduleResolver resolver = requireV1ScheduleResolver();
         final V1ScheduleResolver.ResolvedSchedule resolved = Objects.requireNonNull(
                 resolver.resolveSchedule(command.shardId(), command.delayMessageId(), body.intent(), sourcePosition),
@@ -3531,6 +3553,31 @@ public final class DelayShard {
                     "V1 Schedule/Prepare requires a source-position-pinned resolver");
         }
         return v1ScheduleResolver;
+    }
+
+    private void requireRetryPolicy(final RetryPolicyRefV1 reference,
+                                    final io.nereusstream.delay.protocol.OrderingMode orderingMode,
+                                    final SourcePosition sourcePosition) {
+        if (retryPolicyCatalog == null) {
+            return;
+        }
+        final RetryPolicySemanticV1 semantic = retryPolicyCatalog.resolve(
+                Objects.requireNonNull(reference, "reference"), Objects.requireNonNull(sourcePosition,
+                        "sourcePosition"));
+        if (semantic == null) {
+            throw new V1CommandResolutionException(StableCode.RETRY_POLICY_NOT_ACTIVE_AT_SOURCE_POSITION,
+                    "Retry Policy is not active at the command Source Position");
+        }
+        if (!reference.matches(semantic)) {
+            throw new V1CommandResolutionException(StableCode.INVALID_COMMAND,
+                    "Retry Policy reference does not match catalog semantic bytes");
+        }
+        try {
+            semantic.validateFor(orderingMode);
+        } catch (IllegalArgumentException exception) {
+            throw new V1CommandResolutionException(StableCode.INVALID_COMMAND,
+                    "Retry Policy is incompatible with the requested ordering mode");
+        }
     }
 
     private static void validateResolvedSchedulePayload(final ScheduleIntentV1 intent,

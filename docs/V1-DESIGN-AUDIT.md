@@ -166,9 +166,12 @@ trust-set authority、Object Store attestation/ownership 和完整 reservation
 binding 仍是 release blocker。
 `RetryPolicySemanticV1`
 现在也能按 Registry 公式重算 semantic hash、生成 typed ref，并拒绝 uncertain/
-DLQ 分支和 backoff arithmetic 漂移；但 policy publication/source-position
-activation、Schedule 的历史 policy binding、Profile/Adapter 运行时绑定和真实
-ingress 迁移仍是 release blocker。
+DLQ 分支和 backoff arithmetic 漂移；`RetryPolicyCatalog` 接入后，V1
+Schedule/Prepare 会在 resolver 前校验 exact ref/hash 的 source-position 可见性，
+并执行 ordering-mode guard，缺失语义返回
+`RETRY_POLICY_NOT_ACTIVE_AT_SOURCE_POSITION`。这仍只是 authority seam；policy
+publication/source-position activation authority、历史 policy binding retention、
+Profile/Adapter 运行时绑定和真实 ingress 迁移仍是 release blocker。
 Payload proof trust-set 也已补齐 canonical verifier-key list、semantic
 hash/ref、Ed25519 raw-key projection 和本地 source-time validity-window
 校验；`PayloadProofTrustSetControlState` 现在保留严格 source-ordered

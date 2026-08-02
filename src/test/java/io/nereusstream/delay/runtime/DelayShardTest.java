@@ -34,6 +34,7 @@ import io.nereusstream.delay.protocol.ProfileBindingActivatePayloadV1;
 import io.nereusstream.delay.protocol.ProfileNewBindingClosePayloadV1;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
+import io.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.PublishAdmissionBody;
 import io.nereusstream.delay.protocol.PublishAdmissionBodyTest.Fixture;
@@ -42,10 +43,14 @@ import io.nereusstream.delay.protocol.QuotaGrantRefV1;
 import io.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
 import io.nereusstream.delay.protocol.ResourceKind;
 import io.nereusstream.delay.protocol.ResourceRetireIntentBody;
+import io.nereusstream.delay.protocol.RetryPolicySemanticV1;
+import io.nereusstream.delay.protocol.UncertainPolicyV1;
+import io.nereusstream.delay.protocol.DlqExportModeV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ScheduleIntentV1;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.ShardCapacityEnvelopeV1;
+import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.SystemMutation;
 import io.nereusstream.delay.protocol.SystemMutationType;
@@ -311,6 +316,59 @@ class DelayShardTest {
             final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver);
             assertNotNull(reopened.getV1ScheduleBinding(schedule.delayMessageId()));
             assertNotNull(reopened.getV1ScheduleBinding(prepare.delayMessageId()));
+        }
+    }
+
+    @Test
+    void registryScheduleRequiresSourceVisibleRetryPolicySemantic() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("retry-policy-catalog"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 35);
+        final ProfileRefV1 profile = new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 31),
+                io.nereusstream.delay.protocol.ProfileKindV1.DESTINATION);
+        final RetryPolicySemanticV1 policy = new RetryPolicySemanticV1(Bytes.utf8("retry"), 1,
+                100, 10_000, 5, 60_000, UncertainPolicyV1.HOLD_FOR_EVIDENCE, 0,
+                DlqExportModeV1.NOT_CONFIGURED, 0, 0, 0, 0, false, bytes(32, 32));
+        final ScheduleIntentV1 intent = ScheduleIntentV1.create(profile, policy.ref(), 2_000, 5_000,
+                io.nereusstream.delay.protocol.DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT,
+                Bytes.utf8("ordering"), Bytes.utf8("retry-policy"), null,
+                io.nereusstream.delay.protocol.AdapterMetadataV1.kafka(
+                        new io.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())), null, null);
+        final PreparedCommand schedule = PreparedCommand.scheduleV1(shardId, intent, 9_000);
+        final byte[] tuple = Bytes.utf8("retry-policy-lane");
+        final DestinationLaneId lane = DestinationLaneId.derive(tuple);
+        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+            @Override
+            public ResolvedSchedule resolveSchedule(final ShardId shard, final DelayMessageId messageId,
+                                                     final ScheduleIntentV1 scheduleIntent,
+                                                     final SourcePosition source) {
+                return new ResolvedSchedule(lane, tuple, scheduleIntent.inlinePayload(), null);
+            }
+
+            @Override
+            public ResolvedPrepare resolvePrepare(final ShardId shard, final DelayMessageId messageId,
+                                                  final PrepareLargeScheduleBodyV1 body,
+                                                  final SourcePosition source) {
+                return new ResolvedPrepare(lane, tuple);
+            }
+        };
+        final KafkaSourcePosition source = position(shardId, 0, 1_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final RetryPolicyCatalog catalog = (reference, sourcePosition) -> reference.matches(policy)
+                    ? policy : null;
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver, null,
+                    catalog);
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, source).stableCode());
+        }
+
+        final ShardStoreConfig blockedConfig = ShardStoreConfig.defaults(tempDir.resolve("retry-policy-blocked"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(blockedConfig);
+             ShardStore store = ShardStore.open(blockedConfig, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver, null,
+                    (reference, sourcePosition) -> null);
+            assertEquals(StableCode.RETRY_POLICY_NOT_ACTIVE_AT_SOURCE_POSITION,
+                    shard.apply(PreparedCommand.scheduleV1(shardId, intent, 9_000), source).stableCode());
+            assertNull(shard.getMessage(schedule.delayMessageId()));
         }
     }
 
