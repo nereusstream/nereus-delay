@@ -365,10 +365,14 @@ public final class OwnedDelayShard {
      * release remain explicit drain steps owned by the surrounding worker
      * orchestration.</p>
      */
-    public synchronized void beginDrain(final OxiaOwnerLeaseStore authority) {
+    public synchronized void beginDrain(final OxiaOwnerLeaseStore authority, final long nowEpochMs) {
         Objects.requireNonNull(authority, "authority");
         if (state != ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
             throw new IllegalStateException("only an active shard can drain");
+        }
+        if (!lease.validAt(nowEpochMs)) {
+            state = ShardLifecycleState.FENCED;
+            throw new IllegalStateException("owner lease expired before drain CAS");
         }
         final OwnerLease transitioned;
         try {
@@ -378,7 +382,8 @@ public final class OwnedDelayShard {
             state = ShardLifecycleState.FENCED;
             throw failure;
         }
-        if (!lease.sameIdentity(transitioned) || transitioned.state() != ShardLifecycleState.DRAINING) {
+        if (!lease.sameIdentity(transitioned) || transitioned.state() != ShardLifecycleState.DRAINING
+                || !transitioned.validAt(nowEpochMs)) {
             state = ShardLifecycleState.FENCED;
             throw new IllegalStateException("owner lease drain CAS changed fencing identity");
         }

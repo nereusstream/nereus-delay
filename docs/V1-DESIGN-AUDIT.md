@@ -325,12 +325,14 @@ Activation 的本地 Oxia adapter 还会在 CAS response loss 后仅接受同一
 fencing/assignment/session identity 的 exact `ACTIVE_FOR_COMMANDS` 重读；
 `transitionOrRead` 在 lifecycle graph 禁止的请求上不会执行重读，因此
 非法 transition 不会被 coincidental current state 掩盖。
-`OwnedDelayShard.beginDrain(OxiaOwnerLeaseStore)` 现在对
+`OwnedDelayShard.beginDrain(OxiaOwnerLeaseStore, nowEpochMs)` 现在对
 `ACTIVE_FOR_COMMANDS -> DRAINING` 使用同一 exact-successor CAS 规则；response
-loss 只有在 owner/epoch/token/assignment/session 完全一致的 successor 被重读时
-才算成功，否则本地视图转为 `FENCED`。`OwnerLeaseTest.authorityGatedDrainRequiresTheExactLeaseSuccessor`
-覆盖该本地边界。它只关闭新的 command admission；claim revoke、in-flight publish
-quiescence、final checkpoint 和 lease release 仍是生产 drain gate。
+loss 只有在 owner/epoch/token/assignment/session 完全一致且在观测时刻仍有效的
+successor 被重读时才算成功，否则本地视图转为 `FENCED`。
+`OwnerLeaseTest.authorityGatedDrainRequiresTheExactLeaseSuccessor` 与
+`OwnerLeaseTest.authorityGatedDrainFailsClosedWhenLeaseIsExpired` 覆盖该本地边界。
+它只关闭新的 command admission；claim revoke、in-flight publish quiescence、final
+checkpoint 和 lease release 仍是生产 drain gate。
 Lease validity additionally rejects negative observation times even when a
 caller reaches `OwnerLease.validAt` directly rather than through an authority
 request; `OwnerLeaseTest.negativeClockCannotMakeOwnerLeaseValid` covers the

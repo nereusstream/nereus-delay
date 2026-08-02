@@ -112,11 +112,36 @@ class OwnerLeaseTest {
             owned.recordCatchup(position);
             final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
             owned.activateForCommands(authority, 101);
-            owned.beginDrain(authority);
+            owned.beginDrain(authority, 101);
             assertEquals(ShardLifecycleState.DRAINING, owned.state());
             assertEquals(ShardLifecycleState.DRAINING, authority.current(shardId).orElseThrow().state());
             assertEquals(acquired.ownerEpoch(), owned.lease().ownerEpoch());
-            assertThrows(IllegalStateException.class, () -> owned.beginDrain(authority));
+            assertThrows(IllegalStateException.class, () -> owned.beginDrain(authority, 101));
+        }
+    }
+
+    @Test
+    void authorityGatedDrainFailsClosedWhenLeaseIsExpired() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 19);
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease acquired = backend.acquire(shardId, "worker-expired-drain", 100, 100).orElseThrow();
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("expired-drain"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()),
+                    acquired);
+            final UUID topic = UUID.randomUUID();
+            final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster", topic, 0,
+                    null, 1_000);
+            owned.markCatchingUp(new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("expired-drain-assignment")), 1,
+                    new KafkaActivationBarrier(shardId, "cluster", topic, 0)));
+            owned.recordCatchup(position);
+            final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+            owned.activateForCommands(authority, 101);
+
+            assertThrows(IllegalStateException.class, () -> owned.beginDrain(authority, 200));
+            assertEquals(ShardLifecycleState.FENCED, owned.state());
+            assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, authority.current(shardId).orElseThrow().state());
         }
     }
 
