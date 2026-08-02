@@ -273,6 +273,9 @@ Normal `ShardStore.open` 也对 `ACTIVE`、incarnation、DB 目录和 `CURRENT`
 使用 `NOFOLLOW_LINKS` 并拒绝符号链接，因此 open 与 restore 对
 live-incarnation pointer 使用同一 fail-closed 边界；restore 也不会把
 有效 `ACTIVE` 指向的符号链接 incarnation/DB 当作 live DB。
+已有 RocksDB 如果缺少 `meta_cf` 的 shard-identity marker 也不再被当成 fresh
+DB 初始化；只有没有 `CURRENT` 的真正新目录才允许写入初始 metadata，已有目录
+缺 marker 会在 activation 前 fail closed，`ShardStoreTest` 覆盖该重开路径。
 staged open/metadata validation 的 runtime failure 也会清理 private
 `restore-tmp`，而 download-slot 尚未取得时仍保留原始 bounded-concurrency
 错误。

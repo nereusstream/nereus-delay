@@ -424,6 +424,10 @@ public final class ShardStore implements AutoCloseable {
         final byte[] identityBytes = db.get(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_SHARD_IDENTITY));
         StoreMetadata metadata;
         if (identityBytes == null) {
+            if (existing) {
+                closeHandles(db, openedHandles, cfOptions, dbOptions);
+                throw new IllegalStateException("existing shard DB is missing meta_cf shard identity");
+            }
             final UUID storeUuid;
             try {
                 storeUuid = UUID.fromString(dbPath.getParent().getFileName().toString());

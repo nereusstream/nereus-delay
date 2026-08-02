@@ -67,6 +67,19 @@ class ShardStoreTest {
     }
 
     @Test
+    void reopenRejectsExistingDbMissingShardIdentity() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("missing-identity"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 28);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> batch.delete(ColumnFamily.META, KeyCodec.metaFixed(2)));
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+            assertThrows(IllegalStateException.class, () -> ShardStore.open(config, shardId, resources));
+        }
+    }
+
+    @Test
     void checkpointUsesTemporaryNamespaceAndRejectsExistingTarget() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("checkpoint-atomic"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 23);
