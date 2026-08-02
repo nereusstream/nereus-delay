@@ -2,6 +2,8 @@ package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.EvidenceCursorV1;
+import io.nereusstream.delay.protocol.RecoveryPinV1;
+import io.nereusstream.delay.protocol.ShardSubjectV1;
 import io.nereusstream.delay.protocol.ShardId;
 import org.rocksdb.BlockBasedTableConfig;
 import org.rocksdb.ColumnFamilyDescriptor;
@@ -109,16 +111,49 @@ public final class ShardStore implements AutoCloseable {
     public static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
                                                    final SharedRocksDbResources resources,
                                                    final Path checkpointPath) {
-        return restoreFromCheckpoint(config, shardId, resources, checkpointPath, null);
+        return restoreWithRecoveryGuard(config, shardId, resources, checkpointPath, null, null, null);
     }
 
     public static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
                                                    final SharedRocksDbResources resources,
                                                    final Path checkpointPath, final CheckpointManifest manifest) {
+        return restoreWithRecoveryGuard(config, shardId, resources, checkpointPath, manifest, null, null);
+    }
+
+    /**
+     * Restores an exact published checkpoint only while the caller still owns
+     * the exact session-bound RecoveryPin.  The pin is reread before staging
+     * and immediately before installing the new Store Incarnation; a missing
+     * or changed pin fails closed and leaves only private restore-tmp state.
+     */
+    public static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
+                                                   final SharedRocksDbResources resources,
+                                                   final Path checkpointPath, final CheckpointManifest manifest,
+                                                   final RecoveryCatalogAuthority catalog,
+                                                   final RecoveryPinV1 pin) {
+        Objects.requireNonNull(catalog, "catalog");
+        Objects.requireNonNull(pin, "pin");
+        Objects.requireNonNull(manifest, "manifest");
+        return restoreWithRecoveryGuard(config, shardId, resources, checkpointPath, manifest, catalog, pin);
+    }
+
+    private static ShardStore restoreWithRecoveryGuard(final ShardStoreConfig config, final ShardId shardId,
+                                                       final SharedRocksDbResources resources,
+                                                       final Path checkpointPath, final CheckpointManifest manifest,
+                                                       final RecoveryCatalogAuthority catalog,
+                                                       final RecoveryPinV1 pin) {
         Objects.requireNonNull(config, "config");
         Objects.requireNonNull(shardId, "shardId");
         Objects.requireNonNull(resources, "resources");
         Objects.requireNonNull(checkpointPath, "checkpointPath");
+        if (catalog != null) {
+            catalog.validatePublishedRestoreCandidate(Objects.requireNonNull(manifest, "manifest"));
+            if (pin != null) {
+                validateRecoveryPin(shardId, manifest, catalog, pin);
+            }
+        } else if (pin != null) {
+            throw new IllegalArgumentException("RecoveryPin requires a catalog authority");
+        }
         final Path shardRoot = config.rootPath().resolve("shards")
                 .resolve(shardId.routeIncarnation().uuid().toString())
                 .resolve(Integer.toString(shardId.partition()));
@@ -152,6 +187,9 @@ public final class ShardStore implements AutoCloseable {
                         || !manifest.sourceStoreIncarnation().equals(staged.metadata().storeIncarnationUuid()))) {
                     throw new IOException("restored DB metadata does not match checkpoint manifest");
                 }
+            }
+            if (pin != null) {
+                validateRecoveryPin(shardId, manifest, catalog, pin);
             }
             try (ShardStore installed = openAtPath(config, shardId, stagedDb, resources, storeUuid, false)) {
                 if (!installed.shardId().equals(shardId)) {
@@ -205,9 +243,7 @@ public final class ShardStore implements AutoCloseable {
                                                    final SharedRocksDbResources resources,
                                                    final Path checkpointPath, final CheckpointManifest manifest,
                                                    final RecoveryCatalogAuthority catalog) {
-        Objects.requireNonNull(catalog, "catalog");
-        catalog.validatePublishedRestoreCandidate(Objects.requireNonNull(manifest, "manifest"));
-        return restoreFromCheckpoint(config, shardId, resources, checkpointPath, manifest);
+        return restoreWithRecoveryGuard(config, shardId, resources, checkpointPath, manifest, catalog, null);
     }
 
     /**
@@ -222,6 +258,21 @@ public final class ShardStore implements AutoCloseable {
         final CheckpointManifest manifest = CheckpointManifest.decodeCanonicalJson(
                 Objects.requireNonNull(manifestJson, "manifestJson"));
         return restoreFromCheckpoint(config, shardId, resources, checkpointPath, manifest, catalog);
+    }
+
+    private static void validateRecoveryPin(final ShardId shardId, final CheckpointManifest manifest,
+                                             final RecoveryCatalogAuthority catalog, final RecoveryPinV1 pin) {
+        if (!new ShardSubjectV1(shardId).equals(pin.shard())
+                || !java.util.Arrays.equals(pin.candidate().checkpointId(), manifest.checkpointId())
+                || !Bytes.constantTimeEquals(pin.candidate().recoveryLineageId(), manifest.recoveryLineageId())
+                || !Bytes.constantTimeEquals(pin.candidate().manifestSha256(), manifest.manifestSha256())) {
+            throw new IllegalArgumentException("RecoveryPin does not match the restore candidate");
+        }
+        final RecoveryPinV1 active = catalog.activeRecoveryPin().orElseThrow(() ->
+                new IllegalStateException("RecoveryPin is no longer active"));
+        if (!active.equals(pin)) {
+            throw new IllegalStateException("RecoveryPin identity/value changed during restore");
+        }
     }
 
     private static void validateCheckpointManifest(final ShardId shardId, final Path checkpointPath,

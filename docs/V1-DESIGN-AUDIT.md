@@ -300,6 +300,10 @@ closed，且 evidence 的 earliest trusted time 必须达到 upload deadline；
 deadline 前的 reaper 证据不会推进状态。该边界不等于 owner abandonment/
 lease-loss authority、quiescence、exact-version Object Store delete/final
 prefix sweep 或 Oxia transaction。
+`ShardStore` 还提供 pin-aware restore overload：它在下载/暂存校验后、安装
+新 Store Incarnation 前 reread exact active `RecoveryPinV1`，pin 缺失或值漂移
+就 fail closed 并清理私有 `restore-tmp`。这把本地安装边界接上了 pin 语义，
+但不冒充 production Oxia 的 Owner Lease/session 同事务 CAS。
 `OxiaRecoveryCatalog` 的 response boundary 现在会在 scalar/typed Floor CAS
 后 reread exact published manifest，并拒绝 lineage、manifest hash、source
 position、mutation sequence 或 typed evidence-cursor drift；typed 返回还必须

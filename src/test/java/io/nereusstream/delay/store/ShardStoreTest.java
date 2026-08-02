@@ -2,8 +2,14 @@ package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
+import io.nereusstream.delay.protocol.OwnerIdentityV1;
+import io.nereusstream.delay.protocol.RecoveryCandidateKindV1;
+import io.nereusstream.delay.protocol.RecoveryCandidateRefV1;
+import io.nereusstream.delay.protocol.RecoveryFloorRefV1;
+import io.nereusstream.delay.protocol.RecoveryPinV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
+import io.nereusstream.delay.protocol.ShardSubjectV1;
 import io.nereusstream.delay.protocol.SloFinalOutcomeV1;
 import io.nereusstream.delay.protocol.SloObjectiveNameV1;
 import io.nereusstream.delay.protocol.SloObservationOutboxV1;
@@ -454,11 +460,31 @@ class ShardStoreTest {
                     unpublishedConfig, shardId, resources, checkpoint, manifest, catalog));
         }
         catalog.publish(manifest, 0);
+        final RecoveryFloor floor = catalog.advanceFloor(manifest.checkpointId(), 1,
+                Bytes.sha256(Bytes.utf8("catalog-floor")));
+        final RecoveryFloorRefV1 floorRef = new RecoveryFloorRefV1(floor.recoveryLineageId(), floor.checkpointId(),
+                floor.manifestSha256(), floor.catalogGeneration(), floor.appliedSourcePosition(),
+                floor.includedMutationSequence(), List.of());
+        final RecoveryPinV1 pin = new RecoveryPinV1(java.util.Arrays.copyOf(
+                Bytes.sha256(Bytes.utf8("catalog-pin"), Bytes.utf8("id")), 16),
+                new ShardSubjectV1(shardId), new OwnerIdentityV1(manifest.createdBy().deploymentId(),
+                manifest.createdBy().workerRunId(), manifest.createdBy().ownerEpoch(),
+                Bytes.sha256(Bytes.utf8("catalog-lease"))),
+                new RecoveryCandidateRefV1(RecoveryCandidateKindV1.CATALOG_CHECKPOINT,
+                        manifest.recoveryLineageId(), manifest.checkpointId(), manifest.manifestSha256(), null),
+                floorRef, floor.catalogGeneration(), Bytes.sha256(Bytes.utf8("oxia-session")));
+        catalog.createRecoveryPin(pin);
         final ShardStoreConfig restoreConfig = ShardStoreConfig.defaults(tempDir.resolve("catalog-restore"));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(restoreConfig);
              ShardStore restored = ShardStore.restoreFromCheckpoint(restoreConfig, shardId, resources,
-                     checkpoint, manifest.canonicalJsonBytes(), catalog)) {
+                     checkpoint, manifest, catalog, pin)) {
             assertArrayEquals(payload, restored.getValue(ColumnFamily.META, key, 7).payload());
+        }
+        catalog.releaseRecoveryPin(pin);
+        final ShardStoreConfig missingPinConfig = ShardStoreConfig.defaults(tempDir.resolve("missing-pin-restore"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(missingPinConfig)) {
+            assertThrows(IllegalStateException.class, () -> ShardStore.restoreFromCheckpoint(
+                    missingPinConfig, shardId, resources, checkpoint, manifest, catalog, pin));
         }
     }
 
