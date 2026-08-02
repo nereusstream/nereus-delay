@@ -2085,6 +2085,64 @@ class DelayShardTest {
     }
 
     @Test
+    void closedLaneNotPublishedOutcomeTerminalizesWithoutRetry() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-outcome-closed-lane"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 70);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("closed-outcome-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("closed-outcome")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 1_001);
+        final KafkaSourcePosition closePosition = position(shardId, 2, 1_002);
+        final KafkaSourcePosition outcomePosition = position(shardId, 3, 1_003);
+        final byte[] attemptId = Bytes.sha256(Bytes.utf8("closed-outcome-attempt"));
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final byte[] owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 42,
+                Bytes.sha256(Bytes.utf8("lease"))).canonicalBytes();
+        final byte[] outcomeBody = publishNotPublishedBody(shardId, attemptId, 1,
+                StableCode.DESTINATION_DEFINITIVE_RETRIABLE, 2_002);
+        final SystemMutation outcome = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
+                Bytes.sha256(Bytes.utf8("closed-outcome-operation")), outcomeBody, owner, 1,
+                keyPair.getPrivate());
+        final AuthorIdentity control = AuthorIdentity.control(Bytes.sha256(Bytes.utf8("closed-actor")),
+                Bytes.sha256(Bytes.utf8("closed-roles")), Bytes.sha256(Bytes.utf8("closed-scope")));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final PublishAttemptLedger admission = PublishAttemptLedger.publishing(schedule.delayMessageId(), 0,
+                    attemptId, Bytes.sha256(Bytes.utf8("claim")), 42, 1, lane, new byte[16],
+                    Bytes.sha256(Bytes.utf8("owner")), store.metadata().storeIncarnation(),
+                    Bytes.sha256(Bytes.utf8("prepared")), Bytes.utf8("admission"), admissionPosition.canonicalBytes());
+            shard.admitPublishAttempt(admission, admissionPosition);
+
+            final LaneRecord beforeClose = shard.getLane(lane);
+            final ControlRef closeRef = new ControlRef(Bytes.sha256(Bytes.utf8("closed-close-op")),
+                    Bytes.sha256(Bytes.utf8("closed-close-request")), 0);
+            final byte[] closeBody = applyShardControlBody(shardId, closeRef, 11, lane,
+                    beforeClose.laneIncarnation(), beforeClose.laneControlVersion());
+            final SystemMutation close = SystemMutation.signed(shardId,
+                    SystemMutationType.APPLY_SHARD_CONTROL, 9_000, closeRef.logicalOperationIdentity(11),
+                    closeBody, control.canonicalBytes(), 1, keyPair.getPrivate());
+            assertEquals(StableCode.OK, shard.applySystemMutation(close, closePosition, keyPair.getPublic())
+                    .stableCode());
+
+            final SystemMutationResult result = shard.applySystemMutation(outcome, outcomePosition,
+                    keyPair.getPublic());
+            assertEquals(StableCode.LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED, result.stableCode());
+            assertEquals(MessageStatus.DEAD_LETTER, shard.getMessage(schedule.delayMessageId()).status());
+            assertEquals(StableCode.LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED,
+                    shard.getTerminalGeneration(schedule.delayMessageId(), 0).terminalCode());
+            assertNull(shard.findOpenPublishAttempt(attemptId));
+            assertEquals(0, shard.quota().pendingMessages());
+            assertEquals(0, shard.discoverDue(10_000, 10).size());
+        }
+    }
+
+    @Test
     void sourceOrderedNotPublishedPermanentClosesGenerationAndReleasesQuota() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-outcome-permanent"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 17);

@@ -2588,7 +2588,17 @@ public final class DelayShard {
                 && retryDecision.nextRetryAt() < current.deliverAtEpochMs()) {
             return persistSystemResultByResult(systemResult, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
         }
-        if (outcome.disposition() == 2) {
+        final LaneRecord currentLane = readLane(current.laneId());
+        final boolean closedAfterAdmission = currentLane != null
+                && currentLane.admissionGate() == AdmissionGate.CLOSED;
+        final StableCode terminalCode = closedAfterAdmission
+                ? StableCode.LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED : outcome.stableCode();
+        final SystemMutationResult terminalResult = closedAfterAdmission
+                ? new SystemMutationResult(systemResult.mutationId(), systemResult.mutationHash(),
+                systemResult.mutationType(), systemResult.retryUntilEpochMs(), systemResult.authorIdentity(),
+                systemResult.applyStatus(), terminalCode, sourcePosition.canonicalBytes())
+                : systemResult;
+        if (outcome.disposition() == 2 || closedAfterAdmission) {
             MessageRecord terminalMessage = new MessageRecord(MessageStatus.DEAD_LETTER, current.generation(),
                     Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
                     current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
@@ -2599,7 +2609,7 @@ public final class DelayShard {
                     current.runtimeIndex().admissionsUsed(), current.runtimeIndex().uncertainRetryAdmissionsUsed(),
                     current.runtimeIndex().possibleDestinationDuplicate(), terminalMessage.stateVersion()));
             final TerminalGenerationRecord terminal = new TerminalGenerationRecord(ledger.delayMessageId(),
-                    ledger.generation(), MessageStatus.DEAD_LETTER, outcome.stableCode(), terminalMessage.stateVersion(),
+                    ledger.generation(), MessageStatus.DEAD_LETTER, terminalCode, terminalMessage.stateVersion(),
                     sourcePosition.canonicalBytes(), terminalMessage.runtimeIndex().possibleDestinationDuplicate(),
                     terminalMessage.runtimeIndex().attemptObligations());
             final DlqExportRecord dlqExport = DlqExportRecord.notConfigured(ledger.delayMessageId(),
@@ -2624,7 +2634,7 @@ public final class DelayShard {
                 }
                 batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(META_QUOTA_USAGE), nextQuota.encode());
                 persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector);
-                writeSystemResult(batch, systemResult);
+                writeSystemResult(batch, terminalResult);
                 writePosition(batch, sourcePosition);
             });
             lastAppliedSourcePosition = sourcePosition;
@@ -2632,7 +2642,7 @@ public final class DelayShard {
             quota = nextQuota;
             outcomeReserve = nextOutcomeReserve;
             outcomeReserveVector = nextOutcomeReserveVector;
-            return systemResult;
+            return terminalResult;
         }
         if (current.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO
                 || !retryDecision.hasNextRetryAt()) {

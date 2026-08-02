@@ -417,8 +417,10 @@ teardown 或 Broker evidence journal，因此不能宣称 production admission �
 `ChargeVectorV1`，Evidence Resolution 的 cursor 必须是 typed canonical
 `EvidenceCursorV1`。`PublishOutcomeBodyTest` 与 `DelayShardTest` 覆盖编码器、非规范
 ChargeVector、typed cursor 以及 source-ordered close/requeue；这仍只是 canonical
-body codec 和本地 transition seam，不等于签名服务、真实 Broker evidence 或
-production outcome authority 已完成。
+body codec 和本地 transition seam；当前 local transition 还验证了已 admitted
+generation 在 Close marker 后收到 definitive `NOT_PUBLISHED` 时固定写入
+`LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED` 并停止 retry。它不等于签名服务、真实
+Broker evidence、strong-capability retirement 或 production outcome authority 已完成。
 
 `PublishEvidenceV1`/`ExternalDeliveryIdentityV1` 进一步把 Registry 的
 `PublishEvidenceV1` 公共字段、kind 对应 oneof 分支、verification-status 语义、
