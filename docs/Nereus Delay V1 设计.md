@@ -2390,6 +2390,15 @@ sum(shardOutcomeReserveGrant)
 
 上式是四个 registered `CapacityGrantV1` 在 `CONTROL_RESERVE_BYTES` 维度的投影；同一 checked 不等式对它们 1–66 维度中每个 nonzero 量逐维成立，包括 result/evidence/System-Mutation records/bytes、Broker-writer rate、WAL 与 control records/bytes。`NON_OUTCOME_CONTROL` 内再做不重叠 charge class，至少包含每 shard fence-evidence bytes/records、position/quarantine/control audit、terminal/GC metadata；`RECOVERY_WORKING` 只覆盖 restore/open/repair correctness writes；`EMERGENCY_HEADROOM` 只覆盖停止、fence 和最后可诊断记录。compaction/checkpoint/restore **temporary file bytes** 使用下文独立 temp headroom，不能消耗上述四个 logical control pools，也不能一字节重复计费。
 
+`meta_cf/CONTROL_RESERVE` 的 class 3 和 class 6 都绑定
+`NON_OUTCOME_CONTROL` grant identity。classes 3–5 的 vector 对
+`SYSTEM_WRITER_RESERVED_RECORDS/BYTES/BYTES_PER_SECOND`（维度 51–53）必须为
+零；class 6 只能包含这三个维度，且 class 3 + class 6 的 checked
+componentwise sum 必须落在同一个 immutable `NON_OUTCOME_CONTROL` grant 内。
+class 6 是 shard-local 的持久投影，不能把本地 WriteBatch 成功当成 Route
+Broker system-writer quota 已获批或已完成远端 charge；后者仍需独立的
+source-writer/Control authority。
+
 placement/Owner activation 时为每 shard 分配 Protocol Registry 的 exact `CapacityGrantV1(OUTCOME_RESERVE)`；其 `reserveSourceVersion + grantId + CapacityVectorV1/vectorDigest` 同时进入 `ShardCapacityEnvelopeV1`、Oxia placement 与 `meta_cf`，Owner/Store 改变时重验。Route 还必须在 Broker 上拥有 non-borrowable System Mutation writer records/bytes/rate quota，且该 quota 的完整 vector 纳入同一 grant；tenant ingress ACL/quota 不能消费它。独立 shard DB 不通过“同时读取当前余量”在线借用同一份 reserve。发布前容量证明要求：
 
 ```text

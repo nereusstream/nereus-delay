@@ -328,6 +328,16 @@ demand 以及 owned/open DB slots 做 hard filter，再以 dominant-resource/loa
 movement cost；这只是可复现的评分 seam，不是 Kafka cooperative assignor、Oxia
 desired-placement plan 或 Owner Lease authority。
 
+Control Reserve 的本地投影也已覆盖 Registry 的 class 6：
+`meta_cf/CONTROL_RESERVE` 以 `CapacityVectorV1` 持久化 Broker system-writer
+reservation，绑定 `NON_OUTCOME_CONTROL` grant identity；class 6 只接受维度
+51–53，class 3 排除这些维度，二者合计必须被同一 immutable grant 覆盖。
+`DelayShard` 的同步 charge/release 和重开校验已有
+`DelayShardTest.systemWriterReserveProjectionIsPartitionedAndPersistsAcrossReopen`
+及错误维度 fail-closed 测试。该证据只闭合 shard-local projection，不证明
+Route Broker/source-writer 的远端 quota authority、跨 shard placement 或
+实际 operation charge。
+
 Owner Lease 的本地 CAS 投影现在还按 V1 lifecycle graph 拒绝回退状态和
 `FENCED -> ACTIVE_FOR_COMMANDS` 复活；允许的前向 acquisition/activation
 跳转、fence 和 fenced recycle 都保留。续租响应若改变期望的 lifecycle

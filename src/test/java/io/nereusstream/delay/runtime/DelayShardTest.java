@@ -2252,8 +2252,58 @@ class DelayShardTest {
             assertEquals(CapacityVectorV1.empty(), shard.releaseControlCapacity(3, oneReserveByte));
             assertNull(store.getValue(ColumnFamily.META,
                     KeyCodec.metaControlReserve(3, envelope.nonOutcomeControl().grantId()), 8));
+            assertEquals(CapacityVectorV1.empty(), shard.controlReserveUsage(6));
+        }
+    }
+
+    @Test
+    void systemWriterReserveProjectionIsPartitionedAndPersistsAcrossReopen() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-writer-reserve-accounting"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 21);
+        final ShardCapacityEnvelopeV1 envelope = capacityEnvelopeWithSystemWriterReserve();
+        final CapacityVectorV1 oneWriterRecord = capacityVector(
+                CapacityDimensionV1.SYSTEM_WRITER_RESERVED_RECORDS, 1);
+        final CapacityVectorV1 oneWriterByte = capacityVector(
+                CapacityDimensionV1.SYSTEM_WRITER_RESERVED_BYTES, 1);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, envelope);
+            assertEquals(CapacityVectorV1.empty(), shard.controlReserveUsage(6));
+            assertEquals(oneWriterRecord, shard.reserveControlCapacity(6, oneWriterRecord));
+            assertEquals(oneWriterRecord, shard.controlReserveUsage(6));
             assertThrows(IllegalArgumentException.class,
-                    () -> shard.controlReserveUsage(6));
+                    () -> shard.reserveControlCapacity(6,
+                            capacityVector(CapacityDimensionV1.CONTROL_RESERVE_BYTES, 1)));
+            assertThrows(IllegalArgumentException.class,
+                    () -> shard.reserveControlCapacity(3, oneWriterByte));
+            assertEquals(oneWriterRecord, CapacityVectorV1.decode(store.getValue(ColumnFamily.META,
+                    KeyCodec.metaControlReserve(6, envelope.nonOutcomeControl().grantId()), 8).payload()));
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults(), null, envelope);
+            assertEquals(oneWriterRecord, reopened.systemWriterReserveUsage());
+            final CapacityVectorV1 recordAndByte = oneWriterRecord.add(oneWriterByte);
+            assertEquals(recordAndByte, reopened.reserveSystemWriterCapacity(oneWriterByte));
+            assertEquals(oneWriterByte, reopened.releaseSystemWriterCapacity(oneWriterRecord));
+            assertEquals(CapacityVectorV1.empty(), reopened.releaseSystemWriterCapacity(oneWriterByte));
+            assertNull(store.getValue(ColumnFamily.META,
+                    KeyCodec.metaControlReserve(6, envelope.nonOutcomeControl().grantId()), 8));
+        }
+    }
+
+    @Test
+    void systemWriterReserveProjectionRejectsWrongPersistedDimensions() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-writer-reserve-fence"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 22);
+        final ShardCapacityEnvelopeV1 envelope = capacityEnvelopeWithSystemWriterReserve();
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> batch.putValue(ColumnFamily.META, 8,
+                    KeyCodec.metaControlReserve(6, envelope.nonOutcomeControl().grantId()),
+                    capacityVector(CapacityDimensionV1.CONTROL_RESERVE_BYTES, 1).canonicalBytes()));
+            assertThrows(IllegalArgumentException.class,
+                    () -> new DelayShard(store, DelayShardConfig.defaults(), null, envelope));
         }
     }
 
@@ -3584,6 +3634,30 @@ class DelayShardTest {
         return new ShardCapacityEnvelopeV1(Bytes.sha256(Bytes.utf8("control-reserve-envelope")), 1,
                 logicalGrant, nonOutcomeVector, outcome, nonOutcome, recovery, emergency,
                 Bytes.sha256(Bytes.utf8("control-reserve-artifact")));
+    }
+
+    private static ShardCapacityEnvelopeV1 capacityEnvelopeWithSystemWriterReserve() {
+        final PublishAdmissionBody.ChargeVector logicalLimit = new PublishAdmissionBody.ChargeVector(
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        final QuotaGrantRefV1 logicalGrant = new QuotaGrantRefV1(
+                Bytes.sha256(Bytes.utf8("system-writer-logical-grant")), 1, logicalLimit);
+        final long[] writerAmounts = new long[CapacityDimensionV1.COUNT];
+        writerAmounts[CapacityDimensionV1.SYSTEM_WRITER_RESERVED_RECORDS.wireValue() - 1] = 2;
+        writerAmounts[CapacityDimensionV1.SYSTEM_WRITER_RESERVED_BYTES.wireValue() - 1] = 4;
+        writerAmounts[CapacityDimensionV1.SYSTEM_WRITER_RESERVED_BYTES_PER_SECOND.wireValue() - 1] = 8;
+        writerAmounts[CapacityDimensionV1.CONTROL_RESERVE_BYTES.wireValue() - 1] = 3;
+        final CapacityVectorV1 writerVector = new CapacityVectorV1(writerAmounts);
+        final CapacityGrantV1 outcome = new CapacityGrantV1(CapacityGrantKindV1.OUTCOME_RESERVE,
+                Bytes.sha256(Bytes.utf8("system-writer-outcome-grant")), 1, CapacityVectorV1.empty());
+        final CapacityGrantV1 nonOutcome = new CapacityGrantV1(CapacityGrantKindV1.NON_OUTCOME_CONTROL,
+                Bytes.sha256(Bytes.utf8("system-writer-non-outcome-grant")), 1, writerVector);
+        final CapacityGrantV1 recovery = new CapacityGrantV1(CapacityGrantKindV1.RECOVERY_WORKING,
+                Bytes.sha256(Bytes.utf8("system-writer-recovery-grant")), 1, CapacityVectorV1.empty());
+        final CapacityGrantV1 emergency = new CapacityGrantV1(CapacityGrantKindV1.EMERGENCY_HEADROOM,
+                Bytes.sha256(Bytes.utf8("system-writer-emergency-grant")), 1, CapacityVectorV1.empty());
+        return new ShardCapacityEnvelopeV1(Bytes.sha256(Bytes.utf8("system-writer-envelope")), 1,
+                logicalGrant, writerVector, outcome, nonOutcome, recovery, emergency,
+                Bytes.sha256(Bytes.utf8("system-writer-artifact")));
     }
 
     private static ShardCapacityEnvelopeV1 capacityEnvelope(final long envelopeVersion) {

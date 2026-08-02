@@ -86,6 +86,10 @@ public final class DelayShard {
     private static final int META_QUOTA_USAGE = 1;
     private static final int META_OUTCOME_RESERVE_USAGE = 2;
     private static final int CAPACITY_RESERVE_VALUE_TYPE = 8;
+    private static final int CONTROL_RESERVE_NON_OUTCOME_CLASS = 3;
+    private static final int CONTROL_RESERVE_RECOVERY_CLASS = 4;
+    private static final int CONTROL_RESERVE_EMERGENCY_CLASS = 5;
+    private static final int CONTROL_RESERVE_SYSTEM_WRITER_CLASS = 6;
     private static final byte INFLIGHT_CLAIMED_KIND = 1;
     private static final byte INFLIGHT_PUBLISHING_KIND = 2;
     private static final byte INFLIGHT_UNCERTAIN_KIND = 3;
@@ -336,12 +340,17 @@ public final class DelayShard {
         } else if (!envelope.equals(ShardCapacityEnvelopeV1.decode(persistedBinding.payload()))) {
             throw new IllegalStateException("persisted capacity envelope identity differs from active envelope");
         }
-        reserveProjectionUsage(nonOutcomeEntries, 3, envelope.nonOutcomeControl(), "non-outcome control");
-        reserveProjectionUsage(recoveryEntries, 4, envelope.recoveryWorking(), "recovery working");
-        reserveProjectionUsage(emergencyEntries, 5, envelope.emergencyHeadroom(), "emergency headroom");
-        if (!systemWriterEntries.isEmpty()) {
-            throw new IllegalStateException("Broker system-writer reserve projection is not implemented");
-        }
+        final CapacityVectorV1 nonOutcomeUsage = reserveProjectionUsage(nonOutcomeEntries,
+                CONTROL_RESERVE_NON_OUTCOME_CLASS, envelope.nonOutcomeControl(), "non-outcome control");
+        final CapacityVectorV1 systemWriterUsage = reserveProjectionUsage(systemWriterEntries,
+                CONTROL_RESERVE_SYSTEM_WRITER_CLASS, envelope.nonOutcomeControl(), "system-writer");
+        validateControlReservePartition(nonOutcomeUsage, false, "non-outcome control");
+        validateControlReservePartition(systemWriterUsage, true, "system-writer");
+        ensureNonOutcomeProjectionFits(envelope.nonOutcomeControl(), nonOutcomeUsage, systemWriterUsage);
+        reserveProjectionUsage(recoveryEntries, CONTROL_RESERVE_RECOVERY_CLASS,
+                envelope.recoveryWorking(), "recovery working");
+        reserveProjectionUsage(emergencyEntries, CONTROL_RESERVE_EMERGENCY_CLASS,
+                envelope.emergencyHeadroom(), "emergency headroom");
         final ValueEnvelope.Decoded persistedUsage = store.getValue(ColumnFamily.META, usageKey,
                 CAPACITY_RESERVE_VALUE_TYPE);
         final CapacityVectorV1 usage = persistedUsage == null
@@ -356,12 +365,23 @@ public final class DelayShard {
         if (envelope == null) {
             return;
         }
-        controlReserveUsage.put(3, reserveProjectionUsage(scanControlReserveClass(3), 3,
-                envelope.nonOutcomeControl(), "non-outcome control"));
-        controlReserveUsage.put(4, reserveProjectionUsage(scanControlReserveClass(4), 4,
+        final CapacityVectorV1 nonOutcomeUsage = reserveProjectionUsage(
+                scanControlReserveClass(CONTROL_RESERVE_NON_OUTCOME_CLASS),
+                CONTROL_RESERVE_NON_OUTCOME_CLASS, envelope.nonOutcomeControl(), "non-outcome control");
+        final CapacityVectorV1 systemWriterUsage = reserveProjectionUsage(
+                scanControlReserveClass(CONTROL_RESERVE_SYSTEM_WRITER_CLASS),
+                CONTROL_RESERVE_SYSTEM_WRITER_CLASS, envelope.nonOutcomeControl(), "system-writer");
+        validateControlReservePartition(nonOutcomeUsage, false, "non-outcome control");
+        validateControlReservePartition(systemWriterUsage, true, "system-writer");
+        ensureNonOutcomeProjectionFits(envelope.nonOutcomeControl(), nonOutcomeUsage, systemWriterUsage);
+        controlReserveUsage.put(CONTROL_RESERVE_NON_OUTCOME_CLASS, nonOutcomeUsage);
+        controlReserveUsage.put(CONTROL_RESERVE_RECOVERY_CLASS, reserveProjectionUsage(
+                scanControlReserveClass(CONTROL_RESERVE_RECOVERY_CLASS), CONTROL_RESERVE_RECOVERY_CLASS,
                 envelope.recoveryWorking(), "recovery working"));
-        controlReserveUsage.put(5, reserveProjectionUsage(scanControlReserveClass(5), 5,
+        controlReserveUsage.put(CONTROL_RESERVE_EMERGENCY_CLASS, reserveProjectionUsage(
+                scanControlReserveClass(CONTROL_RESERVE_EMERGENCY_CLASS), CONTROL_RESERVE_EMERGENCY_CLASS,
                 envelope.emergencyHeadroom(), "emergency headroom"));
+        controlReserveUsage.put(CONTROL_RESERVE_SYSTEM_WRITER_CLASS, systemWriterUsage);
     }
 
     private CapacityVectorV1 reserveProjectionUsage(
@@ -394,13 +414,20 @@ public final class DelayShard {
     private CapacityVectorV1 mutateControlReserve(final int reserveClass, final CapacityVectorV1 amount,
                                                   final boolean add) {
         validateMutableControlReserveClass(reserveClass);
+        validateControlReservePartition(amount, reserveClass == CONTROL_RESERVE_SYSTEM_WRITER_CLASS,
+                reserveClass == CONTROL_RESERVE_SYSTEM_WRITER_CLASS ? "system-writer" : "control reserve");
         if (capacityEnvelope == null) {
             throw new IllegalStateException("capacity envelope is required for control reserve accounting");
         }
         final CapacityGrantV1 grant = controlReserveGrant(reserveClass);
         final CapacityVectorV1 current = controlReserveUsage.getOrDefault(reserveClass, CapacityVectorV1.empty());
         final CapacityVectorV1 next = add ? current.add(amount) : current.subtract(amount);
-        if (!grant.vector().covers(next)) {
+        final CapacityVectorV1 sibling = reserveClass == CONTROL_RESERVE_NON_OUTCOME_CLASS
+                ? controlReserveUsage.getOrDefault(CONTROL_RESERVE_SYSTEM_WRITER_CLASS, CapacityVectorV1.empty())
+                : reserveClass == CONTROL_RESERVE_SYSTEM_WRITER_CLASS
+                ? controlReserveUsage.getOrDefault(CONTROL_RESERVE_NON_OUTCOME_CLASS, CapacityVectorV1.empty())
+                : CapacityVectorV1.empty();
+        if (!grant.vector().covers(next.add(sibling))) {
             throw new IllegalStateException("control reserve exceeds immutable capacity grant");
         }
         final byte[] key = KeyCodec.metaControlReserve(reserveClass, grant.grantId());
@@ -417,17 +444,49 @@ public final class DelayShard {
 
     private CapacityGrantV1 controlReserveGrant(final int reserveClass) {
         return switch (reserveClass) {
-            case 3 -> capacityEnvelope.nonOutcomeControl();
-            case 4 -> capacityEnvelope.recoveryWorking();
-            case 5 -> capacityEnvelope.emergencyHeadroom();
+            case CONTROL_RESERVE_NON_OUTCOME_CLASS, CONTROL_RESERVE_SYSTEM_WRITER_CLASS ->
+                    capacityEnvelope.nonOutcomeControl();
+            case CONTROL_RESERVE_RECOVERY_CLASS -> capacityEnvelope.recoveryWorking();
+            case CONTROL_RESERVE_EMERGENCY_CLASS -> capacityEnvelope.emergencyHeadroom();
             default -> throw new IllegalArgumentException("unsupported mutable control reserve class: "
                     + reserveClass);
         };
     }
 
     private static void validateMutableControlReserveClass(final int reserveClass) {
-        if (reserveClass < 3 || reserveClass > 5) {
-            throw new IllegalArgumentException("only CONTROL_RESERVE classes 3-5 are mutable locally");
+        if (reserveClass < CONTROL_RESERVE_NON_OUTCOME_CLASS
+                || reserveClass > CONTROL_RESERVE_SYSTEM_WRITER_CLASS) {
+            throw new IllegalArgumentException("only CONTROL_RESERVE classes 3-6 are mutable locally");
+        }
+    }
+
+    /**
+     * Class 6 is a projection of the Route Broker system-writer budget.  It
+     * shares the immutable NON_OUTCOME_CONTROL grant with class 3, but the
+     * two projections must remain dimension-disjoint so the same grant cannot
+     * be charged twice.  The actual Broker quota authority remains outside
+     * this shard-local persistence primitive.
+     */
+    private static void validateControlReservePartition(final CapacityVectorV1 vector,
+                                                         final boolean systemWriter,
+                                                         final String name) {
+        Objects.requireNonNull(vector, "vector");
+        for (CapacityDimensionV1 dimension : CapacityDimensionV1.values()) {
+            final boolean writerDimension = dimension == CapacityDimensionV1.SYSTEM_WRITER_RESERVED_RECORDS
+                    || dimension == CapacityDimensionV1.SYSTEM_WRITER_RESERVED_BYTES
+                    || dimension == CapacityDimensionV1.SYSTEM_WRITER_RESERVED_BYTES_PER_SECOND;
+            if (writerDimension != systemWriter && vector.amount(dimension) != 0) {
+                throw new IllegalArgumentException(name + " projection contains an out-of-partition dimension: "
+                        + dimension);
+            }
+        }
+    }
+
+    private static void ensureNonOutcomeProjectionFits(final CapacityGrantV1 grant,
+                                                        final CapacityVectorV1 nonOutcomeUsage,
+                                                        final CapacityVectorV1 systemWriterUsage) {
+        if (!grant.vector().covers(nonOutcomeUsage.add(systemWriterUsage))) {
+            throw new IllegalStateException("non-outcome and system-writer projections exceed immutable grant");
         }
     }
 
@@ -3361,27 +3420,44 @@ public final class DelayShard {
         return capacityEnvelope;
     }
 
-    /** Returns the persisted usage of a non-outcome control reserve class. */
+    /** Returns the persisted usage of a control reserve class (3-6). */
     public synchronized CapacityVectorV1 controlReserveUsage(final int reserveClass) {
         validateMutableControlReserveClass(reserveClass);
         return controlReserveUsage.getOrDefault(reserveClass, CapacityVectorV1.empty());
     }
 
+    /** Returns the local class-6 projection for the Route Broker system writer. */
+    public synchronized CapacityVectorV1 systemWriterReserveUsage() {
+        return controlReserveUsage(CONTROL_RESERVE_SYSTEM_WRITER_CLASS);
+    }
+
     /**
-     * Charges one checked class-3/4/5 control reserve projection and persists
-     * it synchronously.  This is a local accounting primitive; the source
-     * ordered control mutation and Oxia placement authority remain callers'
-     * responsibilities.
+     * Charges one checked class-3/4/5/6 control reserve projection and
+     * persists it synchronously. Class 6 is restricted to the three
+     * system-writer dimensions and shares the non-outcome grant without
+     * overlapping class 3. This is a local accounting primitive; the source
+     * ordered control mutation, Broker writer quota and Oxia placement
+     * authority remain callers' responsibilities.
      */
     public synchronized CapacityVectorV1 reserveControlCapacity(final int reserveClass,
                                                                   final CapacityVectorV1 amount) {
         return mutateControlReserve(reserveClass, Objects.requireNonNull(amount, "amount"), true);
     }
 
-    /** Releases an exact checked class-3/4/5 control reserve projection. */
+    /** Charges the local class-6 system-writer projection. */
+    public synchronized CapacityVectorV1 reserveSystemWriterCapacity(final CapacityVectorV1 amount) {
+        return reserveControlCapacity(CONTROL_RESERVE_SYSTEM_WRITER_CLASS, amount);
+    }
+
+    /** Releases an exact checked class-3/4/5/6 control reserve projection. */
     public synchronized CapacityVectorV1 releaseControlCapacity(final int reserveClass,
                                                                   final CapacityVectorV1 amount) {
         return mutateControlReserve(reserveClass, Objects.requireNonNull(amount, "amount"), false);
+    }
+
+    /** Releases an exact local class-6 system-writer projection. */
+    public synchronized CapacityVectorV1 releaseSystemWriterCapacity(final CapacityVectorV1 amount) {
+        return releaseControlCapacity(CONTROL_RESERVE_SYSTEM_WRITER_CLASS, amount);
     }
 
     /** Returns due work without claiming it or changing authoritative state. */
