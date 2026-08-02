@@ -107,6 +107,30 @@ class ShardStoreTest {
     }
 
     @Test
+    void openRejectsSymbolicStoreIncarnation() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("symbolic-incarnation"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 26);
+        final Path shardRoot = config.rootPath().resolve("shards")
+                .resolve(shardId.routeIncarnation().uuid().toString())
+                .resolve(Integer.toString(shardId.partition()));
+        final Path incarnations = shardRoot.resolve("incarnations");
+        Files.createDirectories(incarnations);
+        final Path target = tempDir.resolve("incarnation-target");
+        Files.createDirectories(target.resolve("db"));
+        Files.write(target.resolve("db").resolve("CURRENT"), Bytes.utf8("MANIFEST-1\n"));
+        try {
+            Files.createSymbolicLink(incarnations.resolve(UUID.randomUUID().toString()), target);
+        } catch (UnsupportedOperationException | java.nio.file.FileSystemException unsupported) {
+            return;
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+            final IllegalStateException failure = assertThrows(IllegalStateException.class,
+                    () -> ShardStore.open(config, shardId, resources));
+            assertTrue(failure.getCause() instanceof java.io.IOException);
+        }
+    }
+
+    @Test
     void sloOutboxStartAndMergedFinalSurviveReopen() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("slo-outbox"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 22);

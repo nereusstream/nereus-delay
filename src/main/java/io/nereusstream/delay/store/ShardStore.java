@@ -244,23 +244,44 @@ public final class ShardStore implements AutoCloseable {
                 throw new IOException("ACTIVE pointer must not be a symbolic link");
             }
             final UUID activeStore = readActivePointer(activePointer);
-            final Path activeDb = shardRoot.resolve("incarnations").resolve(activeStore.toString()).resolve("db");
-            if (!Files.isRegularFile(activeDb.resolve("CURRENT"))) {
+            final Path incarnations = shardRoot.resolve("incarnations");
+            final Path activeIncarnation = incarnations.resolve(activeStore.toString());
+            final Path activeDb = activeIncarnation.resolve("db");
+            if (Files.isSymbolicLink(incarnations) || Files.isSymbolicLink(activeIncarnation)
+                    || Files.isSymbolicLink(activeDb)
+                    || !Files.isRegularFile(activeDb.resolve("CURRENT"), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
                 throw new IOException("ACTIVE points to a missing DB: " + activeDb);
             }
             return activeDb;
         }
         final Path incarnations = shardRoot.resolve("incarnations");
         final List<Path> candidates;
-        if (!Files.exists(incarnations)) {
+        if (!Files.exists(incarnations, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
             return incarnations.resolve(UUID.randomUUID().toString()).resolve("db");
         }
-        try (var stream = Files.list(incarnations)) {
-            candidates = stream.filter(Files::isDirectory)
-                    .filter(path -> Files.exists(path.resolve("db").resolve("CURRENT")))
-                    .sorted(Comparator.comparing(path -> path.getFileName().toString()))
-                    .toList();
+        if (Files.isSymbolicLink(incarnations)
+                || !Files.isDirectory(incarnations, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("incarnations path must be a real directory: " + incarnations);
         }
+        final List<Path> found = new ArrayList<>();
+        try (var stream = Files.list(incarnations)) {
+            for (Path path : stream.sorted(Comparator.comparing(item -> item.getFileName().toString())).toList()) {
+                if (Files.isSymbolicLink(path)) {
+                    throw new IOException("store incarnation must not be a symbolic link: " + path);
+                }
+                if (!Files.isDirectory(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                    continue;
+                }
+                final Path db = path.resolve("db");
+                if (Files.isSymbolicLink(db) || Files.isSymbolicLink(db.resolve("CURRENT"))) {
+                    throw new IOException("store DB path must not contain a symbolic link: " + db);
+                }
+                if (Files.isRegularFile(db.resolve("CURRENT"), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                    found.add(path);
+                }
+            }
+        }
+        candidates = List.copyOf(found);
         if (candidates.size() > 1) {
             throw new IOException("more than one active DB incarnation exists: " + candidates);
         }
@@ -356,8 +377,17 @@ public final class ShardStore implements AutoCloseable {
                                                  final UUID restoreStoreIncarnation,
                                                  final boolean ownsShardSlot)
             throws IOException, RocksDBException {
+        if (Files.isSymbolicLink(dbPath)
+                || (Files.exists(dbPath, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                && !Files.isDirectory(dbPath, java.nio.file.LinkOption.NOFOLLOW_LINKS))) {
+            throw new IOException("DB path must be a real directory: " + dbPath);
+        }
+        final Path current = dbPath.resolve("CURRENT");
+        if (Files.isSymbolicLink(current)) {
+            throw new IOException("RocksDB CURRENT must not be a symbolic link: " + current);
+        }
         Files.createDirectories(dbPath);
-        final boolean existing = Files.exists(dbPath.resolve("CURRENT"));
+        final boolean existing = Files.isRegularFile(current, java.nio.file.LinkOption.NOFOLLOW_LINKS);
         final List<ColumnFamilyOptions> cfOptions = new ArrayList<>();
         final List<ColumnFamilyDescriptor> descriptors = descriptors(config, resources, existing, cfOptions, dbPath);
         final DBOptions dbOptions = new DBOptions()
