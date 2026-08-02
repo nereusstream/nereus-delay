@@ -227,6 +227,40 @@ class ShardStoreTest {
     }
 
     @Test
+    void restoreRejectsSymbolicActiveIncarnation() throws Exception {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 27);
+        final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("symbolic-restore-source"));
+        final Path checkpoint = tempDir.resolve("symbolic-restore-checkpoint");
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(sourceConfig);
+             ShardStore source = ShardStore.open(sourceConfig, shardId, resources)) {
+            source.createCheckpoint(checkpoint);
+        }
+
+        final ShardStoreConfig restoreConfig = ShardStoreConfig.defaults(tempDir.resolve("symbolic-restore-target"));
+        final Path shardRoot = restoreConfig.rootPath().resolve("shards")
+                .resolve(shardId.routeIncarnation().uuid().toString())
+                .resolve(Integer.toString(shardId.partition()));
+        final Path activeIncarnation;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(restoreConfig);
+             ShardStore active = ShardStore.open(restoreConfig, shardId, resources)) {
+            activeIncarnation = active.dbPath().getParent();
+        }
+        final Path external = tempDir.resolve("symbolic-active-incarnation-target");
+        Files.move(activeIncarnation, external);
+        try {
+            Files.createSymbolicLink(activeIncarnation, external);
+        } catch (UnsupportedOperationException | java.nio.file.FileSystemException unsupported) {
+            Files.move(external, activeIncarnation);
+            return;
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(restoreConfig)) {
+            final IllegalStateException failure = assertThrows(IllegalStateException.class,
+                    () -> ShardStore.restoreFromCheckpoint(restoreConfig, shardId, resources, checkpoint));
+            assertTrue(failure.getCause() instanceof java.io.IOException);
+        }
+    }
+
+    @Test
     void failedStagedRestoreCleansRuntimeValidationTree() throws Exception {
         final ShardId sourceShard = new ShardId(RouteIncarnation.random(), 25);
         final ShardId targetShard = new ShardId(RouteIncarnation.random(), 25);

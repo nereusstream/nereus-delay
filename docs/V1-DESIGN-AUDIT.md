@@ -253,7 +253,8 @@ incarnation 视为 live DB；pointer 尚未切换时留下的 orphan incarnation
 阻塞新的 atomic restore，且不会被悄悄当作 active 覆盖。
 Normal `ShardStore.open` 也对 `ACTIVE`、incarnation、DB 目录和 `CURRENT`
 使用 `NOFOLLOW_LINKS` 并拒绝符号链接，因此 open 与 restore 对
-live-incarnation pointer 使用同一 fail-closed 边界。
+live-incarnation pointer 使用同一 fail-closed 边界；restore 也不会把
+有效 `ACTIVE` 指向的符号链接 incarnation/DB 当作 live DB。
 staged open/metadata validation 的 runtime failure 也会清理 private
 `restore-tmp`，而 download-slot 尚未取得时仍保留原始 bounded-concurrency
 错误。

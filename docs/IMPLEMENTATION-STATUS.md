@@ -141,7 +141,8 @@ does not block a new atomic restore and remains available for later repair.
 Normal `ShardStore.open` applies the same `NOFOLLOW_LINKS` rule to the
 `ACTIVE` pointer, incarnation directory, DB directory and `CURRENT` marker;
 any symbolic path is rejected before it can be opened, so open and restore
-cannot disagree about the live-incarnation boundary.
+cannot disagree about the live-incarnation boundary; restore admission also
+rejects a symbolic incarnation or DB path behind a valid `ACTIVE` pointer.
 Runtime validation failures after staging begins now remove the private
 `restore-tmp` tree as well as releasing the download slot; a pre-acquisition
 concurrency rejection keeps its original bounded-resource error.
