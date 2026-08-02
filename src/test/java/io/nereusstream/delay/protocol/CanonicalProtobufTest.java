@@ -18,4 +18,10 @@ class CanonicalProtobufTest {
         assertThrows(IllegalArgumentException.class,
                 () -> CanonicalProtobuf.uint32(output, 4, 0x1_0000_0000L));
     }
+
+    @Test
+    void readerRejectsFieldNumbersOutsideRegistryRange() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new CanonicalProtobuf.Reader(new byte[]{(byte) 0x80, (byte) 0x80, 0x04, 0}).next());
+    }
 }

@@ -112,6 +112,10 @@ silently encoding a wider value through the `uint32` helper. The
 uses the same width. `CanonicalProtobufTest` covers both uint32 boundaries;
 `ResourceDeleteConfirmedBodyTest.intentPreservesFullUnsignedResourceStateVersion`
 covers a value above 2^32.
+The canonical-protobuf reader now applies the same `1..0x1fff` field-number
+bound as the writer, so an out-of-registry tag cannot enter a closed union
+decoder. `CanonicalProtobufTest.readerRejectsFieldNumbersOutsideRegistryRange`
+covers the reader boundary.
 
 The Registry-shaped `ScheduleIntentV1` value is now implemented as a strict
 canonical codec: it binds the destination `ProfileRefV1`, `RetryPolicyRefV1`,

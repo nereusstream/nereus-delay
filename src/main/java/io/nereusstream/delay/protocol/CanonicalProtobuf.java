@@ -95,10 +95,14 @@ public final class CanonicalProtobuf {
                 throw new IllegalArgumentException("missing protobuf field");
             }
             final long rawTag = readVarint();
-            final int field = Math.toIntExact(rawTag >>> 3);
+            final long rawField = rawTag >>> 3;
+            if (rawField <= 0 || rawField > 0x1fff) {
+                throw new IllegalArgumentException("protobuf field out of range");
+            }
+            final int field = (int) rawField;
             final int wireType = (int) (rawTag & 7);
             if ((!allowRepeatedFields && field <= previousField)
-                    || (allowRepeatedFields && field < previousField) || field == 0) {
+                    || (allowRepeatedFields && field < previousField)) {
                 throw new IllegalArgumentException("protobuf fields are not strictly increasing");
             }
             previousField = field;

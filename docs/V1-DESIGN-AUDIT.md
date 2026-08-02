@@ -139,6 +139,9 @@ The local evidence is `CanonicalProtobufTest` plus
 `ResourceDeleteConfirmedBodyTest.intentPreservesFullUnsignedResourceStateVersion`;
 the latter exercises a version above 2^32 so a narrow wire-width regression
 cannot hide behind ordinary small test values.
+The canonical-protobuf reader also rejects field numbers outside the Registry's
+`1..0x1fff` range before closed-union dispatch; the local regression is
+`CanonicalProtobufTest.readerRejectsFieldNumbersOutsideRegistryRange`.
 
 当前 `PersistentLaneScheduler.rebuildFromAuthoritativeReady` 已提供 fenced 的本地
 恢复桥：它从 bounded `timeline_cf/READY` 扫描开始，严格校验对应的
