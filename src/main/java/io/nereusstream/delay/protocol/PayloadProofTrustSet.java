@@ -1,6 +1,7 @@
 package io.nereusstream.delay.protocol;
 
 import java.security.PublicKey;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 
@@ -24,6 +25,16 @@ public final class PayloadProofTrustSet {
         }
         this.version = version;
         this.keys = Map.copyOf(keys);
+    }
+
+    /** Builds the local verifier adapter from the canonical Registry semantic value. */
+    public static PayloadProofTrustSet fromSemantic(final PayloadProofTrustSetSemanticV1 semantic) {
+        Objects.requireNonNull(semantic, "semantic");
+        final Map<Integer, PublicKey> keys = new HashMap<>();
+        for (PayloadProofVerifierKeyV1 key : semantic.keys()) {
+            keys.put(key.keyVersion(), key.toPublicKey());
+        }
+        return new PayloadProofTrustSet(semantic.version(), keys);
     }
 
     public long version() {

@@ -153,6 +153,9 @@ binding 仍是 release blocker。
 DLQ 分支和 backoff arithmetic 漂移；但 policy publication/source-position
 activation、Schedule 的历史 policy binding、Profile/Adapter 运行时绑定和真实
 ingress 迁移仍是 release blocker。
+Payload proof trust-set 也已补齐 canonical verifier-key list、semantic
+hash/ref 和 Ed25519 raw-key projection；source-ordered activation/issuance-close
+及历史 key retention 仍不能由该 value codec 自行推断。
 
 `OwnedDelayShard` 现在还提供了带 assignment/barrier/source-connection 校验的
 统一 `replay` seam，以及兼容性的 `replayCatchup`/`replaySystemMutations`：
