@@ -616,10 +616,11 @@ durable Oxia catalog/session pin CAS, and Kafka/Pulsar source replay remain
 release blockers below.
 `ShardStore.restoreFromCheckpoint(..., catalog, pin)` now adds the exact active
 RecoveryPin to the local install boundary: it validates the pin against the
-candidate and rereads the same pin after staged DB validation, immediately
-before moving the new Store Incarnation into place. A missing or changed pin
-leaves only restore-tmp state; this is a local fail-closed guard, not the
-production Oxia Lease/session transaction.
+candidate and rereads the current Floor-bounded ancestry plus the same pin
+after staged DB validation, immediately before moving the new Store Incarnation
+into place. A Floor that has advanced beyond the candidate, or a missing or
+changed pin, leaves only restore-tmp state; this is a local fail-closed guard,
+not the production Oxia Lease/session transaction.
 
 `EvidenceCursorV1` now also exposes the Registry cursor identity and
 same-generation dominance rules: Kafka requires non-regressing offset/LSO/time

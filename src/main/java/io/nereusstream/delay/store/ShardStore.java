@@ -262,6 +262,10 @@ public final class ShardStore implements AutoCloseable {
 
     private static void validateRecoveryPin(final ShardId shardId, final CheckpointManifest manifest,
                                              final RecoveryCatalogAuthority catalog, final RecoveryPinV1 pin) {
+        // The pin can remain present while the catalog Floor advances.  A
+        // candidate that is no longer in the current Floor-bounded ancestry
+        // must be rejected even when the pin bytes themselves are unchanged.
+        catalog.validatePublishedRestoreCandidate(manifest);
         if (!new ShardSubjectV1(shardId).equals(pin.shard())
                 || !java.util.Arrays.equals(pin.candidate().checkpointId(), manifest.checkpointId())
                 || !Bytes.constantTimeEquals(pin.candidate().recoveryLineageId(), manifest.recoveryLineageId())

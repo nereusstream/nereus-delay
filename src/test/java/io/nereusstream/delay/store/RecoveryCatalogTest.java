@@ -138,11 +138,14 @@ class RecoveryCatalogTest {
                 id16(66), new ShardSubjectV1(shard), pin.owner(), candidate, floorRef,
                 floor.catalogGeneration(), id32(67))));
 
-        catalog.releaseRecoveryPin(pin);
-        assertTrue(catalog.activeRecoveryPin().isEmpty());
         final CheckpointManifest child = manifest(shard, topic, lineage, id16(68), 1, 2, 2,
                 new CheckpointManifest.ParentCheckpoint(genesis.checkpointId(), Bytes.hex(genesis.manifestSha256())));
         catalog.publish(child, floor.catalogGeneration());
+        catalog.advanceFloor(child.checkpointId(), floor.catalogGeneration() + 1, id32(72));
+        assertThrows(IllegalStateException.class, () -> catalog.validatePublishedRestoreCandidate(genesis));
+
+        catalog.releaseRecoveryPin(pin);
+        assertTrue(catalog.activeRecoveryPin().isEmpty());
         assertThrows(IllegalStateException.class, () -> catalog.createRecoveryPin(pin));
     }
 
