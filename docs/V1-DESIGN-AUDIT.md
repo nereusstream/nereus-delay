@@ -100,6 +100,9 @@ Durable `MessageRecord` values use checked fixed-width decoding for every
 version-specific field. Any strict prefix of a canonical value is rejected as
 codec validation rather than leaking a buffer-underflow exception; the local
 evidence is `MessageRecordTest`.
+The persisted Claim value applies the same guard before LP32 length prefixes
+and u64/u32 fields; `ClaimRecordTest` covers every strict prefix of a valid
+Claim and confirms that the native decoder exception is not exposed.
 
 当前 `PersistentLaneScheduler.rebuildFromAuthoritativeReady` 已提供 fenced 的本地
 恢复桥：它从 bounded `timeline_cf/READY` 扫描开始，严格校验对应的

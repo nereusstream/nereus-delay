@@ -278,6 +278,7 @@ public final class ClaimRecord {
     }
 
     private static byte[] readLp32(final ByteBuffer input, final String name) {
+        requireRemaining(input, Integer.BYTES);
         final long length = Integer.toUnsignedLong(input.getInt());
         if (length > Integer.MAX_VALUE || length > input.remaining() - 0L) {
             throw new IllegalArgumentException("invalid Claim " + name + " length");
@@ -286,6 +287,7 @@ public final class ClaimRecord {
     }
 
     private static int readU32Int(final ByteBuffer input, final String name) {
+        requireRemaining(input, Integer.BYTES);
         final long value = Integer.toUnsignedLong(input.getInt());
         if (value > Integer.MAX_VALUE) {
             throw new IllegalArgumentException(name + " exceeds Java int range");
@@ -294,6 +296,7 @@ public final class ClaimRecord {
     }
 
     private static long readU64(final ByteBuffer input, final String name) {
+        requireRemaining(input, Long.BYTES);
         final long value = input.getLong();
         if (value < 0) {
             throw new IllegalArgumentException(name + " exceeds signed runtime range");

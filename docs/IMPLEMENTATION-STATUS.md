@@ -53,6 +53,11 @@ value therefore raises the codec's `IllegalArgumentException` instead of
 leaking a `BufferUnderflowException`; `MessageRecordTest` checks every strict
 prefix of a canonical v4 record.
 
+`ClaimRecord.decode` applies the same bound before every fixed-width and
+length-prefixed field. A truncated Claim value cannot consume a missing LP32
+length or numeric suffix and leak a native buffer exception;
+`ClaimRecordTest` exercises every strict prefix of a persisted Claim.
+
 The Registry-shaped `ScheduleIntentV1` value is now implemented as a strict
 canonical codec: it binds the destination `ProfileRefV1`, `RetryPolicyRefV1`,
 delivery/order fields, the closed inline-versus-committed payload union,
