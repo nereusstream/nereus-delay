@@ -79,7 +79,7 @@ public final class ControlReasonV1 {
     }
 
     private static byte[] optionalHash(final byte[] value, final String name) {
-        if (value == null || value.length == 0) {
+        if (value == null) {
             return null;
         }
         Bytes.requireLength(value, HASH_LENGTH, name);

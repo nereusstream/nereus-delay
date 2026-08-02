@@ -4,7 +4,6 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class PayloadProofControlPayloadV1Test {
@@ -43,7 +42,8 @@ class PayloadProofControlPayloadV1Test {
         final byte[] tampered = reason.canonicalBytes();
         tampered[tampered.length - 1] ^= 1;
         assertNotEquals(reason, ControlReasonV1.decode(tampered));
-        // Keep this assertion explicit so an empty optional hash cannot become a hidden presence.
-        assertNull(new ControlReasonV1(ControlReasonKindV1.INCIDENT, new byte[0], null).ticketReferenceHash());
+        // Optional presence is explicit; an empty present hash is not an omitted field.
+        assertThrows(IllegalArgumentException.class,
+                () -> new ControlReasonV1(ControlReasonKindV1.INCIDENT, new byte[0], null));
     }
 }
