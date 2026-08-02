@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -72,6 +73,36 @@ class OwnerLeaseTest {
                     == io.nereusstream.delay.protocol.StableCode.SCHEDULED);
             owned.beginDrain();
             assertEquals(ShardLifecycleState.DRAINING, owned.state());
+        }
+    }
+
+    @Test
+    void catchupReplayAppliesCommandsBeforeActivationAndAdvancesOnlyAfterCommit() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 10);
+        final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = authority.acquire(shardId, "worker-replay", 100, 100).orElseThrow();
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("catchup-replay"));
+        final UUID topic = UUID.randomUUID();
+        final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster", topic, 0, null, 1_000);
+        final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 1);
+        final PreparedCommand command = PreparedCommand.schedule(shardId,
+                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("catchup-replay-lane")), 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            owned.markCatchingUp(new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("assignment-replay")), 1,
+                    barrier));
+            assertEquals(io.nereusstream.delay.protocol.StableCode.SCHEDULED,
+                    owned.replayCatchup(List.of(new SourceReplayRecord(command, position, null, null)), 101)
+                            .get(0).stableCode());
+            assertEquals(position, owned.lastCatchupPosition());
+            owned.activateForCommands(101);
+            assertEquals(io.nereusstream.delay.protocol.StableCode.SCHEDULED,
+                    owned.apply(command, position, 101).stableCode());
+            assertThrows(IllegalStateException.class,
+                    () -> owned.replayCatchup(List.of(new SourceReplayRecord(command,
+                            new KafkaSourcePosition(shardId, "cluster", topic, 0, null, 999), null, null)), 101));
         }
     }
 

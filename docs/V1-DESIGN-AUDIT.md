@@ -118,6 +118,11 @@ ActiveLaneState persistence、quota-map revision coupling、Oxia target
 registration、Oxia Recovery Pin/Floor CAS、source/evidence replay 或
 Recovery-Floor/retention gate。
 
+`OwnedDelayShard` 现在还提供了带 assignment/barrier/source-connection 校验的
+`replayCatchup` 本地 Command 记录 replay seam：每条记录先走同一 shard
+WriteBatch，成功后才推进 catch-up cursor。它仍不等同于真实 Kafka/Pulsar
+consumer、System Mutation replay 或生产 activation transaction。
+
 查询层也已补齐 `CheckpointSummaryV1`/`CheckpointCatalogResultV1` 的
 canonical checkpoint-catalog projection，包含 shard identity、Floor identity
 和严格排序的 summary array；它仍只是 public query value codec，不代表

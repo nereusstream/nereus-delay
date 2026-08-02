@@ -8,6 +8,8 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.runtime.CommandResult;
 import io.nereusstream.delay.runtime.DelayShard;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 /** Fenced owner view; lease loss closes all new local authority gates. */
@@ -121,6 +123,53 @@ public final class OwnedDelayShard {
             throw new IllegalStateException("catch-up position regressed");
         }
         lastCatchupPosition = position;
+    }
+
+    /**
+     * Applies assigned Command Topic records while the shard is still
+     * catching up. Each record is validated against the accepted physical
+     * source barrier, applied through the same synchronous shard WriteBatch as
+     * normal commands, and only then advances the local catch-up cursor.
+     *
+     * <p>This is a local command-replay seam. It deliberately does not claim
+     * a broker consumer, implement System Mutation replay, or replace the
+     * production assignment/lease transaction.</p>
+     */
+    public synchronized List<CommandResult> replayCatchup(final Iterable<SourceReplayRecord> records,
+                                                           final long nowEpochMs) {
+        Objects.requireNonNull(records, "records");
+        if (state != ShardLifecycleState.CATCHING_UP) {
+            throw new IllegalStateException("shard is not catching up");
+        }
+        if (!lease.validAt(nowEpochMs)) {
+            state = ShardLifecycleState.FENCED;
+            throw new IllegalStateException("owner lease expired during source catch-up");
+        }
+        final List<CommandResult> results = new ArrayList<>();
+        for (SourceReplayRecord record : records) {
+            Objects.requireNonNull(record, "source replay record");
+            final SourcePosition position = record.position();
+            if (!delegate.shardId().equals(position.shardId())) {
+                throw new IllegalArgumentException("source replay position does not belong to shard");
+            }
+            if (activationBarrier != null) {
+                activationBarrier.validatePosition(position);
+                validateSourceConnection(position, record.sourceConnectionGeneration(),
+                        record.guardAttestationDigest());
+            }
+            if (lastCatchupPosition != null && position.compareTo(lastCatchupPosition) < 0) {
+                throw new IllegalStateException("source replay position regressed");
+            }
+            final CommandResult result = delegate.apply(record.command(), position);
+            lastCatchupPosition = position;
+            results.add(result);
+        }
+        return List.copyOf(results);
+    }
+
+    /** Returns the last position applied or observed during this catch-up. */
+    public synchronized SourcePosition lastCatchupPosition() {
+        return lastCatchupPosition;
     }
 
     private void validateSourceConnection(final SourcePosition position, final Long connectionGeneration,
