@@ -38,6 +38,13 @@ class CredentialBindingV1Test {
         final CredentialBindingProtectionV1 protection = CredentialBindingProtectionV1.forBinding(
                 binding, 1_600, 1_700, 1_800, 1_900, 4);
         assertEquals(protection, CredentialBindingProtectionV1.decode(protection.canonicalBytes()));
+
+        final CredentialUseLeaseV1 lease = new CredentialUseLeaseV1(profile,
+                CredentialUseKindV1.DESTINATION_CHANNEL, bytes(32, 9), 7, binding.bindingDigest(),
+                attestation.resolvedCredentialFingerprintDigest(), verifiedAt, 1_500, 4);
+        lease.requireBinding(binding);
+        lease.requireProtectedBy(protection);
+        assertEquals(lease, CredentialUseLeaseV1.decode(lease.canonicalBytes()));
     }
 
     @Test
@@ -54,6 +61,9 @@ class CredentialBindingV1Test {
                 Bytes.utf8("provider://credential/other"), attestation));
         assertThrows(IllegalArgumentException.class, () -> CredentialBindingHeadV1.create(profile, 1,
                 bytes(32, 8), 0));
+        assertThrows(IllegalArgumentException.class, () -> new CredentialUseLeaseV1(profile,
+                CredentialUseKindV1.OBJECT_STORE_ADAPTER, bytes(32, 9), 1, bytes(32, 8), bytes(32, 9),
+                trustedTime(), 1_100, 1));
 
         final CredentialBindingV1 binding = CredentialBindingV1.create(profile, 1, reference, attestation);
         final byte[] tampered = binding.canonicalBytes();

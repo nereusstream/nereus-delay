@@ -211,6 +211,28 @@ public final class TrustedUtcIntervalEvidence {
         return Bytes.copy(value);
     }
 
+    @Override
+    public boolean equals(final Object other) {
+        return other instanceof TrustedUtcIntervalEvidence that
+                && earliestEpochMs == that.earliestEpochMs
+                && latestEpochMs == that.latestEpochMs
+                && source == that.source
+                && sourceConfigGeneration == that.sourceConfigGeneration
+                && sampleSequence == that.sampleSequence
+                && monotonicAnchorNs == that.monotonicAnchorNs
+                && sourceKeyVersion == that.sourceKeyVersion
+                && Arrays.equals(sourceId, that.sourceId)
+                && Arrays.equals(sourceEvidenceSha256, that.sourceEvidenceSha256)
+                && Arrays.equals(sourceSignature, that.sourceSignature);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(earliestEpochMs, latestEpochMs, source, Arrays.hashCode(sourceId),
+                sourceConfigGeneration, sampleSequence, monotonicAnchorNs,
+                Arrays.hashCode(sourceEvidenceSha256), sourceKeyVersion, Arrays.hashCode(sourceSignature));
+    }
+
     private static List<CanonicalProtobuf.Reader.Field> readAll(final CanonicalProtobuf.Reader reader) {
         final List<CanonicalProtobuf.Reader.Field> fields = new ArrayList<>();
         while (reader.hasRemaining()) {

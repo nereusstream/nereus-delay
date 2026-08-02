@@ -37,7 +37,10 @@ pointer and monotonic protection projections. These codecs validate only local
 bytes, digest relationships, candidate agreement and signatures. Activated
 verifier trust, provider resolution, maximum proof age, Oxia Head/protection
 CAS and durable post-CAS observation remain external authority and release
-gates; no private reference or verifier evidence is projected to public data.
+gates; `CredentialUseLeaseV1` now also checks its Profile-kind branch, exact
+binding/fingerprint projection and kind-specific protection lifetime locally,
+without performing an Oxia read per call. No private reference or verifier
+evidence is projected to public data.
 
 The System Mutation outcome subset now also has explicit canonical body encoders:
 `PublishOutcomeBody.encodeInitial` closes the initial

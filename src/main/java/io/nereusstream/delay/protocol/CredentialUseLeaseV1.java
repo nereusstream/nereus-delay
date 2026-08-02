@@ -30,6 +30,12 @@ public final class CredentialUseLeaseV1 {
                                 final long protectionRevision) {
         this.profile = Objects.requireNonNull(profile, "profile");
         this.kind = Objects.requireNonNull(kind, "kind");
+        if ((kind == CredentialUseKindV1.DESTINATION_CHANNEL
+                && profile.profileKind() != ProfileKindV1.DESTINATION)
+                || (kind == CredentialUseKindV1.OBJECT_STORE_ADAPTER
+                && profile.profileKind() != ProfileKindV1.OBJECT_STORE)) {
+            throw new IllegalArgumentException("credential lease kind/profile mismatch");
+        }
         this.holderScopeDigest = fixed(holderScopeDigest, "holderScopeDigest");
         if (secretGeneration <= 0) {
             throw new IllegalArgumentException("secretGeneration must be positive");
@@ -98,6 +104,36 @@ public final class CredentialUseLeaseV1 {
         }
         if (validUntilEpochMs > upper) {
             throw new IllegalArgumentException("credential lease exceeds configured TTL");
+        }
+    }
+
+    /** Verifies the lease against the exact immutable binding and resolved fingerprint. */
+    public void requireBinding(final CredentialBindingV1 binding) {
+        Objects.requireNonNull(binding, "binding");
+        if (!profile.equals(binding.profile()) || secretGeneration != binding.secretGeneration()
+                || !Arrays.equals(credentialBindingDigest, binding.bindingDigest())
+                || !Arrays.equals(resolvedCredentialFingerprintDigest,
+                binding.equivalenceAttestation().resolvedCredentialFingerprintDigest())) {
+            throw new IllegalArgumentException("credential lease does not match binding");
+        }
+    }
+
+    /**
+     * Verifies the durable protection projection that authorizes this bounded
+     * lease. The external CAS/reread remains outside this value codec.
+     */
+    public void requireProtectedBy(final CredentialBindingProtectionV1 protection) {
+        Objects.requireNonNull(protection, "protection");
+        if (!profile.equals(protection.profile()) || secretGeneration != protection.secretGeneration()
+                || !Arrays.equals(credentialBindingDigest, protection.bindingDigest())
+                || protectionRevision != protection.protectionRevision()) {
+            throw new IllegalArgumentException("credential lease protection identity mismatch");
+        }
+        final long protectedUntil = kind == CredentialUseKindV1.DESTINATION_CHANNEL
+                ? protection.managedChannelProtectionUntilEpochMs()
+                : protection.objectStoreLeaseProtectionUntilEpochMs();
+        if (protectedUntil < validUntilEpochMs) {
+            throw new IllegalArgumentException("credential lease outlives its protection record");
         }
     }
 

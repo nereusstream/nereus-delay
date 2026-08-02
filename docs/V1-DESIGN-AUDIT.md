@@ -54,7 +54,10 @@ candidate tuple agreement, Trusted-UTC interval ordering and Ed25519 signature
 projection are verified before a value is accepted. This is not an Oxia
 linearization receipt: activated trust-set membership, provider-side immutable
 version resolution, configured proof-age bounds, Head/protection monotonic
-CAS and durable reread remain external authority gates.
+CAS and durable reread remain external authority gates. `CredentialUseLeaseV1`
+locally requires the matching Profile kind, binding/fingerprint tuple and
+kind-specific protection-until bound; it does not reread Oxia for each provider
+call.
 
 | 事件 | 唯一 authority / 线性化点 | 明确不构成 authority 的事件 |
 |---|---|---|
