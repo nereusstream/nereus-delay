@@ -1,7 +1,9 @@
 package io.nereusstream.delay.ownership;
 
 import io.nereusstream.delay.protocol.RouteIncarnation;
+import io.nereusstream.delay.protocol.AuthorIdentity;
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.CanonicalProtobuf;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.KafkaActivationBarrier;
@@ -11,6 +13,10 @@ import io.nereusstream.delay.protocol.PulsarActivationBarrier;
 import io.nereusstream.delay.protocol.PulsarSourcePosition;
 import io.nereusstream.delay.protocol.ScheduleIntent;
 import io.nereusstream.delay.protocol.ShardId;
+import io.nereusstream.delay.protocol.StableCode;
+import io.nereusstream.delay.protocol.SystemMutation;
+import io.nereusstream.delay.protocol.SystemMutationType;
+import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.runtime.DelayShard;
 import io.nereusstream.delay.runtime.DelayShardConfig;
 import io.nereusstream.delay.store.ShardStore;
@@ -20,6 +26,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
 import java.util.List;
 import java.util.UUID;
 
@@ -103,6 +111,41 @@ class OwnerLeaseTest {
             assertThrows(IllegalStateException.class,
                     () -> owned.replayCatchup(List.of(new SourceReplayRecord(command,
                             new KafkaSourcePosition(shardId, "cluster", topic, 0, null, 999), null, null)), 101));
+        }
+    }
+
+    @Test
+    void catchupReplayAppliesSignedSystemMutationsBeforeActivation() throws Exception {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 13);
+        final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = authority.acquire(shardId, "worker-system-replay", 100, 100).orElseThrow();
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-catchup-replay"));
+        final UUID topic = UUID.randomUUID();
+        final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster", topic, 0, null, 1_000);
+        final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 1);
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final TrustedUtcIntervalEvidence proof = new TrustedUtcIntervalEvidence(2_000, 2_000,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("replay-clock"),
+                1, 1, 1, Bytes.sha256(Bytes.utf8("replay-proof")), 0, null);
+        final byte[] proofId = Bytes.sha256(Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                shardId.routeIncarnation().bytes(), Bytes.u32be(shardId.partition()), Bytes.i64be(2_000),
+                Bytes.u32be(1), Bytes.lp32(proof.canonicalBytes()));
+        final AuthorIdentity author = AuthorIdentity.fence(Bytes.utf8("replay-fence"), 1);
+        final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.TIME_FENCE, 9_000,
+                proofId, timeFenceBody(shardId, 2_000, 1, proofId, proof.canonicalBytes()),
+                author.canonicalBytes(), 1, keyPair.getPrivate());
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            owned.markCatchingUp(new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("assignment-system-replay")),
+                    1, barrier));
+            assertEquals(StableCode.OK, owned.replaySystemMutations(
+                    List.of(new SourceReplayMutation(mutation, position, null, null)), keyPair.getPublic(), 101)
+                    .get(0).stableCode());
+            assertEquals(position, owned.lastCatchupPosition());
+            owned.activateForCommands(101);
+            assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, owned.state());
         }
     }
 
@@ -230,5 +273,22 @@ class OwnerLeaseTest {
             assertEquals(io.nereusstream.delay.protocol.StableCode.SCHEDULED,
                     owned.apply(command, next, 101, 7L, guard).stableCode());
         }
+    }
+
+    private static byte[] timeFenceBody(final ShardId shard, final long closeThrough, final int keyVersion,
+                                        final byte[] proofId, final byte[] proof) {
+        final byte[] subject = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());
+            CanonicalProtobuf.uint32(output, 2, shard.partition());
+        });
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, subject);
+            CanonicalProtobuf.uint32(output, 2, SystemMutationType.TIME_FENCE.wireValue());
+            CanonicalProtobuf.int64(output, 3, 9_000);
+            CanonicalProtobuf.int64(output, 10, closeThrough);
+            CanonicalProtobuf.uint32(output, 11, keyVersion);
+            CanonicalProtobuf.bytes(output, 12, proofId);
+            CanonicalProtobuf.bytes(output, 13, proof);
+        });
     }
 }

@@ -5,12 +5,14 @@ import io.nereusstream.delay.protocol.PulsarActivationBarrier;
 import io.nereusstream.delay.protocol.SourceActivationBarrier;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.runtime.SystemMutationResult;
 import io.nereusstream.delay.runtime.CommandResult;
 import io.nereusstream.delay.runtime.DelayShard;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.security.PublicKey;
 
 /** Fenced owner view; lease loss closes all new local authority gates. */
 public final class OwnedDelayShard {
@@ -170,6 +172,46 @@ public final class OwnedDelayShard {
     /** Returns the last position applied or observed during this catch-up. */
     public synchronized SourcePosition lastCatchupPosition() {
         return lastCatchupPosition;
+    }
+
+    /**
+     * Applies signed System Mutation records during the same guarded catch-up
+     * window. The source cursor advances only after the shard has persisted the
+     * mutation result and Source Position in its synchronous WriteBatch.
+     */
+    public synchronized List<SystemMutationResult> replaySystemMutations(
+            final Iterable<SourceReplayMutation> records, final PublicKey verificationKey,
+            final long nowEpochMs) {
+        Objects.requireNonNull(records, "records");
+        Objects.requireNonNull(verificationKey, "verificationKey");
+        if (state != ShardLifecycleState.CATCHING_UP) {
+            throw new IllegalStateException("shard is not catching up");
+        }
+        if (!lease.validAt(nowEpochMs)) {
+            state = ShardLifecycleState.FENCED;
+            throw new IllegalStateException("owner lease expired during system-mutation catch-up");
+        }
+        final List<SystemMutationResult> results = new ArrayList<>();
+        for (SourceReplayMutation record : records) {
+            Objects.requireNonNull(record, "source replay mutation");
+            final SourcePosition position = record.position();
+            if (!delegate.shardId().equals(position.shardId())) {
+                throw new IllegalArgumentException("system replay position does not belong to shard");
+            }
+            if (activationBarrier != null) {
+                activationBarrier.validatePosition(position);
+                validateSourceConnection(position, record.sourceConnectionGeneration(),
+                        record.guardAttestationDigest());
+            }
+            if (lastCatchupPosition != null && position.compareTo(lastCatchupPosition) < 0) {
+                throw new IllegalStateException("system replay position regressed");
+            }
+            final SystemMutationResult result = delegate.applySystemMutation(record.mutation(), position,
+                    verificationKey);
+            lastCatchupPosition = position;
+            results.add(result);
+        }
+        return List.copyOf(results);
     }
 
     private void validateSourceConnection(final SourcePosition position, final Long connectionGeneration,
