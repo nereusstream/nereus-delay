@@ -441,6 +441,17 @@ staged open/metadata validation 的 runtime failure 也会清理 private
 `restore-tmp`，而 download-slot 尚未取得时仍保留原始 bounded-concurrency
 错误。
 
+主设计 §10.1 要求的可变 Store 元数据现在也有独立的本地投影：
+`StoreRuntimeMetadata` 在 `meta_cf` 中 canonical 持久
+`lastIngressFenceProofId`、`lastCheckpointId`、单调的
+`lastOpenedOwnerEpoch`、严格排序的 typed `evidenceCursors` 和
+`cleanCloseMarker`。打开时先严格解码并清除 clean marker，正常 close 通过
+同步 WriteBatch 写回 marker；fence/checkpoint/owner/evidence 更新也沿用同一
+WAL-sync 边界。`StoreRuntimeMetadataTest` 和
+`ShardStoreTest.malformedRuntimeMetadataDoesNotLeaveRocksDbOpen` 覆盖 codec、
+生命周期与失败清理。该投影只证明本地 Store 事实，不能替代 Oxia lease/catalog
+或真实 Broker fence authority。
+
 `CheckpointUploadCoordinator` 现在在本地上传边界内先校验完整 checkpoint
 inventory、intent deadline 和 shard/lineage/owner/store/parent identity，取得
 Worker upload slot 后才调用 typed adapter；adapter 返回的 manifest object

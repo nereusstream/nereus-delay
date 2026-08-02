@@ -119,6 +119,23 @@ class ShardStoreTest {
     }
 
     @Test
+    void malformedRuntimeMetadataDoesNotLeaveRocksDbOpen() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("malformed-runtime-metadata"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 33);
+        final Path dbPath;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            dbPath = store.dbPath();
+        }
+        overwriteRawColumnFamilyValue(dbPath, "meta_cf", KeyCodec.metaFixed(10),
+                ValueEnvelope.encode(14, Bytes.utf8("not-canonical-runtime-metadata")));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+            assertThrows(IllegalArgumentException.class, () -> ShardStore.open(config, shardId, resources));
+        }
+        assertRawRocksDbCanBeOpened(dbPath);
+    }
+
+    @Test
     void checkpointUsesTemporaryNamespaceAndRejectsExistingTarget() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("checkpoint-atomic"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 23);
@@ -606,6 +623,34 @@ class ShardStoreTest {
              RocksDB db = RocksDB.open(dbOptions, dbPath.toString(), descriptors, handles)) {
             assertEquals(names.size(), handles.size());
             assertTrue(db.getLatestSequenceNumber() >= 0);
+        } finally {
+            handles.forEach(ColumnFamilyHandle::close);
+            options.forEach(ColumnFamilyOptions::close);
+        }
+    }
+
+    private static void overwriteRawColumnFamilyValue(final Path dbPath, final String columnFamilyName,
+                                                      final byte[] key, final byte[] value) throws Exception {
+        final List<byte[]> names;
+        try (Options options = new Options()) {
+            names = RocksDB.listColumnFamilies(options, dbPath.toString());
+        }
+        final List<ColumnFamilyOptions> options = names.stream()
+                .map(ignored -> new ColumnFamilyOptions()).toList();
+        final List<ColumnFamilyDescriptor> descriptors = new java.util.ArrayList<>();
+        for (int index = 0; index < names.size(); index++) {
+            descriptors.add(new ColumnFamilyDescriptor(names.get(index), options.get(index)));
+        }
+        final List<ColumnFamilyHandle> handles = new java.util.ArrayList<>();
+        try (DBOptions dbOptions = new DBOptions().setCreateIfMissing(false)
+                .setCreateMissingColumnFamilies(false);
+             RocksDB db = RocksDB.open(dbOptions, dbPath.toString(), descriptors, handles)) {
+            final int index = names.stream().map(name -> new String(name, java.nio.charset.StandardCharsets.UTF_8))
+                    .toList().indexOf(columnFamilyName);
+            if (index < 0) {
+                throw new AssertionError("missing column family: " + columnFamilyName);
+            }
+            db.put(handles.get(index), key, value);
         } finally {
             handles.forEach(ColumnFamilyHandle::close);
             options.forEach(ColumnFamilyOptions::close);

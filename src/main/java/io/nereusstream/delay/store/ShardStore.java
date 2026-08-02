@@ -1,6 +1,7 @@
 package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.EvidenceCursorV1;
 import io.nereusstream.delay.protocol.ShardId;
 import org.rocksdb.BlockBasedTableConfig;
 import org.rocksdb.ColumnFamilyDescriptor;
@@ -38,6 +39,8 @@ public final class ShardStore implements AutoCloseable {
     private static final int ACTIVE_MAGIC = 0x41435431;
     private static final int META_STORE_FORMAT = 1;
     private static final int META_SHARD_IDENTITY = 2;
+    private static final int META_RUNTIME = 10;
+    private static final int RUNTIME_VALUE_TYPE = 14;
 
     static {
         RocksDbNativeLoader.load();
@@ -54,12 +57,13 @@ public final class ShardStore implements AutoCloseable {
     private final StoreMetadata metadata;
     private final boolean ownsShardSlot;
     private final AtomicBoolean closed = new AtomicBoolean();
+    private StoreRuntimeMetadata runtimeMetadata;
 
     private ShardStore(final ShardStoreConfig config, final ShardId shardId, final Path dbPath,
                         final SharedRocksDbResources resources, final RocksDB db, final DBOptions dbOptions,
                         final List<ColumnFamilyOptions> columnFamilyOptions,
                         final Map<ColumnFamily, ColumnFamilyHandle> handles, final StoreMetadata metadata,
-                        final boolean ownsShardSlot) {
+                        final boolean ownsShardSlot, final StoreRuntimeMetadata runtimeMetadata) {
         this.config = config;
         this.shardId = shardId;
         this.dbPath = dbPath;
@@ -70,6 +74,7 @@ public final class ShardStore implements AutoCloseable {
         this.handles = handles;
         this.metadata = metadata;
         this.ownsShardSlot = ownsShardSlot;
+        this.runtimeMetadata = runtimeMetadata;
     }
 
     public static ShardStore open(final ShardStoreConfig config, final ShardId shardId,
@@ -432,6 +437,7 @@ public final class ShardStore implements AutoCloseable {
             final byte[] identityBytes = db.get(handles.get(ColumnFamily.META),
                     KeyCodec.metaFixed(META_SHARD_IDENTITY));
             StoreMetadata metadata;
+            StoreRuntimeMetadata runtimeMetadata;
             if (identityBytes == null) {
                 if (existing) {
                     throw new IllegalStateException("existing shard DB is missing meta_cf shard identity");
@@ -454,6 +460,9 @@ public final class ShardStore implements AutoCloseable {
                             java.nio.ByteBuffer.allocate(4).putInt(1).array());
                     batch.put(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_SHARD_IDENTITY),
                             created.encode());
+                    runtimeMetadata = StoreRuntimeMetadata.empty();
+                    batch.put(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_RUNTIME),
+                            ValueEnvelope.encode(RUNTIME_VALUE_TYPE, runtimeMetadata.canonicalBytes()));
                     db.write(writeOptions, batch);
                 }
                 metadata = created;
@@ -484,8 +493,23 @@ public final class ShardStore implements AutoCloseable {
             if (format == null || format.length != 4 || java.nio.ByteBuffer.wrap(format).getInt() != 1) {
                 throw new IllegalStateException("missing or unsupported store format marker");
             }
+            final byte[] runtimeBytes = db.get(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_RUNTIME));
+            if (runtimeBytes == null) {
+                runtimeMetadata = StoreRuntimeMetadata.empty();
+            } else {
+                final ValueEnvelope.Decoded runtimeValue = ValueEnvelope.decode(runtimeBytes, RUNTIME_VALUE_TYPE);
+                runtimeMetadata = StoreRuntimeMetadata.decode(runtimeValue.payload());
+            }
+            if (runtimeMetadata.cleanCloseMarker()) {
+                runtimeMetadata = runtimeMetadata.withCleanCloseMarker(false);
+            }
+            try (WriteBatch batch = new WriteBatch(); WriteOptions writeOptions = new WriteOptions().setSync(true)) {
+                batch.put(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_RUNTIME),
+                        ValueEnvelope.encode(RUNTIME_VALUE_TYPE, runtimeMetadata.canonicalBytes()));
+                db.write(writeOptions, batch);
+            }
             final ShardStore result = new ShardStore(config, shardId, dbPath, resources, db, dbOptions, cfOptions,
-                    handles, metadata, ownsShardSlot);
+                    handles, metadata, ownsShardSlot, runtimeMetadata);
             keepOpen = true;
             return result;
         } finally {
@@ -618,6 +642,42 @@ public final class ShardStore implements AutoCloseable {
         return metadata;
     }
 
+    /** Returns the local mutable metadata projection; it is not remote authority. */
+    public synchronized StoreRuntimeMetadata runtimeMetadata() {
+        return runtimeMetadata;
+    }
+
+    /** Persists the latest authenticated ingress fence proof identity. */
+    public synchronized void recordLastIngressFenceProofId(final byte[] proofId) {
+        ensureOpen();
+        persistRuntimeMetadata(new StoreRuntimeMetadata(proofId, runtimeMetadata.lastCheckpointId(),
+                runtimeMetadata.lastOpenedOwnerEpoch(), false, runtimeMetadata.evidenceCursors()));
+    }
+
+    /** Persists the last checkpoint identity represented by this Store. */
+    public synchronized void recordLastCheckpointId(final byte[] checkpointId) {
+        ensureOpen();
+        persistRuntimeMetadata(new StoreRuntimeMetadata(runtimeMetadata.lastIngressFenceProofId(), checkpointId,
+                runtimeMetadata.lastOpenedOwnerEpoch(), false, runtimeMetadata.evidenceCursors()));
+    }
+
+    /** Persists a non-decreasing Owner Epoch observed at Store open. */
+    public synchronized void recordOpenedOwnerEpoch(final long ownerEpoch) {
+        ensureOpen();
+        if (ownerEpoch <= 0 || ownerEpoch < runtimeMetadata.lastOpenedOwnerEpoch()) {
+            throw new IllegalArgumentException("owner epoch regressed or is not positive");
+        }
+        persistRuntimeMetadata(new StoreRuntimeMetadata(runtimeMetadata.lastIngressFenceProofId(),
+                runtimeMetadata.lastCheckpointId(), ownerEpoch, false, runtimeMetadata.evidenceCursors()));
+    }
+
+    /** Persists the complete, canonically ordered evidence cursor projection. */
+    public synchronized void recordEvidenceCursors(final List<EvidenceCursorV1> cursors) {
+        ensureOpen();
+        persistRuntimeMetadata(new StoreRuntimeMetadata(runtimeMetadata.lastIngressFenceProofId(),
+                runtimeMetadata.lastCheckpointId(), runtimeMetadata.lastOpenedOwnerEpoch(), false, cursors));
+    }
+
     public byte[] get(final ColumnFamily family, final byte[] key) {
         try {
             return db.get(handles.get(family), key);
@@ -736,8 +796,14 @@ public final class ShardStore implements AutoCloseable {
     }
 
     @Override
-    public void close() {
+    public synchronized void close() {
         if (closed.compareAndSet(false, true)) {
+            RuntimeException markerFailure = null;
+            try {
+                persistRuntimeMetadata(runtimeMetadata.withCleanCloseMarker(true));
+            } catch (RuntimeException exception) {
+                markerFailure = exception;
+            }
             for (ColumnFamilyHandle handle : handles.values()) {
                 handle.close();
             }
@@ -748,7 +814,22 @@ public final class ShardStore implements AutoCloseable {
             if (ownsShardSlot) {
                 resources.releaseOwnedShardSlot();
             }
+            if (markerFailure != null) {
+                throw markerFailure;
+            }
         }
+    }
+
+    private void ensureOpen() {
+        if (closed.get()) {
+            throw new IllegalStateException("shard store is closed");
+        }
+    }
+
+    private void persistRuntimeMetadata(final StoreRuntimeMetadata next) {
+        final byte[] encoded = ValueEnvelope.encode(RUNTIME_VALUE_TYPE, next.canonicalBytes());
+        write(batch -> batch.put(ColumnFamily.META, KeyCodec.metaFixed(META_RUNTIME), encoded));
+        runtimeMetadata = next;
     }
 
     @FunctionalInterface

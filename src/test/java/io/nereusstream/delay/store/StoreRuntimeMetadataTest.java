@@ -1,0 +1,92 @@
+package io.nereusstream.delay.store;
+
+import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.EvidenceCursorV1;
+import io.nereusstream.delay.protocol.RouteIncarnation;
+import io.nereusstream.delay.protocol.ShardId;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Path;
+import java.util.List;
+import java.util.UUID;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class StoreRuntimeMetadataTest {
+    @TempDir
+    Path tempDir;
+
+    @Test
+    void canonicalProjectionRoundTripsAndKeepsEvidenceSorted() {
+        final StoreRuntimeMetadata value = new StoreRuntimeMetadata(bytes(1), bytes(2), 42, true,
+                List.of(kafkaCursor(1)));
+
+        final StoreRuntimeMetadata decoded = StoreRuntimeMetadata.decode(value.canonicalBytes());
+
+        assertEquals(value, decoded);
+        assertArrayEquals(bytes(1), decoded.lastIngressFenceProofId());
+        assertArrayEquals(bytes(2), decoded.lastCheckpointId());
+        assertEquals(42, decoded.lastOpenedOwnerEpoch());
+        assertTrue(decoded.cleanCloseMarker());
+        assertEquals(1, decoded.evidenceCursors().size());
+    }
+
+    @Test
+    void malformedProjectionAndDuplicateEvidenceFailClosed() {
+        final EvidenceCursorV1 cursor = kafkaCursor(1);
+        assertThrows(IllegalArgumentException.class,
+                () -> new StoreRuntimeMetadata(null, null, 1, false, List.of(cursor, cursor)));
+        assertThrows(IllegalArgumentException.class,
+                () -> StoreRuntimeMetadata.decode(new byte[]{0x18, 0x01, 0x20, 0x02}));
+    }
+
+    @Test
+    void storePersistsRuntimeProjectionAndClearsCleanCloseOnOpen() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("runtime-meta"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 41);
+        final StoreRuntimeMetadata closedProjection;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            assertFalse(store.runtimeMetadata().cleanCloseMarker());
+            store.recordLastIngressFenceProofId(bytes(3));
+            store.recordLastCheckpointId(bytes(4));
+            store.recordOpenedOwnerEpoch(7);
+            store.recordEvidenceCursors(List.of(kafkaCursor(2)));
+            assertThrows(IllegalArgumentException.class, () -> store.recordOpenedOwnerEpoch(6));
+        }
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+            final ShardStore reopened = ShardStore.open(config, shardId, resources);
+            final StoreRuntimeMetadata projection = reopened.runtimeMetadata();
+            assertArrayEquals(bytes(3), projection.lastIngressFenceProofId());
+            assertArrayEquals(bytes(4), projection.lastCheckpointId());
+            assertEquals(7, projection.lastOpenedOwnerEpoch());
+            assertEquals(List.of(kafkaCursor(2)), projection.evidenceCursors());
+            assertFalse(projection.cleanCloseMarker());
+            reopened.close();
+            closedProjection = reopened.runtimeMetadata();
+        }
+        assertTrue(closedProjection.cleanCloseMarker());
+    }
+
+    private static EvidenceCursorV1 kafkaCursor(final long generation) {
+        return EvidenceCursorV1.kafka(bytes(20), java.util.Arrays.copyOf(bytes(21), 16), uuidBytes(22), 0,
+                generation, 100,
+                generation, generation);
+    }
+
+    private static byte[] bytes(final int seed) {
+        return Bytes.sha256(Bytes.utf8("store-runtime-" + seed));
+    }
+
+    private static byte[] uuidBytes(final int seed) {
+        final UUID uuid = UUID.nameUUIDFromBytes(Bytes.utf8("uuid-" + seed));
+        return java.nio.ByteBuffer.allocate(16).putLong(uuid.getMostSignificantBits())
+                .putLong(uuid.getLeastSignificantBits()).array();
+    }
+}
