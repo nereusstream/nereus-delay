@@ -25,7 +25,9 @@ public final class InMemoryControlOperationAuthority implements ControlOperation
                                                                   final CurrentControlOperationV1 initial) {
         Objects.requireNonNull(receipt, "receipt");
         Objects.requireNonNull(initial, "initial");
-        validateIdentity(receipt, initial);
+        if (!matchesIdentity(receipt, initial)) {
+            return ControlOperationQueryResponseV1.integrityError();
+        }
         if (initial.operationRevision() != receipt.operationRevision()) {
             return ControlOperationQueryResponseV1.integrityError();
         }
@@ -57,7 +59,9 @@ public final class InMemoryControlOperationAuthority implements ControlOperation
         if (existing == null || !existing.receipt().equals(receipt)) {
             return ControlOperationQueryResponseV1.notFoundOrNotAuthorized();
         }
-        validateIdentity(receipt, next);
+        if (!matchesIdentity(receipt, next)) {
+            return ControlOperationQueryResponseV1.integrityError();
+        }
         if (expectedRevision != existing.current().operationRevision()) {
             return ControlOperationQueryResponseV1.integrityError();
         }
@@ -85,13 +89,11 @@ public final class InMemoryControlOperationAuthority implements ControlOperation
         return ControlOperationQueryResponseV1.current(entry.current());
     }
 
-    private static void validateIdentity(final ControlOperationReceiptV1 receipt,
-                                         final CurrentControlOperationV1 current) {
-        if (!Bytes.constantTimeEquals(receipt.operationId(), current.operationId())
-                || !Bytes.constantTimeEquals(receipt.requestHash(), current.requestHash())
-                || !Bytes.constantTimeEquals(receipt.authenticatedScopeHash(), current.authenticatedScopeHash())) {
-            throw new IllegalArgumentException("control operation projection identity does not match receipt");
-        }
+    private static boolean matchesIdentity(final ControlOperationReceiptV1 receipt,
+                                           final CurrentControlOperationV1 current) {
+        return Bytes.constantTimeEquals(receipt.operationId(), current.operationId())
+                && Bytes.constantTimeEquals(receipt.requestHash(), current.requestHash())
+                && Bytes.constantTimeEquals(receipt.authenticatedScopeHash(), current.authenticatedScopeHash());
     }
 
     private static String key(final byte[] operationId) {

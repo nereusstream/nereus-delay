@@ -55,6 +55,19 @@ class ControlOperationAuthorityTest {
     }
 
     @Test
+    void projectionIdentityMismatchIsAClosedIntegrityError() {
+        final ControlOperationReceiptV1 receipt = receipt(5, 4_000);
+        final InMemoryControlOperationAuthority authority = new InMemoryControlOperationAuthority();
+        final byte[] otherOperation = receipt.operationId();
+        otherOperation[0]++;
+        final CurrentControlOperationV1 wrong = new CurrentControlOperationV1(otherOperation,
+                receipt.requestHash(), receipt.authenticatedScopeHash(), ControlOperationStateV1.PENDING, 1,
+                List.of(), null);
+        assertEquals(ControlOperationQueryResultV1.INTEGRITY_ERROR,
+                authority.register(receipt, wrong).resultKind());
+    }
+
+    @Test
     void oxiaAdapterRejectsAResponseBoundToAnotherOperation() {
         final ControlOperationReceiptV1 receipt = receipt(3, 4_000);
         final CurrentControlOperationV1 initial = current(receipt, 1, ControlOperationStateV1.PENDING);
