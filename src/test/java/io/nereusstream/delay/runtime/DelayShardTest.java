@@ -847,6 +847,16 @@ class DelayShardTest {
             final LaneTerminalGuardV1 guard = new LaneTerminalGuardV1(closed.laneIncarnation(),
                     closed.laneControlVersion(), source, destination, capability, tuple, retirementId, 1);
             final LaneRetirementProgressV1 progress = new LaneRetirementProgressV1(retirementId, 1, source);
+            final KafkaSourcePosition conflictingSource = new KafkaSourcePosition(shardId, "cluster-a",
+                    UUID.nameUUIDFromBytes(Bytes.utf8("topic")), source.offset(), 7,
+                    source.brokerLogAppendTimeEpochMs() + 1);
+            final LaneTerminalGuardV1 conflictingGuard = new LaneTerminalGuardV1(closed.laneIncarnation(),
+                    closed.laneControlVersion(), conflictingSource, destination, capability, tuple, retirementId, 1);
+            final LaneRetirementProgressV1 conflictingProgress = new LaneRetirementProgressV1(retirementId, 1,
+                    conflictingSource);
+            assertThrows(IllegalStateException.class,
+                    () -> shard.retireLaneWithTerminalGuard(lane, closed.laneControlVersion(), conflictingProgress,
+                            conflictingGuard));
             assertEquals(guard, shard.retireLaneWithTerminalGuard(lane, closed.laneControlVersion(), progress,
                     guard));
             assertEquals(AdmissionGate.RETIRED, shard.getLane(lane).admissionGate());

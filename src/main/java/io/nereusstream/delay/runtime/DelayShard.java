@@ -3229,8 +3229,8 @@ public final class DelayShard {
             throw new IllegalStateException("terminal guard does not match the closed lane or retirement progress");
         }
         if (lastAppliedSourcePosition == null
-                || progress.intentSourcePosition().compareTo(lastAppliedSourcePosition) > 0
-                || guard.terminalSourcePosition().compareTo(progress.intentSourcePosition()) > 0) {
+                || !isAtOrBeforeExact(progress.intentSourcePosition(), lastAppliedSourcePosition)
+                || !isAtOrAfterExact(guard.terminalSourcePosition(), progress.intentSourcePosition())) {
             throw new IllegalStateException("retirement progress is not source-ordered and applied");
         }
         if (findLaneCandidate(laneId, null, -1, null, null) != null || hasLaneRuntimeWork(laneId)) {
@@ -3242,6 +3242,18 @@ public final class DelayShard {
                     LaneRecordEnvelopeV1.terminal(guard).canonicalBytes());
         });
         return guard;
+    }
+
+    private static boolean isAtOrBeforeExact(final SourcePosition candidate, final SourcePosition upperBound) {
+        final int order = candidate.compareTo(upperBound);
+        return order < 0 || (order == 0
+                && Arrays.equals(candidate.canonicalBytes(), upperBound.canonicalBytes()));
+    }
+
+    private static boolean isAtOrAfterExact(final SourcePosition candidate, final SourcePosition lowerBound) {
+        final int order = candidate.compareTo(lowerBound);
+        return order > 0 || (order == 0
+                && Arrays.equals(candidate.canonicalBytes(), lowerBound.canonicalBytes()));
     }
 
     /** Returns the terminal guard at the Lane key, or {@code null} while active. */

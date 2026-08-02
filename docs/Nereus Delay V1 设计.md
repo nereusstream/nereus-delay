@@ -1889,6 +1889,7 @@ then compact completion tombstone
 删除完整 terminal/history 不等于释放 Delay Message Identity。最后一个实体/terminal locator 被清理的同一 WriteBatch 必须把 `id_cf/MESSAGE` 转为 compact retired identity tombstone；tombstone 的删除再受 `messageIdentityReuseUntil` time fence、Recovery Floor 和 identity retention 保护。
 
 Lane retirement 是两阶段：先应用 `RESOURCE_RETIRE_INTENT_V1`；只有 active gate 已按 source order 到达 `CLOSED`、pending/inflight/READY 都为零、所有 attempt/receipt/dedupe/terminal 引用不再需要、Adapter channels 已 close/fence 且 descendant Recovery Floor 包含该 intent 后，才在同一个 `[meta_cf/LANE][destinationLaneId]` key 上把 active `LaneRecordV1` 原子替换为 compact `LaneTerminalGuardV1(finalGate=RETIRED, laneControlVersion, laneIncarnation, terminalSourcePosition, Profile refs, exact canonical Lane tuple+digest, retire intent/sequence)`，并释放 Lane/strong slot grant。V1 没有另一个 `LANE_TERMINAL_GUARD` key/tag。Terminal guard 在 Route Incarnation/Profile 仍可被任何 retained Prepared Command、Replay 或 Recovery Set 引用期间不得删；相同旧 tuple 的 Schedule/Prepare/Commit/Replay 稳定 `LANE_TERMINALLY_CLOSED`。只有新 Profile/Ordering Domain 形成不同 `destinationLaneId` 才可创建 OPEN Lane，不能仅换 `laneIncarnation` 绕过 Break/Close。
+Retirement progress 与 terminal guard 的 Source Position 在 equal order token 时必须 canonical-byte 相等；同一 physical record 的 metadata 变体不能伪造“已 apply”或跳过关闭边界。
 
 ## 16. Checkpoint、Recovery Set 与恢复
 
