@@ -231,6 +231,22 @@ class ShardStoreTest {
     }
 
     @Test
+    void checkpointDownloadSlotIsWorkerBoundedAndReleased() {
+        final ShardStoreConfig config = new ShardStoreConfig(tempDir.resolve("restore-slot"), 1, 2, 32, 64,
+                1, 1024 * 1024, 1024 * 1024, 1, 1, 1, 1024);
+        final SharedRocksDbResources resources = new SharedRocksDbResources(config);
+        try {
+            resources.acquireCheckpointDownloadSlot();
+            assertThrows(IllegalStateException.class, resources::acquireCheckpointDownloadSlot);
+            resources.releaseCheckpointDownloadSlot();
+            resources.acquireCheckpointDownloadSlot();
+            resources.releaseCheckpointDownloadSlot();
+        } finally {
+            resources.close();
+        }
+    }
+
+    @Test
     void sharedResourcesCannotCloseWhileCheckpointOperationHoldsWorkerSlot() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("checkpoint-resource-lifecycle"));
         final SharedRocksDbResources resources = new SharedRocksDbResources(config);

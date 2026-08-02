@@ -120,7 +120,10 @@ public final class ShardStore implements AutoCloseable {
         final Path restoreRoot = shardRoot.resolve("restore-tmp").resolve(storeUuid.toString());
         final Path stagedDb = restoreRoot.resolve("db");
         final Path activeDb = shardRoot.resolve("incarnations").resolve(storeUuid.toString()).resolve("db");
+        boolean downloadSlotAcquired = false;
         try {
+            resources.acquireCheckpointDownloadSlot();
+            downloadSlotAcquired = true;
             if (Files.isSymbolicLink(checkpointPath)
                     || !Files.isDirectory(checkpointPath)
                     || !Files.isRegularFile(checkpointPath.resolve("CURRENT"),
@@ -161,6 +164,10 @@ public final class ShardStore implements AutoCloseable {
                 exception.addSuppressed(cleanupException);
             }
             throw new IllegalStateException("cannot restore shard checkpoint", exception);
+        } finally {
+            if (downloadSlotAcquired) {
+                resources.releaseCheckpointDownloadSlot();
+            }
         }
     }
 
