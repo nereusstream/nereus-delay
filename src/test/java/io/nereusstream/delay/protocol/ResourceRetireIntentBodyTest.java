@@ -72,7 +72,7 @@ class ResourceRetireIntentBodyTest {
             CanonicalProtobuf.int64(output, 3, 10_000);
             CanonicalProtobuf.uint32(output, 10, kind.wireValue());
             CanonicalProtobuf.bytes(output, 11, resource);
-            CanonicalProtobuf.uint32(output, 12, expectedVersion);
+            CanonicalProtobuf.uint64(output, 12, expectedVersion);
             CanonicalProtobuf.bytes(output, 13, protections);
         });
     }

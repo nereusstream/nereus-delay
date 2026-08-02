@@ -99,6 +99,14 @@ next Kafka offset from persisted shard state. Reopening after a record at
 boundary; `EmbeddedDelayServiceTest.reopenedEmbeddedServiceSaturatesPersistedSourceOffsetExhaustion`
 covers the restart path.
 
+Canonical protocol writers now enforce the unsigned 32-bit range instead of
+silently encoding a wider value through the `uint32` helper. The
+`RetireIntentRefV1` resource-state version is emitted as `uint64` in
+`ResourceDeleteConfirmedBody`, and the corresponding retire-intent fixture
+uses the same width. `CanonicalProtobufTest` covers both uint32 boundaries;
+`ResourceDeleteConfirmedBodyTest.intentPreservesFullUnsignedResourceStateVersion`
+covers a value above 2^32.
+
 The Registry-shaped `ScheduleIntentV1` value is now implemented as a strict
 canonical codec: it binds the destination `ProfileRefV1`, `RetryPolicyRefV1`,
 delivery/order fields, the closed inline-versus-committed payload union,

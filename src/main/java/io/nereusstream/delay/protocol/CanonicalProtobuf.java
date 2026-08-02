@@ -15,6 +15,9 @@ public final class CanonicalProtobuf {
     }
 
     public static void uint32(final ByteArrayOutputStream output, final int field, final long value) {
+        if (value < 0 || value > 0xffff_ffffL) {
+            throw new IllegalArgumentException("canonical uint32 is outside unsigned 32-bit range");
+        }
         tag(output, field, 0);
         varint(output, value);
     }

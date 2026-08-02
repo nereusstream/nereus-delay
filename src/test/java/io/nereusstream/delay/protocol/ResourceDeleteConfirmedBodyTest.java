@@ -26,6 +26,21 @@ class ResourceDeleteConfirmedBodyTest {
     }
 
     @Test
+    void intentPreservesFullUnsignedResourceStateVersion() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 24);
+        final byte[] resourceHash = Bytes.sha256(Bytes.utf8("large-version-resource"));
+        final long expectedVersion = 1L << 40;
+        final byte[] body = body(shard, Bytes.sha256(Bytes.utf8("large-version-mutation")),
+                Bytes.sha256(Bytes.utf8("large-version-hash")), resourceHash, expectedVersion,
+                ResourceDeleteConfirmedBody.DeleteOutcome.DELETED, resourceHash, Bytes.utf8("version"),
+                Bytes.utf8("etag"));
+
+        final ResourceDeleteConfirmedBody decoded = ResourceDeleteConfirmedBody.decode(body);
+
+        assertEquals(expectedVersion, decoded.intent().expectedResourceStateVersion());
+    }
+
+    @Test
     void alreadyAbsentEvidenceForbidsObservedVersionAndEtag() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 22);
         final byte[] resourceHash = Bytes.sha256(Bytes.utf8("absent-resource"));
@@ -87,7 +102,7 @@ class ResourceDeleteConfirmedBodyTest {
             CanonicalProtobuf.bytes(output, 1, mutationId);
             CanonicalProtobuf.bytes(output, 2, mutationHash);
             CanonicalProtobuf.bytes(output, 3, resourceHash);
-            CanonicalProtobuf.uint32(output, 4, expectedVersion);
+            CanonicalProtobuf.uint64(output, 4, expectedVersion);
         });
         final byte[] evidence = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, evidenceResourceHash);

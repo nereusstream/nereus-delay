@@ -113,7 +113,7 @@ public final class ResourceDeleteConfirmedBody {
                 CanonicalProtobuf.bytes(output, 1, mutationId);
                 CanonicalProtobuf.bytes(output, 2, mutationHash);
                 CanonicalProtobuf.bytes(output, 3, resourceIdentityHash);
-                CanonicalProtobuf.uint32(output, 4, expectedResourceStateVersion);
+                CanonicalProtobuf.uint64(output, 4, expectedResourceStateVersion);
             });
         }
 
