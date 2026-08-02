@@ -549,6 +549,8 @@ public final class ShardStore implements AutoCloseable {
                 } else if (Files.isRegularFile(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
                     Files.createDirectories(destination.getParent());
                     Files.copy(path, destination);
+                } else {
+                    throw new IOException("checkpoint contains a non-regular file: " + path);
                 }
             }
         }

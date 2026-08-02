@@ -462,6 +462,9 @@ length/SHA-256/profile/lineage/checkpoint identity 不匹配时保持 PENDING_UP
 attestation、Object Store immutability 或 Oxia intent/catalog transaction；
 同一 pending intent 在 response-loss 重试中会先精确重读已提交的
 PUBLISHED successor，且不再次调用 adapter。
+`CheckpointFileInventory` 与 restore 的 `copyTree` 现在都会拒绝符号链接及目录
+之外的非 regular 文件，避免把 checkpoint 中未知的物理文件静默丢弃后仍继续
+恢复；这仍只是本地文件完整性边界，不替代 Object Store 内容证明。
 
 `SharedRocksDbResources` 现在也把 checkpoint create/upload slot 纳入进程级
 关闭保护；后台 checkpoint 或上传操作持有 slot 时，资源 close 会 fail closed。

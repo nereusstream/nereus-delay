@@ -30,13 +30,23 @@ public record CheckpointFileInventory(String name, long length, byte[] checksum)
     }
 
     public static List<CheckpointFileInventory> collect(final Path checkpointRoot) {
+        if (Files.isSymbolicLink(checkpointRoot)
+                || !Files.isDirectory(checkpointRoot, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IllegalArgumentException("checkpoint root is not a real directory: " + checkpointRoot);
+        }
         try (var paths = Files.walk(checkpointRoot)) {
             return paths.filter(path -> {
-                        if (Files.isSymbolicLink(path)) {
-                            throw new IllegalArgumentException("checkpoint contains a symbolic link: " + path);
-                        }
-                        return Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS);
-                    })
+                if (Files.isSymbolicLink(path)) {
+                    throw new IllegalArgumentException("checkpoint contains a symbolic link: " + path);
+                }
+                if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
+                    return false;
+                }
+                if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
+                    throw new IllegalArgumentException("checkpoint contains a non-regular file: " + path);
+                }
+                return true;
+            })
                     .map(path -> create(checkpointRoot, path))
                     .sorted(Comparator.comparing(CheckpointFileInventory::name))
                     .toList();
