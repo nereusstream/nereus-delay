@@ -120,6 +120,11 @@ saturating arithmetic；配置、注册或恢复导致的整数溢出不会 wrap
 不等于 production placement/authority 已完成。Lane runtime/control version 的
 checked increment 也在 `Long.MAX_VALUE` fail closed，避免 READY key 或管理 CAS
 版本回绕；`LaneRecordTest.versionCountersFailClosedBeforeLongOverflow` 覆盖该本地边界。
+Message Control Version (`stateVersion`) 与本地 generation successor 在
+Cancel/Reschedule 及其 replay projection 中也使用 checked increment；达到
+Java 表示上限时先以 `INVALID_COMMAND` 持久拒绝，不会把负值写入 Message 或
+timeline。`DelayShardTest.messageGenerationAndStateVersionOverflowFailClosedBeforeMutation`
+覆盖这两个边界。
 
 当前代码已把 Lane 的 same-key ACTIVE/TERMINAL 分支和保守本地退休证明接入
 `DelayShard`；并已补齐 Registry-shaped `ActiveLaneStateV1`、

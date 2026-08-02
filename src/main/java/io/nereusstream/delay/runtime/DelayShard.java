@@ -3924,7 +3924,8 @@ public final class DelayShard {
         }
         return switch (existing.status()) {
             case SCHEDULED, CLAIMED -> applied(StableCode.CANCELED, sourcePosition,
-                    new MessageRecord(MessageStatus.CANCELED, existing.generation(), existing.stateVersion() + 1,
+                    new MessageRecord(MessageStatus.CANCELED, existing.generation(),
+                            Math.incrementExact(existing.stateVersion()),
                             existing.deliverAtEpochMs(), existing.expireAtEpochMs(), existing.laneId(),
                             existing.orderingMode(), existing.payload(), existing.scheduleSourcePosition(),
                             existing.payloadReference(), existing.retryEligibilityAtEpochMs()));
@@ -3953,8 +3954,9 @@ public final class DelayShard {
         }
         validateWindow(request.deliverAtEpochMs(), request.expireAtEpochMs(),
                 sourcePosition.brokerPersistenceTimeEpochMs());
-        final MessageRecord replacement = new MessageRecord(MessageStatus.SCHEDULED, existing.generation() + 1,
-                existing.stateVersion() + 1, request.deliverAtEpochMs(), request.expireAtEpochMs(), existing.laneId(),
+        final MessageRecord replacement = new MessageRecord(MessageStatus.SCHEDULED,
+                Math.incrementExact(existing.generation()), Math.incrementExact(existing.stateVersion()),
+                request.deliverAtEpochMs(), request.expireAtEpochMs(), existing.laneId(),
                 existing.orderingMode(), existing.payload(), sourcePosition.canonicalBytes(),
                 existing.payloadReference());
         return applied(StableCode.SUPERSEDED, sourcePosition, replacement);
@@ -4366,7 +4368,8 @@ public final class DelayShard {
                         position.canonicalBytes(), intent.payloadReference());
             }
             case CANCEL -> result.stableCode() == StableCode.CANCELED && prior != null
-                    ? new MessageRecord(MessageStatus.CANCELED, prior.generation(), prior.stateVersion() + 1,
+                    ? new MessageRecord(MessageStatus.CANCELED, prior.generation(),
+                    Math.incrementExact(prior.stateVersion()),
                     prior.deliverAtEpochMs(), prior.expireAtEpochMs(), prior.laneId(), prior.orderingMode(),
                     prior.payload(), prior.scheduleSourcePosition(), prior.payloadReference(),
                     prior.retryEligibilityAtEpochMs()) : null;
@@ -4395,7 +4398,8 @@ public final class DelayShard {
     private MessageRecord rescheduledMessage(final PreparedCommand command, final SourcePosition position,
                                              final MessageRecord prior) {
         final RescheduleRequest values = decodeRescheduleRequest(command);
-        return new MessageRecord(MessageStatus.SCHEDULED, prior.generation() + 1, prior.stateVersion() + 1,
+        return new MessageRecord(MessageStatus.SCHEDULED, Math.incrementExact(prior.generation()),
+                Math.incrementExact(prior.stateVersion()),
                 values.deliverAtEpochMs(), values.expireAtEpochMs(), prior.laneId(), prior.orderingMode(),
                 prior.payload(), position.canonicalBytes(), prior.payloadReference());
     }

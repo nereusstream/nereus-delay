@@ -208,6 +208,70 @@ class DelayShardTest {
     }
 
     @Test
+    void messageGenerationAndStateVersionOverflowFailClosedBeforeMutation() {
+        final ShardId stateVersionShardId = new ShardId(RouteIncarnation.random(), 41);
+        final DestinationLaneId stateVersionLane = DestinationLaneId.derive(Bytes.utf8("state-version-overflow"));
+        final PreparedCommand stateVersionSchedule = PreparedCommand.schedule(stateVersionShardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(stateVersionLane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("state-version-overflow")), 9_000);
+        final KafkaSourcePosition stateVersionSchedulePosition = position(stateVersionShardId, 0, 1_000);
+        final KafkaSourcePosition stateVersionCancelPosition = position(stateVersionShardId, 1, 1_001);
+        final ShardStoreConfig stateVersionConfig = ShardStoreConfig.defaults(
+                tempDir.resolve("state-version-overflow"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(stateVersionConfig);
+             ShardStore store = ShardStore.open(stateVersionConfig, stateVersionShardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED,
+                    shard.apply(stateVersionSchedule, stateVersionSchedulePosition).stableCode());
+            final MessageRecord exhausted = new MessageRecord(MessageStatus.SCHEDULED, 0, Long.MAX_VALUE,
+                    2_000, 5_000, stateVersionLane, OrderingMode.BEST_EFFORT, Bytes.utf8("state-version-overflow"),
+                    stateVersionSchedulePosition.canonicalBytes());
+            store.write(batch -> batch.putValue(ColumnFamily.ID, 1,
+                    KeyCodec.idMessage(stateVersionSchedule.delayMessageId()), exhausted.encode()));
+
+            final PreparedCommand cancel = PreparedCommand.cancel(stateVersionShardId,
+                    stateVersionSchedule.delayMessageId(), 0, 9_000);
+            assertEquals(StableCode.INVALID_COMMAND,
+                    shard.apply(cancel, stateVersionCancelPosition).stableCode());
+            assertEquals(exhausted, shard.getMessage(stateVersionSchedule.delayMessageId()));
+            assertEquals(stateVersionCancelPosition, shard.lastAppliedSourcePosition());
+        }
+
+        final ShardId generationShardId = new ShardId(RouteIncarnation.random(), 42);
+        final DestinationLaneId generationLane = DestinationLaneId.derive(Bytes.utf8("generation-overflow"));
+        final PreparedCommand generationSchedule = PreparedCommand.schedule(generationShardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(generationLane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("generation-overflow")), 9_000);
+        final KafkaSourcePosition generationSchedulePosition = position(generationShardId, 0, 1_000);
+        final KafkaSourcePosition generationReschedulePosition = position(generationShardId, 1, 1_001);
+        final ShardStoreConfig generationConfig = ShardStoreConfig.defaults(tempDir.resolve("generation-overflow"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(generationConfig);
+             ShardStore store = ShardStore.open(generationConfig, generationShardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED,
+                    shard.apply(generationSchedule, generationSchedulePosition).stableCode());
+            final MessageRecord exhausted = new MessageRecord(MessageStatus.SCHEDULED, Integer.MAX_VALUE, 1,
+                    2_000, 5_000, generationLane, OrderingMode.BEST_EFFORT, Bytes.utf8("generation-overflow"),
+                    generationSchedulePosition.canonicalBytes());
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.ID, 1,
+                        KeyCodec.idMessage(generationSchedule.delayMessageId()), exhausted.encode());
+                batch.delete(ColumnFamily.TIMELINE, KeyCodec.timelineDue(generationLane, 2_000,
+                        generationSchedulePosition.sourceOrderToken(), generationSchedule.delayMessageId(), 0));
+                batch.delete(ColumnFamily.TIMELINE, KeyCodec.timelineExpiry(5_000, generationLane,
+                        generationSchedule.delayMessageId(), 0));
+            });
+
+            final PreparedCommand reschedule = PreparedCommand.reschedule(generationShardId,
+                    generationSchedule.delayMessageId(), Integer.MAX_VALUE, 3_000, 6_000, 9_000);
+            assertEquals(StableCode.INVALID_COMMAND,
+                    shard.apply(reschedule, generationReschedulePosition).stableCode());
+            assertEquals(exhausted, shard.getMessage(generationSchedule.delayMessageId()));
+            assertEquals(generationReschedulePosition, shard.lastAppliedSourcePosition());
+        }
+    }
+
+    @Test
     void sameKafkaOffsetWithDifferentCanonicalMetadataCannotReplayAsAnotherPosition() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("same-kafka-offset"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 32);

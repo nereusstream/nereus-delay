@@ -39,6 +39,14 @@ replacement-character input is rejected before a position can become persisted
 metadata, receipt evidence or checkpoint state. `ProtocolCodecTest` covers both
 adapter branches with non-canonical UTF-8 vectors.
 
+`DelayShard` now uses checked increments for the Message Control Version
+(`stateVersion`) and the locally represented generation successor in
+Cancel/Reschedule transitions and their replay projections. At the maximum
+representable value the command is persisted as `INVALID_COMMAND` before any
+Message or timeline mutation; it cannot wrap into a negative version or
+generation. `DelayShardTest.messageGenerationAndStateVersionOverflowFailClosedBeforeMutation`
+covers both boundaries.
+
 The Registry-shaped `ScheduleIntentV1` value is now implemented as a strict
 canonical codec: it binds the destination `ProfileRefV1`, `RetryPolicyRefV1`,
 delivery/order fields, the closed inline-versus-committed payload union,
