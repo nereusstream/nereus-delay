@@ -7,6 +7,7 @@ import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ColumnFamilyOptions;
 import org.rocksdb.DBOptions;
+import org.rocksdb.FlushOptions;
 import org.rocksdb.Options;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
@@ -666,6 +667,16 @@ public final class ShardStore implements AutoCloseable {
             db.write(writeOptions, batch);
         } catch (RocksDBException exception) {
             throw new IllegalStateException("RocksDB write failed", exception);
+        }
+    }
+
+    /** Flushes all column families and synchronizes the WAL before a drain/close boundary. */
+    public void flushAndSync() {
+        try (FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
+            db.flush(flushOptions);
+            db.syncWal();
+        } catch (RocksDBException exception) {
+            throw new IllegalStateException("RocksDB flush/sync failed", exception);
         }
     }
 

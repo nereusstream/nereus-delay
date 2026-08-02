@@ -137,6 +137,23 @@ class ShardStoreTest {
     }
 
     @Test
+    void flushAndSyncMakesTheShardBoundaryExplicit() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("flush-sync"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 32);
+        final byte[] key = KeyCodec.metaFixed(9);
+        final byte[] payload = Bytes.utf8("flush-sync");
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> batch.putValue(ColumnFamily.META, 9, key, payload));
+            store.flushAndSync();
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore reopened = ShardStore.open(config, shardId, resources)) {
+            assertArrayEquals(payload, reopened.getValue(ColumnFamily.META, key, 9).payload());
+        }
+    }
+
+    @Test
     void openRejectsSymbolicActivePointer() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("symbolic-active"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 24);

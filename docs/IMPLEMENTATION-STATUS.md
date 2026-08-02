@@ -300,6 +300,11 @@ timeline/Message/READY rollback. An over-bound scan fails closed, and a second
 pass is idempotent; `DelayShardTest.localClaimIsDurableAndRevokeRestoresTimelineAtomically`
 covers the persisted path. This does not revoke already-admitted
 `PUBLISHING`/`UNCERTAIN` obligations or prove callback quiescence.
+`ShardStore.flushAndSync` now makes the planned drain persistence boundary
+explicit by waiting for all Column Family flushes and then synchronizing the
+WAL; `ShardStoreTest.flushAndSyncMakesTheShardBoundaryExplicit` verifies the
+value after a close/reopen. It is a local physical primitive, not proof that
+all remote callbacks have quiesced.
 Restore admission only treats a checksum-validated `ACTIVE` pointer target as
 the live incarnation; an orphan incarnation left before pointer installation
 does not block a new atomic restore and remains available for later repair.

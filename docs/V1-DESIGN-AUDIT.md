@@ -349,6 +349,9 @@ timeline/Message/READY，超 bound fail closed，重复执行返回零；证据�
 `DelayShardTest.localClaimIsDurableAndRevokeRestoresTimelineAtomically`。它只
 关闭新的 command admission 并撤销可逆 Claim；in-flight publish quiescence、final
 checkpoint 和 lease release 仍是生产 drain gate。
+`ShardStore.flushAndSync` 还提供 drain 的物理 flush/WAL-sync 原语，重开回归为
+`ShardStoreTest.flushAndSyncMakesTheShardBoundaryExplicit`；它不替代远端 callback
+quiescence 或 final checkpoint publication。
 Lease validity additionally rejects negative observation times even when a
 caller reaches `OwnerLease.validAt` directly rather than through an authority
 request; `OwnerLeaseTest.negativeClockCannotMakeOwnerLeaseValid` covers the
