@@ -6,6 +6,9 @@ import io.nereusstream.delay.protocol.CommandApplyStatusV1;
 import io.nereusstream.delay.protocol.CommandQueuedReceiptV1;
 import io.nereusstream.delay.protocol.CommandQueuedReceiptV1.KafkaQueuedAck;
 import io.nereusstream.delay.protocol.CommandQueryResponseV1;
+import io.nereusstream.delay.protocol.ControlOperationQueryResponseV1;
+import io.nereusstream.delay.protocol.ControlOperationReceiptV1;
+import io.nereusstream.delay.protocol.CurrentControlOperationV1;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DefinitelyNotQueuedV1;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
@@ -26,6 +29,8 @@ import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.StableErrorV1;
+import io.nereusstream.delay.ownership.ControlOperationAuthority;
+import io.nereusstream.delay.ownership.InMemoryControlOperationAuthority;
 import io.nereusstream.delay.runtime.ApplyStatus;
 import io.nereusstream.delay.runtime.CommandResult;
 import io.nereusstream.delay.runtime.DelayShard;
@@ -57,6 +62,7 @@ public final class EmbeddedDelayService implements DelayClient {
     private final SharedRocksDbResources resources;
     private final ShardStore store;
     private final DelayShard shard;
+    private final ControlOperationAuthority controlOperationAuthority;
     private final Deque<QueuedRecord> pending = new ArrayDeque<>();
     private long nextOffset;
     private boolean closed;
@@ -71,6 +77,7 @@ public final class EmbeddedDelayService implements DelayClient {
         resources = new SharedRocksDbResources(storeConfig);
         store = ShardStore.open(storeConfig, shardId, resources);
         shard = new DelayShard(store, DelayShardConfig.defaults());
+        controlOperationAuthority = new InMemoryControlOperationAuthority();
         final SourcePosition last = shard.lastAppliedSourcePosition();
         if (last != null) {
             if (!(last instanceof KafkaSourcePosition kafka)
@@ -319,6 +326,32 @@ public final class EmbeddedDelayService implements DelayClient {
                     "unknownEligibility"));
         }
         return BoundedLocalQueryProjector.message(snapshot, binding, dlqExportState, evidence);
+    }
+
+    /**
+     * Registers a control operation in the bounded embedded authority. This
+     * local entry point preserves the complete receipt and is not a substitute
+     * for production Oxia routing or authorization.
+     */
+    public synchronized ControlOperationQueryResponseV1 registerControlOperation(
+            final ControlOperationReceiptV1 receipt, final CurrentControlOperationV1 initial) {
+        ensureOpen();
+        return controlOperationAuthority.register(receipt, initial);
+    }
+
+    /** Advances one embedded control operation through its exact revision CAS. */
+    public synchronized ControlOperationQueryResponseV1 advanceControlOperation(
+            final ControlOperationReceiptV1 receipt, final long expectedRevision,
+            final CurrentControlOperationV1 next) {
+        ensureOpen();
+        return controlOperationAuthority.advance(receipt, expectedRevision, next);
+    }
+
+    /** Queries one embedded control operation before its fixed receipt boundary. */
+    public synchronized ControlOperationQueryResponseV1 queryControlOperation(
+            final ControlOperationReceiptV1 receipt, final long nowEpochMs) {
+        ensureOpen();
+        return controlOperationAuthority.query(receipt, nowEpochMs);
     }
 
     public synchronized DelayShard shard() {

@@ -72,7 +72,7 @@ class ShardStoreTest {
         final Path checkpoint = tempDir.resolve("checkpoint-atomic-output");
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
-            assertEquals(checkpoint.toAbsolutePath(), store.createCheckpoint(checkpoint));
+            assertEquals(checkpoint, store.createCheckpoint(checkpoint));
             assertTrueFile(checkpoint.resolve("CURRENT"));
             final Path stagingRoot = checkpoint.getParent().resolve("checkpoint-tmp");
             try (var paths = Files.list(stagingRoot)) {

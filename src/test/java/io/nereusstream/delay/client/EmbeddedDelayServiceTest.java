@@ -4,6 +4,10 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.AdapterKindV1;
 import io.nereusstream.delay.protocol.CommandAppliedReceiptV1;
 import io.nereusstream.delay.protocol.CommandQueryResult;
+import io.nereusstream.delay.protocol.ControlOperationQueryResultV1;
+import io.nereusstream.delay.protocol.ControlOperationReceiptV1;
+import io.nereusstream.delay.protocol.ControlOperationStateV1;
+import io.nereusstream.delay.protocol.CurrentControlOperationV1;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.DestinationLaneId;
@@ -19,6 +23,7 @@ import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ScheduleIntent;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.StableCode;
+import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.runtime.ApplyStatus;
 import io.nereusstream.delay.runtime.GenerationAggregateState;
@@ -35,6 +40,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.UUID;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -180,6 +186,28 @@ class EmbeddedDelayServiceTest {
     }
 
     @Test
+    void embeddedControlOperationEntryPointsPreserveReceiptBoundCas() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("control-operation"));
+        final ControlOperationReceiptV1 receipt = controlReceipt();
+        final CurrentControlOperationV1 initial = new CurrentControlOperationV1(receipt.operationId(),
+                receipt.requestHash(), receipt.authenticatedScopeHash(), ControlOperationStateV1.PENDING, 1,
+                List.of(), null);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(config, shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            assertEquals(ControlOperationQueryResultV1.CURRENT,
+                    service.registerControlOperation(receipt, initial).resultKind());
+            assertEquals(initial, service.queryControlOperation(receipt, 2_000).current());
+            final CurrentControlOperationV1 next = new CurrentControlOperationV1(receipt.operationId(),
+                    receipt.requestHash(), receipt.authenticatedScopeHash(), ControlOperationStateV1.IN_PROGRESS, 2,
+                    List.of(), null);
+            assertEquals(ControlOperationQueryResultV1.CURRENT,
+                    service.advanceControlOperation(receipt, 1, next).resultKind());
+            assertEquals(next, service.queryControlOperation(receipt, 2_000).current());
+        }
+    }
+
+    @Test
     void embeddedIngressProjectsAllManagedOutcomeBranches() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 5);
         try (EmbeddedDelayService service = new EmbeddedDelayService(ShardStoreConfig.defaults(tempDir.resolve("outcome")),
@@ -223,5 +251,14 @@ class EmbeddedDelayServiceTest {
                 Bytes.sha256(Bytes.utf8("capability-semantic")), ProfileKindV1.DELIVERY_CAPABILITY);
         return new PublicDestinationBindingViewV1(destination, capability, AdapterKindV1.KAFKA,
                 Bytes.utf8("safe-destination"), 1, OrderingMode.BEST_EFFORT);
+    }
+
+    private static ControlOperationReceiptV1 controlReceipt() {
+        final TrustedUtcIntervalEvidence registered = new TrustedUtcIntervalEvidence(1_000, 1_100,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("embedded-control-clock"),
+                1, 1, 1, Bytes.sha256(Bytes.utf8("control-evidence")), 0, null);
+        return ControlOperationReceiptV1.create(Bytes.sha256(Bytes.utf8("operation")),
+                Bytes.sha256(Bytes.utf8("request")), Bytes.sha256(Bytes.utf8("scope")),
+                Bytes.sha256(Bytes.utf8("targets")), 1, registered, 4_000);
     }
 }

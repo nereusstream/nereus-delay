@@ -599,7 +599,7 @@ public final class ShardStore implements AutoCloseable {
             }
             temporary = null;
             forceDirectory(parent);
-            return absoluteTarget;
+            return checkpointPath;
         } catch (RocksDBException | IOException exception) {
             throw new IllegalStateException("cannot create RocksDB checkpoint", exception);
         } finally {
