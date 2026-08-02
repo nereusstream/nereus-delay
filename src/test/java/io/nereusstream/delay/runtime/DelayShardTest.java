@@ -19,6 +19,7 @@ import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.MessagePreconditionV1;
 import io.nereusstream.delay.protocol.OrderingMode;
 import io.nereusstream.delay.protocol.PayloadCommitProof;
+import io.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
 import io.nereusstream.delay.protocol.PayloadProofTrustSet;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
@@ -31,6 +32,7 @@ import io.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
 import io.nereusstream.delay.protocol.ResourceKind;
 import io.nereusstream.delay.protocol.ResourceRetireIntentBody;
 import io.nereusstream.delay.protocol.RouteIncarnation;
+import io.nereusstream.delay.protocol.ScheduleIntentV1;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.ShardCapacityEnvelopeV1;
 import io.nereusstream.delay.protocol.StableCode;
@@ -222,6 +224,82 @@ class DelayShardTest {
             assertEquals(StableCode.CANCELED,
                     shard.apply(cancel, position(shardId, 3, 1_003)).stableCode());
             assertEquals(MessageStatus.CANCELED, shard.getMessage(schedule.delayMessageId()).status());
+        }
+    }
+
+    @Test
+    void registryScheduleAndPrepareRequireAndUseExplicitLaneResolver() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("registry-schedule-resolver"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 32);
+        final ScheduleIntentV1 scheduleIntent = ScheduleIntentV1.create(
+                new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 1),
+                        ProfileKindV1.DESTINATION),
+                new io.nereusstream.delay.protocol.RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 2)),
+                2_000, 5_000, io.nereusstream.delay.protocol.DeliveryMode.MANAGED,
+                OrderingMode.BEST_EFFORT, Bytes.utf8("ordering"), Bytes.utf8("v1-payload"), null,
+                io.nereusstream.delay.protocol.AdapterMetadataV1.kafka(
+                        new io.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())), null, null);
+        final PreparedCommand schedule = PreparedCommand.scheduleV1(shardId, scheduleIntent, 9_000);
+        final KafkaSourcePosition position0 = position(shardId, 0, 1_000);
+        final KafkaSourcePosition position1 = position(shardId, 1, 1_001);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard withoutResolver = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.ROUTE_SNAPSHOT_UNAVAILABLE,
+                    withoutResolver.apply(schedule, position0).stableCode());
+            assertNull(withoutResolver.getMessage(schedule.delayMessageId()));
+        }
+
+        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+            private final byte[] tuple = Bytes.utf8("canonical-lane-tuple-v1");
+            private final DestinationLaneId lane = DestinationLaneId.derive(tuple);
+
+            @Override
+            public ResolvedSchedule resolveSchedule(final ShardId shard, final DelayMessageId messageId,
+                                                     final ScheduleIntentV1 intent,
+                                                     final io.nereusstream.delay.protocol.SourcePosition source) {
+                return new ResolvedSchedule(lane, tuple, intent.inlinePayload(), null);
+            }
+
+            @Override
+            public ResolvedPrepare resolvePrepare(final ShardId shard, final DelayMessageId messageId,
+                                                  final io.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1 body,
+                                                  final io.nereusstream.delay.protocol.SourcePosition source) {
+                return new ResolvedPrepare(lane, tuple);
+            }
+        };
+        final ScheduleIntentV1 prepareIntent = ScheduleIntentV1.forPrepare(scheduleIntent.profile(),
+                scheduleIntent.retryPolicy(), 3_000, 6_000, scheduleIntent.deliveryMode(),
+                OrderingMode.BEST_EFFORT, scheduleIntent.orderingKey(), scheduleIntent.adapterMetadata(), null, null);
+        final PreparedCommand prepare = PreparedCommand.prepareLargeV1(shardId, prepareIntent, 2_000_000,
+                Bytes.sha256(Bytes.utf8("large-v1")), 1_000,
+                new PayloadProofTrustSetRefV1(1, bytes(32, 7)), 9_000);
+        final ShardStoreConfig resolverConfig =
+                ShardStoreConfig.defaults(tempDir.resolve("registry-schedule-resolver-enabled"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(resolverConfig);
+             ShardStore store = ShardStore.open(resolverConfig, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver);
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, position0).stableCode());
+            final MessageRecord message = shard.getMessage(schedule.delayMessageId());
+            assertEquals(DestinationLaneId.derive(Bytes.utf8("canonical-lane-tuple-v1")), message.laneId());
+            assertArrayEquals(Bytes.utf8("v1-payload"), message.payload());
+            assertEquals(StableCode.OK, shard.apply(prepare, position1).stableCode());
+            final byte[] reservationId = Bytes.sha256(Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                    prepare.commandId().bytes(), prepare.delayMessageId().bytes(), prepare.commandHash());
+            assertEquals(PayloadReservationStatus.RESERVED, shard.getReservation(reservationId).status());
+            assertEquals(prepare.delayMessageId(), shard.getReservation(reservationId).delayMessageId());
+            assertEquals(io.nereusstream.delay.protocol.CommandType.SCHEDULE,
+                    shard.getV1ScheduleBinding(schedule.delayMessageId()).commandType());
+            assertArrayEquals(schedule.canonicalBody(),
+                    shard.getV1ScheduleBinding(schedule.delayMessageId()).canonicalBody());
+            assertEquals(io.nereusstream.delay.protocol.CommandType.PREPARE_LARGE_SCHEDULE,
+                    shard.getV1ScheduleBinding(prepare.delayMessageId()).commandType());
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(resolverConfig);
+             ShardStore store = ShardStore.open(resolverConfig, shardId, resources)) {
+            final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver);
+            assertNotNull(reopened.getV1ScheduleBinding(schedule.delayMessageId()));
+            assertNotNull(reopened.getV1ScheduleBinding(prepare.delayMessageId()));
         }
     }
 

@@ -104,6 +104,12 @@ public final class KeyCodec {
         return typedIdentity((byte) 3, payloadId, "payloadId");
     }
 
+    /** Stable id_cf locator for a durable Registry Schedule binding sidecar. */
+    public static byte[] idV1ScheduleBinding(final DelayMessageId messageId) {
+        Objects.requireNonNull(messageId, "messageId");
+        return Bytes.concat(new byte[]{4, 1}, messageId.bytes());
+    }
+
     public static byte[] inflight(final byte recordKind, final long ownerEpoch, final byte[] attemptId) {
         Objects.requireNonNull(attemptId, "attemptId");
         if (recordKind < 1 || recordKind > 3 || ownerEpoch < 0 || attemptId.length == 0) {

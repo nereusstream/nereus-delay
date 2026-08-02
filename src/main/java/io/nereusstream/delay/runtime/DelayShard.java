@@ -21,6 +21,7 @@ import io.nereusstream.delay.protocol.LaneTerminalGuardV1;
 import io.nereusstream.delay.protocol.PayloadCommitProof;
 import io.nereusstream.delay.protocol.PayloadProofTrustSet;
 import io.nereusstream.delay.protocol.PayloadReference;
+import io.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1;
 import io.nereusstream.delay.protocol.PublishAdmissionBody;
 import io.nereusstream.delay.protocol.PublishOutcomeBody;
 import io.nereusstream.delay.protocol.PreparedCommand;
@@ -30,6 +31,8 @@ import io.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
 import io.nereusstream.delay.protocol.ResourceKind;
 import io.nereusstream.delay.protocol.ResourceRetireIntentBody;
 import io.nereusstream.delay.protocol.RescheduleCommandBodyV1;
+import io.nereusstream.delay.protocol.ScheduleCommandBodyV1;
+import io.nereusstream.delay.protocol.ScheduleIntentV1;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.StableCode;
@@ -38,6 +41,7 @@ import io.nereusstream.delay.protocol.SystemMutation;
 import io.nereusstream.delay.protocol.SystemMutationBodyCodec;
 import io.nereusstream.delay.protocol.SystemMutationType;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
+import io.nereusstream.delay.protocol.V1ScheduleBinding;
 import io.nereusstream.delay.store.ColumnFamily;
 import io.nereusstream.delay.store.KeyCodec;
 import io.nereusstream.delay.store.RecoveryCatalogAuthority;
@@ -75,6 +79,10 @@ public final class DelayShard {
     private final DelayShardConfig config;
     private final PayloadProofTrustSet payloadProofTrustSet;
     private final ShardCapacityEnvelopeV1 capacityEnvelope;
+    private final V1ScheduleResolver v1ScheduleResolver;
+    /** Single-writer scratch; consumed by the same apply turn before the batch is written. */
+    private V1ScheduleResolver.ResolvedSchedule lastResolvedSchedule;
+    private V1ScheduleResolver.ResolvedPrepare lastResolvedPrepare;
     private SourcePosition lastAppliedSourcePosition;
     private long closedIngressDeadlineThrough;
     private long mutationSequence;
@@ -102,10 +110,24 @@ public final class DelayShard {
     public DelayShard(final ShardStore store, final DelayShardConfig config,
                       final PayloadProofTrustSet payloadProofTrustSet,
                       final ShardCapacityEnvelopeV1 capacityEnvelope) {
+        this(store, config, payloadProofTrustSet, capacityEnvelope, null);
+    }
+
+    /**
+     * Opens a shard with an explicit source-position-pinned V1 Schedule
+     * resolver.  The resolver is optional for legacy commands; a Registry
+     * Schedule/Prepare body without one fails closed with
+     * {@link StableCode#ROUTE_SNAPSHOT_UNAVAILABLE}.
+     */
+    public DelayShard(final ShardStore store, final DelayShardConfig config,
+                      final PayloadProofTrustSet payloadProofTrustSet,
+                      final ShardCapacityEnvelopeV1 capacityEnvelope,
+                      final V1ScheduleResolver v1ScheduleResolver) {
         this.store = Objects.requireNonNull(store, "store");
         this.config = Objects.requireNonNull(config, "config");
         this.payloadProofTrustSet = payloadProofTrustSet;
         this.capacityEnvelope = capacityEnvelope;
+        this.v1ScheduleResolver = v1ScheduleResolver;
         final var sourceValue = store.getValue(ColumnFamily.META, KeyCodec.metaFixed(META_APPLIED_SOURCE_POSITION), 1);
         final byte[] source = sourceValue == null ? null : sourceValue.payload();
         lastAppliedSourcePosition = source == null ? null : SourcePositionCodec.decode(source);
@@ -138,6 +160,8 @@ public final class DelayShard {
     public synchronized CommandResult apply(final PreparedCommand command, final SourcePosition sourcePosition) {
         Objects.requireNonNull(command, "command");
         Objects.requireNonNull(sourcePosition, "sourcePosition");
+        lastResolvedSchedule = null;
+        lastResolvedPrepare = null;
         if (!store.shardId().equals(command.shardId()) || !store.shardId().equals(sourcePosition.shardId())) {
             throw new IllegalArgumentException("command/source position does not belong to shard");
         }
@@ -189,6 +213,8 @@ public final class DelayShard {
             };
         } catch (WindowViolationException exception) {
             return persistRejected(command, sourcePosition, StableCode.INVALID_DELIVERY_WINDOW);
+        } catch (V1CommandResolutionException exception) {
+            return persistRejected(command, sourcePosition, exception.stableCode());
         } catch (ArithmeticException | IllegalArgumentException exception) {
             return persistRejected(command, sourcePosition, StableCode.INVALID_COMMAND);
         }
@@ -348,6 +374,24 @@ public final class DelayShard {
     public synchronized MessageRecord getMessage(final DelayMessageId messageId) {
         final var value = store.getValue(ColumnFamily.ID, KeyCodec.idMessage(messageId), 1);
         return value == null ? null : MessageRecord.decode(value.payload());
+    }
+
+    /** Returns the exact accepted Registry Schedule/Prepare binding, if any. */
+    public synchronized V1ScheduleBinding getV1ScheduleBinding(final DelayMessageId messageId) {
+        Objects.requireNonNull(messageId, "messageId");
+        final var value = store.getValue(ColumnFamily.ID, KeyCodec.idV1ScheduleBinding(messageId), 4);
+        if (value == null) {
+            return null;
+        }
+        final V1ScheduleBinding binding = V1ScheduleBinding.decode(value.payload());
+        if (!binding.delayMessageId().equals(messageId)) {
+            throw new IllegalStateException("V1 Schedule binding key/value identity mismatch");
+        }
+        final MessageRecord message = getMessage(messageId);
+        if (message != null && !message.laneId().equals(binding.laneId())) {
+            throw new IllegalStateException("V1 Schedule binding Lane does not match message");
+        }
+        return binding;
     }
 
     /**
@@ -3246,13 +3290,88 @@ public final class DelayShard {
                     : applyCommitLarge(command, sourcePosition);
         } catch (WindowViolationException exception) {
             return persistRejected(command, sourcePosition, StableCode.INVALID_DELIVERY_WINDOW);
+        } catch (V1CommandResolutionException exception) {
+            return persistRejected(command, sourcePosition, exception.stableCode());
         } catch (ArithmeticException | IllegalArgumentException exception) {
             return persistRejected(command, sourcePosition, StableCode.INVALID_COMMAND);
         }
     }
 
+    private LargeScheduleIntent decodePrepareLargeIntent(final PreparedCommand command,
+                                                          final SourcePosition sourcePosition) {
+        if (!CommandBodies.isRegistryClientBodyV1(command.canonicalBody())) {
+            return CommandBodies.decodePrepareLarge(command.canonicalBody());
+        }
+        final PrepareLargeScheduleBodyV1 body = CommandBodies.decodePrepareLargeV1(command.canonicalBody());
+        requireV1BodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
+        final V1ScheduleResolver resolver = requireV1ScheduleResolver();
+        final V1ScheduleResolver.ResolvedPrepare resolved = Objects.requireNonNull(
+                resolver.resolvePrepare(command.shardId(), command.delayMessageId(), body, sourcePosition),
+                "resolved PrepareLargeSchedule projection");
+        lastResolvedPrepare = resolved;
+        final ScheduleIntentV1 intent = body.intentWithoutPayload();
+        return new LargeScheduleIntent(resolved.laneId(), intent.deliverAtEpochMs(), intent.expireAtEpochMs(),
+                intent.orderingMode(), body.expectedPayloadLength(), body.payloadSha256(), body.reservationTtlMs(),
+                body.trustSet().version());
+    }
+
+    private ScheduleApplication decodeScheduleApplication(final PreparedCommand command,
+                                                           final SourcePosition sourcePosition) {
+        if (!CommandBodies.isRegistryClientBodyV1(command.canonicalBody())) {
+            final var legacy = CommandBodies.decodeSchedule(command.canonicalBody());
+            return new ScheduleApplication(legacy.deliverAtEpochMs(), legacy.expireAtEpochMs(), legacy.laneId(),
+                    legacy.orderingMode(), legacy.payload(), null);
+        }
+        final ScheduleCommandBodyV1 body = CommandBodies.decodeScheduleV1(command.canonicalBody());
+        requireV1BodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
+        final V1ScheduleResolver resolver = requireV1ScheduleResolver();
+        final V1ScheduleResolver.ResolvedSchedule resolved = Objects.requireNonNull(
+                resolver.resolveSchedule(command.shardId(), command.delayMessageId(), body.intent(), sourcePosition),
+                "resolved Schedule projection");
+        lastResolvedSchedule = resolved;
+        validateResolvedSchedulePayload(body.intent(), resolved);
+        return new ScheduleApplication(body.intent().deliverAtEpochMs(), body.intent().expireAtEpochMs(),
+                resolved.laneId(), body.intent().orderingMode(),
+                resolved.inlinePayload() == null ? new byte[0] : resolved.inlinePayload(),
+                resolved.payloadReference());
+    }
+
+    private V1ScheduleResolver requireV1ScheduleResolver() {
+        if (v1ScheduleResolver == null) {
+            throw new V1CommandResolutionException(StableCode.ROUTE_SNAPSHOT_UNAVAILABLE,
+                    "V1 Schedule/Prepare requires a source-position-pinned resolver");
+        }
+        return v1ScheduleResolver;
+    }
+
+    private static void validateResolvedSchedulePayload(final ScheduleIntentV1 intent,
+                                                         final V1ScheduleResolver.ResolvedSchedule resolved) {
+        if (intent.hasInlinePayload()) {
+            if (resolved.payloadReference() != null
+                    || !Arrays.equals(intent.inlinePayload(), resolved.inlinePayload())) {
+                throw new V1CommandResolutionException(StableCode.INVALID_COMMAND,
+                        "resolved inline payload does not match ScheduleIntentV1");
+            }
+            return;
+        }
+        final var descriptor = intent.committedPayload();
+        final PayloadReference reference = resolved.payloadReference();
+        if (reference == null || resolved.inlinePayload() != null || descriptor.etag() == null
+                || !Bytes.constantTimeEquals(reference.objectStoreProfileHash(),
+                descriptor.objectStoreProfile().semanticHash())
+                || !Arrays.equals(reference.container(), descriptor.container())
+                || !Arrays.equals(reference.objectKey(), descriptor.objectKey())
+                || !Arrays.equals(reference.immutableObjectVersion(), descriptor.immutableObjectVersion())
+                || !Arrays.equals(reference.etag(), descriptor.etag())
+                || reference.length() != descriptor.length()
+                || !Bytes.constantTimeEquals(reference.payloadSha256(), descriptor.payloadSha256())) {
+            throw new V1CommandResolutionException(StableCode.INVALID_COMMAND,
+                    "resolved object payload does not match ScheduleIntentV1");
+        }
+    }
+
     private CommandResult applyPrepareLarge(final PreparedCommand command, final SourcePosition sourcePosition) {
-        final LargeScheduleIntent intent = CommandBodies.decodePrepareLarge(command.canonicalBody());
+        final LargeScheduleIntent intent = decodePrepareLargeIntent(command, sourcePosition);
         validateWindow(intent.deliverAtEpochMs(), intent.expireAtEpochMs(), sourcePosition.brokerPersistenceTimeEpochMs());
         if (intent.expectedPayloadLength() <= config.inlinePayloadThresholdBytes()
                 || intent.expectedPayloadLength() > config.maxPayloadBytes()) {
@@ -3357,7 +3476,7 @@ public final class DelayShard {
     }
 
     private CommandResult applySchedule(final PreparedCommand command, final SourcePosition sourcePosition) {
-        final var intent = CommandBodies.decodeSchedule(command.canonicalBody());
+        final ScheduleApplication intent = decodeScheduleApplication(command, sourcePosition);
         validateWindow(intent.deliverAtEpochMs(), intent.expireAtEpochMs(), sourcePosition.brokerPersistenceTimeEpochMs());
         final LaneRecord existingLane = readLane(intent.laneId());
         if (existingLane != null && existingLane.admissionGate() != AdmissionGate.OPEN) {
@@ -3382,7 +3501,7 @@ public final class DelayShard {
         }
         final MessageRecord message = new MessageRecord(MessageStatus.SCHEDULED, 0, 1,
                 intent.deliverAtEpochMs(), intent.expireAtEpochMs(), intent.laneId(), intent.orderingMode(),
-                intent.payload(), sourcePosition.canonicalBytes());
+                intent.payload(), sourcePosition.canonicalBytes(), intent.payloadReference());
         return applied(StableCode.SCHEDULED, sourcePosition, message);
     }
 
@@ -3604,6 +3723,7 @@ public final class DelayShard {
                                  final PayloadReservation reservation, final ShardQuota nextQuota) {
         final MessageRecord prior = getMessage(command.delayMessageId());
         final MessageRecord persistedNext = normalizeCommandRuntime(command.delayMessageId(), prior, next, result);
+        final V1ScheduleBinding v1Binding = v1ScheduleBinding(command, result, persistedNext, reservation);
         final ClaimRecord priorClaim = prior != null && prior.status() == MessageStatus.CLAIMED
                 ? findClaimForMessage(command.delayMessageId()) : null;
         if (prior != null && prior.status() == MessageStatus.CLAIMED && priorClaim == null) {
@@ -3651,6 +3771,10 @@ public final class DelayShard {
                                     reservation.reservationId()));
                 }
             }
+            if (v1Binding != null) {
+                batch.putValue(ColumnFamily.ID, 4, KeyCodec.idV1ScheduleBinding(command.delayMessageId()),
+                        v1Binding.encode());
+            }
             for (LaneProjection projection : projections.values()) {
                 deleteReadyKey(batch, projection.previousLane());
                 putReadyProjection(batch, projection);
@@ -3668,6 +3792,36 @@ public final class DelayShard {
         lastAppliedSourcePosition = position;
         mutationSequence++;
         quota = nextQuota;
+        lastResolvedSchedule = null;
+        lastResolvedPrepare = null;
+    }
+
+    private V1ScheduleBinding v1ScheduleBinding(final PreparedCommand command, final CommandResult result,
+                                                final MessageRecord next, final PayloadReservation reservation) {
+        if (result.applyStatus() != ApplyStatus.APPLIED || !CommandBodies.isRegistryClientBodyV1(
+                command.canonicalBody())) {
+            return null;
+        }
+        if (command.type() == io.nereusstream.delay.protocol.CommandType.SCHEDULE
+                && result.stableCode() == StableCode.SCHEDULED && next != null) {
+            final V1ScheduleResolver.ResolvedSchedule resolved = Objects.requireNonNull(lastResolvedSchedule,
+                    "resolved V1 Schedule projection");
+            if (!resolved.laneId().equals(next.laneId())) {
+                throw new IllegalStateException("resolved V1 Schedule Lane changed during apply");
+            }
+            return V1ScheduleBinding.fromCommand(command, next.laneId(), resolved.canonicalLaneTuple());
+        }
+        if (command.type() == io.nereusstream.delay.protocol.CommandType.PREPARE_LARGE_SCHEDULE
+                && result.stableCode() == StableCode.OK && reservation != null) {
+            final V1ScheduleResolver.ResolvedPrepare resolved = Objects.requireNonNull(lastResolvedPrepare,
+                    "resolved V1 Prepare projection");
+            if (!resolved.laneId().equals(reservation.intent().laneId())) {
+                throw new IllegalStateException("resolved V1 Prepare Lane changed during apply");
+            }
+            return V1ScheduleBinding.fromCommand(command, reservation.intent().laneId(),
+                    resolved.canonicalLaneTuple());
+        }
+        return null;
     }
 
     private Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> readyProjections(
@@ -3855,10 +4009,10 @@ public final class DelayShard {
                 if (result.stableCode() != StableCode.SCHEDULED) {
                     yield null;
                 }
-                final var intent = CommandBodies.decodeSchedule(command.canonicalBody());
+                final var intent = decodeScheduleApplication(command, position);
                 yield new MessageRecord(MessageStatus.SCHEDULED, 0, 1, intent.deliverAtEpochMs(),
                         intent.expireAtEpochMs(), intent.laneId(), intent.orderingMode(), intent.payload(),
-                        position.canonicalBytes());
+                        position.canonicalBytes(), intent.payloadReference());
             }
             case CANCEL -> result.stableCode() == StableCode.CANCELED && prior != null
                     ? new MessageRecord(MessageStatus.CANCELED, prior.generation(), prior.stateVersion() + 1,
@@ -4485,6 +4639,27 @@ public final class DelayShard {
 
     private record RescheduleRequest(Long expectedGeneration, Long expectedStateVersion,
                                      long deliverAtEpochMs, long expireAtEpochMs) {
+    }
+
+    private record ScheduleApplication(long deliverAtEpochMs, long expireAtEpochMs,
+                                       io.nereusstream.delay.protocol.DestinationLaneId laneId,
+                                       io.nereusstream.delay.protocol.OrderingMode orderingMode,
+                                       byte[] payload, PayloadReference payloadReference) {
+        private ScheduleApplication {
+            Objects.requireNonNull(laneId, "laneId");
+            Objects.requireNonNull(orderingMode, "orderingMode");
+            Objects.requireNonNull(payload, "payload");
+            if (deliverAtEpochMs < 0 || expireAtEpochMs < deliverAtEpochMs
+                    || payloadReference != null && payload.length != 0) {
+                throw new IllegalArgumentException("invalid resolved Schedule projection");
+            }
+            payload = Bytes.copy(payload);
+        }
+
+        @Override
+        public byte[] payload() {
+            return Bytes.copy(payload);
+        }
     }
 
     private static int compareUnsigned(final byte[] left, final byte[] right) {
