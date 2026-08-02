@@ -1361,6 +1361,7 @@ Worker 先在至少有一个 `admissionGate=OPEN && runtimeReadiness=READY` Lane
 - 每轮 deficit 加 `weight * baseQuantumBytes`；
 - cost 为 `max(accountedPublishBytes, minimumRecordCost)`；
 - deficit 可累积但有 cap，cap 必须覆盖最大 admitted record；
+- `weight * baseQuantumBytes`、`baseQuantumBytes * deficitMultiplier` 与 deficit 累加必须使用 checked/saturating arithmetic；任何配置或恢复值导致的溢出都必须 fail closed，禁止整数 wrap-around；
 - 每次 visit 同时受 message、byte、elapsed-time cap；
 - ordered Lane 每次最多 head；unordered 可有界多条；
 - global permit 不足时不再 Claim。

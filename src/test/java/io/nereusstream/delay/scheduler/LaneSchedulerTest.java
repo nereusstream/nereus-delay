@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class LaneSchedulerTest {
     @TempDir
@@ -74,6 +75,30 @@ class LaneSchedulerTest {
         org.junit.jupiter.api.Assertions.assertFalse(secondVisit.isEmpty());
         org.junit.jupiter.api.Assertions.assertTrue(firstVisit.stream().anyMatch(item -> item.laneId().equals(second))
                 || secondVisit.stream().anyMatch(item -> item.laneId().equals(second)));
+    }
+
+    @Test
+    void rejectsQuantumAndWeightArithmeticOverflow() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new LaneScheduler(Long.MAX_VALUE, 1));
+
+        final LaneScheduler scheduler = new LaneScheduler(Long.MAX_VALUE / 4, 1);
+        assertThrows(IllegalArgumentException.class,
+                () -> scheduler.register(record(lane(20), Integer.MAX_VALUE)));
+    }
+
+    @Test
+    void saturatesRestoredDeficitBeforeServing() {
+        final DestinationLaneId lane = lane(21);
+        final LaneScheduler scheduler = new LaneScheduler(10, 1);
+        scheduler.register(record(lane, 1));
+        scheduler.offer(item(lane, 1));
+        scheduler.restore(new LaneScheduler.SchedulerSnapshot(0, 0,
+                List.of(new LaneScheduler.LaneSnapshot(lane, 1, Long.MAX_VALUE, 0, 1, true))));
+
+        assertEquals(List.of(lane), scheduler.poll(new SchedulerBudget(1, 100, 1_000_000_000)).stream()
+                .map(ScheduleWorkItem::laneId).toList());
+        assertEquals(39, scheduler.snapshot().lanes().get(0).deficit());
     }
 
     @Test

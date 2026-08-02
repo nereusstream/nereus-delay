@@ -19,6 +19,7 @@ public final class WorkerScheduler {
     private static final long MAX_DEFICIT_MULTIPLIER = 4;
 
     private final long quantumBytes;
+    private final long maxDeficitBytes;
     private final int maxVisitShards;
     private final Map<ShardId, ShardQueue> shards = new HashMap<>();
     private final List<ShardId> ring = new ArrayList<>();
@@ -30,6 +31,7 @@ public final class WorkerScheduler {
             throw new IllegalArgumentException("worker scheduler limits must be positive");
         }
         this.quantumBytes = quantumBytes;
+        this.maxDeficitBytes = checkedDeficitCap(quantumBytes);
         this.maxVisitShards = maxVisitShards;
     }
 
@@ -44,6 +46,7 @@ public final class WorkerScheduler {
         if (weight <= 0) {
             throw new IllegalArgumentException("shard weight must be positive");
         }
+        checkedWeightIncrement(weight);
         final ShardQueue existing = shards.get(shardId);
         if (existing == null) {
             shards.put(shardId, new ShardQueue(shardId, weight, laneScheduler));
@@ -80,8 +83,8 @@ public final class WorkerScheduler {
             if (shard == null || !shard.schedulable()) {
                 continue;
             }
-            shard.deficit = Math.min(shard.deficit + shard.weight * quantumBytes,
-                    Math.max(quantumBytes * MAX_DEFICIT_MULTIPLIER, 1));
+            shard.deficit = Math.min(saturatingAdd(shard.deficit, checkedWeightIncrement(shard.weight)),
+                    Math.max(maxDeficitBytes, 1));
             final long remainingBytes = budget.maxBytes() - bytes;
             final long shardBudgetBytes = Math.min(remainingBytes, shard.deficit);
             if (shardBudgetBytes <= 0) {
@@ -145,6 +148,29 @@ public final class WorkerScheduler {
             throw new IllegalArgumentException("shard is not registered: " + shardId);
         }
         return shard;
+    }
+
+    private long checkedWeightIncrement(final int weight) {
+        if (weight <= 0) {
+            throw new IllegalArgumentException("shard weight must be positive");
+        }
+        try {
+            return Math.multiplyExact((long) weight, quantumBytes);
+        } catch (ArithmeticException e) {
+            throw new IllegalArgumentException("shard weight and scheduler quantum overflow", e);
+        }
+    }
+
+    private static long checkedDeficitCap(final long quantumBytes) {
+        try {
+            return Math.multiplyExact(quantumBytes, MAX_DEFICIT_MULTIPLIER);
+        } catch (ArithmeticException e) {
+            throw new IllegalArgumentException("worker scheduler quantum deficit cap overflows", e);
+        }
+    }
+
+    private static long saturatingAdd(final long left, final long right) {
+        return left > Long.MAX_VALUE - right ? Long.MAX_VALUE : left + right;
     }
 
     public record WorkerSnapshot(int cursor, long roundGeneration, List<ShardSnapshot> shards) {

@@ -14,6 +14,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class WorkerSchedulerTest {
     @Test
@@ -54,6 +55,32 @@ class WorkerSchedulerTest {
         final List<ScheduleWorkItem> result = worker.poll(new SchedulerBudget(1, 100, 1_000_000_000));
 
         assertEquals(List.of(healthyLane), result.stream().map(ScheduleWorkItem::laneId).toList());
+    }
+
+    @Test
+    void rejectsQuantumAndWeightArithmeticOverflow() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new WorkerScheduler(Long.MAX_VALUE, 1));
+
+        final WorkerScheduler worker = new WorkerScheduler(Long.MAX_VALUE / 4, 1);
+        assertThrows(IllegalArgumentException.class,
+                () -> worker.registerShard(shard(20), Integer.MAX_VALUE, LaneScheduler.defaults()));
+    }
+
+    @Test
+    void saturatesRestoredDeficitBeforeServing() {
+        final ShardId shard = shard(21);
+        final DestinationLaneId lane = lane(21);
+        final WorkerScheduler worker = new WorkerScheduler(10, 1);
+        worker.registerShard(shard, 1, LaneScheduler.defaults());
+        worker.registerLane(shard, laneRecord(lane));
+        worker.offer(item(shard, lane, 1));
+        worker.restore(new WorkerScheduler.WorkerSnapshot(0, 0,
+                List.of(new WorkerScheduler.ShardSnapshot(shard, 1, Long.MAX_VALUE, 0, false))));
+
+        assertEquals(List.of(lane), worker.poll(new SchedulerBudget(1, 100, 1_000_000_000)).stream()
+                .map(ScheduleWorkItem::laneId).toList());
+        assertEquals(39, worker.snapshot().shards().get(0).deficit());
     }
 
     @Test

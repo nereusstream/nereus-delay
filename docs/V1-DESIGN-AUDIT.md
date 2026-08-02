@@ -112,7 +112,12 @@ eligible Lane 至多取一条记录，直到所有已发现 Lane 都获得机会
 typed `ActiveLaneStateV1` 运行时切换或真实 Lane certificate/adapter activation。
 Worker 外层 DRR 也只把至少含有一个 schedulable pending head 的 shard 纳入 visit，
 空 shard 不会消耗外层 deficit；其 cursor/round 仍是跨独立 shard DB 的 bounded
-process state，不伪造跨 DB 的持久原子 ring。
+process state，不伪造跨 DB 的持久原子 ring。两级 scheduler 现在还对
+`weight * quantum` 与 deficit cap 做 checked arithmetic，并对运行时 deficit 累加做
+saturating arithmetic；配置、注册或恢复导致的整数溢出不会 wrap 成可调度的错误预算。
+`LaneSchedulerTest.rejectsQuantumAndWeightArithmeticOverflow` 与
+`WorkerSchedulerTest.rejectsQuantumAndWeightArithmeticOverflow` 是本地回归证据，
+不等于 production placement/authority 已完成。
 
 当前代码已把 Lane 的 same-key ACTIVE/TERMINAL 分支和保守本地退休证明接入
 `DelayShard`；并已补齐 Registry-shaped `ActiveLaneStateV1`、

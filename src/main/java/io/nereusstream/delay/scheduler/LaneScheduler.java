@@ -24,6 +24,7 @@ public final class LaneScheduler {
     private static final long MAX_DEFICIT_MULTIPLIER = 4;
 
     private final long quantumBytes;
+    private final long maxDeficitBytes;
     private final int maxVisitMessages;
     private final Map<DestinationLaneId, LaneQueue> lanes = new HashMap<>();
     private final List<DestinationLaneId> ring = new ArrayList<>();
@@ -35,6 +36,7 @@ public final class LaneScheduler {
             throw new IllegalArgumentException("scheduler limits must be positive");
         }
         this.quantumBytes = quantumBytes;
+        this.maxDeficitBytes = checkedDeficitCap(quantumBytes);
         this.maxVisitMessages = maxVisitMessages;
     }
 
@@ -44,6 +46,7 @@ public final class LaneScheduler {
 
     public synchronized void register(final LaneRecord lane) {
         Objects.requireNonNull(lane, "lane");
+        checkedWeightIncrement(lane.weight());
         final LaneQueue existing = lanes.get(lane.laneId());
         if (existing == null) {
             lanes.put(lane.laneId(), new LaneQueue(lane));
@@ -101,9 +104,10 @@ public final class LaneScheduler {
                 servedThisPoll.remove(id);
                 continue;
             }
-            lane.deficit = Math.min(lane.deficit + lane.weight * quantumBytes,
-                    Math.max(quantumBytes * MAX_DEFICIT_MULTIPLIER, lane.queue.peekFirst().accountedBytes()));
             final ScheduleWorkItem head = lane.queue.peekFirst();
+            final long increment = checkedWeightIncrement(lane.weight);
+            lane.deficit = Math.min(saturatingAdd(lane.deficit, increment),
+                    Math.max(maxDeficitBytes, head.accountedBytes()));
             if (head.accountedBytes() > lane.deficit || head.accountedBytes() > budget.maxBytes() - bytes) {
                 continue;
             }
@@ -265,6 +269,29 @@ public final class LaneScheduler {
             throw new IllegalArgumentException("lane is not registered: " + laneId);
         }
         return lane;
+    }
+
+    private long checkedWeightIncrement(final int weight) {
+        if (weight <= 0) {
+            throw new IllegalArgumentException("lane weight must be positive");
+        }
+        try {
+            return Math.multiplyExact((long) weight, quantumBytes);
+        } catch (ArithmeticException e) {
+            throw new IllegalArgumentException("lane weight and scheduler quantum overflow", e);
+        }
+    }
+
+    private static long checkedDeficitCap(final long quantumBytes) {
+        try {
+            return Math.multiplyExact(quantumBytes, MAX_DEFICIT_MULTIPLIER);
+        } catch (ArithmeticException e) {
+            throw new IllegalArgumentException("scheduler quantum deficit cap overflows", e);
+        }
+    }
+
+    private static long saturatingAdd(final long left, final long right) {
+        return left > Long.MAX_VALUE - right ? Long.MAX_VALUE : left + right;
     }
 
     public record SchedulerSnapshot(int cursor, long roundGeneration, List<LaneSnapshot> lanes) {
