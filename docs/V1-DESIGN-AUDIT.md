@@ -142,8 +142,11 @@ durable control-operation query routing 或 Oxia catalog authority 已完成。
 shard/checkpoint/manifest/generation projection；其余 control result branches
 现已补齐 Lane/Shard/Profile/Quota/Message/Route/Secret 的纯值 codecs 和
 枚举/presence 校验，`ControlTypedResultV1` 也会按 branch 调用对应 codec，拒绝
-tag/payload 漂移；durable control-operation query state、routing、authorization 和
-真实 Oxia ownership 仍未完成。
+tag/payload 漂移。本地 `ControlOperationAuthority` 现在把完整 receipt 作为
+唯一 locator，覆盖幂等 register、严格 revision CAS 和固定 `queryUntil` 边界；
+`OxiaControlOperationAuthority` 对 backend 的 CURRENT 响应执行 operation/request/
+scope identity 与 revision 不回退校验。这只是本地 CAS/验证 seam，durable
+control-operation query state、routing、authorization 和真实 Oxia ownership 仍未完成。
 
 ## Source locks
 
