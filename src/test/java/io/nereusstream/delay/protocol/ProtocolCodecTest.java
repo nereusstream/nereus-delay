@@ -723,6 +723,19 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void sourcePositionDecoderRejectsTruncatedLengthAndFixedFields() {
+        final byte[] truncatedLength = new byte[1 + 16 + 3];
+        truncatedLength[0] = (byte) SourcePositionKind.KAFKA.wireValue();
+        assertThrows(IllegalArgumentException.class, () -> SourcePositionCodec.decode(truncatedLength));
+
+        final KafkaSourcePosition source = new KafkaSourcePosition(new ShardId(RouteIncarnation.random(), 9),
+                "cluster", UUID.randomUUID(), 1, null, 10);
+        assertThrows(IllegalArgumentException.class,
+                () -> SourcePositionCodec.decode(Arrays.copyOf(source.canonicalBytes(),
+                        source.canonicalBytes().length - 1)));
+    }
+
+    @Test
     void largeScheduleAndPayloadProofAreCanonicalAndSigned() throws Exception {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
         final LargeScheduleIntent intent = new LargeScheduleIntent(

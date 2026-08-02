@@ -30,15 +30,16 @@ public final class SourcePositionCodec {
         if (kind == SourcePositionKind.KAFKA.wireValue()) {
             final String cluster = readString(input);
             final UUID topic = readUuid(input);
-            final int partition = input.getInt();
-            final long offset = requireNonNegative(input.getLong(), "offset");
-            final int presence = input.get() & 0xff;
+            final int partition = readInt(input, "partition");
+            final long offset = requireNonNegative(readLong(input, "offset"), "offset");
+            final int presence = readUnsignedByte(input, "leader epoch presence");
             final Integer leaderEpoch = switch (presence) {
                 case 0 -> null;
-                case 1 -> Math.toIntExact(Integer.toUnsignedLong(input.getInt()));
+                case 1 -> readNonNegativeInt(input, "leader epoch");
                 default -> throw new IllegalArgumentException("invalid leader epoch presence");
             };
-            final long appendTime = requireNonNegative(input.getLong(), "brokerLogAppendTime");
+            final long appendTime = requireNonNegative(readLong(input, "brokerLogAppendTime"),
+                    "brokerLogAppendTime");
             requireEnd(input);
             return new KafkaSourcePosition(new ShardId(new RouteIncarnation(route), partition), cluster, topic,
                     offset, leaderEpoch, appendTime);
@@ -46,13 +47,14 @@ public final class SourcePositionCodec {
         if (kind == SourcePositionKind.PULSAR.wireValue()) {
             final byte[] resource = readBytes(input);
             final String topic = readString(input);
-            final int partition = input.getInt();
-            final long ledger = requireNonNegative(input.getLong(), "ledgerId");
-            final long entry = requireNonNegative(input.getLong(), "entryId");
-            final int batchIndex = input.getInt();
-            final int batchSize = input.getInt();
-            final int entryKind = input.get() & 0xff;
-            final long timestamp = requireNonNegative(input.getLong(), "brokerEntryTimestamp");
+            final int partition = readInt(input, "partition");
+            final long ledger = requireNonNegative(readLong(input, "ledgerId"), "ledgerId");
+            final long entry = requireNonNegative(readLong(input, "entryId"), "entryId");
+            final int batchIndex = readInt(input, "normalizedBatchIndex");
+            final int batchSize = readInt(input, "batchSize");
+            final int entryKind = readUnsignedByte(input, "entry kind");
+            final long timestamp = requireNonNegative(readLong(input, "brokerEntryTimestamp"),
+                    "brokerEntryTimestamp");
             requireEnd(input);
             final PulsarSourcePosition.EntryKind decodedKind = switch (entryKind) {
                 case 1 -> PulsarSourcePosition.EntryKind.NON_BATCH;
@@ -75,7 +77,7 @@ public final class SourcePositionCodec {
     }
 
     private static byte[] readBytes(final ByteBuffer input) {
-        final long length = Integer.toUnsignedLong(input.getInt());
+        final long length = Integer.toUnsignedLong(readInt(input, "length"));
         if (length > input.remaining()) {
             throw new IllegalArgumentException("source position length outside payload");
         }
@@ -96,6 +98,35 @@ public final class SourcePositionCodec {
             throw new IllegalArgumentException(name + " is outside signed V1 range");
         }
         return value;
+    }
+
+    private static int readInt(final ByteBuffer input, final String name) {
+        requireRemaining(input, Integer.BYTES, name);
+        return input.getInt();
+    }
+
+    private static long readLong(final ByteBuffer input, final String name) {
+        requireRemaining(input, Long.BYTES, name);
+        return input.getLong();
+    }
+
+    private static int readUnsignedByte(final ByteBuffer input, final String name) {
+        requireRemaining(input, 1, name);
+        return input.get() & 0xff;
+    }
+
+    private static int readNonNegativeInt(final ByteBuffer input, final String name) {
+        final long value = Integer.toUnsignedLong(readInt(input, name));
+        if (value > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException(name + " is outside signed V1 range");
+        }
+        return (int) value;
+    }
+
+    private static void requireRemaining(final ByteBuffer input, final int length, final String name) {
+        if (input.remaining() < length) {
+            throw new IllegalArgumentException("truncated source position " + name);
+        }
     }
 
     private static void requireEnd(final ByteBuffer input) {

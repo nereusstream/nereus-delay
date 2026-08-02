@@ -274,7 +274,10 @@ persisted position field. Kafka/Pulsar Source Position constructors apply the
 same nonblank, NFC and UTF-8 check before producing identity bytes, so callers
 cannot bypass the canonical boundary by constructing a position in memory;
 `ProtocolCodecTest.sourcePositionsRejectNonCanonicalTextAtConstruction` covers
-that direct-construction path.
+that direct-construction path. Decoder length prefixes and fixed-width fields
+also fail with the closed validation error instead of leaking a buffer-underflow
+or arithmetic exception; `ProtocolCodecTest.sourcePositionDecoderRejectsTruncatedLengthAndFixedFields`
+covers the malformed-byte path.
 The same exact-position check is applied to the owner catch-up cursor before
 activation, not only to the subsequent Command/System Mutation WriteBatch.
 An empty Pulsar activation barrier still validates a non-null persisted cursor's
