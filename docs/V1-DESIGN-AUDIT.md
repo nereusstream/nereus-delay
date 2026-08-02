@@ -112,6 +112,9 @@ rejection before payload-reference decoding.
 Terminal generation history uses the same guarded reads for source and
 obligation framing in both legacy and v2 branches; the local prefix evidence
 is `TerminalGenerationRecordTest`.
+The embedded Kafka source counter also fails closed at `Long.MAX_VALUE` before
+mutating its next-offset state; `EmbeddedDelayServiceTest` proves that an
+exhausted source cannot wrap into a negative offset after a failed enqueue.
 
 当前 `PersistentLaneScheduler.rebuildFromAuthoritativeReady` 已提供 fenced 的本地
 恢复桥：它从 bounded `timeline_cf/READY` 扫描开始，严格校验对应的

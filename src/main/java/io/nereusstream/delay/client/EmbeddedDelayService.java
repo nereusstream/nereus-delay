@@ -124,8 +124,16 @@ public final class EmbeddedDelayService implements DelayClient {
             return CompletableFuture.completedFuture(EnqueueOutcome.definitelyNotQueued(command, 0x110a));
         }
         final long now = clock.millis();
+        if (nextOffset == Long.MAX_VALUE) {
+            throw new IllegalStateException("embedded Kafka source offset exhausted");
+        }
+        final long offset = nextOffset;
         final SourcePosition position = new KafkaSourcePosition(shardId, EMBEDDED_CLUSTER_ID, EMBEDDED_TOPIC_UUID,
-                nextOffset++, null, now);
+                offset, null, now);
+        // Advance only after the position has been validated.  A failed
+        // position construction must not poison the next enqueue with a
+        // wrapped negative offset.
+        nextOffset = Math.addExact(offset, 1);
         final CommandQueuedReceipt receipt = new CommandQueuedReceipt(command.commandId(), command.delayMessageId(),
                 shardId, position);
         pending.addLast(new QueuedRecord(command, position));

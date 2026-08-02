@@ -95,6 +95,24 @@ class EmbeddedDelayServiceTest {
     }
 
     @Test
+    void embeddedSourceOffsetExhaustionFailsBeforeMutatingOffset() throws ReflectiveOperationException {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 19);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("offset-exhaustion")), shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final PreparedCommand command = service.prepareSchedule(new ScheduleIntent(
+                    DestinationLaneId.derive(Bytes.utf8("offset-exhaustion-lane")), 2_000, 5_000,
+                    OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+            final var nextOffset = EmbeddedDelayService.class.getDeclaredField("nextOffset");
+            nextOffset.setAccessible(true);
+            nextOffset.setLong(service, Long.MAX_VALUE);
+
+            assertThrows(IllegalStateException.class, () -> service.enqueue(command));
+            assertEquals(Long.MAX_VALUE, nextOffset.getLong(service));
+        }
+    }
+
+    @Test
     void boundedLocalProjectorRequiresSafeBindingAndPreservesRuntimeStates() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 2);
         final KafkaSourcePosition source = new KafkaSourcePosition(shard, "projector", UUID.randomUUID(), 4, 1, 1_000);

@@ -74,6 +74,12 @@ obligation count/length fields through named fixed-width readers. Its legacy
 and v2 branches both reject strict-prefix truncation as codec validation;
 `TerminalGenerationRecordTest` covers the canonical v2 path.
 
+The embedded Kafka ingress now checks source-offset exhaustion before creating
+the next queued position and advances the counter only after the position has
+validated successfully. `EmbeddedDelayServiceTest` covers the
+`Long.MAX_VALUE` boundary, so a failed enqueue cannot wrap the in-memory
+offset into a negative value.
+
 The Registry-shaped `ScheduleIntentV1` value is now implemented as a strict
 canonical codec: it binds the destination `ProfileRefV1`, `RetryPolicyRefV1`,
 delivery/order fields, the closed inline-versus-committed payload union,
