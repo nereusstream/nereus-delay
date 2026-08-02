@@ -129,6 +129,13 @@ source-order stream 中选择分支，每条记录先走同一 shard WriteBatch�
 真实 Kafka/Pulsar consumer、Oxia session/ephemeral authority、broker assignment/
 guard 或 production activation transaction。
 
+Worker 资源侧现在还提供了本地 `WorkerLoadVector` 与
+`WorkerPlacementPolicy`：它们先按完整 committed capacity、固定/transition
+demand 以及 owned/open DB slots 做 hard filter，再以 dominant-resource/load
+分数处理 stale telemetry、minimum residence、hysteresis 和 checkpoint/replay
+movement cost；这只是可复现的评分 seam，不是 Kafka cooperative assignor、Oxia
+desired-placement plan 或 Owner Lease authority。
+
 本地 `RecoveryCatalog.publishUploadedCheckpoint` 现在要求 PUBLISHED intent
 与完整 manifest 的 shard、lineage、checkpoint、manifest hash/length、owner
 和 store incarnation 完全一致后才接受 catalog projection；这仍不等于
