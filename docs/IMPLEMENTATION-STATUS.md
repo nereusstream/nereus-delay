@@ -345,6 +345,10 @@ evidence: it does not create Oxia lease/catalog authority or certify a remote
 Broker fence.  `StoreRuntimeMetadataTest` covers codec and lifecycle behavior,
 and `ShardStoreTest.malformedRuntimeMetadataDoesNotLeaveRocksDbOpen` covers the
 activation failure cleanup path.
+The source-ordered `TIME_FENCE` apply path now writes its verified
+`lastIngressFenceProofId` in that same batch as the mutation result and source
+position, including the idempotent lower-watermark branch; the time-fence
+reopen regression checks the proof identity.
 
 The checkpoint code now covers the local physical boundary: create the complete
 RocksDB image under the same-filesystem `checkpoint-tmp` namespace, atomically

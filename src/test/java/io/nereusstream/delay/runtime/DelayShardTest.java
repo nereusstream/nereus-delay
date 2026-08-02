@@ -2951,6 +2951,7 @@ class DelayShardTest {
             assertEquals(StableCode.OK,
                     shard.applySystemMutation(fenceMutation, fencePosition, keyPair.getPublic()).stableCode());
             assertEquals(closeThrough, shard.closedIngressDeadlineThrough());
+            assertArrayEquals(proofId, store.runtimeMetadata().lastIngressFenceProofId());
 
             final PreparedCommand closed = PreparedCommand.schedule(shardId,
                     new io.nereusstream.delay.protocol.ScheduleIntent(lane, 4_000, 7_000,
@@ -2973,6 +2974,7 @@ class DelayShardTest {
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults());
             assertEquals(closeThrough, reopened.closedIngressDeadlineThrough());
+            assertArrayEquals(proofId, store.runtimeMetadata().lastIngressFenceProofId());
         }
     }
 

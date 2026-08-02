@@ -87,6 +87,12 @@ public record StoreRuntimeMetadata(
                 evidenceCursors);
     }
 
+    /** Returns a copy with the latest source-ingress fence proof identity. */
+    public StoreRuntimeMetadata withLastIngressFenceProofId(final byte[] proofId) {
+        return new StoreRuntimeMetadata(proofId, lastCheckpointId, lastOpenedOwnerEpoch, cleanCloseMarker,
+                evidenceCursors);
+    }
+
     public byte[] canonicalBytes() {
         final byte[] encoded = CanonicalProtobuf.message(output -> {
             if (lastIngressFenceProofId != null) {

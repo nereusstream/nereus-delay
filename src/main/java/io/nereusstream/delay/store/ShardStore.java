@@ -720,11 +720,15 @@ public final class ShardStore implements AutoCloseable {
         return List.copyOf(result);
     }
 
-    public void write(final BatchOperation operation) {
+    public synchronized void write(final BatchOperation operation) {
         Objects.requireNonNull(operation, "operation");
         try (WriteBatch batch = new WriteBatch(); WriteOptions writeOptions = new WriteOptions().setSync(true)) {
-            operation.apply(new Batch(batch, handles));
+            final Batch pending = new Batch(batch, handles);
+            operation.apply(pending);
             db.write(writeOptions, batch);
+            if (pending.runtimeMetadata != null) {
+                runtimeMetadata = pending.runtimeMetadata;
+            }
         } catch (RocksDBException exception) {
             throw new IllegalStateException("RocksDB write failed", exception);
         }
@@ -827,9 +831,7 @@ public final class ShardStore implements AutoCloseable {
     }
 
     private void persistRuntimeMetadata(final StoreRuntimeMetadata next) {
-        final byte[] encoded = ValueEnvelope.encode(RUNTIME_VALUE_TYPE, next.canonicalBytes());
-        write(batch -> batch.put(ColumnFamily.META, KeyCodec.metaFixed(META_RUNTIME), encoded));
-        runtimeMetadata = next;
+        write(batch -> batch.putRuntimeMetadata(next));
     }
 
     @FunctionalInterface
@@ -857,6 +859,7 @@ public final class ShardStore implements AutoCloseable {
     public static final class Batch {
         private final WriteBatch batch;
         private final Map<ColumnFamily, ColumnFamilyHandle> handles;
+        private StoreRuntimeMetadata runtimeMetadata;
 
         private Batch(final WriteBatch batch, final Map<ColumnFamily, ColumnFamilyHandle> handles) {
             this.batch = batch;
@@ -870,6 +873,17 @@ public final class ShardStore implements AutoCloseable {
         public void putValue(final ColumnFamily family, final int valueType, final byte[] key,
                              final byte[] payload) throws RocksDBException {
             put(family, key, ValueEnvelope.encode(valueType, payload));
+        }
+
+        /** Adds the Store runtime projection to this same atomic WriteBatch. */
+        public void putRuntimeMetadata(final StoreRuntimeMetadata next) throws RocksDBException {
+            Objects.requireNonNull(next, "next");
+            if (runtimeMetadata != null) {
+                throw new IllegalStateException("Store runtime metadata may be written once per batch");
+            }
+            batch.put(handle(ColumnFamily.META), KeyCodec.metaFixed(META_RUNTIME),
+                    ValueEnvelope.encode(RUNTIME_VALUE_TYPE, next.canonicalBytes()));
+            runtimeMetadata = next;
         }
 
         public void delete(final ColumnFamily family, final byte[] key) throws RocksDBException {

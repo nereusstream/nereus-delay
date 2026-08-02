@@ -450,7 +450,9 @@ staged open/metadata validation 的 runtime failure 也会清理 private
 WAL-sync 边界。`StoreRuntimeMetadataTest` 和
 `ShardStoreTest.malformedRuntimeMetadataDoesNotLeaveRocksDbOpen` 覆盖 codec、
 生命周期与失败清理。该投影只证明本地 Store 事实，不能替代 Oxia lease/catalog
-或真实 Broker fence authority。
+或真实 Broker fence authority。`TIME_FENCE` 的 verified proof ID 现在与
+mutation result/source position 在同一 batch 原子落盘，重开回归也验证该 proof
+identity。
 
 `CheckpointUploadCoordinator` 现在在本地上传边界内先校验完整 checkpoint
 inventory、intent deadline 和 shard/lineage/owner/store/parent identity，取得

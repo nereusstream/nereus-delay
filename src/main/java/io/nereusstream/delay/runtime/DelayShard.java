@@ -1392,6 +1392,7 @@ public final class DelayShard {
                 sourcePosition.canonicalBytes());
         if (closeThrough <= closedIngressDeadlineThrough) {
             store.write(batch -> {
+                batch.putRuntimeMetadata(store.runtimeMetadata().withLastIngressFenceProofId(proofId));
                 writeSystemResult(batch, result);
                 writePosition(batch, sourcePosition);
             });
@@ -1399,6 +1400,7 @@ public final class DelayShard {
             store.write(batch -> {
                 batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(META_CLOSED_INGRESS_DEADLINE),
                         Bytes.u64be(closeThrough));
+                batch.putRuntimeMetadata(store.runtimeMetadata().withLastIngressFenceProofId(proofId));
                 writeSystemResult(batch, result);
                 writePosition(batch, sourcePosition);
             });
