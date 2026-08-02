@@ -19,6 +19,8 @@ Exact wire, key, enum, and stable-code values are in
 [`docs/V1-PROTOCOL-REGISTRY.md`](docs/V1-PROTOCOL-REGISTRY.md). The implementation
 status and evidence matrix are maintained in
 [`docs/IMPLEMENTATION-STATUS.md`](docs/IMPLEMENTATION-STATUS.md).
+The role and authority order of the design, Registry, ADR, status, and audit
+documents is summarized in [`docs/README.md`](docs/README.md).
 
 Run the build with an isolated Gradle cache when the host Gradle native cache is
 not writable:

@@ -64,17 +64,28 @@ public final class OwnedDelayShard {
         state = ShardLifecycleState.FENCED;
     }
 
-    /** @deprecated use {@link #markCatchingUp(SourceActivationBarrier)}. */
+    /**
+     * @deprecated V1 requires an explicit source assignment; use
+     * {@link #markCatchingUp(SourceAssignment)}.
+     */
     @Deprecated
     public synchronized void markCatchingUp() {
         markCatchingUp((SourceActivationBarrier) null);
     }
 
+    /**
+     * Compatibility check for an assignment that has already been accepted.
+     * This overload cannot establish source identity and therefore cannot
+     * replace {@link #markCatchingUp(SourceAssignment)}.
+     *
+     * @deprecated use {@link #markCatchingUp(SourceAssignment)}.
+     */
+    @Deprecated
     public synchronized void markCatchingUp(final SourceActivationBarrier barrier) {
         if (sourceAssignment == null) {
             throw new IllegalStateException("source assignment must be accepted before catch-up");
         }
-        if (sourceAssignment.activationBarrier() != barrier) {
+        if (!Objects.equals(sourceAssignment.activationBarrier(), barrier)) {
             throw new IllegalArgumentException("catch-up barrier is not the accepted source assignment barrier");
         }
         markCatchingUp(sourceAssignment);
