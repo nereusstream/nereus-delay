@@ -62,6 +62,15 @@ public final class InMemoryControlOperationAuthority implements ControlOperation
         if (!matchesIdentity(receipt, next)) {
             return ControlOperationQueryResponseV1.integrityError();
         }
+        if (existing.current().equals(next)) {
+            if (next.operationRevision() != expectedRevision + 1) {
+                return ControlOperationQueryResponseV1.integrityError();
+            }
+            // The original CAS may have committed before its response was
+            // lost. An exact CURRENT reread is the only success that this
+            // bounded current-only authority can prove idempotently.
+            return ControlOperationQueryResponseV1.current(existing.current());
+        }
         if (expectedRevision != existing.current().operationRevision()) {
             return ControlOperationQueryResponseV1.integrityError();
         }

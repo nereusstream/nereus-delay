@@ -177,7 +177,8 @@ tag/payload 漂移。本地 `ControlOperationAuthority` 现在把完整 receipt 
 scope identity 与 revision 不回退校验。这只是本地 CAS/验证 seam，durable
 control-operation query state、routing、authorization 和真实 Oxia ownership 仍未完成。
 `EmbeddedDelayService` 已将该 seam 暴露为本地 register/advance/query 入口，便于
-conformance tests 验证 response-loss 后的精确 receipt 重读；它不改变上述生产边界。
+conformance tests 验证 register 和 exact advance response-loss 后的精确 receipt
+重读；它不改变上述生产边界。
 
 ## Source locks
 
