@@ -117,6 +117,9 @@ registration boundary.
 The query-retention helper derives the boundary from trusted registration
 evidence with checked addition; policy publication and Oxia persistence remain
 external.
+The embedded service now runs the local target-registration plus operation-CAS
+path end to end, but it remains a test model and does not provide gateway
+authentication or a production Oxia transaction.
 The registration outcome/proof union is likewise local evidence projection:
 only authenticated Oxia response evidence can construct the conditional
 rejection branch, while timeout/session ambiguity remains `RECORD_UNCERTAIN`.

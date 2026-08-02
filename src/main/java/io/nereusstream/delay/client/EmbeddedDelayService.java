@@ -10,6 +10,11 @@ import io.nereusstream.delay.protocol.CommandQueryResponseV1;
 import io.nereusstream.delay.protocol.ControlOperationQueryResponseV1;
 import io.nereusstream.delay.protocol.ControlOperationReceiptV1;
 import io.nereusstream.delay.protocol.CurrentControlOperationV1;
+import io.nereusstream.delay.protocol.ControlRegistrationBindingV1;
+import io.nereusstream.delay.protocol.ControlRegistrationOutcomeMessageV1;
+import io.nereusstream.delay.protocol.ControlRegistrationProjectionV1;
+import io.nereusstream.delay.protocol.PreparedControlOperationV1;
+import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DefinitelyNotQueuedV1;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
@@ -31,7 +36,9 @@ import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.StableErrorV1;
 import io.nereusstream.delay.ownership.ControlOperationAuthority;
+import io.nereusstream.delay.ownership.ControlTargetRegistrationAuthority;
 import io.nereusstream.delay.ownership.InMemoryControlOperationAuthority;
+import io.nereusstream.delay.ownership.InMemoryControlTargetRegistrationAuthority;
 import io.nereusstream.delay.runtime.ApplyStatus;
 import io.nereusstream.delay.runtime.CommandResult;
 import io.nereusstream.delay.runtime.DelayShard;
@@ -64,6 +71,7 @@ public final class EmbeddedDelayService implements DelayClient {
     private final ShardStore store;
     private final DelayShard shard;
     private final ControlOperationAuthority controlOperationAuthority;
+    private final ControlTargetRegistrationAuthority controlTargetRegistrationAuthority;
     private final EmbeddedDelayServiceConfig clientConfig;
     private final Deque<QueuedRecord> pending = new ArrayDeque<>();
     private long nextOffset;
@@ -87,6 +95,7 @@ public final class EmbeddedDelayService implements DelayClient {
         store = ShardStore.open(storeConfig, shardId, resources);
         shard = new DelayShard(store, DelayShardConfig.defaults());
         controlOperationAuthority = new InMemoryControlOperationAuthority();
+        controlTargetRegistrationAuthority = new InMemoryControlTargetRegistrationAuthority();
         final SourcePosition last = shard.lastAppliedSourcePosition();
         if (last != null) {
             if (!(last instanceof KafkaSourcePosition kafka)
@@ -383,6 +392,31 @@ public final class EmbeddedDelayService implements DelayClient {
             final ControlOperationReceiptV1 receipt, final CurrentControlOperationV1 initial) {
         ensureOpen();
         return controlOperationAuthority.register(receipt, initial);
+    }
+
+    /**
+     * Registers an exact Prepared Control Operation through both local
+     * registration seams and returns the receipt/current projection pair.
+     * This is an embedded conformance path; production uses one Oxia
+     * transaction plus authenticated actor/resource checks.
+     */
+    public synchronized ControlRegistrationProjectionV1 registerPreparedControlOperation(
+            final PreparedControlOperationV1 prepared, final TrustedUtcIntervalEvidence registeredAt,
+            final long controlOperationQueryWindowMs) {
+        ensureOpen();
+        Objects.requireNonNull(prepared, "prepared");
+        controlTargetRegistrationAuthority.register(prepared);
+        final ControlRegistrationProjectionV1 projection = ControlRegistrationProjectionV1.initialWithQueryWindow(
+                prepared, registeredAt, controlOperationQueryWindowMs);
+        ControlRegistrationBindingV1.validate(prepared,
+                ControlRegistrationOutcomeMessageV1.recorded(projection.receipt()));
+        final ControlOperationQueryResponseV1 response = controlOperationAuthority.register(projection.receipt(),
+                projection.current());
+        if (response.resultKind() != io.nereusstream.delay.protocol.ControlOperationQueryResultV1.CURRENT
+                || !projection.current().equals(response.current())) {
+            throw new IllegalStateException("embedded Control registration did not return its exact projection");
+        }
+        return projection;
     }
 
     /** Advances one embedded control operation through its exact revision CAS. */
