@@ -142,6 +142,12 @@ V1 必须经过显式 `V1ScheduleResolver`，校验 tuple 派生 Lane、payload 
 固定返回 `ROUTE_SNAPSHOT_UNAVAILABLE`，不会降级到旧 body；旧
 `ScheduleIntent`/`LargeScheduleIntent` 只服务于非 V1 兼容命令。这个 resolver
 仍是本地 authority seam，不等于 Profile/Policy/Oxia/真实 Adapter 已接入。
+`ProfileBindingActivatePayloadV1`/`ProfileNewBindingClosePayloadV1` 和
+`ProfileBindingControlState` 现在也提供了 source-ordered first-binding marker
+投影；当 shard 已有 Profile marker 时，V1 Schedule/Prepare 会在 resolver 前
+按 activation/close 边界返回对应稳定码，marker 与 System Mutation result
+在同一 WriteBatch 持久化并可在 reopen 后恢复。immutable Profile catalog、
+签名 control target 与历史 binding lookup 仍是 release blocker。
 CommitLargeSchedule V1 也有独立 canonical body 和嵌套
 `PayloadCommitProofV1` codec，校验 reservation/message identity、typed Object
 Store Profile、tenant scope、optional etag presence、proof ID/signature 后，
@@ -155,11 +161,15 @@ activation、Schedule 的历史 policy binding、Profile/Adapter 运行时绑定
 ingress 迁移仍是 release blocker。
 Payload proof trust-set 也已补齐 canonical verifier-key list、semantic
 hash/ref、Ed25519 raw-key projection 和本地 source-time validity-window
-校验；source-ordered activation/issuance-close 及历史 key retention 仍不能
-由该 value codec 自行推断。
+校验；`PayloadProofTrustSetControlState` 现在保留严格 source-ordered
+activation/issuance-close markers，在 close 后阻止 first-seen issuance、同时
+保留 historical verification 语义，`DelayShard` 以 catalog seam 校验 semantic
+ref 后把 marker/result/cursor 原子写入 `meta_cf`。Oxia control authority、
+trust-set catalog durability、签名 key/ACL 和历史 key retention 仍不能由该
+local projection 自行推断。
 对应的 `ControlReasonV1`、trust-set activate/issuance-close payload branches
-也已按 Registry 严格解码；没有把这些 payload codec 误报成已经接入 Oxia
-control authority。
+也已按 Registry 严格解码；这些本地 marker apply 仍没有被误报成已经接入
+Oxia control authority。
 
 `OwnedDelayShard` 现在还提供了带 assignment/barrier/source-connection 校验的
 统一 `replay` seam，以及兼容性的 `replayCatchup`/`replaySystemMutations`：
