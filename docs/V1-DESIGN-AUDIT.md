@@ -94,6 +94,9 @@ step; its explicit scope proof remains an external authorization input.
 branches back to the exact Prepared operation and rejects receipt/request,
 scope, target-snapshot or revision drift; transport classification and Oxia
 persistence proof remain external.
+The local `InMemoryControlTargetRegistrationAuthority` is only an idempotent
+exact-byte target-registration model; it does not make the Oxia CAS/transaction
+or production target lookup available.
 Its bytes are not an Oxia registration receipt and do not establish actor/role
 authority.
 The registration outcome/proof union is likewise local evidence projection:
