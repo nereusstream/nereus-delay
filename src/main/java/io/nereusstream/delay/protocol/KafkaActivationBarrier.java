@@ -40,6 +40,8 @@ public record KafkaActivationBarrier(
         }
         validatePosition(lastAppliedPosition);
         final KafkaSourcePosition kafka = (KafkaSourcePosition) lastAppliedPosition;
-        return Math.addExact(kafka.offset(), 1) >= exclusiveOffset;
+        final long nextReadableOffset = kafka.offset() == Long.MAX_VALUE
+                ? Long.MAX_VALUE : kafka.offset() + 1;
+        return nextReadableOffset >= exclusiveOffset;
     }
 }

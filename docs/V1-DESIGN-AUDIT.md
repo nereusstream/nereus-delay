@@ -119,6 +119,10 @@ Persisted Delay Shard mutation and Claim sequence metadata applies the same
 non-negative u64 boundary on activation; a high-bit-set value is treated as
 corrupt and cannot become a wrapped local sequence. The local evidence is
 `DelayShardTest.rejectsNegativePersistedShardSequences`.
+Kafka's exclusive activation LSO uses the same fail-closed boundary handling:
+an applied offset at `Long.MAX_VALUE` proves a `Long.MAX_VALUE` exclusive
+barrier without wrapping the successor calculation. The local evidence is
+`SourceActivationBarrierTest.KafkaBarrierSaturatesExclusiveNextOffsetAtLongMaximum`.
 
 当前 `PersistentLaneScheduler.rebuildFromAuthoritativeReady` 已提供 fenced 的本地
 恢复桥：它从 bounded `timeline_cf/READY` 扫描开始，严格校验对应的

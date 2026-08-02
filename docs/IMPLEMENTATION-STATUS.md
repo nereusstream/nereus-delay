@@ -87,6 +87,12 @@ sequence and could poison resource-retirement or Claim identity derivation.
 `DelayShardTest.rejectsNegativePersistedShardSequences` covers both sequence
 metadata keys and verifies the shard fails closed before activation.
 
+`KafkaActivationBarrier` now saturates the exclusive next-readable offset at
+`Long.MAX_VALUE`; a source record at the largest representable offset no
+longer causes an arithmetic exception while proving an already-reached LSO.
+`SourceActivationBarrierTest.KafkaBarrierSaturatesExclusiveNextOffsetAtLongMaximum`
+covers this physical-offset boundary.
+
 The Registry-shaped `ScheduleIntentV1` value is now implemented as a strict
 canonical codec: it binds the destination `ProfileRefV1`, `RetryPolicyRefV1`,
 delivery/order fields, the closed inline-versus-committed payload union,

@@ -24,6 +24,16 @@ class SourceActivationBarrierTest {
     }
 
     @Test
+    void KafkaBarrierSaturatesExclusiveNextOffsetAtLongMaximum() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 5);
+        final UUID topic = UUID.randomUUID();
+        final KafkaSourcePosition lastOffset = new KafkaSourcePosition(shard, "cluster", topic,
+                Long.MAX_VALUE, null, 1);
+        assertTrue(new KafkaActivationBarrier(shard, "cluster", topic, Long.MAX_VALUE)
+                .reachedBy(lastOffset));
+    }
+
+    @Test
     void PulsarBarrierRequiresTheInclusiveFinalBatchMember() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 1);
         final byte[] resource = new byte[32];
