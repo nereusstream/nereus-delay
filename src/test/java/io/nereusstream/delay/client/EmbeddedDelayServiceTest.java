@@ -333,11 +333,16 @@ class EmbeddedDelayServiceTest {
             assertEquals(ControlOperationQueryResultV1.CURRENT,
                     service.registerControlOperation(receipt, initial).resultKind());
             assertEquals(initial, service.queryControlOperation(receipt, 2_000).current());
-            final CurrentControlOperationV1 next = new CurrentControlOperationV1(receipt.operationId(),
-                    receipt.requestHash(), receipt.authenticatedScopeHash(), ControlOperationStateV1.IN_PROGRESS, 2,
+            final CurrentControlOperationV1 dispatching = new CurrentControlOperationV1(receipt.operationId(),
+                    receipt.requestHash(), receipt.authenticatedScopeHash(), ControlOperationStateV1.DISPATCHING, 2,
                     List.of(), null);
             assertEquals(ControlOperationQueryResultV1.CURRENT,
-                    service.advanceControlOperation(receipt, 1, next).resultKind());
+                    service.advanceControlOperation(receipt, 1, dispatching).resultKind());
+            final CurrentControlOperationV1 next = new CurrentControlOperationV1(receipt.operationId(),
+                    receipt.requestHash(), receipt.authenticatedScopeHash(), ControlOperationStateV1.IN_PROGRESS, 3,
+                    List.of(), null);
+            assertEquals(ControlOperationQueryResultV1.CURRENT,
+                    service.advanceControlOperation(receipt, 2, next).resultKind());
             assertEquals(next, service.queryControlOperation(receipt, 2_000).current());
         }
     }

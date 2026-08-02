@@ -3,6 +3,7 @@ package io.nereusstream.delay.ownership;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.ControlOperationQueryResponseV1;
 import io.nereusstream.delay.protocol.ControlOperationReceiptV1;
+import io.nereusstream.delay.protocol.ControlOperationStateTransitionV1;
 import io.nereusstream.delay.protocol.CurrentControlOperationV1;
 
 import java.util.HashMap;
@@ -60,6 +61,12 @@ public final class InMemoryControlOperationAuthority implements ControlOperation
             return ControlOperationQueryResponseV1.notFoundOrNotAuthorized();
         }
         if (!matchesIdentity(receipt, next)) {
+            return ControlOperationQueryResponseV1.integrityError();
+        }
+        try {
+            ControlOperationStateTransitionV1.validate(existing.current().state(), next.state());
+            ControlOperationStateTransitionV1.validateTargets(existing.current().targetStates(), next.targetStates());
+        } catch (IllegalArgumentException invalidTransition) {
             return ControlOperationQueryResponseV1.integrityError();
         }
         if (existing.current().equals(next)) {

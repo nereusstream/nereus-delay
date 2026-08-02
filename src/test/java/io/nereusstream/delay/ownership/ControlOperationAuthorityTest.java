@@ -26,18 +26,37 @@ class ControlOperationAuthorityTest {
                 authority.register(receipt, initial).resultKind());
         assertEquals(initial, authority.register(receipt, initial).current());
 
-        final CurrentControlOperationV1 next = current(receipt, 2, ControlOperationStateV1.IN_PROGRESS);
+        final CurrentControlOperationV1 dispatching = current(receipt, 2, ControlOperationStateV1.DISPATCHING);
         assertEquals(ControlOperationQueryResultV1.CURRENT,
-                authority.advance(receipt, 1, next).resultKind());
+                authority.advance(receipt, 1, dispatching).resultKind());
         assertEquals(ControlOperationQueryResultV1.CURRENT,
-                authority.advance(receipt, 1, next).resultKind());
+                authority.advance(receipt, 1, dispatching).resultKind());
+        final CurrentControlOperationV1 next = current(receipt, 3, ControlOperationStateV1.IN_PROGRESS);
+        assertEquals(ControlOperationQueryResultV1.CURRENT,
+                authority.advance(receipt, 2, next).resultKind());
+        assertEquals(ControlOperationQueryResultV1.INTEGRITY_ERROR,
+                authority.advance(receipt, 3, current(receipt, 5, ControlOperationStateV1.IN_PROGRESS))
+                        .resultKind());
         assertEquals(ControlOperationQueryResultV1.INTEGRITY_ERROR,
                 authority.advance(receipt, 2, current(receipt, 4, ControlOperationStateV1.IN_PROGRESS))
                         .resultKind());
-        assertEquals(ControlOperationQueryResultV1.INTEGRITY_ERROR,
-                authority.advance(receipt, 1, current(receipt, 3, ControlOperationStateV1.IN_PROGRESS))
-                        .resultKind());
         assertEquals(next, authority.query(receipt, 2_000).current());
+    }
+
+    @Test
+    void operationStateCannotRollbackAfterDispatchOrEffect() {
+        final ControlOperationReceiptV1 receipt = receipt(9, 4_000);
+        final InMemoryControlOperationAuthority authority = new InMemoryControlOperationAuthority();
+        authority.register(receipt, current(receipt, 1, ControlOperationStateV1.PENDING));
+        assertEquals(ControlOperationQueryResultV1.CURRENT,
+                authority.advance(receipt, 1, current(receipt, 2, ControlOperationStateV1.DISPATCHING))
+                        .resultKind());
+        assertEquals(ControlOperationQueryResultV1.CURRENT,
+                authority.advance(receipt, 2, current(receipt, 3, ControlOperationStateV1.IN_PROGRESS))
+                        .resultKind());
+        assertEquals(ControlOperationQueryResultV1.INTEGRITY_ERROR,
+                authority.advance(receipt, 3, current(receipt, 4, ControlOperationStateV1.FAILED_BEFORE_EFFECT))
+                        .resultKind());
     }
 
     @Test

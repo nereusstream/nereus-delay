@@ -99,6 +99,9 @@ exact-byte target-registration model; it does not make the Oxia CAS/transaction
 or production target lookup available.
 Its bytes are not an Oxia registration receipt and do not establish actor/role
 authority.
+The local operation authority now also applies the closed monotonic operation
+and target-marker transition graph before its in-memory revision CAS; this is
+projection validation only and does not provide durable Oxia operation state.
 The registration outcome/proof union is likewise local evidence projection:
 only authenticated Oxia response evidence can construct the conditional
 rejection branch, while timeout/session ambiguity remains `RECORD_UNCERTAIN`.
