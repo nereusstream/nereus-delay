@@ -107,8 +107,9 @@ canonical floor reference codec，`RecoveryCandidateRefV1` 与 `RecoveryPinV1`
 canonical value codecs；`EvidenceCursorV1` 现在还提供同 generation
 identity/dominance 校验（Kafka offset/LSO、Pulsar inclusive member 和
 Broker-time anchor），跨 generation 保持 incomparable；本地 `RecoveryCatalog` 现在对同一 shard 提供
-current Floor/catalog generation 绑定的单 active-pin create/idempotent reread/release
-投影，但这仍不是 Oxia Owner Lease/session CAS；`CheckpointResourceV1` 与
+typed Floor advancement/current-FloorRef 和同一 shard 的 Floor/catalog generation
+绑定的单 active-pin create/idempotent reread/release 投影，但这仍不是 Oxia
+Owner Lease/session CAS；`CheckpointResourceV1` 与
 `CheckpointUploadIntentV1`
 也已补齐 manifest-object identity 和 PENDING/PUBLISHED/REAPING 的 canonical
 state branches；`CheckpointUploadIntentStore` 还提供了 exact-value create

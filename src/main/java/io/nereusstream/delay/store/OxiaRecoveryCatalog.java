@@ -2,10 +2,13 @@ package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CheckpointUploadIntentV1;
+import io.nereusstream.delay.protocol.EvidenceCursorV1;
+import io.nereusstream.delay.protocol.RecoveryFloorRefV1;
 import io.nereusstream.delay.protocol.RecoveryPinV1;
 import io.nereusstream.delay.protocol.SourcePosition;
 
 import java.util.Objects;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -64,6 +67,22 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
     }
 
     @Override
+    public RecoveryFloorRefV1 advanceFloor(final byte[] checkpointId, final long expectedCatalogGeneration,
+                                            final List<EvidenceCursorV1> evidenceCursors) {
+        Bytes.requireLength(checkpointId, 16, "checkpointId");
+        if (expectedCatalogGeneration < 0) {
+            throw new IllegalArgumentException("catalog generation must be non-negative");
+        }
+        final RecoveryFloorRefV1 result = Objects.requireNonNull(backend.advanceFloor(checkpointId,
+                expectedCatalogGeneration, evidenceCursors), "Oxia typed Floor result");
+        if (!Bytes.constantTimeEquals(checkpointId, result.checkpointId())
+                || result.catalogGeneration() <= expectedCatalogGeneration) {
+            throw new IllegalStateException("Oxia typed Floor result is not bound to the requested CAS");
+        }
+        return result;
+    }
+
+    @Override
     public RecoveryCatalog.Publication publishUploadedCheckpoint(final CheckpointUploadIntentV1 publishedIntent,
                                                                   final CheckpointManifest manifest,
                                                                   final long expectedCatalogGeneration) {
@@ -94,6 +113,11 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
     @Override
     public Optional<RecoveryFloor> currentFloor() {
         return Objects.requireNonNull(backend.currentFloor(), "Oxia current floor result");
+    }
+
+    @Override
+    public Optional<RecoveryFloorRefV1> currentFloorRef() {
+        return Objects.requireNonNull(backend.currentFloorRef(), "Oxia typed Floor result");
     }
 
     @Override
@@ -162,9 +186,18 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
         RecoveryFloor advanceFloor(byte[] checkpointId, long expectedCatalogGeneration,
                                    byte[] evidenceCursorDigest);
 
+        default RecoveryFloorRefV1 advanceFloor(final byte[] checkpointId, final long expectedCatalogGeneration,
+                                                 final List<EvidenceCursorV1> evidenceCursors) {
+            throw new UnsupportedOperationException("typed Recovery Floor CAS is not implemented");
+        }
+
         Optional<CheckpointManifest> manifest(byte[] checkpointId);
 
         Optional<RecoveryFloor> currentFloor();
+
+        default Optional<RecoveryFloorRefV1> currentFloorRef() {
+            throw new UnsupportedOperationException("typed Recovery Floor read is not implemented");
+        }
 
         void validatePublishedRestoreCandidate(CheckpointManifest candidate);
 
@@ -212,6 +245,12 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
         }
 
         @Override
+        public RecoveryFloorRefV1 advanceFloor(final byte[] checkpointId, final long expectedCatalogGeneration,
+                                                final List<EvidenceCursorV1> evidenceCursors) {
+            return delegate.advanceFloor(checkpointId, expectedCatalogGeneration, evidenceCursors);
+        }
+
+        @Override
         public Optional<CheckpointManifest> manifest(final byte[] checkpointId) {
             return delegate.manifest(checkpointId);
         }
@@ -219,6 +258,11 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
         @Override
         public Optional<RecoveryFloor> currentFloor() {
             return delegate.currentFloor();
+        }
+
+        @Override
+        public Optional<RecoveryFloorRefV1> currentFloorRef() {
+            return delegate.currentFloorRef();
         }
 
         @Override

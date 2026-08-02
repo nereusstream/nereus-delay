@@ -3,7 +3,9 @@ package io.nereusstream.delay.store;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CheckpointUploadIntentV1;
 import io.nereusstream.delay.protocol.CheckpointUploadStateV1;
+import io.nereusstream.delay.protocol.EvidenceCursorV1;
 import io.nereusstream.delay.protocol.RecoveryCandidateKindV1;
+import io.nereusstream.delay.protocol.RecoveryFloorRefV1;
 import io.nereusstream.delay.protocol.RecoveryPinV1;
 import io.nereusstream.delay.protocol.ShardSubjectV1;
 import io.nereusstream.delay.protocol.SourcePosition;
@@ -26,6 +28,7 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
     private final Map<String, CheckpointManifest> manifests = new HashMap<>();
     private long catalogGeneration;
     private RecoveryFloor floor;
+    private RecoveryFloorRefV1 typedFloorRef;
     private io.nereusstream.delay.protocol.ShardId catalogShard;
     private RecoveryPinV1 activeRecoveryPin;
 
@@ -62,6 +65,9 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
                                                     final byte[] evidenceCursorDigest) {
         Objects.requireNonNull(checkpointId, "checkpointId");
         Bytes.requireLength(evidenceCursorDigest, 32, "evidenceCursorDigest");
+        if (typedFloorRef != null) {
+            throw new IllegalStateException("typed Recovery Floor requires a typed successor");
+        }
         if (expectedCatalogGeneration != catalogGeneration) {
             throw new IllegalStateException("checkpoint catalog generation conflict");
         }
@@ -88,6 +94,54 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
                 candidate.manifestSha256(), catalogGeneration, candidate.appliedShardLogPosition(),
                 candidate.shardMutationSequence(), evidenceCursorDigest);
         return floor;
+    }
+
+    /**
+     * Advances a typed Recovery Floor and rejects a missing or regressing
+     * cursor for every identity already protected by the previous Floor.
+     * The legacy {@link RecoveryFloor} field remains a scalar local projection
+     * for existing GC callers; {@link #currentFloorRef()} is the authority for
+     * the complete typed cursor set.
+     */
+    @Override
+    public synchronized RecoveryFloorRefV1 advanceFloor(final byte[] checkpointId,
+                                                          final long expectedCatalogGeneration,
+                                                          final List<EvidenceCursorV1> evidenceCursors) {
+        Objects.requireNonNull(checkpointId, "checkpointId");
+        Objects.requireNonNull(evidenceCursors, "evidenceCursors");
+        if (expectedCatalogGeneration != catalogGeneration) {
+            throw new IllegalStateException("checkpoint catalog generation conflict");
+        }
+        final CheckpointManifest candidate = manifests.get(key(checkpointId));
+        if (candidate == null) {
+            throw new IllegalArgumentException("checkpoint is not published");
+        }
+        if (floor != null) {
+            recoverySet(checkpointId);
+            if (!Bytes.constantTimeEquals(floor.recoveryLineageId(), candidate.recoveryLineageId())
+                    || candidate.appliedShardLogPosition().compareTo(floor.appliedSourcePosition()) < 0
+                    || candidate.shardMutationSequence() < floor.includedMutationSequence()) {
+                throw new IllegalArgumentException("recovery floor cannot regress");
+            }
+        }
+        final RecoveryFloorRefV1 next = new RecoveryFloorRefV1(candidate.recoveryLineageId(), candidate.checkpointId(),
+                candidate.manifestSha256(), Math.addExact(catalogGeneration, 1),
+                candidate.appliedShardLogPosition(), candidate.shardMutationSequence(), evidenceCursors);
+        if (typedFloorRef != null) {
+            for (EvidenceCursorV1 previous : typedFloorRef.evidenceCursors()) {
+                final EvidenceCursorV1 successor = next.evidenceCursors().stream()
+                        .filter(cursor -> cursor.sameIdentity(previous)).findFirst().orElse(null);
+                if (successor == null || !successor.dominates(previous)) {
+                    throw new IllegalArgumentException("typed Recovery Floor cursor regressed or disappeared");
+                }
+            }
+        }
+        catalogGeneration = next.catalogGeneration();
+        typedFloorRef = next;
+        floor = RecoveryFloor.create(next.recoveryLineageId(), next.checkpointId(), next.manifestSha256(),
+                next.catalogGeneration(), next.appliedSourcePosition(), next.includedMutationSequence(),
+                next.floorDigest());
+        return next;
     }
 
     /**
@@ -141,6 +195,11 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
 
     public synchronized Optional<RecoveryFloor> currentFloor() {
         return Optional.ofNullable(floor);
+    }
+
+    @Override
+    public synchronized Optional<RecoveryFloorRefV1> currentFloorRef() {
+        return Optional.ofNullable(typedFloorRef);
     }
 
     /**
@@ -315,6 +374,9 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
 
     private boolean matchesFloor(final RecoveryPinV1 pin) {
         final io.nereusstream.delay.protocol.RecoveryFloorRefV1 observed = pin.observedFloor();
+        if (typedFloorRef != null) {
+            return typedFloorRef.equals(observed);
+        }
         return Bytes.constantTimeEquals(observed.recoveryLineageId(), floor.recoveryLineageId())
                 && Bytes.constantTimeEquals(observed.checkpointId(), floor.checkpointId())
                 && Bytes.constantTimeEquals(observed.manifestSha256(), floor.manifestSha256())

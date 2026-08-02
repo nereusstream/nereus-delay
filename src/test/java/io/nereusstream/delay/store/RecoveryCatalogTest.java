@@ -4,6 +4,7 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CheckpointResourceV1;
 import io.nereusstream.delay.protocol.CheckpointUploadIntentV1;
 import io.nereusstream.delay.protocol.CheckpointUploadStateV1;
+import io.nereusstream.delay.protocol.EvidenceCursorV1;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.OwnerIdentityV1;
 import io.nereusstream.delay.protocol.ProfileKindV1;
@@ -156,6 +157,35 @@ class RecoveryCatalogTest {
                         uuidBytes(manifest.sourceStoreIncarnation()), id32(75), 1, null, null, profile,
                         evidence(1_000), 5_000, CheckpointUploadStateV1.PENDING_UPLOAD, 1, null, null),
                 manifest, 2));
+    }
+
+    @Test
+    void typedFloorRequiresSameGenerationCursorDominance() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 12);
+        final byte[] lineage = id16(80);
+        final CheckpointManifest genesis = manifest(shard, UUID.randomUUID(), lineage, id16(81), 0, 1, 1, null);
+        final RecoveryCatalog catalog = new RecoveryCatalog();
+        catalog.publish(genesis, 0);
+        final EvidenceCursorV1 older = EvidenceCursorV1.kafka(id32(82), id16(83), id16(84),
+                1, 4, 100, 11, 10);
+        final RecoveryFloorRefV1 first = catalog.advanceFloor(genesis.checkpointId(), 1, List.of(older));
+        assertEquals(first, catalog.currentFloorRef().orElseThrow());
+
+        final CheckpointManifest child = manifest(shard, ((KafkaSourcePosition) genesis.appliedShardLogPosition())
+                .nativeTopicUuid(), lineage, id16(85), 1, 2, 2,
+                new CheckpointManifest.ParentCheckpoint(genesis.checkpointId(), Bytes.hex(genesis.manifestSha256())));
+        catalog.publish(child, 2);
+        final EvidenceCursorV1 newer = EvidenceCursorV1.kafka(id32(82), id16(83), id16(84),
+                1, 4, 101, 12, 11);
+        final RecoveryFloorRefV1 second = catalog.advanceFloor(child.checkpointId(), 3, List.of(newer));
+        assertEquals(second, catalog.currentFloorRef().orElseThrow());
+
+        final EvidenceCursorV1 regressed = EvidenceCursorV1.kafka(id32(82), id16(83), id16(84),
+                1, 4, 102, 10, 11);
+        assertThrows(IllegalArgumentException.class,
+                () -> catalog.advanceFloor(child.checkpointId(), 4, List.of(regressed)));
+        assertThrows(IllegalStateException.class,
+                () -> catalog.advanceFloor(child.checkpointId(), 4, id32(86)));
     }
 
     @Test

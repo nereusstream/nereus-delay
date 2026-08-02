@@ -2,8 +2,11 @@ package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.RecoveryPinV1;
 import io.nereusstream.delay.protocol.CheckpointUploadIntentV1;
+import io.nereusstream.delay.protocol.EvidenceCursorV1;
+import io.nereusstream.delay.protocol.RecoveryFloorRefV1;
 import io.nereusstream.delay.protocol.SourcePosition;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -15,6 +18,12 @@ public interface RecoveryCatalogAuthority {
     RecoveryCatalog.Publication publish(CheckpointManifest manifest, long expectedCatalogGeneration);
 
     RecoveryFloor advanceFloor(byte[] checkpointId, long expectedCatalogGeneration, byte[] evidenceCursorDigest);
+
+    /** Advances a typed Floor while preserving same-generation cursor dominance. */
+    default RecoveryFloorRefV1 advanceFloor(final byte[] checkpointId, final long expectedCatalogGeneration,
+                                             final List<EvidenceCursorV1> evidenceCursors) {
+        throw new UnsupportedOperationException("typed Recovery Floor CAS is not implemented");
+    }
 
     /**
      * Publishes a complete manifest only after an exact PUBLISHED upload intent
@@ -30,6 +39,11 @@ public interface RecoveryCatalogAuthority {
     Optional<CheckpointManifest> manifest(byte[] checkpointId);
 
     Optional<RecoveryFloor> currentFloor();
+
+    /** Returns the typed Floor when the authority has one; legacy projections may be empty. */
+    default Optional<RecoveryFloorRefV1> currentFloorRef() {
+        return Optional.empty();
+    }
 
     void validatePublishedRestoreCandidate(CheckpointManifest candidate);
 
