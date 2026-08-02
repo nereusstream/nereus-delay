@@ -2,7 +2,13 @@ package io.nereusstream.delay.protocol;
 
 import java.nio.ByteBuffer;
 
-/** Canonical V1 body codecs for the first command application surface. */
+/**
+ * Command body codecs.
+ *
+ * <p>The original methods remain legacy embedded adapters. The explicit
+ * {@code *V1} methods below emit Registry-shaped Client Body common fields and
+ * are not yet wired into the legacy {@link PreparedCommand} runtime path.</p>
+ */
 public final class CommandBodies {
     private CommandBodies() {
     }
@@ -43,6 +49,17 @@ public final class CommandBodies {
         return result;
     }
 
+    /** Encodes the Registry-shaped {@code ScheduleV1} body. */
+    public static byte[] scheduleV1(final DelayMessageId delayMessageId, final long retryUntilEpochMs,
+                                    final ScheduleIntentV1 intent) {
+        return new ScheduleCommandBodyV1(delayMessageId, retryUntilEpochMs, intent).canonicalBytes();
+    }
+
+    /** Decodes the Registry-shaped {@code ScheduleV1} body. */
+    public static ScheduleCommandBodyV1 decodeScheduleV1(final byte[] body) {
+        return ScheduleCommandBodyV1.decode(body);
+    }
+
     public static byte[] prepareLarge(final LargeScheduleIntent intent) {
         return intent.canonicalBytes();
     }
@@ -73,6 +90,20 @@ public final class CommandBodies {
             throw new IllegalArgumentException("non-canonical large schedule prepare body");
         }
         return result;
+    }
+
+    /** Encodes the Registry-shaped {@code PrepareLargeScheduleV1} body. */
+    public static byte[] prepareLargeV1(final DelayMessageId delayMessageId, final long retryUntilEpochMs,
+                                        final ScheduleIntentV1 intentWithoutPayload,
+                                        final long expectedPayloadLength, final byte[] payloadSha256,
+                                        final long reservationTtlMs, final PayloadProofTrustSetRefV1 trustSet) {
+        return new PrepareLargeScheduleBodyV1(delayMessageId, retryUntilEpochMs, intentWithoutPayload,
+                expectedPayloadLength, payloadSha256, reservationTtlMs, trustSet).canonicalBytes();
+    }
+
+    /** Decodes the Registry-shaped {@code PrepareLargeScheduleV1} body. */
+    public static PrepareLargeScheduleBodyV1 decodePrepareLargeV1(final byte[] body) {
+        return PrepareLargeScheduleBodyV1.decode(body);
     }
 
     public static byte[] commitLarge(final PayloadCommitProof proof) {
