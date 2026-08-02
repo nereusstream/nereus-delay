@@ -44,6 +44,9 @@ class PayloadProofTrustSetControlStateTest {
                 .activate(first, activation);
         assertEquals(state, state.activate(first, activation));
         assertThrows(IllegalArgumentException.class,
+                () -> state.activate(first, new KafkaSourcePosition(shard, "cluster-a",
+                        UUID.fromString("00000000-0000-0000-0000-000000000007"), 10, 7, 101)));
+        assertThrows(IllegalArgumentException.class,
                 () -> state.activate(first, position(shard, 11, 101)));
         assertThrows(IllegalArgumentException.class,
                 () -> state.activate(ref(3, 3), position(shard, 12, 102)));

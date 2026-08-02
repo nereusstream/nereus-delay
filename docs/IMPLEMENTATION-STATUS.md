@@ -79,6 +79,8 @@ weakening them to local defaults. `InMemoryRetryPolicyCatalog` now provides a
 deterministic source-history test authority with exact reference/hash lookup
 and visibility fences; authenticated activation authority and durable
 historical retention remain external-authority blockers.
+The local source-history gate also rejects a same-token visibility lookup or
+publication when the canonical Source Position metadata differs.
 
 `ProfileBindingActivatePayloadV1` and `ProfileNewBindingClosePayloadV1` now
 close the Registry control branches for Profile first-binding lifecycle.
@@ -89,6 +91,8 @@ pre-activation or post-close stable code. Exact duplicate commands still
 reuse their durable first result. The immutable Profile catalog, signed
 control target authority, and historical binding lookup remain external
 blockers.
+Profile marker comparisons also reject equal order tokens with conflicting
+canonical Source Position metadata.
 
 `PayloadProofTrustSetSemanticV1` and `PayloadProofVerifierKeyV1` now provide
 the canonical sorted verifier-key list, semantic hash/ref and Ed25519 raw-key
@@ -100,6 +104,8 @@ exact marker replay is idempotent, issuance-close is keyed by the pinned trust
 set and proof-key version, first-seen issuance closes at the marker while
 historical verification remains allowed, and the complete marker state has a
 canonical repeated-field value encoding for `meta_cf` persistence.
+Trust-set marker comparisons reject equal order tokens with conflicting
+canonical Source Position metadata.
 `InMemoryPayloadProofTrustSetCatalog` now resolves exact local semantic
 references without fallback. Authenticated source-ordered control authority
 and Recovery-Floor historical verifier retention remain external blockers; the

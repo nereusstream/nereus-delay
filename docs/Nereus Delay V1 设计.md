@@ -1775,6 +1775,9 @@ Schedule pin versioned policy：
 - terminal/DLQ export behavior。
 
 这些不是 policy service 的开放 map。`RetryPolicySemanticV1` 固定 initial/max backoff、max Admissions/duration、uncertain policy/count、DLQ export mode/backoff/attempt/duration/duplicate rule、jitter version 与 terminal-policy digest；`RetryPolicyRefV1.semanticHash` 按 Protocol Registry §5.1.1 重算。Schedule/Replay apply、Outcome 和 DLQ Result 都使用同一 immutable bytes，不能在 replay 时读取后来修改的 policy。
+Policy publication visibility 也使用完整 Source Position identity：同一 Kafka
+offset 或 Pulsar ledger/entry/batch token 若 canonical metadata 不同，不得被
+当作同一 source position 的可见 policy。
 
 `BOUNDED_RETRY_POSSIBLE_DUPLICATE` 必须满足 `0 < maxUncertainRetries < maxPublishAdmissions`，且只能与 `BEST_EFFORT` ordering 组合；其它 uncertain policy 的 `maxUncertainRetries` 必须为 0。该字段限制 `PINNED_POLICY` 自动 uncertain retry；经 source-ordered `ResolveUncertain(retry + acknowledgement)` 产生的 `CONTROL_OVERRIDE` 可超过自动预算，但仍受 `maxPublishAdmissions`、retry deadline、`expireAt` 与全部 live Admission/capacity gate 限制。每次在**已有更早 UNCERTAIN attempt ledger** 的 source-ordered状态上成功 apply 一个新 Admission，才递增 generation 的 total uncertain-retry count；同一 Admission 的 enqueue 重试、UNKNOWN callback、timeline/Claim、以及 obligation set 已清空后的 definitive retry 都不消耗。Outcome Reserve 与物理 envelope 必须按 `maxPublishAdmissions` 个可同时未闭合 attempt 的最坏情况证明，不得只按一个 aggregate Message 计费。
 

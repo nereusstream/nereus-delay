@@ -34,6 +34,10 @@ class PolicyCatalogTest {
         assertEquals(first, catalog.resolve(first.ref(), position(shard, topic, 10)));
         assertEquals(second, catalog.resolve(second.ref(), position(shard, topic, 20)));
         assertEquals(first, catalog.resolve(first.ref(), position(shard, topic, 20)));
+        final KafkaSourcePosition conflictingSameOffset = new KafkaSourcePosition(shard, "cluster", topic, 10, 7,
+                2_000);
+        assertNull(catalog.resolve(first.ref(), conflictingSameOffset));
+        assertThrows(IllegalArgumentException.class, () -> catalog.publish(first, conflictingSameOffset));
         assertNull(catalog.resolve(second.ref(), position(shard, new UUID(15, 16), 20)));
         assertThrows(IllegalArgumentException.class,
                 () -> catalog.publish(retryPolicy("other", 1), position(shard, topic, 19)));

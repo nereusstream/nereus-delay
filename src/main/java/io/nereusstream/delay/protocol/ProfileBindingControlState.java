@@ -189,7 +189,11 @@ public final class ProfileBindingControlState {
 
     private static int compare(final SourcePosition left, final SourcePosition right) {
         try {
-            return left.compareTo(right);
+            final int order = left.compareTo(right);
+            if (order == 0 && !Bytes.constantTimeEquals(left.canonicalBytes(), right.canonicalBytes())) {
+                throw new IllegalArgumentException("Profile marker source position has conflicting canonical identity");
+            }
+            return order;
         } catch (IllegalArgumentException exception) {
             throw new IllegalArgumentException("Profile markers use different source identities", exception);
         }

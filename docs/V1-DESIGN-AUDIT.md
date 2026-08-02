@@ -199,6 +199,9 @@ publication/source-position activation authority 之外，已接受 binding 的�
 Admission、UNCERTAIN retry 和 reopen 也会在 catalog 可用时重新使用其 immutable
 budget，而不会回退到较宽的 shard default；历史 policy binding retention、
 Profile/Adapter 运行时绑定和真实 ingress 迁移仍是 release blocker。
+本地 source-history catalog 在同一 order token 时还要求完整 canonical
+position bytes 一致，避免同一 offset/ledger-entry-batch 的 metadata 变体提前
+获得 policy visibility。
 Payload proof trust-set 也已补齐 canonical verifier-key list、semantic
 hash/ref、Ed25519 raw-key projection 和本地 source-time validity-window
 校验；`PayloadProofTrustSetControlState` 现在保留严格 source-ordered

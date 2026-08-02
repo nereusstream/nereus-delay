@@ -33,6 +33,9 @@ class ProfileBindingControlStateTest {
                 .activate(profile, position(shard, 10, 100));
         assertEquals(state, state.activate(profile, position(shard, 10, 100)));
         assertThrows(IllegalArgumentException.class,
+                () -> state.activate(profile, new KafkaSourcePosition(shard, "cluster-a",
+                        UUID.fromString("00000000-0000-0000-0000-000000000008"), 10, 7, 101)));
+        assertThrows(IllegalArgumentException.class,
                 () -> state.activate(profile, position(shard, 11, 101)));
         final ProfileNewBindingClosePayloadV1 close = new ProfileNewBindingClosePayloadV1(profile,
                 new ControlReasonV1(ControlReasonKindV1.INCIDENT, null, null));

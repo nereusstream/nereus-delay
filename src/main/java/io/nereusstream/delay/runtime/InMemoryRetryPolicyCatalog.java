@@ -1,5 +1,6 @@
 package io.nereusstream.delay.runtime;
 
+import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.RetryPolicyRefV1;
 import io.nereusstream.delay.protocol.RetryPolicySemanticV1;
 import io.nereusstream.delay.protocol.SourcePosition;
@@ -26,7 +27,7 @@ public final class InMemoryRetryPolicyCatalog implements RetryPolicyCatalog {
         Objects.requireNonNull(visibleAt, "visibleAt");
         bindSource(visibleAt);
         for (Publication publication : publications) {
-            final int order = publication.visibleAt().compareTo(visibleAt);
+            final int order = compareExact(publication.visibleAt(), visibleAt);
             if (order == 0) {
                 if (publication.semantic().equals(semantic)) {
                     return;
@@ -34,7 +35,7 @@ public final class InMemoryRetryPolicyCatalog implements RetryPolicyCatalog {
                 throw new IllegalStateException("retry policy catalog position already has another semantic");
             }
         }
-        if (lastPublicationPosition != null && lastPublicationPosition.compareTo(visibleAt) > 0) {
+        if (lastPublicationPosition != null && compareExact(lastPublicationPosition, visibleAt) > 0) {
             throw new IllegalArgumentException("retry policy publication position regressed");
         }
         for (Publication publication : publications) {
@@ -63,10 +64,10 @@ public final class InMemoryRetryPolicyCatalog implements RetryPolicyCatalog {
         try {
             for (Publication publication : publications) {
                 if (!publication.semantic().ref().equals(reference)
-                        || publication.visibleAt().compareTo(sourcePosition) > 0) {
+                        || compareExact(publication.visibleAt(), sourcePosition) > 0) {
                     continue;
                 }
-                if (best == null || best.visibleAt().compareTo(publication.visibleAt()) < 0) {
+                if (best == null || compareExact(best.visibleAt(), publication.visibleAt()) < 0) {
                     best = publication;
                 }
             }
@@ -90,6 +91,15 @@ public final class InMemoryRetryPolicyCatalog implements RetryPolicyCatalog {
                 || !sourceIdentity.sameSourceIdentity(position)) {
             throw new IllegalArgumentException("retry policy catalog source identity mismatch");
         }
+    }
+
+    private static int compareExact(final SourcePosition left, final SourcePosition right) {
+        final int order = left.compareTo(right);
+        if (order == 0 && !Bytes.constantTimeEquals(left.canonicalBytes(),
+                right.canonicalBytes())) {
+            throw new IllegalArgumentException("retry policy source position has conflicting canonical identity");
+        }
+        return order;
     }
 
     private record Publication(RetryPolicySemanticV1 semantic, SourcePosition visibleAt) {
