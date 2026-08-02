@@ -11,6 +11,9 @@ The bounded local Control Operation authority also rereads an exact CURRENT
 advance after response loss; it does not infer success for a later or
 different revision.
 
+The local Recovery Catalog likewise rereads an exact legacy or typed Floor
+successor after a lost CAS response without advancing the Floor twice.
+
 The local Owner Lease adapters now enforce the closed lifecycle transition
 matrix, including fail-closed backward transitions and fenced-lease
 non-reactivation; the real Oxia ephemeral session/CAS authority remains a

@@ -150,6 +150,10 @@ container/key/version/profile 仍 fail closed。这仍不等于
 Object Store 真实性或 Oxia transaction；Oxia validation adapter 同样允许
 generation 相等的 exact reread，但拒绝 generation 回退。
 
+Legacy/typed local Recovery Floor CAS 也支持 exact successor reread（含
+checkpoint、manifest、source/mutation 和 evidence/cursor identity），response
+loss 不会重复推进 Floor；不同 Floor 或 identity drift 仍 fail closed。
+
 `ShardStore.createCheckpoint` 现在先把完整 RocksDB 镜像写入同文件系统的
 `checkpoint-tmp` 命名空间，完成后才通过 atomic rename 安装到目标路径；已有
 目标会被拒绝，失败 staging 会清理。这闭合的是本地物理 checkpoint 边界，

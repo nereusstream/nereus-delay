@@ -43,6 +43,7 @@ class RecoveryCatalogTest {
         assertEquals(2, catalog.publish(child, 1).catalogGeneration());
         final RecoveryFloor firstFloor = catalog.advanceFloor(genesis.checkpointId(), 2, id32(4));
         assertArrayEquals(genesis.checkpointId(), firstFloor.checkpointId());
+        assertEquals(firstFloor, catalog.advanceFloor(genesis.checkpointId(), 2, id32(4)));
         assertEquals(List.of(genesis, child), catalog.recoverySet(child.checkpointId()));
 
         final RecoveryFloor secondFloor = catalog.advanceFloor(child.checkpointId(), 3, id32(5));
@@ -238,6 +239,7 @@ class RecoveryCatalogTest {
                 1, 4, 100, 11, 10);
         final RecoveryFloorRefV1 first = catalog.advanceFloor(genesis.checkpointId(), 1, List.of(older));
         assertEquals(first, catalog.currentFloorRef().orElseThrow());
+        assertEquals(first, catalog.advanceFloor(genesis.checkpointId(), 1, List.of(older)));
 
         final CheckpointManifest child = manifest(shard, ((KafkaSourcePosition) genesis.appliedShardLogPosition())
                 .nativeTopicUuid(), lineage, id16(85), 1, 2, 2,

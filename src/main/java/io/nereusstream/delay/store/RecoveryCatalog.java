@@ -69,6 +69,18 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
         if (typedFloorRef != null) {
             throw new IllegalStateException("typed Recovery Floor requires a typed successor");
         }
+        if (floor != null && expectedCatalogGeneration != Long.MAX_VALUE
+                && floor.catalogGeneration() == expectedCatalogGeneration + 1
+                && Bytes.constantTimeEquals(floor.checkpointId(), checkpointId)
+                && Bytes.constantTimeEquals(floor.evidenceCursorDigest(), evidenceCursorDigest)) {
+            final CheckpointManifest reread = manifests.get(key(checkpointId));
+            if (reread != null && Bytes.constantTimeEquals(reread.recoveryLineageId(), floor.recoveryLineageId())
+                    && Bytes.constantTimeEquals(reread.manifestSha256(), floor.manifestSha256())
+                    && reread.appliedShardLogPosition().equals(floor.appliedSourcePosition())
+                    && reread.shardMutationSequence() == floor.includedMutationSequence()) {
+                return floor;
+            }
+        }
         if (expectedCatalogGeneration != catalogGeneration) {
             throw new IllegalStateException("checkpoint catalog generation conflict");
         }
@@ -110,6 +122,19 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
                                                           final List<EvidenceCursorV1> evidenceCursors) {
         Objects.requireNonNull(checkpointId, "checkpointId");
         Objects.requireNonNull(evidenceCursors, "evidenceCursors");
+        if (typedFloorRef != null && expectedCatalogGeneration != Long.MAX_VALUE
+                && typedFloorRef.catalogGeneration() == expectedCatalogGeneration + 1
+                && Bytes.constantTimeEquals(typedFloorRef.checkpointId(), checkpointId)
+                && typedFloorRef.evidenceCursors().equals(evidenceCursors)) {
+            final CheckpointManifest reread = manifests.get(key(checkpointId));
+            if (reread != null && Bytes.constantTimeEquals(reread.recoveryLineageId(),
+                    typedFloorRef.recoveryLineageId())
+                    && Bytes.constantTimeEquals(reread.manifestSha256(), typedFloorRef.manifestSha256())
+                    && reread.appliedShardLogPosition().equals(typedFloorRef.appliedSourcePosition())
+                    && reread.shardMutationSequence() == typedFloorRef.includedMutationSequence()) {
+                return typedFloorRef;
+            }
+        }
         if (expectedCatalogGeneration != catalogGeneration) {
             throw new IllegalStateException("checkpoint catalog generation conflict");
         }
