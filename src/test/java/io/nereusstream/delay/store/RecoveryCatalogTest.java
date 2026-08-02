@@ -118,6 +118,14 @@ class RecoveryCatalogTest {
         final RecoveryPinV1 pin = new RecoveryPinV1(id16(63), new ShardSubjectV1(shard),
                 new OwnerIdentityV1(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(64)),
                 candidate, floorRef, floor.catalogGeneration(), id32(65));
+        final EvidenceCursorV1 unbound = EvidenceCursorV1.kafka(id32(67), id16(68), id16(69),
+                1, 1, 10, 2, 1);
+        final RecoveryFloorRefV1 mismatchedFloorRef = new RecoveryFloorRefV1(floor.recoveryLineageId(),
+                floor.checkpointId(), floor.manifestSha256(), floor.catalogGeneration(),
+                floor.appliedSourcePosition(), floor.includedMutationSequence(), List.of(unbound));
+        assertThrows(IllegalStateException.class, () -> catalog.createRecoveryPin(new RecoveryPinV1(
+                id16(70), new ShardSubjectV1(shard), pin.owner(), candidate, mismatchedFloorRef,
+                floor.catalogGeneration(), id32(71))));
 
         assertEquals(pin, catalog.createRecoveryPin(pin));
         assertEquals(java.util.Optional.of(pin), catalog.activeRecoveryPin());

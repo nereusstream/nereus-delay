@@ -435,7 +435,10 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
         if (typedFloorRef != null) {
             return typedFloorRef.equals(observed);
         }
-        return Bytes.constantTimeEquals(observed.recoveryLineageId(), floor.recoveryLineageId())
+        final CheckpointManifest floorManifest = manifests.get(key(floor.checkpointId()));
+        return floorManifest != null
+                && floorManifest.evidenceCursors().equals(observed.evidenceCursors())
+                && Bytes.constantTimeEquals(observed.recoveryLineageId(), floor.recoveryLineageId())
                 && Bytes.constantTimeEquals(observed.checkpointId(), floor.checkpointId())
                 && Bytes.constantTimeEquals(observed.manifestSha256(), floor.manifestSha256())
                 && observed.catalogGeneration() == floor.catalogGeneration()

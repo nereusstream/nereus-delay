@@ -16,6 +16,9 @@ successor after a lost CAS response without advancing the Floor twice.
 Typed Floor advancement now also requires the supplied evidence-cursor set to
 be byte-equal to the candidate checkpoint manifest's cursor set; a cursor not
 covered by that checkpoint cannot be promoted into the Floor projection.
+The legacy scalar-Floor compatibility path applies the same manifest-cursor
+check when creating a typed Recovery Pin, so compatibility does not create a
+weaker evidence boundary.
 
 Exact already-published manifests are similarly reread before generation CAS;
 same-checkpoint hash drift remains an integrity conflict.
