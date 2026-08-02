@@ -139,7 +139,9 @@ desired-placement plan 或 Owner Lease authority。
 Owner Lease 的本地 CAS 投影现在还按 V1 lifecycle graph 拒绝回退状态和
 `FENCED -> ACTIVE_FOR_COMMANDS` 复活；允许的前向 acquisition/activation
 跳转、fence 和 fenced recycle 都保留，真实 Oxia ephemeral session/CAS
-仍未完成。
+仍未完成。Activation 的本地 Oxia adapter 还会在 CAS response loss 后
+仅接受同一 fencing/assignment/session identity 的 exact `ACTIVE_FOR_COMMANDS`
+重读。
 
 本地 `RecoveryCatalog.publishUploadedCheckpoint` 现在要求 PUBLISHED intent
 与完整 manifest 的 shard、lineage、checkpoint、manifest hash/length、owner

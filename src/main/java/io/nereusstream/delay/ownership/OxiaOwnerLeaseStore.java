@@ -90,6 +90,24 @@ public final class OxiaOwnerLeaseStore implements OwnerLeaseStore {
         return Optional.of(transitioned);
     }
 
+    /**
+     * Re-reads an exact lifecycle successor when the transition response was
+     * lost after the backend CAS. A current lease with any changed fencing or
+     * assignment/session identity is not accepted as the response.
+     */
+    public Optional<OwnerLease> transitionOrRead(final OwnerLease expected, final ShardLifecycleState nextState) {
+        final Optional<OwnerLease> transitioned = transition(expected, nextState);
+        if (transitioned.isPresent()) {
+            return transitioned;
+        }
+        final Optional<OwnerLease> observed = current(expected.shardId());
+        if (observed.isPresent() && expected.sameIdentity(observed.get())
+                && observed.get().state() == nextState) {
+            return observed;
+        }
+        return Optional.empty();
+    }
+
     @Override
     public Optional<OwnerLease> current(final ShardId shardId) {
         Objects.requireNonNull(shardId, "shardId");

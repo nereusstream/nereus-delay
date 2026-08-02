@@ -307,7 +307,7 @@ public final class OwnedDelayShard {
         ensureActivationPreconditions(nowEpochMs);
         final OwnerLease transitioned;
         try {
-            transitioned = authority.transition(lease, ShardLifecycleState.ACTIVE_FOR_COMMANDS)
+            transitioned = authority.transitionOrRead(lease, ShardLifecycleState.ACTIVE_FOR_COMMANDS)
                     .orElseThrow(() -> new IllegalStateException("owner lease activation CAS was lost"));
         } catch (RuntimeException failure) {
             state = ShardLifecycleState.FENCED;

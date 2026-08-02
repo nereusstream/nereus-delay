@@ -20,7 +20,8 @@ same-checkpoint hash drift remains an integrity conflict.
 The local Owner Lease adapters now enforce the closed lifecycle transition
 matrix, including fail-closed backward transitions and fenced-lease
 non-reactivation; the real Oxia ephemeral session/CAS authority remains a
-release blocker.
+release blocker. Activation also rereads an exact same-identity
+`ACTIVE_FOR_COMMANDS` successor after a lost transition response.
 
 Shared RocksDB resources also retain checkpoint create/upload slot counts and
 reject close while either bounded worker operation is still in flight.

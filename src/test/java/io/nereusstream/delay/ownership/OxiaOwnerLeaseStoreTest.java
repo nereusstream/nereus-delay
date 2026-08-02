@@ -114,6 +114,47 @@ class OxiaOwnerLeaseStoreTest {
         assertThrows(IllegalStateException.class, () -> store.renew(expected, 150, 20));
     }
 
+    @Test
+    void transitionOrReadAcceptsOnlyExactSuccessorAfterResponseLoss() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 16);
+        final OwnerLease acquiring = new OwnerLease(shard, "worker-response-loss", 1, nonZero(32, 7), 200);
+        final OwnerLease active = new OwnerLease(shard, "worker-response-loss", 1, acquiring.leaseToken(), 200,
+                acquiring.context(), ShardLifecycleState.ACTIVE_FOR_COMMANDS);
+        final class Backend implements OxiaOwnerLeaseStore.LeaseCasBackend {
+            private OwnerLease current = acquiring;
+
+            @Override
+            public Optional<OwnerLease> acquire(final ShardId ignored, final String ownerId, final long now,
+                                                final long duration) {
+                return Optional.empty();
+            }
+
+            @Override
+            public Optional<OwnerLease> renew(final OwnerLease ignored, final long now, final long duration) {
+                return Optional.empty();
+            }
+
+            @Override
+            public boolean release(final OwnerLease ignored) {
+                return false;
+            }
+
+            @Override
+            public Optional<OwnerLease> transition(final OwnerLease ignored, final ShardLifecycleState next) {
+                current = active;
+                return Optional.empty();
+            }
+
+            @Override
+            public Optional<OwnerLease> current(final ShardId ignored) {
+                return Optional.of(current);
+            }
+        }
+        final OxiaOwnerLeaseStore store = new OxiaOwnerLeaseStore(new Backend());
+        assertEquals(active, store.transitionOrRead(acquiring, ShardLifecycleState.ACTIVE_FOR_COMMANDS)
+                .orElseThrow());
+    }
+
     private static byte[] nonZero(final int length, final int firstByte) {
         final byte[] value = new byte[length];
         value[0] = (byte) firstByte;
