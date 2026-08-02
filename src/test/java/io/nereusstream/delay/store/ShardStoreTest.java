@@ -85,6 +85,28 @@ class ShardStoreTest {
     }
 
     @Test
+    void openRejectsSymbolicActivePointer() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("symbolic-active"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 24);
+        final Path shardRoot = config.rootPath().resolve("shards")
+                .resolve(shardId.routeIncarnation().uuid().toString())
+                .resolve(Integer.toString(shardId.partition()));
+        Files.createDirectories(shardRoot);
+        final Path target = tempDir.resolve("active-target");
+        Files.write(target, Bytes.utf8("not-an-active-pointer"));
+        try {
+            Files.createSymbolicLink(shardRoot.resolve("ACTIVE"), target);
+        } catch (UnsupportedOperationException | java.nio.file.FileSystemException unsupported) {
+            return;
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+            final IllegalStateException failure = assertThrows(IllegalStateException.class,
+                    () -> ShardStore.open(config, shardId, resources));
+            assertTrue(failure.getCause() instanceof java.io.IOException);
+        }
+    }
+
+    @Test
     void sloOutboxStartAndMergedFinalSurviveReopen() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("slo-outbox"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 22);

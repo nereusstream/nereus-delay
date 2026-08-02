@@ -138,6 +138,9 @@ the slot is released before the caller closes the restored DB.
 Restore admission only treats a checksum-validated `ACTIVE` pointer target as
 the live incarnation; an orphan incarnation left before pointer installation
 does not block a new atomic restore and remains available for later repair.
+Normal `ShardStore.open` applies the same `NOFOLLOW_LINKS` rule and rejects a
+symbolic `ACTIVE` pointer before reading its target, so open and restore cannot
+disagree about the live-incarnation boundary.
 Runtime validation failures after staging begins now remove the private
 `restore-tmp` tree as well as releasing the download slot; a pre-acquisition
 concurrency rejection keeps its original bounded-resource error.
