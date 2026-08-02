@@ -293,6 +293,11 @@ Normal `ShardStore.open` applies the same `NOFOLLOW_LINKS` rule to the
 any symbolic path is rejected before it can be opened, so open and restore
 cannot disagree about the live-incarnation boundary; restore admission also
 rejects a symbolic incarnation or DB path behind a valid `ACTIVE` pointer.
+If the `ACTIVE` pointer itself names a missing or non-directory DB, restore
+now fails closed instead of treating the corrupt pointer as an orphan and
+overwriting it; `ShardStoreTest.restoreRejectsAnActivePointerWhoseDbIsMissing`
+covers this store-integrity boundary. An absent `ACTIVE` pointer remains the
+only case in which an orphan incarnation can be replaced by a new restore.
 Runtime validation failures after staging begins now remove the private
 `restore-tmp` tree as well as releasing the download slot; a pre-acquisition
 concurrency rejection keeps its original bounded-resource error.

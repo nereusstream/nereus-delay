@@ -304,10 +304,16 @@ public final class ShardStore implements AutoCloseable {
         final Path activeIncarnation = incarnations.resolve(activeStore.toString());
         final Path activeDb = activeIncarnation.resolve("db");
         if (Files.isSymbolicLink(incarnations) || Files.isSymbolicLink(activeIncarnation)
-                || Files.isSymbolicLink(activeDb)) {
+                || Files.isSymbolicLink(activeDb)
+                || !Files.isDirectory(incarnations, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                || !Files.isDirectory(activeIncarnation, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                || !Files.isDirectory(activeDb, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
             throw new IOException("active shard path must not contain a symbolic link: " + activeDb);
         }
-        return Files.isRegularFile(activeDb.resolve("CURRENT"), java.nio.file.LinkOption.NOFOLLOW_LINKS);
+        if (!Files.isRegularFile(activeDb.resolve("CURRENT"), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("ACTIVE points to a missing DB: " + activeDb);
+        }
+        return true;
     }
 
     private static UUID storeUuidFromPath(final Path dbPath) throws IOException {

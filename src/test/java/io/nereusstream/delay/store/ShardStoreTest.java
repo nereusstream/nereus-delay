@@ -279,6 +279,35 @@ class ShardStoreTest {
     }
 
     @Test
+    void restoreRejectsAnActivePointerWhoseDbIsMissing() throws Exception {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 31);
+        final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("active-corrupt-source"));
+        final Path checkpoint = tempDir.resolve("active-corrupt-checkpoint");
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(sourceConfig);
+             ShardStore source = ShardStore.open(sourceConfig, shardId, resources)) {
+            source.createCheckpoint(checkpoint);
+        }
+
+        final ShardStoreConfig targetConfig = ShardStoreConfig.defaults(tempDir.resolve("active-corrupt-target"));
+        final Path activeDb;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(targetConfig);
+             ShardStore target = ShardStore.open(targetConfig, shardId, resources)) {
+            activeDb = target.dbPath();
+        }
+        try (var paths = Files.walk(activeDb)) {
+            for (Path path : paths.sorted(java.util.Comparator.reverseOrder()).toList()) {
+                Files.deleteIfExists(path);
+            }
+        }
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(targetConfig)) {
+            final IllegalStateException failure = assertThrows(IllegalStateException.class,
+                    () -> ShardStore.restoreFromCheckpoint(targetConfig, shardId, resources, checkpoint));
+            assertTrue(failure.getCause() instanceof java.io.IOException);
+        }
+    }
+
+    @Test
     void restoreRejectsSymbolicActiveIncarnation() throws Exception {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 27);
         final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("symbolic-restore-source"));

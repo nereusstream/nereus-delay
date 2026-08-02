@@ -410,6 +410,10 @@ RocksDB reopen 证明不会遗留 native 文件锁。
 Restore admission 只把 checksum-validated `ACTIVE` pointer 指向的
 incarnation 视为 live DB；pointer 尚未切换时留下的 orphan incarnation 不会
 阻塞新的 atomic restore，且不会被悄悄当作 active 覆盖。
+如果 `ACTIVE` 本身存在但指向缺失或非目录 DB，restore 现在会把它视为
+store-integrity failure 并 fail closed，不会把损坏指针伪装成“无 active DB”后
+覆盖；只有不存在 `ACTIVE` 指针时才允许安装新的 incarnation。回归证据为
+`ShardStoreTest.restoreRejectsAnActivePointerWhoseDbIsMissing`。
 Normal `ShardStore.open` 也对 `ACTIVE`、incarnation、DB 目录和 `CURRENT`
 使用 `NOFOLLOW_LINKS` 并拒绝符号链接，因此 open 与 restore 对
 live-incarnation pointer 使用同一 fail-closed 边界；restore 也不会把
