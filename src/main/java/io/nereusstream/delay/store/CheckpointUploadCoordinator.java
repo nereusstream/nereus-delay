@@ -46,15 +46,21 @@ public final class CheckpointUploadCoordinator {
         if (pending.state() != CheckpointUploadStateV1.PENDING_UPLOAD) {
             throw new IllegalArgumentException("checkpoint upload requires PENDING_UPLOAD intent");
         }
-        if (nowEpochMs > pending.uploadDeadlineEpochMs()) {
+        validateManifestIdentity(pending, manifest);
+        final byte[] manifestBytes = manifest.canonicalJsonBytes();
+        final var published = intentStore.currentPublishedFor(pending);
+        if (published.isPresent()) {
+            final CheckpointUploadIntentV1 publishedIntent = published.orElseThrow();
+            validatePublishedResource(pending, manifest, publishedIntent.publishedManifest(), manifestBytes);
+            return publishedIntent;
+        }
+        if (nowEpochMs >= pending.uploadDeadlineEpochMs()) {
             throw new IllegalStateException("checkpoint upload intent deadline has expired");
         }
         final var current = intentStore.current();
         if (current.isEmpty() || !current.orElseThrow().equals(pending)) {
             throw new IllegalStateException("checkpoint upload intent is not the current exact pending value");
         }
-        validateManifestIdentity(pending, manifest);
-        final byte[] manifestBytes = manifest.canonicalJsonBytes();
         validateLocalCheckpoint(checkpointDirectory, manifest);
         final CheckpointUploadRequest request = new CheckpointUploadRequest(pending, manifest,
                 checkpointDirectory, manifestBytes);

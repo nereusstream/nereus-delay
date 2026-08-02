@@ -51,6 +51,23 @@ public final class CheckpointUploadIntentStore {
     }
 
     /**
+     * Rereads the exact PUBLISHED successor after a publication response loss.
+     * A different pending value, revision or resource identity is not treated
+     * as the caller's response.
+     */
+    public synchronized Optional<CheckpointUploadIntentV1> currentPublishedFor(
+            final CheckpointUploadIntentV1 expectedPending) {
+        Objects.requireNonNull(expectedPending, "expectedPending");
+        requireState(expectedPending, CheckpointUploadStateV1.PENDING_UPLOAD);
+        if (current == null || current.state() != CheckpointUploadStateV1.PUBLISHED) {
+            return Optional.empty();
+        }
+        final CheckpointUploadIntentV1 expectedPublished = next(expectedPending,
+                CheckpointUploadStateV1.PUBLISHED, current.publishedManifest(), null);
+        return current.equals(expectedPublished) ? Optional.of(current) : Optional.empty();
+    }
+
+    /**
      * Atomically competes for the PENDING_UPLOAD to REAPING transition.  The
      * evidence is retained in the value so a later reaper cannot treat a
      * deadline alone as delete authority.

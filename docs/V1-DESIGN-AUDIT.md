@@ -154,7 +154,9 @@ inventory、intent deadline 和 shard/lineage/owner/store/parent identity，取�
 Worker upload slot 后才调用 typed adapter；adapter 返回的 manifest object
 length/SHA-256/profile/lineage/checkpoint identity 不匹配时保持 PENDING_UPLOAD，
 只有校验通过才执行本地 PENDING_UPLOAD -> PUBLISHED CAS。这仍不是 provider
-attestation、Object Store immutability 或 Oxia intent/catalog transaction。
+attestation、Object Store immutability 或 Oxia intent/catalog transaction；
+同一 pending intent 在 response-loss 重试中会先精确重读已提交的
+PUBLISHED successor，且不再次调用 adapter。
 
 查询层也已补齐 `CheckpointSummaryV1`/`CheckpointCatalogResultV1` 的
 canonical checkpoint-catalog projection，包含 shard identity、Floor identity

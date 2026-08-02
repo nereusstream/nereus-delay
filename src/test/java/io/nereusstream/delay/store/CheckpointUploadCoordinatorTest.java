@@ -104,6 +104,28 @@ class CheckpointUploadCoordinatorTest {
         }
     }
 
+    @Test
+    void rereadsPublishedIntentAfterResponseLossWithoutCallingAdapter() throws Exception {
+        final Fixture fixture = fixture();
+        final CheckpointUploadIntentStore intentStore = new CheckpointUploadIntentStore();
+        intentStore.create(fixture.pending());
+        final AtomicBoolean retryCalled = new AtomicBoolean();
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(
+                ShardStoreConfig.defaults(tempDir.resolve("response-loss")))) {
+            final CheckpointUploadCoordinator coordinator = new CheckpointUploadCoordinator(resources, intentStore);
+            final CheckpointUploadIntentV1 first = coordinator.upload(fixture.directory(), fixture.pending(),
+                    fixture.manifest(), 1_000, request -> fixture.resource());
+            final CheckpointUploadIntentV1 reread = coordinator.upload(fixture.directory(), fixture.pending(),
+                    fixture.manifest(), fixture.pending().uploadDeadlineEpochMs(), request -> {
+                        retryCalled.set(true);
+                        throw new AssertionError("published response loss must reread before provider I/O");
+                    });
+            assertEquals(first, reread);
+            assertEquals(CheckpointUploadStateV1.PUBLISHED, reread.state());
+            assertEquals(false, retryCalled.get());
+        }
+    }
+
     private Fixture fixture() throws Exception {
         final Path directory = tempDir.resolve("checkpoint-" + UUID.randomUUID());
         Files.createDirectories(directory);
