@@ -75,8 +75,18 @@ public final class CheckpointUploadIntentStore {
     public synchronized CheckpointUploadIntentV1 beginReaping(
             final CheckpointUploadIntentV1 expectedPending,
             final TrustedUtcIntervalEvidence evidence) {
-        requireExpectedPending(expectedPending);
+        Objects.requireNonNull(expectedPending, "expectedPending");
+        requireState(expectedPending, CheckpointUploadStateV1.PENDING_UPLOAD);
         Objects.requireNonNull(evidence, "evidence");
+        if (current != null && current.state() == CheckpointUploadStateV1.REAPING) {
+            final CheckpointUploadIntentV1 expectedReaping = next(expectedPending,
+                    CheckpointUploadStateV1.REAPING, null, evidence);
+            if (current.equals(expectedReaping)) {
+                return current;
+            }
+            throw new IllegalStateException("checkpoint reaping successor does not match current state");
+        }
+        requireExpectedPending(expectedPending);
         current = next(expectedPending, CheckpointUploadStateV1.REAPING, null, evidence);
         return current;
     }

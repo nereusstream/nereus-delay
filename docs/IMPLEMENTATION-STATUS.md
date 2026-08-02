@@ -301,6 +301,11 @@ local store uses an `ACTIVE` checksummed pointer and an
 `incarnations/<storeIncarnation>/db` directory. Typed
 `CheckpointResourceV1`/`CheckpointUploadIntentV1` codecs now close the
 manifest-object identity and PENDING/PUBLISHED/REAPING branch rules. The
+local `CheckpointUploadIntentStore` also rereads an exact PENDING_UPLOAD ->
+REAPING successor after a lost transition response; a different reaping
+evidence value or pending identity remains a CAS conflict. This only closes
+the local intent projection; quiescence, exact-version Object Store deletion,
+final prefix sweep and Oxia authority remain pending.
 embedded `RecoveryCatalog` now selects and validates a published floor-eligible
 ancestry before local restore. Upload-intent catalog projection also accepts
 an exact same-checkpoint/manifest/object-identity reread after publication

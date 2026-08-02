@@ -59,7 +59,9 @@ class CheckpointUploadIntentStoreTest {
         assertEquals(reapingEvidence, reaping.reapingStartedAt());
         assertFalse(store.current().orElseThrow().state() == CheckpointUploadStateV1.PUBLISHED);
         assertThrows(IllegalStateException.class, () -> store.publish(pending, resource()));
-        assertThrows(IllegalStateException.class, () -> store.beginReaping(pending, reapingEvidence));
+        assertEquals(reaping, store.beginReaping(pending, reapingEvidence));
+        assertThrows(IllegalStateException.class,
+                () -> store.beginReaping(pending, evidence(2_001)));
     }
 
     @Test

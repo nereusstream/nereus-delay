@@ -211,6 +211,10 @@ Owner Lease/session CAS；`CheckpointResourceV1` 与
 也已补齐 manifest-object identity 和 PENDING/PUBLISHED/REAPING 的 canonical
 state branches；`CheckpointUploadIntentStore` 还提供了 exact-value create
 idempotency 与本地 PENDING_UPLOAD -> PUBLISHED/REAPING revision CAS 投影。
+其中 REAPING 竞争在 response loss 后可用相同 pending identity 和
+`reapingStartedAt` evidence 精确重读同一 successor；不同 evidence 仍 fail
+closed。该边界不等于 quiescence、exact-version Object Store delete/final
+prefix sweep 或 Oxia transaction。
 `OxiaRecoveryCatalog` 的 response boundary 现在会在 scalar/typed Floor CAS
 后 reread exact published manifest，并拒绝 lineage、manifest hash、source
 position、mutation sequence 或 typed evidence-cursor drift；typed 返回还必须
