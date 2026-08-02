@@ -246,6 +246,12 @@ PUBLISHED successor，且不再次调用 adapter。
 
 `SharedRocksDbResources` 现在也把 checkpoint create/upload slot 纳入进程级
 关闭保护；后台 checkpoint 或上传操作持有 slot 时，资源 close 会 fail closed。
+同一进程的 restore/download staging 也有独立的 Worker 级 slot，并在
+manifest/file 校验、临时目录复制、验证打开和 ACTIVE 安装完成后释放；真实
+restore 回归会在返回的 DB 仍保持打开时重新取得该 slot，证明不会把恢复并发
+额度错误地绑定到 DB 生命周期。`CheckpointScheduler` 则以确定性 shard
+jitter、due claim 上限和 in-flight fence 提供错峰调度；它是 process-local
+调度器，不冒充 checkpoint manifest、Upload Intent 或 Oxia catalog authority。
 
 查询层也已补齐 `CheckpointSummaryV1`/`CheckpointCatalogResultV1` 的
 canonical checkpoint-catalog projection，包含 shard identity、Floor identity
