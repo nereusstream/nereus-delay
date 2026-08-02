@@ -350,6 +350,12 @@ nested identity 和 owner 匹配，但
 真实 adapter 的 authenticated response、lease protection CAS/TTL authority、
 retention barrier、external proof ownership 仍是 release blocker。
 
+`ResolveUncertainBody` 的 `ATTACH_PUBLISHED_EVIDENCE`/
+`ATTACH_NOT_PUBLISHED_EVIDENCE` 分支也不再接受任意 opaque nested bytes，
+而是要求 typed evidence 的 Publish Attempt owner 和 verification status
+匹配；Resolve 的 source-ordered attachment apply、retry/charge projection
+和 authenticated control authority 仍未完成。
+
 `OwnedDelayShard` 现在还提供了带 assignment/barrier/source-connection 校验的
 统一 `replay` seam，以及兼容性的 `replayCatchup`/`replaySystemMutations`：
 Command 和 signed System Mutation 通过 `SourceReplayEntry` 在同一个

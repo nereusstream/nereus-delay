@@ -29,6 +29,10 @@ this codec boundary.
 `ReadyCertificateV1` and `PublishAdmissionBody` additionally reject a
 certificate whose credential binding drifts from the Channel or whose expiry
 outlives the protected Channel lease.
+`ResolveUncertainBody` now decodes evidence-attachment branches through the
+same typed `PublishEvidenceV1` owner/status checks; the source-ordered control
+applier still fail-closes those attachment branches until their full result
+and retry/charge projection is available.
 
 The bounded local Control Operation authority also rereads an exact CURRENT
 advance after response loss; it does not infer success for a later or

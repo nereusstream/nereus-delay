@@ -44,6 +44,10 @@ public final class ResolveUncertainBody {
         this.allowPossibleDeliveryTerminal = allowPossibleDeliveryTerminal;
         this.acknowledgementHash = Bytes.copy(acknowledgementHash);
         validateCombination();
+        if (resolutionKind == 1 || resolutionKind == 2) {
+            final PublishEvidenceV1 publishEvidence = PublishEvidenceV1.decode(this.evidence);
+            publishEvidence.requireBusinessMutation(this.publishAttemptId, resolutionKind == 1);
+        }
     }
 
     public static ResolveUncertainBody decode(final byte[] canonicalBody) {
