@@ -146,6 +146,13 @@ Object Store 真实性或 Oxia transaction。
 目标会被拒绝，失败 staging 会清理。这闭合的是本地物理 checkpoint 边界，
 不代表 Object Store 上传、manifest publication 或 Oxia CAS 已完成。
 
+`CheckpointUploadCoordinator` 现在在本地上传边界内先校验完整 checkpoint
+inventory、intent deadline 和 shard/lineage/owner/store/parent identity，取得
+Worker upload slot 后才调用 typed adapter；adapter 返回的 manifest object
+length/SHA-256/profile/lineage/checkpoint identity 不匹配时保持 PENDING_UPLOAD，
+只有校验通过才执行本地 PENDING_UPLOAD -> PUBLISHED CAS。这仍不是 provider
+attestation、Object Store immutability 或 Oxia intent/catalog transaction。
+
 查询层也已补齐 `CheckpointSummaryV1`/`CheckpointCatalogResultV1` 的
 canonical checkpoint-catalog projection，包含 shard identity、Floor identity
 和严格排序的 summary array；它仍只是 public query value codec，不代表
