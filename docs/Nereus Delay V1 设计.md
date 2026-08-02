@@ -2007,6 +2007,14 @@ Manifest/meta/Floor 将 cursor 按 `(evidenceKind, destinationLaneId, laneIncarn
 
 ### 16.2 Publication
 
+Worker 内的 checkpoint scheduler 只是 process-local 的错峰调度器，不是
+checkpoint manifest、Upload Intent 或 Oxia catalog authority。一次 due claim
+必须返回不可由 `shardId + dueAt` 重建的本地 claim 句柄；完成或失败回调只能用
+该 exact 句柄与当前 in-flight 状态做匹配。仅带 shard identity 的迟到回调必须
+fail closed，不能重置较新的 checkpoint attempt 的 next-due 时间，也不能把旧
+attempt 当成当前 attempt 完成。scheduler 重启或状态丢失不改变恢复正确性，必须
+回到 durable Upload Intent/Catalog 状态重新竞争。
+
 1. active DB 创建 unique local checkpoint；读取其 `meta_cf`，绑定 current lineage head/manifest hash并生成 canonical file inventory/checksum；成功创建物理 checkpoint 后立即取得一次 `TrustedUtcIntervalEvidenceV1 createdAt`，并把其 exact JSON projection 固定进 draft。此时只是 draft inventory，不是最终 manifest，但后续 retry 不得重采样或改善该时间区间。
 2. Oxia CAS 创建 Registry 的 exact `CheckpointUploadIntentV1(PENDING_UPLOAD)`，固定 checkpoint/lineage/parent、upload token、Owner/Store、base catalog、Object Store Profile、`createdAt` 与 bounded upload deadline；事务比较 exact active Owner Lease/session/Store 和 base catalog。
 3. 向 immutable unique prefix 上传每个 inventory file，取得 exact object key/version/etag，逐个 HEAD/read + SHA-256 校验。

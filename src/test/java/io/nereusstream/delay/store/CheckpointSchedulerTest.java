@@ -22,11 +22,11 @@ class CheckpointSchedulerTest {
         assertEquals(firstDue, second.register(shard, 10_000));
         assertTrue(firstDue >= 10_800 && firstDue <= 11_200);
         assertTrue(first.claimDue(firstDue - 1, 1).isEmpty());
-        assertEquals(List.of(new CheckpointScheduler.ScheduledCheckpoint(shard, firstDue)),
-                first.claimDue(firstDue, 1));
+        final CheckpointScheduler.ScheduledCheckpoint firstClaim = first.claimDue(firstDue, 1).get(0);
+        assertEquals(new CheckpointScheduler.ScheduledCheckpoint(shard, firstDue), firstClaim);
         assertTrue(first.isInFlight(shard));
         assertTrue(first.claimDue(firstDue + 1, 1).isEmpty());
-        final long nextDue = first.complete(shard, 12_000);
+        final long nextDue = first.complete(firstClaim, 12_000);
         assertTrue(nextDue >= 12_800 && nextDue <= 13_200);
         assertFalse(first.isInFlight(shard));
     }
@@ -39,10 +39,37 @@ class CheckpointSchedulerTest {
         scheduler.register(first, 0);
         assertThrows(IllegalStateException.class, () -> scheduler.register(first, 0));
         assertThrows(IllegalStateException.class, () -> scheduler.register(second, 0));
-        assertEquals(1, scheduler.claimDue(100, 10).size());
+        final CheckpointScheduler.ScheduledCheckpoint claim = scheduler.claimDue(100, 10).get(0);
         assertThrows(IllegalStateException.class, () -> scheduler.unregister(first));
-        assertNotEquals(0, scheduler.complete(first, 100));
+        assertNotEquals(0, scheduler.complete(claim, 100));
         scheduler.unregister(first);
         assertEquals(0, scheduler.size());
+    }
+
+    @Test
+    void lateCompletionFromAnEarlierClaimCannotRescheduleANewerClaim() {
+        final CheckpointScheduler scheduler = new CheckpointScheduler(100, 0, 1);
+        final ShardId shard = new ShardId(RouteIncarnation.fromUuid(new java.util.UUID(7, 8)), 0);
+        scheduler.register(shard, 0);
+
+        final CheckpointScheduler.ScheduledCheckpoint firstClaim = scheduler.claimDue(100, 1).get(0);
+        scheduler.complete(firstClaim, 100);
+        final CheckpointScheduler.ScheduledCheckpoint secondClaim = scheduler.claimDue(200, 1).get(0);
+
+        assertThrows(IllegalStateException.class, () -> scheduler.complete(firstClaim, 201));
+        assertTrue(scheduler.isInFlight(shard));
+        assertNotEquals(0, scheduler.complete(secondClaim, 201));
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    void shardOnlyCompletionFailsClosedBecauseItCannotCarryClaimIdentity() {
+        final CheckpointScheduler scheduler = new CheckpointScheduler(100, 0, 1);
+        final ShardId shard = new ShardId(RouteIncarnation.fromUuid(new java.util.UUID(9, 10)), 0);
+        scheduler.register(shard, 0);
+        scheduler.claimDue(100, 1);
+
+        assertThrows(IllegalStateException.class, () -> scheduler.complete(shard, 100));
+        assertTrue(scheduler.isInFlight(shard));
     }
 }

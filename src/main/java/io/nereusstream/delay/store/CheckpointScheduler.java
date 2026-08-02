@@ -58,7 +58,7 @@ public final class CheckpointScheduler {
             throw new IllegalStateException("checkpoint scheduler shard limit reached");
         }
         final long due = nextDue(nowEpochMs, shardId);
-        states.put(shardId, new State(due, false));
+        states.put(shardId, new State(due, null, false));
         return due;
     }
 
@@ -73,7 +73,10 @@ public final class CheckpointScheduler {
 
     /**
      * Claims at most {@code limit} due shards.  Claimed shards are omitted
-     * from later polls until {@link #complete(ShardId, long)} is called.
+     * from later polls until the exact {@link ScheduledCheckpoint} returned
+     * by this method is passed to {@link #complete(ScheduledCheckpoint, long)}.
+     * The returned value is a process-local claim handle; callers must not
+     * reconstruct it from the shard ID and due time.
      */
     public synchronized List<ScheduledCheckpoint> claimDue(final long nowEpochMs, final int limit) {
         requireTime(nowEpochMs, "nowEpochMs");
@@ -91,21 +94,38 @@ public final class CheckpointScheduler {
         final int claimed = Math.min(limit, due.size());
         for (int index = 0; index < claimed; index++) {
             final ScheduledCheckpoint task = due.get(index);
-            states.put(task.shardId(), new State(task.dueAtEpochMs(), true));
+            states.put(task.shardId(), new State(task.dueAtEpochMs(), task, true));
         }
         return List.copyOf(due.subList(0, claimed));
     }
 
     /** Reschedules a successfully completed or failed checkpoint attempt. */
-    public synchronized long complete(final ShardId shardId, final long completedAtEpochMs) {
+    public synchronized long complete(final ScheduledCheckpoint claimed, final long completedAtEpochMs) {
         requireTime(completedAtEpochMs, "completedAtEpochMs");
-        final State state = requireState(shardId);
-        if (!state.inFlight()) {
-            throw new IllegalStateException("checkpoint shard is not in flight: " + shardId);
+        Objects.requireNonNull(claimed, "claimed");
+        final State state = requireState(claimed.shardId());
+        if (!state.inFlight() || state.claim() != claimed) {
+            throw new IllegalStateException("checkpoint claim is no longer current: " + claimed.shardId());
         }
-        final long due = nextDue(completedAtEpochMs, shardId);
-        states.put(shardId, new State(due, false));
+        final long due = nextDue(completedAtEpochMs, claimed.shardId());
+        states.put(claimed.shardId(), new State(due, null, false));
         return due;
+    }
+
+    /**
+     * A completion that carries only a shard ID cannot be fenced against a
+     * late callback from an earlier checkpoint attempt.  Keep this overload
+     * as a source-compatible fail-closed trap for callers that have not yet
+     * migrated to the exact claim handle.
+     *
+     * @deprecated pass the exact value returned by {@link #claimDue(long, int)}
+     *             to {@link #complete(ScheduledCheckpoint, long)}.
+     */
+    @Deprecated
+    public synchronized long complete(final ShardId shardId, final long completedAtEpochMs) {
+        Objects.requireNonNull(shardId, "shardId");
+        requireTime(completedAtEpochMs, "completedAtEpochMs");
+        throw new IllegalStateException("checkpoint completion requires the exact claim handle");
     }
 
     public synchronized boolean isInFlight(final ShardId shardId) {
@@ -151,7 +171,7 @@ public final class CheckpointScheduler {
         }
     }
 
-    private record State(long dueAtEpochMs, boolean inFlight) {
+    private record State(long dueAtEpochMs, ScheduledCheckpoint claim, boolean inFlight) {
     }
 
     public record ScheduledCheckpoint(ShardId shardId, long dueAtEpochMs) {
