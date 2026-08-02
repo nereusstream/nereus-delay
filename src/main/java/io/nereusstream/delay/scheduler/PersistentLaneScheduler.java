@@ -20,9 +20,11 @@ import io.nereusstream.delay.store.ValueEnvelope;
 import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Durable fairness wrapper for a shard-local {@link LaneScheduler}.
@@ -39,6 +41,7 @@ public final class PersistentLaneScheduler {
     private final OwnerIdentityV1 owner;
     private final Map<DestinationLaneId, LaneRecord> registered = new HashMap<>();
     private final PersistedState persisted;
+    private final Set<DestinationLaneId> recoveryServed = new HashSet<>();
     private long ringGeneration;
     private byte[] lastScannedReadyKey;
     private long wrapGeneration;
@@ -103,7 +106,9 @@ public final class PersistentLaneScheduler {
                 }).toList();
         delegate.restore(new LaneScheduler.SchedulerSnapshot(persisted.activeRing().nextIndex(),
                 persisted.round().roundGeneration(), snapshots));
-        recoveryFirstPass = persisted.round().recoveryFirstPass();
+        final boolean ownerChanged = !persisted.round().owner().equals(owner);
+        recoveryFirstPass = ownerChanged || persisted.round().recoveryFirstPass();
+        recoveryServed.clear();
         persistedRestored = true;
     }
 
@@ -140,6 +145,8 @@ public final class PersistentLaneScheduler {
         }
         delegate.replacePending(new ArrayList<>(byLane.values()));
         delegate.rebuildActiveRing(activeOrder);
+        recoveryFirstPass = true;
+        recoveryServed.clear();
         if (entries.isEmpty()) {
             lastScannedReadyKey = null;
         } else {
@@ -160,7 +167,22 @@ public final class PersistentLaneScheduler {
     }
 
     public synchronized List<ScheduleWorkItem> poll(final SchedulerBudget budget) {
-        final List<ScheduleWorkItem> result = delegate.poll(budget);
+        final List<ScheduleWorkItem> result;
+        if (recoveryFirstPass) {
+            final Set<DestinationLaneId> eligible = delegate.snapshot().lanes().stream()
+                    .filter(state -> state.schedulable() && state.pendingItems() > 0)
+                    .map(LaneScheduler.LaneSnapshot::laneId)
+                    .collect(java.util.stream.Collectors.toSet());
+            recoveryServed.retainAll(eligible);
+            result = delegate.pollRecoveryFirstPass(budget, recoveryServed);
+            result.forEach(item -> recoveryServed.add(item.laneId()));
+            if (!eligible.isEmpty() && recoveryServed.containsAll(eligible)) {
+                recoveryFirstPass = false;
+                recoveryServed.clear();
+            }
+        } else {
+            result = delegate.poll(budget);
+        }
         persist();
         return result;
     }
@@ -235,7 +257,6 @@ public final class PersistentLaneScheduler {
             batch.putValue(ColumnFamily.META, VALUE_TYPE, KeyCodec.metaScheduler(4), round.canonicalBytes());
             batch.putValue(ColumnFamily.META, VALUE_TYPE, KeyCodec.metaScheduler(5), lastServedMap.canonicalBytes());
         });
-        recoveryFirstPass = false;
     }
 
     private List<ShardStore.KeyValue> scanReadyEntries(final int limit) {

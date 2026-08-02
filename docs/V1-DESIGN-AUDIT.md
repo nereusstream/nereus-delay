@@ -103,7 +103,11 @@ generation/status，并从 Message 的 source position 重算 exact timeline key
 digest 与 timeline value，再一次性替换内存 pending heads 与 active DRR ring；旧、
 孤儿、重复或非 schedulable projection 会 fail closed。`ReadyDiscoveryCursor` 的
 `lastScannedReadyKey`、`wrapGeneration` 和 active-ring generation 也会在同一组
-SCHEDULER projection 中持久化，恢复不会把 stale Lane 重新加入 ring。该实现证明
+SCHEDULER projection 中持久化，恢复不会把 stale Lane 重新加入 ring。恢复时还会
+比较 `SchedulerRoundV1.owner` 与当前 Owner；Owner/Store 更换会重新进入
+`recovery_first_pass`，由 `LaneScheduler` 跟踪已服务 Lane，保证第一轮对每个当前
+eligible Lane 至多取一条记录，直到所有已发现 Lane 都获得机会；fenced READY rebuild
+同样重启该 pass。该实现证明
 的是单 DB 内的本地物理边界和确定性恢复顺序，不等于 Oxia owner/session fence、
 typed `ActiveLaneStateV1` 运行时切换或真实 Lane certificate/adapter activation。
 Worker 外层 DRR 也只把至少含有一个 schedulable pending head 的 shard 纳入 visit，

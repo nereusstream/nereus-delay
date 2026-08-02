@@ -60,8 +60,28 @@ public final class LaneScheduler {
 
     public synchronized List<ScheduleWorkItem> poll(final SchedulerBudget budget) {
         Objects.requireNonNull(budget, "budget");
+        return pollInternal(budget, Set.of(), false);
+    }
+
+    /**
+     * Serves at most one item from each lane that is not already present in
+     * {@code alreadyServed}. Persistent recovery uses this bounded mode for
+     * the first rotation after an owner/store restart; normal scheduling keeps
+     * the regular DRR behavior above.
+     */
+    synchronized List<ScheduleWorkItem> pollRecoveryFirstPass(final SchedulerBudget budget,
+                                                               final Set<DestinationLaneId> alreadyServed) {
+        Objects.requireNonNull(alreadyServed, "alreadyServed");
+        return pollInternal(budget, Set.copyOf(alreadyServed), true);
+    }
+
+    private List<ScheduleWorkItem> pollInternal(final SchedulerBudget budget,
+                                                final Set<DestinationLaneId> excludedLanes,
+                                                final boolean onePerLane) {
+        Objects.requireNonNull(budget, "budget");
         final long started = System.nanoTime();
         final List<ScheduleWorkItem> result = new ArrayList<>();
+        final Set<DestinationLaneId> servedThisPoll = new HashSet<>();
         long bytes = 0;
         int visits = 0;
         final int ringSize = ring.size();
@@ -73,8 +93,12 @@ public final class LaneScheduler {
             final DestinationLaneId id = ring.get(cursor % ringSize);
             cursor = (cursor + 1) % ringSize;
             visits++;
+            if (excludedLanes.contains(id) || (onePerLane && !servedThisPoll.add(id))) {
+                continue;
+            }
             final LaneQueue lane = lanes.get(id);
             if (lane == null || !lane.schedulable() || lane.queue.isEmpty()) {
+                servedThisPoll.remove(id);
                 continue;
             }
             lane.deficit = Math.min(lane.deficit + lane.weight * quantumBytes,

@@ -6,6 +6,7 @@ import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.LaneRecordEnvelopeV1;
 import io.nereusstream.delay.protocol.OrderingMode;
+import io.nereusstream.delay.protocol.OwnerIdentityV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.SchedulerProjectionsV1;
 import io.nereusstream.delay.protocol.ShardId;
@@ -104,6 +105,52 @@ class LaneSchedulerTest {
     }
 
     @Test
+    void ownerChangeRestartsRecoveryFirstPassWithoutServingLaneTwice() {
+        final DestinationLaneId first = lane(18);
+        final DestinationLaneId second = lane(19);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 18);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("owner-change-first-pass"));
+        final OwnerIdentityV1 firstOwner = owner(1);
+        final OwnerIdentityV1 secondOwner = owner(2);
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final PersistentLaneScheduler scheduler = new PersistentLaneScheduler(store, LaneScheduler.defaults(),
+                    firstOwner);
+            scheduler.register(record(first, 1));
+            scheduler.register(record(second, 1));
+            scheduler.offer(item(first, 1));
+            scheduler.offer(item(first, 2));
+            scheduler.offer(item(second, 1));
+            scheduler.offer(item(second, 2));
+
+            final List<ScheduleWorkItem> firstVisit = scheduler.poll(
+                    new SchedulerBudget(8, 1024, 1_000_000_000));
+            assertEquals(2, firstVisit.size());
+            assertEquals(2, firstVisit.stream().map(ScheduleWorkItem::laneId).distinct().count());
+        }
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final PersistentLaneScheduler scheduler = new PersistentLaneScheduler(store, LaneScheduler.defaults(),
+                    secondOwner);
+            scheduler.register(record(first, 1));
+            scheduler.register(record(second, 1));
+            scheduler.restorePersistedState();
+            scheduler.offer(item(first, 3));
+            scheduler.offer(item(first, 4));
+            scheduler.offer(item(second, 3));
+            scheduler.offer(item(second, 4));
+
+            final List<ScheduleWorkItem> firstVisitAfterOwnerChange = scheduler.poll(
+                    new SchedulerBudget(8, 1024, 1_000_000_000));
+            assertEquals(2, firstVisitAfterOwnerChange.size());
+            assertEquals(2, firstVisitAfterOwnerChange.stream()
+                    .map(ScheduleWorkItem::laneId).distinct().count());
+        }
+    }
+
+    @Test
     void persistsAllFiveClosedSchedulerProjectionsTogether() {
         final DestinationLaneId lane = lane(6);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 6);
@@ -183,5 +230,11 @@ class LaneSchedulerTest {
         final byte[] bytes = new byte[32];
         bytes[31] = (byte) value;
         return new DestinationLaneId(bytes);
+    }
+
+    private static OwnerIdentityV1 owner(final long epoch) {
+        return new OwnerIdentityV1(Bytes.utf8("scheduler-deployment"),
+                Bytes.utf8("scheduler-worker-" + epoch), epoch,
+                Bytes.sha256(Bytes.utf8("scheduler-owner-" + epoch)));
     }
 }
