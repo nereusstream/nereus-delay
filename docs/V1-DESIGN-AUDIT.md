@@ -134,6 +134,11 @@ guard 或 production activation transaction。
 和 store incarnation 完全一致后才接受 catalog projection；这仍不等于
 Object Store 真实性或 Oxia transaction。
 
+`ShardStore.createCheckpoint` 现在先把完整 RocksDB 镜像写入同文件系统的
+`checkpoint-tmp` 命名空间，完成后才通过 atomic rename 安装到目标路径；已有
+目标会被拒绝，失败 staging 会清理。这闭合的是本地物理 checkpoint 边界，
+不代表 Object Store 上传、manifest publication 或 Oxia CAS 已完成。
+
 查询层也已补齐 `CheckpointSummaryV1`/`CheckpointCatalogResultV1` 的
 canonical checkpoint-catalog projection，包含 shard identity、Floor identity
 和严格排序的 summary array；它仍只是 public query value codec，不代表

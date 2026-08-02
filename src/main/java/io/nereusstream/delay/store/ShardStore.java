@@ -571,20 +571,53 @@ public final class ShardStore implements AutoCloseable {
     }
 
     public Path createCheckpoint(final Path checkpointPath) {
+        Objects.requireNonNull(checkpointPath, "checkpointPath");
         resources.acquireCheckpointCreateSlot();
+        Path temporary = null;
         try {
-            if (Files.exists(checkpointPath)) {
+            if (Files.exists(checkpointPath, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                    || Files.isSymbolicLink(checkpointPath)) {
                 throw new IOException("checkpoint target already exists: " + checkpointPath);
             }
-            Files.createDirectories(checkpointPath.toAbsolutePath().getParent());
-            try (Checkpoint checkpoint = Checkpoint.create(db)) {
-                checkpoint.createCheckpoint(checkpointPath.toString());
+            final Path absoluteTarget = checkpointPath.toAbsolutePath();
+            final Path parent = absoluteTarget.getParent();
+            if (parent == null) {
+                throw new IOException("checkpoint target has no parent: " + checkpointPath);
             }
-            return checkpointPath;
+            Files.createDirectories(parent);
+            final Path stagingRoot = parent.resolve("checkpoint-tmp");
+            Files.createDirectories(stagingRoot);
+            temporary = stagingRoot.resolve(UUID.randomUUID().toString());
+            try (Checkpoint checkpoint = Checkpoint.create(db)) {
+                checkpoint.createCheckpoint(temporary.toString());
+            }
+            forceDirectory(temporary);
+            try {
+                Files.move(temporary, absoluteTarget, StandardCopyOption.ATOMIC_MOVE);
+            } catch (java.nio.file.FileAlreadyExistsException exception) {
+                throw new IOException("checkpoint target appeared during creation: " + absoluteTarget, exception);
+            }
+            temporary = null;
+            forceDirectory(parent);
+            return absoluteTarget;
         } catch (RocksDBException | IOException exception) {
             throw new IllegalStateException("cannot create RocksDB checkpoint", exception);
         } finally {
+            if (temporary != null) {
+                try {
+                    deleteTree(temporary);
+                } catch (IOException cleanupException) {
+                    // Preserve the creation failure; an orphan is still kept
+                    // under the bounded checkpoint-tmp namespace for repair.
+                }
+            }
             resources.releaseCheckpointCreateSlot();
+        }
+    }
+
+    private static void forceDirectory(final Path directory) throws IOException {
+        try (FileChannel channel = FileChannel.open(directory, StandardOpenOption.READ)) {
+            channel.force(true);
         }
     }
 

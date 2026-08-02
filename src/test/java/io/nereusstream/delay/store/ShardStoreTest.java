@@ -66,6 +66,24 @@ class ShardStoreTest {
     }
 
     @Test
+    void checkpointUsesTemporaryNamespaceAndRejectsExistingTarget() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("checkpoint-atomic"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 23);
+        final Path checkpoint = tempDir.resolve("checkpoint-atomic-output");
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            assertEquals(checkpoint.toAbsolutePath(), store.createCheckpoint(checkpoint));
+            assertTrueFile(checkpoint.resolve("CURRENT"));
+            final Path stagingRoot = checkpoint.getParent().resolve("checkpoint-tmp");
+            try (var paths = Files.list(stagingRoot)) {
+                assertEquals(List.of(), paths.toList());
+            }
+            assertThrows(IllegalStateException.class, () -> store.createCheckpoint(checkpoint));
+            assertTrueFile(checkpoint.resolve("CURRENT"));
+        }
+    }
+
+    @Test
     void sloOutboxStartAndMergedFinalSurviveReopen() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("slo-outbox"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 22);

@@ -7,10 +7,12 @@ normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20�
 the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
-The checkpoint code now covers the local physical boundary: checksum the full
-RocksDB directory, emit the closed manifest JSON projection, and install a
-validated checkpoint into a new local Store Incarnation without merging into an
-open DB. The local store uses an `ACTIVE` checksummed pointer and an
+The checkpoint code now covers the local physical boundary: create the complete
+RocksDB image under the same-filesystem `checkpoint-tmp` namespace, atomically
+rename it into the requested checkpoint path, checksum the full directory,
+emit the closed manifest JSON projection, and install a validated checkpoint
+into a new local Store Incarnation without merging into an open DB. The local
+store uses an `ACTIVE` checksummed pointer and an
 `incarnations/<storeIncarnation>/db` directory. Typed
 `CheckpointResourceV1`/`CheckpointUploadIntentV1` codecs now close the
 manifest-object identity and PENDING/PUBLISHED/REAPING branch rules. The
@@ -192,7 +194,7 @@ to the intended modules:
 | Seven application CFs plus empty `default` CF | Implemented | `ShardStore` descriptor validation |
 | Shard identity and local Store Incarnation validation | Implemented | `StoreMetadata`, `ShardStoreTest` |
 | Synchronous atomic WriteBatch | Implemented | `ShardStore.write`, `ShardStoreTest` |
-| Native RocksDB checkpoint creation | Implemented | `ShardStore.createCheckpoint`, `ShardStoreTest` |
+| Native RocksDB checkpoint creation | Implemented | `ShardStore.createCheckpoint`, `ShardStoreTest`; checkpoint creation is staged under the same-filesystem `checkpoint-tmp` namespace, rejects an existing target, and installs only through an atomic rename with failed-stage cleanup |
 | Checkpoint file inventory and canonical manifest projection | Implemented (local CAS projection; external publication pending) | `CheckpointFileInventory`, `CheckpointManifest`, `CheckpointManifestJson`, `CheckpointResourceV1`, `CheckpointUploadStateV1`, `CheckpointUploadIntentV1`, `CheckpointUploadIntentStore`, `CheckpointManifestTest`, `CheckpointResourceV1Test`, `CheckpointUploadIntentV1Test`, `CheckpointUploadIntentStoreTest`; inventory streams SHA-256 over each file without loading an SST into heap and rejects symbolic links before restore/copy, while the manifest decoder enforces the closed field order/types, Kafka/Pulsar typed `EvidenceCursorV1` branches, strict cursor identity ordering and byte-identical canonical JSON round trip; the published-manifest Object Store identity and upload-intent state branches have closed canonical codecs, and the local store enforces exact create idempotency plus PENDING_UPLOAD -> PUBLISHED/REAPING revision CAS transitions, while real Oxia lease/session/catalog CAS, Object Store upload/attestation/publication and reaping/quiescence remain pending |
 | Checkpoint restore into a new Store Incarnation | Implemented (local manifest/catalog-validated path) | `ShardStore.restoreFromCheckpoint`, `CheckpointManifest.decodeCanonicalJson`, `ShardStoreTest`; raw canonical manifest bytes are decoded and catalog-validated before local file verification, then installed as a new Store Incarnation; Oxia Recovery Pin/Floor CAS and source replay pending |
 | Recovery catalog, lineage and Floor selection | Implemented (typed local codecs, typed cursor-dominant Floor projection, upload-intent-bound publication and bounded in-memory pin authority; Oxia CAS pending) | `RecoveryFloorRefV1`, `RecoveryCandidateRefV1`, `RecoveryPinV1`, `EvidenceCursorV1`, `RecoveryCatalog`, `RecoveryCatalogAuthority`, `OxiaRecoveryCatalog`, `RecoveryFloor`, `RecoveryFloorRefV1Test`, `RecoveryCandidateRefV1Test`, `RecoveryPinV1Test`, `EvidenceCursorV1Test`, `RecoveryCatalogTest`; the typed references canonically bind lineage/checkpoint/manifest, catalog generation, Source Position, mutation sequence, sorted evidence cursors, candidate branch and session identity digest; the local catalog still binds one shard, rejects non-zero genesis lineage, enforces floor ancestry, exposes candidate validation/selection and `proveFloorCoverage`, requires same-generation cursor dominance for typed Floor advancement, requires a PUBLISHED `CheckpointUploadIntentV1` plus exact manifest/object/owner/store identity for the local publication projection, and supports one exact active-pin create/idempotent-reread/release projection with typed Floor equality checks; durable Oxia Owner Lease/session and catalog/Floor CAS, real Object Store publication/attestation, and evidence-cursor retention/dominance enforcement remain pending |
