@@ -56,6 +56,9 @@ class SourceActivationBarrierTest {
         assertThrows(IllegalArgumentException.class, () -> barrier.validatePosition(new PulsarSourcePosition(shard,
                 Bytes.sha256(Bytes.utf8("replacement-resource")), "persistent://t/empty", 1, 1, 0, 1,
                 PulsarSourcePosition.EntryKind.NON_BATCH, 1)));
+        assertThrows(IllegalArgumentException.class, () -> barrier.reachedBy(new PulsarSourcePosition(shard,
+                Bytes.sha256(Bytes.utf8("replacement-resource")), "persistent://t/empty", 1, 1, 0, 1,
+                PulsarSourcePosition.EntryKind.NON_BATCH, 1)));
     }
 
     @Test

@@ -684,6 +684,7 @@ Activation Barrier 是带 Broker 类型和边界方向的 cursor，不与普通 
 - Pulsar：取得 lease 后，Exclusive consumer 的 initial connect/reconnect 先由 source-locked `PULSAR_SUBSCRIBE_RESOURCE_GUARD_V1` 在 Broker add-consumer 前验证 exact Command Topic resource token、physical-topic creation identity、partition 与 principal。只允许从这个仍有效的 guarded consumer connection generation 调用 batch-aware `getLastMessageId`；response 与其 resource identity/partition/connection-generation attestation 一起写 `PULSAR_INCLUSIVE_MESSAGE_ID(resource,partition,m)`。API/transport 若只能给 name-bound MessageId 而不能证明同一 guarded resource generation，Route 不得激活。只有 `m` 及其最后一个 batch member都已 durable apply/quarantine 后才达到 barrier。
 
 空 partition 使用显式 `EMPTY_BARRIER`（Kafka pinned Fetch LSO `0` 或 Pulsar negative-entry sentinel 经 Adapter 规范化）。Barrier 固定 Route Incarnation、物理 topic/partition、Broker type 和 captured value；捕获失败、类型错误或身份不匹配时不能进入 `ACTIVE_FOR_COMMANDS`。
+即使是空 Pulsar barrier，也必须先校验本地已有非空 cursor 的 resource incarnation 与 physical topic；空边界只表示无需重放记录，不会放宽物理 source identity。旧 DB 中来自另一 Pulsar resource 的 cursor 必须 fail closed，不能直接激活。
 
 ### 8.4 ACK-after-sync
 

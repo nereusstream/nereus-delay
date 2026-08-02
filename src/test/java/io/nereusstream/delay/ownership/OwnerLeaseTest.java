@@ -307,6 +307,36 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void emptyPulsarBarrierRejectsAStalePersistedCursorBeforeActivation() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 17);
+        final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = authority.acquire(shardId, "worker-empty-pulsar", 100, 100).orElseThrow();
+        final byte[] staleResource = Bytes.sha256(Bytes.utf8("stale-pulsar-resource"));
+        final byte[] assignedResource = Bytes.sha256(Bytes.utf8("assigned-pulsar-resource"));
+        final byte[] guard = Bytes.sha256(Bytes.utf8("empty-pulsar-guard"));
+        final String topic = "persistent://tenant/empty-pulsar";
+        final PulsarSourcePosition stalePosition = new PulsarSourcePosition(shardId, staleResource, topic,
+                4, 8, 0, 1, PulsarSourcePosition.EntryKind.NON_BATCH, 1_000);
+        final PulsarActivationBarrier barrier = PulsarActivationBarrier.empty(shardId, assignedResource, topic,
+                7, guard);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("empty-pulsar-barrier"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard delegate = new DelayShard(store, DelayShardConfig.defaults());
+            final PreparedCommand command = PreparedCommand.schedule(shardId,
+                    new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("empty-pulsar-lane")), 2_000, 5_000,
+                            OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+            delegate.apply(command, stalePosition);
+
+            final OwnedDelayShard owned = new OwnedDelayShard(delegate, lease);
+            owned.markCatchingUp(new SourceAssignment(shardId,
+                    Bytes.sha256(Bytes.utf8("assignment-empty-pulsar")), 1, barrier));
+            assertThrows(IllegalArgumentException.class, () -> owned.activateForCommands(101));
+            assertEquals(ShardLifecycleState.CATCHING_UP, owned.state());
+        }
+    }
+
+    @Test
     void catchupCursorRejectsSameKafkaOffsetWithDifferentCanonicalMetadata() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 16);
         final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();

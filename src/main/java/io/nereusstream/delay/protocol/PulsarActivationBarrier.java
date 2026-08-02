@@ -99,6 +99,14 @@ public record PulsarActivationBarrier(
     @Override
     public boolean reachedBy(final SourcePosition lastAppliedPosition) {
         if (empty) {
+            // An empty barrier means that no replayed record is required; it
+            // does not discard the physical source identity captured by the
+            // assignment.  Validate a persisted cursor before accepting it,
+            // otherwise a stale DB from another Pulsar resource could satisfy
+            // the barrier without any catch-up record.
+            if (lastAppliedPosition != null) {
+                validatePosition(lastAppliedPosition);
+            }
             return true;
         }
         if (lastAppliedPosition == null) {
