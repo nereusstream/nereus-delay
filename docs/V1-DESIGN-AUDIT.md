@@ -85,6 +85,9 @@ construct/authorize source mutation identities.
 `PreparedControlOperationV1` now closes the pre-I/O request/target hashes,
 prepared digest and Ed25519 signature locally; its bytes are not an Oxia
 registration receipt and do not establish actor/role or target authority.
+The registration outcome/proof union is likewise local evidence projection:
+only authenticated Oxia response evidence can construct the conditional
+rejection branch, while timeout/session ambiguity remains `RECORD_UNCERTAIN`.
 
 | 事件 | 唯一 authority / 线性化点 | 明确不构成 authority 的事件 |
 |---|---|---|
