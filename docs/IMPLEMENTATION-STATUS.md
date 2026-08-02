@@ -63,6 +63,12 @@ them and no longer rejects valid minimal non-empty LP32 fields through an
 over-large aggregate minimum. `PublishAttemptLedgerTest` covers every strict
 prefix and a canonical short-field ledger.
 
+`PayloadReservation.decode` now bounds its version, partition, expiry,
+state-version and presence-byte reads after the fixed intent projection;
+truncated reservation values fail as validation errors before a missing
+committed-payload branch can be consumed. `PayloadReservationTest` covers
+every strict prefix.
+
 The Registry-shaped `ScheduleIntentV1` value is now implemented as a strict
 canonical codec: it binds the destination `ProfileRefV1`, `RetryPolicyRefV1`,
 delivery/order fields, the closed inline-versus-committed payload union,

@@ -77,25 +77,22 @@ public record PayloadReservation(
 
     public static PayloadReservation decode(final byte[] encoded) {
         final ByteBuffer input = ByteBuffer.wrap(encoded);
-        if (input.remaining() < 4 + 16 + 4 + 32 + 41 + 41 + 32 + 4 + 8 + 8 + 1 + 8 + 4 + 1 + 4) {
-            throw new IllegalArgumentException("payload reservation is truncated");
-        }
-        if (input.getInt() != 1) {
+        if (readInt(input, "version") != 1) {
             throw new IllegalArgumentException("unsupported payload reservation version");
         }
         final RouteIncarnation route = new RouteIncarnation(readFixed(input, 16));
-        final int partition = input.getInt();
+        final int partition = readInt(input, "partition");
         final byte[] reservationId = readFixed(input, 32);
         final CommandId commandId = new CommandId(readFixed(input, CommandId.LENGTH));
         final DelayMessageId messageId = new DelayMessageId(readFixed(input, DelayMessageId.LENGTH));
         final byte[] commandHash = readFixed(input, 32);
         final int intentLength = 4 + 8 + 8 + 32 + 1 + 8 + 32 + 8 + 8;
         final LargeScheduleIntent intent = decodeIntent(readFixed(input, intentLength));
-        final long expiry = input.getLong();
-        final PayloadReservationStatus status = PayloadReservationStatus.fromWire(input.get() & 0xff);
-        final long stateVersion = input.getLong();
+        final long expiry = readLong(input, "reservationExpiry");
+        final PayloadReservationStatus status = PayloadReservationStatus.fromWire(readUnsignedByte(input, "status"));
+        final long stateVersion = readLong(input, "stateVersion");
         final byte[] source = readLp32(input);
-        final int hasPayload = input.get() & 0xff;
+        final int hasPayload = readUnsignedByte(input, "payload presence");
         final byte[] payloadBytes = readLp32(input);
         if (hasPayload != 0 && hasPayload != 1 || hasPayload == 0 && payloadBytes.length != 0) {
             throw new IllegalArgumentException("invalid committed payload presence");
@@ -155,5 +152,26 @@ public record PayloadReservation(
             throw new IllegalArgumentException("payload reservation length outside value");
         }
         return readFixed(input, Math.toIntExact(length));
+    }
+
+    private static int readInt(final ByteBuffer input, final String name) {
+        requireRemaining(input, Integer.BYTES, name);
+        return input.getInt();
+    }
+
+    private static long readLong(final ByteBuffer input, final String name) {
+        requireRemaining(input, Long.BYTES, name);
+        return input.getLong();
+    }
+
+    private static int readUnsignedByte(final ByteBuffer input, final String name) {
+        requireRemaining(input, Byte.BYTES, name);
+        return input.get() & 0xff;
+    }
+
+    private static void requireRemaining(final ByteBuffer input, final int length, final String name) {
+        if (length < 0 || input.remaining() < length) {
+            throw new IllegalArgumentException("payload reservation " + name + " is truncated");
+        }
     }
 }

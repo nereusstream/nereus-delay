@@ -106,6 +106,9 @@ Claim and confirms that the native decoder exception is not exposed.
 The publish-attempt ledger applies the same fixed-width guards and uses only
 the actual minimum framing prefix, so short valid LP32 values remain readable;
 `PublishAttemptLedgerTest` is the local evidence for both cases.
+The large-payload reservation value applies the same guards to its post-intent
+numeric and presence fields; `PayloadReservationTest` covers strict-prefix
+rejection before payload-reference decoding.
 
 当前 `PersistentLaneScheduler.rebuildFromAuthoritativeReady` 已提供 fenced 的本地
 恢复桥：它从 bounded `timeline_cf/READY` 扫描开始，严格校验对应的
