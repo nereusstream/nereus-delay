@@ -236,7 +236,9 @@ transition allowed by that lifecycle graph, so an illegal request cannot be
 turned into success by a coincidental current state. The real Oxia ephemeral
 session/CAS authority remains a release blocker. Activation also rereads an
 exact same-identity `ACTIVE_FOR_COMMANDS` successor after a lost transition
-response.
+response, and that reread rejects a successor whose lease expiry moved
+backwards. `OxiaOwnerLeaseStoreTest.transitionOrReadRejectsAResponseLossSuccessorWithShorterExpiry`
+covers the monotonic-expiry fence.
 The authority-gated `OwnedDelayShard.beginDrain(OxiaOwnerLeaseStore, nowEpochMs)`
 now uses the same exact-successor CAS boundary for
 `ACTIVE_FOR_COMMANDS -> DRAINING`; response loss is accepted only for a same

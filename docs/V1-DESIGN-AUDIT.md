@@ -325,6 +325,8 @@ Activation 的本地 Oxia adapter 还会在 CAS response loss 后仅接受同一
 fencing/assignment/session identity 的 exact `ACTIVE_FOR_COMMANDS` 重读；
 `transitionOrRead` 在 lifecycle graph 禁止的请求上不会执行重读，因此
 非法 transition 不会被 coincidental current state 掩盖。
+Response-loss reread 还拒绝同 identity 但 expiry 变短的 successor；本地证据为
+`OxiaOwnerLeaseStoreTest.transitionOrReadRejectsAResponseLossSuccessorWithShorterExpiry`。
 `OwnedDelayShard.beginDrain(OxiaOwnerLeaseStore, nowEpochMs)` 现在对
 `ACTIVE_FOR_COMMANDS -> DRAINING` 使用同一 exact-successor CAS 规则；response
 loss 只有在 owner/epoch/token/assignment/session 完全一致且在观测时刻仍有效的

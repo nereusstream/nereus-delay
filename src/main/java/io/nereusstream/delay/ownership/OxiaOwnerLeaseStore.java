@@ -108,7 +108,8 @@ public final class OxiaOwnerLeaseStore implements OwnerLeaseStore {
         }
         final Optional<OwnerLease> observed = current(expected.shardId());
         if (observed.isPresent() && expected.sameIdentity(observed.get())
-                && observed.get().state() == nextState) {
+                && observed.get().state() == nextState
+                && observed.get().expiresAtEpochMs() >= expected.expiresAtEpochMs()) {
             return observed;
         }
         return Optional.empty();
