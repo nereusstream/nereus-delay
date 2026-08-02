@@ -96,6 +96,11 @@ V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障
 | Checkpoint upload | PENDING/PUBLISHED/REAPING Upload Intent CAS；catalog 只接受 complete immutable manifest |
 | Time | Admission 使用 frozen decision interval + Broker persistence inequality；replay 不采样新墙钟 |
 
+Durable `MessageRecord` values use checked fixed-width decoding for every
+version-specific field. Any strict prefix of a canonical value is rejected as
+codec validation rather than leaking a buffer-underflow exception; the local
+evidence is `MessageRecordTest`.
+
 当前 `PersistentLaneScheduler.rebuildFromAuthoritativeReady` 已提供 fenced 的本地
 恢复桥：它从 bounded `timeline_cf/READY` 扫描开始，严格校验对应的
 `meta_cf/LANE` incarnation/version/gate/readiness、`id_cf/MESSAGE` 的当前

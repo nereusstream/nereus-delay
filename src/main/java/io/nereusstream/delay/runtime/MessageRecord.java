@@ -133,35 +133,31 @@ public record MessageRecord(
 
     public static MessageRecord decode(final byte[] encoded) {
         final ByteBuffer input = ByteBuffer.wrap(encoded);
-        if (input.remaining() < 4 + 1 + 4 + 8 + 8 + 8 + 32 + 1 + 4 + 4) {
-            throw new IllegalArgumentException("message record is truncated");
-        }
-        final int version = input.getInt();
+        final int version = readInt(input, "version");
         if (version != 1 && version != 2 && version != 3) {
             if (version != 4) {
                 throw new IllegalArgumentException("unsupported message record version");
             }
         }
-        final MessageStatus status = MessageStatus.fromWire(input.get() & 0xff);
-        final int generation = input.getInt();
-        final long stateVersion = input.getLong();
-        final long deliverAt = input.getLong();
-        final long expireAt = input.getLong();
-        final long retryEligibilityAt = version >= 3 ? input.getLong() : deliverAt;
-        final byte[] lane = new byte[32];
-        input.get(lane);
-        final int ordering = input.get() & 0xff;
-        final int payloadKind = version == 1 ? 1 : input.get() & 0xff;
+        final MessageStatus status = MessageStatus.fromWire(readUnsignedByte(input, "status"));
+        final int generation = readInt(input, "generation");
+        final long stateVersion = readLong(input, "stateVersion");
+        final long deliverAt = readLong(input, "deliverAt");
+        final long expireAt = readLong(input, "expireAt");
+        final long retryEligibilityAt = version >= 3 ? readLong(input, "retryEligibilityAt") : deliverAt;
+        final byte[] lane = readBytes(input, 32, "lane");
+        final int ordering = readUnsignedByte(input, "ordering");
+        final int payloadKind = version == 1 ? 1 : readUnsignedByte(input, "payloadKind");
         if (payloadKind != 1 && payloadKind != 2) {
             throw new IllegalArgumentException("unknown message payload kind");
         }
-        final int sourceLength = input.getInt();
+        final int sourceLength = readInt(input, "source position length");
         if (sourceLength < 0 || sourceLength > input.remaining()) {
             throw new IllegalArgumentException("invalid source position length");
         }
         final byte[] source = new byte[sourceLength];
         input.get(source);
-        final int payloadLength = input.getInt();
+        final int payloadLength = readInt(input, "payload length");
         if (payloadLength < 0 || payloadLength > input.remaining()) {
             throw new IllegalArgumentException("invalid message payload length");
         }
@@ -180,7 +176,7 @@ public record MessageRecord(
             if (input.remaining() < 4) {
                 throw new IllegalArgumentException("missing object payload reference length");
             }
-            final int referenceLength = input.getInt();
+            final int referenceLength = readInt(input, "object payload reference length");
             if (referenceLength < 0 || referenceLength > input.remaining()
                     || (version < 4 && referenceLength != input.remaining())) {
                 throw new IllegalArgumentException("invalid object payload reference length");
@@ -197,10 +193,7 @@ public record MessageRecord(
         };
         final GenerationRuntimeIndex runtimeIndex;
         if (version >= 4) {
-            if (input.remaining() < 4) {
-                throw new IllegalArgumentException("missing generation runtime index length");
-            }
-            final long runtimeLength = Integer.toUnsignedLong(input.getInt());
+            final long runtimeLength = Integer.toUnsignedLong(readInt(input, "generation runtime index length"));
             if (runtimeLength > input.remaining()) {
                 throw new IllegalArgumentException("invalid generation runtime index length");
             }
@@ -237,5 +230,35 @@ public record MessageRecord(
         final byte[] result = new byte[length];
         input.get(result);
         return result;
+    }
+
+    private static byte[] readBytes(final ByteBuffer input, final int length, final String name) {
+        if (length < 0 || length > input.remaining()) {
+            throw new IllegalArgumentException("message record " + name + " is truncated");
+        }
+        final byte[] result = new byte[length];
+        input.get(result);
+        return result;
+    }
+
+    private static int readInt(final ByteBuffer input, final String name) {
+        requireRemaining(input, Integer.BYTES, name);
+        return input.getInt();
+    }
+
+    private static long readLong(final ByteBuffer input, final String name) {
+        requireRemaining(input, Long.BYTES, name);
+        return input.getLong();
+    }
+
+    private static int readUnsignedByte(final ByteBuffer input, final String name) {
+        requireRemaining(input, Byte.BYTES, name);
+        return input.get() & 0xff;
+    }
+
+    private static void requireRemaining(final ByteBuffer input, final int length, final String name) {
+        if (input.remaining() < length) {
+            throw new IllegalArgumentException("message record " + name + " is truncated");
+        }
     }
 }

@@ -47,6 +47,12 @@ Message or timeline mutation; it cannot wrap into a negative version or
 generation. `DelayShardTest.messageGenerationAndStateVersionOverflowFailClosedBeforeMutation`
 covers both boundaries.
 
+`MessageRecord.decode` now bounds every fixed-width read, including the
+version-specific retry, payload and runtime-index fields. A truncated durable
+value therefore raises the codec's `IllegalArgumentException` instead of
+leaking a `BufferUnderflowException`; `MessageRecordTest` checks every strict
+prefix of a canonical v4 record.
+
 The Registry-shaped `ScheduleIntentV1` value is now implemented as a strict
 canonical codec: it binds the destination `ProfileRefV1`, `RetryPolicyRefV1`,
 delivery/order fields, the closed inline-versus-committed payload union,
