@@ -91,8 +91,8 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
                 Objects.requireNonNull(manifest, "manifest"), expectedCatalogGeneration),
                 "Oxia upload-intent publication result");
         validatePublicationIdentity(manifest, result);
-        if (result.catalogGeneration() <= expectedCatalogGeneration) {
-            throw new IllegalStateException("Oxia upload-intent publication did not advance catalog generation");
+        if (result.catalogGeneration() < expectedCatalogGeneration) {
+            throw new IllegalStateException("Oxia upload-intent publication regressed catalog generation");
         }
         return result;
     }

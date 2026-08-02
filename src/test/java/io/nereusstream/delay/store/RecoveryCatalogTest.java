@@ -152,6 +152,8 @@ class RecoveryCatalogTest {
                         manifest.canonicalJsonBytes().length, manifest.manifestSha256()), null);
 
         assertEquals(1, catalog.publishUploadedCheckpoint(published, manifest, 1).catalogGeneration());
+        assertEquals(1, new OxiaRecoveryCatalog(catalog)
+                .publishUploadedCheckpoint(published, manifest, 1).catalogGeneration());
         assertThrows(IllegalArgumentException.class, () -> catalog.publishUploadedCheckpoint(
                 new CheckpointUploadIntentV1(new ShardSubjectV1(shard), lineage, manifest.checkpointId(), owner,
                         uuidBytes(manifest.sourceStoreIncarnation()), id32(75), 1, null, null, profile,
