@@ -3271,6 +3271,111 @@ class DelayShardTest {
     }
 
     @Test
+    void resolveUncertainPublishedEvidenceSettlesOlderGenerationThroughTerminalSummary() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("historical-resolve-published-evidence"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 31);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("historical-resolve-published-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("historical-resolve-published")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 1_001);
+        final KafkaSourcePosition unknownPosition = position(shardId, 2, 1_002);
+        final KafkaSourcePosition generationOnePosition = position(shardId, 3, 1_003);
+        final KafkaSourcePosition resolvePosition = position(shardId, 4, 1_004);
+        final byte[] attemptId = Bytes.sha256(Bytes.utf8("historical-resolve-published-attempt"));
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final AuthorIdentity owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 42,
+                Bytes.sha256(Bytes.utf8("lease")));
+        TerminalGenerationRecord oldSummary;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final PublishAttemptLedger oldAttempt = PublishAttemptLedger.publishing(schedule.delayMessageId(), 0,
+                    attemptId, Bytes.sha256(Bytes.utf8("historical-resolve-published-claim")), owner.generation(), 1,
+                    lane, shard.getLane(lane).laneIncarnation(), owner.canonicalBytes(),
+                    store.metadata().storeIncarnation(), Bytes.sha256(Bytes.utf8("historical-resolve-published")),
+                    Bytes.utf8("historical-admission"), admissionPosition.canonicalBytes());
+            shard.admitPublishAttempt(oldAttempt, admissionPosition);
+
+            final TrustedUtcIntervalEvidence observedAt = new TrustedUtcIntervalEvidence(1_002, 1_002,
+                    TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("clock"), 1, 7, 7,
+                    Bytes.sha256(Bytes.utf8("historical-resolve-published-proof")), 0, null);
+            final byte[] unknownBody = publishOutcomeBody(shardId, attemptId, 3, 4,
+                    StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, new byte[0], observedAt.canonicalBytes());
+            final SystemMutation unknown = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
+                    Bytes.sha256(Bytes.utf8("historical-resolve-published-unknown")), unknownBody,
+                    owner.canonicalBytes(), 1, keyPair.getPrivate());
+            assertEquals(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN,
+                    shard.applySystemMutation(unknown, unknownPosition, keyPair.getPublic()).stableCode());
+            final PublishAttemptLedger uncertainAttempt = shard.getPublishAttempt(attemptId, owner.generation());
+            assertEquals(AttemptLedgerState.UNCERTAIN, uncertainAttempt.state());
+
+            final MessageRecord prior = shard.getMessage(schedule.delayMessageId());
+            final byte[] nextTimelineKey = KeyCodec.timelineDue(lane, 3_000,
+                    generationOnePosition.sourceOrderToken(), schedule.delayMessageId(), 1);
+            final MessageRecord next = new MessageRecord(MessageStatus.SCHEDULED, 1,
+                    prior.stateVersion() + 1, 3_000, 6_000, lane, OrderingMode.BEST_EFFORT, prior.payload(),
+                    generationOnePosition.canonicalBytes(), prior.payloadReference(), 3_000).withRuntimeIndex(
+                    GenerationRuntimeIndex.timeline(GenerationAggregateState.SCHEDULED,
+                            TimelineWorkRef.initial(nextTimelineKey, 3_000, prior.stateVersion() + 1),
+                            List.of(), 0, 0, false, prior.stateVersion() + 1));
+            oldSummary = new TerminalGenerationRecord(schedule.delayMessageId(), 0, MessageStatus.SUPERSEDED,
+                    StableCode.SUPERSEDED, prior.stateVersion(), generationOnePosition.canonicalBytes(), false,
+                    List.of(uncertainAttempt.obligationRef()));
+            final TerminalGenerationRecord initialSummary = oldSummary;
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(schedule.delayMessageId()), next.encode());
+                batch.putValue(ColumnFamily.TIMELINE, 1, nextTimelineKey,
+                        new TimelineEntry(schedule.delayMessageId(), 1).encode());
+                batch.putValue(ColumnFamily.TIMELINE, 1,
+                        KeyCodec.timelineExpiry(6_000, lane, schedule.delayMessageId(), 1),
+                        new TimelineEntry(schedule.delayMessageId(), 1).encode());
+                batch.putValue(ColumnFamily.TERMINAL, 1,
+                        KeyCodec.terminalGeneration(schedule.delayMessageId(), 0), initialSummary.encode());
+            });
+
+            final ControlRef controlRef = new ControlRef(
+                    Bytes.sha256(Bytes.utf8("historical-resolve-published-operation")),
+                    Bytes.sha256(Bytes.utf8("historical-resolve-published-request")), 6);
+            final byte[] evidence = publishEvidence(attemptId, true, StableCode.OK);
+            final byte[] resolveBody = resolveUncertainEvidenceBody(shardId, controlRef, lane,
+                    shard.getLane(lane).laneIncarnation(), schedule.delayMessageId(), 0, attemptId, 1, evidence);
+            final SystemMutation resolve = SystemMutation.signed(shardId,
+                    SystemMutationType.RESOLVE_UNCERTAIN, 9_000,
+                    controlRef.logicalOperationIdentity(SystemMutationType.RESOLVE_UNCERTAIN), resolveBody,
+                    AuthorIdentity.control(Bytes.sha256(Bytes.utf8("actor")),
+                            Bytes.sha256(Bytes.utf8("role")), Bytes.sha256(Bytes.utf8("scope"))).canonicalBytes(),
+                    1, keyPair.getPrivate());
+
+            final SystemMutationResult result = shard.applySystemMutation(resolve, resolvePosition,
+                    keyPair.getPublic());
+            assertEquals(StableCode.OK, result.stableCode());
+            assertEquals(MessageStatus.SCHEDULED, shard.getMessage(schedule.delayMessageId()).status());
+            assertEquals(1, shard.getMessage(schedule.delayMessageId()).generation());
+            assertTrue(shard.getTerminalGeneration(schedule.delayMessageId(), 0).possibleDestinationDuplicate());
+            assertEquals(List.of(), shard.getTerminalGeneration(schedule.delayMessageId(), 0).openObligations());
+            assertNull(shard.getPublishAttempt(attemptId, owner.generation()));
+            assertEquals(result, shard.applySystemMutation(resolve, resolvePosition, keyPair.getPublic()));
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(MessageStatus.SCHEDULED, reopened.getMessage(schedule.delayMessageId()).status());
+            assertEquals(1, reopened.getMessage(schedule.delayMessageId()).generation());
+            assertEquals(oldSummary.generation(), reopened.getTerminalGeneration(schedule.delayMessageId(), 0)
+                    .generation());
+            assertTrue(reopened.getTerminalGeneration(schedule.delayMessageId(), 0).possibleDestinationDuplicate());
+            assertEquals(List.of(), reopened.getTerminalGeneration(schedule.delayMessageId(), 0).openObligations());
+            assertNull(reopened.getPublishAttempt(attemptId, owner.generation()));
+        }
+    }
+
+    @Test
     void claimResultConsumesExactClaimAndTerminalizesCurrentGeneration() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("claim-result-claimed"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 23);

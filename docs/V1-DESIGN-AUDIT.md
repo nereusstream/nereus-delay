@@ -451,9 +451,11 @@ retention barrier、external proof ownership 仍是 release blocker。
 `ATTACH_NOT_PUBLISHED_EVIDENCE` 分支也不再接受任意 opaque nested bytes，
 而是要求 typed evidence 的 Publish Attempt owner 和 verification status
 匹配。`ATTACH_PUBLISHED_EVIDENCE` 现在在 source order 中校验 exact current
-`UNCERTAIN` obligation，并与 published terminal、ledger、pending quota、
-outcome reserve、mutation result 和 source position 一起原子提交；重复
-mutation 返回已持久化结果。`ATTACH_NOT_PUBLISHED_EVIDENCE` 以及外部
+`UNCERTAIN` obligation，或校验旧代 `terminal_cf` summary 中仍开放的 exact
+obligation；当前代与 published terminal、ledger、pending quota、outcome
+reserve、mutation result 和 source position 一起原子提交，旧代只更新
+terminal summary、ledger、duplicate-risk 和 outcome reserve，不能修改新代；
+重复 mutation 返回已持久化结果。`ATTACH_NOT_PUBLISHED_EVIDENCE` 以及外部
 authenticated control/evidence authority 和完整 retry/charge policy 仍未完成。
 
 Evidence branch validation also checks the adapter-specific target resource

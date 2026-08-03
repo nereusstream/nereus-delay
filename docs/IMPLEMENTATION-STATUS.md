@@ -191,9 +191,13 @@ self-routing check to Publish Admission, Claim Result, DLQ Export Result and
 Expire Generation bodies, so a valid outer signature cannot redirect a
 message-bearing mutation to another Shard. The source-ordered control applier
 now settles `ATTACH_PUBLISHED_EVIDENCE` against the exact current `UNCERTAIN`
-obligation: Message, terminal summary, ledger, pending-schedule quota,
-outcome reserve, System Mutation result and Source Position are committed in
-one WriteBatch, with duplicate mutation replay returning the stored result.
+obligation or an exact open obligation retained in an older `terminal_cf`
+generation summary. Current-generation settlement commits Message, terminal
+summary, ledger, pending-schedule quota, outcome reserve, System Mutation result
+and Source Position in one WriteBatch; historical settlement updates only the
+retained terminal summary, ledger, duplicate-risk and outcome reserve, so it
+cannot mutate a newer generation. Both paths return the stored result on
+duplicate mutation replay.
 `ATTACH_NOT_PUBLISHED_EVIDENCE` and the authenticated external evidence/
 control authority remain release blockers.
 Publish evidence branches also enforce Kafka/Pulsar target-resource and

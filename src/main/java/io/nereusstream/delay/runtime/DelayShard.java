@@ -1990,14 +1990,9 @@ public final class DelayShard {
         if (current == null) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.TOO_LATE);
         }
-        if (current.generation() != body.generation()) {
+        if (current.generation() < body.generation()) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
-                    current.generation() > body.generation()
-                            ? StableCode.GENERATION_SUPERSEDED : StableCode.STALE_SYSTEM_MUTATION);
-        }
-        if (!current.laneId().equals(body.laneId())
-                || current.runtimeIndex().currentWorkKind() != CurrentSendWorkKind.NONE) {
-            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.TOO_LATE);
+                    StableCode.STALE_SYSTEM_MUTATION);
         }
         final PublishAttemptLedger ledger = findOpenPublishAttempt(body.publishAttemptId());
         if (ledger == null || ledger.state() != AttemptLedgerState.UNCERTAIN
@@ -2007,6 +2002,18 @@ public final class DelayShard {
                 || ledger.generation() != body.generation()) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
+        }
+        if (current.generation() == body.generation()
+                && (!current.laneId().equals(body.laneId())
+                || current.runtimeIndex().currentWorkKind() != CurrentSendWorkKind.NONE)) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.TOO_LATE);
+        }
+        if (current.generation() > body.generation()) {
+            final TerminalGenerationRecord summary = getTerminalGeneration(body.messageId(), body.generation());
+            if (summary == null || !summary.openObligations().contains(ledger.obligationRef())) {
+                return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                        StableCode.TOO_LATE);
+            }
         }
         final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, StableCode.OK,
                 sourcePosition.canonicalBytes());
