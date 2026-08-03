@@ -707,8 +707,13 @@ position, then materializes one `UNCERTAIN_RETRY(CONTROL_OVERRIDE)` timeline
 work item without consuming the Admission counter. Resolve evidence attachment,
 except for the published-evidence branch, and authenticated Oxia target
 registration remain release blockers; the
-`ATTACH_PUBLISHED_EVIDENCE` branch is now locally covered by closing the exact
-UNCERTAIN obligation and releasing its pending schedule quota atomically. The
+`ATTACH_PUBLISHED_EVIDENCE` branch is now locally covered for an exact current
+UNCERTAIN obligation even when the generation still has reversible timeline or
+Claim work: verified success removes that work, terminalizes the generation,
+marks possible duplicate, and releases the exact pending schedule quota
+atomically; a different current PUBLISHING attempt remains open and is updated
+without terminalizing it. Historical terminal-summary settlement is also
+covered. The
 `ATTACH_NOT_PUBLISHED_EVIDENCE` branch remains fail-closed, while the
 possible-delivery terminal branch is locally covered by retaining the exact
 UNCERTAIN obligation while terminalizing the generation and releasing its
