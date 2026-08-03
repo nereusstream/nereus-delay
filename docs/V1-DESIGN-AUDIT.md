@@ -628,6 +628,12 @@ session CAS、provider delete attestation 或完整的 external GC orchestration
 `checkpoint-tmp` 命名空间，完成后才通过 atomic rename 安装到目标路径；已有
 目标会被拒绝，失败 staging 会清理。这闭合的是本地物理 checkpoint 边界，
 不代表 Object Store 上传、manifest publication 或 Oxia CAS 已完成。
+带 manifest 的 restore 在 staged DB 打开后还会逐项比较镜像中的
+`lastCheckpointId`、`appliedShardLogPosition`、`shardMutationSequence` 和
+typed evidence-cursor projection；文件 checksum 正确但运行时状态与 manifest
+不一致时仍会在 install 前 fail closed。这样 manifest 的物理文件边界与其
+恢复状态描述保持一致，而不把 source replay 或外部 catalog authority 假定为
+本地 RocksDB 校验已经完成。
 `ShardStore.openAtPathWithSlot` 也把 RocksDB 成功打开后的 metadata decode、
 format/identity validation 和 install-mode write 放在同一个失败清理边界内；
 任一失败都会先关闭 DB、Column Family handles 和 options，再释放 Worker slot。

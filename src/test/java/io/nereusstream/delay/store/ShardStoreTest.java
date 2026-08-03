@@ -434,24 +434,31 @@ class ShardStoreTest {
         final Path checkpoint = tempDir.resolve("catalog-checkpoint");
         final byte[] key = KeyCodec.metaFixed(7);
         final byte[] payload = Bytes.utf8("catalog-value");
+        final byte[] checkpointId = bytes(30);
+        final KafkaSourcePosition appliedPosition = new KafkaSourcePosition(
+                shardId, "cluster", UUID.randomUUID(), 0, null, 1_000);
         final byte[] dbIdentity;
         final UUID sourceStoreIncarnation;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(sourceConfig);
              ShardStore store = ShardStore.open(sourceConfig, shardId, resources)) {
             dbIdentity = store.metadata().dbIdentity();
             sourceStoreIncarnation = store.metadata().storeIncarnationUuid();
-            store.write(batch -> batch.putValue(ColumnFamily.META, 7, key, payload));
-            store.createCheckpoint(checkpoint);
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(3), appliedPosition.canonicalBytes());
+                batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(5), Bytes.u64be(0));
+                batch.putValue(ColumnFamily.META, 7, key, payload);
+            });
+            store.createCheckpoint(checkpoint, checkpointId);
         }
         final List<CheckpointManifest.FileEntry> files = CheckpointFileInventory.collect(checkpoint).stream()
                 .map(file -> new CheckpointManifest.FileEntry(file.name(), file.length(), file.checksum(),
                         Bytes.utf8("object/" + file.name()), Bytes.utf8("version"), null))
                 .toList();
-        final CheckpointManifest manifest = new CheckpointManifest(bytes(30), bytes(31), 0, null, null,
+        final CheckpointManifest manifest = new CheckpointManifest(checkpointId, bytes(31), 0, null, null,
                 new CheckpointManifest.CreatedBy(bytes(32), bytes(33), 1),
                 new CheckpointManifest.CreatedAt(1_000, 1_000, "TEST_CLOCK", bytes(34), 1, 0, 0,
                         Bytes.sha256(Bytes.utf8("evidence")), 0, null), shardId, dbIdentity, sourceStoreIncarnation,
-                1, 0, new KafkaSourcePosition(shardId, "cluster", UUID.randomUUID(), 0, null, 1_000),
+                1, 0, appliedPosition,
                 new byte[32], new byte[32], files);
         final RecoveryCatalog catalog = new RecoveryCatalog();
         final ShardStoreConfig unpublishedConfig = ShardStoreConfig.defaults(tempDir.resolve("unpublished-restore"));
@@ -622,6 +629,43 @@ class ShardStoreTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(restoreConfig)) {
             assertThrows(IllegalStateException.class,
                     () -> ShardStore.restoreFromCheckpoint(restoreConfig, shardId, resources, checkpoint, manifest));
+        }
+    }
+
+    @Test
+    void restoreWithManifestRejectsRuntimeStateDrift() throws Exception {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 35);
+        final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("runtime-manifest-source"));
+        final Path checkpoint = tempDir.resolve("runtime-manifest-checkpoint");
+        final byte[] checkpointId = bytes(40);
+        final KafkaSourcePosition appliedPosition = new KafkaSourcePosition(
+                shardId, "cluster", UUID.randomUUID(), 3, null, 1_003);
+        final byte[] dbIdentity;
+        final UUID sourceStoreIncarnation;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(sourceConfig);
+             ShardStore store = ShardStore.open(sourceConfig, shardId, resources)) {
+            dbIdentity = store.metadata().dbIdentity();
+            sourceStoreIncarnation = store.metadata().storeIncarnationUuid();
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(3), appliedPosition.canonicalBytes());
+                batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(5), Bytes.u64be(7));
+            });
+            store.createCheckpoint(checkpoint, checkpointId);
+        }
+        final List<CheckpointManifest.FileEntry> files = CheckpointFileInventory.collect(checkpoint).stream()
+                .map(file -> new CheckpointManifest.FileEntry(file.name(), file.length(), file.checksum(),
+                        Bytes.utf8("object/" + file.name()), Bytes.utf8("version"), null))
+                .toList();
+        final CheckpointManifest manifest = new CheckpointManifest(checkpointId, bytes(41), 0, null, null,
+                new CheckpointManifest.CreatedBy(bytes(42), bytes(43), 1),
+                new CheckpointManifest.CreatedAt(1_000, 1_000, "TEST_CLOCK", bytes(44), 1, 0, 0,
+                        Bytes.sha256(Bytes.utf8("evidence")), 0, null), shardId, dbIdentity, sourceStoreIncarnation,
+                1, 8, appliedPosition, new byte[32], new byte[32], files);
+
+        final ShardStoreConfig restoreConfig = ShardStoreConfig.defaults(tempDir.resolve("runtime-manifest-restore"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(restoreConfig)) {
+            assertThrows(IllegalStateException.class, () -> ShardStore.restoreFromCheckpoint(
+                    restoreConfig, shardId, resources, checkpoint, manifest));
         }
     }
 

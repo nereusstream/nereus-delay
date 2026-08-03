@@ -5,6 +5,8 @@ import io.nereusstream.delay.protocol.EvidenceCursorV1;
 import io.nereusstream.delay.protocol.RecoveryPinV1;
 import io.nereusstream.delay.protocol.ShardSubjectV1;
 import io.nereusstream.delay.protocol.ShardId;
+import io.nereusstream.delay.protocol.SourcePosition;
+import io.nereusstream.delay.protocol.SourcePositionCodec;
 import org.rocksdb.BlockBasedTableConfig;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
@@ -41,6 +43,8 @@ public final class ShardStore implements AutoCloseable {
     private static final int ACTIVE_MAGIC = 0x41435431;
     private static final int META_STORE_FORMAT = 1;
     private static final int META_SHARD_IDENTITY = 2;
+    private static final int META_APPLIED_SOURCE_POSITION = 3;
+    private static final int META_MUTATION_SEQUENCE = 5;
     private static final int META_RUNTIME = 10;
     private static final int RUNTIME_VALUE_TYPE = 14;
 
@@ -187,6 +191,9 @@ public final class ShardStore implements AutoCloseable {
                         || !manifest.sourceStoreIncarnation().equals(staged.metadata().storeIncarnationUuid()))) {
                     throw new IOException("restored DB metadata does not match checkpoint manifest");
                 }
+                if (manifest != null) {
+                    validateRestoredRuntimeState(staged, manifest);
+                }
             }
             if (pin != null) {
                 validateRecoveryPin(shardId, manifest, catalog, pin);
@@ -295,6 +302,27 @@ public final class ShardStore implements AutoCloseable {
                     || !Bytes.constantTimeEquals(actual.checksum(), expected.checksum())) {
                 throw new IOException("checkpoint file checksum mismatch: " + actual.name());
             }
+        }
+    }
+
+    private static void validateRestoredRuntimeState(final ShardStore staged,
+                                                     final CheckpointManifest manifest) throws IOException {
+        final byte[] restoredCheckpointId = staged.runtimeMetadata().lastCheckpointId();
+        if (restoredCheckpointId == null
+                || !Bytes.constantTimeEquals(restoredCheckpointId, manifest.checkpointId())) {
+            throw new IOException("restored checkpoint identity does not match checkpoint manifest");
+        }
+        final SourcePosition restoredPosition = staged.appliedShardLogPosition();
+        if (restoredPosition == null
+                || !Bytes.constantTimeEquals(restoredPosition.canonicalBytes(),
+                manifest.appliedShardLogPosition().canonicalBytes())) {
+            throw new IOException("restored source position does not match checkpoint manifest");
+        }
+        if (staged.shardMutationSequence() != manifest.shardMutationSequence()) {
+            throw new IOException("restored mutation sequence does not match checkpoint manifest");
+        }
+        if (!staged.runtimeMetadata().evidenceCursors().equals(manifest.evidenceCursors())) {
+            throw new IOException("restored evidence cursors do not match checkpoint manifest");
         }
     }
 
@@ -707,6 +735,31 @@ public final class ShardStore implements AutoCloseable {
     /** Returns the local mutable metadata projection; it is not remote authority. */
     public synchronized StoreRuntimeMetadata runtimeMetadata() {
         return runtimeMetadata;
+    }
+
+    /** Returns the exact source position persisted by the authoritative shard WriteBatch. */
+    public synchronized SourcePosition appliedShardLogPosition() {
+        final ValueEnvelope.Decoded value = getValue(ColumnFamily.META,
+                KeyCodec.metaFixed(META_APPLIED_SOURCE_POSITION), 1);
+        return value == null ? null : SourcePositionCodec.decode(value.payload());
+    }
+
+    /** Returns the persisted source-ordered mutation sequence used by checkpoint barriers. */
+    public synchronized long shardMutationSequence() {
+        final ValueEnvelope.Decoded value = getValue(ColumnFamily.META,
+                KeyCodec.metaFixed(META_MUTATION_SEQUENCE), 1);
+        if (value == null) {
+            return 0;
+        }
+        final byte[] payload = value.payload();
+        if (payload.length != Long.BYTES) {
+            throw new IllegalStateException("invalid persisted shard mutation sequence");
+        }
+        final long sequence = java.nio.ByteBuffer.wrap(payload).getLong();
+        if (sequence < 0) {
+            throw new IllegalStateException("negative persisted shard mutation sequence");
+        }
+        return sequence;
     }
 
     /** Persists the latest authenticated ingress fence proof identity. */
