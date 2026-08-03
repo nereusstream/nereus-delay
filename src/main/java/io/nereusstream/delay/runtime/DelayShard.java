@@ -1864,9 +1864,10 @@ public final class DelayShard {
     }
 
     /**
-     * Applies the source-ordered RETRY_ALLOW_POSSIBLE_DUPLICATE Resolve subset.
-     * Evidence attachment and possible-delivery terminalization remain explicit
-     * fail-closed branches until their dedicated evidence/terminal codecs land.
+     * Applies the source-ordered Resolve subset. Verified-published evidence
+     * can settle the exact UNCERTAIN obligation locally; absent evidence and
+     * possible-delivery terminalization retain their explicit source-ordered
+     * branches until the remaining result/charge projection is available.
      */
     private SystemMutationResult applyResolveUncertainMutation(final SystemMutation mutation,
                                                                 final SourcePosition sourcePosition) {
@@ -1875,6 +1876,9 @@ public final class DelayShard {
                 .logicalOperationIdentity(SystemMutationType.RESOLVE_UNCERTAIN))) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
+        if (body.resolutionKind() == 1) {
+            return applyPublishedEvidenceAttachment(body, mutation, sourcePosition);
         }
         if (body.resolutionKind() == 4) {
             return applyPossibleDeliveryTerminalization(body, mutation, sourcePosition);
@@ -1976,6 +1980,42 @@ public final class DelayShard {
         lastAppliedSourcePosition = sourcePosition;
         mutationSequence++;
         return result;
+    }
+
+    /** Settles a verified-published Resolve attachment against one exact obligation. */
+    private SystemMutationResult applyPublishedEvidenceAttachment(final ResolveUncertainBody body,
+                                                                   final SystemMutation mutation,
+                                                                   final SourcePosition sourcePosition) {
+        final MessageRecord current = getMessage(body.messageId());
+        if (current == null) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.TOO_LATE);
+        }
+        if (current.generation() != body.generation()) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    current.generation() > body.generation()
+                            ? StableCode.GENERATION_SUPERSEDED : StableCode.STALE_SYSTEM_MUTATION);
+        }
+        if (!current.laneId().equals(body.laneId())
+                || current.runtimeIndex().currentWorkKind() != CurrentSendWorkKind.NONE) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.TOO_LATE);
+        }
+        final PublishAttemptLedger ledger = findOpenPublishAttempt(body.publishAttemptId());
+        if (ledger == null || ledger.state() != AttemptLedgerState.UNCERTAIN
+                || !ledger.delayMessageId().equals(body.messageId())
+                || !ledger.laneId().equals(body.laneId())
+                || !Arrays.equals(ledger.laneIncarnation(), body.laneIncarnation())
+                || ledger.generation() != body.generation()) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+        final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, StableCode.OK,
+                sourcePosition.canonicalBytes());
+        try {
+            applyPublishedPublishOutcome(ledger, sourcePosition, result, MessageStatus.UNCERTAIN);
+            return result;
+        } catch (IllegalStateException exception) {
+            return persistSystemResultByResult(result, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
+        }
     }
 
     /** Terminalizes an unresolved generation while retaining its exact obligation ledger. */
@@ -3490,6 +3530,7 @@ public final class DelayShard {
                 next.runtimeIndex().attemptObligations());
         final OutcomeReserveUsage nextOutcomeReserve = releasedOutcomeReserve(ledger);
         final CapacityVectorV1 nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
+        final ShardQuota nextQuota = quota.removeSchedule(current.payloadLength());
         final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
                 sourcePosition, ledger.delayMessageId(), current, next, null);
         store.write(batch -> {
@@ -3501,6 +3542,7 @@ public final class DelayShard {
                 deleteReadyKey(batch, projection.previousLane());
                 putReadyProjection(batch, projection);
             }
+            batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(META_QUOTA_USAGE), nextQuota.encode());
             persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector);
             if (systemResult != null) {
                 writeSystemResult(batch, systemResult);
@@ -3509,6 +3551,7 @@ public final class DelayShard {
         });
         lastAppliedSourcePosition = sourcePosition;
         mutationSequence++;
+        quota = nextQuota;
         outcomeReserve = nextOutcomeReserve;
         outcomeReserveVector = nextOutcomeReserveVector;
         return next;

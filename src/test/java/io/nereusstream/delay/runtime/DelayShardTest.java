@@ -1718,6 +1718,76 @@ class DelayShardTest {
     }
 
     @Test
+    void sourceOrderedResolveUncertainPublishedEvidenceSettlesExactObligation() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-control-published-evidence"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 34);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("control-published-evidence-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("control-published-evidence")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 1_001);
+        final KafkaSourcePosition unknownPosition = position(shardId, 2, 1_002);
+        final KafkaSourcePosition resolvePosition = position(shardId, 3, 2_001);
+        final byte[] attemptId = Bytes.sha256(Bytes.utf8("control-published-evidence-attempt"));
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final byte[] owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 42,
+                Bytes.sha256(Bytes.utf8("lease"))).canonicalBytes();
+        final TrustedUtcIntervalEvidence observedAt = new TrustedUtcIntervalEvidence(1_002, 1_002,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("clock"), 1, 8, 8,
+                Bytes.sha256(Bytes.utf8("published-evidence-proof")), 0, null);
+        final byte[] unknownBody = publishOutcomeBody(shardId, attemptId, 3, 4,
+                StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, new byte[0], observedAt.canonicalBytes());
+        final SystemMutation unknown = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
+                Bytes.sha256(Bytes.utf8("published-evidence-unknown")), unknownBody, owner, 1,
+                keyPair.getPrivate());
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final byte[] laneIncarnation = shard.getLane(lane).laneIncarnation();
+            final PublishAttemptLedger admission = PublishAttemptLedger.publishing(schedule.delayMessageId(), 0,
+                    attemptId, Bytes.sha256(Bytes.utf8("published-evidence-claim")), 42, 1, lane,
+                    laneIncarnation, Bytes.sha256(Bytes.utf8("published-evidence-owner")),
+                    store.metadata().storeIncarnation(), Bytes.sha256(Bytes.utf8("published-evidence-prepared")),
+                    Bytes.utf8("admission"), admissionPosition.canonicalBytes());
+            shard.admitPublishAttempt(admission, admissionPosition);
+            assertEquals(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN,
+                    shard.applySystemMutation(unknown, unknownPosition, keyPair.getPublic()).stableCode());
+
+            final ControlRef controlRef = new ControlRef(Bytes.sha256(Bytes.utf8("published-evidence-operation")),
+                    Bytes.sha256(Bytes.utf8("published-evidence-request")), 6);
+            final byte[] evidence = publishEvidence(attemptId, true, StableCode.OK);
+            final byte[] body = resolveUncertainEvidenceBody(shardId, controlRef, lane, laneIncarnation,
+                    schedule.delayMessageId(), 0, attemptId, 1, evidence);
+            final SystemMutation resolve = SystemMutation.signed(shardId, SystemMutationType.RESOLVE_UNCERTAIN,
+                    9_000, controlRef.logicalOperationIdentity(SystemMutationType.RESOLVE_UNCERTAIN), body,
+                    AuthorIdentity.control(Bytes.sha256(Bytes.utf8("actor")),
+                            Bytes.sha256(Bytes.utf8("role")), Bytes.sha256(Bytes.utf8("scope"))).canonicalBytes(),
+                    1, keyPair.getPrivate());
+
+            final SystemMutationResult result = shard.applySystemMutation(resolve, resolvePosition,
+                    keyPair.getPublic());
+            assertEquals(StableCode.OK, result.stableCode());
+            assertEquals(MessageStatus.PUBLISHED, shard.getMessage(schedule.delayMessageId()).status());
+            assertNull(shard.getPublishAttempt(attemptId, 42));
+            assertEquals(MessageStatus.PUBLISHED,
+                    shard.getTerminalGeneration(schedule.delayMessageId(), 0).status());
+            assertEquals(0, shard.quota().pendingMessages());
+            assertEquals(result, shard.applySystemMutation(resolve, resolvePosition, keyPair.getPublic()));
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(MessageStatus.PUBLISHED, reopened.getMessage(schedule.delayMessageId()).status());
+            assertNull(reopened.getPublishAttempt(attemptId, 42));
+            assertEquals(0, reopened.quota().pendingMessages());
+        }
+    }
+
+    @Test
     void sourceOrderedResolveUncertainTerminalizesPossibleDeliveryAndRetainsObligation() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-control-terminal"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 33);
@@ -3820,6 +3890,32 @@ class DelayShardTest {
             CanonicalProtobuf.uint32(output, 18, 1);
             CanonicalProtobuf.uint32(output, 19, 0);
             CanonicalProtobuf.bytes(output, 20, acknowledgementHash);
+        });
+    }
+
+    private static byte[] resolveUncertainEvidenceBody(final ShardId shard, final ControlRef controlRef,
+                                                       final DestinationLaneId lane, final byte[] laneIncarnation,
+                                                       final DelayMessageId messageId, final int generation,
+                                                       final byte[] attemptId, final int resolutionKind,
+                                                       final byte[] evidence) {
+        final byte[] subject = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());
+            CanonicalProtobuf.uint32(output, 2, shard.partition());
+        });
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, subject);
+            CanonicalProtobuf.uint32(output, 2, SystemMutationType.RESOLVE_UNCERTAIN.wireValue());
+            CanonicalProtobuf.int64(output, 3, 9_000);
+            CanonicalProtobuf.bytes(output, 10, controlRef.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 11, lane.bytes());
+            CanonicalProtobuf.bytes(output, 12, laneIncarnation);
+            CanonicalProtobuf.bytes(output, 13, messageId.bytes());
+            CanonicalProtobuf.uint32(output, 14, generation);
+            CanonicalProtobuf.bytes(output, 15, attemptId);
+            CanonicalProtobuf.uint32(output, 16, resolutionKind);
+            CanonicalProtobuf.bytes(output, 17, evidence);
+            CanonicalProtobuf.uint32(output, 18, 0);
+            CanonicalProtobuf.uint32(output, 19, 0);
         });
     }
 
