@@ -1,5 +1,6 @@
 package io.nereusstream.delay.store;
 
+import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.SloObservationOutboxV1;
 import io.nereusstream.delay.protocol.SloSampleFinalV1;
 import io.nereusstream.delay.protocol.SloSampleStartV1;
@@ -84,8 +85,12 @@ public final class SloObservationOutboxStore {
             if (key.length != 34 || key[0] != 8 || key[1] != 1) {
                 throw new IllegalStateException("invalid SLO_OUTBOX key shape");
             }
-            result.add(SloObservationOutboxV1.decode(
-                    ValueEnvelope.decode(entry.value(), VALUE_TYPE).payload()));
+            final SloObservationOutboxV1 outbox = SloObservationOutboxV1.decode(
+                    ValueEnvelope.decode(entry.value(), VALUE_TYPE).payload());
+            if (!Bytes.constantTimeEquals(Arrays.copyOfRange(key, 2, key.length), outbox.sampleId())) {
+                throw new IllegalStateException("SLO_OUTBOX key/value sample identity mismatch");
+            }
+            result.add(outbox);
         }
         return List.copyOf(result);
     }

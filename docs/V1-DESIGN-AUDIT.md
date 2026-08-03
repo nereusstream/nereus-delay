@@ -823,6 +823,12 @@ claimed complete.
 | Runbooks | restore、fence、checkpoint、DLQ replay、uncertain override、disaster boundary | 在 release candidate 上完成演练并留 evidence |
 | Soak/upgrade report | 最长 retry/checkpoint/floor/GC 周期和 protocol rollout | 无 source gap、counter drift、unbounded resource 或 reader-before-writer |
 
+本地 `SloObservationOutboxStore` 已把 `meta_cf/SLO_OUTBOX` 的扫描边界收紧为
+key/value `sampleId` 必须 byte-identical；错挂的 key 不会被导出为另一个样本，
+而 collector acknowledgement 仍必须匹配当前完整 record digest 才能删除。回归
+证据为 `SloObservationOutboxStoreTest`。这只补足 shard-local 持久化完整性，不能
+替代 SLO Start 重建、collector merge/export 或生产观测 authority。
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
