@@ -94,6 +94,25 @@ public final class CheckpointUploadIntentStore {
         return current;
     }
 
+    /**
+     * Enters REAPING only after the local catalog/pin necessary-condition
+     * guard agrees that the pending checkpoint is not currently protected.
+     * This overload still does not replace the production Oxia transaction:
+     * callers must combine it with owner-abandonment, provider quiescence and
+     * exact-version delete authority.
+     */
+    public synchronized CheckpointUploadIntentV1 beginReaping(
+            final CheckpointUploadIntentV1 expectedPending,
+            final TrustedUtcIntervalEvidence evidence,
+            final RecoveryCatalogAuthority catalog) {
+        final CheckpointReapingGuard.Decision decision = CheckpointReapingGuard.evaluate(expectedPending, evidence,
+                catalog);
+        if (decision != CheckpointReapingGuard.Decision.REAPING_ALLOWED) {
+            throw new IllegalStateException("checkpoint reaping guard rejected: " + decision);
+        }
+        return beginReaping(expectedPending, evidence);
+    }
+
     /** Returns the current local projection, if an intent has been created. */
     public synchronized Optional<CheckpointUploadIntentV1> current() {
         return Optional.ofNullable(current);

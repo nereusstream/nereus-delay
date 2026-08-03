@@ -297,9 +297,12 @@ idempotency 与本地 PENDING_UPLOAD -> PUBLISHED/REAPING revision CAS 投影。
 其中 REAPING 竞争在 response loss 后可用相同 pending identity 和
 `reapingStartedAt` evidence 精确重读同一 successor；不同 evidence 仍 fail
 closed，且 evidence 的 earliest trusted time 必须达到 upload deadline；
-deadline 前的 reaper 证据不会推进状态。该边界不等于 owner abandonment/
-lease-loss authority、quiescence、exact-version Object Store delete/final
-prefix sweep 或 Oxia transaction。
+deadline 前的 reaper 证据不会推进状态。新增的
+`CheckpointReapingGuard` 在进入 REAPING 前还检查 published catalog
+protection 和同 lineage/checkpoint 的 active `RecoveryPinV1`；catalog/pin
+读取失败也 fail closed。该边界不等于 owner abandonment/lease-loss
+authority、quiescence、exact-version Object Store delete/final prefix sweep
+或 Oxia transaction。
 `ShardStore` 还提供 pin-aware restore overload：它在下载/暂存校验后、安装
 新 Store Incarnation 前 reread exact active `RecoveryPinV1`，pin 缺失或值漂移
 以及 Floor 已越过 candidate 都会 fail closed 并清理私有 `restore-tmp`。这把
