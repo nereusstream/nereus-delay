@@ -4699,6 +4699,10 @@ public final class DelayShard {
                     || reservation.reservationExpiryEpochMs() != expiry) {
                 throw new IllegalStateException("RESERVATION_EXPIRY key/value identity mismatch");
             }
+            final PayloadReservation current = readStoredReservation(reservationId);
+            if (current == null || !Arrays.equals(current.encode(), reservation.encode())) {
+                throw new IllegalStateException("RESERVATION_EXPIRY is not the current reservation projection");
+            }
             if (effectiveReservation(reservation).status() == PayloadReservationStatus.EXPIRED) {
                 result.add(new ReservationExpiryWork(reservation.reservationId(), reservation.delayMessageId(),
                         reservation.reservationExpiryEpochMs(), reservation.stateVersion()));

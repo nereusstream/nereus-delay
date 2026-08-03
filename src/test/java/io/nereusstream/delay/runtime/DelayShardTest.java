@@ -1369,6 +1369,35 @@ class DelayShardTest {
     }
 
     @Test
+    void reservationExpiryDiscoveryRejectsStaleIdProjection() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("stale-reservation-expiry"));
+        final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,
+                3, 100, 10_000);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 63);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("stale-reservation-expiry-lane"));
+        final LargeScheduleIntent intent = new LargeScheduleIntent(lane, 2_000, 5_000,
+                OrderingMode.BEST_EFFORT, 8, Bytes.sha256(Bytes.utf8("stale-reservation-expiry-payload")),
+                4_000, 9);
+        final PreparedCommand prepare = PreparedCommand.prepareLarge(shardId, intent, 9_000);
+        final byte[] reservationId = Bytes.sha256(Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                prepare.commandId().bytes(), prepare.delayMessageId().bytes(), prepare.commandHash());
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, shardConfig);
+            assertEquals(StableCode.OK, shard.apply(prepare, position(shardId, 0, 1_000)).stableCode());
+            final PayloadReservation reservation = shard.getReservation(reservationId);
+            final PayloadReservation stale = new PayloadReservation(shardId, reservation.reservationId(),
+                    reservation.commandId(), reservation.delayMessageId(), reservation.commandHash(), reservation.intent(),
+                    reservation.reservationExpiryEpochMs(), PayloadReservationStatus.ABANDONED,
+                    Math.addExact(reservation.stateVersion(), 1), reservation.sourcePosition(), null);
+            store.write(batch -> batch.putValue(ColumnFamily.ID, 2, KeyCodec.idReservation(reservationId),
+                    stale.encode()));
+
+            assertThrows(IllegalStateException.class, () -> shard.discoverReservationExpiry(5_000, 10));
+        }
+    }
+
+    @Test
     void timeFenceOverlaysReservedPayloadAndBoundedCursorMaterializesExpiry() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("reservation-fence"));
         final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,

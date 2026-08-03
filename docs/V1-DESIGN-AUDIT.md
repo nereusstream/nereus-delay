@@ -832,9 +832,10 @@ key/value `sampleId` 必须 byte-identical；错挂的 key 不会被导出为另
 Large-payload reservation 的本地读取也采用同一条组合身份边界：`id_cf/RESERVATION`
 key 中的 reservationId 必须与 `PayloadReservation` 值一致，值中的 ShardId 必须与
 当前 Delay Shard 一致；按 messageId 的 bounded lookup 在超界或发现多个 reservation
-时直接 fail closed。`DelayShardTest` 覆盖错挂 key 和重复 reservation，避免 Cancel/Commit
-从不完整投影中猜测唯一预约。Object Store、Oxia 和 source-ordered reservation authority
-仍不由此本地检查替代。
+时直接 fail closed；`RESERVATION_EXPIRY` timeline entry 还必须与当前 `id_cf` 记录
+byte-identical。`DelayShardTest` 覆盖错挂 key、重复 reservation 和 stale expiry projection，
+避免 Cancel/Commit/expiry materializer 从不完整投影中猜测唯一预约。Object Store、Oxia
+和 source-ordered reservation authority 仍不由此本地检查替代。
 
 ## Final gate
 
