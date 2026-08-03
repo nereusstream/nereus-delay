@@ -51,7 +51,12 @@ public final class ShardStore implements AutoCloseable {
     private static final int META_OWNER_EPOCH = 8;
     private static final int META_CLEAN_CLOSE_MARKER = 9;
     private static final int META_CONTROL_SNAPSHOT = 10;
+    private static final int META_CLAIM_SEQUENCE = 11;
+    private static final int META_PAYLOAD_PROOF_CONTROL_STATE = 12;
+    private static final int META_PROFILE_CONTROL_STATE = 13;
     private static final int META_FIXED_VALUE_TYPE = 1;
+    private static final int META_PAYLOAD_PROOF_VALUE_TYPE = 9;
+    private static final int META_PROFILE_VALUE_TYPE = 10;
 
     static {
         RocksDbNativeLoader.load();
@@ -586,6 +591,7 @@ public final class ShardStore implements AutoCloseable {
             if (db.get(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_CONTROL_SNAPSHOT)) != null) {
                 throw new IllegalStateException("meta/FIXED control snapshot is not supported by this store version");
             }
+            validateFixedMetadata(db, handles.get(ColumnFamily.META), shardId);
             final RuntimeMetadataRead runtimeRead = readRuntimeMetadata(db, handles.get(ColumnFamily.META));
             runtimeMetadata = runtimeRead.metadata();
             final long closedIngressDeadlineThrough = runtimeRead.closedIngressDeadlineThrough();
@@ -644,6 +650,45 @@ public final class ShardStore implements AutoCloseable {
                 ? List.of() : StoreRuntimeMetadata.decodeEvidenceCursors(evidenceBytes);
         return new RuntimeMetadataRead(new StoreRuntimeMetadata(ingressFence.proofId(), checkpointId, ownerEpoch,
                 cleanClose, evidenceCursors), ingressFence.closedThroughEpochMs());
+    }
+
+    private static void validateFixedMetadata(final RocksDB db, final ColumnFamilyHandle metaHandle,
+                                              final ShardId shardId) throws RocksDBException {
+        final byte[] sourceBytes = optionalFixedValue(db, metaHandle, META_APPLIED_SOURCE_POSITION);
+        if (sourceBytes != null) {
+            final SourcePosition position = SourcePositionCodec.decode(sourceBytes);
+            if (!shardId.equals(position.shardId())) {
+                throw new IllegalStateException("persisted source position belongs to another shard");
+            }
+        }
+        validateNonNegativeSequence(optionalFixedValue(db, metaHandle, META_MUTATION_SEQUENCE),
+                "persisted shard mutation sequence");
+        validateNonNegativeSequence(optionalFixedValue(db, metaHandle, META_CLAIM_SEQUENCE),
+                "persisted Claim sequence");
+        validateOptionalFixedEnvelope(db, metaHandle, META_PAYLOAD_PROOF_CONTROL_STATE,
+                META_PAYLOAD_PROOF_VALUE_TYPE);
+        validateOptionalFixedEnvelope(db, metaHandle, META_PROFILE_CONTROL_STATE, META_PROFILE_VALUE_TYPE);
+    }
+
+    private static void validateOptionalFixedEnvelope(final RocksDB db, final ColumnFamilyHandle metaHandle,
+                                                      final int fixedKeyKind, final int valueType)
+            throws RocksDBException {
+        final byte[] encoded = db.get(metaHandle, KeyCodec.metaFixed(fixedKeyKind));
+        if (encoded != null) {
+            final byte[] payload = ValueEnvelope.decode(encoded, valueType).payload();
+            if (payload.length == 0) {
+                throw new IllegalArgumentException("empty fixed metadata payload: " + fixedKeyKind);
+            }
+        }
+    }
+
+    private static void validateNonNegativeSequence(final byte[] payload, final String name) {
+        if (payload == null) {
+            return;
+        }
+        if (payload.length != Long.BYTES || Bytes.readU64be(payload, 0) < 0) {
+            throw new IllegalArgumentException(name + " is invalid");
+        }
     }
 
     private static byte[] optionalFixedValue(final RocksDB db, final ColumnFamilyHandle metaHandle,

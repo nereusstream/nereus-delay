@@ -670,6 +670,11 @@ length/CRC 校验；不再存在裸 format 或裸 identity value。回归证据�
 注册的 1--11；§7 明确记录了 context-specific mapping，而不是把 GC 的
 retire/delete union 或 fixed control states 错误地压成同一个 payload schema。
 `ValueEnvelopeTest` 覆盖上界、未知 type、长度和 CRC 的 fail-closed 行为。
+`ShardStore.open` 现在也在 activation 边界校验固定 key 3 的 Source Position
+属于当前 Shard、key 5/11 的 non-negative fixed-width sequence，以及 key
+12/13 的 registered non-empty control-state envelope；错误不会等到
+`DelayShard` 构造后才暴露。`ShardStoreTest.fixedControlMetadataIsValidatedBeforeShardActivation`
+覆盖 type mismatch 和失败后 native DB 可重开的证据。
 
 主设计 §10.1 要求的可变 Store 元数据现在也有独立的本地投影：
 `StoreRuntimeMetadata` 在注册的 `meta/FIXED` key 4/6/7/8/9 中 canonical 持久

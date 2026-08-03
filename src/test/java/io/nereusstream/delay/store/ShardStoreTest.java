@@ -158,6 +158,23 @@ class ShardStoreTest {
     }
 
     @Test
+    void fixedControlMetadataIsValidatedBeforeShardActivation() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("fixed-control-metadata"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 35);
+        final Path dbPath;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            dbPath = store.dbPath();
+        }
+        overwriteRawColumnFamilyValue(dbPath, "meta_cf", KeyCodec.metaFixed(12),
+                ValueEnvelope.encode(1, Bytes.utf8("wrong-control-type")));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+            assertThrows(IllegalArgumentException.class, () -> ShardStore.open(config, shardId, resources));
+        }
+        assertRawRocksDbCanBeOpened(dbPath);
+    }
+
+    @Test
     void checkpointUsesTemporaryNamespaceAndRejectsExistingTarget() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("checkpoint-atomic"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 23);

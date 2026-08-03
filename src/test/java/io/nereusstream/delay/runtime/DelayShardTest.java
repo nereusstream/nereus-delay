@@ -105,11 +105,13 @@ class DelayShardTest {
                 store.write(batch -> batch.putValue(ColumnFamily.META, 1,
                         KeyCodec.metaFixed(metadataKey), negativeSequence));
             }
-            try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
-                 ShardStore store = ShardStore.open(config, shardId, resources)) {
-                final IllegalStateException exception = assertThrows(IllegalStateException.class,
-                        () -> new DelayShard(store, DelayShardConfig.defaults()));
-                assertEquals("negative persisted shard sequence", exception.getMessage());
+            try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+                final IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                        () -> ShardStore.open(config, shardId, resources));
+                assertEquals(metadataKey == 5
+                                ? "persisted shard mutation sequence is invalid"
+                                : "persisted Claim sequence is invalid",
+                        exception.getMessage());
             }
         }
     }

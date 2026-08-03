@@ -581,6 +581,13 @@ that no `meta/FIXED` value is stored as an unframed raw byte sequence.
 range 1--11; the Registry records the context-specific mapping, including the
 two GC task union branches and fixed control states, so a payload discriminator
 cannot silently grow an unregistered schema.
+`ShardStore.open` now validates the remaining fixed-key activation boundary as
+well: key 3's persisted Source Position must belong to this Shard, keys 5 and
+11 must be non-negative fixed-width sequences, and keys 12/13 must carry their
+registered non-empty control-state envelope types before the Store is exposed.
+`ShardStoreTest.fixedControlMetadataIsValidatedBeforeShardActivation` covers
+the type-mismatch path and confirms the native DB can be reopened after the
+failed activation.
 `ShardStore.createCheckpoint(path, checkpointId)` additionally writes the exact
 16-byte identity before taking the RocksDB image, so a restored checkpoint
 retains the identity it represents; a failed physical attempt restores the
