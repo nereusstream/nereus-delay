@@ -708,7 +708,9 @@ The current source-ordered control increment is deliberately bounded: the
 canonical `ControlRefV1`, its Resolve logical identity, lane incarnation,
 acknowledgement hash, current-generation UNCERTAIN obligation and source
 position, then materializes one `UNCERTAIN_RETRY(CONTROL_OVERRIDE)` timeline
-work item without consuming the Admission counter. Resolve evidence attachment
+work item without consuming the Admission counter. A Claim created from that
+timeline now freezes `sourceWorkKind=UNCERTAIN_RETRY` instead of deriving a
+definitive-retry kind from the retry timestamp. Resolve evidence attachment
 and authenticated Oxia target registration remain release blockers; the
 `ATTACH_PUBLISHED_EVIDENCE` branch is now locally covered for an exact current
 UNCERTAIN obligation even when the generation still has reversible timeline or

@@ -466,6 +466,10 @@ definitive retry 也由
 覆盖；外部 authenticated control/evidence authority 和完整 retry/charge
 policy 仍未完成。
 
+此外，Claim 从 `UNCERTAIN_RETRY` timeline 创建时现在冻结实际的
+`sourceWorkKind=UNCERTAIN_RETRY`，不再根据 retry timestamp 误判为
+`DEFINITIVE_RETRY`；完整 Claim materialization/recovery 仍是独立的待完成边界。
+
 Evidence branch validation also checks the adapter-specific target resource
 and cursor/channel branch, so a Kafka evidence envelope cannot carry a Pulsar
 resource (or vice versa); authenticated Broker response and external proof

@@ -686,7 +686,11 @@ public final class DelayShard {
         final byte[] claimId = Bytes.sha256(Bytes.utf8("nereus-delay-claim-id-v1\0"),
                 store.metadata().storeIncarnation(), Bytes.u64be(owner.generation()), Bytes.u64be(nextClaimSequence),
                 messageId.bytes(), Bytes.u32be(current.generation()), Bytes.u64be(lane.laneVersion()));
-        final int workKind = current.retryEligibilityAtEpochMs() == current.deliverAtEpochMs() ? 1 : 2;
+        final TimelineWorkRef currentTimeline = current.runtimeIndex().timeline();
+        final int workKind = currentTimeline != null
+                && Arrays.equals(currentTimeline.encodedTimelineKey(), timelineKey)
+                ? currentTimeline.workKind().wireValue()
+                : current.retryEligibilityAtEpochMs() == current.deliverAtEpochMs() ? 1 : 2;
         final byte[] precondition = buildClaimPrecondition(claimId, messageId, current, lane, timelineKey,
                 owner, claimDeadlineEpochMs, materialization, claimedCharge, workKind);
         MessageRecord next = new MessageRecord(MessageStatus.CLAIMED, current.generation(),

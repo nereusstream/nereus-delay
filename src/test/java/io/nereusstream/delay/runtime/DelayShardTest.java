@@ -1939,6 +1939,8 @@ class DelayShardTest {
 
             final ClaimRecord claim = shard.claimForPublish(schedule.delayMessageId(), owner, 3_000,
                     new byte[0], chargeVector());
+            assertEquals(TimelineWorkKind.UNCERTAIN_RETRY.wireValue(),
+                    ClaimResultBody.decodePrecondition(claim.preconditionBytes()).sourceWorkKind());
             assertEquals(CurrentSendWorkKind.CLAIMED,
                     shard.getMessage(schedule.delayMessageId()).runtimeIndex().currentWorkKind());
             assertNotNull(shard.getClaim(claim.claimId(), owner.generation()));
