@@ -3867,7 +3867,9 @@ class DelayShardTest {
             CanonicalProtobuf.uint32(output, 13, stateVersion);
             CanonicalProtobuf.int64(output, 14, deliverAt);
             CanonicalProtobuf.int64(output, 15, expireAt);
-            CanonicalProtobuf.bytes(output, 16, nestedPlaceholder());
+            CanonicalProtobuf.bytes(output, 16, new io.nereusstream.delay.protocol.RetryPolicyRefV1(
+                    Bytes.utf8("replay-policy"), 1, Bytes.sha256(Bytes.utf8("replay-policy-semantic")))
+                    .canonicalBytes());
             CanonicalProtobuf.uint32(output, 17, 0);
         });
     }

@@ -23,6 +23,7 @@ class ReplayDeadLetterBodyTest {
         assertEquals(messageId, decoded.messageId());
         assertEquals(2, decoded.expectedGeneration());
         assertEquals(11, decoded.expectedStateVersion());
+        assertEquals(retryPolicy, decoded.retryPolicyRef());
         assertEquals(3_000, decoded.deliverAtEpochMs());
         assertEquals(8_000, decoded.expireAtEpochMs());
         assertArrayEquals(retryPolicy.canonicalBytes(), decoded.retryPolicy());
@@ -69,6 +70,29 @@ class ReplayDeadLetterBodyTest {
         });
 
         assertThrows(IllegalArgumentException.class, () -> ReplayDeadLetterBody.decode(encoded));
+    }
+
+    @Test
+    void rejectsOpaqueRetryPolicyReference() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
+        final DelayMessageId messageId = DelayMessageId.random(shard);
+        final ControlRef controlRef = new ControlRef(bytes(15), bytes(16), 0);
+        final byte[] body = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, new ShardSubjectV1(shard).canonicalBytes());
+            CanonicalProtobuf.uint32(output, 2, SystemMutationType.REPLAY_DEAD_LETTER.wireValue());
+            CanonicalProtobuf.int64(output, 3, 9_000);
+            CanonicalProtobuf.bytes(output, 10, controlRef.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 11, messageId.bytes());
+            CanonicalProtobuf.uint32(output, 12, 0);
+            CanonicalProtobuf.uint64(output, 13, 0);
+            CanonicalProtobuf.int64(output, 14, 1);
+            CanonicalProtobuf.int64(output, 15, 2);
+            CanonicalProtobuf.bytes(output, 16, CanonicalProtobuf.message(nested ->
+                    CanonicalProtobuf.bytes(nested, 1, new byte[]{1})));
+            CanonicalProtobuf.uint32(output, 17, 0);
+        });
+
+        assertThrows(IllegalArgumentException.class, () -> ReplayDeadLetterBody.decode(body));
     }
 
     private static byte[] bytes(final int seed) {

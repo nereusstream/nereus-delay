@@ -14,6 +14,7 @@ public final class ReplayDeadLetterBody {
     private final long deliverAtEpochMs;
     private final long expireAtEpochMs;
     private final byte[] retryPolicy;
+    private final RetryPolicyRefV1 retryPolicyRef;
     private final boolean allowPossibleDuplicate;
     private final byte[] acknowledgementHash;
 
@@ -33,6 +34,7 @@ public final class ReplayDeadLetterBody {
         this.deliverAtEpochMs = deliverAtEpochMs;
         this.expireAtEpochMs = expireAtEpochMs;
         this.retryPolicy = copyNested(retryPolicy, "retryPolicy");
+        this.retryPolicyRef = RetryPolicyRefV1.decode(this.retryPolicy);
         this.allowPossibleDuplicate = allowPossibleDuplicate;
         this.acknowledgementHash = Bytes.copy(acknowledgementHash);
         if (allowPossibleDuplicate != (acknowledgementHash.length == ControlRef.HASH_LENGTH)) {
@@ -135,6 +137,11 @@ public final class ReplayDeadLetterBody {
 
     public byte[] retryPolicy() {
         return Bytes.copy(retryPolicy);
+    }
+
+    /** Returns the typed immutable policy reference carried by field 16. */
+    public RetryPolicyRefV1 retryPolicyRef() {
+        return retryPolicyRef;
     }
 
     public boolean allowPossibleDuplicate() {
