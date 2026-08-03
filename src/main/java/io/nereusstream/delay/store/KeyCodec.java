@@ -29,6 +29,11 @@ public final class KeyCodec {
         return Bytes.concat(new byte[]{3, 1}, canonicalSourcePosition);
     }
 
+    /** Stable dedupe/FENCE locator for one deterministic TIME_FENCE proof. */
+    public static byte[] dedupeFence(final byte[] proofId) {
+        return typedIdentity((byte) 4, proofId, "proofId");
+    }
+
     public static byte[] dedupeSystemMutation(final byte[] mutationId) {
         Objects.requireNonNull(mutationId, "mutationId");
         if (mutationId.length != 32) {
@@ -156,6 +161,18 @@ public final class KeyCodec {
         return gcTask(0, (byte) resourceKind.wireValue(), resourceIdentityHash, expectedVersion);
     }
 
+    /** Stable gc_cf/PROTECTION locator for one guarded resource generation. */
+    public static byte[] gcProtection(final int protectionKind, final byte[] resourceId,
+                                      final long protectionGeneration) {
+        Objects.requireNonNull(resourceId, "resourceId");
+        if (protectionKind <= 0 || protectionKind > 6 || resourceId.length == 0
+                || protectionGeneration < 0) {
+            throw new IllegalArgumentException("invalid GC protection key values");
+        }
+        return Bytes.concat(new byte[]{2, 1, (byte) protectionKind}, Bytes.lp32(resourceId),
+                Bytes.u64be(protectionGeneration));
+    }
+
     public static byte[] metaFixed(final int fixedKeyKind) {
         if (fixedKeyKind <= 0 || fixedKeyKind > 13) {
             throw new IllegalArgumentException("unknown FIXED meta key kind");
@@ -179,6 +196,26 @@ public final class KeyCodec {
             throw new IllegalArgumentException("unknown SCHEDULER meta key kind");
         }
         return Bytes.concat(new byte[]{5, 1, (byte) schedulerKeyKind});
+    }
+
+    /** Stable meta/PRODUCER locator for one Lane physical channel slot. */
+    public static byte[] metaProducer(final DestinationLaneId laneId, final long physicalPartition,
+                                      final long channelSlot) {
+        Objects.requireNonNull(laneId, "laneId");
+        if (physicalPartition < 0 || physicalPartition > 0xffff_ffffL
+                || channelSlot < 0 || channelSlot > 0xffff_ffffL) {
+            throw new IllegalArgumentException("invalid producer key values");
+        }
+        return Bytes.concat(new byte[]{4, 1}, laneId.bytes(), Bytes.u32be(physicalPartition),
+                Bytes.u32be(channelSlot));
+    }
+
+    /** Stable meta/RECOVERY locator for one registered recovery projection. */
+    public static byte[] metaRecovery(final int recoveryKeyKind) {
+        if (recoveryKeyKind <= 0 || recoveryKeyKind > 4) {
+            throw new IllegalArgumentException("unknown RECOVERY meta key kind");
+        }
+        return new byte[]{7, 1, (byte) recoveryKeyKind};
     }
 
     /** Stable meta/SLO_OUTBOX locator: {@code 08 01 | sampleId[32]}. */
