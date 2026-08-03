@@ -459,10 +459,14 @@ reserve、mutation result 和 source position 一起原子提交，旧代只更�
 terminal summary、ledger、duplicate-risk 和 outcome reserve，不能修改新代；
 重复 mutation 返回已持久化结果。`ATTACH_NOT_PUBLISHED_EVIDENCE` 现在也
 校验 exact UNCERTAIN obligation 并按 remaining-obligation/all-absent 规则
-保留未决工作、保留另一个 current PUBLISHING，或原子化为 definitive retry
+保留未决工作、保留另一个 current PUBLISHING；若当前是 stale `CLAIMED`，
+则与目标 ledger 一起原子撤销为 `UNCERTAIN/NONE`，或在无剩余 obligation 时
+原子化为 definitive retry
 及其 closed-lane/budget/expiry terminal 分支；当前 `CLAIMED` work 的撤销与
 definitive retry 也由
 `DelayShardTest.sourceOrderedNotPublishedEvidenceRevokesClaimAndNormalizesDefinitiveRetry`
+以及
+`DelayShardTest.sourceOrderedNotPublishedEvidenceRevokesClaimWhenAnotherUncertainObligationRemains`
 覆盖；外部 authenticated control/evidence authority 和完整 retry/charge
 policy 仍未完成。
 

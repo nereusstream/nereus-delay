@@ -721,7 +721,11 @@ without terminalizing it. Historical terminal-summary settlement is also
 covered. The `ATTACH_NOT_PUBLISHED_EVIDENCE` branch now validates the exact
 UNCERTAIN obligation and typed not-published evidence, settles old/terminal
 summaries, preserves remaining uncertainty or another current PUBLISHING
-attempt, and normalizes an all-absent current generation to definitive retry
+attempt, and atomically revokes a stale current Claim to `UNCERTAIN/NONE`
+when another obligation remains. It normalizes an all-absent current generation
+to definitive retry; `DelayShardTest` covers both the all-absent current
+Claim path and the remaining-obligation Claim revocation path
+(`sourceOrderedNotPublishedEvidenceRevokesClaimWhenAnotherUncertainObligationRemains`)
 (or a closed-lane, budget-exhausted, or expired terminal outcome) in one batch;
 its external authenticated evidence authority and full policy/charge proof
 remain release blockers, while the

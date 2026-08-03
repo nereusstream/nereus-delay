@@ -2144,6 +2144,8 @@ public final class DelayShard {
                                                                         final SystemMutationResult result) {
         final GenerationRuntimeIndex index = current.runtimeIndex();
         final GenerationRuntimeIndex nextRuntime;
+        final ClaimRecord revokedClaim;
+        final MessageStatus nextStatus;
         if (index.currentWorkKind() == CurrentSendWorkKind.TIMELINE) {
             if (index.timeline() == null) {
                 throw new IllegalStateException("uncertain timeline work is missing its reference");
@@ -2151,27 +2153,39 @@ public final class DelayShard {
             nextRuntime = GenerationRuntimeIndex.timeline(GenerationAggregateState.UNCERTAIN,
                     index.timeline(), remaining, index.admissionsUsed(), index.uncertainRetryAdmissionsUsed(),
                     index.possibleDestinationDuplicate(), Math.addExact(index.runtimeRevision(), 1));
+            revokedClaim = null;
+            nextStatus = current.status();
         } else if (index.currentWorkKind() == CurrentSendWorkKind.CLAIMED) {
-            final ClaimRecord claim = findClaimForMessage(ledger.delayMessageId());
-            if (claim == null || !Arrays.equals(claim.claimId(), index.claimId())
-                    || claim.runtimeRevision() != current.stateVersion()) {
+            revokedClaim = findClaimForMessage(ledger.delayMessageId());
+            if (revokedClaim == null || !Arrays.equals(revokedClaim.claimId(), index.claimId())
+                    || revokedClaim.runtimeRevision() != current.stateVersion()) {
                 throw new IllegalStateException("uncertain Claim work is missing its exact record");
             }
-            nextRuntime = GenerationRuntimeIndex.claimed(index.claimId(), remaining, index.admissionsUsed(),
-                    index.uncertainRetryAdmissionsUsed(), index.possibleDestinationDuplicate(),
-                    Math.addExact(index.runtimeRevision(), 1));
+            // The Claim precondition freezes the old obligation-set digest.  Once
+            // one old attempt is settled, retaining that Claim would make a later
+            // Admission fail against an already-invalid digest.  Revoke it
+            // atomically and leave the generation UNCERTAIN/NONE; a subsequent
+            // source-ordered Resolve retry can materialize a fresh timeline.
+            nextRuntime = GenerationRuntimeIndex.none(GenerationAggregateState.UNCERTAIN, remaining,
+                    index.admissionsUsed(), index.uncertainRetryAdmissionsUsed(),
+                    index.possibleDestinationDuplicate(), Math.addExact(index.runtimeRevision(), 1));
+            nextStatus = MessageStatus.UNCERTAIN;
         } else if (index.currentWorkKind() == CurrentSendWorkKind.PUBLISHING) {
             nextRuntime = GenerationRuntimeIndex.publishing(index.publishAttemptId(), remaining,
                     index.admissionsUsed(), index.uncertainRetryAdmissionsUsed(),
                     index.possibleDestinationDuplicate(), Math.addExact(index.runtimeRevision(), 1));
+            revokedClaim = null;
+            nextStatus = current.status();
         } else if (index.currentWorkKind() == CurrentSendWorkKind.NONE) {
             nextRuntime = GenerationRuntimeIndex.none(GenerationAggregateState.UNCERTAIN, remaining,
                     index.admissionsUsed(), index.uncertainRetryAdmissionsUsed(),
                     index.possibleDestinationDuplicate(), Math.addExact(index.runtimeRevision(), 1));
+            revokedClaim = null;
+            nextStatus = current.status();
         } else {
             throw new IllegalStateException("unsupported uncertain work kind");
         }
-        final MessageRecord next = new MessageRecord(current.status(), current.generation(), current.stateVersion(),
+        final MessageRecord next = new MessageRecord(nextStatus, current.generation(), current.stateVersion(),
                 current.deliverAtEpochMs(), current.expireAtEpochMs(), current.laneId(), current.orderingMode(),
                 current.payload(), current.scheduleSourcePosition(), current.payloadReference(),
                 current.retryEligibilityAtEpochMs()).withRuntimeIndex(nextRuntime);
@@ -2179,6 +2193,9 @@ public final class DelayShard {
         final CapacityVectorV1 nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
         store.write(batch -> {
             batch.delete(ColumnFamily.INFLIGHT, ledger.encodedKey());
+            if (revokedClaim != null) {
+                batch.delete(ColumnFamily.INFLIGHT, revokedClaim.encodedKey());
+            }
             batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(ledger.delayMessageId()), next.encode());
             persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector);
             writeSystemResult(batch, result);
