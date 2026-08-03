@@ -44,9 +44,14 @@ public final class ShardStore implements AutoCloseable {
     private static final int META_STORE_FORMAT = 1;
     private static final int META_SHARD_IDENTITY = 2;
     private static final int META_APPLIED_SOURCE_POSITION = 3;
+    private static final int META_INGRESS_FENCE_STATE = 4;
     private static final int META_MUTATION_SEQUENCE = 5;
-    private static final int META_RUNTIME = 10;
-    private static final int RUNTIME_VALUE_TYPE = 14;
+    private static final int META_EVIDENCE_CURSORS = 6;
+    private static final int META_CHECKPOINT_ID = 7;
+    private static final int META_OWNER_EPOCH = 8;
+    private static final int META_CLEAN_CLOSE_MARKER = 9;
+    private static final int META_CONTROL_SNAPSHOT = 10;
+    private static final int META_FIXED_VALUE_TYPE = 1;
 
     static {
         RocksDbNativeLoader.load();
@@ -64,12 +69,14 @@ public final class ShardStore implements AutoCloseable {
     private final boolean ownsShardSlot;
     private final AtomicBoolean closed = new AtomicBoolean();
     private StoreRuntimeMetadata runtimeMetadata;
+    private long closedIngressDeadlineThrough;
 
     private ShardStore(final ShardStoreConfig config, final ShardId shardId, final Path dbPath,
                         final SharedRocksDbResources resources, final RocksDB db, final DBOptions dbOptions,
                         final List<ColumnFamilyOptions> columnFamilyOptions,
                         final Map<ColumnFamily, ColumnFamilyHandle> handles, final StoreMetadata metadata,
-                        final boolean ownsShardSlot, final StoreRuntimeMetadata runtimeMetadata) {
+                        final boolean ownsShardSlot, final StoreRuntimeMetadata runtimeMetadata,
+                        final long closedIngressDeadlineThrough) {
         this.config = config;
         this.shardId = shardId;
         this.dbPath = dbPath;
@@ -81,6 +88,7 @@ public final class ShardStore implements AutoCloseable {
         this.metadata = metadata;
         this.ownsShardSlot = ownsShardSlot;
         this.runtimeMetadata = runtimeMetadata;
+        this.closedIngressDeadlineThrough = closedIngressDeadlineThrough;
     }
 
     public static ShardStore open(final ShardStoreConfig config, final ShardId shardId,
@@ -543,9 +551,6 @@ public final class ShardStore implements AutoCloseable {
                             java.nio.ByteBuffer.allocate(4).putInt(1).array());
                     batch.put(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_SHARD_IDENTITY),
                             created.encode());
-                    runtimeMetadata = StoreRuntimeMetadata.empty();
-                    batch.put(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_RUNTIME),
-                            ValueEnvelope.encode(RUNTIME_VALUE_TYPE, runtimeMetadata.canonicalBytes()));
                     db.write(writeOptions, batch);
                 }
                 metadata = created;
@@ -576,23 +581,22 @@ public final class ShardStore implements AutoCloseable {
             if (format == null || format.length != 4 || java.nio.ByteBuffer.wrap(format).getInt() != 1) {
                 throw new IllegalStateException("missing or unsupported store format marker");
             }
-            final byte[] runtimeBytes = db.get(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_RUNTIME));
-            if (runtimeBytes == null) {
-                runtimeMetadata = StoreRuntimeMetadata.empty();
-            } else {
-                final ValueEnvelope.Decoded runtimeValue = ValueEnvelope.decode(runtimeBytes, RUNTIME_VALUE_TYPE);
-                runtimeMetadata = StoreRuntimeMetadata.decode(runtimeValue.payload());
+            if (db.get(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_CONTROL_SNAPSHOT)) != null) {
+                throw new IllegalStateException("meta/FIXED control snapshot is not supported by this store version");
             }
+            final RuntimeMetadataRead runtimeRead = readRuntimeMetadata(db, handles.get(ColumnFamily.META));
+            runtimeMetadata = runtimeRead.metadata();
+            final long closedIngressDeadlineThrough = runtimeRead.closedIngressDeadlineThrough();
             if (runtimeMetadata.cleanCloseMarker()) {
                 runtimeMetadata = runtimeMetadata.withCleanCloseMarker(false);
             }
             try (WriteBatch batch = new WriteBatch(); WriteOptions writeOptions = new WriteOptions().setSync(true)) {
-                batch.put(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_RUNTIME),
-                        ValueEnvelope.encode(RUNTIME_VALUE_TYPE, runtimeMetadata.canonicalBytes()));
+                putRuntimeMetadata(batch, handles.get(ColumnFamily.META), runtimeMetadata,
+                        closedIngressDeadlineThrough);
                 db.write(writeOptions, batch);
             }
             final ShardStore result = new ShardStore(config, shardId, dbPath, resources, db, dbOptions, cfOptions,
-                    handles, metadata, ownsShardSlot, runtimeMetadata);
+                    handles, metadata, ownsShardSlot, runtimeMetadata, closedIngressDeadlineThrough);
             keepOpen = true;
             return result;
         } finally {
@@ -600,6 +604,100 @@ public final class ShardStore implements AutoCloseable {
                 closeHandles(db, openedHandles, cfOptions, dbOptions);
             }
         }
+    }
+
+    private static RuntimeMetadataRead readRuntimeMetadata(final RocksDB db,
+                                                           final ColumnFamilyHandle metaHandle)
+            throws RocksDBException {
+        final byte[] ingressFenceBytes = optionalFixedValue(db, metaHandle, META_INGRESS_FENCE_STATE);
+        final IngressFenceState ingressFence = ingressFenceBytes == null
+                ? new IngressFenceState(IngressFenceState.OPEN, null)
+                : IngressFenceState.decode(ingressFenceBytes);
+        final byte[] evidenceBytes = optionalFixedValue(db, metaHandle, META_EVIDENCE_CURSORS);
+        final byte[] checkpointId = optionalFixedValue(db, metaHandle, META_CHECKPOINT_ID);
+        final byte[] ownerBytes = optionalFixedValue(db, metaHandle, META_OWNER_EPOCH);
+        final byte[] cleanBytes = optionalFixedValue(db, metaHandle, META_CLEAN_CLOSE_MARKER);
+        final long ownerEpoch;
+        if (ownerBytes == null) {
+            ownerEpoch = 0;
+        } else {
+            if (ownerBytes.length != Long.BYTES) {
+                throw new IllegalArgumentException("invalid persisted owner epoch");
+            }
+            ownerEpoch = Bytes.readU64be(ownerBytes, 0);
+            if (ownerEpoch < 0) {
+                throw new IllegalArgumentException("persisted owner epoch is outside signed V1 range");
+            }
+        }
+        final boolean cleanClose;
+        if (cleanBytes == null) {
+            cleanClose = false;
+        } else {
+            if (cleanBytes.length != 1 || (cleanBytes[0] != 0 && cleanBytes[0] != 1)) {
+                throw new IllegalArgumentException("invalid clean-close marker");
+            }
+            cleanClose = cleanBytes[0] == 1;
+        }
+        final List<EvidenceCursorV1> evidenceCursors = evidenceBytes == null
+                ? List.of() : StoreRuntimeMetadata.decodeEvidenceCursors(evidenceBytes);
+        return new RuntimeMetadataRead(new StoreRuntimeMetadata(ingressFence.proofId(), checkpointId, ownerEpoch,
+                cleanClose, evidenceCursors), ingressFence.closedThroughEpochMs());
+    }
+
+    private static byte[] optionalFixedValue(final RocksDB db, final ColumnFamilyHandle metaHandle,
+                                             final int fixedKeyKind) throws RocksDBException {
+        final byte[] encoded = db.get(metaHandle, KeyCodec.metaFixed(fixedKeyKind));
+        if (encoded == null) {
+            return null;
+        }
+        return ValueEnvelope.decode(encoded, META_FIXED_VALUE_TYPE).payload();
+    }
+
+    private static void putRuntimeMetadata(final WriteBatch batch, final ColumnFamilyHandle metaHandle,
+                                           final StoreRuntimeMetadata next,
+                                           final long closedIngressDeadlineThrough) throws RocksDBException {
+        if (closedIngressDeadlineThrough < IngressFenceState.OPEN) {
+            throw new IllegalArgumentException("closed ingress deadline must be -1 or non-negative");
+        }
+        final IngressFenceState ingressFence = new IngressFenceState(closedIngressDeadlineThrough,
+                next.lastIngressFenceProofId());
+        if (ingressFence.closedThroughEpochMs() == IngressFenceState.OPEN && ingressFence.proofId() == null) {
+            batch.delete(metaHandle, KeyCodec.metaFixed(META_INGRESS_FENCE_STATE));
+        } else {
+            batch.put(metaHandle, KeyCodec.metaFixed(META_INGRESS_FENCE_STATE),
+                    ValueEnvelope.encode(META_FIXED_VALUE_TYPE, ingressFence.canonicalBytes()));
+        }
+        batch.put(metaHandle, KeyCodec.metaFixed(META_EVIDENCE_CURSORS),
+                ValueEnvelope.encode(META_FIXED_VALUE_TYPE, next.evidenceCursorArrayCanonicalBytes()));
+        putOptionalFixedValue(batch, metaHandle, META_CHECKPOINT_ID, next.lastCheckpointId());
+        batch.put(metaHandle, KeyCodec.metaFixed(META_OWNER_EPOCH),
+                ValueEnvelope.encode(META_FIXED_VALUE_TYPE, Bytes.u64be(next.lastOpenedOwnerEpoch())));
+        batch.put(metaHandle, KeyCodec.metaFixed(META_CLEAN_CLOSE_MARKER),
+                ValueEnvelope.encode(META_FIXED_VALUE_TYPE,
+                        Bytes.u8(next.cleanCloseMarker() ? 1 : 0)));
+    }
+
+    private static void putOptionalFixedValue(final WriteBatch batch, final ColumnFamilyHandle metaHandle,
+                                              final int fixedKeyKind, final byte[] payload) throws RocksDBException {
+        final byte[] key = KeyCodec.metaFixed(fixedKeyKind);
+        if (payload == null) {
+            batch.delete(metaHandle, key);
+        } else {
+            batch.put(metaHandle, key, ValueEnvelope.encode(META_FIXED_VALUE_TYPE, payload));
+        }
+    }
+
+    private static IngressFenceState readIngressFenceState(final RocksDB db,
+                                                           final ColumnFamilyHandle metaHandle)
+            throws RocksDBException {
+        final byte[] encoded = db.get(metaHandle, KeyCodec.metaFixed(META_INGRESS_FENCE_STATE));
+        if (encoded == null) {
+            return new IngressFenceState(IngressFenceState.OPEN, null);
+        }
+        return IngressFenceState.decode(ValueEnvelope.decode(encoded, META_FIXED_VALUE_TYPE).payload());
+    }
+
+    private record RuntimeMetadataRead(StoreRuntimeMetadata metadata, long closedIngressDeadlineThrough) {
     }
 
     private static byte[] uuidBytes(final UUID uuid) {
@@ -838,11 +936,17 @@ public final class ShardStore implements AutoCloseable {
     public synchronized void write(final BatchOperation operation) {
         Objects.requireNonNull(operation, "operation");
         try (WriteBatch batch = new WriteBatch(); WriteOptions writeOptions = new WriteOptions().setSync(true)) {
-            final Batch pending = new Batch(batch, handles);
+            final Batch pending = new Batch(batch, handles, closedIngressDeadlineThrough, runtimeMetadata);
             operation.apply(pending);
             db.write(writeOptions, batch);
             if (pending.runtimeMetadata != null) {
                 runtimeMetadata = pending.runtimeMetadata;
+            }
+            try {
+                closedIngressDeadlineThrough = readIngressFenceState(db, handles.get(ColumnFamily.META))
+                        .closedThroughEpochMs();
+            } catch (RocksDBException exception) {
+                throw new IllegalStateException("cannot reread ingress fence state after write", exception);
             }
         } catch (RocksDBException exception) {
             throw new IllegalStateException("RocksDB write failed", exception);
@@ -1014,11 +1118,17 @@ public final class ShardStore implements AutoCloseable {
     public static final class Batch {
         private final WriteBatch batch;
         private final Map<ColumnFamily, ColumnFamilyHandle> handles;
+        private final StoreRuntimeMetadata currentRuntimeMetadata;
         private StoreRuntimeMetadata runtimeMetadata;
+        private long closedIngressDeadlineThrough;
 
-        private Batch(final WriteBatch batch, final Map<ColumnFamily, ColumnFamilyHandle> handles) {
+        private Batch(final WriteBatch batch, final Map<ColumnFamily, ColumnFamilyHandle> handles,
+                      final long closedIngressDeadlineThrough,
+                      final StoreRuntimeMetadata currentRuntimeMetadata) {
             this.batch = batch;
             this.handles = handles;
+            this.closedIngressDeadlineThrough = closedIngressDeadlineThrough;
+            this.currentRuntimeMetadata = currentRuntimeMetadata;
         }
 
         public void put(final ColumnFamily family, final byte[] key, final byte[] value) throws RocksDBException {
@@ -1036,9 +1146,24 @@ public final class ShardStore implements AutoCloseable {
             if (runtimeMetadata != null) {
                 throw new IllegalStateException("Store runtime metadata may be written once per batch");
             }
-            batch.put(handle(ColumnFamily.META), KeyCodec.metaFixed(META_RUNTIME),
-                    ValueEnvelope.encode(RUNTIME_VALUE_TYPE, next.canonicalBytes()));
+            ShardStore.putRuntimeMetadata(batch, handle(ColumnFamily.META), next, closedIngressDeadlineThrough);
             runtimeMetadata = next;
+        }
+
+        /** Advances the source-ordered ingress fence in the same atomic WriteBatch. */
+        public void putIngressFenceDeadline(final long closeThroughEpochMs) throws RocksDBException {
+            if (closeThroughEpochMs < 0) {
+                throw new IllegalArgumentException("closeThroughEpochMs must be non-negative");
+            }
+            if (closeThroughEpochMs < closedIngressDeadlineThrough) {
+                throw new IllegalArgumentException("ingress fence deadline regressed");
+            }
+            closedIngressDeadlineThrough = closeThroughEpochMs;
+            final byte[] proofId = runtimeMetadata == null
+                    ? currentRuntimeMetadata.lastIngressFenceProofId() : runtimeMetadata.lastIngressFenceProofId();
+            final IngressFenceState state = new IngressFenceState(closedIngressDeadlineThrough, proofId);
+            batch.put(handle(ColumnFamily.META), KeyCodec.metaFixed(META_INGRESS_FENCE_STATE),
+                    ValueEnvelope.encode(META_FIXED_VALUE_TYPE, state.canonicalBytes()));
         }
 
         public void delete(final ColumnFamily family, final byte[] key) throws RocksDBException {

@@ -14,6 +14,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -46,6 +47,16 @@ class StoreRuntimeMetadataTest {
     }
 
     @Test
+    void ingressFenceStateRoundTripsAndRejectsNonCanonicalBytes() {
+        final IngressFenceState state = new IngressFenceState(123, bytes(5));
+        assertEquals(state, IngressFenceState.decode(state.canonicalBytes()));
+        assertEquals(new IngressFenceState(IngressFenceState.OPEN, null),
+                IngressFenceState.decode(new byte[0]));
+        assertThrows(IllegalArgumentException.class,
+                () -> IngressFenceState.decode(new byte[]{0x10, 0x01}));
+    }
+
+    @Test
     void storePersistsRuntimeProjectionAndClearsCleanCloseOnOpen() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("runtime-meta"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 41);
@@ -58,6 +69,17 @@ class StoreRuntimeMetadataTest {
             store.recordOpenedOwnerEpoch(7);
             store.recordEvidenceCursors(List.of(kafkaCursor(2)));
             assertThrows(IllegalArgumentException.class, () -> store.recordOpenedOwnerEpoch(6));
+            assertArrayEquals(bytes(3), IngressFenceState.decode(
+                    store.getValue(ColumnFamily.META, KeyCodec.metaFixed(4), 1).payload()).proofId());
+            assertEquals(IngressFenceState.OPEN, IngressFenceState.decode(
+                    store.getValue(ColumnFamily.META, KeyCodec.metaFixed(4), 1).payload())
+                    .closedThroughEpochMs());
+            assertEquals(List.of(kafkaCursor(2)), StoreRuntimeMetadata.decodeEvidenceCursors(
+                    store.getValue(ColumnFamily.META, KeyCodec.metaFixed(6), 1).payload()));
+            assertArrayEquals(fixedBytes(4, 16), store.getValue(ColumnFamily.META, KeyCodec.metaFixed(7), 1).payload());
+            assertArrayEquals(Bytes.u64be(7), store.getValue(ColumnFamily.META, KeyCodec.metaFixed(8), 1).payload());
+            assertArrayEquals(new byte[]{0}, store.getValue(ColumnFamily.META, KeyCodec.metaFixed(9), 1).payload());
+            assertNull(store.get(ColumnFamily.META, KeyCodec.metaFixed(10)));
         }
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {

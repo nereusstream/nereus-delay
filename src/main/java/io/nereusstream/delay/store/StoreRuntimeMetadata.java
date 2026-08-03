@@ -70,6 +70,43 @@ public record StoreRuntimeMetadata(
         return evidenceCursors;
     }
 
+    /** Returns the canonical repeated-field payload for the registered evidence-cursor key. */
+    public byte[] evidenceCursorArrayCanonicalBytes() {
+        return encodeEvidenceCursors(evidenceCursors);
+    }
+
+    /** Encodes the independently persisted evidence-cursor array. */
+    public static byte[] encodeEvidenceCursors(final List<EvidenceCursorV1> cursors) {
+        final StoreRuntimeMetadata validated = new StoreRuntimeMetadata(null, null, 0, false, cursors);
+        return CanonicalProtobuf.message(output -> {
+            for (EvidenceCursorV1 cursor : validated.evidenceCursors) {
+                CanonicalProtobuf.bytes(output, 1, cursor.canonicalBytes());
+            }
+        });
+    }
+
+    /** Decodes and canonicality-checks the independently persisted evidence-cursor array. */
+    public static List<EvidenceCursorV1> decodeEvidenceCursors(final byte[] encoded) {
+        Objects.requireNonNull(encoded, "encoded");
+        if (encoded.length > MAX_CANONICAL_BYTES) {
+            throw new IllegalArgumentException("evidence cursor array is too large");
+        }
+        final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(encoded, true);
+        final List<EvidenceCursorV1> cursors = new ArrayList<>();
+        while (reader.hasRemaining()) {
+            final CanonicalProtobuf.Reader.Field field = reader.next();
+            if (field.number() != 1 || field.wireType() != 2) {
+                throw new IllegalArgumentException("invalid evidence cursor array field");
+            }
+            cursors.add(EvidenceCursorV1.decode(field.rawValue()));
+        }
+        final byte[] canonical = encodeEvidenceCursors(cursors);
+        if (!Arrays.equals(encoded, canonical)) {
+            throw new IllegalArgumentException("non-canonical evidence cursor array");
+        }
+        return List.copyOf(cursors);
+    }
+
     @Override
     public boolean equals(final Object other) {
         return other instanceof StoreRuntimeMetadata that

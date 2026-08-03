@@ -59,6 +59,7 @@ import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.protocol.V1ScheduleBinding;
 import io.nereusstream.delay.ownership.ControlTargetRegistrationAuthority;
 import io.nereusstream.delay.store.ColumnFamily;
+import io.nereusstream.delay.store.IngressFenceState;
 import io.nereusstream.delay.store.KeyCodec;
 import io.nereusstream.delay.store.RecoveryCatalogAuthority;
 import io.nereusstream.delay.store.ShardStore;
@@ -210,7 +211,8 @@ public final class DelayShard {
         lastAppliedSourcePosition = source == null ? null : SourcePositionCodec.decode(source);
         final var closedDeadline = store.getValue(ColumnFamily.META,
                 KeyCodec.metaFixed(META_CLOSED_INGRESS_DEADLINE), 1);
-        closedIngressDeadlineThrough = closedDeadline == null ? -1 : readNonNegativeSequence(closedDeadline.payload());
+        closedIngressDeadlineThrough = closedDeadline == null
+                ? IngressFenceState.OPEN : IngressFenceState.decode(closedDeadline.payload()).closedThroughEpochMs();
         final var sequence = store.getValue(ColumnFamily.META, KeyCodec.metaFixed(META_MUTATION_SEQUENCE), 1);
         mutationSequence = sequence == null ? 0 : readSequence(sequence.payload());
         final var claimSequenceValue = store.getValue(ColumnFamily.META, KeyCodec.metaFixed(META_CLAIM_SEQUENCE), 1);
@@ -1761,8 +1763,7 @@ public final class DelayShard {
             });
         } else {
             store.write(batch -> {
-                batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(META_CLOSED_INGRESS_DEADLINE),
-                        Bytes.u64be(closeThrough));
+                batch.putIngressFenceDeadline(closeThrough);
                 batch.putRuntimeMetadata(store.runtimeMetadata().withLastIngressFenceProofId(proofId));
                 writeSystemResult(batch, result);
                 writePosition(batch, sourcePosition);

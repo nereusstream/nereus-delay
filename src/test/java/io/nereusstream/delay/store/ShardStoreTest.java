@@ -51,15 +51,15 @@ class ShardStoreTest {
     void oneShardUsesIndependentDbAndAtomicBatchSurvivesReopen() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 17);
-        final byte[] key = KeyCodec.metaFixed(6);
+        final byte[] key = KeyCodec.metaQuota(16);
         final byte[] payload = Bytes.utf8("source-position");
         final Path checkpoint;
         final byte[] dbIdentity;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             dbIdentity = store.metadata().dbIdentity();
-            store.write(batch -> batch.putValue(ColumnFamily.META, 6, key, payload));
-            assertArrayEquals(payload, store.getValue(ColumnFamily.META, key, 6).payload());
+            store.write(batch -> batch.putValue(ColumnFamily.META, 3, key, payload));
+            assertArrayEquals(payload, store.getValue(ColumnFamily.META, key, 3).payload());
             checkpoint = tempDir.resolve("checkpoint");
             store.createCheckpoint(checkpoint);
             assertNotNull(store.latestSequenceNumber());
@@ -69,7 +69,7 @@ class ShardStoreTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore reopened = ShardStore.open(config, shardId, resources)) {
             assertArrayEquals(dbIdentity, reopened.metadata().dbIdentity());
-            assertArrayEquals(payload, reopened.getValue(ColumnFamily.META, key, 6).payload());
+            assertArrayEquals(payload, reopened.getValue(ColumnFamily.META, key, 3).payload());
             final List<Path> dbs;
             try (var stream = Files.walk(tempDir.resolve("shards"))) {
                 dbs = stream.filter(path -> path.getFileName().toString().equals("CURRENT")).toList();
@@ -133,8 +133,8 @@ class ShardStoreTest {
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             dbPath = store.dbPath();
         }
-        overwriteRawColumnFamilyValue(dbPath, "meta_cf", KeyCodec.metaFixed(10),
-                ValueEnvelope.encode(14, Bytes.utf8("not-canonical-runtime-metadata")));
+        overwriteRawColumnFamilyValue(dbPath, "meta_cf", KeyCodec.metaFixed(6),
+                ValueEnvelope.encode(1, Bytes.utf8("not-canonical-evidence-cursors")));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
             assertThrows(IllegalArgumentException.class, () -> ShardStore.open(config, shardId, resources));
         }
@@ -183,16 +183,16 @@ class ShardStoreTest {
     void flushAndSyncMakesTheShardBoundaryExplicit() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("flush-sync"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 32);
-        final byte[] key = KeyCodec.metaFixed(9);
+        final byte[] key = KeyCodec.metaQuota(15);
         final byte[] payload = Bytes.utf8("flush-sync");
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
-            store.write(batch -> batch.putValue(ColumnFamily.META, 9, key, payload));
+            store.write(batch -> batch.putValue(ColumnFamily.META, 3, key, payload));
             store.flushAndSync();
         }
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore reopened = ShardStore.open(config, shardId, resources)) {
-            assertArrayEquals(payload, reopened.getValue(ColumnFamily.META, key, 9).payload());
+            assertArrayEquals(payload, reopened.getValue(ColumnFamily.META, key, 3).payload());
         }
     }
 
@@ -278,20 +278,20 @@ class ShardStoreTest {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 18);
         final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("source"));
         final Path checkpoint = tempDir.resolve("checkpoint-for-restore");
-        final byte[] key = KeyCodec.metaFixed(7);
+        final byte[] key = KeyCodec.metaQuota(14);
         final byte[] payload = Bytes.utf8("checkpoint-value");
         final byte[] originalStoreIncarnation;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(sourceConfig);
              ShardStore store = ShardStore.open(sourceConfig, shardId, resources)) {
             originalStoreIncarnation = store.metadata().storeIncarnation();
-            store.write(batch -> batch.putValue(ColumnFamily.META, 7, key, payload));
+            store.write(batch -> batch.putValue(ColumnFamily.META, 3, key, payload));
             store.createCheckpoint(checkpoint);
         }
 
         final ShardStoreConfig restoreConfig = ShardStoreConfig.defaults(tempDir.resolve("restored"));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(restoreConfig);
              ShardStore restored = ShardStore.restoreFromCheckpoint(restoreConfig, shardId, resources, checkpoint)) {
-            assertArrayEquals(payload, restored.getValue(ColumnFamily.META, key, 7).payload());
+            assertArrayEquals(payload, restored.getValue(ColumnFamily.META, key, 3).payload());
             org.junit.jupiter.api.Assertions.assertFalse(
                     java.util.Arrays.equals(originalStoreIncarnation, restored.metadata().storeIncarnation()));
             assertNotEquals(sourceConfig.rootPath(), restoreConfig.rootPath());
@@ -310,11 +310,11 @@ class ShardStoreTest {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 24);
         final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("orphan-source"));
         final Path checkpoint = tempDir.resolve("orphan-checkpoint");
-        final byte[] key = KeyCodec.metaFixed(9);
+        final byte[] key = KeyCodec.metaQuota(13);
         final byte[] payload = Bytes.utf8("orphan-recovery");
         try (SharedRocksDbResources resources = new SharedRocksDbResources(sourceConfig);
              ShardStore source = ShardStore.open(sourceConfig, shardId, resources)) {
-            source.write(batch -> batch.putValue(ColumnFamily.META, 9, key, payload));
+            source.write(batch -> batch.putValue(ColumnFamily.META, 3, key, payload));
             source.createCheckpoint(checkpoint);
         }
 
@@ -331,7 +331,7 @@ class ShardStoreTest {
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(restoreConfig);
              ShardStore restored = ShardStore.restoreFromCheckpoint(restoreConfig, shardId, resources, checkpoint)) {
-            assertArrayEquals(payload, restored.getValue(ColumnFamily.META, key, 9).payload());
+            assertArrayEquals(payload, restored.getValue(ColumnFamily.META, key, 3).payload());
             assertNotEquals(orphanDb, restored.dbPath());
             assertTrueFile(shardRoot.resolve("ACTIVE"));
             assertTrueFile(orphanDb.resolve("CURRENT"));
@@ -432,7 +432,7 @@ class ShardStoreTest {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 20);
         final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("catalog-source"));
         final Path checkpoint = tempDir.resolve("catalog-checkpoint");
-        final byte[] key = KeyCodec.metaFixed(7);
+        final byte[] key = KeyCodec.metaQuota(12);
         final byte[] payload = Bytes.utf8("catalog-value");
         final byte[] checkpointId = bytes(30);
         final KafkaSourcePosition appliedPosition = new KafkaSourcePosition(
@@ -446,7 +446,7 @@ class ShardStoreTest {
             store.write(batch -> {
                 batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(3), appliedPosition.canonicalBytes());
                 batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(5), Bytes.u64be(0));
-                batch.putValue(ColumnFamily.META, 7, key, payload);
+                batch.putValue(ColumnFamily.META, 3, key, payload);
             });
             store.createCheckpoint(checkpoint, checkpointId);
         }
@@ -485,7 +485,7 @@ class ShardStoreTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(restoreConfig);
              ShardStore restored = ShardStore.restoreFromCheckpoint(restoreConfig, shardId, resources,
                      checkpoint, manifest, catalog, pin)) {
-            assertArrayEquals(payload, restored.getValue(ColumnFamily.META, key, 7).payload());
+            assertArrayEquals(payload, restored.getValue(ColumnFamily.META, key, 3).payload());
         }
         catalog.releaseRecoveryPin(pin);
         final ShardStoreConfig missingPinConfig = ShardStoreConfig.defaults(tempDir.resolve("missing-pin-restore"));
@@ -600,7 +600,7 @@ class ShardStoreTest {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 19);
         final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("manifest-source"));
         final Path checkpoint = tempDir.resolve("manifest-checkpoint");
-        final byte[] key = KeyCodec.metaFixed(8);
+        final byte[] key = KeyCodec.metaQuota(11);
         final byte[] payload = Bytes.utf8("manifest-value");
         final byte[] dbIdentity;
         final UUID sourceStoreIncarnation;
@@ -608,7 +608,7 @@ class ShardStoreTest {
              ShardStore store = ShardStore.open(sourceConfig, shardId, resources)) {
             dbIdentity = store.metadata().dbIdentity();
             sourceStoreIncarnation = store.metadata().storeIncarnationUuid();
-            store.write(batch -> batch.putValue(ColumnFamily.META, 8, key, payload));
+            store.write(batch -> batch.putValue(ColumnFamily.META, 3, key, payload));
             store.createCheckpoint(checkpoint);
         }
         final List<CheckpointFileInventory> inventory = CheckpointFileInventory.collect(checkpoint);

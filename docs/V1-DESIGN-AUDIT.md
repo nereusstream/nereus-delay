@@ -661,17 +661,19 @@ staged open/metadata validation 的 runtime failure 也会清理 private
 错误。
 
 主设计 §10.1 要求的可变 Store 元数据现在也有独立的本地投影：
-`StoreRuntimeMetadata` 在 `meta_cf` 中 canonical 持久
-`lastIngressFenceProofId`、`lastCheckpointId`、单调的
-`lastOpenedOwnerEpoch`、严格排序的 typed `evidenceCursors` 和
-`cleanCloseMarker`。打开时先严格解码并清除 clean marker，正常 close 通过
-同步 WriteBatch 写回 marker；fence/checkpoint/owner/evidence 更新也沿用同一
-WAL-sync 边界。`StoreRuntimeMetadataTest` 和
-`ShardStoreTest.malformedRuntimeMetadataDoesNotLeaveRocksDbOpen` 覆盖 codec、
-生命周期与失败清理。该投影只证明本地 Store 事实，不能替代 Oxia lease/catalog
-或真实 Broker fence authority。`TIME_FENCE` 的 verified proof ID 现在与
-mutation result/source position 在同一 batch 原子落盘，重开回归也验证该 proof
-identity。
+`StoreRuntimeMetadata` 在注册的 `meta/FIXED` key 4/6/7/8/9 中 canonical 持久
+`lastIngressFenceProofId`、typed `evidenceCursors`、`lastCheckpointId`、单调的
+`lastOpenedOwnerEpoch` 和 `cleanCloseMarker`；key 4 的单一
+`IngressFenceState` 同时承载 close deadline 与 proof identity，避免 DelayShard
+与 Store projection 争用同一 fixed key；不再把这些字段打包写入已经保留给
+compatible control snapshot 的 key 10。打开时逐项严格解码并清除 clean marker，
+正常 close 通过同步 WriteBatch 写回 marker；fence/checkpoint/owner/evidence 更新也
+沿用同一 WAL-sync 边界。`StoreRuntimeMetadataTest` 和
+`ShardStoreTest.malformedRuntimeMetadataDoesNotLeaveRocksDbOpen` 覆盖注册 key、
+codec、生命周期与失败清理。该投影只证明本地 Store 事实，不能替代 Oxia
+lease/catalog 或真实 Broker fence authority。`TIME_FENCE` 的 verified proof ID
+现在与 mutation result/source position 在同一 batch 原子落盘，重开回归也验证该
+proof identity。
 带 identity 的 `ShardStore.createCheckpoint(path, checkpointId)` 会先把 exact
 16-byte checkpoint identity 写入 live DB，再拍摄完整镜像；物理失败会同步恢复
 旧 projection，恢复后的 DB 因而保留它所代表的 checkpoint identity。无 identity
