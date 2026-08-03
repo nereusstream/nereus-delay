@@ -94,7 +94,8 @@ public final class KeyCodec {
     public static byte[] timelineSystem(final byte systemWorkKind, final long nextEligibleAtEpochMs,
                                         final byte[] workId, final long workVersion) {
         Objects.requireNonNull(workId, "workId");
-        if (systemWorkKind <= 0 || nextEligibleAtEpochMs < 0 || workId.length == 0 || workVersion < 0) {
+        if (systemWorkKind <= 0 || systemWorkKind > 4 || nextEligibleAtEpochMs < 0
+                || workId.length == 0 || workVersion < 0) {
             throw new IllegalArgumentException("invalid system timeline key values");
         }
         return Bytes.concat(new byte[]{6, 1, systemWorkKind}, Bytes.u64be(nextEligibleAtEpochMs),
@@ -185,7 +186,7 @@ public final class KeyCodec {
     }
 
     public static byte[] metaQuota(final int quotaClass) {
-        if (quotaClass <= 0 || quotaClass > 16) {
+        if (quotaClass <= 0 || quotaClass > 5) {
             throw new IllegalArgumentException("unknown QUOTA meta key kind");
         }
         return new byte[]{3, 1, (byte) quotaClass};

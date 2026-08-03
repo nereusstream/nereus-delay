@@ -46,6 +46,8 @@ class KeyCodecTest {
         assertArrayEquals(Bytes.concat(new byte[]{4, 1}, lane.bytes(), Bytes.u32be(17), Bytes.u32be(2)),
                 KeyCodec.metaProducer(lane, 17, 2));
         assertArrayEquals(new byte[]{7, 1, 4}, KeyCodec.metaRecovery(4));
+        assertThrows(IllegalArgumentException.class, () -> KeyCodec.timelineSystem((byte) 5, 0, proofId, 0));
+        assertThrows(IllegalArgumentException.class, () -> KeyCodec.metaQuota(6));
     }
 
     @Test

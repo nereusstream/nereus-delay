@@ -51,7 +51,7 @@ class ShardStoreTest {
     void oneShardUsesIndependentDbAndAtomicBatchSurvivesReopen() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 17);
-        final byte[] key = KeyCodec.metaQuota(16);
+        final byte[] key = scratchMetaQuotaKey(16);
         final byte[] payload = Bytes.utf8("source-position");
         final Path checkpoint;
         final byte[] dbIdentity;
@@ -216,7 +216,7 @@ class ShardStoreTest {
     void flushAndSyncMakesTheShardBoundaryExplicit() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("flush-sync"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 32);
-        final byte[] key = KeyCodec.metaQuota(15);
+        final byte[] key = scratchMetaQuotaKey(15);
         final byte[] payload = Bytes.utf8("flush-sync");
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
@@ -311,7 +311,7 @@ class ShardStoreTest {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 18);
         final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("source"));
         final Path checkpoint = tempDir.resolve("checkpoint-for-restore");
-        final byte[] key = KeyCodec.metaQuota(14);
+        final byte[] key = scratchMetaQuotaKey(14);
         final byte[] payload = Bytes.utf8("checkpoint-value");
         final byte[] originalStoreIncarnation;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(sourceConfig);
@@ -343,7 +343,7 @@ class ShardStoreTest {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 24);
         final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("orphan-source"));
         final Path checkpoint = tempDir.resolve("orphan-checkpoint");
-        final byte[] key = KeyCodec.metaQuota(13);
+        final byte[] key = scratchMetaQuotaKey(13);
         final byte[] payload = Bytes.utf8("orphan-recovery");
         try (SharedRocksDbResources resources = new SharedRocksDbResources(sourceConfig);
              ShardStore source = ShardStore.open(sourceConfig, shardId, resources)) {
@@ -465,7 +465,7 @@ class ShardStoreTest {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 20);
         final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("catalog-source"));
         final Path checkpoint = tempDir.resolve("catalog-checkpoint");
-        final byte[] key = KeyCodec.metaQuota(12);
+        final byte[] key = scratchMetaQuotaKey(12);
         final byte[] payload = Bytes.utf8("catalog-value");
         final byte[] checkpointId = bytes(30);
         final KafkaSourcePosition appliedPosition = new KafkaSourcePosition(
@@ -633,7 +633,7 @@ class ShardStoreTest {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 19);
         final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("manifest-source"));
         final Path checkpoint = tempDir.resolve("manifest-checkpoint");
-        final byte[] key = KeyCodec.metaQuota(11);
+        final byte[] key = scratchMetaQuotaKey(11);
         final byte[] payload = Bytes.utf8("manifest-value");
         final byte[] dbIdentity;
         final UUID sourceStoreIncarnation;
@@ -706,6 +706,14 @@ class ShardStoreTest {
         final byte[] value = new byte[16];
         value[15] = (byte) last;
         return value;
+    }
+
+    /** Raw unregistered key used only by generic RocksDB persistence fixtures. */
+    private static byte[] scratchMetaQuotaKey(final int subtype) {
+        if (subtype <= 5 || subtype > 0xff) {
+            throw new IllegalArgumentException("scratch subtype must be outside the registered range");
+        }
+        return new byte[]{3, 1, (byte) subtype};
     }
 
     private static byte[] bytes(final int length, final int value) {
