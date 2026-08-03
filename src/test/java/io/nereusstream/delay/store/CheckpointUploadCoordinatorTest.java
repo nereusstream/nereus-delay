@@ -105,6 +105,25 @@ class CheckpointUploadCoordinatorTest {
     }
 
     @Test
+    void rejectsCheckpointWithoutRocksDbCurrentMarkerBeforeAdapterInvocation() throws Exception {
+        final Fixture fixture = fixture();
+        final CheckpointUploadIntentStore intentStore = new CheckpointUploadIntentStore();
+        intentStore.create(fixture.pending());
+        final AtomicBoolean called = new AtomicBoolean();
+        Files.delete(fixture.directory().resolve("CURRENT"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(
+                ShardStoreConfig.defaults(tempDir.resolve("missing-current")))) {
+            assertThrows(IllegalArgumentException.class, () -> new CheckpointUploadCoordinator(resources, intentStore)
+                    .upload(fixture.directory(), fixture.pending(), fixture.manifest(), 1_000, request -> {
+                        called.set(true);
+                        return fixture.resource();
+                    }));
+        }
+        assertEquals(false, called.get());
+        assertEquals(fixture.pending(), intentStore.current().orElseThrow());
+    }
+
+    @Test
     void rereadsPublishedIntentAfterResponseLossWithoutCallingAdapter() throws Exception {
         final Fixture fixture = fixture();
         final CheckpointUploadIntentStore intentStore = new CheckpointUploadIntentStore();

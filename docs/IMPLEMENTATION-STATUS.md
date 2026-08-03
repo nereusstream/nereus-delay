@@ -610,7 +610,8 @@ rename it into the requested checkpoint path, checksum the full directory,
 emit the closed manifest JSON projection, and install a validated checkpoint
 into a new local Store Incarnation without merging into an open DB. The local
 `CheckpointUploadCoordinator` now inventories the exact local file set before
-provider I/O, charges the Worker upload slot, validates returned manifest
+provider I/O, requires the RocksDB `CURRENT` marker, charges the Worker upload
+slot, validates returned manifest
 object identity and only then advances the exact pending intent to PUBLISHED;
 provider failure or identity mismatch leaves the intent pending for retry. The
 local store uses an `ACTIVE` checksummed pointer and an

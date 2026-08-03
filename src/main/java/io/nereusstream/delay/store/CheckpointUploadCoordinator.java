@@ -106,8 +106,9 @@ public final class CheckpointUploadCoordinator {
     private static void validateLocalCheckpoint(final Path checkpointDirectory,
                                                 final CheckpointManifest manifest) {
         if (Files.isSymbolicLink(checkpointDirectory)
-                || !Files.isDirectory(checkpointDirectory, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IllegalArgumentException("checkpoint upload source is not a directory");
+                || !Files.isDirectory(checkpointDirectory, LinkOption.NOFOLLOW_LINKS)
+                || !Files.isRegularFile(checkpointDirectory.resolve("CURRENT"), LinkOption.NOFOLLOW_LINKS)) {
+            throw new IllegalArgumentException("checkpoint upload source is not a complete RocksDB directory");
         }
         final List<CheckpointFileInventory> actual = CheckpointFileInventory.collect(checkpointDirectory);
         final List<CheckpointManifest.FileEntry> expected = manifest.files();
