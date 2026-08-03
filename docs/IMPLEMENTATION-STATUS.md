@@ -584,7 +584,9 @@ cannot silently grow an unregistered schema.
 `KeyCodec` now applies the same closed-subtype rule at key construction for
 `timeline/SYSTEM` kinds 1--4 and `meta/QUOTA` classes 1--5; generic RocksDB
 fixtures that need arbitrary scratch bytes use an explicitly raw test key
-instead of widening the production Registry entry point.
+instead of widening the production Registry entry point. `gc/TASK` resource
+kinds are bounded to the registered 1--10 range, and `dedupe/POSITION` rejects
+an empty canonical Source Position payload.
 `ShardStore.open` now validates the remaining fixed-key activation boundary as
 well: key 3's persisted Source Position must belong to this Shard, keys 5 and
 11 must be non-negative fixed-width sequences, and keys 12/13 must carry their

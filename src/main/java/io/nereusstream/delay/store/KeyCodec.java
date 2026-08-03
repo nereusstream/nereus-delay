@@ -26,6 +26,10 @@ public final class KeyCodec {
     }
 
     public static byte[] dedupePosition(final byte[] canonicalSourcePosition) {
+        Objects.requireNonNull(canonicalSourcePosition, "canonicalSourcePosition");
+        if (canonicalSourcePosition.length == 0) {
+            throw new IllegalArgumentException("canonicalSourcePosition must not be empty");
+        }
         return Bytes.concat(new byte[]{3, 1}, canonicalSourcePosition);
     }
 
@@ -144,7 +148,7 @@ public final class KeyCodec {
     public static byte[] gcTask(final long notBeforeEpochMs, final byte kind, final byte[] resourceId,
                                 final long expectedVersion) {
         Objects.requireNonNull(resourceId, "resourceId");
-        if (notBeforeEpochMs < 0 || kind <= 0 || expectedVersion < 0 || resourceId.length == 0) {
+        if (notBeforeEpochMs < 0 || kind <= 0 || kind > 10 || expectedVersion < 0 || resourceId.length == 0) {
             throw new IllegalArgumentException("invalid GC key values");
         }
         return Bytes.concat(new byte[]{1, 1}, Bytes.u64be(notBeforeEpochMs), new byte[]{kind},

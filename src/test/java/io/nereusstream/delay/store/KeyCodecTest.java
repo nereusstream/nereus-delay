@@ -48,6 +48,8 @@ class KeyCodecTest {
         assertArrayEquals(new byte[]{7, 1, 4}, KeyCodec.metaRecovery(4));
         assertThrows(IllegalArgumentException.class, () -> KeyCodec.timelineSystem((byte) 5, 0, proofId, 0));
         assertThrows(IllegalArgumentException.class, () -> KeyCodec.metaQuota(6));
+        assertThrows(IllegalArgumentException.class, () -> KeyCodec.dedupePosition(new byte[0]));
+        assertThrows(IllegalArgumentException.class, () -> KeyCodec.gcTask(0, (byte) 11, proofId, 0));
     }
 
     @Test
