@@ -79,6 +79,21 @@ class ShardStoreTest {
     }
 
     @Test
+    void fixedFormatAndIdentityValuesUseRegisteredValueEnvelope() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("fixed-envelope"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 27);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final byte[] format = store.get(ColumnFamily.META, KeyCodec.metaFixed(1));
+            final byte[] identity = store.get(ColumnFamily.META, KeyCodec.metaFixed(2));
+            assertEquals(1, ValueEnvelope.decode(format, 1).valueType());
+            assertArrayEquals(Bytes.u32be(1), ValueEnvelope.decode(format, 1).payload());
+            assertEquals(1, ValueEnvelope.decode(identity, 1).valueType());
+            assertArrayEquals(store.metadata().encode(), ValueEnvelope.decode(identity, 1).payload());
+        }
+    }
+
+    @Test
     void reopenRejectsExistingDbMissingShardIdentity() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("missing-identity"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 28);
@@ -100,7 +115,7 @@ class ShardStoreTest {
             final StoreMetadata original = store.metadata();
             final byte[] otherIncarnation = java.util.Arrays.copyOf(
                     Bytes.sha256(Bytes.utf8("other-store-incarnation")), 16);
-            store.write(batch -> batch.put(ColumnFamily.META, KeyCodec.metaFixed(2),
+            store.write(batch -> batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(2),
                     new StoreMetadata(1, shardId, otherIncarnation, original.dbIdentity()).encode()));
         }
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
@@ -116,7 +131,8 @@ class ShardStoreTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             dbPath = store.dbPath();
-            store.write(batch -> batch.put(ColumnFamily.META, KeyCodec.metaFixed(2), Bytes.utf8("malformed")));
+            store.write(batch -> batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(2),
+                    Bytes.utf8("malformed")));
         }
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
             assertThrows(IllegalArgumentException.class, () -> ShardStore.open(config, shardId, resources));

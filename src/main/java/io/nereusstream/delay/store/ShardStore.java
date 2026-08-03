@@ -525,8 +525,10 @@ public final class ShardStore implements AutoCloseable {
             if (hasDefaultColumnFamilyData(db, openedHandles.get(0))) {
                 throw new IllegalStateException("default RocksDB column family must remain empty");
             }
-            final byte[] identityBytes = db.get(handles.get(ColumnFamily.META),
+            final byte[] encodedIdentity = db.get(handles.get(ColumnFamily.META),
                     KeyCodec.metaFixed(META_SHARD_IDENTITY));
+            final byte[] identityBytes = encodedIdentity == null ? null
+                    : ValueEnvelope.decode(encodedIdentity, META_FIXED_VALUE_TYPE).payload();
             StoreMetadata metadata;
             StoreRuntimeMetadata runtimeMetadata;
             if (identityBytes == null) {
@@ -548,9 +550,9 @@ public final class ShardStore implements AutoCloseable {
                                 shardId.routeIncarnation().bytes(), Bytes.u32be(shardId.partition()))));
                 try (WriteBatch batch = new WriteBatch(); WriteOptions writeOptions = new WriteOptions().setSync(true)) {
                     batch.put(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_STORE_FORMAT),
-                            java.nio.ByteBuffer.allocate(4).putInt(1).array());
+                            ValueEnvelope.encode(META_FIXED_VALUE_TYPE, Bytes.u32be(1)));
                     batch.put(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_SHARD_IDENTITY),
-                            created.encode());
+                            ValueEnvelope.encode(META_FIXED_VALUE_TYPE, created.encode()));
                     db.write(writeOptions, batch);
                 }
                 metadata = created;
@@ -572,13 +574,13 @@ public final class ShardStore implements AutoCloseable {
                         storeIncarnation, metadata.dbIdentity());
                 try (WriteBatch batch = new WriteBatch(); WriteOptions writeOptions = new WriteOptions().setSync(true)) {
                     batch.put(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_SHARD_IDENTITY),
-                            restored.encode());
+                            ValueEnvelope.encode(META_FIXED_VALUE_TYPE, restored.encode()));
                     db.write(writeOptions, batch);
                 }
                 metadata = restored;
             }
-            final byte[] format = db.get(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_STORE_FORMAT));
-            if (format == null || format.length != 4 || java.nio.ByteBuffer.wrap(format).getInt() != 1) {
+            final byte[] format = optionalFixedValue(db, handles.get(ColumnFamily.META), META_STORE_FORMAT);
+            if (format == null || format.length != Integer.BYTES || Bytes.readU32be(format, 0) != 1) {
                 throw new IllegalStateException("missing or unsupported store format marker");
             }
             if (db.get(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_CONTROL_SNAPSHOT)) != null) {

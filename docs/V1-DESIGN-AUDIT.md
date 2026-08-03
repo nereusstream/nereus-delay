@@ -660,6 +660,13 @@ staged open/metadata validation 的 runtime failure 也会清理 private
 `restore-tmp`，而 download-slot 尚未取得时仍保留原始 bounded-concurrency
 错误。
 
+`meta/FIXED` 的 immutable key 1/2 也已与 Registry §7 的物理约束对齐：
+store format 的 payload 是 canonical u32 `1`，shard/Store identity 的
+payload 是 canonical `StoreMetadata`，两者都通过 fixed-key ValueEnvelope
+写入并在 open、restore staging 和 install-mode 重读时执行 type/version/
+length/CRC 校验；不再存在裸 format 或裸 identity value。回归证据为
+`ShardStoreTest.fixedFormatAndIdentityValuesUseRegisteredValueEnvelope`。
+
 主设计 §10.1 要求的可变 Store 元数据现在也有独立的本地投影：
 `StoreRuntimeMetadata` 在注册的 `meta/FIXED` key 4/6/7/8/9 中 canonical 持久
 `lastIngressFenceProofId`、typed `evidenceCursors`、`lastCheckpointId`、单调的

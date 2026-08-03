@@ -569,6 +569,14 @@ does not create Oxia lease/catalog authority or certify a remote Broker fence.
 `StoreRuntimeMetadataTest` covers the registered physical keys and lifecycle
 behavior, and `ShardStoreTest.malformedRuntimeMetadataDoesNotLeaveRocksDbOpen`
 covers the activation failure cleanup path.
+The immutable `meta/FIXED` format and shard-identity values at keys 1 and 2
+now use the same fixed-key ValueEnvelope as the mutable projection: the format
+payload is the canonical u32 value `1`, and the identity payload is the
+canonical `StoreMetadata` bytes.  Open and restore-install paths decode and
+CRC-check those envelopes before accepting a DB, and
+`ShardStoreTest.fixedFormatAndIdentityValuesUseRegisteredValueEnvelope`
+asserts the physical representation.  This closes the Registry requirement
+that no `meta/FIXED` value is stored as an unframed raw byte sequence.
 `ShardStore.createCheckpoint(path, checkpointId)` additionally writes the exact
 16-byte identity before taking the RocksDB image, so a restored checkpoint
 retains the identity it represents; a failed physical attempt restores the
