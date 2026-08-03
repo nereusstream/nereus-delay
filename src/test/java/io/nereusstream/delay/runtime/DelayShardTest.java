@@ -1882,6 +1882,104 @@ class DelayShardTest {
     }
 
     @Test
+    void sourceOrderedNotPublishedEvidenceRevokesClaimAndNormalizesDefinitiveRetry() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("system-not-published-evidence-claimed"));
+        final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,
+                3, 100, 10_000, 3, 0);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 36);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("not-published-evidence-claimed-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("not-published-evidence-claimed")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 1_001);
+        final KafkaSourcePosition unknownPosition = position(shardId, 2, 1_002);
+        final KafkaSourcePosition retryPosition = position(shardId, 3, 2_001);
+        final KafkaSourcePosition evidencePosition = position(shardId, 4, 2_002);
+        final byte[] attemptId = Bytes.sha256(Bytes.utf8("not-published-evidence-claimed-attempt"));
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final AuthorIdentity owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 42,
+                Bytes.sha256(Bytes.utf8("lease")));
+        final TrustedUtcIntervalEvidence observedAt = new TrustedUtcIntervalEvidence(1_002, 1_002,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("clock"), 1, 10, 10,
+                Bytes.sha256(Bytes.utf8("not-published-evidence-claimed-proof")), 0, null);
+        final byte[] unknownBody = publishOutcomeBody(shardId, attemptId, 3, 4,
+                StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, new byte[0], observedAt.canonicalBytes());
+        final SystemMutation unknown = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
+                Bytes.sha256(Bytes.utf8("not-published-evidence-claimed-unknown")), unknownBody,
+                owner.canonicalBytes(), 1, keyPair.getPrivate());
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, shardConfig);
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final byte[] laneIncarnation = shard.getLane(lane).laneIncarnation();
+            final PublishAttemptLedger admission = PublishAttemptLedger.publishing(schedule.delayMessageId(), 0,
+                    attemptId, Bytes.sha256(Bytes.utf8("not-published-evidence-claimed-claim")), 42, 1, lane,
+                    laneIncarnation, owner.canonicalBytes(), store.metadata().storeIncarnation(),
+                    Bytes.sha256(Bytes.utf8("not-published-evidence-claimed-prepared")), Bytes.utf8("admission"),
+                    admissionPosition.canonicalBytes());
+            shard.admitPublishAttempt(admission, admissionPosition);
+            assertEquals(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN,
+                    shard.applySystemMutation(unknown, unknownPosition, keyPair.getPublic()).stableCode());
+
+            final ControlRef retryRef = new ControlRef(Bytes.sha256(Bytes.utf8("claimed-retry-operation")),
+                    Bytes.sha256(Bytes.utf8("claimed-retry-request")), 8);
+            final byte[] retryBody = resolveUncertainRetryBody(shardId, retryRef, lane, laneIncarnation,
+                    schedule.delayMessageId(), 0, attemptId, Bytes.sha256(Bytes.utf8("claimed-retry-ack")));
+            final SystemMutation retry = SystemMutation.signed(shardId, SystemMutationType.RESOLVE_UNCERTAIN,
+                    9_000, retryRef.logicalOperationIdentity(SystemMutationType.RESOLVE_UNCERTAIN), retryBody,
+                    AuthorIdentity.control(Bytes.sha256(Bytes.utf8("actor")),
+                            Bytes.sha256(Bytes.utf8("role")), Bytes.sha256(Bytes.utf8("scope"))).canonicalBytes(),
+                    1, keyPair.getPrivate());
+            assertEquals(StableCode.OK,
+                    shard.applySystemMutation(retry, retryPosition, keyPair.getPublic()).stableCode());
+
+            final ClaimRecord claim = shard.claimForPublish(schedule.delayMessageId(), owner, 3_000,
+                    new byte[0], chargeVector());
+            assertEquals(CurrentSendWorkKind.CLAIMED,
+                    shard.getMessage(schedule.delayMessageId()).runtimeIndex().currentWorkKind());
+            assertNotNull(shard.getClaim(claim.claimId(), owner.generation()));
+
+            final ControlRef evidenceRef = new ControlRef(
+                    Bytes.sha256(Bytes.utf8("claimed-not-published-operation")),
+                    Bytes.sha256(Bytes.utf8("claimed-not-published-request")), 9);
+            final byte[] evidenceBody = resolveUncertainEvidenceBody(shardId, evidenceRef, lane, laneIncarnation,
+                    schedule.delayMessageId(), 0, attemptId, 2,
+                    publishEvidence(attemptId, false, StableCode.NATIVE_GUARD_DEFINITIVE_NOT_PERSISTED));
+            final SystemMutation evidence = SystemMutation.signed(shardId,
+                    SystemMutationType.RESOLVE_UNCERTAIN, 9_000,
+                    evidenceRef.logicalOperationIdentity(SystemMutationType.RESOLVE_UNCERTAIN), evidenceBody,
+                    AuthorIdentity.control(Bytes.sha256(Bytes.utf8("actor")),
+                            Bytes.sha256(Bytes.utf8("role")), Bytes.sha256(Bytes.utf8("scope"))).canonicalBytes(),
+                    1, keyPair.getPrivate());
+
+            final SystemMutationResult result = shard.applySystemMutation(evidence, evidencePosition,
+                    keyPair.getPublic());
+            assertEquals(StableCode.OK, result.stableCode());
+            final MessageRecord next = shard.getMessage(schedule.delayMessageId());
+            assertEquals(MessageStatus.SCHEDULED, next.status());
+            assertEquals(GenerationAggregateState.RETRY_WAIT, next.runtimeIndex().aggregateState());
+            assertEquals(CurrentSendWorkKind.TIMELINE, next.runtimeIndex().currentWorkKind());
+            assertEquals(TimelineWorkKind.DEFINITIVE_RETRY, next.runtimeIndex().timeline().workKind());
+            assertEquals(2_002, next.retryEligibilityAtEpochMs());
+            assertNull(shard.getClaim(claim.claimId(), owner.generation()));
+            assertNull(shard.getPublishAttempt(attemptId, owner.generation()));
+            assertEquals(result, shard.applySystemMutation(evidence, evidencePosition, keyPair.getPublic()));
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard reopened = new DelayShard(store, shardConfig);
+            final MessageRecord next = reopened.getMessage(schedule.delayMessageId());
+            assertEquals(TimelineWorkKind.DEFINITIVE_RETRY, next.runtimeIndex().timeline().workKind());
+            assertEquals(2_002, next.retryEligibilityAtEpochMs());
+            assertEquals(1, reopened.discoverDue(2_002, 10).size());
+        }
+    }
+
+    @Test
     void sourceOrderedResolveUncertainPublishedEvidenceSettlesExactObligation() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-control-published-evidence"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 34);

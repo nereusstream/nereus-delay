@@ -198,8 +198,12 @@ and Source Position in one WriteBatch; historical settlement updates only the
 retained terminal summary, ledger, duplicate-risk and outcome reserve, so it
 cannot mutate a newer generation. Both paths return the stored result on
 duplicate mutation replay.
-`ATTACH_NOT_PUBLISHED_EVIDENCE` and the authenticated external evidence/
-control authority remain release blockers.
+`ATTACH_NOT_PUBLISHED_EVIDENCE` now settles the exact typed not-published
+obligation and applies remaining-obligation/all-absent normalization,
+including revoking a live `CLAIMED` branch before creating the definitive
+retry timeline; `DelayShardTest` covers that source-ordered path. The
+authenticated external evidence/control authority and complete retry/charge
+proof remain release blockers.
 Publish evidence branches also enforce Kafka/Pulsar target-resource and
 EvidenceCursor/Channel adapter alignment instead of validating each nested
 identity independently.
