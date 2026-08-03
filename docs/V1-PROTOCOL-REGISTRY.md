@@ -1055,7 +1055,7 @@ Physical CF set is exactly `default` plus seven application CFs. `default` has n
 
 Closed subtype bytes used below:
 
-- `meta/FIXED fixedKeyKind`: 1 store/schema format, 2 shard/Route/DB/Store identities, 3 applied Source Position, 4 ingress-fence state, 5 shard mutation sequence, 6 evidence cursor array, 7 checkpoint identity, 8 last-opened Owner, 9 clean/unclean marker, 10 compatible control snapshot, 11 next Claim sequence.
+- `meta/FIXED fixedKeyKind`: 1 store/schema format, 2 shard/Route/DB/Store identities, 3 applied Source Position, 4 ingress-fence state, 5 shard mutation sequence, 6 evidence cursor array, 7 checkpoint identity, 8 last-opened Owner, 9 clean/unclean marker, 10 compatible control snapshot, 11 next Claim sequence, 12 Payload Proof Trust-Set control state, 13 Profile binding control state.
 - `meta/QUOTA quotaClass`: 1 grant identity/version, 2 aggregate usage vector, 3 per-Lane usage, 4 retained/object usage, 5 grandfathered transfer state.
 - `meta/SCHEDULER schedulerKeyKind`: 1 ready-discovery cursor, 2 active-ring descriptor, 3 capped deficits, 4 round generation, 5 last-served map.
 - `meta/CONTROL_RESERVE reserveClass`: 1 grant identity/digest, 2 charged outcome, 3 non-outcome/fence, 4 recovery working, 5 emergency headroom, 6 Broker system-writer reservation.
@@ -1172,7 +1172,27 @@ Pulsar:
 
 `leaderEpochPresence` is 0/1 only. `entryKind` is 1 non-batch, 2 batch; non-batch requires batch index 0 and batch size 1. The Broker timestamp is part of position audit identity/evidence but not its same-resource order comparator.
 
-Value envelope：`4e56 | valueType:u8 | valueVersion:u8=01 | payloadLength:u32be | canonicalPayload | crc32c:u32be`，CRC 覆盖前面全部 bytes。V1 `valueType` 必须等于该 CF key 的第一个 tag byte；CF descriptor + tag 共同决定 payload schema，没有例外或 cross-CF alias。unknown/duplicate/missing CF/tag/version fail activation。
+Value envelope：`4e56 | valueType:u8 | valueVersion:u8=01 | payloadLength:u32be | canonicalPayload | crc32c:u32be`，CRC 覆盖前面全部 bytes。`valueType` 是 V1 关闭的 payload-schema discriminator；它不等同于 key 的 namespace tag。完整 schema identity 是 `CF descriptor + key tag + valueType`，因此同一 numeric type 只有在对应的 CF/key context 中才有意义，不能把一个 context 的 payload 搬到另一个 context。V1 当前注册的 payload type/context 映射为：
+
+| `valueType` | Registered payload contexts |
+|---:|---|
+| 1 | `meta/FIXED` kinds 1--9 and 11, `id/MESSAGE`, `timeline/DUE|ORDERED|EXPIRY`, `dedupe/COMMAND`, `terminal/GENERATION` |
+| 2 | `id/RESERVATION`, `meta/LANE` |
+| 3 | `timeline/READY`, `dedupe/POSITION` |
+| 4 | `dedupe/SYSTEM_MUTATION` (`SystemMutationResult`) |
+| 5 | `meta/SCHEDULER`, `timeline/RESERVATION_EXPIRY` |
+| 6 | `gc/TASK` retire-intent payload |
+| 7 | `meta/QUOTA`, `gc/TASK` delete-confirmed payload |
+| 8 | `meta/CONTROL_RESERVE`, `inflight/PUBLISHING|UNCERTAIN`, `terminal/DLQ_EXPORT` |
+| 9 | `inflight/CLAIMED`, `meta/FIXED` kind 12, `meta/SLO_OUTBOX` |
+| 10 | `meta/FIXED` kind 13 |
+| 11 | `timeline/SYSTEM` close-materialization cursor |
+
+Unknown value types, unknown/duplicate/missing CF tags, unsupported key versions,
+or a value envelope used outside its registered context fail activation or the
+relevant read/write boundary. This explicit union mapping is why GC retire and
+delete-confirmed records keep distinct value types even though they share the
+`gc/TASK` key namespace.
 
 ## 8. Evidence cursor ordering
 

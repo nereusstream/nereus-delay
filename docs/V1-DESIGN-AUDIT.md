@@ -666,6 +666,10 @@ payload 是 canonical `StoreMetadata`，两者都通过 fixed-key ValueEnvelope
 写入并在 open、restore staging 和 install-mode 重读时执行 type/version/
 length/CRC 校验；不再存在裸 format 或裸 identity value。回归证据为
 `ShardStoreTest.fixedFormatAndIdentityValuesUseRegisteredValueEnvelope`。
+`ValueEnvelope` 的 numeric discriminator 也已在本地 codec 中限制为 Registry
+注册的 1--11；§7 明确记录了 context-specific mapping，而不是把 GC 的
+retire/delete union 或 fixed control states 错误地压成同一个 payload schema。
+`ValueEnvelopeTest` 覆盖上界、未知 type、长度和 CRC 的 fail-closed 行为。
 
 主设计 §10.1 要求的可变 Store 元数据现在也有独立的本地投影：
 `StoreRuntimeMetadata` 在注册的 `meta/FIXED` key 4/6/7/8/9 中 canonical 持久

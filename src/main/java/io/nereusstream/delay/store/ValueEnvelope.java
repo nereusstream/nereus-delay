@@ -9,12 +9,14 @@ import java.util.Arrays;
 public final class ValueEnvelope {
     private static final int PREFIX_LENGTH = 8;
     private static final int MAGIC = 0x4e56;
+    /** Highest payload-schema discriminator registered by V1. */
+    public static final int MAX_REGISTERED_VALUE_TYPE = 11;
 
     private ValueEnvelope() {
     }
 
     public static byte[] encode(final int valueType, final byte[] payload) {
-        if (valueType <= 0 || valueType > 0xff || payload.length > Integer.MAX_VALUE) {
+        if (!isRegisteredType(valueType) || payload.length > Integer.MAX_VALUE) {
             throw new IllegalArgumentException("invalid value envelope");
         }
         final ByteBuffer prefix = ByteBuffer.allocate(PREFIX_LENGTH);
@@ -23,6 +25,9 @@ public final class ValueEnvelope {
     }
 
     public static Decoded decode(final byte[] encoded, final int expectedType) {
+        if (!isRegisteredType(expectedType)) {
+            throw new IllegalArgumentException("unknown value envelope type");
+        }
         if (encoded.length < PREFIX_LENGTH + 4) {
             throw new IllegalArgumentException("value envelope is truncated");
         }
@@ -43,6 +48,10 @@ public final class ValueEnvelope {
         return new Decoded(expectedType, Arrays.copyOfRange(encoded, PREFIX_LENGTH, encoded.length - 4));
     }
 
+    private static boolean isRegisteredType(final int valueType) {
+        return valueType > 0 && valueType <= MAX_REGISTERED_VALUE_TYPE;
+    }
+
     public record Decoded(int valueType, byte[] payload) {
         public Decoded {
             payload = Bytes.copy(payload);
@@ -54,4 +63,3 @@ public final class ValueEnvelope {
         }
     }
 }
-

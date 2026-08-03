@@ -577,6 +577,10 @@ CRC-check those envelopes before accepting a DB, and
 `ShardStoreTest.fixedFormatAndIdentityValuesUseRegisteredValueEnvelope`
 asserts the physical representation.  This closes the Registry requirement
 that no `meta/FIXED` value is stored as an unframed raw byte sequence.
+`ValueEnvelope` now also rejects numeric payload types outside the closed V1
+range 1--11; the Registry records the context-specific mapping, including the
+two GC task union branches and fixed control states, so a payload discriminator
+cannot silently grow an unregistered schema.
 `ShardStore.createCheckpoint(path, checkpointId)` additionally writes the exact
 16-byte identity before taking the RocksDB image, so a restored checkpoint
 retains the identity it represents; a failed physical attempt restores the
