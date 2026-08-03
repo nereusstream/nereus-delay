@@ -6,6 +6,7 @@ import java.util.Objects;
 /** Semantic parser for the source-ordered {@code ResolveUncertainV1} body. */
 public final class ResolveUncertainBody {
     private static final int LANE_INCARNATION_LENGTH = 16;
+    private static final int HASH_LENGTH = 32;
 
     private final ControlRef controlRef;
     private final DestinationLaneId laneId;
@@ -50,14 +51,75 @@ public final class ResolveUncertainBody {
         }
     }
 
+    /**
+     * Encodes the canonical source-ordered uncertain-resolution mutation body.
+     * The common subject/type/retry fields are included so the result can be
+     * passed directly to {@link SystemMutation#signed}.
+     */
+    public static byte[] encode(final ShardId shardId, final long retryUntilEpochMs,
+                                final ControlRef controlRef, final DestinationLaneId laneId,
+                                final byte[] laneIncarnation, final DelayMessageId messageId,
+                                final int generation, final byte[] publishAttemptId,
+                                final int resolutionKind, final byte[] evidence,
+                                final boolean allowPossibleDuplicate,
+                                final boolean allowPossibleDeliveryTerminal,
+                                final byte[] acknowledgementHash) {
+        Objects.requireNonNull(shardId, "shardId");
+        Objects.requireNonNull(controlRef, "controlRef");
+        Objects.requireNonNull(laneId, "laneId");
+        Objects.requireNonNull(messageId, "messageId");
+        if (!messageId.routingId().shardId().equals(shardId)) {
+            throw new IllegalArgumentException("uncertain resolution messageId does not belong to shard");
+        }
+        if (retryUntilEpochMs < 0) {
+            throw new IllegalArgumentException("retryUntil must be non-negative");
+        }
+        final byte[] laneBytes = Bytes.copy(laneIncarnation);
+        final byte[] attempt = Bytes.copy(publishAttemptId);
+        final byte[] evidenceBytes = evidence == null ? new byte[0] : Bytes.copy(evidence);
+        final byte[] acknowledgement = acknowledgementHash == null
+                ? new byte[0] : Bytes.copy(acknowledgementHash);
+        // Construct once before writing so all branch/presence rules are
+        // checked by the same semantic validator used during decode.
+        new ResolveUncertainBody(controlRef, laneId, laneBytes, messageId, generation, attempt,
+                resolutionKind, evidenceBytes, allowPossibleDuplicate, allowPossibleDeliveryTerminal,
+                acknowledgement);
+        final byte[] encoded = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, new ShardSubjectV1(shardId).canonicalBytes());
+            CanonicalProtobuf.uint32(output, 2, SystemMutationType.RESOLVE_UNCERTAIN.wireValue());
+            CanonicalProtobuf.int64(output, 3, retryUntilEpochMs);
+            CanonicalProtobuf.bytes(output, 10, controlRef.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 11, laneId.bytes());
+            CanonicalProtobuf.bytes(output, 12, laneBytes);
+            CanonicalProtobuf.bytes(output, 13, messageId.bytes());
+            CanonicalProtobuf.uint32(output, 14, generation);
+            CanonicalProtobuf.bytes(output, 15, attempt);
+            CanonicalProtobuf.uint32(output, 16, resolutionKind);
+            if (evidenceBytes.length != 0) {
+                CanonicalProtobuf.bytes(output, 17, evidenceBytes);
+            }
+            CanonicalProtobuf.uint32(output, 18, allowPossibleDuplicate ? 1 : 0);
+            CanonicalProtobuf.uint32(output, 19, allowPossibleDeliveryTerminal ? 1 : 0);
+            if (acknowledgement.length != 0) {
+                CanonicalProtobuf.bytes(output, 20, acknowledgement);
+            }
+        });
+        decode(encoded);
+        return encoded;
+    }
+
     public static ResolveUncertainBody decode(final byte[] canonicalBody) {
         final List<CanonicalProtobuf.Reader.Field> fields =
                 SystemMutationBodyCodec.fields(SystemMutationType.RESOLVE_UNCERTAIN, canonicalBody);
+        final ShardId subjectShard = ShardSubjectV1.decode(bytes(fields.get(0), 1)).shardId();
         final ControlRef controlRef = ControlRef.decode(nested(field(fields, 10), 10));
         final DestinationLaneId lane = new DestinationLaneId(fixed(field(fields, 11), 11,
                 DestinationLaneId.LENGTH));
         final byte[] laneIncarnation = fixed(field(fields, 12), 12, LANE_INCARNATION_LENGTH);
         final DelayMessageId messageId = new DelayMessageId(fixed(field(fields, 13), 13, DelayMessageId.LENGTH));
+        if (!subjectShard.equals(messageId.routingId().shardId())) {
+            throw new IllegalArgumentException("uncertain resolution messageId does not belong to body shard");
+        }
         final int generation = intValue(field(fields, 14), 14);
         final byte[] publishAttemptId = fixed(field(fields, 15), 15, ControlRef.HASH_LENGTH);
         final int kind = intValue(field(fields, 16), 16);

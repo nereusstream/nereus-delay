@@ -24,6 +24,34 @@ class ResolveUncertainBodyTest {
     }
 
     @Test
+    void canonicalEncoderRoundTripsBothResolutionShapes() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
+        final DelayMessageId messageId = DelayMessageId.random(shard);
+        final ControlRef controlRef = new ControlRef(hash("operation"), hash("request"), 0);
+        final DestinationLaneId laneId = new DestinationLaneId(Bytes.sha256(Bytes.utf8("resolve-lane")));
+        final byte[] laneIncarnation = new byte[16];
+        final byte[] attemptId = hash("attempt-published");
+        final byte[] evidence = evidence(attemptId, true);
+
+        final byte[] attached = ResolveUncertainBody.encode(shard, 9_000, controlRef, laneId, laneIncarnation,
+                messageId, 0, attemptId, 1, evidence, false, false, null);
+        final ResolveUncertainBody attachedDecoded = ResolveUncertainBody.decode(attached);
+        assertArrayEquals(attached, ResolveUncertainBody.encode(shard, 9_000, attachedDecoded.controlRef(),
+                attachedDecoded.laneId(), attachedDecoded.laneIncarnation(), attachedDecoded.messageId(),
+                attachedDecoded.generation(), attachedDecoded.publishAttemptId(),
+                attachedDecoded.resolutionKind(), attachedDecoded.evidence(),
+                attachedDecoded.allowPossibleDuplicate(), attachedDecoded.allowPossibleDeliveryTerminal(),
+                attachedDecoded.acknowledgementHash()));
+
+        final byte[] acknowledgement = hash("acknowledgement");
+        final byte[] retry = ResolveUncertainBody.encode(shard, 9_000, controlRef, laneId, laneIncarnation,
+                messageId, 0, hash("attempt-retry"), 3, null, true, false, acknowledgement);
+        final ResolveUncertainBody retryDecoded = ResolveUncertainBody.decode(retry);
+        assertEquals(3, retryDecoded.resolutionKind());
+        assertArrayEquals(acknowledgement, retryDecoded.acknowledgementHash());
+    }
+
+    @Test
     void notPublishedAttachmentRejectsWrongOwnerAndOpaqueBytes() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
         final DelayMessageId messageId = DelayMessageId.random(shard);
@@ -37,6 +65,11 @@ class ResolveUncertainBodyTest {
                 () -> ResolveUncertainBody.decode(body(shard, messageId, attemptId, 1,
                         CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1,
                                 Bytes.utf8("opaque"))))));
+
+        final DelayMessageId otherShardMessage = DelayMessageId.random(
+                new ShardId(RouteIncarnation.random(), 0));
+        assertThrows(IllegalArgumentException.class,
+                () -> ResolveUncertainBody.decode(body(shard, otherShardMessage, attemptId, 2, evidence)));
     }
 
     private static byte[] body(final ShardId shard, final DelayMessageId messageId, final byte[] attemptId,
