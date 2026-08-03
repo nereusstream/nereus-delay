@@ -611,6 +611,13 @@ Floor coverage 与本地 GC guard 在 order token 相等时还要求 Source Posi
 canonical bytes 完全一致；同一 Kafka offset 或 Pulsar ledger/entry/batch 的
 metadata 变体不能被当作已覆盖的 retention boundary。
 
+Checkpoint GC 的 catalog-backed guard 现在会在 source/sequence/ancestry
+证明之后 reread 当前 `RecoveryPinV1`。活动 pin 若保护待删 checkpoint 的
+candidate 或 observed Floor，返回 `RECOVERY_PIN_PROTECTS_RESOURCE`；pin
+读取失败返回 `RECOVERY_PIN_STATE_UNAVAILABLE`，两者都禁止本地 tombstone
+compact。这只闭合了本地 pin-aware necessary condition，仍不等于 Oxia
+session CAS、provider delete attestation 或完整的 external GC orchestration。
+
 普通 local catalog publish 对已存在的 exact manifest 也先做 identity reread，
 因此 catalog generation 推进不会把一次已成功的 checkpoint insert 误报为冲突。
 
