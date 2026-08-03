@@ -829,6 +829,13 @@ key/value `sampleId` 必须 byte-identical；错挂的 key 不会被导出为另
 证据为 `SloObservationOutboxStoreTest`。这只补足 shard-local 持久化完整性，不能
 替代 SLO Start 重建、collector merge/export 或生产观测 authority。
 
+Large-payload reservation 的本地读取也采用同一条组合身份边界：`id_cf/RESERVATION`
+key 中的 reservationId 必须与 `PayloadReservation` 值一致，值中的 ShardId 必须与
+当前 Delay Shard 一致；按 messageId 的 bounded lookup 在超界或发现多个 reservation
+时直接 fail closed。`DelayShardTest` 覆盖错挂 key 和重复 reservation，避免 Cancel/Commit
+从不完整投影中猜测唯一预约。Object Store、Oxia 和 source-ordered reservation authority
+仍不由此本地检查替代。
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

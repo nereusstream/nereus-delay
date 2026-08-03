@@ -1306,6 +1306,69 @@ class DelayShardTest {
     }
 
     @Test
+    void reservationLookupRejectsKeyValueIdentityMismatch() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("reservation-key-mismatch"));
+        final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,
+                3, 100, 10_000);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 61);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("reservation-key-mismatch-lane"));
+        final LargeScheduleIntent intent = new LargeScheduleIntent(lane, 2_000, 5_000,
+                OrderingMode.BEST_EFFORT, 8, Bytes.sha256(Bytes.utf8("reservation-key-mismatch-payload")),
+                4_000, 9);
+        final PreparedCommand prepare = PreparedCommand.prepareLarge(shardId, intent, 9_000);
+        final byte[] reservationId = Bytes.sha256(Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                prepare.commandId().bytes(), prepare.delayMessageId().bytes(), prepare.commandHash());
+        final byte[] misplacedId = Bytes.sha256(Bytes.utf8("misplaced-reservation-key"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, shardConfig);
+            assertEquals(StableCode.OK, shard.apply(prepare, position(shardId, 0, 1_000)).stableCode());
+            final PayloadReservation reservation = shard.getReservation(reservationId);
+            store.write(batch -> {
+                batch.delete(ColumnFamily.ID, KeyCodec.idReservation(reservationId));
+                batch.putValue(ColumnFamily.ID, 2, KeyCodec.idReservation(misplacedId), reservation.encode());
+            });
+
+            assertThrows(IllegalStateException.class, () -> shard.getReservation(misplacedId));
+            final PreparedCommand cancel = PreparedCommand.cancel(shardId, prepare.delayMessageId(), 0, 9_000);
+            assertThrows(IllegalStateException.class,
+                    () -> shard.apply(cancel, position(shardId, 1, 1_001)));
+        }
+    }
+
+    @Test
+    void cancelRejectsMultipleReservationsForOneMessage() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("duplicate-reservations"));
+        final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,
+                3, 100, 10_000);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 62);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("duplicate-reservations-lane"));
+        final LargeScheduleIntent intent = new LargeScheduleIntent(lane, 2_000, 5_000,
+                OrderingMode.BEST_EFFORT, 8, Bytes.sha256(Bytes.utf8("duplicate-reservations-payload")),
+                4_000, 9);
+        final PreparedCommand prepare = PreparedCommand.prepareLarge(shardId, intent, 9_000);
+        final byte[] reservationId = Bytes.sha256(Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                prepare.commandId().bytes(), prepare.delayMessageId().bytes(), prepare.commandHash());
+        final byte[] duplicateId = Bytes.sha256(Bytes.utf8("duplicate-reservation-id"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, shardConfig);
+            assertEquals(StableCode.OK, shard.apply(prepare, position(shardId, 0, 1_000)).stableCode());
+            final PayloadReservation reservation = shard.getReservation(reservationId);
+            final PayloadReservation duplicate = new PayloadReservation(shardId, duplicateId,
+                    reservation.commandId(), reservation.delayMessageId(), reservation.commandHash(), reservation.intent(),
+                    reservation.reservationExpiryEpochMs(), PayloadReservationStatus.RESERVED,
+                    reservation.stateVersion(), reservation.sourcePosition(), null);
+            store.write(batch -> batch.putValue(ColumnFamily.ID, 2, KeyCodec.idReservation(duplicateId),
+                    duplicate.encode()));
+
+            final PreparedCommand cancel = PreparedCommand.cancel(shardId, prepare.delayMessageId(), 0, 9_000);
+            assertThrows(IllegalStateException.class,
+                    () -> shard.apply(cancel, position(shardId, 1, 1_001)));
+        }
+    }
+
+    @Test
     void timeFenceOverlaysReservedPayloadAndBoundedCursorMaterializesExpiry() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("reservation-fence"));
         final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,

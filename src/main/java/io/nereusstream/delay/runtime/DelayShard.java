@@ -829,7 +829,11 @@ public final class DelayShard {
 
     private PayloadReservation readStoredReservation(final byte[] reservationId) {
         final var value = store.getValue(ColumnFamily.ID, KeyCodec.idReservation(reservationId), 2);
-        return value == null ? null : PayloadReservation.decode(value.payload());
+        if (value == null) {
+            return null;
+        }
+        return validateReservationIdentity(reservationId, PayloadReservation.decode(value.payload()),
+                "reservation lookup");
     }
 
     /**
@@ -863,7 +867,8 @@ public final class DelayShard {
         if (value == null) {
             return null;
         }
-        final PayloadReservation current = PayloadReservation.decode(value.payload());
+        final PayloadReservation current = validateReservationIdentity(reservationId,
+                PayloadReservation.decode(value.payload()), "reservation expiry materialization");
         final LaneRecord lane = readLane(current.intent().laneId());
         if (lane != null && lane.admissionGate() == AdmissionGate.CLOSED
                 && current.status() == PayloadReservationStatus.RESERVED) {
@@ -1474,12 +1479,23 @@ public final class DelayShard {
         return new DelayMessageId(Arrays.copyOfRange(entry.key(), 2, entry.key().length));
     }
 
-    private static PayloadReservation decodeReservationEntry(
+    private PayloadReservation decodeReservationEntry(
             final io.nereusstream.delay.store.ShardStore.KeyValue entry, final String context) {
         if (entry.key().length != 2 + 32 || entry.key()[0] != 2 || entry.key()[1] != 1) {
             throw new IllegalStateException("invalid RESERVATION key during " + context);
         }
-        return PayloadReservation.decode(ValueEnvelope.decode(entry.value(), 2).payload());
+        return validateReservationIdentity(Arrays.copyOfRange(entry.key(), 2, entry.key().length),
+                PayloadReservation.decode(ValueEnvelope.decode(entry.value(), 2).payload()), context);
+    }
+
+    private PayloadReservation validateReservationIdentity(final byte[] reservationId,
+                                                            final PayloadReservation reservation,
+                                                            final String context) {
+        if (!Arrays.equals(reservation.reservationId(), reservationId)
+                || !reservation.shardId().equals(store.shardId())) {
+            throw new IllegalStateException("RESERVATION key/value identity mismatch during " + context);
+        }
+        return reservation;
     }
 
     private List<ClosedMessageAction> prepareClosedMessageActions(
@@ -5633,17 +5649,24 @@ public final class DelayShard {
     }
 
     private PayloadReservation findReservationForMessage(final DelayMessageId messageId) {
-        final int limit = (int) Math.min(config.maxPendingMessages(), Integer.MAX_VALUE);
+        final int limit = boundedLimitPlusOne(config.maxPendingMessages());
         final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries = store.scan(ColumnFamily.ID,
                 new byte[]{2, 1}, new byte[]{3, 1}, Math.max(1, limit));
+        if (entries.size() >= limit && config.maxPendingMessages() < Integer.MAX_VALUE) {
+            throw new IllegalStateException("reservation scan exceeded configured bound");
+        }
+        PayloadReservation found = null;
         for (var entry : entries) {
-            final PayloadReservation reservation = effectiveReservation(PayloadReservation.decode(
-                    io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), 2).payload()));
+            final PayloadReservation reservation = effectiveReservation(
+                    decodeReservationEntry(entry, "message reservation lookup"));
             if (reservation.delayMessageId().equals(messageId)) {
-                return reservation;
+                if (found != null) {
+                    throw new IllegalStateException("message has multiple payload reservations");
+                }
+                found = reservation;
             }
         }
-        return null;
+        return found;
     }
 
     private PayloadReservation effectiveReservation(final PayloadReservation reservation) {
