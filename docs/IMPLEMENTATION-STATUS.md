@@ -701,7 +701,8 @@ canonical `ControlRefV1`, its Resolve logical identity, lane incarnation,
 acknowledgement hash, current-generation UNCERTAIN obligation and source
 position, then materializes one `UNCERTAIN_RETRY(CONTROL_OVERRIDE)` timeline
 work item without consuming the Admission counter. Resolve evidence attachment,
-and authenticated Oxia target registration remain release blockers; the
+except for the published-evidence branch, and authenticated Oxia target
+registration remain release blockers; the
 `ATTACH_PUBLISHED_EVIDENCE` branch is now locally covered by closing the exact
 UNCERTAIN obligation and releasing its pending schedule quota atomically. The
 `ATTACH_NOT_PUBLISHED_EVIDENCE` branch remains fail-closed, while the

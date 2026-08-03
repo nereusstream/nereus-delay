@@ -1463,6 +1463,7 @@ class DelayShardTest {
             assertEquals(MessageStatus.PUBLISHED, shard.getMessage(command.delayMessageId()).status());
             assertEquals(MessageStatus.PUBLISHED,
                     shard.getTerminalGeneration(command.delayMessageId(), 0).status());
+            assertEquals(0, shard.quota().pendingMessages());
         }
     }
 
