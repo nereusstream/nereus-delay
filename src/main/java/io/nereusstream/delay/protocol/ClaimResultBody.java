@@ -74,6 +74,7 @@ public final class ClaimResultBody {
                 nested(field(fields, 18), 18));
         final byte[] transfer = nested(field(fields, 20), 20);
         validateChargeVector(transfer);
+        SystemMutationBodyCodec.requireMessageShard(fields, new DelayMessageId(messageId), "Claim Result");
         return new ClaimResultBody(claimId, messageId, generation, laneId, laneIncarnation, precondition,
                 resultKind, stableCode, observedAt, transfer);
     }

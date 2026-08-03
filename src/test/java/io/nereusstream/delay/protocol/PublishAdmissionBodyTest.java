@@ -32,6 +32,15 @@ public class PublishAdmissionBodyTest {
         assertThrows(IllegalArgumentException.class, () -> PublishAdmissionBody.decode(drifted));
     }
 
+    @Test
+    void rejectsMessageRoutedToDifferentBodyShard() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
+        final DelayMessageId messageId = DelayMessageId.random(new ShardId(RouteIncarnation.random(), 4));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> PublishAdmissionBody.decode(Fixture.create(shard, messageId).body()));
+    }
+
     private static byte[] tamperPreparedHash(final byte[] body) {
         final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(body);
         return CanonicalProtobuf.message(output -> {

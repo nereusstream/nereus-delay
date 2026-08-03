@@ -91,6 +91,7 @@ public final class DlqExportResultBody {
         final DlqExportStateV1 resultingState = DlqExportStateV1.fromWire(unsigned(field(fields, 23), 23));
         final int physicalAttemptNo = boundedInt(unsigned(field(fields, 24), 24), "physicalAttemptNo");
         validateCombination(eventKind, sideEffect, disposition, stableCode, evidence, resultingState, retry);
+        SystemMutationBodyCodec.requireMessageShard(fields, new DelayMessageId(messageId), "DLQ export result");
         final DlqExportResultBody result = new DlqExportResultBody(exportId, messageId, generation,
                 terminalRevision, envelopeHash, eventKind, sideEffect, disposition, stableCode, evidence, transfer,
                 observedAt, retryDecision, resultingState, physicalAttemptNo);

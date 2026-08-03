@@ -2721,6 +2721,7 @@ public final class DelayShard {
                 SystemMutationBodyCodec.fields(SystemMutationType.EXPIRE_GENERATION, mutation.canonicalBody());
         final DelayMessageId messageId = new DelayMessageId(fixedBodyBytes(field(fields, 10), 10,
                 DelayMessageId.LENGTH));
+        SystemMutationBodyCodec.requireMessageShard(fields, messageId, "Expire Generation");
         final int generation = bodyInt(field(fields, 11), 11);
         final long expireAt = bodyNonNegative(field(fields, 12), 12);
         final TrustedUtcIntervalEvidence proof = TrustedUtcIntervalEvidence.decode(

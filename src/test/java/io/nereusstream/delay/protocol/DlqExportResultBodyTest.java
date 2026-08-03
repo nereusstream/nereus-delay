@@ -11,11 +11,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class DlqExportResultBodyTest {
     @Test
     void parsesAttemptOutcomeAndDerivesStableLogicalIdentity() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 2);
         final byte[] exportId = nonZero(32, 1);
-        final byte[] messageId = nonZero(41, 2);
+        final byte[] messageId = DelayMessageId.random(shard).bytes();
         final byte[] envelope = nonZero(32, 3);
         final byte[] evidence = evidence(exportId);
-        final byte[] body = body(exportId, messageId, envelope, 1, 1, 0, StableCode.OK.wireValue(), evidence,
+        final byte[] body = body(shard, exportId, messageId, envelope, 1, 1, 0, StableCode.OK.wireValue(), evidence,
                 retry(1, StableCode.OK.wireValue(), 2), 3, 1);
 
         final DlqExportResultBody decoded = DlqExportResultBody.decode(body);
@@ -27,34 +28,35 @@ class DlqExportResultBodyTest {
 
     @Test
     void rejectsUnknownAttemptWithDefinitiveEvidenceOrMessageRetryDomain() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
         final byte[] exportId = nonZero(32, 5);
-        final byte[] messageId = nonZero(41, 6);
+        final byte[] messageId = DelayMessageId.random(shard).bytes();
         final byte[] envelope = nonZero(32, 7);
-        final byte[] unknown = body(exportId, messageId, envelope, 1, 3, 4,
+        final byte[] unknown = body(shard, exportId, messageId, envelope, 1, 3, 4,
                 StableCode.DLQ_EXPORT_OUTCOME_UNKNOWN.wireValue(), new byte[0],
                 retry(5, StableCode.DLQ_EXPORT_OUTCOME_UNKNOWN.wireValue(), 2), 4, 1);
         assertEquals(DlqExportStateV1.UNCERTAIN, DlqExportResultBody.decode(unknown).resultingState());
 
-        final byte[] badEvidence = body(exportId, messageId, envelope, 1, 3, 4,
+        final byte[] badEvidence = body(shard, exportId, messageId, envelope, 1, 3, 4,
                 StableCode.DLQ_EXPORT_OUTCOME_UNKNOWN.wireValue(), evidence(exportId),
                 retry(5, StableCode.DLQ_EXPORT_OUTCOME_UNKNOWN.wireValue(), 2), 4, 1);
         assertThrows(IllegalArgumentException.class, () -> DlqExportResultBody.decode(badEvidence));
 
-        final byte[] wrongDomain = body(exportId, messageId, envelope, 1, 1, 0, StableCode.OK.wireValue(),
+        final byte[] wrongDomain = body(shard, exportId, messageId, envelope, 1, 1, 0, StableCode.OK.wireValue(),
                 evidence(exportId), retry(1, StableCode.OK.wireValue(), 1, 1), 3, 1);
         assertThrows(IllegalArgumentException.class, () -> DlqExportResultBody.decode(wrongDomain));
     }
 
-    private static byte[] body(final byte[] exportId, final byte[] messageId, final byte[] envelope,
+    private static byte[] body(final ShardId shard, final byte[] exportId, final byte[] messageId, final byte[] envelope,
                                final int eventKind, final int sideEffect, final int disposition, final int code,
                                final byte[] evidence, final byte[] retry, final int state, final int attempt) {
         final TrustedUtcIntervalEvidence observed = new TrustedUtcIntervalEvidence(1_000, 1_001,
                 TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, nonZero(16, 10), 1, 1, 1,
                 nonZero(32, 11), 0, new byte[0]);
         return CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.bytes(output, 1, new byte[]{1});
-            CanonicalProtobuf.bytes(output, 2, new byte[]{2});
-            CanonicalProtobuf.bytes(output, 3, new byte[]{3});
+            CanonicalProtobuf.bytes(output, 1, new ShardSubjectV1(shard).canonicalBytes());
+            CanonicalProtobuf.uint32(output, 2, SystemMutationType.DLQ_EXPORT_RESULT.wireValue());
+            CanonicalProtobuf.int64(output, 3, 9_000);
             CanonicalProtobuf.bytes(output, 10, exportId);
             CanonicalProtobuf.bytes(output, 11, messageId);
             CanonicalProtobuf.uint32(output, 12, 0);

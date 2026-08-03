@@ -85,8 +85,10 @@ public final class PublishAdmissionBody {
         final TrustedUtcIntervalEvidence decision = TrustedUtcIntervalEvidence.decode(
                 nested(field(fields, 24), 24));
         final ClaimPrecondition claim = decodeClaimPrecondition(nested(field(fields, 25), 25));
+        final byte[] messageId = bytes(field(fields, 15), 15);
+        SystemMutationBodyCodec.requireMessageShard(fields, new DelayMessageId(messageId), "Publish Admission");
         return new PublishAdmissionBody(owner, bytes(field(fields, 11), 11), bytes(field(fields, 12), 12),
-                bytes(field(fields, 13), 13), bytes(field(fields, 14), 14), bytes(field(fields, 15), 15),
+                bytes(field(fields, 13), 13), bytes(field(fields, 14), 14), messageId,
                 (int) generation, bytes(field(fields, 17), 17), bytes(field(fields, 18), 18), reserveCharge,
                 bytes(field(fields, 20), 20), channel, descriptor, certificate, decision, claim);
     }

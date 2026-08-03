@@ -39,6 +39,25 @@ public final class SystemMutationBodyCodec {
         return List.copyOf(readAll(new CanonicalProtobuf.Reader(canonicalBody)));
     }
 
+    /** Returns the Shard identity carried by the common body subject field. */
+    public static ShardId subjectShard(final List<CanonicalProtobuf.Reader.Field> fields) {
+        Objects.requireNonNull(fields, "fields");
+        if (fields.isEmpty() || fields.get(0).number() != 1 || fields.get(0).wireType() != 2) {
+            throw new IllegalArgumentException("System Mutation body subject field is missing");
+        }
+        return ShardSubjectV1.decode(fields.get(0).rawValue()).shardId();
+    }
+
+    /** Rejects a message identity whose self-routing Shard differs from the body subject. */
+    public static void requireMessageShard(final List<CanonicalProtobuf.Reader.Field> fields,
+                                           final DelayMessageId messageId, final String operation) {
+        Objects.requireNonNull(messageId, "messageId");
+        Objects.requireNonNull(operation, "operation");
+        if (!subjectShard(fields).equals(messageId.routingId().shardId())) {
+            throw new IllegalArgumentException(operation + " messageId does not belong to body shard");
+        }
+    }
+
     private static Spec[] specs(final SystemMutationType type) {
         return switch (type) {
             case APPLY_SHARD_CONTROL -> new Spec[]{
