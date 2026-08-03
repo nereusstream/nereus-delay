@@ -457,8 +457,11 @@ obligation 并保留该发送；也支持旧代 `terminal_cf` summary 中仍开�
 obligation。当前代与 published terminal、ledger、pending quota、outcome
 reserve、mutation result 和 source position 一起原子提交，旧代只更新
 terminal summary、ledger、duplicate-risk 和 outcome reserve，不能修改新代；
-重复 mutation 返回已持久化结果。`ATTACH_NOT_PUBLISHED_EVIDENCE` 以及外部
-authenticated control/evidence authority 和完整 retry/charge policy 仍未完成。
+重复 mutation 返回已持久化结果。`ATTACH_NOT_PUBLISHED_EVIDENCE` 现在也
+校验 exact UNCERTAIN obligation 并按 remaining-obligation/all-absent 规则
+保留未决工作、保留另一个 current PUBLISHING，或原子化为 definitive retry
+及其 closed-lane/budget/expiry terminal 分支；外部 authenticated
+control/evidence authority 和完整 retry/charge policy 仍未完成。
 
 Evidence branch validation also checks the adapter-specific target resource
 and cursor/channel branch, so a Kafka evidence envelope cannot carry a Pulsar

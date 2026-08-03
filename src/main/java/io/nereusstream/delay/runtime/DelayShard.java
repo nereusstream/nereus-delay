@@ -1880,6 +1880,9 @@ public final class DelayShard {
         if (body.resolutionKind() == 1) {
             return applyPublishedEvidenceAttachment(body, mutation, sourcePosition);
         }
+        if (body.resolutionKind() == 2) {
+            return applyNotPublishedEvidenceAttachment(body, mutation, sourcePosition);
+        }
         if (body.resolutionKind() == 4) {
             return applyPossibleDeliveryTerminalization(body, mutation, sourcePosition);
         }
@@ -2021,6 +2024,370 @@ public final class DelayShard {
         } catch (IllegalStateException exception) {
             return persistSystemResultByResult(result, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
         }
+    }
+
+    /**
+     * Settles one exact UNCERTAIN obligation with authenticated definitive
+     * non-publication evidence.  The evidence branch never invents a retry
+     * policy: once the named obligation is removed, the remaining runtime
+     * index either stays uncertain, preserves another current PUBLISHING
+     * attempt, or follows the ordinary all-absent definitive-retry
+     * normalization.
+     */
+    private SystemMutationResult applyNotPublishedEvidenceAttachment(final ResolveUncertainBody body,
+                                                                      final SystemMutation mutation,
+                                                                      final SourcePosition sourcePosition) {
+        final MessageRecord current = getMessage(body.messageId());
+        if (current == null) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.TOO_LATE);
+        }
+        if (current.generation() < body.generation()) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+        final PublishAttemptLedger ledger = findOpenPublishAttempt(body.publishAttemptId());
+        if (ledger == null || ledger.state() != AttemptLedgerState.UNCERTAIN
+                || !ledger.delayMessageId().equals(body.messageId())
+                || !ledger.laneId().equals(body.laneId())
+                || !Arrays.equals(ledger.laneIncarnation(), body.laneIncarnation())
+                || ledger.generation() != body.generation()) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+        if (current.generation() == body.generation() && !current.laneId().equals(body.laneId())) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.TOO_LATE);
+        }
+        if (current.generation() > body.generation()) {
+            final TerminalGenerationRecord summary = getTerminalGeneration(body.messageId(), body.generation());
+            if (summary == null || !summary.openObligations().contains(ledger.obligationRef())) {
+                return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                        StableCode.TOO_LATE);
+            }
+            final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED,
+                    StableCode.OK, sourcePosition.canonicalBytes());
+            try {
+                settleHistoricalTerminalObligation(ledger, sourcePosition, result, false);
+                return result;
+            } catch (IllegalStateException exception) {
+                return persistSystemResultByResult(result, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
+            }
+        }
+
+        final GenerationRuntimeIndex index = current.runtimeIndex();
+        if (!containsObligation(index, ledger.obligationRef())) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+        if (isTerminalStatus(current.status())) {
+            final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED,
+                    StableCode.OK, sourcePosition.canonicalBytes());
+            try {
+                settleTerminalObligation(ledger, current, sourcePosition, result, false);
+                return result;
+            } catch (IllegalStateException exception) {
+                return persistSystemResultByResult(result, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
+            }
+        }
+
+        final LaneRecord lane = readLane(current.laneId());
+        if (lane == null || !Arrays.equals(lane.laneIncarnation(), body.laneIncarnation())) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+        final List<AttemptObligationRef> remaining = withoutObligation(index, ledger.publishAttemptId());
+        final boolean remainingUncertain = remaining.stream()
+                .anyMatch(ref -> ref.ledgerState() == AttemptLedgerState.UNCERTAIN);
+        final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED,
+                StableCode.OK, sourcePosition.canonicalBytes());
+        try {
+            if (remainingUncertain) {
+                return settleNotPublishedUncertainObligation(ledger, current, remaining, sourcePosition, result);
+            }
+            if (index.currentWorkKind() == CurrentSendWorkKind.PUBLISHING) {
+                return preservePublishingAfterNotPublishedEvidence(ledger, current, remaining, sourcePosition,
+                        result);
+            }
+            if (lane.admissionGate() == AdmissionGate.CLOSED || lane.admissionGate() == AdmissionGate.RETIRED) {
+                return terminalizeNotPublishedEvidence(ledger, current, remaining, sourcePosition, result,
+                        MessageStatus.DEAD_LETTER, StableCode.LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED);
+            }
+
+            final RetryPolicySemanticV1 pinnedPolicy = retryPolicyFor(body.messageId(), current, sourcePosition);
+            final int maxPublishAdmissions = pinnedPolicy == null
+                    ? config.maxPublishAdmissions() : pinnedPolicy.maxPublishAdmissions();
+            if (index.admissionsUsed() >= maxPublishAdmissions) {
+                return terminalizeNotPublishedEvidence(ledger, current, remaining, sourcePosition, result,
+                        MessageStatus.DEAD_LETTER, StableCode.DESTINATION_DEFINITIVE_PERMANENT);
+            }
+            final long retryAt = Math.max(Math.max(current.deliverAtEpochMs(),
+                    current.retryEligibilityAtEpochMs()), sourcePosition.brokerPersistenceTimeEpochMs());
+            if (retryAt >= current.expireAtEpochMs()) {
+                return terminalizeNotPublishedEvidence(ledger, current, remaining, sourcePosition, result,
+                        MessageStatus.EXPIRED, StableCode.ALREADY_EXPIRED);
+            }
+            return normalizeDefinitiveRetryAfterNotPublishedEvidence(ledger, current, remaining, retryAt,
+                    sourcePosition, result);
+        } catch (IllegalStateException | ArithmeticException exception) {
+            return persistSystemResultByResult(result, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
+        }
+    }
+
+    /** Removes only the named obligation while preserving still-uncertain work. */
+    private SystemMutationResult settleNotPublishedUncertainObligation(final PublishAttemptLedger ledger,
+                                                                        final MessageRecord current,
+                                                                        final List<AttemptObligationRef> remaining,
+                                                                        final SourcePosition sourcePosition,
+                                                                        final SystemMutationResult result) {
+        final GenerationRuntimeIndex index = current.runtimeIndex();
+        final GenerationRuntimeIndex nextRuntime;
+        if (index.currentWorkKind() == CurrentSendWorkKind.TIMELINE) {
+            if (index.timeline() == null) {
+                throw new IllegalStateException("uncertain timeline work is missing its reference");
+            }
+            nextRuntime = GenerationRuntimeIndex.timeline(GenerationAggregateState.UNCERTAIN,
+                    index.timeline(), remaining, index.admissionsUsed(), index.uncertainRetryAdmissionsUsed(),
+                    index.possibleDestinationDuplicate(), Math.addExact(index.runtimeRevision(), 1));
+        } else if (index.currentWorkKind() == CurrentSendWorkKind.CLAIMED) {
+            final ClaimRecord claim = findClaimForMessage(ledger.delayMessageId());
+            if (claim == null || !Arrays.equals(claim.claimId(), index.claimId())
+                    || claim.runtimeRevision() != current.stateVersion()) {
+                throw new IllegalStateException("uncertain Claim work is missing its exact record");
+            }
+            nextRuntime = GenerationRuntimeIndex.claimed(index.claimId(), remaining, index.admissionsUsed(),
+                    index.uncertainRetryAdmissionsUsed(), index.possibleDestinationDuplicate(),
+                    Math.addExact(index.runtimeRevision(), 1));
+        } else if (index.currentWorkKind() == CurrentSendWorkKind.PUBLISHING) {
+            nextRuntime = GenerationRuntimeIndex.publishing(index.publishAttemptId(), remaining,
+                    index.admissionsUsed(), index.uncertainRetryAdmissionsUsed(),
+                    index.possibleDestinationDuplicate(), Math.addExact(index.runtimeRevision(), 1));
+        } else if (index.currentWorkKind() == CurrentSendWorkKind.NONE) {
+            nextRuntime = GenerationRuntimeIndex.none(GenerationAggregateState.UNCERTAIN, remaining,
+                    index.admissionsUsed(), index.uncertainRetryAdmissionsUsed(),
+                    index.possibleDestinationDuplicate(), Math.addExact(index.runtimeRevision(), 1));
+        } else {
+            throw new IllegalStateException("unsupported uncertain work kind");
+        }
+        final MessageRecord next = new MessageRecord(current.status(), current.generation(), current.stateVersion(),
+                current.deliverAtEpochMs(), current.expireAtEpochMs(), current.laneId(), current.orderingMode(),
+                current.payload(), current.scheduleSourcePosition(), current.payloadReference(),
+                current.retryEligibilityAtEpochMs()).withRuntimeIndex(nextRuntime);
+        final OutcomeReserveUsage nextOutcomeReserve = releasedOutcomeReserve(ledger);
+        final CapacityVectorV1 nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
+        store.write(batch -> {
+            batch.delete(ColumnFamily.INFLIGHT, ledger.encodedKey());
+            batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(ledger.delayMessageId()), next.encode());
+            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector);
+            writeSystemResult(batch, result);
+            writePosition(batch, sourcePosition);
+        });
+        lastAppliedSourcePosition = sourcePosition;
+        mutationSequence++;
+        outcomeReserve = nextOutcomeReserve;
+        outcomeReserveVector = nextOutcomeReserveVector;
+        return result;
+    }
+
+    /** Keeps a different admitted send as the sole current work item. */
+    private SystemMutationResult preservePublishingAfterNotPublishedEvidence(final PublishAttemptLedger ledger,
+                                                                               final MessageRecord current,
+                                                                               final List<AttemptObligationRef> remaining,
+                                                                               final SourcePosition sourcePosition,
+                                                                               final SystemMutationResult result) {
+        final GenerationRuntimeIndex index = current.runtimeIndex();
+        if (index.publishAttemptId().length == 0
+                || Arrays.equals(index.publishAttemptId(), ledger.publishAttemptId())) {
+            throw new IllegalStateException("not-published evidence cannot remove current publishing work");
+        }
+        final GenerationRuntimeIndex nextRuntime = GenerationRuntimeIndex.publishing(index.publishAttemptId(),
+                remaining, index.admissionsUsed(), index.uncertainRetryAdmissionsUsed(),
+                index.possibleDestinationDuplicate(), Math.addExact(index.runtimeRevision(), 1));
+        final MessageRecord next = new MessageRecord(current.status(), current.generation(), current.stateVersion(),
+                current.deliverAtEpochMs(), current.expireAtEpochMs(), current.laneId(), current.orderingMode(),
+                current.payload(), current.scheduleSourcePosition(), current.payloadReference(),
+                current.retryEligibilityAtEpochMs()).withRuntimeIndex(nextRuntime);
+        final OutcomeReserveUsage nextOutcomeReserve = releasedOutcomeReserve(ledger);
+        final CapacityVectorV1 nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
+        store.write(batch -> {
+            batch.delete(ColumnFamily.INFLIGHT, ledger.encodedKey());
+            batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(ledger.delayMessageId()), next.encode());
+            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector);
+            writeSystemResult(batch, result);
+            writePosition(batch, sourcePosition);
+        });
+        lastAppliedSourcePosition = sourcePosition;
+        mutationSequence++;
+        outcomeReserve = nextOutcomeReserve;
+        outcomeReserveVector = nextOutcomeReserveVector;
+        return result;
+    }
+
+    /** Converts reversible timeline/Claim/NONE work to a definitive retry. */
+    private SystemMutationResult normalizeDefinitiveRetryAfterNotPublishedEvidence(
+            final PublishAttemptLedger ledger, final MessageRecord current,
+            final List<AttemptObligationRef> remaining, final long retryAt,
+            final SourcePosition sourcePosition, final SystemMutationResult result) {
+        final GenerationRuntimeIndex index = current.runtimeIndex();
+        final byte[] priorTimelineKey;
+        final byte[] claimKey;
+        if (index.currentWorkKind() == CurrentSendWorkKind.TIMELINE) {
+            if (index.timeline() == null
+                    || !Arrays.equals(index.timeline().encodedTimelineKey(), timelineKey(ledger.delayMessageId(), current))) {
+                throw new IllegalStateException("definitive retry timeline identity is stale");
+            }
+            priorTimelineKey = index.timeline().encodedTimelineKey();
+            claimKey = null;
+        } else if (index.currentWorkKind() == CurrentSendWorkKind.CLAIMED) {
+            final ClaimRecord claim = findClaimForMessage(ledger.delayMessageId());
+            if (claim == null || !Arrays.equals(claim.claimId(), index.claimId())
+                    || claim.runtimeRevision() != current.stateVersion()
+                    || !Arrays.equals(claim.timelineKey(), timelineKey(ledger.delayMessageId(), current))) {
+                throw new IllegalStateException("definitive retry Claim identity is stale");
+            }
+            priorTimelineKey = claim.timelineKey();
+            claimKey = claim.encodedKey();
+        } else if (index.currentWorkKind() == CurrentSendWorkKind.NONE) {
+            priorTimelineKey = null;
+            claimKey = null;
+        } else {
+            throw new IllegalStateException("unsupported definitive retry work kind");
+        }
+
+        final int candidateAttemptNo = index.currentWorkKind() == CurrentSendWorkKind.TIMELINE
+                ? index.timeline().candidateAttemptNo() : Math.addExact(index.admissionsUsed(), 1);
+        final MessageRecord scheduled = new MessageRecord(MessageStatus.SCHEDULED, current.generation(),
+                Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
+                current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
+                current.payloadReference(), retryAt);
+        final MessageRecord scheduledForWrite = scheduled.withRuntimeIndex(timelineRuntimeIndex(
+                ledger.delayMessageId(), scheduled, TimelineWorkKind.DEFINITIVE_RETRY, candidateAttemptNo,
+                scheduled.stateVersion(), UncertainRetryAuthority.NONE, null, null, current.runtimeIndex(),
+                remaining));
+        final Map<DestinationLaneId, LaneProjection> projections = readyProjections(sourcePosition,
+                ledger.delayMessageId(), current, scheduledForWrite, null);
+        final OutcomeReserveUsage nextOutcomeReserve = releasedOutcomeReserve(ledger);
+        final CapacityVectorV1 nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
+        store.write(batch -> {
+            if (priorTimelineKey != null) {
+                batch.delete(ColumnFamily.TIMELINE, priorTimelineKey);
+                batch.delete(ColumnFamily.TIMELINE, expiryKey(ledger.delayMessageId(), current));
+            }
+            if (claimKey != null) {
+                batch.delete(ColumnFamily.INFLIGHT, claimKey);
+            }
+            batch.delete(ColumnFamily.INFLIGHT, ledger.encodedKey());
+            batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(ledger.delayMessageId()),
+                    scheduledForWrite.encode());
+            batch.putValue(ColumnFamily.TIMELINE, 1, timelineKey(ledger.delayMessageId(), scheduledForWrite),
+                    new TimelineEntry(ledger.delayMessageId(), scheduledForWrite.generation()).encode());
+            batch.putValue(ColumnFamily.TIMELINE, 1, expiryKey(ledger.delayMessageId(), scheduledForWrite),
+                    new TimelineEntry(ledger.delayMessageId(), scheduledForWrite.generation()).encode());
+            for (LaneProjection projection : projections.values()) {
+                deleteReadyKey(batch, projection.previousLane());
+                putReadyProjection(batch, projection);
+            }
+            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector);
+            writeSystemResult(batch, result);
+            writePosition(batch, sourcePosition);
+        });
+        lastAppliedSourcePosition = sourcePosition;
+        mutationSequence++;
+        outcomeReserve = nextOutcomeReserve;
+        outcomeReserveVector = nextOutcomeReserveVector;
+        return result;
+    }
+
+    /** Terminalizes after definitive absence when no further admission is safe. */
+    private SystemMutationResult terminalizeNotPublishedEvidence(final PublishAttemptLedger ledger,
+                                                                  final MessageRecord current,
+                                                                  final List<AttemptObligationRef> remaining,
+                                                                  final SourcePosition sourcePosition,
+                                                                  final SystemMutationResult originalResult,
+                                                                  final MessageStatus terminalStatus,
+                                                                  final StableCode terminalCode) {
+        if (terminalStatus != MessageStatus.DEAD_LETTER && terminalStatus != MessageStatus.EXPIRED) {
+            throw new IllegalArgumentException("unsupported definitive-absence terminal status");
+        }
+        final GenerationRuntimeIndex nextRuntime = GenerationRuntimeIndex.none(
+                GenerationAggregateState.fromMessageStatus(terminalStatus), remaining,
+                current.runtimeIndex().admissionsUsed(), current.runtimeIndex().uncertainRetryAdmissionsUsed(),
+                current.runtimeIndex().possibleDestinationDuplicate(), Math.addExact(current.stateVersion(), 1));
+        final MessageRecord terminalMessage = new MessageRecord(terminalStatus, current.generation(),
+                Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
+                current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
+                current.payloadReference(), current.retryEligibilityAtEpochMs()).withRuntimeIndex(nextRuntime);
+        final TerminalGenerationRecord terminal = new TerminalGenerationRecord(ledger.delayMessageId(),
+                ledger.generation(), terminalStatus, terminalCode, terminalMessage.stateVersion(),
+                sourcePosition.canonicalBytes(), terminalMessage.runtimeIndex().possibleDestinationDuplicate(),
+                remaining);
+        final DlqExportRecord dlqExport = terminalStatus == MessageStatus.DEAD_LETTER
+                ? DlqExportRecord.notConfigured(ledger.delayMessageId(), ledger.generation(),
+                terminalMessage.stateVersion(), sourcePosition.canonicalBytes()) : null;
+        final ShardQuota nextQuota = quota.removeSchedule(current.payloadLength());
+        final byte[] currentWorkKey;
+        final byte[] claimKey;
+        switch (current.runtimeIndex().currentWorkKind()) {
+            case TIMELINE -> {
+                if (current.runtimeIndex().timeline() == null) {
+                    throw new IllegalStateException("terminalized timeline work is missing its reference");
+                }
+                currentWorkKey = current.runtimeIndex().timeline().encodedTimelineKey();
+                claimKey = null;
+            }
+            case CLAIMED -> {
+                final ClaimRecord claim = findClaimForMessage(ledger.delayMessageId());
+                if (claim == null || !Arrays.equals(claim.claimId(), current.runtimeIndex().claimId())
+                        || claim.runtimeRevision() != current.stateVersion()) {
+                    throw new IllegalStateException("terminalized Claim work is missing its exact record");
+                }
+                currentWorkKey = claim.timelineKey();
+                claimKey = claim.encodedKey();
+            }
+            case NONE -> {
+                currentWorkKey = null;
+                claimKey = null;
+            }
+            case PUBLISHING -> throw new IllegalStateException("terminalization cannot remove current publishing");
+            default -> throw new IllegalStateException("unsupported terminalized work kind");
+        }
+        final Map<DestinationLaneId, LaneProjection> projections = readyProjections(sourcePosition,
+                ledger.delayMessageId(), current, terminalMessage, null);
+        final OutcomeReserveUsage nextOutcomeReserve = releasedOutcomeReserve(ledger);
+        final CapacityVectorV1 nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
+        final SystemMutationResult result = terminalStatus == MessageStatus.DEAD_LETTER
+                ? new SystemMutationResult(originalResult.mutationId(), originalResult.mutationHash(),
+                originalResult.mutationType(), originalResult.retryUntilEpochMs(), originalResult.authorIdentity(),
+                originalResult.applyStatus(), terminalCode, sourcePosition.canonicalBytes()) : originalResult;
+        store.write(batch -> {
+            if (currentWorkKey != null) {
+                batch.delete(ColumnFamily.TIMELINE, currentWorkKey);
+                batch.delete(ColumnFamily.TIMELINE, expiryKey(ledger.delayMessageId(), current));
+            }
+            if (claimKey != null) {
+                batch.delete(ColumnFamily.INFLIGHT, claimKey);
+            }
+            batch.delete(ColumnFamily.INFLIGHT, ledger.encodedKey());
+            batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(ledger.delayMessageId()), terminalMessage.encode());
+            batch.putValue(ColumnFamily.TERMINAL, 1,
+                    KeyCodec.terminalGeneration(ledger.delayMessageId(), ledger.generation()), terminal.encode());
+            if (dlqExport != null) {
+                batch.putValue(ColumnFamily.TERMINAL, DlqExportRecord.VALUE_TYPE,
+                        KeyCodec.terminalDlqExport(dlqExport.dlqExportId()), dlqExport.encode());
+            }
+            for (LaneProjection projection : projections.values()) {
+                deleteReadyKey(batch, projection.previousLane());
+                putReadyProjection(batch, projection);
+            }
+            batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(META_QUOTA_USAGE), nextQuota.encode());
+            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector);
+            writeSystemResult(batch, result);
+            writePosition(batch, sourcePosition);
+        });
+        lastAppliedSourcePosition = sourcePosition;
+        mutationSequence++;
+        quota = nextQuota;
+        outcomeReserve = nextOutcomeReserve;
+        outcomeReserveVector = nextOutcomeReserveVector;
+        return result;
     }
 
     /** Terminalizes an unresolved generation while retaining its exact obligation ledger. */
