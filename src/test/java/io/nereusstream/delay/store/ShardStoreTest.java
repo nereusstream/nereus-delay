@@ -489,7 +489,7 @@ class ShardStoreTest {
                 .toList();
         final CheckpointManifest manifest = new CheckpointManifest(checkpointId, bytes(31), 0, null, null,
                 new CheckpointManifest.CreatedBy(bytes(32), bytes(33), 1),
-                new CheckpointManifest.CreatedAt(1_000, 1_000, "TEST_CLOCK", bytes(34), 1, 0, 0,
+                new CheckpointManifest.CreatedAt(1_000, 1_000, "CERTIFIED_HOST_CLOCK", bytes(34), 1, 0, 0,
                         Bytes.sha256(Bytes.utf8("evidence")), 0, null), shardId, dbIdentity, sourceStoreIncarnation,
                 1, 0, appliedPosition,
                 new byte[32], new byte[32], files);
@@ -651,8 +651,8 @@ class ShardStoreTest {
                 .toList();
         final CheckpointManifest manifest = new CheckpointManifest(bytes(10), bytes(11), 1, null, null,
                 new CheckpointManifest.CreatedBy(bytes(12), bytes(13), 1),
-                new CheckpointManifest.CreatedAt(1_000, 1_000, "TEST_CLOCK", bytes(14), 1, 1, 1,
-                        Bytes.sha256(Bytes.utf8("evidence")), 1, null), shardId, dbIdentity, sourceStoreIncarnation,
+                new CheckpointManifest.CreatedAt(1_000, 1_000, "CERTIFIED_HOST_CLOCK", bytes(14), 1, 1, 1,
+                        Bytes.sha256(Bytes.utf8("evidence")), 0, null), shardId, dbIdentity, sourceStoreIncarnation,
                 1, 1, new KafkaSourcePosition(shardId, "cluster", UUID.randomUUID(), 0, null, 1_000),
                 new byte[32], new byte[32], files);
 
@@ -691,7 +691,7 @@ class ShardStoreTest {
                 .toList();
         final CheckpointManifest manifest = new CheckpointManifest(checkpointId, bytes(41), 0, null, null,
                 new CheckpointManifest.CreatedBy(bytes(42), bytes(43), 1),
-                new CheckpointManifest.CreatedAt(1_000, 1_000, "TEST_CLOCK", bytes(44), 1, 0, 0,
+                new CheckpointManifest.CreatedAt(1_000, 1_000, "CERTIFIED_HOST_CLOCK", bytes(44), 1, 0, 0,
                         Bytes.sha256(Bytes.utf8("evidence")), 0, null), shardId, dbIdentity, sourceStoreIncarnation,
                 1, 8, appliedPosition, new byte[32], new byte[32], files);
 

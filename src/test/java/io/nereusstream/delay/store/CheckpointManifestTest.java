@@ -44,8 +44,8 @@ class CheckpointManifestTest {
         final CheckpointManifest manifest = new CheckpointManifest(
                 bytes(1), bytes(2), 4, null, null,
                 new CheckpointManifest.CreatedBy(bytes(3), bytes(4), 42),
-                new CheckpointManifest.CreatedAt(1000, 1001, "TEST_CLOCK", bytes(5), 1, 2, 3,
-                        Bytes.sha256(Bytes.utf8("evidence")), 1, null),
+                new CheckpointManifest.CreatedAt(1000, 1001, "CERTIFIED_HOST_CLOCK", bytes(5), 1, 2, 3,
+                        Bytes.sha256(Bytes.utf8("evidence")), 0, null),
                 shardId, Bytes.sha256(Bytes.utf8("db")), UUID.randomUUID(), 1, 7, position,
                 new byte[32], new byte[32], List.of(pulsarCursor, kafkaCursor), files);
 
@@ -61,6 +61,8 @@ class CheckpointManifestTest {
         assertThrows(IllegalArgumentException.class, () -> CheckpointManifest.decodeCanonicalJson(
                 first.replace("\"manifestVersion\":1", "\"manifestVersion\":2")
                         .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        assertThrows(IllegalArgumentException.class, () -> new CheckpointManifest.CreatedAt(1, 1, "TEST_CLOCK",
+                bytes(5), 1, 2, 3, Bytes.sha256(Bytes.utf8("evidence")), 0, null));
     }
 
     @Test

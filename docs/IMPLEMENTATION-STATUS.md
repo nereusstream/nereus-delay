@@ -614,6 +614,9 @@ provider I/O, requires the RocksDB `CURRENT` marker, charges the Worker upload
 slot, validates returned manifest
 object identity and only then advances the exact pending intent to PUBLISHED;
 provider failure or identity mismatch leaves the intent pending for retry. The
+manifest `createdAt` projection now accepts only the four Registry time-evidence
+source symbols and applies the signed-source key/signature presence rule before
+canonical JSON is emitted. The
 local store uses an `ACTIVE` checksummed pointer and an
 `incarnations/<storeIncarnation>/db` directory. Typed
 `CheckpointResourceV1`/`CheckpointUploadIntentV1` codecs now close the

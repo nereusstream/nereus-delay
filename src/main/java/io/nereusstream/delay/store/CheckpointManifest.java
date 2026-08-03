@@ -7,6 +7,7 @@ import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.PulsarSourcePosition;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.SourcePosition;
+import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -404,10 +405,18 @@ public record CheckpointManifest(
                     || sourceKeyVersion < 0) {
                 throw new IllegalArgumentException("invalid checkpoint time evidence");
             }
+            final TrustedUtcIntervalEvidence.Source sourceKind = parseSource(source);
             requireNonZero(sourceId, "sourceId");
             requireLength(sourceEvidenceSha256, 32, "sourceEvidenceSha256");
             if (sourceSignature != null && sourceSignature.length != 64) {
                 throw new IllegalArgumentException("source signature must be 64 bytes");
+            }
+            if (sourceKind == TrustedUtcIntervalEvidence.Source.SIGNED_TIME_SERVICE) {
+                if (sourceKeyVersion <= 0 || sourceSignature == null) {
+                    throw new IllegalArgumentException("signed time evidence requires key and signature");
+                }
+            } else if (sourceKeyVersion != 0 || sourceSignature != null) {
+                throw new IllegalArgumentException("unsigned time evidence cannot carry a key or signature");
             }
             sourceId = Bytes.copy(sourceId);
             sourceEvidenceSha256 = Bytes.copy(sourceEvidenceSha256);
@@ -439,6 +448,14 @@ public record CheckpointManifest(
                     + ",\"sourceId\":" + quote(b64(sourceId)) + ",\"sourceKeyVersion\":" + sourceKeyVersion
                     + ",\"sourceSignature\":" + (sourceSignature == null ? "null" : quote(b64(sourceSignature)))
                     + "}";
+        }
+
+        private static TrustedUtcIntervalEvidence.Source parseSource(final String value) {
+            try {
+                return TrustedUtcIntervalEvidence.Source.valueOf(value);
+            } catch (IllegalArgumentException exception) {
+                throw new IllegalArgumentException("unknown checkpoint time evidence source", exception);
+            }
         }
     }
 

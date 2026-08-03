@@ -575,7 +575,7 @@ class RecoveryCatalogTest {
                 Bytes.utf8("object/current"), Bytes.utf8("version"), null);
         return new CheckpointManifest(checkpointId, lineage, lineageGeneration, parent, null,
                 new CheckpointManifest.CreatedBy(id32(21), id32(22), 1),
-                new CheckpointManifest.CreatedAt(1_000, 1_001, "TEST", id32(23), 1, offset, offset,
+                new CheckpointManifest.CreatedAt(1_000, 1_001, "CERTIFIED_HOST_CLOCK", id32(23), 1, offset, offset,
                         id32(24), 0, null), shard, id32(25), UUID.randomUUID(), 1, mutationSequence, position,
                 id32(26), id32(27), evidenceCursors, List.of(file));
     }

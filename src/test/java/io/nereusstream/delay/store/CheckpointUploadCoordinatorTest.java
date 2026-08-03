@@ -166,8 +166,8 @@ class CheckpointUploadCoordinatorTest {
                 3, 1_000);
         final CheckpointManifest manifest = new CheckpointManifest(checkpoint, lineage, 0, null, null,
                 new CheckpointManifest.CreatedBy(owner.deploymentId(), owner.workerRunId(), owner.ownerEpoch()),
-                new CheckpointManifest.CreatedAt(900, 1_000, "TEST_CLOCK", bytes(8, 8), 1, 2, 3,
-                        bytes(32, 9), 1, null), shard, bytes(32, 10), storeIncarnation, 1, 7, position,
+                new CheckpointManifest.CreatedAt(900, 1_000, "CERTIFIED_HOST_CLOCK", bytes(8, 8), 1, 2, 3,
+                        bytes(32, 9), 0, null), shard, bytes(32, 10), storeIncarnation, 1, 7, position,
                 bytes(32, 11), bytes(32, 12), List.of(), files);
         final CheckpointUploadIntentV1 pending = new CheckpointUploadIntentV1(
                 new ShardSubjectV1(shard.routeIncarnation(), shard.partition()), lineage, checkpoint, owner,
