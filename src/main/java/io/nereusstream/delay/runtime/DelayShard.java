@@ -5070,7 +5070,7 @@ public final class DelayShard {
             return null;
         }
         return new TerminalGenerationRecord(command.delayMessageId(), prior.generation(), status,
-                result.stableCode(), prior.stateVersion(), position.canonicalBytes(),
+                result.stableCode(), next.stateVersion(), position.canonicalBytes(),
                 prior.runtimeIndex().possibleDestinationDuplicate(), prior.runtimeIndex().attemptObligations());
     }
 

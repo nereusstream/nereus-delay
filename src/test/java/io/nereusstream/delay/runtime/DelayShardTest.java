@@ -243,6 +243,7 @@ class DelayShardTest {
             assertEquals(1, shard.getMessage(schedule.delayMessageId()).generation());
             assertEquals(MessageStatus.SUPERSEDED,
                     shard.getTerminalGeneration(schedule.delayMessageId(), 0).status());
+            assertEquals(2, shard.getTerminalGeneration(schedule.delayMessageId(), 0).stateVersion());
 
             final PreparedCommand cancel = PreparedCommand.cancel(shardId, schedule.delayMessageId(), 1, 9_000);
             final CommandResult canceled = shard.apply(cancel, position2);
@@ -250,6 +251,7 @@ class DelayShardTest {
             assertEquals(MessageStatus.CANCELED, shard.getMessage(schedule.delayMessageId()).status());
             assertEquals(MessageStatus.CANCELED,
                     shard.getTerminalGeneration(schedule.delayMessageId(), 1).status());
+            assertEquals(3, shard.getTerminalGeneration(schedule.delayMessageId(), 1).stateVersion());
             assertNull(store.getValue(ColumnFamily.TIMELINE,
                     KeyCodec.timelineDue(lane, 3_000, position1.sourceOrderToken(), schedule.delayMessageId(), 1), 1));
             assertNull(store.getValue(ColumnFamily.TIMELINE,
