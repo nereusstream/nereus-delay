@@ -2066,6 +2066,7 @@ class DelayShardTest {
 
             final ClaimRecord claim = shard.claimForPublish(schedule.delayMessageId(), owner, 4_500,
                     new byte[0], chargeVector());
+            final long claimedStateVersion = shard.getMessage(schedule.delayMessageId()).stateVersion();
             assertEquals(CurrentSendWorkKind.CLAIMED,
                     shard.getMessage(schedule.delayMessageId()).runtimeIndex().currentWorkKind());
             assertNotNull(shard.getClaim(claim.claimId(), owner.generation()));
@@ -2087,6 +2088,7 @@ class DelayShardTest {
             assertEquals(StableCode.OK, result.stableCode());
             final MessageRecord uncertain = shard.getMessage(schedule.delayMessageId());
             assertEquals(MessageStatus.UNCERTAIN, uncertain.status());
+            assertEquals(Math.addExact(claimedStateVersion, 1), uncertain.stateVersion());
             assertEquals(GenerationAggregateState.UNCERTAIN, uncertain.runtimeIndex().aggregateState());
             assertEquals(CurrentSendWorkKind.NONE, uncertain.runtimeIndex().currentWorkKind());
             assertEquals(1, uncertain.runtimeIndex().attemptObligations().size());

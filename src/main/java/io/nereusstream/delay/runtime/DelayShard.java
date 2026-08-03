@@ -2185,7 +2185,9 @@ public final class DelayShard {
         } else {
             throw new IllegalStateException("unsupported uncertain work kind");
         }
-        final MessageRecord next = new MessageRecord(nextStatus, current.generation(), current.stateVersion(),
+        final long nextStateVersion = nextStatus == current.status()
+                ? current.stateVersion() : Math.addExact(current.stateVersion(), 1);
+        final MessageRecord next = new MessageRecord(nextStatus, current.generation(), nextStateVersion,
                 current.deliverAtEpochMs(), current.expireAtEpochMs(), current.laneId(), current.orderingMode(),
                 current.payload(), current.scheduleSourcePosition(), current.payloadReference(),
                 current.retryEligibilityAtEpochMs()).withRuntimeIndex(nextRuntime);

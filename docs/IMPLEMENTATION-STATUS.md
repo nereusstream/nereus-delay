@@ -722,7 +722,8 @@ covered. The `ATTACH_NOT_PUBLISHED_EVIDENCE` branch now validates the exact
 UNCERTAIN obligation and typed not-published evidence, settles old/terminal
 summaries, preserves remaining uncertainty or another current PUBLISHING
 attempt, and atomically revokes a stale current Claim to `UNCERTAIN/NONE`
-when another obligation remains. It normalizes an all-absent current generation
+when another obligation remains, checked-incrementing the Message state
+version for that public status change. It normalizes an all-absent current generation
 to definitive retry; `DelayShardTest` covers both the all-absent current
 Claim path and the remaining-obligation Claim revocation path
 (`sourceOrderedNotPublishedEvidenceRevokesClaimWhenAnotherUncertainObligationRemains`)
