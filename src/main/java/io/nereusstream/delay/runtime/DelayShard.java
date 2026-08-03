@@ -700,7 +700,7 @@ public final class DelayShard {
         final ClaimRecord claim = ClaimRecord.claimed(messageId, current.generation(), claimId, owner.generation(),
                 nextClaimSequence, current.laneId(), lane.laneIncarnation(), lane.laneControlVersion(),
                 lane.laneVersion(), owner.canonicalBytes(), store.metadata().storeIncarnation(), precondition,
-                timelineKey, next.stateVersion());
+                timelineKey, next.stateVersion(), currentTimeline == null ? null : currentTimeline.canonicalBytes());
         next = next.withRuntimeIndex(GenerationRuntimeIndex.claimed(claim.claimId(), current.runtimeIndex()
                 .attemptObligations(), current.runtimeIndex().admissionsUsed(),
                 current.runtimeIndex().uncertainRetryAdmissionsUsed(),
@@ -742,11 +742,32 @@ public final class DelayShard {
                 current.payloadReference(), current.retryEligibilityAtEpochMs());
         final ClaimResultBody.ClaimPrecondition precondition =
                 ClaimResultBody.decodePrecondition(claim.preconditionBytes());
-        final TimelineWorkKind workKind = precondition.sourceWorkKind() == 1
-                ? TimelineWorkKind.INITIAL_SCHEDULE : TimelineWorkKind.DEFINITIVE_RETRY;
-        next = next.withRuntimeIndex(timelineRuntimeIndex(claim.delayMessageId(), next, workKind,
-                Math.addExact(current.runtimeIndex().admissionsUsed(), 1), next.stateVersion(),
-                UncertainRetryAuthority.NONE, null, null, current.runtimeIndex()));
+        final TimelineWorkKind workKind = TimelineWorkKind.fromWire(precondition.sourceWorkKind());
+        final byte[] sourceTimelineWork = claim.sourceTimelineWork();
+        if (workKind == TimelineWorkKind.UNCERTAIN_RETRY && sourceTimelineWork.length == 0) {
+            throw new IllegalStateException("legacy Claim lacks UNCERTAIN_RETRY source work projection");
+        }
+        if (sourceTimelineWork.length == 0) {
+            next = next.withRuntimeIndex(timelineRuntimeIndex(claim.delayMessageId(), next, workKind,
+                    Math.addExact(current.runtimeIndex().admissionsUsed(), 1), next.stateVersion(),
+                    UncertainRetryAuthority.NONE, null, null, current.runtimeIndex()));
+        } else {
+            final TimelineWorkRef priorWork = TimelineWorkRef.decode(sourceTimelineWork);
+            final TimelineWorkRef restoredWork = new TimelineWorkRef(priorWork.workKind(),
+                    priorWork.encodedTimelineKey(), priorWork.actionAtEpochMs(),
+                    priorWork.retryEligibilityAtEpochMs(), priorWork.candidateAttemptNo(), next.stateVersion(),
+                    priorWork.orderedHeadBlocking(), priorWork.uncertainRetryAuthority(),
+                    priorWork.uncertainRetryControl(), priorWork.uncertainRetryControlPosition());
+            final GenerationAggregateState requestedAggregate = switch (workKind) {
+                case INITIAL_SCHEDULE -> GenerationAggregateState.SCHEDULED;
+                case DEFINITIVE_RETRY -> GenerationAggregateState.RETRY_WAIT;
+                case UNCERTAIN_RETRY -> GenerationAggregateState.UNCERTAIN;
+            };
+            next = next.withRuntimeIndex(GenerationRuntimeIndex.timeline(requestedAggregate, restoredWork,
+                    current.runtimeIndex().attemptObligations(), current.runtimeIndex().admissionsUsed(),
+                    current.runtimeIndex().uncertainRetryAdmissionsUsed(),
+                    current.runtimeIndex().possibleDestinationDuplicate(), next.stateVersion()));
+        }
         final MessageRecord revokedNext = next;
         final SourcePosition schedulePosition = SourcePositionCodec.decode(current.scheduleSourcePosition());
         final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(

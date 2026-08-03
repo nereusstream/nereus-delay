@@ -43,12 +43,24 @@ public final class ClaimRecord {
     private final byte[] timelineKey;
     private final long runtimeRevision;
     private final byte[] instanceDigest;
+    private final byte[] sourceTimelineWork;
 
     public ClaimRecord(final DelayMessageId delayMessageId, final int generation, final byte[] claimId,
                        final long ownerEpoch, final long claimSequence, final DestinationLaneId laneId,
                        final byte[] laneIncarnation, final long laneControlVersion, final long runtimeLaneVersion,
                        final byte[] ownerIdentity, final byte[] storeIncarnation, final byte[] preconditionBytes,
                        final byte[] timelineKey, final long runtimeRevision, final byte[] instanceDigest) {
+        this(delayMessageId, generation, claimId, ownerEpoch, claimSequence, laneId, laneIncarnation,
+                laneControlVersion, runtimeLaneVersion, ownerIdentity, storeIncarnation, preconditionBytes,
+                timelineKey, runtimeRevision, instanceDigest, null);
+    }
+
+    public ClaimRecord(final DelayMessageId delayMessageId, final int generation, final byte[] claimId,
+                       final long ownerEpoch, final long claimSequence, final DestinationLaneId laneId,
+                       final byte[] laneIncarnation, final long laneControlVersion, final long runtimeLaneVersion,
+                       final byte[] ownerIdentity, final byte[] storeIncarnation, final byte[] preconditionBytes,
+                       final byte[] timelineKey, final long runtimeRevision, final byte[] instanceDigest,
+                       final byte[] sourceTimelineWork) {
         this.delayMessageId = Objects.requireNonNull(delayMessageId, "delayMessageId");
         if (generation < 0 || ownerEpoch <= 0 || claimSequence <= 0 || laneControlVersion <= 0
                 || runtimeLaneVersion < 0 || runtimeRevision <= 0) {
@@ -68,6 +80,7 @@ public final class ClaimRecord {
         this.timelineKey = nonEmpty(timelineKey, "timelineKey");
         this.runtimeRevision = runtimeRevision;
         this.instanceDigest = fixed(instanceDigest, HASH_LENGTH, "instanceDigest");
+        this.sourceTimelineWork = optional(sourceTimelineWork);
 
         final ClaimResultBody.ClaimPrecondition precondition = ClaimResultBody.decodePrecondition(this.preconditionBytes);
         if (!Arrays.equals(precondition.claimId(), this.claimId)
@@ -81,6 +94,14 @@ public final class ClaimRecord {
                 || !Arrays.equals(precondition.storeIncarnation(), this.storeIncarnation)
                 || !Arrays.equals(precondition.originalTimelineKeySha256(), Bytes.sha256(this.timelineKey))) {
             throw new IllegalArgumentException("Claim record does not match its precondition");
+        }
+        if (this.sourceTimelineWork.length != 0) {
+            final TimelineWorkRef work = TimelineWorkRef.decode(this.sourceTimelineWork);
+            if (work.workKind().wireValue() != precondition.sourceWorkKind()
+                    || !Arrays.equals(work.encodedTimelineKey(), this.timelineKey)
+                    || !Arrays.equals(work.semanticWorkDigest(), precondition.sourceTimelineSemanticDigest())) {
+                throw new IllegalArgumentException("Claim source timeline does not match its precondition");
+            }
         }
         final AuthorIdentity owner = AuthorIdentity.decode(this.ownerIdentity);
         owner.requireFor(io.nereusstream.delay.protocol.SystemMutationType.CLAIM_RESULT);
@@ -100,10 +121,22 @@ public final class ClaimRecord {
                                       final byte[] ownerIdentity, final byte[] storeIncarnation,
                                       final byte[] preconditionBytes, final byte[] timelineKey,
                                       final long runtimeRevision) {
+        return claimed(delayMessageId, generation, claimId, ownerEpoch, claimSequence, laneId, laneIncarnation,
+                laneControlVersion, runtimeLaneVersion, ownerIdentity, storeIncarnation, preconditionBytes,
+                timelineKey, runtimeRevision, null);
+    }
+
+    public static ClaimRecord claimed(final DelayMessageId delayMessageId, final int generation,
+                                      final byte[] claimId, final long ownerEpoch, final long claimSequence,
+                                      final DestinationLaneId laneId, final byte[] laneIncarnation,
+                                      final long laneControlVersion, final long runtimeLaneVersion,
+                                      final byte[] ownerIdentity, final byte[] storeIncarnation,
+                                      final byte[] preconditionBytes, final byte[] timelineKey,
+                                      final long runtimeRevision, final byte[] sourceTimelineWork) {
         return new ClaimRecord(delayMessageId, generation, claimId, ownerEpoch, claimSequence, laneId,
                 laneIncarnation, laneControlVersion, runtimeLaneVersion, ownerIdentity, storeIncarnation,
                 preconditionBytes, timelineKey, runtimeRevision,
-                computeInstanceDigest(preconditionBytes, timelineKey, runtimeRevision));
+                computeInstanceDigest(preconditionBytes, timelineKey, runtimeRevision), sourceTimelineWork);
     }
 
     public DelayMessageId delayMessageId() {
@@ -158,6 +191,11 @@ public final class ClaimRecord {
         return Bytes.copy(timelineKey);
     }
 
+    /** Returns the optional canonical source timeline retained for exact Claim revoke/recovery. */
+    public byte[] sourceTimelineWork() {
+        return Bytes.copy(sourceTimelineWork);
+    }
+
     public long runtimeRevision() {
         return runtimeRevision;
     }
@@ -171,18 +209,21 @@ public final class ClaimRecord {
     }
 
     public byte[] encode() {
-        return Bytes.concat(Bytes.u32be(1), delayMessageId.bytes(), Bytes.u32be(generation), claimId,
+        final int version = sourceTimelineWork.length == 0 ? 1 : 2;
+        final byte[] base = Bytes.concat(Bytes.u32be(version), delayMessageId.bytes(), Bytes.u32be(generation), claimId,
                 Bytes.u64be(ownerEpoch), Bytes.u64be(claimSequence), laneId.bytes(), laneIncarnation,
                 Bytes.u64be(laneControlVersion), Bytes.u64be(runtimeLaneVersion), Bytes.lp32(ownerIdentity),
                 storeIncarnation, Bytes.lp32(preconditionBytes), Bytes.lp32(timelineKey),
                 Bytes.u64be(runtimeRevision), instanceDigest);
+        return sourceTimelineWork.length == 0 ? base : Bytes.concat(base, Bytes.lp32(sourceTimelineWork));
     }
 
     public static ClaimRecord decode(final byte[] encoded) {
         final ByteBuffer input = ByteBuffer.wrap(encoded);
         requireRemaining(input, 4 + DelayMessageId.LENGTH + 4 + HASH_LENGTH + 8 + 8 + 32 + 16 + 8 + 8
                 + 4 + INCARNATION_LENGTH + 4 + 4 + 8 + HASH_LENGTH);
-        if (input.getInt() != 1) {
+        final int version = input.getInt();
+        if (version != 1 && version != 2) {
             throw new IllegalArgumentException("unsupported Claim record version");
         }
         final byte[] message = readFixed(input, DelayMessageId.LENGTH, "delayMessageId");
@@ -200,12 +241,17 @@ public final class ClaimRecord {
         final byte[] timeline = readLp32(input, "timelineKey");
         final long runtimeRevision = readU64(input, "runtimeRevision");
         final byte[] instanceDigest = readFixed(input, HASH_LENGTH, "instanceDigest");
+        final byte[] sourceTimelineWork = version == 2
+                ? readLp32(input, "sourceTimelineWork") : new byte[0];
+        if (version == 2 && sourceTimelineWork.length == 0) {
+            throw new IllegalArgumentException("Claim v2 requires sourceTimelineWork");
+        }
         if (input.hasRemaining()) {
             throw new IllegalArgumentException("trailing Claim record bytes");
         }
         final ClaimRecord result = new ClaimRecord(new DelayMessageId(message), generation, claimId, ownerEpoch,
                 claimSequence, new DestinationLaneId(lane), laneIncarnation, laneControlVersion, runtimeLaneVersion,
-                owner, store, precondition, timeline, runtimeRevision, instanceDigest);
+                owner, store, precondition, timeline, runtimeRevision, instanceDigest, sourceTimelineWork);
         if (!Arrays.equals(encoded, result.encode())) {
             throw new IllegalArgumentException("non-canonical Claim record");
         }
@@ -234,7 +280,8 @@ public final class ClaimRecord {
                 && Arrays.equals(ownerIdentity, that.ownerIdentity)
                 && Arrays.equals(storeIncarnation, that.storeIncarnation)
                 && Arrays.equals(preconditionBytes, that.preconditionBytes)
-                && Arrays.equals(timelineKey, that.timelineKey) && Arrays.equals(instanceDigest, that.instanceDigest);
+                && Arrays.equals(timelineKey, that.timelineKey) && Arrays.equals(instanceDigest, that.instanceDigest)
+                && Arrays.equals(sourceTimelineWork, that.sourceTimelineWork);
     }
 
     @Override
@@ -248,6 +295,7 @@ public final class ClaimRecord {
         result = 31 * result + Arrays.hashCode(preconditionBytes);
         result = 31 * result + Arrays.hashCode(timelineKey);
         result = 31 * result + Arrays.hashCode(instanceDigest);
+        result = 31 * result + Arrays.hashCode(sourceTimelineWork);
         return result;
     }
 
@@ -262,6 +310,10 @@ public final class ClaimRecord {
             throw new IllegalArgumentException(name + " must not be empty");
         }
         return Bytes.copy(value);
+    }
+
+    private static byte[] optional(final byte[] value) {
+        return value == null ? new byte[0] : Bytes.copy(value);
     }
 
     private static void requireRemaining(final ByteBuffer input, final int length) {

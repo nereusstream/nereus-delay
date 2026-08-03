@@ -2064,6 +2064,23 @@ class DelayShardTest {
             assertEquals(StableCode.OK,
                     shard.applySystemMutation(retry, retryPosition, keyPair.getPublic()).stableCode());
 
+            final TimelineWorkRef claimedWork = shard.getMessage(schedule.delayMessageId()).runtimeIndex().timeline();
+            final ClaimRecord firstClaim = shard.claimForPublish(schedule.delayMessageId(), owner, 4_500,
+                    new byte[0], chargeVector());
+            final MessageRecord revoked = shard.revokeClaim(firstClaim.claimId(), owner.generation());
+            assertEquals(MessageStatus.SCHEDULED, revoked.status());
+            assertEquals(CurrentSendWorkKind.TIMELINE, revoked.runtimeIndex().currentWorkKind());
+            assertEquals(TimelineWorkKind.UNCERTAIN_RETRY, revoked.runtimeIndex().timeline().workKind());
+            assertEquals(UncertainRetryAuthority.CONTROL_OVERRIDE,
+                    revoked.runtimeIndex().timeline().uncertainRetryAuthority());
+            assertArrayEquals(claimedWork.semanticWorkDigest(),
+                    revoked.runtimeIndex().timeline().semanticWorkDigest());
+            assertArrayEquals(claimedWork.uncertainRetryControl(),
+                    revoked.runtimeIndex().timeline().uncertainRetryControl());
+            assertArrayEquals(claimedWork.uncertainRetryControlPosition(),
+                    revoked.runtimeIndex().timeline().uncertainRetryControlPosition());
+            assertNull(shard.getClaim(firstClaim.claimId(), owner.generation()));
+
             final ClaimRecord claim = shard.claimForPublish(schedule.delayMessageId(), owner, 4_500,
                     new byte[0], chargeVector());
             final long claimedStateVersion = shard.getMessage(schedule.delayMessageId()).stateVersion();

@@ -542,8 +542,12 @@ successor 被重读时才算成功，否则本地视图转为 `FENCED`。
 `OwnerLeaseTest.authorityGatedDrainFailsClosedWhenLeaseIsExpired` 覆盖该本地边界。
 `DelayShard.revokeClaimsForOwner` 现在还提供 bounded 的 local `CLAIMED`
 rollback：在单写锁内按 exact Owner Epoch 扫描并逐 Claim 原子恢复
-timeline/Message/READY，超 bound fail closed，重复执行返回零；证据为
-`DelayShardTest.localClaimIsDurableAndRevokeRestoresTimelineAtomically`。它只
+timeline/Message/READY；Claim v2 还保留 `TimelineWorkRef`，因此
+`UNCERTAIN_RETRY` 的 ControlRef/Source Position authority 不会在 revoke 时丢失。
+超 bound fail closed，重复执行返回零；证据为
+`DelayShardTest.localClaimIsDurableAndRevokeRestoresTimelineAtomically` 及
+`DelayShardTest.sourceOrderedNotPublishedEvidenceRevokesClaimWhenAnotherUncertainObligationRemains`。
+它只
 关闭新的 command admission 并撤销可逆 Claim；in-flight publish quiescence、final
 checkpoint 和 lease release 仍是生产 drain gate。
 Close marker 现在额外把未 admitted 的 message/reservation quota 在同一个

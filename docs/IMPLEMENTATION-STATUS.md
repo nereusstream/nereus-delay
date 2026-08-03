@@ -255,9 +255,11 @@ leaking a `BufferUnderflowException`; `MessageRecordTest` checks every strict
 prefix of a canonical v4 record.
 
 `ClaimRecord.decode` applies the same bound before every fixed-width and
-length-prefixed field. A truncated Claim value cannot consume a missing LP32
-length or numeric suffix and leak a native buffer exception;
-`ClaimRecordTest` exercises every strict prefix of a persisted Claim.
+length-prefixed field. Claim record v1 remains readable, while v2 retains the
+canonical source `TimelineWorkRef` needed to restore an exact retry authority
+on revoke. A truncated Claim value cannot consume a missing LP32 length or
+numeric suffix and leak a native buffer exception; `ClaimRecordTest` exercises
+every strict prefix of a persisted Claim.
 
 `PublishAttemptLedger.decode` now guards its u32/u64 suffixes before reading
 them and no longer rejects valid minimal non-empty LP32 fields through an
