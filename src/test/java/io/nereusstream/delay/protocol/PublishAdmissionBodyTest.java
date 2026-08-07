@@ -89,6 +89,21 @@ public class PublishAdmissionBodyTest {
                 new DeliveryCapabilitySemanticV1(AdapterKindV1.PULSAR, OutcomeCapabilityV1.AT_LEAST_ONCE,
                         TimingCapabilityV1.ORDINARY_MANAGED, null, 0, 0, 0, 0,
                         bytes(32, 45), bytes(32, 46), 0, 0)));
+
+        final DestinationProfileSemanticV1 partitionMismatchBody = new DestinationProfileSemanticV1(
+                AdapterKindV1.PULSAR, target, 2, TargetPartitionPolicyV1.EXPLICIT_ONLY,
+                TargetPartitionHashInputV1.ORDERING_KEY, List.of(1), capability.ref(), 1, 500, 100,
+                bytes(32, 47), 1_000, 128, 512, 1, Bytes.utf8("pulsar-partition-mismatch"), 0, 0, 1,
+                bytes(32, 48));
+        final ProfileSemanticEnvelopeV1 partitionMismatch = new ProfileSemanticEnvelopeV1(
+                ProfileKindV1.DESTINATION, Bytes.utf8("pulsar-partition-mismatch"), 1,
+                partitionMismatchBody);
+        final Fixture partitionFixture = Fixture.createWithProfiles(new ShardId(RouteIncarnation.random(), 9),
+                partitionMismatch.ref().canonicalBytes(), capability.ref().canonicalBytes(), target,
+                AdapterKindV1.PULSAR, 1_500);
+        final PublishAdmissionBody partitionAdmission = PublishAdmissionBody.decode(partitionFixture.body());
+        assertThrows(IllegalArgumentException.class, () -> partitionAdmission.requireTimingPolicy(
+                partitionMismatchBody, capabilityBody));
     }
 
     @Test

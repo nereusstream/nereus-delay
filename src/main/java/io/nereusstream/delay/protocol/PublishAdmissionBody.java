@@ -209,6 +209,12 @@ public final class PublishAdmissionBody {
                 channelIdentity.targetResource().canonicalBytes())) {
             throw new IllegalArgumentException("Publish Admission Profile/channel identity mismatch");
         }
+        final long physicalPartition = channelIdentity.physicalPartition();
+        if (physicalPartition >= destinationProfile.targetPartitionCount()
+                || (destinationProfile.targetPartitionPolicy() == TargetPartitionPolicyV1.EXPLICIT_ONLY
+                && !destinationProfile.allowedExplicitPartitions().contains((int) physicalPartition))) {
+            throw new IllegalArgumentException("Publish Admission physical partition is outside Profile policy");
+        }
         final long deliverAt = descriptor.deliverAtEpochMs();
         final long actionAt = descriptor.actionAtEpochMs();
         if (actionAt == deliverAt) {
