@@ -79,6 +79,33 @@ class ShardStoreTest {
     }
 
     @Test
+    void closedShardStoreFailsClosedForAllRocksDbOperations() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("closed-lifecycle"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 18);
+        final ShardStore store;
+        final SharedRocksDbResources resources = new SharedRocksDbResources(config);
+        try {
+            store = ShardStore.open(config, shardId, resources);
+            store.close();
+
+            assertThrows(IllegalStateException.class,
+                    () -> store.get(ColumnFamily.META, KeyCodec.metaFixed(1)));
+            assertThrows(IllegalStateException.class,
+                    () -> store.getValue(ColumnFamily.META, KeyCodec.metaFixed(1), 1));
+            assertThrows(IllegalStateException.class,
+                    () -> store.scan(ColumnFamily.META, null, null, 1));
+            assertThrows(IllegalStateException.class, () -> store.write(batch -> {
+                // The callback must never run after the store has closed.
+                throw new AssertionError("closed store accepted a write callback");
+            }));
+            assertThrows(IllegalStateException.class, store::flushAndSync);
+            assertThrows(IllegalStateException.class, store::latestSequenceNumber);
+        } finally {
+            resources.close();
+        }
+    }
+
+    @Test
     void fixedFormatAndIdentityValuesUseRegisteredValueEnvelope() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("fixed-envelope"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 27);

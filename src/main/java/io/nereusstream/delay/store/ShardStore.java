@@ -1091,7 +1091,8 @@ public final class ShardStore implements AutoCloseable {
                 runtimeMetadata.lastCheckpointId(), runtimeMetadata.lastOpenedOwnerEpoch(), false, cursors));
     }
 
-    public byte[] get(final ColumnFamily family, final byte[] key) {
+    public synchronized byte[] get(final ColumnFamily family, final byte[] key) {
+        ensureOpen();
         try {
             return db.get(handles.get(family), key);
         } catch (RocksDBException exception) {
@@ -1105,8 +1106,9 @@ public final class ShardStore implements AutoCloseable {
     }
 
     /** Returns a bounded snapshot of one column family in RocksDB key order. */
-    public List<KeyValue> scan(final ColumnFamily family, final byte[] lowerInclusive, final byte[] upperExclusive,
-                               final int limit) {
+    public synchronized List<KeyValue> scan(final ColumnFamily family, final byte[] lowerInclusive,
+                                            final byte[] upperExclusive, final int limit) {
+        ensureOpen();
         Objects.requireNonNull(family, "family");
         if (limit <= 0) {
             throw new IllegalArgumentException("scan limit must be positive");
@@ -1134,6 +1136,7 @@ public final class ShardStore implements AutoCloseable {
     }
 
     public synchronized void write(final BatchOperation operation) {
+        ensureOpen();
         Objects.requireNonNull(operation, "operation");
         try (WriteBatch batch = new WriteBatch(); WriteOptions writeOptions = new WriteOptions().setSync(true)) {
             final Batch pending = new Batch(batch, handles, closedIngressDeadlineThrough, runtimeMetadata);
@@ -1154,7 +1157,8 @@ public final class ShardStore implements AutoCloseable {
     }
 
     /** Flushes all column families and synchronizes the WAL before a drain/close boundary. */
-    public void flushAndSync() {
+    public synchronized void flushAndSync() {
+        ensureOpen();
         try (FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
             db.flush(flushOptions);
             db.syncWal();
@@ -1268,19 +1272,28 @@ public final class ShardStore implements AutoCloseable {
         }
     }
 
-    public long latestSequenceNumber() {
+    public synchronized long latestSequenceNumber() {
+        ensureOpen();
         return db.getLatestSequenceNumber();
     }
 
     @Override
     public synchronized void close() {
-        if (closed.compareAndSet(false, true)) {
-            RuntimeException markerFailure = null;
-            try {
-                persistRuntimeMetadata(runtimeMetadata.withCleanCloseMarker(true));
-            } catch (RuntimeException exception) {
-                markerFailure = exception;
-            }
+        if (closed.get()) {
+            return;
+        }
+        RuntimeException markerFailure = null;
+        try {
+            // Keep the store open while the clean-close marker is written so
+            // the lifecycle guard on write() does not reject its own close
+            // protocol.  The synchronized close/read/write methods also make
+            // this marker write the final DB operation visible to callers.
+            persistRuntimeMetadata(runtimeMetadata.withCleanCloseMarker(true));
+        } catch (RuntimeException exception) {
+            markerFailure = exception;
+        }
+        closed.set(true);
+        try {
             for (ColumnFamilyHandle handle : handles.values()) {
                 handle.close();
             }
@@ -1294,6 +1307,11 @@ public final class ShardStore implements AutoCloseable {
             if (markerFailure != null) {
                 throw markerFailure;
             }
+        } catch (RuntimeException closeFailure) {
+            if (markerFailure != null && closeFailure != markerFailure) {
+                closeFailure.addSuppressed(markerFailure);
+            }
+            throw closeFailure;
         }
     }
 

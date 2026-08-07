@@ -780,6 +780,10 @@ Shard；错挂的退休证明不会通过 `getLaneTerminalGuard` 暴露。
 `ShardStore.flushAndSync` 还提供 drain 的物理 flush/WAL-sync 原语，重开回归为
 `ShardStoreTest.flushAndSyncMakesTheShardBoundaryExplicit`；它不替代远端 callback
 quiescence 或 final checkpoint publication。
+Store close 会先持久化 clean-close marker，再关闭 native handles；此后 read、scan、
+write、flush 和 sequence-number API 全部 fail closed，避免调用方在 ownership
+释放后继续触碰已关闭的 RocksDB。`ShardStoreTest.closedShardStoreFailsClosedForAllRocksDbOperations`
+覆盖该本地生命周期边界。
 `DelayShard.listOpenPublishAttempts` 还提供 bounded 的
 `PUBLISHING`/`UNCERTAIN` ledger view，供 drain 等待 admitted callback 的本地轮询
 使用；重复 attempt identity 或超 bound 都 fail closed，不能把未知 obligation
