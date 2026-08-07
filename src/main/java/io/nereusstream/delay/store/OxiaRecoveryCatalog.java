@@ -289,7 +289,8 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
                 || actual.lineageGeneration() != expected.lineageGeneration()
                 || !actual.appliedShardLogPosition().equals(expected.appliedShardLogPosition())
                 || actual.shardMutationSequence() != expected.shardMutationSequence()
-                || !actual.evidenceCursors().equals(expected.evidenceCursors())) {
+                || !actual.evidenceCursors().equals(expected.evidenceCursors())
+                || !Bytes.constantTimeEquals(actual.canonicalJsonBytes(), expected.canonicalJsonBytes())) {
             throw new IllegalStateException(message);
         }
     }
