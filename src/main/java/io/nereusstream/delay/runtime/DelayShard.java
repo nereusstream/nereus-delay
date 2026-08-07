@@ -3546,7 +3546,14 @@ public final class DelayShard {
     public synchronized TerminalGenerationRecord getTerminalGeneration(final DelayMessageId messageId,
                                                                         final int generation) {
         final var value = store.getValue(ColumnFamily.TERMINAL, KeyCodec.terminalGeneration(messageId, generation), 1);
-        return value == null ? null : TerminalGenerationRecord.decode(value.payload());
+        if (value == null) {
+            return null;
+        }
+        final TerminalGenerationRecord terminal = TerminalGenerationRecord.decode(value.payload());
+        if (!terminal.messageId().equals(messageId) || terminal.generation() != generation) {
+            throw new IllegalStateException("terminal generation key/value identity mismatch");
+        }
+        return terminal;
     }
 
     /** Returns one open publish attempt at an exact admitted Owner Epoch, or {@code null}. */

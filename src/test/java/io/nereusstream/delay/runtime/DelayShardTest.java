@@ -143,6 +143,25 @@ class DelayShardTest {
     }
 
     @Test
+    void terminalGenerationLookupRejectsKeyValueIdentityMismatch() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("terminal-key-mismatch"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 53);
+        final DelayMessageId keyMessageId = DelayMessageId.random(shardId);
+        final DelayMessageId valueMessageId = DelayMessageId.random(shardId);
+        final SourcePosition source = position(shardId, 0, 1_000);
+        final TerminalGenerationRecord misplaced = new TerminalGenerationRecord(valueMessageId, 0,
+                MessageStatus.CANCELED, StableCode.CANCELED, 1, source.canonicalBytes(), false);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            store.write(batch -> batch.putValue(ColumnFamily.TERMINAL, 1,
+                    KeyCodec.terminalGeneration(keyMessageId, 0), misplaced.encode()));
+
+            assertThrows(IllegalStateException.class, () -> shard.getTerminalGeneration(keyMessageId, 0));
+        }
+    }
+
+    @Test
     void admissionBudgetConfigRequiresAPositiveTotalAndSmallerUncertainBudget() {
         assertThrows(IllegalArgumentException.class,
                 () -> new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,

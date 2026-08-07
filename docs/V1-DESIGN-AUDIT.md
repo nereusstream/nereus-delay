@@ -204,7 +204,10 @@ numeric and presence fields; `PayloadReservationTest` covers strict-prefix
 rejection before payload-reference decoding.
 Terminal generation history uses the same guarded reads for source and
 obligation framing in both legacy and v2 branches; the local prefix evidence
-is `TerminalGenerationRecordTest`.
+is `TerminalGenerationRecordTest`. Direct `DelayShard` history reads also
+compare the embedded `messageId/generation` with the requested terminal key;
+`DelayShardTest.terminalGenerationLookupRejectsKeyValueIdentityMismatch`
+covers the misplaced-value fence before a query or runtime summary can use it.
 The embedded Kafka source counter also fails closed at `Long.MAX_VALUE` before
 mutating its next-offset state; `EmbeddedDelayServiceTest` proves that an
 exhausted source cannot wrap into a negative offset after a failed enqueue.
