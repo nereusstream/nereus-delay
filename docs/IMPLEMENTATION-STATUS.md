@@ -621,7 +621,11 @@ completion reschedules from the observed completion time only when the exact
 claim handle returned by `claimDue` is supplied. A shard-only completion is a
 fail-closed compatibility trap, so a late callback from an earlier claim cannot
 reset a newer attempt; `CheckpointSchedulerTest` covers both the stale-claim
-and shard-only paths. It is only a local worker scheduling primitive;
+and shard-only paths. Jitter percentage calculation divides before multiplying,
+so a valid percentage of a near-maximum interval does not fail on an
+intermediate `long` overflow; `CheckpointSchedulerTest.largeIntervalJitterUsesCheckedWideArithmetic`
+covers the accepted boundary and the rejected jitter span. It is only a local
+worker scheduling primitive;
 checkpoint manifests, upload intents and Oxia catalog publication remain the
 durability authority.
 

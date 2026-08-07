@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -44,6 +45,13 @@ class CheckpointSchedulerTest {
         assertNotEquals(0, scheduler.complete(claim, 100));
         scheduler.unregister(first);
         assertEquals(0, scheduler.size());
+    }
+
+    @Test
+    void largeIntervalJitterUsesCheckedWideArithmetic() {
+        assertDoesNotThrow(() -> new CheckpointScheduler(Long.MAX_VALUE, 50, 1));
+        assertThrows(IllegalArgumentException.class,
+                () -> new CheckpointScheduler(Long.MAX_VALUE, 99, 1));
     }
 
     @Test

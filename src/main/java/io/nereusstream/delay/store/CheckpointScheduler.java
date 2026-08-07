@@ -162,7 +162,15 @@ public final class CheckpointScheduler {
     }
 
     private static long maxJitter(final long intervalMs, final int jitterPercent) {
-        return Math.multiplyExact(intervalMs, jitterPercent) / 100;
+        // Divide before multiplying so a valid percentage of a large interval
+        // does not overflow an intermediate product.  The quotient times the
+        // bounded percentage is itself within the signed long range; the
+        // remainder product is at most 99 * 99.
+        final long quotient = intervalMs / 100;
+        final long remainder = intervalMs % 100;
+        final long whole = Math.multiplyExact(quotient, jitterPercent);
+        final long partial = remainder * jitterPercent / 100;
+        return Math.addExact(whole, partial);
     }
 
     private static void requireTime(final long value, final String name) {

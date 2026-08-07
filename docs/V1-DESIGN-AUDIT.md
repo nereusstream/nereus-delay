@@ -860,6 +860,11 @@ checkpoint manifest、Upload Intent 或 Oxia catalog authority。
 覆盖；这只证明进程级 drain 并发限额，不能替代 claim quiescence、final checkpoint
 和 lease release 的生产编排。
 
+`CheckpointScheduler` 的 jitter 百分比计算现在先除后乘，避免近
+`Long.MAX_VALUE` 的合法 interval 在中间乘法处误报溢出；`CheckpointSchedulerTest.largeIntervalJitterUsesCheckedWideArithmetic`
+覆盖可接受的最大 jitter span 和应拒绝的更大 span。该证据仍只属于本地
+错峰调度器，不替代真实 Worker checkpoint/capacity/chaos 证据。
+
 查询层也已补齐 `CheckpointSummaryV1`/`CheckpointCatalogResultV1` 的
 canonical checkpoint-catalog projection，包含 shard identity、Floor identity
 和严格排序的 summary array；它仍只是 public query value codec，不代表
