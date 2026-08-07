@@ -519,6 +519,14 @@ demand 以及 owned/open DB slots 做 hard filter，再以 dominant-resource/loa
 movement cost；这只是可复现的评分 seam，不是 Kafka cooperative assignor、Oxia
 desired-placement plan 或 Owner Lease authority。
 
+`ShardStoreConfig.maxWriteBufferBytesPerDb` 现在是显式的 Worker 配置，
+`ShardStore` 会把它绑定到每个 Column Family 的 RocksDB
+`ColumnFamilyOptions.setWriteBufferSize`，同时继续由进程级
+`WriteBufferManager` 约束共享 memtable 总预算。这证明了本地 option binding
+和非法配置的 fail-closed 行为（`ShardStoreTest.perDbWriteBufferCeilingMustBePositive`），
+但不把每个 CF 的上限误报成单个 DB 的聚合运行时记账；WAL/SST/temp、work-class
+reserve、真实 JVM/cgroup/rlimit 和 Oxia placement authority 仍是外部资源证据。
+
 Control Reserve 的本地投影也已覆盖 Registry 的 class 6：
 `meta_cf/CONTROL_RESERVE` 以 `CapacityVectorV1` 持久化 Broker system-writer
 reservation，绑定 `NON_OUTCOME_CONTROL` grant identity；class 6 只接受维度

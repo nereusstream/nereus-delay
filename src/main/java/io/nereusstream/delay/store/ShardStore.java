@@ -818,20 +818,24 @@ public final class ShardStore implements AutoCloseable {
             }
         }
         final List<ColumnFamilyDescriptor> result = new ArrayList<>();
-        result.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, familyOptions(resources)));
+        result.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY,
+                familyOptions(resources, config.maxWriteBufferBytesPerDb())));
         options.add(result.get(0).getOptions());
         for (ColumnFamily family : ColumnFamily.values()) {
             final ColumnFamilyDescriptor descriptor = new ColumnFamilyDescriptor(
-                    family.rocksName().getBytes(java.nio.charset.StandardCharsets.UTF_8), familyOptions(resources));
+                    family.rocksName().getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                    familyOptions(resources, config.maxWriteBufferBytesPerDb()));
             result.add(descriptor);
             options.add(descriptor.getOptions());
         }
         return result;
     }
 
-    private static ColumnFamilyOptions familyOptions(final SharedRocksDbResources resources) {
+    private static ColumnFamilyOptions familyOptions(final SharedRocksDbResources resources,
+                                                     final long maxWriteBufferBytesPerDb) {
         final BlockBasedTableConfig table = new BlockBasedTableConfig().setBlockCache(resources.blockCache());
-        return new ColumnFamilyOptions().setTableFormatConfig(table);
+        return new ColumnFamilyOptions().setTableFormatConfig(table)
+                .setWriteBufferSize(maxWriteBufferBytesPerDb);
     }
 
     private static void closeQuietly(final List<ColumnFamilyOptions> options) {

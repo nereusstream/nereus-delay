@@ -546,6 +546,12 @@ class ShardStoreTest {
     }
 
     @Test
+    void perDbWriteBufferCeilingMustBePositive() {
+        assertThrows(IllegalArgumentException.class, () -> new ShardStoreConfig(tempDir.resolve("invalid-wbm"),
+                1, 1, 32, 32, 1, 1024 * 1024, 1024 * 1024, 1, 1, 1, 1024, 1, 0));
+    }
+
+    @Test
     void workerOwnedShardLimitIsIndependentFromTransientDbSlots() {
         final ShardStoreConfig config = new ShardStoreConfig(tempDir.resolve("owned-bounded"), 1, 2, 32, 64,
                 1, 1024 * 1024, 1024 * 1024, 1, 1, 1024);
