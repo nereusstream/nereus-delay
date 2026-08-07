@@ -298,7 +298,7 @@ public final class ClaimResultBody {
         return CanonicalProtobuf.message(output -> {
             for (CanonicalProtobuf.Reader.Field field : fields) {
                 if (field.wireType() == 0) {
-                    CanonicalProtobuf.int64(output, field.number(), field.unsignedValue());
+                    CanonicalProtobuf.uint64Bits(output, field.number(), field.unsignedValue());
                 } else {
                     CanonicalProtobuf.bytes(output, field.number(), field.rawValue());
                 }

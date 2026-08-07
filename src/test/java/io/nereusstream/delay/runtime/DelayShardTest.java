@@ -5321,7 +5321,7 @@ class DelayShardTest {
                 if (field.number() == 19) {
                     CanonicalProtobuf.bytes(output, 19, charge);
                 } else if (field.wireType() == 0) {
-                    CanonicalProtobuf.int64(output, field.number(), field.unsignedValue());
+                    CanonicalProtobuf.uint64Bits(output, field.number(), field.unsignedValue());
                 } else {
                     CanonicalProtobuf.bytes(output, field.number(), field.rawValue());
                 }
@@ -5352,7 +5352,7 @@ class DelayShardTest {
                     case 25 -> CanonicalProtobuf.bytes(output, 25, claim.preconditionBytes());
                     default -> {
                         if (field.wireType() == 0) {
-                            CanonicalProtobuf.int64(output, field.number(), field.unsignedValue());
+                            CanonicalProtobuf.uint64Bits(output, field.number(), field.unsignedValue());
                         } else {
                             CanonicalProtobuf.bytes(output, field.number(), field.rawValue());
                         }
@@ -5373,7 +5373,7 @@ class DelayShardTest {
                 if (field.number() == 3) {
                     CanonicalProtobuf.bytes(output, 3, storeIncarnation);
                 } else if (field.wireType() == 0) {
-                    CanonicalProtobuf.int64(output, field.number(), field.unsignedValue());
+                    CanonicalProtobuf.uint64Bits(output, field.number(), field.unsignedValue());
                 } else {
                     CanonicalProtobuf.bytes(output, field.number(), field.rawValue());
                 }
@@ -5384,7 +5384,7 @@ class DelayShardTest {
             while (prefixReader.hasRemaining()) {
                 final CanonicalProtobuf.Reader.Field field = prefixReader.next();
                 if (field.wireType() == 0) {
-                    CanonicalProtobuf.int64(output, field.number(), field.unsignedValue());
+                    CanonicalProtobuf.uint64Bits(output, field.number(), field.unsignedValue());
                 } else {
                     CanonicalProtobuf.bytes(output, field.number(), field.rawValue());
                 }
@@ -5403,7 +5403,7 @@ class DelayShardTest {
                     break;
                 }
                 if (field.wireType() == 0) {
-                    CanonicalProtobuf.int64(output, field.number(), field.unsignedValue());
+                    CanonicalProtobuf.uint64Bits(output, field.number(), field.unsignedValue());
                 } else {
                     CanonicalProtobuf.bytes(output, field.number(), field.rawValue());
                 }

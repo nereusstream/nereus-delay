@@ -20,7 +20,7 @@ public final class CredentialBindingHeadV1 {
                                    final byte[] bindingDigest, final long headRevision,
                                    final byte[] headDigest) {
         this.profile = requireBindableProfile(profile);
-        this.secretGeneration = positive(secretGeneration, "secretGeneration");
+        this.secretGeneration = nonZero(secretGeneration, "secretGeneration");
         this.bindingDigest = fixed(bindingDigest, "bindingDigest");
         this.headRevision = positive(headRevision, "headRevision");
         this.headDigest = fixed(headDigest, "headDigest");
@@ -47,7 +47,7 @@ public final class CredentialBindingHeadV1 {
         QueryCodecSupport.requireNumbers(fields, new int[]{1, 2, 3, 4, 5}, "CredentialBindingHeadV1");
         final CredentialBindingHeadV1 result = new CredentialBindingHeadV1(
                 ProfileRefV1.decode(QueryCodecSupport.nested(fields.get(0), 1)),
-                positive(QueryCodecSupport.uint(fields.get(1), 2), "secretGeneration"),
+                nonZero(QueryCodecSupport.uint(fields.get(1), 2), "secretGeneration"),
                 QueryCodecSupport.fixed(fields.get(2), 3, HASH_LENGTH),
                 positive(QueryCodecSupport.uint(fields.get(3), 4), "headRevision"),
                 QueryCodecSupport.fixed(fields.get(4), 5, HASH_LENGTH));
@@ -78,7 +78,7 @@ public final class CredentialBindingHeadV1 {
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, profile.canonicalBytes());
-            CanonicalProtobuf.uint64(output, 2, secretGeneration);
+            CanonicalProtobuf.uint64Bits(output, 2, secretGeneration);
             CanonicalProtobuf.bytes(output, 3, bindingDigest);
             CanonicalProtobuf.uint64(output, 4, headRevision);
             CanonicalProtobuf.bytes(output, 5, headDigest);
@@ -109,7 +109,7 @@ public final class CredentialBindingHeadV1 {
                                           final byte[] bindingDigest, final long headRevision) {
         final byte[] fields = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, profile.canonicalBytes());
-            CanonicalProtobuf.uint64(output, 2, secretGeneration);
+            CanonicalProtobuf.uint64Bits(output, 2, secretGeneration);
             CanonicalProtobuf.bytes(output, 3, bindingDigest);
             CanonicalProtobuf.uint64(output, 4, headRevision);
         });
@@ -133,6 +133,13 @@ public final class CredentialBindingHeadV1 {
     private static long positive(final long value, final String name) {
         if (value <= 0) {
             throw new IllegalArgumentException(name + " must be positive");
+        }
+        return value;
+    }
+
+    private static long nonZero(final long value, final String name) {
+        if (value == 0) {
+            throw new IllegalArgumentException(name + " must be non-zero");
         }
         return value;
     }

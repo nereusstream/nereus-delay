@@ -17,8 +17,8 @@ public final class ProfileControlResultV1 {
         if (secretProfile != (currentSecretGeneration != null)) {
             throw new IllegalArgumentException("current secret generation presence does not match Profile kind");
         }
-        if (currentSecretGeneration != null && currentSecretGeneration <= 0) {
-            throw new IllegalArgumentException("currentSecretGeneration must be positive");
+        if (currentSecretGeneration != null && currentSecretGeneration == 0) {
+            throw new IllegalArgumentException("currentSecretGeneration must be non-zero");
         }
         this.currentSecretGeneration = currentSecretGeneration;
     }
@@ -40,7 +40,7 @@ public final class ProfileControlResultV1 {
             CanonicalProtobuf.bytes(output, 1, profile.canonicalBytes());
             CanonicalProtobuf.uint32(output, 2, acceptance.wireValue());
             if (currentSecretGeneration != null) {
-                CanonicalProtobuf.uint64(output, 3, currentSecretGeneration);
+                CanonicalProtobuf.uint64Bits(output, 3, currentSecretGeneration);
             }
         });
     }

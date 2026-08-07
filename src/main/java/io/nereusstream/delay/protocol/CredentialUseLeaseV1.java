@@ -37,8 +37,8 @@ public final class CredentialUseLeaseV1 {
             throw new IllegalArgumentException("credential lease kind/profile mismatch");
         }
         this.holderScopeDigest = fixed(holderScopeDigest, "holderScopeDigest");
-        if (secretGeneration <= 0) {
-            throw new IllegalArgumentException("secretGeneration must be positive");
+        if (secretGeneration == 0) {
+            throw new IllegalArgumentException("secretGeneration must be non-zero");
         }
         this.secretGeneration = secretGeneration;
         this.credentialBindingDigest = fixed(credentialBindingDigest, "credentialBindingDigest");
@@ -143,7 +143,7 @@ public final class CredentialUseLeaseV1 {
             CanonicalProtobuf.bytes(output, 2, profile.canonicalBytes());
             CanonicalProtobuf.uint32(output, 3, kind.wireValue());
             CanonicalProtobuf.bytes(output, 4, holderScopeDigest);
-            CanonicalProtobuf.uint64(output, 5, secretGeneration);
+            CanonicalProtobuf.uint64Bits(output, 5, secretGeneration);
             CanonicalProtobuf.bytes(output, 6, credentialBindingDigest);
             CanonicalProtobuf.bytes(output, 7, resolvedCredentialFingerprintDigest);
             CanonicalProtobuf.bytes(output, 8, issuedAt.canonicalBytes());
@@ -165,7 +165,7 @@ public final class CredentialUseLeaseV1 {
                 ProfileRefV1.decode(QueryCodecSupport.nested(fields.get(1), 2)),
                 CredentialUseKindV1.fromWire(QueryCodecSupport.uint(fields.get(2), 3)),
                 QueryCodecSupport.fixed(fields.get(3), 4, HASH_LENGTH),
-                positive(QueryCodecSupport.uint(fields.get(4), 5), "secretGeneration"),
+                nonZero(QueryCodecSupport.uint(fields.get(4), 5), "secretGeneration"),
                 QueryCodecSupport.fixed(fields.get(5), 6, HASH_LENGTH),
                 QueryCodecSupport.fixed(fields.get(6), 7, HASH_LENGTH),
                 TrustedUtcIntervalEvidence.decode(QueryCodecSupport.nested(fields.get(7), 8)),
@@ -193,7 +193,7 @@ public final class CredentialUseLeaseV1 {
             CanonicalProtobuf.bytes(output, 2, profile.canonicalBytes());
             CanonicalProtobuf.uint32(output, 3, kind.wireValue());
             CanonicalProtobuf.bytes(output, 4, holderScopeDigest);
-            CanonicalProtobuf.uint64(output, 5, secretGeneration);
+            CanonicalProtobuf.uint64Bits(output, 5, secretGeneration);
             CanonicalProtobuf.bytes(output, 6, credentialBindingDigest);
             CanonicalProtobuf.bytes(output, 7, resolvedCredentialFingerprintDigest);
             CanonicalProtobuf.bytes(output, 8, issuedAt.canonicalBytes());
@@ -205,6 +205,13 @@ public final class CredentialUseLeaseV1 {
     private static long positive(final long value, final String name) {
         if (value <= 0) {
             throw new IllegalArgumentException(name + " must be positive");
+        }
+        return value;
+    }
+
+    private static long nonZero(final long value, final String name) {
+        if (value == 0) {
+            throw new IllegalArgumentException(name + " must be non-zero");
         }
         return value;
     }

@@ -52,7 +52,7 @@ public final class NativeCapabilitySnapshotV1 {
             throw new IllegalArgumentException("native snapshot capability must be a DELIVERY_CAPABILITY profile");
         }
         this.target = Objects.requireNonNull(target, "target");
-        if (resourceGuardConfigGeneration <= 0 || credentialBindingGeneration <= 0 || notAfterEpochMs < 0
+        if (resourceGuardConfigGeneration <= 0 || credentialBindingGeneration == 0 || notAfterEpochMs < 0
                 || notAfterEpochMs <= issuedAt(issuedAt).latestEpochMs()
                 || issuerSigningKeyVersion < SIGNING_KEY_VERSION_MIN) {
             throw new IllegalArgumentException("invalid native capability snapshot numbers");
@@ -258,7 +258,7 @@ public final class NativeCapabilitySnapshotV1 {
         CanonicalProtobuf.uint32Bits(output, 5, physicalPartition);
         CanonicalProtobuf.bytes(output, 6, resourceGuardAttestationSha256);
         CanonicalProtobuf.uint64(output, 7, resourceGuardConfigGeneration);
-        CanonicalProtobuf.uint64(output, 8, credentialBindingGeneration);
+        CanonicalProtobuf.uint64Bits(output, 8, credentialBindingGeneration);
         CanonicalProtobuf.bytes(output, 9, credentialBindingDigest);
         CanonicalProtobuf.bytes(output, 10, resolvedCredentialFingerprintDigest);
         CanonicalProtobuf.bytes(output, 11, sdkPrincipalScopeDigest);

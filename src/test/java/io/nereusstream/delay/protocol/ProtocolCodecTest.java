@@ -349,12 +349,13 @@ class ProtocolCodecTest {
                 Bytes.sha256(Bytes.utf8("snapshot-sample")), 0, null);
 
         final NativeCapabilitySnapshotV1 snapshot = NativeCapabilitySnapshotV1.create(destination, capability, target,
-                -1, Bytes.sha256(Bytes.utf8("guard-attestation")), 11, 12,
+                -1, Bytes.sha256(Bytes.utf8("guard-attestation")), 11, Long.MIN_VALUE,
                 Bytes.sha256(Bytes.utf8("binding")), Bytes.sha256(Bytes.utf8("credential-fingerprint")),
                 Bytes.sha256(Bytes.utf8("principal-scope")), issuedAt, 3_000, 13, keyPair.getPrivate());
         final NativeCapabilitySnapshotV1 decoded = NativeCapabilitySnapshotV1.decode(snapshot.canonicalBytes());
 
         assertEquals(snapshot, decoded);
+        assertEquals(Long.MIN_VALUE, decoded.credentialBindingGeneration());
         assertTrue(decoded.verifySignature(keyPair.getPublic()));
         assertFalse(decoded.verifySignature(keyPairGenerator.generateKeyPair().getPublic()));
 

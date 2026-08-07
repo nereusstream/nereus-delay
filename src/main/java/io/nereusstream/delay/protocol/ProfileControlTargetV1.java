@@ -32,9 +32,9 @@ public final class ProfileControlTargetV1 {
                 && expectedBindingHeadRevision != null)) {
             throw new IllegalArgumentException("Profile rotation preconditions must be all present or all absent");
         }
-        if (expectedSecretGeneration != null && (expectedSecretGeneration <= 0
+        if (expectedSecretGeneration != null && (expectedSecretGeneration == 0
                 || expectedBindingHeadRevision <= 0)) {
-            throw new IllegalArgumentException("Profile rotation generations/revision must be positive");
+            throw new IllegalArgumentException("Profile rotation secret generation must be non-zero and head revision positive");
         }
         if (expectedBindingDigest != null) {
             Bytes.requireLength(expectedBindingDigest, HASH_LENGTH, "expectedBindingDigest");
@@ -64,7 +64,7 @@ public final class ProfileControlTargetV1 {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, profile.canonicalBytes());
             if (expectedSecretGeneration != null) {
-                CanonicalProtobuf.uint64(output, 2, expectedSecretGeneration);
+                CanonicalProtobuf.uint64Bits(output, 2, expectedSecretGeneration);
                 CanonicalProtobuf.bytes(output, 3, expectedBindingDigest);
                 CanonicalProtobuf.uint64(output, 4, expectedBindingHeadRevision);
             }

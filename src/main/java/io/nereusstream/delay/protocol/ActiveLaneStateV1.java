@@ -406,7 +406,7 @@ public final class ActiveLaneStateV1 {
             final byte[] canonical = CanonicalProtobuf.message(output -> {
                 for (CanonicalProtobuf.Reader.Field field : fields) {
                     if (field.wireType() == 0) {
-                        CanonicalProtobuf.uint64(output, field.number(), field.unsignedValue());
+                        CanonicalProtobuf.uint64Bits(output, field.number(), field.unsignedValue());
                     } else {
                         CanonicalProtobuf.bytes(output, field.number(), field.rawValue());
                     }

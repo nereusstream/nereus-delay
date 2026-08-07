@@ -50,7 +50,7 @@ public final class CredentialEquivalenceAttestationV1 {
                                               final byte[] attestationDigest, final int signingKeyVersion,
                                               final byte[] signature) {
         this.profile = requireBindableProfile(profile);
-        this.secretGeneration = positive(secretGeneration, "secretGeneration");
+        this.secretGeneration = nonZero(secretGeneration, "secretGeneration");
         this.secretReferenceSha256 = fixed(secretReferenceSha256, "secretReferenceSha256");
         this.authorizationScopeDigest = fixed(authorizationScopeDigest, "authorizationScopeDigest");
         this.resolvedCredentialFingerprintDigest = fixed(resolvedCredentialFingerprintDigest,
@@ -109,7 +109,7 @@ public final class CredentialEquivalenceAttestationV1 {
                 new int[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13},
                 "CredentialEquivalenceAttestationV1");
         final ProfileRefV1 profile = ProfileRefV1.decode(QueryCodecSupport.nested(fields.get(0), 1));
-        final long generation = positive(QueryCodecSupport.uint(fields.get(1), 2), "secretGeneration");
+        final long generation = nonZero(QueryCodecSupport.uint(fields.get(1), 2), "secretGeneration");
         final byte[] referenceHash = QueryCodecSupport.fixed(fields.get(2), 3, HASH_LENGTH);
         final byte[] scope = QueryCodecSupport.fixed(fields.get(3), 4, HASH_LENGTH);
         final byte[] fingerprint = QueryCodecSupport.fixed(fields.get(4), 5, HASH_LENGTH);
@@ -261,7 +261,7 @@ public final class CredentialEquivalenceAttestationV1 {
 
     private void writeFields(final java.io.ByteArrayOutputStream output) {
         CanonicalProtobuf.bytes(output, 1, profile.canonicalBytes());
-        CanonicalProtobuf.uint64(output, 2, secretGeneration);
+        CanonicalProtobuf.uint64Bits(output, 2, secretGeneration);
         CanonicalProtobuf.bytes(output, 3, secretReferenceSha256);
         CanonicalProtobuf.bytes(output, 4, authorizationScopeDigest);
         CanonicalProtobuf.bytes(output, 5, resolvedCredentialFingerprintDigest);
@@ -291,7 +291,7 @@ public final class CredentialEquivalenceAttestationV1 {
                                           final byte[] verificationEvidenceSha256) {
         final byte[] fields = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, profile.canonicalBytes());
-            CanonicalProtobuf.uint64(output, 2, secretGeneration);
+            CanonicalProtobuf.uint64Bits(output, 2, secretGeneration);
             CanonicalProtobuf.bytes(output, 3, secretReferenceSha256);
             CanonicalProtobuf.bytes(output, 4, authorizationScopeDigest);
             CanonicalProtobuf.bytes(output, 5, resolvedCredentialFingerprintDigest);
@@ -341,9 +341,9 @@ public final class CredentialEquivalenceAttestationV1 {
         return Bytes.copy(value);
     }
 
-    private static long positive(final long value, final String name) {
-        if (value <= 0) {
-            throw new IllegalArgumentException(name + " must be positive");
+    private static long nonZero(final long value, final String name) {
+        if (value == 0) {
+            throw new IllegalArgumentException(name + " must be non-zero");
         }
         return value;
     }

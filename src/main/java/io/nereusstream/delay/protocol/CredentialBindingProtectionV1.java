@@ -28,7 +28,7 @@ public final class CredentialBindingProtectionV1 {
                                          final long uploadHandleProtectionUntilEpochMs,
                                          final long protectionRevision, final byte[] protectionDigest) {
         this.profile = requireBindableProfile(profile);
-        this.secretGeneration = positive(secretGeneration, "secretGeneration");
+        this.secretGeneration = nonZero(secretGeneration, "secretGeneration");
         this.bindingDigest = fixed(bindingDigest, "bindingDigest");
         this.managedChannelProtectionUntilEpochMs = nonNegative(managedChannelProtectionUntilEpochMs,
                 "managedChannelProtectionUntilEpochMs");
@@ -80,7 +80,7 @@ public final class CredentialBindingProtectionV1 {
                 "CredentialBindingProtectionV1");
         final CredentialBindingProtectionV1 result = new CredentialBindingProtectionV1(
                 ProfileRefV1.decode(QueryCodecSupport.nested(fields.get(0), 1)),
-                positive(QueryCodecSupport.uint(fields.get(1), 2), "secretGeneration"),
+                nonZero(QueryCodecSupport.uint(fields.get(1), 2), "secretGeneration"),
                 QueryCodecSupport.fixed(fields.get(2), 3, HASH_LENGTH),
                 nonNegative(QueryCodecSupport.uint(fields.get(3), 4), "managedChannelProtectionUntilEpochMs"),
                 nonNegative(QueryCodecSupport.uint(fields.get(4), 5), "objectStoreLeaseProtectionUntilEpochMs"),
@@ -131,7 +131,7 @@ public final class CredentialBindingProtectionV1 {
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, profile.canonicalBytes());
-            CanonicalProtobuf.uint64(output, 2, secretGeneration);
+            CanonicalProtobuf.uint64Bits(output, 2, secretGeneration);
             CanonicalProtobuf.bytes(output, 3, bindingDigest);
             CanonicalProtobuf.int64(output, 4, managedChannelProtectionUntilEpochMs);
             CanonicalProtobuf.int64(output, 5, objectStoreLeaseProtectionUntilEpochMs);
@@ -179,7 +179,7 @@ public final class CredentialBindingProtectionV1 {
                                           final long protectionRevision) {
         final byte[] fields = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, profile.canonicalBytes());
-            CanonicalProtobuf.uint64(output, 2, secretGeneration);
+            CanonicalProtobuf.uint64Bits(output, 2, secretGeneration);
             CanonicalProtobuf.bytes(output, 3, bindingDigest);
             CanonicalProtobuf.int64(output, 4, managedChannelProtectionUntilEpochMs);
             CanonicalProtobuf.int64(output, 5, objectStoreLeaseProtectionUntilEpochMs);
@@ -207,6 +207,13 @@ public final class CredentialBindingProtectionV1 {
     private static long positive(final long value, final String name) {
         if (value <= 0) {
             throw new IllegalArgumentException(name + " must be positive");
+        }
+        return value;
+    }
+
+    private static long nonZero(final long value, final String name) {
+        if (value == 0) {
+            throw new IllegalArgumentException(name + " must be non-zero");
         }
         return value;
     }

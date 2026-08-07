@@ -67,7 +67,7 @@ class ReadyCertificateV1Test {
     private static void write(final java.io.ByteArrayOutputStream output,
                               final CanonicalProtobuf.Reader.Field field) {
         if (field.wireType() == 0) {
-            CanonicalProtobuf.uint64(output, field.number(), field.unsignedValue());
+            CanonicalProtobuf.uint64Bits(output, field.number(), field.unsignedValue());
         } else {
             CanonicalProtobuf.bytes(output, field.number(), field.rawValue());
         }

@@ -529,7 +529,7 @@ public class PublishAdmissionBodyTest {
                 CanonicalProtobuf.bytes(output, 2, profile);
                 CanonicalProtobuf.uint32(output, 3, 1);
                 CanonicalProtobuf.bytes(output, 4, holderScope);
-                CanonicalProtobuf.uint32(output, 5, 1);
+                CanonicalProtobuf.uint64Bits(output, 5, Long.MIN_VALUE);
                 CanonicalProtobuf.bytes(output, 6, bindingDigest);
                 CanonicalProtobuf.bytes(output, 7, fingerprint);
                 CanonicalProtobuf.bytes(output, 8, issuedAt);
@@ -579,7 +579,7 @@ public class PublishAdmissionBodyTest {
                         CanonicalProtobuf.bytes(output, field.number(), field.rawValue());
                     }
                 }
-                CanonicalProtobuf.uint32(output, 14, 1);
+                CanonicalProtobuf.uint64Bits(output, 14, Long.MIN_VALUE);
                 CanonicalProtobuf.bytes(output, 15, bindingDigest);
                 CanonicalProtobuf.bytes(output, 16, fingerprint);
                 CanonicalProtobuf.bytes(output, 17, lease);
@@ -746,7 +746,7 @@ public class PublishAdmissionBodyTest {
                 CanonicalProtobuf.uint32(output, 10, 1);
                 CanonicalProtobuf.int64(output, 11, 8_000);
                 CanonicalProtobuf.bytes(output, 12, issuedAt);
-                CanonicalProtobuf.uint32(output, 13, 1);
+                CanonicalProtobuf.uint64Bits(output, 13, Long.MIN_VALUE);
                 CanonicalProtobuf.bytes(output, 14, bindingDigest);
                 CanonicalProtobuf.bytes(output, 15, fingerprint);
             });
@@ -773,7 +773,7 @@ public class PublishAdmissionBodyTest {
                 while (reader.hasRemaining()) {
                     final CanonicalProtobuf.Reader.Field current = reader.next();
                     if (current.wireType() == 0) {
-                        CanonicalProtobuf.int64(output, current.number(), current.unsignedValue());
+                        CanonicalProtobuf.uint64Bits(output, current.number(), current.unsignedValue());
                     } else {
                         CanonicalProtobuf.bytes(output, current.number(), current.rawValue());
                     }
@@ -791,7 +791,7 @@ public class PublishAdmissionBodyTest {
                     break;
                 }
                 if (field.wireType() == 0) {
-                    CanonicalProtobuf.int64(output, field.number(), field.unsignedValue());
+                    CanonicalProtobuf.uint64Bits(output, field.number(), field.unsignedValue());
                 } else {
                     CanonicalProtobuf.bytes(output, field.number(), field.rawValue());
                 }

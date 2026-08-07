@@ -134,8 +134,8 @@ public final class InMemoryProfileCatalog implements ProfileCatalog {
     public synchronized CredentialBindingV1 resolveBinding(final ProfileRefV1 profile,
                                                            final long secretGeneration) {
         Objects.requireNonNull(profile, "profile");
-        if (secretGeneration <= 0) {
-            throw new IllegalArgumentException("secretGeneration must be positive");
+        if (secretGeneration == 0) {
+            throw new IllegalArgumentException("secretGeneration must be non-zero");
         }
         final Entry entry = entries.get(profile);
         return entry == null ? null : entry.bindings.get(secretGeneration);
@@ -152,8 +152,8 @@ public final class InMemoryProfileCatalog implements ProfileCatalog {
     public synchronized CredentialBindingProtectionV1 resolveProtection(final ProfileRefV1 profile,
                                                                          final long secretGeneration) {
         Objects.requireNonNull(profile, "profile");
-        if (secretGeneration <= 0) {
-            throw new IllegalArgumentException("secretGeneration must be positive");
+        if (secretGeneration == 0) {
+            throw new IllegalArgumentException("secretGeneration must be non-zero");
         }
         final Entry entry = entries.get(profile);
         return entry == null ? null : entry.protections.get(secretGeneration);

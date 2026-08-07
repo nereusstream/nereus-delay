@@ -20,8 +20,8 @@ public final class SecretRotationResultV1 {
                 && profile.profileKind() != ProfileKindV1.OBJECT_STORE) {
             throw new IllegalArgumentException("secret rotation requires a destination or object-store Profile");
         }
-        if (secretGeneration <= 0 || bindingHeadRevision <= 0) {
-            throw new IllegalArgumentException("secret generation and binding revision must be positive");
+        if (secretGeneration == 0 || bindingHeadRevision <= 0) {
+            throw new IllegalArgumentException("secret generation must be non-zero and binding revision positive");
         }
         this.secretGeneration = secretGeneration;
         this.secretReferenceDigest = fixed(secretReferenceDigest, "secretReferenceDigest");
@@ -57,7 +57,7 @@ public final class SecretRotationResultV1 {
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, profile.canonicalBytes());
-            CanonicalProtobuf.uint64(output, 2, secretGeneration);
+            CanonicalProtobuf.uint64Bits(output, 2, secretGeneration);
             CanonicalProtobuf.bytes(output, 3, secretReferenceDigest);
             CanonicalProtobuf.bytes(output, 4, credentialBindingDigest);
             CanonicalProtobuf.uint64(output, 5, bindingHeadRevision);

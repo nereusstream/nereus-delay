@@ -17,18 +17,19 @@ class CredentialBindingV1Test {
         final ProfileRefV1 profile = profile();
         final TrustedUtcIntervalEvidence verifiedAt = trustedTime();
         final KeyPair keyPair = ed25519();
+        final long generation = Long.MIN_VALUE;
         final byte[] secretReference = Bytes.utf8("provider://credential/v7");
         final CredentialEquivalenceAttestationV1 attestation = CredentialEquivalenceAttestationV1.signed(
-                profile, 7, Bytes.sha256(secretReference), bytes(32, 2), bytes(32, 3), 4,
+                profile, generation, Bytes.sha256(secretReference), bytes(32, 2), bytes(32, 3), 4,
                 Bytes.utf8("verifier-a"), verifiedAt, 1_500, bytes(32, 4), 9, keyPair.getPrivate());
 
         assertTrue(attestation.verifySignature(keyPair.getPublic()));
         attestation.requireAuthorizationScopeDigest(bytes(32, 2));
-        attestation.requireCandidate(profile, 7, Bytes.sha256(secretReference));
+        attestation.requireCandidate(profile, generation, Bytes.sha256(secretReference));
         attestation.requireNotAfterAtMost(500);
         assertEquals(attestation, CredentialEquivalenceAttestationV1.decode(attestation.canonicalBytes()));
 
-        final CredentialBindingV1 binding = CredentialBindingV1.create(profile, 7, secretReference, attestation);
+        final CredentialBindingV1 binding = CredentialBindingV1.create(profile, generation, secretReference, attestation);
         assertArrayEquals(Bytes.sha256(secretReference), binding.secretReferenceSha256());
         assertEquals(binding, CredentialBindingV1.decode(binding.canonicalBytes()));
 
@@ -40,7 +41,7 @@ class CredentialBindingV1Test {
         assertEquals(protection, CredentialBindingProtectionV1.decode(protection.canonicalBytes()));
 
         final CredentialUseLeaseV1 lease = new CredentialUseLeaseV1(profile,
-                CredentialUseKindV1.DESTINATION_CHANNEL, bytes(32, 9), 7, binding.bindingDigest(),
+                CredentialUseKindV1.DESTINATION_CHANNEL, bytes(32, 9), generation, binding.bindingDigest(),
                 attestation.resolvedCredentialFingerprintDigest(), verifiedAt, 1_500, 4);
         lease.requireBinding(binding);
         lease.requireProtectedBy(protection);

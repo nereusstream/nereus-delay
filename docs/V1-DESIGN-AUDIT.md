@@ -530,12 +530,17 @@ nested identity 和 owner 匹配，但
 retention barrier、external proof ownership 仍是 release blocker。
 
 `ChannelResourceIdentityV1` now preserves the complete raw unsigned patterns for
-its physical `channel_generation` and optional `evidence_generation` fields,
-matching the already raw `EvidenceCursorV1.evidence_generation` boundary. Zero
-remains invalid; credential binding generations and protection revisions remain
-bounded non-zero control versions. `ChannelResourceIdentityV1Test`
-`preservesUnsignedChannelAndEvidenceGenerationBits` covers the high-bit
-transactional-channel vector.
+its physical `channel_generation`, optional `evidence_generation`, and
+`credential_binding_generation` fields, matching the raw `EvidenceCursorV1`
+generation boundary. The same full-width rule now runs through credential
+attestation/binding, Head/protection, use lease, Ready Certificate, native
+capability snapshot, rotation request/result, and Profile control projections:
+zero is invalid, but a host signed-integer high bit is valid. Head/protection
+revisions, resource-guard configuration generation, and other control versions
+remain bounded positive values. High-bit coverage is provided by
+`CredentialBindingV1Test`, `ProfileControlRequestV1Test`,
+`ControlResultCodecTest`, `ChannelResourceIdentityV1Test`,
+`ProtocolCodecTest`, and the Publish Admission/Ready Certificate fixtures.
 
 `PublishAdmissionBody` 还把 `PreparedPublishDescriptorV1` 的 adapter kind、固定
 adapter encoding version（并要求 immutable Destination Profile 也 pin 版本 `1`）、target resource、physical partition 与嵌套

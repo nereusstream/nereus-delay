@@ -22,14 +22,15 @@ class ControlResultCodecTest {
         final CheckpointControlResultV1 checkpoint = new CheckpointControlResultV1(shard, bytes(16, 6),
                 bytes(32, 7), 9);
         final ProfileControlResultV1 profile = new ProfileControlResultV1(destination,
-                ProfileAcceptanceV1.ACTIVE_FOR_FIRST_BINDING, 10L);
+                ProfileAcceptanceV1.ACTIVE_FOR_FIRST_BINDING, Long.MIN_VALUE);
         final QuotaControlResultV1 quotaResult = new QuotaControlResultV1(quota, bytes(32, 8));
         final MessageControlResultV1 message = new MessageControlResultV1(messageId, 1, 2,
                 MessageGenerationStateV1.UNCERTAIN, StableCode.ENQUEUE_RESULT_UNCERTAIN,
                 new PublicEvidenceRefV1(PublishEvidenceKindV1.OPERATOR_ATTESTATION, bytes(32, 9),
                         EvidenceVerificationStatusV1.UNRESOLVED));
         final RouteControlResultV1 route = new RouteControlResultV1(bytes(16, 10), RouteLifecycleV1.CONTROL_ONLY, 11);
-        final SecretRotationResultV1 rotation = new SecretRotationResultV1(destination, 12, bytes(32, 11),
+        final SecretRotationResultV1 rotation = new SecretRotationResultV1(destination, Long.MIN_VALUE,
+                bytes(32, 11),
                 bytes(32, 12), 13, bytes(32, 13));
 
         assertEquals(lane, LaneControlResultV1.decode(lane.canonicalBytes()));

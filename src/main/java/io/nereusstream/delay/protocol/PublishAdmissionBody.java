@@ -495,7 +495,7 @@ public final class PublishAdmissionBody {
         }
         return new ReadyCertificate(encoded, owner, bytes(field(fields, 3), 3), bytes(field(fields, 4), 4),
                 bytes(field(fields, 5), 5), channel, unsigned(field(fields, 11), 11), issuedAt,
-                unsigned(field(fields, 13), 13), bytes(field(fields, 14), 14), bytes(field(fields, 15), 15), digest);
+                rawUnsigned(field(fields, 13), 13), bytes(field(fields, 14), 14), bytes(field(fields, 15), 15), digest);
     }
 
     private static ClaimPrecondition decodeClaimPrecondition(final byte[] encoded) {
@@ -749,7 +749,7 @@ public final class PublishAdmissionBody {
                     break;
                 }
                 if (field.wireType() == 0) {
-                    CanonicalProtobuf.int64(output, field.number(), field.unsignedValue());
+                    CanonicalProtobuf.uint64Bits(output, field.number(), field.unsignedValue());
                 } else {
                     CanonicalProtobuf.bytes(output, field.number(), field.rawValue());
                 }
@@ -829,6 +829,13 @@ public final class PublishAdmissionBody {
 
     private static long unsigned(final CanonicalProtobuf.Reader.Field field, final int number) {
         if (field.number() != number || field.wireType() != 0 || field.unsignedValue() < 0) {
+            throw new IllegalArgumentException("invalid nested scalar field " + number);
+        }
+        return field.unsignedValue();
+    }
+
+    private static long rawUnsigned(final CanonicalProtobuf.Reader.Field field, final int number) {
+        if (field.number() != number || field.wireType() != 0) {
             throw new IllegalArgumentException("invalid nested scalar field " + number);
         }
         return field.unsignedValue();
@@ -1103,8 +1110,8 @@ public final class PublishAdmissionBody {
             this.channel = copy(channel);
             this.validUntilEpochMs = validUntilEpochMs;
             this.issuedAt = issuedAt;
-            if (credentialBindingGeneration <= 0) {
-                throw new IllegalArgumentException("certificate credential generation must be positive");
+            if (credentialBindingGeneration == 0) {
+                throw new IllegalArgumentException("certificate credential generation must be non-zero");
             }
             this.credentialBindingGeneration = credentialBindingGeneration;
             this.credentialBindingDigest = fixed(credentialBindingDigest, HASH_LENGTH,

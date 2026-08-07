@@ -48,6 +48,8 @@ class ChannelResourceIdentityV1Test {
 
         assertEquals(highBitGeneration, channel.channelGeneration());
         assertEquals(highBitGeneration, channel.evidenceGeneration());
+        assertEquals(Long.MIN_VALUE, channel.credentialBindingGeneration());
+        assertEquals(Long.MIN_VALUE, channel.credentialUseLease().secretGeneration());
         assertArrayEquals(channel.canonicalBytes(), ChannelResourceIdentityV1.decode(channel.canonicalBytes())
                 .canonicalBytes());
     }
@@ -62,6 +64,7 @@ class ChannelResourceIdentityV1Test {
         final byte[] guardDigest = Bytes.sha256(Bytes.utf8("high-bit-guard"));
         final byte[] bindingDigest = Bytes.sha256(Bytes.utf8("high-bit-binding"));
         final byte[] fingerprint = Bytes.sha256(Bytes.utf8("high-bit-fingerprint"));
+        final long credentialGeneration = Long.MIN_VALUE;
         final byte[] prefix = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, AdapterKindV1.KAFKA.wireValue());
             CanonicalProtobuf.uint32(output, 2, ChannelKindV1.KAFKA_TRANSACTIONAL_RECEIPT.wireValue());
@@ -84,11 +87,12 @@ class ChannelResourceIdentityV1Test {
                 1, 1, 1, Bytes.sha256(Bytes.utf8("high-bit-time")), 0, null);
         final CredentialUseLeaseV1 lease = new CredentialUseLeaseV1(profile,
                 CredentialUseKindV1.DESTINATION_CHANNEL,
-                CredentialUseLeaseV1.destinationChannelHolderScope(prefix), 1, bindingDigest, fingerprint,
+                CredentialUseLeaseV1.destinationChannelHolderScope(prefix), credentialGeneration, bindingDigest,
+                fingerprint,
                 issuedAt, 9_000, 1);
         return new ChannelResourceIdentityV1(AdapterKindV1.KAFKA, ChannelKindV1.KAFKA_TRANSACTIONAL_RECEIPT,
                 lane, laneIncarnation, target, 0, generation, 0, producer, Bytes.sha256(producer), target, generation,
-                guardDigest, 1, bindingDigest, fingerprint, lease).canonicalBytes();
+                guardDigest, credentialGeneration, bindingDigest, fingerprint, lease).canonicalBytes();
     }
 
     private static byte[] rewrite(final byte[] encoded, final int number, final long value) {

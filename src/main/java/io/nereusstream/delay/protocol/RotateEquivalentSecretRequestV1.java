@@ -25,14 +25,12 @@ public final class RotateEquivalentSecretRequestV1 implements ControlOperationRe
                                            final byte[] expectedBindingDigest,
                                            final long expectedBindingHeadRevision) {
         this.profile = requireBindableProfile(profile);
-        this.expectedSecretGeneration = positive(expectedSecretGeneration, "expectedSecretGeneration");
-        this.newSecretGeneration = positive(newSecretGeneration, "newSecretGeneration");
-        final long expectedSuccessor;
-        try {
-            expectedSuccessor = Math.addExact(this.expectedSecretGeneration, 1);
-        } catch (ArithmeticException overflow) {
-            throw new IllegalArgumentException("secret generation cannot be incremented", overflow);
+        this.expectedSecretGeneration = nonZero(expectedSecretGeneration, "expectedSecretGeneration");
+        this.newSecretGeneration = nonZero(newSecretGeneration, "newSecretGeneration");
+        if (this.expectedSecretGeneration == -1L) {
+            throw new IllegalArgumentException("secret generation cannot be incremented");
         }
+        final long expectedSuccessor = this.expectedSecretGeneration + 1;
         if (this.newSecretGeneration != expectedSuccessor) {
             throw new IllegalArgumentException("newSecretGeneration must increment expectedSecretGeneration by one");
         }
@@ -93,8 +91,8 @@ public final class RotateEquivalentSecretRequestV1 implements ControlOperationRe
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, profile.canonicalBytes());
-            CanonicalProtobuf.uint64(output, 2, expectedSecretGeneration);
-            CanonicalProtobuf.uint64(output, 3, newSecretGeneration);
+            CanonicalProtobuf.uint64Bits(output, 2, expectedSecretGeneration);
+            CanonicalProtobuf.uint64Bits(output, 3, newSecretGeneration);
             CanonicalProtobuf.bytes(output, 4, newSecretReference);
             CanonicalProtobuf.bytes(output, 5, newSecretReferenceSha256);
             CanonicalProtobuf.bytes(output, 6, equivalenceAttestation.canonicalBytes());
@@ -159,6 +157,13 @@ public final class RotateEquivalentSecretRequestV1 implements ControlOperationRe
     private static byte[] fixed(final byte[] value, final String name) {
         Bytes.requireLength(value, HASH_LENGTH, name);
         return Bytes.copy(value);
+    }
+
+    private static long nonZero(final long value, final String name) {
+        if (value == 0) {
+            throw new IllegalArgumentException(name + " must be non-zero");
+        }
+        return value;
     }
 
     private static long positive(final long value, final String name) {

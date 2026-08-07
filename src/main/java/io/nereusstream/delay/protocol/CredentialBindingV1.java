@@ -23,7 +23,7 @@ public final class CredentialBindingV1 {
                                final CredentialEquivalenceAttestationV1 equivalenceAttestation,
                                final int bindingProtocolVersion, final byte[] bindingDigest) {
         this.profile = requireBindableProfile(profile);
-        this.secretGeneration = positive(secretGeneration, "secretGeneration");
+        this.secretGeneration = nonZero(secretGeneration, "secretGeneration");
         this.secretReference = boundedNonEmpty(secretReference, MAX_SECRET_REFERENCE_BYTES, "secretReference");
         this.secretReferenceSha256 = fixed(secretReferenceSha256, "secretReferenceSha256");
         if (!Bytes.constantTimeEquals(this.secretReferenceSha256, Bytes.sha256(this.secretReference))) {
@@ -59,7 +59,7 @@ public final class CredentialBindingV1 {
                 "CredentialBindingV1");
         QueryCodecSupport.requireNumbers(fields, new int[]{1, 2, 3, 4, 5, 6, 7}, "CredentialBindingV1");
         final ProfileRefV1 profile = ProfileRefV1.decode(QueryCodecSupport.nested(fields.get(0), 1));
-        final long generation = positive(QueryCodecSupport.uint(fields.get(1), 2), "secretGeneration");
+        final long generation = nonZero(QueryCodecSupport.uint(fields.get(1), 2), "secretGeneration");
         final byte[] reference = QueryCodecSupport.bytes(fields.get(2), 3);
         final byte[] referenceHash = QueryCodecSupport.fixed(fields.get(3), 4, HASH_LENGTH);
         final CredentialEquivalenceAttestationV1 attestation =
@@ -104,7 +104,7 @@ public final class CredentialBindingV1 {
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, profile.canonicalBytes());
-            CanonicalProtobuf.uint64(output, 2, secretGeneration);
+            CanonicalProtobuf.uint64Bits(output, 2, secretGeneration);
             CanonicalProtobuf.bytes(output, 3, secretReference);
             CanonicalProtobuf.bytes(output, 4, secretReferenceSha256);
             CanonicalProtobuf.bytes(output, 5, equivalenceAttestation.canonicalBytes());
@@ -140,7 +140,7 @@ public final class CredentialBindingV1 {
                                           final CredentialEquivalenceAttestationV1 equivalenceAttestation) {
         final byte[] fields = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, profile.canonicalBytes());
-            CanonicalProtobuf.uint64(output, 2, secretGeneration);
+            CanonicalProtobuf.uint64Bits(output, 2, secretGeneration);
             CanonicalProtobuf.bytes(output, 3, secretReference);
             CanonicalProtobuf.bytes(output, 4, secretReferenceSha256);
             CanonicalProtobuf.bytes(output, 5, equivalenceAttestation.canonicalBytes());
@@ -171,9 +171,9 @@ public final class CredentialBindingV1 {
         return Bytes.copy(value);
     }
 
-    private static long positive(final long value, final String name) {
-        if (value <= 0) {
-            throw new IllegalArgumentException(name + " must be positive");
+    private static long nonZero(final long value, final String name) {
+        if (value == 0) {
+            throw new IllegalArgumentException(name + " must be non-zero");
         }
         return value;
     }

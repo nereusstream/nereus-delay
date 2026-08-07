@@ -80,8 +80,8 @@ public final class ChannelResourceIdentityV1 {
         this.evidenceGeneration = evidenceGeneration;
         this.resourceGuardAttestationDigest = fixed(resourceGuardAttestationDigest, HASH_LENGTH,
                 "resourceGuardAttestationDigest");
-        if (credentialBindingGeneration <= 0) {
-            throw new IllegalArgumentException("credentialBindingGeneration must be positive");
+        if (credentialBindingGeneration == 0) {
+            throw new IllegalArgumentException("credentialBindingGeneration must be non-zero");
         }
         this.credentialBindingGeneration = credentialBindingGeneration;
         this.credentialBindingDigest = fixed(credentialBindingDigest, HASH_LENGTH, "credentialBindingDigest");
@@ -174,7 +174,7 @@ public final class ChannelResourceIdentityV1 {
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
             writeFieldsThrough13(output);
-            CanonicalProtobuf.uint64(output, 14, credentialBindingGeneration);
+            CanonicalProtobuf.uint64Bits(output, 14, credentialBindingGeneration);
             CanonicalProtobuf.bytes(output, 15, credentialBindingDigest);
             CanonicalProtobuf.bytes(output, 16, resolvedCredentialVersionFingerprintDigest);
             CanonicalProtobuf.bytes(output, 17, credentialUseLease.canonicalBytes());
@@ -206,7 +206,7 @@ public final class ChannelResourceIdentityV1 {
                 hasEvidence ? BrokerResourceIdentityV1.decode(QueryCodecSupport.nested(fields.get(10), 11)) : null,
                 hasEvidence ? nonZero(QueryCodecSupport.uint(fields.get(11), 12), "evidenceGeneration") : null,
                 QueryCodecSupport.fixed(fields.get(hasEvidence ? 12 : 10), 13, HASH_LENGTH),
-                positive(QueryCodecSupport.uint(fields.get(hasEvidence ? 13 : 11), 14),
+                nonZero(QueryCodecSupport.uint(fields.get(hasEvidence ? 13 : 11), 14),
                         "credentialBindingGeneration"),
                 QueryCodecSupport.fixed(fields.get(hasEvidence ? 14 : 12), 15, HASH_LENGTH),
                 QueryCodecSupport.fixed(fields.get(hasEvidence ? 15 : 13), 16, HASH_LENGTH),

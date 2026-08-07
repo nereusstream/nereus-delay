@@ -180,12 +180,17 @@ and non-submission branches. `ChannelResourceIdentityV1Test`,
 provider ownership, authenticated Broker proofs, signing, Shard Log routing,
 lease protection CAS/TTL configuration and evidence retention remain outside
 this codec boundary.
-Physical channel and evidence generations in `ChannelResourceIdentityV1` now
-preserve raw unsigned `uint64` bit patterns (zero is still rejected), matching
-the typed `EvidenceCursorV1` generation. Credential binding generations and
-protection revisions remain bounded non-zero control versions. The high-bit
-transactional-channel vector is covered by
-`ChannelResourceIdentityV1Test.preservesUnsignedChannelAndEvidenceGenerationBits`.
+Physical channel/evidence generations and the credential binding generation in
+`ChannelResourceIdentityV1` now preserve raw unsigned `uint64` bit patterns
+(zero is still rejected), matching the typed `EvidenceCursorV1` generation.
+The same full-width rule now covers credential attestation/binding,
+Head/protection, use lease, Ready Certificate, native capability snapshot,
+rotation request/result, and Profile control projections. Head/protection
+revisions, resource-guard configuration generation, and other control versions
+remain bounded positive values. High-bit coverage is provided by
+`CredentialBindingV1Test`, `ProfileControlRequestV1Test`,
+`ControlResultCodecTest`, `ChannelResourceIdentityV1Test`, `ProtocolCodecTest`,
+and the Publish Admission/Ready Certificate fixtures.
 `ReadyCertificateV1` and `PublishAdmissionBody` additionally reject a
 certificate whose credential binding drifts from the Channel or whose expiry
 outlives the protected Channel lease.

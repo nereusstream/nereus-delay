@@ -62,6 +62,26 @@ class ProfileControlRequestV1Test {
         assertThrows(IllegalArgumentException.class, () -> RotateEquivalentSecretRequestV1.decode(tampered));
     }
 
+    @Test
+    void preservesHighBitSecretGenerationsAcrossRotation() throws Exception {
+        final ProfileRefV1 reference = destinationEnvelope().ref();
+        final KeyPair keyPair = ed25519();
+        final long expectedGeneration = Long.MIN_VALUE;
+        final long newGeneration = expectedGeneration + 1;
+        final byte[] nextSecret = Bytes.utf8("provider://credential/high-bit-v2");
+        final CredentialEquivalenceAttestationV1 nextAttestation = attestation(reference, newGeneration,
+                nextSecret, keyPair);
+
+        final RotateEquivalentSecretRequestV1 rotate = new RotateEquivalentSecretRequestV1(reference,
+                expectedGeneration, newGeneration, nextSecret, Bytes.sha256(nextSecret), nextAttestation,
+                bytes(32, 21), 4);
+
+        final RotateEquivalentSecretRequestV1 decoded = RotateEquivalentSecretRequestV1.decode(rotate.canonicalBytes());
+        assertEquals(expectedGeneration, decoded.expectedSecretGeneration());
+        assertEquals(newGeneration, decoded.newSecretGeneration());
+        assertEquals(newGeneration, decoded.newBinding().secretGeneration());
+    }
+
     private static ProfileSemanticEnvelopeV1 destinationEnvelope() {
         final ProfileRefV1 capability = new ProfileRefV1(Bytes.utf8("capability"), 1, bytes(32, 1),
                 ProfileKindV1.DELIVERY_CAPABILITY);
