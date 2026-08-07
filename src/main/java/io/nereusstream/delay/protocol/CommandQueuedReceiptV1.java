@@ -665,8 +665,7 @@ public final class CommandQueuedReceiptV1 {
             authenticatedClusterId = utf8Nfc(authenticatedClusterId, "authenticatedClusterId");
             Bytes.requireLength(brokerResourceIncarnation, 32, "brokerResourceIncarnation");
             physicalTopic = utf8Nfc(physicalTopic, "physicalTopic");
-            if (physicalTopicCreationTimestamp < 0 || batchSize == 0
-                    || Integer.compareUnsigned(normalizedBatchIndex, batchSize) >= 0
+            if (batchSize == 0 || Integer.compareUnsigned(normalizedBatchIndex, batchSize) >= 0
                     || brokerEntryTimestampEpochMs < 0) {
                 throw new IllegalArgumentException("invalid Pulsar queued acknowledgement");
             }
@@ -695,7 +694,7 @@ public final class CommandQueuedReceiptV1 {
                                             authenticatedClusterId.getBytes(StandardCharsets.UTF_8));
                                     CanonicalProtobuf.bytes(resource, 2, brokerResourceIncarnation);
                                     CanonicalProtobuf.bytes(resource, 3, physicalTopic.getBytes(StandardCharsets.UTF_8));
-                                    CanonicalProtobuf.uint64(resource, 4, physicalTopicCreationTimestamp);
+                                    CanonicalProtobuf.uint64Bits(resource, 4, physicalTopicCreationTimestamp);
                                 }));
                         CanonicalProtobuf.uint32Bits(pulsar, 2, partition);
                         CanonicalProtobuf.uint64Bits(pulsar, 3, ledgerId);

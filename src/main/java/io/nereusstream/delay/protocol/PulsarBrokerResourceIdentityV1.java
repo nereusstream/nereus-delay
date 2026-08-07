@@ -22,9 +22,6 @@ public final class PulsarBrokerResourceIdentityV1 {
         Bytes.requireLength(resourceIncarnation, RESOURCE_LENGTH, "resourceIncarnation");
         this.resourceIncarnation = Bytes.copy(resourceIncarnation);
         this.physicalTopic = nfc(physicalTopic, "physicalTopic");
-        if (physicalTopicCreationTimestamp < 0) {
-            throw new IllegalArgumentException("physical topic creation timestamp must be non-negative");
-        }
         this.physicalTopicCreationTimestamp = physicalTopicCreationTimestamp;
     }
 
@@ -53,7 +50,7 @@ public final class PulsarBrokerResourceIdentityV1 {
             CanonicalProtobuf.bytes(output, 1, authenticatedClusterId.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             CanonicalProtobuf.bytes(output, 2, resourceIncarnation);
             CanonicalProtobuf.bytes(output, 3, physicalTopic.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            CanonicalProtobuf.uint64(output, 4, physicalTopicCreationTimestamp);
+            CanonicalProtobuf.uint64Bits(output, 4, physicalTopicCreationTimestamp);
         });
     }
 

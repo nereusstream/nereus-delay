@@ -25,9 +25,11 @@ class EvidenceCursorV1Test {
         assertEquals(kafka, EvidenceCursorV1.decode(kafka.canonicalBytes()));
 
         final EvidenceCursorV1 pulsar = EvidenceCursorV1.pulsar(bytes(32, 4), bytes(16, 5), bytes(32, 6),
-                -1, Long.MIN_VALUE, 200, "persistent://tenant/ns/topic", 8, Long.MIN_VALUE, -1L,
+                -1, Long.MIN_VALUE, 200, "persistent://tenant/ns/topic", Long.MIN_VALUE, Long.MIN_VALUE, -1L,
                 Integer.MIN_VALUE, Integer.MIN_VALUE + 1);
         assertEquals(pulsar, EvidenceCursorV1.decode(pulsar.canonicalBytes()));
+        assertEquals(Long.MIN_VALUE, EvidenceCursorV1.decode(pulsar.canonicalBytes())
+                .physicalTopicCreationTimestamp());
     }
 
     @Test

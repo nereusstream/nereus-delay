@@ -369,7 +369,7 @@ class AdapterIngressTest {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
         final byte[] token = Bytes.sha256(Bytes.utf8("token-2"));
         final PulsarIngressResource resource = new PulsarIngressResource(shard, "cluster", token,
-                "persistent://tenant/ns/command-3", 7003, 3);
+                "persistent://tenant/ns/command-3", Long.MIN_VALUE, 3);
         final PreparedCommand command = command(shard);
         final PinnedPulsarCommandIngress.PulsarSendTransport transport = request -> {
             assertEquals(resource.physicalTopicCreationTimestamp(), request.physicalTopicCreationTimestamp());

@@ -44,7 +44,7 @@ class DestinationAdapterTest {
     void targetTransportFailureIsUnknown() {
         final byte[] token = Bytes.sha256(Bytes.utf8("target-token"));
         final PulsarTargetResource resource = new PulsarTargetResource("cluster", token,
-                "persistent://tenant/ns/topic", 8000, 0);
+                "persistent://tenant/ns/topic", Long.MIN_VALUE, 0);
         final PinnedPulsarDestinationAdapter.PulsarDestinationTransport transport = actual -> {
             assertEquals(resource.physicalTopicCreationTimestamp(), actual.physicalTopicCreationTimestamp());
             throw new IllegalStateException("connection closed after send ownership");

@@ -174,7 +174,7 @@ final class CheckpointManifestJson {
                         decimal(fields.get("maxBrokerPersistedAtThroughCursor"),
                                 "maxBrokerPersistedAtThroughCursor"),
                         string(fields.get("physicalTopic"), "physicalTopic"),
-                        decimal(fields.get("physicalTopicCreationTimestamp"),
+                        unsignedDecimal(fields.get("physicalTopicCreationTimestamp"),
                                 "physicalTopicCreationTimestamp"),
                         unsignedDecimal(fields.get("ledgerId"), "ledgerId"),
                         unsignedDecimal(fields.get("entryId"), "entryId"),

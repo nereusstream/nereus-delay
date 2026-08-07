@@ -51,8 +51,7 @@ public final class EvidenceCursorV1 implements Comparable<EvidenceCursorV1> {
         this.lastObservedLsoExclusive = lastObservedLsoExclusive;
         this.resourceToken = resourceToken == null ? null : fixed(resourceToken, 32, "resourceToken");
         this.physicalTopic = physicalTopic == null ? null : nfc(physicalTopic, "physicalTopic");
-        this.physicalTopicCreationTimestamp = nonNegative(physicalTopicCreationTimestamp,
-                "physicalTopicCreationTimestamp");
+        this.physicalTopicCreationTimestamp = physicalTopicCreationTimestamp;
         this.ledgerId = ledgerId;
         this.entryId = entryId;
         if ((kafka && batchSize != 0)
@@ -180,7 +179,7 @@ public final class EvidenceCursorV1 implements Comparable<EvidenceCursorV1> {
                 CanonicalProtobuf.bytes(output, 11, CanonicalProtobuf.message(fields -> {
                     CanonicalProtobuf.bytes(fields, 1, resourceToken);
                     CanonicalProtobuf.bytes(fields, 2, physicalTopic.getBytes(StandardCharsets.UTF_8));
-                    CanonicalProtobuf.uint64(fields, 3, physicalTopicCreationTimestamp);
+                    CanonicalProtobuf.uint64Bits(fields, 3, physicalTopicCreationTimestamp);
                     CanonicalProtobuf.uint64Bits(fields, 4, ledgerId);
                     CanonicalProtobuf.uint64Bits(fields, 5, entryId);
                     CanonicalProtobuf.uint32Bits(fields, 6, normalizedBatchIndex);
@@ -298,13 +297,6 @@ public final class EvidenceCursorV1 implements Comparable<EvidenceCursorV1> {
             return result;
         }
         return Integer.compareUnsigned(normalizedBatchIndex, other.normalizedBatchIndex);
-    }
-
-    private static long nonNegative(final long value, final String name) {
-        if (value < 0) {
-            throw new IllegalArgumentException(name + " must be non-negative");
-        }
-        return value;
     }
 
     private static byte[] fixed(final byte[] value, final int length, final String name) {

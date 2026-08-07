@@ -29,7 +29,7 @@ public record PulsarSendResult(
             Objects.requireNonNull(resourceIncarnation, "resourceIncarnation");
             physicalTopic = canonicalText(physicalTopic, "physicalTopic");
             Bytes.requireLength(resourceIncarnation, 32, "resourceIncarnation");
-            if (stableCode != 0 || physicalTopicCreationTimestamp < 0 || batchSize == 0
+            if (stableCode != 0 || batchSize == 0
                     || Integer.compareUnsigned(batchIndex, batchSize) >= 0
                     || (!batched && (batchIndex != 0 || batchSize != 1)) || brokerEntryTimestampEpochMs < 0) {
                 throw new IllegalArgumentException("invalid persisted Pulsar result");

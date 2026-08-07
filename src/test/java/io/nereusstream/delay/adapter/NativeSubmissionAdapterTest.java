@@ -204,7 +204,7 @@ class NativeSubmissionAdapterTest {
         final KeyPair keyPair = keyPairGenerator.generateKeyPair();
         final byte[] resourceBytes = nonZero(32, 7);
         final PulsarBrokerResourceIdentityV1 target = new PulsarBrokerResourceIdentityV1(
-                "native-cluster", resourceBytes, "persistent://tenant/ns/native", 2_000);
+                "native-cluster", resourceBytes, "persistent://tenant/ns/native", Long.MIN_VALUE);
         final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("native-destination"), 1,
                 Bytes.sha256(Bytes.utf8("native-destination-semantic")), ProfileKindV1.DESTINATION);
         final ProfileRefV1 capability = new ProfileRefV1(Bytes.utf8("native-capability"), 1,

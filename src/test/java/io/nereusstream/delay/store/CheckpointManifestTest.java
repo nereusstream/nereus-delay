@@ -75,7 +75,7 @@ class CheckpointManifestTest {
                 Long.MIN_VALUE, -1L);
         final EvidenceCursorV1 pulsarCursor = EvidenceCursorV1.pulsar(
                 filled(32, 4), filled(16, 5), filled(32, 6), 2, 7, 200,
-                "persistent://tenant/ns/topic", 8, Long.MIN_VALUE, -1L, 0, 1);
+                "persistent://tenant/ns/topic", Long.MIN_VALUE, Long.MIN_VALUE, -1L, 0, 1);
         final CheckpointManifest manifest = new CheckpointManifest(
                 bytes(1), bytes(2), 4, null, null,
                 new CheckpointManifest.CreatedBy(bytes(3), bytes(4), 42),
@@ -96,6 +96,7 @@ class CheckpointManifestTest {
         assertTrue(json.contains("\"monotonicAnchorNs\":\"9223372036854775808\""));
         assertTrue(json.contains("\"ledgerId\":\"9223372036854775808\""));
         assertTrue(json.contains("\"entryId\":\"18446744073709551615\""));
+        assertTrue(json.contains("\"physicalTopicCreationTimestamp\":\"9223372036854775808\""));
         final CheckpointManifest decoded = CheckpointManifest.decodeCanonicalJson(manifest.canonicalJsonBytes());
         assertEquals(json, decoded.canonicalJson());
         assertEquals(Long.MIN_VALUE, ((KafkaSourcePosition) decoded.appliedShardLogPosition()).offset());
@@ -105,6 +106,7 @@ class CheckpointManifestTest {
                         && cursor.lastObservedLsoExclusive() == -1L));
         assertTrue(decoded.evidenceCursors().stream().anyMatch(cursor ->
                 cursor.evidenceKind().name().equals("PULSAR_ATTEMPT_JOURNAL_CONTIGUOUS")
+                        && cursor.physicalTopicCreationTimestamp() == Long.MIN_VALUE
                         && cursor.ledgerId() == Long.MIN_VALUE && cursor.entryId() == -1L));
     }
 

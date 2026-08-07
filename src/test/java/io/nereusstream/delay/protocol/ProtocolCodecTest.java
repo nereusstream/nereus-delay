@@ -115,7 +115,7 @@ class ProtocolCodecTest {
                 4, 5, 1, 3, PulsarSourcePosition.EntryKind.BATCH, 2_345);
         final PreparedCommand command = cancelV1(shard, 9_000);
         final CommandQueuedReceiptV1.PulsarQueuedAck ack = new CommandQueuedReceiptV1.PulsarQueuedAck(
-                "pulsar-cluster", resource, "persistent://tenant/topic", 1_111, 9, 4, 5, 1, 3, 2_345,
+                "pulsar-cluster", resource, "persistent://tenant/topic", Long.MIN_VALUE, 9, 4, 5, 1, 3, 2_345,
                 Bytes.sha256(Bytes.utf8("send-receipt")));
         final byte[] attempt = new byte[16];
         attempt[0] = 1;
@@ -303,7 +303,7 @@ class ProtocolCodecTest {
         final byte[] resource = new byte[32];
         resource[0] = 9;
         final PulsarBrokerResourceIdentityV1 target = new PulsarBrokerResourceIdentityV1(
-                "pulsar-native", resource, "persistent://tenant/native", 1_234);
+                "pulsar-native", resource, "persistent://tenant/native", Long.MIN_VALUE);
         assertEquals(target, PulsarBrokerResourceIdentityV1.decode(target.canonicalBytes()));
         final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("native-destination"), 2,
                 Bytes.sha256(Bytes.utf8("native-destination-semantic")), ProfileKindV1.DESTINATION);
@@ -312,7 +312,7 @@ class ProtocolCodecTest {
                 Bytes.sha256(Bytes.utf8("capability-snapshot")), 5_000,
                 Bytes.sha256(Bytes.utf8("prepared-bytes")));
         final CommandQueuedReceiptV1.PulsarQueuedAck ack = new CommandQueuedReceiptV1.PulsarQueuedAck(
-                "pulsar-native", resource, "persistent://tenant/native", 1_234, -1, 4, 5, 0, 1, 1_250,
+                "pulsar-native", resource, "persistent://tenant/native", Long.MIN_VALUE, -1, 4, 5, 0, 1, 1_250,
                 Bytes.sha256(Bytes.utf8("send-receipt")));
         final byte[] attempt = nonZero(16, 2);
 

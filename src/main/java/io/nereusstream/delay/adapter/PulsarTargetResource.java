@@ -18,9 +18,6 @@ public record PulsarTargetResource(
         Objects.requireNonNull(resourceIncarnation, "resourceIncarnation");
         physicalTopic = canonicalText(physicalTopic, "physicalTopic");
         Bytes.requireLength(resourceIncarnation, 32, "resourceIncarnation");
-        if (physicalTopicCreationTimestamp < 0) {
-            throw new IllegalArgumentException("invalid Pulsar target resource");
-        }
         resourceIncarnation = Bytes.copy(resourceIncarnation);
     }
 

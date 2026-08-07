@@ -273,7 +273,7 @@ public record CheckpointManifest(
                     quote(u64(cursor.maxBrokerPersistedAtThroughCursor())));
             field(json, "physicalPartition", u32(cursor.physicalPartition()));
             field(json, "physicalTopic", quote(cursor.physicalTopic()));
-            field(json, "physicalTopicCreationTimestamp", quote(u64(cursor.physicalTopicCreationTimestamp())));
+            field(json, "physicalTopicCreationTimestamp", quote(u64Bits(cursor.physicalTopicCreationTimestamp())));
             field(json, "resourceToken", quote(b64(cursor.resourceToken())));
         }
         return json.append('}').toString();
