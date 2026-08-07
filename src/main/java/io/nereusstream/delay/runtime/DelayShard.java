@@ -920,12 +920,14 @@ public final class DelayShard {
         }
         final int valueType = gcValueType(raw);
         if (valueType == ResourceRetireIntentRecord.VALUE_TYPE) {
-            return ResourceRetireIntentRecord.decode(
-                    ValueEnvelope.decode(raw, ResourceRetireIntentRecord.VALUE_TYPE).payload());
+            return validateGcIntentIdentity(ResourceRetireIntentRecord.decode(
+                    ValueEnvelope.decode(raw, ResourceRetireIntentRecord.VALUE_TYPE).payload()), resourceKind,
+                    resourceIdentityHash, expectedVersion);
         }
         if (valueType == ResourceDeleteConfirmedRecord.VALUE_TYPE) {
-            return ResourceDeleteConfirmedRecord.decode(
-                    ValueEnvelope.decode(raw, ResourceDeleteConfirmedRecord.VALUE_TYPE).payload()).retireIntent();
+            return validateGcIntentIdentity(ResourceDeleteConfirmedRecord.decode(
+                    ValueEnvelope.decode(raw, ResourceDeleteConfirmedRecord.VALUE_TYPE).payload()).retireIntent(),
+                    resourceKind, resourceIdentityHash, expectedVersion);
         }
         throw new IllegalStateException("unknown gc task value type: " + valueType);
     }
@@ -943,8 +945,9 @@ public final class DelayShard {
         if (raw == null || gcValueType(raw) != ResourceDeleteConfirmedRecord.VALUE_TYPE) {
             return null;
         }
-        return ResourceDeleteConfirmedRecord.decode(
-                ValueEnvelope.decode(raw, ResourceDeleteConfirmedRecord.VALUE_TYPE).payload());
+        return validateGcConfirmationIdentity(ResourceDeleteConfirmedRecord.decode(
+                ValueEnvelope.decode(raw, ResourceDeleteConfirmedRecord.VALUE_TYPE).payload()), resourceKind,
+                resourceIdentityHash, expectedVersion);
     }
 
     /**
@@ -3465,6 +3468,24 @@ public final class DelayShard {
                            final long expectedVersion) {
         return store.get(ColumnFamily.GC, KeyCodec.gcRetireIntent(resourceKind, resourceIdentityHash,
                 expectedVersion));
+    }
+
+    private static ResourceRetireIntentRecord validateGcIntentIdentity(
+            final ResourceRetireIntentRecord intent, final ResourceKind resourceKind,
+            final byte[] resourceIdentityHash, final long expectedVersion) {
+        if (intent.resourceKind() != resourceKind
+                || !Bytes.constantTimeEquals(intent.resourceIdentityHash(), resourceIdentityHash)
+                || intent.expectedResourceStateVersion() != expectedVersion) {
+            throw new IllegalStateException("GC retire intent key/value identity mismatch");
+        }
+        return intent;
+    }
+
+    private static ResourceDeleteConfirmedRecord validateGcConfirmationIdentity(
+            final ResourceDeleteConfirmedRecord confirmation, final ResourceKind resourceKind,
+            final byte[] resourceIdentityHash, final long expectedVersion) {
+        validateGcIntentIdentity(confirmation.retireIntent(), resourceKind, resourceIdentityHash, expectedVersion);
+        return confirmation;
     }
 
     private static int gcValueType(final byte[] raw) {

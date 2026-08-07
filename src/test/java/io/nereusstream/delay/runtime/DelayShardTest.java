@@ -3371,6 +3371,45 @@ class DelayShardTest {
     }
 
     @Test
+    void gcRetireIntentLookupRejectsKeyValueIdentityMismatch() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("gc-key-mismatch"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 54);
+        final byte[] resource = localStoreResource(shardId);
+        final byte[] body = resourceRetireBody(shardId, resource, 7,
+                resourceProtectionSet(Bytes.sha256(Bytes.utf8("gc-key-mismatch-protection"))));
+        final ResourceRetireIntentBody parsed = ResourceRetireIntentBody.decode(body);
+        final byte[] service = AuthorIdentity.service(Bytes.utf8("gc-key-mismatch-service"),
+                Bytes.utf8("run-1"), 1).canonicalBytes();
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.RESOURCE_RETIRE_INTENT,
+                9_000, SystemMutation.computeResourceRetireLogicalIdentity(parsed.resourceKind(),
+                        parsed.resource().identityHash(), 7), body, service, 1, keyPair.getPrivate());
+        final ShardId otherShardId = new ShardId(RouteIncarnation.random(), 55);
+        final ResourceRetireIntentBody other = ResourceRetireIntentBody.decode(resourceRetireBody(otherShardId,
+                localStoreResource(otherShardId), 7,
+                resourceProtectionSet(Bytes.sha256(Bytes.utf8("gc-key-mismatch-other-protection")))));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.OK, shard.applySystemMutation(mutation, position(shardId, 0, 1_000),
+                    keyPair.getPublic()).stableCode());
+            final ResourceRetireIntentRecord stored = shard.getResourceRetireIntent(ResourceKind.LOCAL_STORE,
+                    parsed.resource().identityHash(), 7);
+            final ResourceRetireIntentRecord misplaced = new ResourceRetireIntentRecord(stored.mutationId(),
+                    stored.mutationHash(), other.resourceKind(), other.resource().canonicalBytes(),
+                    other.resource().identityHash(), stored.expectedResourceStateVersion(),
+                    stored.appliedMutationSequence(), stored.protections(), stored.appliedSourcePosition());
+            store.write(batch -> batch.putValue(ColumnFamily.GC, ResourceRetireIntentRecord.VALUE_TYPE,
+                    KeyCodec.gcRetireIntent(ResourceKind.LOCAL_STORE, parsed.resource().identityHash(), 7),
+                    misplaced.encode()));
+
+            assertThrows(IllegalStateException.class, () -> shard.getResourceRetireIntent(ResourceKind.LOCAL_STORE,
+                    parsed.resource().identityHash(), 7));
+        }
+    }
+
+    @Test
     void resourceDeleteConfirmationRequiresExactIntentAndRetainsLocalTombstone() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("resource-delete-confirmed"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 27);
