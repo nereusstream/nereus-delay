@@ -96,6 +96,20 @@ class WorkerSchedulerTest {
     }
 
     @Test
+    void highWeightRetainsItsConfiguredOuterDeficitQuantum() {
+        final ShardId shard = shard(12);
+        final DestinationLaneId lane = lane(12);
+        final WorkerScheduler worker = new WorkerScheduler(10, 1);
+        worker.registerShard(shard, 8, LaneScheduler.defaults());
+        worker.registerLane(shard, laneRecord(lane));
+        worker.offer(item(shard, lane, 1));
+
+        worker.poll(new SchedulerBudget(1, 100, 1_000_000_000));
+
+        assertEquals(79, worker.snapshot().shards().get(0).deficit());
+    }
+
+    @Test
     void restoreStartsANewOuterFirstPass() {
         final ShardId first = shard(9);
         final ShardId second = shard(10);

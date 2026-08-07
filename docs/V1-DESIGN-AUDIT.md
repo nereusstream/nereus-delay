@@ -275,6 +275,10 @@ Lane head；当该合法 record 大于 outer deficit cap 时，只在全局 byte
 两级 scheduler 现在还对
 `weight * quantum` 与 deficit cap 做 checked arithmetic，并对运行时 deficit 累加做
 saturating arithmetic；配置、注册或恢复导致的整数溢出不会 wrap 成可调度的错误预算。
+两级 cap 至少提升到当前注册的 `weight * quantum`，因此 weight 大于四时不会被
+固定 4×quantum cap 静默截成错误的长期服务比例；
+`LaneSchedulerTest.highWeightRetainsItsConfiguredDeficitQuantum` 与
+`WorkerSchedulerTest.highWeightRetainsItsConfiguredOuterDeficitQuantum` 覆盖该边界。
 `LaneSchedulerTest.rejectsQuantumAndWeightArithmeticOverflow` 与
 `WorkerSchedulerTest.rejectsQuantumAndWeightArithmeticOverflow` 是本地回归证据，
 `WorkerSchedulerTest.recoveryFirstPassServesEveryEligibleShardBeforeRepeatingOne` 与

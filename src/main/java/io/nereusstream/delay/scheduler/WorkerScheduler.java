@@ -21,7 +21,7 @@ public final class WorkerScheduler {
     private static final long MAX_DEFICIT_MULTIPLIER = 4;
 
     private final long quantumBytes;
-    private final long maxDeficitBytes;
+    private long maxDeficitBytes;
     private final int maxVisitShards;
     private final Map<ShardId, ShardQueue> shards = new HashMap<>();
     private final List<ShardId> ring = new ArrayList<>();
@@ -50,7 +50,7 @@ public final class WorkerScheduler {
         if (weight <= 0) {
             throw new IllegalArgumentException("shard weight must be positive");
         }
-        checkedWeightIncrement(weight);
+        maxDeficitBytes = Math.max(maxDeficitBytes, checkedWeightIncrement(weight));
         final ShardQueue existing = shards.get(shardId);
         if (existing == null) {
             shards.put(shardId, new ShardQueue(shardId, weight, laneScheduler));

@@ -24,7 +24,7 @@ public final class LaneScheduler {
     private static final long MAX_DEFICIT_MULTIPLIER = 4;
 
     private final long quantumBytes;
-    private final long maxDeficitBytes;
+    private long maxDeficitBytes;
     private final int maxVisitMessages;
     private final Map<DestinationLaneId, LaneQueue> lanes = new HashMap<>();
     private final List<DestinationLaneId> ring = new ArrayList<>();
@@ -46,7 +46,7 @@ public final class LaneScheduler {
 
     public synchronized void register(final LaneRecord lane) {
         Objects.requireNonNull(lane, "lane");
-        checkedWeightIncrement(lane.weight());
+        maxDeficitBytes = Math.max(maxDeficitBytes, checkedWeightIncrement(lane.weight()));
         final LaneQueue existing = lanes.get(lane.laneId());
         if (existing == null) {
             lanes.put(lane.laneId(), new LaneQueue(lane));
