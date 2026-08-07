@@ -1123,6 +1123,28 @@ class DelayShardTest {
     }
 
     @Test
+    void readyDiscoveryRejectsMissingTimelineEntry() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("ready-missing-timeline"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 83);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("ready-missing-timeline-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("ready-missing-timeline")), 9_000);
+        final KafkaSourcePosition sourcePosition = position(shardId, 0, 1_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, sourcePosition).stableCode());
+            final LaneRecord readyLane = shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            store.write(batch -> batch.delete(ColumnFamily.TIMELINE,
+                    KeyCodec.timelineDue(lane, 2_000, sourcePosition.sourceOrderToken(), schedule.delayMessageId(), 0)));
+            assertThrows(IllegalStateException.class, () -> shard.discoverReady(10_000, 1));
+            assertNotNull(store.getValue(ColumnFamily.TIMELINE,
+                    KeyCodec.timelineReady(2_000, lane, readyLane.laneVersion()), 3));
+        }
+    }
+
+    @Test
     void sourceOrderedLaneControlPausesAndResumesWithClaimRollback() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("lane-control"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 6);

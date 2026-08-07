@@ -375,6 +375,10 @@ reconstructs the per-Lane READY head; a current scheduled `MESSAGE` cannot
 legitimize a timeline entry whose eligibility/source token/generation key was
 altered. `DelayShardTest.readyRebuildRejectsTimelineKeyThatDiffersFromCurrentMessage`
 covers the recovery-only path.
+Direct `discoverReady` now makes the same final existence and key/value identity
+check before returning scheduler work; a READY projection cannot survive as a
+standalone pointer after its timeline entry is deleted. The missing-entry case
+is covered by `DelayShardTest.readyDiscoveryRejectsMissingTimelineEntry`.
 
 The embedded Kafka ingress now checks source-offset exhaustion before creating
 the next queued position and advances the counter only after the position has

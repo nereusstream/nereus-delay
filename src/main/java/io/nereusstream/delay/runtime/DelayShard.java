@@ -4668,6 +4668,14 @@ public final class DelayShard {
             if (!Bytes.constantTimeEquals(Bytes.sha256(timelineKey), value.timelineKeySha256())) {
                 throw new IllegalStateException("READY timeline digest mismatch");
             }
+            final var timelineValue = store.getValue(ColumnFamily.TIMELINE, timelineKey, 1);
+            if (timelineValue == null) {
+                throw new IllegalStateException("READY points to a missing timeline entry");
+            }
+            final TimelineEntry timeline = TimelineEntry.decode(timelineValue.payload());
+            if (!timeline.messageId().equals(value.messageId()) || timeline.generation() != value.generation()) {
+                throw new IllegalStateException("READY timeline identity mismatch");
+            }
             result.add(new ReadyWork(key.laneId(), value.messageId(), value.generation(),
                     key.nextEligibleAtEpochMs(), key.laneVersion(), message.orderingMode()
                     == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO));
