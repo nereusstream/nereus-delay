@@ -61,6 +61,7 @@ public final class CheckpointUploadCoordinator {
         final var published = intentStore.currentPublishedFor(pending);
         if (published.isPresent()) {
             final CheckpointUploadIntentV1 publishedIntent = published.orElseThrow();
+            limits.validateResource(publishedIntent.publishedManifest());
             validatePublishedResource(pending, manifest, publishedIntent.publishedManifest(), manifestBytes);
             return publishedIntent;
         }
@@ -81,6 +82,7 @@ public final class CheckpointUploadCoordinator {
             slotAcquired = true;
             final CheckpointResourceV1 resource = Objects.requireNonNull(adapter.upload(request),
                     "checkpoint upload adapter returned null resource");
+            limits.validateResource(resource);
             validatePublishedResource(pending, manifest, resource, manifestBytes);
             return intentStore.publish(pending, resource);
         } finally {

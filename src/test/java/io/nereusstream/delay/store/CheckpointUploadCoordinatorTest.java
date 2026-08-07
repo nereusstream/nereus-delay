@@ -167,6 +167,31 @@ class CheckpointUploadCoordinatorTest {
         assertEquals(fixture.pending(), intentStore.current().orElseThrow());
     }
 
+    @Test
+    void explicitObjectIdentityLimitRejectsProviderResourceBeforeIntentCas() throws Exception {
+        final Fixture fixture = fixture();
+        final CheckpointUploadIntentStore intentStore = new CheckpointUploadIntentStore();
+        intentStore.create(fixture.pending());
+        final AtomicBoolean called = new AtomicBoolean();
+        final CheckpointManifestLimits limits = new CheckpointManifestLimits(
+                10, 1L << 20, 1L << 20, 1024, 1 << 20, 10, 64);
+        final CheckpointResourceV1 oversized = new CheckpointResourceV1(fixture.pending().recoveryLineageId(),
+                fixture.pending().checkpointId(), fixture.profile(), bytes(4, 1), bytes(65, 2), bytes(8, 3),
+                fixture.manifest().canonicalJsonBytes().length, fixture.manifest().manifestSha256());
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(
+                ShardStoreConfig.defaults(tempDir.resolve("bounded-object-identity")))) {
+            final CheckpointUploadCoordinator coordinator = new CheckpointUploadCoordinator(resources, intentStore,
+                    limits);
+            assertThrows(IllegalArgumentException.class, () -> coordinator.upload(fixture.directory(),
+                    fixture.pending(), fixture.manifest(), 1_000, request -> {
+                        called.set(true);
+                        return oversized;
+                    }));
+        }
+        assertEquals(true, called.get());
+        assertEquals(fixture.pending(), intentStore.current().orElseThrow());
+    }
+
     private Fixture fixture() throws Exception {
         final Path directory = tempDir.resolve("checkpoint-" + UUID.randomUUID());
         Files.createDirectories(directory);

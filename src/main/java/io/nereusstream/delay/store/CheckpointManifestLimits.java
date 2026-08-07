@@ -1,5 +1,7 @@
 package io.nereusstream.delay.store;
 
+import io.nereusstream.delay.protocol.CheckpointResourceV1;
+
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
@@ -65,6 +67,23 @@ public record CheckpointManifestLimits(
         }
         if (length < 0 || length > maxIndividualFileBytes) {
             throw new IllegalArgumentException("checkpoint file length exceeds configured bound: " + name);
+        }
+    }
+
+    /** Validates the immutable Object Store identity returned for the manifest object. */
+    public void validateResource(final CheckpointResourceV1 resource) {
+        Objects.requireNonNull(resource, "resource");
+        validateIdentityBytes(resource.container(), "checkpoint object container");
+        validateIdentityBytes(resource.objectKey(), "checkpoint manifest object key");
+        validateIdentityBytes(resource.immutableVersion(), "checkpoint manifest object version");
+        if (resource.manifestLength() > maxManifestBytes) {
+            throw new IllegalArgumentException("checkpoint manifest object exceeds configured byte bound");
+        }
+    }
+
+    private void validateIdentityBytes(final byte[] value, final String name) {
+        if (value.length > maxObjectIdentityBytes) {
+            throw new IllegalArgumentException(name + " exceeds configured bound");
         }
     }
 }

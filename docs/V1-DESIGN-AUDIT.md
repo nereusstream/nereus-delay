@@ -828,7 +828,7 @@ PUBLISHED successor，且不再次调用 adapter。
 `CheckpointFileInventory` 与 restore 的 `copyTree` 现在都会拒绝符号链接及目录
 之外的非 regular 文件，避免把 checkpoint 中未知的物理文件静默丢弃后仍继续
 恢复；显式 `CheckpointManifestLimits` 还把文件数、单文件/总 bytes、路径和
-manifest bytes、evidence cursor 数以及每个 object identity 字段长度绑定到
+manifest bytes、evidence cursor 数以及 file/manifest object identity 字段长度绑定到
 inventory、canonical decode、upload 和 restore 边界，原始 manifest byte cap 在
 JSON parse 前检查，file/evidence array bound 在 parser materialize 时检查，其余
 超限在本地 hash/provider I/O 前 fail closed。无 limits
