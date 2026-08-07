@@ -85,9 +85,6 @@ public final class ResourceDeleteConfirmedBody {
             Bytes.requireLength(mutationId, HASH_LENGTH, "retire mutationId");
             Bytes.requireLength(mutationHash, HASH_LENGTH, "retire mutationHash");
             Bytes.requireLength(resourceIdentityHash, HASH_LENGTH, "retire resourceIdentityHash");
-            if (expectedResourceStateVersion < 0) {
-                throw new IllegalArgumentException("expected resource state version must be non-negative");
-            }
             mutationId = Bytes.copy(mutationId);
             mutationHash = Bytes.copy(mutationHash);
             resourceIdentityHash = Bytes.copy(resourceIdentityHash);
@@ -113,7 +110,7 @@ public final class ResourceDeleteConfirmedBody {
                 CanonicalProtobuf.bytes(output, 1, mutationId);
                 CanonicalProtobuf.bytes(output, 2, mutationHash);
                 CanonicalProtobuf.bytes(output, 3, resourceIdentityHash);
-                CanonicalProtobuf.uint64(output, 4, expectedResourceStateVersion);
+                CanonicalProtobuf.uint64Bits(output, 4, expectedResourceStateVersion);
             });
         }
 
@@ -124,7 +121,7 @@ public final class ResourceDeleteConfirmedBody {
                     fixed(bytes(fields.get(0), 1), HASH_LENGTH, "retire mutationId"),
                     fixed(bytes(fields.get(1), 2), HASH_LENGTH, "retire mutationHash"),
                     fixed(bytes(fields.get(2), 3), HASH_LENGTH, "retire resourceIdentityHash"),
-                    unsigned(fields.get(3), 4));
+                    rawUnsigned(fields.get(3), 4));
             if (!Arrays.equals(encoded, result.canonicalBytes())) {
                 throw new IllegalArgumentException("non-canonical RetireIntentRef");
             }
@@ -292,6 +289,13 @@ public final class ResourceDeleteConfirmedBody {
 
     private static long unsigned(final CanonicalProtobuf.Reader.Field field, final int number) {
         if (field.number() != number || field.wireType() != 0 || field.unsignedValue() < 0) {
+            throw new IllegalArgumentException("invalid delete confirmation scalar field " + number);
+        }
+        return field.unsignedValue();
+    }
+
+    private static long rawUnsigned(final CanonicalProtobuf.Reader.Field field, final int number) {
+        if (field.number() != number || field.wireType() != 0) {
             throw new IllegalArgumentException("invalid delete confirmation scalar field " + number);
         }
         return field.unsignedValue();

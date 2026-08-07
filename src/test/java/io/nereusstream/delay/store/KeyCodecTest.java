@@ -60,6 +60,15 @@ class KeyCodecTest {
     }
 
     @Test
+    void gcRetireIntentKeyPreservesUnsignedResourceStateVersionBits() {
+        final byte[] resourceId = Bytes.sha256(Bytes.utf8("resource-state-version"));
+        assertArrayEquals(Bytes.concat(new byte[]{1, 1}, Bytes.u64be(0), new byte[]{1}, Bytes.lp32(resourceId),
+                        Bytes.u64beBits(Long.MIN_VALUE)),
+                KeyCodec.gcRetireIntent(io.nereusstream.delay.protocol.ResourceKind.PAYLOAD_OBJECT, resourceId,
+                        Long.MIN_VALUE));
+    }
+
+    @Test
     void remainingRegisteredKeyNamespacesRejectInvalidComponents() {
         final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("lane"));
         final byte[] resourceId = Bytes.sha256(Bytes.utf8("protected-resource"));

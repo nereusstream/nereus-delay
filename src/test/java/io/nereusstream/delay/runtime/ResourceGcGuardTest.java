@@ -41,6 +41,17 @@ class ResourceGcGuardTest {
     }
 
     @Test
+    void durableGcRecordsPreserveUnsignedResourceStateVersionBits() {
+        final Fixture fixture = fixture();
+
+        assertEquals(Long.MIN_VALUE,
+                ResourceRetireIntentRecord.decode(fixture.intent().encode()).expectedResourceStateVersion());
+        assertEquals(Long.MIN_VALUE,
+                ResourceDeleteConfirmedRecord.decode(fixture.confirmation().encode())
+                        .retireIntent().expectedResourceStateVersion());
+    }
+
+    @Test
     void checkpointGcRetainsCheckpointPinnedAsCandidateOrObservedFloor() {
         final Fixture fixture = fixture();
         final RecoveryPinV1 candidatePin = pin(fixture, fixture.floor().checkpointId(),
@@ -88,7 +99,7 @@ class ResourceGcGuardTest {
                 resourceIdentity);
         final ResourceRetireIntentRecord intent = new ResourceRetireIntentRecord(
                 id32(3), id32(4), ResourceKind.CHECKPOINT, resourceIdentity, resourceIdentityHash,
-                7, 1, Bytes.utf8("floor-protection"), intentPosition.canonicalBytes());
+                Long.MIN_VALUE, 1, Bytes.utf8("floor-protection"), intentPosition.canonicalBytes());
         final TrustedUtcIntervalEvidence evidence = evidence();
         final ResourceDeleteConfirmedRecord confirmation = new ResourceDeleteConfirmedRecord(
                 id32(5), id32(6), intent,

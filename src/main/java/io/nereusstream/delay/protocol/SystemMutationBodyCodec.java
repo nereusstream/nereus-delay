@@ -20,7 +20,7 @@ public final class SystemMutationBodyCodec {
         int fieldIndex = 3;
         for (Spec spec : specs) {
             if (fieldIndex < fields.size() && fields.get(fieldIndex).number() == spec.number()) {
-                validateField(fields.get(fieldIndex), spec);
+                validateField(fields.get(fieldIndex), spec, type);
                 fieldIndex++;
             } else if (spec.required()) {
                 throw new IllegalArgumentException("missing System Mutation body field " + spec.number());
@@ -96,14 +96,17 @@ public final class SystemMutationBodyCodec {
         };
     }
 
-    private static void validateField(final CanonicalProtobuf.Reader.Field field, final Spec spec) {
+    private static void validateField(final CanonicalProtobuf.Reader.Field field, final Spec spec,
+                                      final SystemMutationType type) {
         if (field.wireType() != spec.wireType()) {
             throw new IllegalArgumentException("System Mutation body field " + spec.number()
                     + " has the wrong wire type");
         }
         if (spec.wireType() == 0) {
             final long value = field.unsignedValue();
-            if (value < 0 || spec.bool() && value > 1) {
+            final boolean rawUint64 = type == SystemMutationType.RESOURCE_RETIRE_INTENT
+                    && field.number() == 12;
+            if ((value < 0 && !rawUint64) || (spec.bool() && value > 1)) {
                 throw new IllegalArgumentException("invalid System Mutation body scalar field " + spec.number());
             }
             return;

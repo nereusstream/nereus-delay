@@ -240,12 +240,16 @@ from persisted state, so restart after the unsigned maximum remains a
 controlled exhaustion rather than an arithmetic-open failure; the evidence is
 `EmbeddedDelayServiceTest.reopenedEmbeddedServiceKeepsUnsignedMaximumSourceOffsetExhaustion`.
 Canonical protocol writing now rejects values outside the unsigned 32-bit
-range, and the Registry's resource-state versions are encoded as `uint64` in
-both retire-intent fixtures and the `ResourceDeleteConfirmedBody` reference.
-The local evidence is `CanonicalProtobufTest` plus
-`ResourceDeleteConfirmedBodyTest.intentPreservesFullUnsignedResourceStateVersion`;
-the latter exercises a version above 2^32 so a narrow wire-width regression
-cannot hide behind ordinary small test values.
+range, while the Registry's resource-state version is treated as a raw
+unsigned `uint64` across the retire body, delete-confirmation reference,
+logical identity hash, GC key and durable intent record. The System Mutation
+body validator has an explicit raw-`uint64` exception only for that registered
+field; local mutation/claim sequences remain bounded non-negative counters.
+The local evidence is `ResourceRetireIntentBodyTest.preservesUnsignedResourceStateVersionBits`,
+`ResourceDeleteConfirmedBodyTest.intentPreservesFullUnsignedResourceStateVersion`,
+`KeyCodecTest.gcRetireIntentKeyPreservesUnsignedResourceStateVersionBits`,
+`ResourceGcGuardTest.durableGcRecordsPreserveUnsignedResourceStateVersionBits`
+and the high-bit `DelayShardTest.resourceRetireIntentIsSourceOrderedDurableAndVersionFenced`.
 The canonical-protobuf reader also rejects field numbers outside the Registry's
 `1..0x1fff` range before closed-union dispatch; the local regression is
 `CanonicalProtobufTest.readerRejectsFieldNumbersOutsideRegistryRange`.

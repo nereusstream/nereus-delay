@@ -24,6 +24,22 @@ class ResourceRetireIntentBodyTest {
         assertArrayEquals(SystemMutation.computeResourceRetireLogicalIdentity(ResourceKind.LOCAL_STORE,
                 decoded.resource().identityHash(), 9),
                 SystemMutation.computeResourceRetireLogicalIdentity(decoded.resourceKind(),
+                decoded.resource().identityHash(), decoded.expectedResourceStateVersion()));
+    }
+
+    @Test
+    void preservesUnsignedResourceStateVersionBits() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 25);
+        final long expectedVersion = Long.MIN_VALUE;
+        final byte[] body = resourceBody(shard, ResourceKind.LOCAL_STORE, localStoreIdentity(shard), expectedVersion,
+                protectionSet());
+
+        final ResourceRetireIntentBody decoded = ResourceRetireIntentBody.decode(body);
+
+        assertEquals(expectedVersion, decoded.expectedResourceStateVersion());
+        assertArrayEquals(SystemMutation.computeResourceRetireLogicalIdentity(ResourceKind.LOCAL_STORE,
+                decoded.resource().identityHash(), expectedVersion),
+                SystemMutation.computeResourceRetireLogicalIdentity(decoded.resourceKind(),
                         decoded.resource().identityHash(), decoded.expectedResourceStateVersion()));
     }
 
@@ -72,7 +88,7 @@ class ResourceRetireIntentBodyTest {
             CanonicalProtobuf.int64(output, 3, 10_000);
             CanonicalProtobuf.uint32(output, 10, kind.wireValue());
             CanonicalProtobuf.bytes(output, 11, resource);
-            CanonicalProtobuf.uint64(output, 12, expectedVersion);
+            CanonicalProtobuf.uint64Bits(output, 12, expectedVersion);
             CanonicalProtobuf.bytes(output, 13, protections);
         });
     }

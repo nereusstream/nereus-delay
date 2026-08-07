@@ -148,11 +148,11 @@ public final class KeyCodec {
     public static byte[] gcTask(final long notBeforeEpochMs, final byte kind, final byte[] resourceId,
                                 final long expectedVersion) {
         Objects.requireNonNull(resourceId, "resourceId");
-        if (notBeforeEpochMs < 0 || kind <= 0 || kind > 10 || expectedVersion < 0 || resourceId.length == 0) {
+        if (notBeforeEpochMs < 0 || kind <= 0 || kind > 10 || resourceId.length == 0) {
             throw new IllegalArgumentException("invalid GC key values");
         }
         return Bytes.concat(new byte[]{1, 1}, Bytes.u64be(notBeforeEpochMs), new byte[]{kind},
-                Bytes.lp32(resourceId), Bytes.u64be(expectedVersion));
+                Bytes.lp32(resourceId), Bytes.u64beBits(expectedVersion));
     }
 
     /** Stable gc_cf locator for a resource identity/version retire intent. */
@@ -160,7 +160,7 @@ public final class KeyCodec {
                                         final long expectedVersion) {
         Objects.requireNonNull(resourceKind, "resourceKind");
         Objects.requireNonNull(resourceIdentityHash, "resourceIdentityHash");
-        if (resourceIdentityHash.length != 32 || expectedVersion < 0) {
+        if (resourceIdentityHash.length != 32) {
             throw new IllegalArgumentException("invalid resource retire intent key values");
         }
         return gcTask(0, (byte) resourceKind.wireValue(), resourceIdentityHash, expectedVersion);

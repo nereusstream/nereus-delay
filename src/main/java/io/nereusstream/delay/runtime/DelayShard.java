@@ -975,9 +975,6 @@ public final class DelayShard {
                                                                               final long expectedVersion) {
         Objects.requireNonNull(resourceKind, "resourceKind");
         Bytes.requireLength(resourceIdentityHash, SystemMutation.HASH_LENGTH, "resourceIdentityHash");
-        if (expectedVersion < 0) {
-            throw new IllegalArgumentException("expectedVersion must be non-negative");
-        }
         final byte[] raw = gcValue(resourceKind, resourceIdentityHash, expectedVersion);
         if (raw == null) {
             return null;
@@ -1002,9 +999,6 @@ public final class DelayShard {
                                                                                       final long expectedVersion) {
         Objects.requireNonNull(resourceKind, "resourceKind");
         Bytes.requireLength(resourceIdentityHash, SystemMutation.HASH_LENGTH, "resourceIdentityHash");
-        if (expectedVersion < 0) {
-            throw new IllegalArgumentException("expectedVersion must be non-negative");
-        }
         final byte[] raw = gcValue(resourceKind, resourceIdentityHash, expectedVersion);
         if (raw == null || gcValueType(raw) != ResourceDeleteConfirmedRecord.VALUE_TYPE) {
             return null;
@@ -1025,9 +1019,6 @@ public final class DelayShard {
             final RecoveryCatalogAuthority catalog, final byte[] candidateCheckpointId) {
         Objects.requireNonNull(resourceKind, "resourceKind");
         Bytes.requireLength(resourceIdentityHash, SystemMutation.HASH_LENGTH, "resourceIdentityHash");
-        if (expectedVersion < 0) {
-            throw new IllegalArgumentException("expectedVersion must be non-negative");
-        }
         Objects.requireNonNull(catalog, "catalog");
         Objects.requireNonNull(candidateCheckpointId, "candidateCheckpointId");
         final ResourceRetireIntentRecord intent = getResourceRetireIntent(resourceKind, resourceIdentityHash,

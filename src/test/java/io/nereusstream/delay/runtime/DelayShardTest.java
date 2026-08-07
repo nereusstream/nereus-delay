@@ -3828,9 +3828,10 @@ class DelayShardTest {
     void resourceRetireIntentIsSourceOrderedDurableAndVersionFenced() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("resource-retire-intent"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 26);
+        final long expectedVersion = Long.MIN_VALUE;
         final byte[] resource = localStoreResource(shardId);
         final byte[] firstProtections = resourceProtectionSet(Bytes.sha256(Bytes.utf8("first-protection")));
-        final byte[] body = resourceRetireBody(shardId, resource, 7, firstProtections);
+        final byte[] body = resourceRetireBody(shardId, resource, expectedVersion, firstProtections);
         final ResourceRetireIntentBody parsed = ResourceRetireIntentBody.decode(body);
         final byte[] service = AuthorIdentity.service(Bytes.utf8("resource-service"), Bytes.utf8("run-1"), 1)
                 .canonicalBytes();
@@ -3849,7 +3850,7 @@ class DelayShardTest {
                     keyPair.getPublic());
             assertEquals(StableCode.OK, applied.stableCode());
             final ResourceRetireIntentRecord stored = shard.getResourceRetireIntent(ResourceKind.LOCAL_STORE,
-                    parsed.resource().identityHash(), 7);
+                    parsed.resource().identityHash(), expectedVersion);
             assertNotNull(stored);
             assertArrayEquals(mutation.systemMutationId(), stored.mutationId());
             assertEquals(1, stored.appliedMutationSequence());
@@ -3866,20 +3867,20 @@ class DelayShardTest {
             final byte[] secondProtections = resourceProtectionSet(Bytes.sha256(Bytes.utf8("second-protection")));
             final SystemMutation conflicting = SystemMutation.signed(shardId,
                     SystemMutationType.RESOURCE_RETIRE_INTENT, 9_000, logicalIdentity,
-                    resourceRetireBody(shardId, resource, 7, secondProtections), service, 1,
+                    resourceRetireBody(shardId, resource, expectedVersion, secondProtections), service, 1,
                     keyPair.getPrivate());
             assertEquals(StableCode.VERSION_CONFLICT,
                     shard.applySystemMutation(conflicting, position(shardId, 2, 1_002),
                             keyPair.getPublic()).stableCode());
             assertArrayEquals(mutation.mutationHash(), shard.getResourceRetireIntent(ResourceKind.LOCAL_STORE,
-                    parsed.resource().identityHash(), 7).mutationHash());
+                    parsed.resource().identityHash(), expectedVersion).mutationHash());
         }
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults());
             final ResourceRetireIntentRecord stored = reopened.getResourceRetireIntent(ResourceKind.LOCAL_STORE,
-                    parsed.resource().identityHash(), 7);
+                    parsed.resource().identityHash(), expectedVersion);
             assertNotNull(stored);
             assertArrayEquals(mutation.systemMutationId(), stored.mutationId());
             assertEquals(position(shardId, 2, 1_002), reopened.lastAppliedSourcePosition());
@@ -5481,7 +5482,7 @@ class DelayShardTest {
             CanonicalProtobuf.int64(output, 3, 9_000);
             CanonicalProtobuf.uint32(output, 10, ResourceKind.LOCAL_STORE.wireValue());
             CanonicalProtobuf.bytes(output, 11, resource);
-            CanonicalProtobuf.uint32(output, 12, expectedVersion);
+            CanonicalProtobuf.uint64Bits(output, 12, expectedVersion);
             CanonicalProtobuf.bytes(output, 13, protections);
         });
     }
@@ -5524,7 +5525,7 @@ class DelayShardTest {
             CanonicalProtobuf.bytes(output, 1, retire.systemMutationId());
             CanonicalProtobuf.bytes(output, 2, retire.mutationHash());
             CanonicalProtobuf.bytes(output, 3, parsedRetire.resource().identityHash());
-            CanonicalProtobuf.uint32(output, 4, parsedRetire.expectedResourceStateVersion());
+            CanonicalProtobuf.uint64Bits(output, 4, parsedRetire.expectedResourceStateVersion());
         });
         final byte[] evidence = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, parsedRetire.resource().identityHash());

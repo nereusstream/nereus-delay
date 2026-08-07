@@ -30,9 +30,6 @@ public final class ResourceRetireIntentBody {
         if (resource.kind() != resourceKind) {
             throw new IllegalArgumentException("resource kind does not match identity branch");
         }
-        if (expectedResourceStateVersion < 0) {
-            throw new IllegalArgumentException("expected resource state version must be non-negative");
-        }
         this.expectedResourceStateVersion = expectedResourceStateVersion;
         this.protections = Objects.requireNonNull(protections, "protections");
     }
@@ -42,7 +39,7 @@ public final class ResourceRetireIntentBody {
                 SystemMutationBodyCodec.fields(SystemMutationType.RESOURCE_RETIRE_INTENT, canonicalBody);
         final ResourceKind kind = ResourceKind.fromWire(unsigned(field(fields, 10), 10));
         final ExactResourceIdentity resource = decodeResourceIdentity(kind, nested(field(fields, 11), 11));
-        final long expectedVersion = unsigned(field(fields, 12), 12);
+        final long expectedVersion = rawUnsigned(field(fields, 12), 12);
         final ProtectionSet protections = ProtectionSet.decode(nested(field(fields, 13), 13));
         return new ResourceRetireIntentBody(kind, resource, expectedVersion, protections);
     }
@@ -490,6 +487,13 @@ public final class ResourceRetireIntentBody {
 
     private static long unsigned(final CanonicalProtobuf.Reader.Field field, final int number) {
         if (field.number() != number || field.wireType() != 0 || field.unsignedValue() < 0) {
+            throw new IllegalArgumentException("invalid nested uint field " + number);
+        }
+        return field.unsignedValue();
+    }
+
+    private static long rawUnsigned(final CanonicalProtobuf.Reader.Field field, final int number) {
+        if (field.number() != number || field.wireType() != 0) {
             throw new IllegalArgumentException("invalid nested uint field " + number);
         }
         return field.unsignedValue();

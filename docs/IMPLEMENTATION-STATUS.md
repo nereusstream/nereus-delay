@@ -489,12 +489,17 @@ fail-closed at the exhausted boundary;
 covers the restart path.
 
 Canonical protocol writers now enforce the unsigned 32-bit range instead of
-silently encoding a wider value through the `uint32` helper. The
-`RetireIntentRefV1` resource-state version is emitted as `uint64` in
-`ResourceDeleteConfirmedBody`, and the corresponding retire-intent fixture
-uses the same width. `CanonicalProtobufTest` covers both uint32 boundaries;
-`ResourceDeleteConfirmedBodyTest.intentPreservesFullUnsignedResourceStateVersion`
-covers a value above 2^32.
+silently encoding a wider value through the `uint32` helper. The Registry's
+resource-state version is a raw unsigned `uint64` across the retire body,
+delete-confirmation reference, logical identity hash, GC key and durable
+intent record; only this registered System Mutation field bypasses the normal
+non-negative scalar guard. Local mutation/Claim sequences remain bounded
+non-negative counters. High-bit coverage is provided by
+`ResourceRetireIntentBodyTest.preservesUnsignedResourceStateVersionBits`,
+`ResourceDeleteConfirmedBodyTest.intentPreservesFullUnsignedResourceStateVersion`,
+`KeyCodecTest.gcRetireIntentKeyPreservesUnsignedResourceStateVersionBits`,
+`ResourceGcGuardTest.durableGcRecordsPreserveUnsignedResourceStateVersionBits`
+and `DelayShardTest.resourceRetireIntentIsSourceOrderedDurableAndVersionFenced`.
 The canonical-protobuf reader now applies the same `1..0x1fff` field-number
 bound as the writer, so an out-of-registry tag cannot enter a closed union
 decoder. `CanonicalProtobufTest.readerRejectsFieldNumbersOutsideRegistryRange`
@@ -1101,8 +1106,12 @@ Oxia ownership lookup, or a real Broker adapter.
 The bounded `RESOURCE_RETIRE_INTENT_V1` increment now validates the closed
 `ExactResourceIdentityV1` branches and canonical `ProtectionSetV1`, checks the
 registered retire logical identity, and atomically persists an immutable
-`gc_cf` intent with its applied shard mutation sequence and source position. It
-deliberately does not perform an external delete, apply
+`gc_cf` intent with its applied shard mutation sequence and source position.
+The expected resource-state version now remains a raw unsigned `uint64` from
+canonical body decoding through logical identity, GC locator, durable record,
+lookup and local compaction APIs; this does not relax the separate bounded
+mutation-sequence counter. It deliberately does not perform an external
+delete, apply
 `RESOURCE_DELETE_CONFIRMED_V1`, replace a Lane with its terminal guard, or
 infer Recovery Floor release; those remain release blockers.
 

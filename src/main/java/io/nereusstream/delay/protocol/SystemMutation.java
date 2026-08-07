@@ -240,9 +240,6 @@ public final class SystemMutation {
                                                                final byte[] resourceIdentityHash,
                                                                final long expectedResourceStateVersion) {
         Objects.requireNonNull(resourceKind, "resourceKind");
-        if (expectedResourceStateVersion < 0) {
-            throw new IllegalArgumentException("expected resource state version must be non-negative");
-        }
         return computeResourceRetireLogicalIdentity(resourceKind.wireValue(), resourceIdentityHash,
                 expectedResourceStateVersion);
     }
@@ -251,12 +248,12 @@ public final class SystemMutation {
     public static byte[] computeResourceRetireLogicalIdentity(final int resourceKind,
                                                                final byte[] resourceIdentityHash,
                                                                final long expectedResourceStateVersion) {
-        if (resourceKind <= 0 || resourceKind > 0xff || expectedResourceStateVersion < 0) {
+        if (resourceKind <= 0 || resourceKind > 0xff) {
             throw new IllegalArgumentException("invalid resource-retire logical identity inputs");
         }
         return Bytes.sha256(Bytes.utf8("nereus-delay-retire-logical-id-v1"), Bytes.u8(resourceKind),
                 fixed(resourceIdentityHash, HASH_LENGTH, "resourceIdentityHash"),
-                Bytes.u64be(expectedResourceStateVersion));
+                Bytes.u64beBits(expectedResourceStateVersion));
     }
 
     /** Computes the logical identity for one numbered DLQ export physical attempt. */

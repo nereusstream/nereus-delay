@@ -34,9 +34,6 @@ public record ResourceRetireIntentRecord(
                 Bytes.sha256(Bytes.utf8("nereus-delay-resource-identity-v1\0"), resourceIdentity))) {
             throw new IllegalArgumentException("resource identity hash does not match canonical identity");
         }
-        if (expectedResourceStateVersion < 0) {
-            throw new IllegalArgumentException("expected resource state version must be non-negative");
-        }
         if (appliedMutationSequence < 0) {
             throw new IllegalArgumentException("applied mutation sequence must be non-negative");
         }
@@ -83,7 +80,7 @@ public record ResourceRetireIntentRecord(
 
     public byte[] encode() {
         return Bytes.concat(Bytes.u32be(2), mutationId, mutationHash, Bytes.u8(resourceKind.wireValue()),
-                Bytes.lp32(resourceIdentity), resourceIdentityHash, Bytes.u64be(expectedResourceStateVersion),
+                Bytes.lp32(resourceIdentity), resourceIdentityHash, Bytes.u64beBits(expectedResourceStateVersion),
                 Bytes.u64be(appliedMutationSequence), Bytes.lp32(protections), Bytes.lp32(appliedSourcePosition));
     }
 
@@ -99,7 +96,7 @@ public record ResourceRetireIntentRecord(
         final ResourceKind kind = ResourceKind.fromWire(input.get() & 0xff);
         final byte[] identity = readLp32(input, "resourceIdentity");
         final byte[] identityHash = readFixed(input, HASH_LENGTH, "resourceIdentityHash");
-        final long expectedVersion = readU64(input, "expectedResourceStateVersion");
+        final long expectedVersion = readRawU64(input, "expectedResourceStateVersion");
         final long mutationSequence = version == 2 ? readU64(input, "appliedMutationSequence") : 0;
         final byte[] protections = readLp32(input, "protections");
         final byte[] source = readLp32(input, "appliedSourcePosition");
@@ -116,7 +113,7 @@ public record ResourceRetireIntentRecord(
 
     private byte[] encodeLegacy() {
         return Bytes.concat(Bytes.u32be(1), mutationId, mutationHash, Bytes.u8(resourceKind.wireValue()),
-                Bytes.lp32(resourceIdentity), resourceIdentityHash, Bytes.u64be(expectedResourceStateVersion),
+                Bytes.lp32(resourceIdentity), resourceIdentityHash, Bytes.u64beBits(expectedResourceStateVersion),
                 Bytes.lp32(protections), Bytes.lp32(appliedSourcePosition));
     }
 
@@ -134,6 +131,11 @@ public record ResourceRetireIntentRecord(
             throw new IllegalArgumentException(name + " exceeds the supported unsigned range");
         }
         return value;
+    }
+
+    private static long readRawU64(final ByteBuffer input, final String name) {
+        requireRemaining(input, Long.BYTES);
+        return input.getLong();
     }
 
     private static byte[] readLp32(final ByteBuffer input, final String name) {
