@@ -204,6 +204,69 @@ class DelayShardTest {
     }
 
     @Test
+    void commandResultLookupRejectsForeignSourcePosition() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("command-result-source-shard-mismatch"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 62);
+        final ShardId otherShardId = new ShardId(RouteIncarnation.random(), 63);
+        final PreparedCommand command = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(
+                        DestinationLaneId.derive(Bytes.utf8("command-result-source-shard-mismatch-lane")),
+                        2_000, 5_000, OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 9_000);
+        final CommandResult misplaced = new CommandResult(ApplyStatus.REJECTED, StableCode.INVALID_COMMAND, -1, 0,
+                null, position(otherShardId, 0, 1_000).canonicalBytes());
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            store.write(batch -> batch.putValue(ColumnFamily.DEDUPE, 2, KeyCodec.dedupeResult(command.commandId()),
+                    misplaced.encode()));
+
+            assertThrows(IllegalStateException.class, () -> shard.getCommandResult(command.commandId()));
+        }
+    }
+
+    @Test
+    void terminalGenerationLookupRejectsForeignSourcePosition() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("terminal-source-shard-mismatch"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 64);
+        final ShardId otherShardId = new ShardId(RouteIncarnation.random(), 65);
+        final DelayMessageId messageId = DelayMessageId.random(shardId);
+        final TerminalGenerationRecord misplaced = new TerminalGenerationRecord(messageId, 0,
+                MessageStatus.CANCELED, StableCode.CANCELED, 1,
+                position(otherShardId, 0, 1_000).canonicalBytes(), false);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            store.write(batch -> batch.putValue(ColumnFamily.TERMINAL, 1,
+                    KeyCodec.terminalGeneration(messageId, 0), misplaced.encode()));
+
+            assertThrows(IllegalStateException.class, () -> shard.getTerminalGeneration(messageId, 0));
+        }
+    }
+
+    @Test
+    void publishAttemptLookupRejectsForeignSourcePosition() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("attempt-source-shard-mismatch"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 66);
+        final ShardId otherShardId = new ShardId(RouteIncarnation.random(), 67);
+        final DelayMessageId messageId = DelayMessageId.random(shardId);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("attempt-source-shard-mismatch-lane"));
+        final byte[] attemptId = Bytes.sha256(Bytes.utf8("attempt-source-shard-mismatch-attempt"));
+        final byte[] claimId = Bytes.sha256(Bytes.utf8("attempt-source-shard-mismatch-claim"));
+        final PublishAttemptLedger misplaced = PublishAttemptLedger.publishing(messageId, 0, attemptId, claimId, 1,
+                1, lane, new byte[16], Bytes.sha256(Bytes.utf8("attempt-owner")), new byte[16],
+                Bytes.sha256(Bytes.utf8("attempt-prepared")), Bytes.utf8("attempt-admission"),
+                position(otherShardId, 0, 1_000).canonicalBytes());
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            store.write(batch -> batch.putValue(ColumnFamily.INFLIGHT, PublishAttemptLedger.VALUE_TYPE,
+                    misplaced.encodedKey(), misplaced.encode()));
+
+            assertThrows(IllegalStateException.class, () -> shard.getPublishAttempt(attemptId, 1));
+        }
+    }
+
+    @Test
     void laneLookupRejectsKeyValueIdentityMismatch() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("lane-key-mismatch"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 57);

@@ -603,6 +603,7 @@ public final class DelayShard {
                 || result.terminalRevision() != terminal.stateVersion()) {
             throw new IllegalStateException("DLQ export record does not match terminal generation");
         }
+        validateSourcePositionShard(result.appliedSourcePosition(), "DLQ export lookup");
         return result;
     }
 
@@ -897,7 +898,15 @@ public final class DelayShard {
 
     public synchronized CommandResult getCommandResult(final CommandId commandId) {
         final var value = store.getValue(ColumnFamily.DEDUPE, KeyCodec.dedupeResult(commandId), 2);
-        return value == null ? null : CommandResult.decode(value.payload());
+        if (value == null) {
+            return null;
+        }
+        if (!store.shardId().equals(commandId.routingId().shardId())) {
+            throw new IllegalStateException("command result key shard mismatch");
+        }
+        final CommandResult result = CommandResult.decode(value.payload());
+        validateSourcePositionShard(result.appliedSourcePosition(), "command result lookup");
+        return result;
     }
 
     public synchronized SystemMutationResult getSystemMutationResult(final byte[] mutationId) {
@@ -911,6 +920,7 @@ public final class DelayShard {
         if (!Bytes.constantTimeEquals(result.mutationId(), mutationId)) {
             throw new IllegalStateException("system mutation result key/value identity mismatch");
         }
+        validateSourcePositionShard(result.appliedSourcePosition(), "system mutation result lookup");
         return result;
     }
 
@@ -1509,6 +1519,7 @@ public final class DelayShard {
                 || !reservation.shardId().equals(store.shardId())) {
             throw new IllegalStateException("RESERVATION key/value identity mismatch during " + context);
         }
+        validateSourcePositionShard(reservation.sourcePosition(), "RESERVATION " + context);
         return reservation;
     }
 
@@ -1518,11 +1529,15 @@ public final class DelayShard {
         if (!store.shardId().equals(messageId.routingId().shardId())) {
             throw new IllegalStateException("MESSAGE key shard mismatch during " + context);
         }
-        final SourcePosition sourcePosition = SourcePositionCodec.decode(message.scheduleSourcePosition());
-        if (!store.shardId().equals(sourcePosition.shardId())) {
-            throw new IllegalStateException("MESSAGE source position shard mismatch during " + context);
-        }
+        validateSourcePositionShard(message.scheduleSourcePosition(), "MESSAGE " + context);
         return message;
+    }
+
+    private void validateSourcePositionShard(final byte[] encodedSourcePosition, final String context) {
+        final SourcePosition sourcePosition = SourcePositionCodec.decode(encodedSourcePosition);
+        if (!store.shardId().equals(sourcePosition.shardId())) {
+            throw new IllegalStateException("source position shard mismatch during " + context);
+        }
     }
 
     private List<ClosedMessageAction> prepareClosedMessageActions(
@@ -3493,7 +3508,7 @@ public final class DelayShard {
                 expectedVersion));
     }
 
-    private static ResourceRetireIntentRecord validateGcIntentIdentity(
+    private ResourceRetireIntentRecord validateGcIntentIdentity(
             final ResourceRetireIntentRecord intent, final ResourceKind resourceKind,
             final byte[] resourceIdentityHash, final long expectedVersion) {
         if (intent.resourceKind() != resourceKind
@@ -3501,13 +3516,15 @@ public final class DelayShard {
                 || intent.expectedResourceStateVersion() != expectedVersion) {
             throw new IllegalStateException("GC retire intent key/value identity mismatch");
         }
+        validateSourcePositionShard(intent.appliedSourcePosition(), "GC retire intent lookup");
         return intent;
     }
 
-    private static ResourceDeleteConfirmedRecord validateGcConfirmationIdentity(
+    private ResourceDeleteConfirmedRecord validateGcConfirmationIdentity(
             final ResourceDeleteConfirmedRecord confirmation, final ResourceKind resourceKind,
             final byte[] resourceIdentityHash, final long expectedVersion) {
         validateGcIntentIdentity(confirmation.retireIntent(), resourceKind, resourceIdentityHash, expectedVersion);
+        validateSourcePositionShard(confirmation.appliedSourcePosition(), "GC delete confirmation lookup");
         return confirmation;
     }
 
@@ -3597,6 +3614,10 @@ public final class DelayShard {
         if (!terminal.messageId().equals(messageId) || terminal.generation() != generation) {
             throw new IllegalStateException("terminal generation key/value identity mismatch");
         }
+        if (!store.shardId().equals(messageId.routingId().shardId())) {
+            throw new IllegalStateException("terminal generation key shard mismatch");
+        }
+        validateSourcePositionShard(terminal.appliedSourcePosition(), "terminal generation lookup");
         return terminal;
     }
 
@@ -5939,6 +5960,7 @@ public final class DelayShard {
         }
         final PublishAttemptLedger ledger = PublishAttemptLedger.decode(value.payload());
         validatePublishAttemptKey(ledger, key, key[0], obligation.publishAttemptId(), ownerEpoch);
+        validatePublishAttemptShard(ledger, "runtime obligation");
         return ledger;
     }
 
@@ -6051,6 +6073,7 @@ public final class DelayShard {
         }
         final PublishAttemptLedger ledger = PublishAttemptLedger.decode(value.payload());
         validatePublishAttemptKey(ledger, key, recordKind, publishAttemptId, ownerEpoch);
+        validatePublishAttemptShard(ledger, "publish attempt lookup");
         return ledger;
     }
 
@@ -6105,7 +6128,15 @@ public final class DelayShard {
                 io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), PublishAttemptLedger.VALUE_TYPE)
                         .payload());
         validatePublishAttemptKey(ledger, key, key[0], attemptId, ownerEpoch);
+        validatePublishAttemptShard(ledger, "open publish attempt scan");
         return ledger;
+    }
+
+    private void validatePublishAttemptShard(final PublishAttemptLedger ledger, final String context) {
+        if (!store.shardId().equals(ledger.delayMessageId().routingId().shardId())) {
+            throw new IllegalStateException("publish attempt message shard mismatch during " + context);
+        }
+        validateSourcePositionShard(ledger.sourcePosition(), "publish attempt " + context);
     }
 
     private static void validatePublishAttemptKey(final PublishAttemptLedger ledger, final byte[] key,

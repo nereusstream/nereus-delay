@@ -577,6 +577,10 @@ Lane id/incarnation/control version/source shard；错挂的管理投影在暴�
 校验 self-routing key 的 Shard 与值内 `scheduleSourcePosition` 的 Shard；跨
 Shard 错挂的当前 Message 不会被当作本地工作，证据为
 `DelayShardTest.messageLookupRejectsForeignSourcePosition`。
+Command result、terminal history、reservation、open attempt、DLQ export 与
+GC projection 的 direct reads 也做相同的 Source Position shard 检查；带有
+message/command locator 的值同时检查其 self-routing Shard。跨 Shard 的历史
+不能成为本地 query、drain 或 compaction 输入。
 `ShardStore.flushAndSync` 还提供 drain 的物理 flush/WAL-sync 原语，重开回归为
 `ShardStoreTest.flushAndSyncMakesTheShardBoundaryExplicit`；它不替代远端 callback
 quiescence 或 final checkpoint publication。
