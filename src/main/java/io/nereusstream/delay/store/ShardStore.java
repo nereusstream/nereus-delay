@@ -486,6 +486,10 @@ public final class ShardStore implements AutoCloseable {
         }
     }
 
+    // RocksDB JNI deprecates the explicit split setters in favor of the single
+    // max-background-jobs knob, but V1 requires a nonzero flush reserve and a
+    // separate compaction ceiling, so keep the registered split at this boundary.
+    @SuppressWarnings("deprecation")
     private static ShardStore openAtPathWithSlot(final ShardStoreConfig config, final ShardId shardId,
                                                  final Path dbPath, final SharedRocksDbResources resources,
                                                  final UUID restoreStoreIncarnation,
@@ -509,7 +513,10 @@ public final class ShardStore implements AutoCloseable {
                 .setCreateMissingColumnFamilies(true)
                 .setParanoidChecks(true)
                 .setMaxOpenFiles(config.maxOpenFilesPerDb())
-                .setMaxBackgroundJobs(config.maxBackgroundJobs())
+                .setEnv(resources.env())
+                .setMaxBackgroundJobs(config.maxBackgroundJobsPerDb())
+                .setMaxBackgroundFlushes(config.reservedFlushJobs())
+                .setMaxBackgroundCompactions(config.maxCompactionJobs())
                 .setWriteBufferManager(resources.writeBufferManager())
                 .setRateLimiter(resources.rateLimiter());
         final List<ColumnFamilyHandle> openedHandles = new ArrayList<>();

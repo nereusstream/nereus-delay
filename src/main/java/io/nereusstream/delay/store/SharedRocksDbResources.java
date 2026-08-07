@@ -1,6 +1,7 @@
 package io.nereusstream.delay.store;
 
 import org.rocksdb.Cache;
+import org.rocksdb.Env;
 import org.rocksdb.LRUCache;
 import org.rocksdb.RateLimiter;
 import org.rocksdb.WriteBufferManager;
@@ -15,6 +16,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
     }
 
     private final Cache blockCache;
+    private final Env env;
     private final WriteBufferManager writeBufferManager;
     private final RateLimiter rateLimiter;
     private final Semaphore ownedShardSlots;
@@ -44,6 +46,8 @@ public final class SharedRocksDbResources implements AutoCloseable {
         if (envelope != null) {
             envelope.validate(config);
         }
+        env = Env.getDefault();
+        env.setBackgroundThreads(config.maxBackgroundJobs());
         blockCache = new LRUCache(config.sharedBlockCacheBytes());
         writeBufferManager = new WriteBufferManager(config.sharedWriteBufferBudgetBytes(), blockCache);
         // Use the worker-wide checkpoint/compaction I/O budget for every DB
@@ -60,6 +64,11 @@ public final class SharedRocksDbResources implements AutoCloseable {
 
     public Cache blockCache() {
         return blockCache;
+    }
+
+    /** Returns the process-shared RocksDB Env/background thread pool. */
+    public Env env() {
+        return env;
     }
 
     public WriteBufferManager writeBufferManager() {

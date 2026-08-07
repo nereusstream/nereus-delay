@@ -522,10 +522,13 @@ desired-placement plan 或 Owner Lease authority。
 `ShardStoreConfig.maxWriteBufferBytesPerDb` 现在是显式的 Worker 配置，
 `ShardStore` 会把它绑定到每个 Column Family 的 RocksDB
 `ColumnFamilyOptions.setWriteBufferSize`，同时继续由进程级
-`WriteBufferManager` 约束共享 memtable 总预算。这证明了本地 option binding
-和非法配置的 fail-closed 行为（`ShardStoreTest.perDbWriteBufferCeilingMustBePositive`），
-但不把每个 CF 的上限误报成单个 DB 的聚合运行时记账；WAL/SST/temp、work-class
-reserve、真实 JVM/cgroup/rlimit 和 Oxia placement authority 仍是外部资源证据。
+`WriteBufferManager` 约束共享 memtable 总预算。共享 `Env` 明确承载进程级
+background pool；每个 DB 另外绑定 `maxBackgroundJobsPerDb` 以及非零
+`reservedFlushJobs`/`maxCompactionJobs` split，并在配置不满足 split 时 fail closed。
+这证明了本地 option binding 和非法配置证据（`ShardStoreTest.perDbWriteBufferCeilingMustBePositive`、
+`ShardStoreTest.backgroundJobSplitMustFitPerDbCeiling`），但不把每个 CF 的上限或
+每个 DB 的 job split 误报成聚合 WAL/SST/temp 运行时记账；work-class reserve、
+真实 JVM/cgroup/rlimit 和 Oxia placement authority 仍是外部资源证据。
 
 Control Reserve 的本地投影也已覆盖 Registry 的 class 6：
 `meta_cf/CONTROL_RESERVE` 以 `CapacityVectorV1` 持久化 Broker system-writer

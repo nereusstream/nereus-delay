@@ -18,7 +18,10 @@ public record ShardStoreConfig(
         int maxConcurrentCheckpointDownloadsPerWorker,
         long checkpointIoBytesPerSecond,
         int maxConcurrentDrainsPerWorker,
-        long maxWriteBufferBytesPerDb) {
+        long maxWriteBufferBytesPerDb,
+        int reservedFlushJobs,
+        int maxCompactionJobs,
+        int maxBackgroundJobsPerDb) {
     public ShardStoreConfig {
         Objects.requireNonNull(rootPath, "rootPath");
         if (maxOwnedShards <= 0 || maxOpenShardDbs < maxOwnedShards
@@ -28,9 +31,27 @@ public record ShardStoreConfig(
                 || maxConcurrentCheckpointCreatesPerWorker <= 0
                 || maxConcurrentCheckpointUploadsPerWorker <= 0
                 || maxConcurrentCheckpointDownloadsPerWorker <= 0 || checkpointIoBytesPerSecond <= 0
-                || maxConcurrentDrainsPerWorker <= 0 || maxWriteBufferBytesPerDb <= 0) {
+                || maxConcurrentDrainsPerWorker <= 0 || maxWriteBufferBytesPerDb <= 0
+                || reservedFlushJobs <= 0 || maxCompactionJobs <= 0 || maxBackgroundJobsPerDb <= 0
+                || (long) reservedFlushJobs + maxCompactionJobs > maxBackgroundJobsPerDb) {
             throw new IllegalArgumentException("RocksDB resource limits must be positive");
         }
+    }
+
+    /** Backwards-compatible constructor before background-job splits were explicit. */
+    public ShardStoreConfig(final Path rootPath, final int maxOwnedShards, final int maxOpenShardDbs,
+                            final int maxOpenFilesPerDb, final int maxTotalOpenFiles, final int maxBackgroundJobs,
+                            final long sharedBlockCacheBytes, final long sharedWriteBufferBudgetBytes,
+                            final int maxConcurrentCheckpointCreatesPerWorker,
+                            final int maxConcurrentCheckpointUploadsPerWorker,
+                            final int maxConcurrentCheckpointDownloadsPerWorker,
+                            final long checkpointIoBytesPerSecond, final int maxConcurrentDrainsPerWorker,
+                            final long maxWriteBufferBytesPerDb) {
+        this(rootPath, maxOwnedShards, maxOpenShardDbs, maxOpenFilesPerDb, maxTotalOpenFiles, maxBackgroundJobs,
+                sharedBlockCacheBytes, sharedWriteBufferBudgetBytes, maxConcurrentCheckpointCreatesPerWorker,
+                maxConcurrentCheckpointUploadsPerWorker, maxConcurrentCheckpointDownloadsPerWorker,
+                checkpointIoBytesPerSecond, maxConcurrentDrainsPerWorker, maxWriteBufferBytesPerDb,
+                1, 1, defaultPerDbBackgroundJobs(maxBackgroundJobs));
     }
 
     /** Backwards-compatible full constructor before the per-DB ceiling was explicit. */
@@ -44,7 +65,8 @@ public record ShardStoreConfig(
         this(rootPath, maxOwnedShards, maxOpenShardDbs, maxOpenFilesPerDb, maxTotalOpenFiles, maxBackgroundJobs,
                 sharedBlockCacheBytes, sharedWriteBufferBudgetBytes, maxConcurrentCheckpointCreatesPerWorker,
                 maxConcurrentCheckpointUploadsPerWorker, maxConcurrentCheckpointDownloadsPerWorker,
-                checkpointIoBytesPerSecond, maxConcurrentDrainsPerWorker, sharedWriteBufferBudgetBytes);
+                checkpointIoBytesPerSecond, maxConcurrentDrainsPerWorker, sharedWriteBufferBudgetBytes,
+                1, 1, defaultPerDbBackgroundJobs(maxBackgroundJobs));
     }
 
     /** Backwards-compatible constructor for callers that predate download fencing. */
@@ -57,7 +79,7 @@ public record ShardStoreConfig(
         this(rootPath, maxOwnedShards, maxOpenShardDbs, maxOpenFilesPerDb, maxTotalOpenFiles, maxBackgroundJobs,
                 sharedBlockCacheBytes, sharedWriteBufferBudgetBytes, maxConcurrentCheckpointCreatesPerWorker,
                 maxConcurrentCheckpointUploadsPerWorker, 1, checkpointIoBytesPerSecond, 1,
-                sharedWriteBufferBudgetBytes);
+                sharedWriteBufferBudgetBytes, 1, 1, defaultPerDbBackgroundJobs(maxBackgroundJobs));
     }
 
     /** Backwards-compatible constructor for callers that already configure download fencing. */
@@ -71,12 +93,17 @@ public record ShardStoreConfig(
         this(rootPath, maxOwnedShards, maxOpenShardDbs, maxOpenFilesPerDb, maxTotalOpenFiles, maxBackgroundJobs,
                 sharedBlockCacheBytes, sharedWriteBufferBudgetBytes, maxConcurrentCheckpointCreatesPerWorker,
                 maxConcurrentCheckpointUploadsPerWorker, maxConcurrentCheckpointDownloadsPerWorker,
-                checkpointIoBytesPerSecond, 1, sharedWriteBufferBudgetBytes);
+                checkpointIoBytesPerSecond, 1, sharedWriteBufferBudgetBytes, 1, 1,
+                defaultPerDbBackgroundJobs(maxBackgroundJobs));
     }
 
     public static ShardStoreConfig defaults(final Path rootPath) {
         return new ShardStoreConfig(rootPath, 32, 32, 256, 32 * 256, 2,
                 64L * 1024 * 1024, 64L * 1024 * 1024, 1, 2, 1, 64L * 1024 * 1024, 1,
-                64L * 1024 * 1024);
+                64L * 1024 * 1024, 1, 1, 2);
+    }
+
+    private static int defaultPerDbBackgroundJobs(final int processBackgroundJobs) {
+        return Math.max(2, processBackgroundJobs);
     }
 }

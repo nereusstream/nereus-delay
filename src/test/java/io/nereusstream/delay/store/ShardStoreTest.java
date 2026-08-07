@@ -552,6 +552,14 @@ class ShardStoreTest {
     }
 
     @Test
+    void backgroundJobSplitMustFitPerDbCeiling() {
+        assertThrows(IllegalArgumentException.class, () -> new ShardStoreConfig(
+                tempDir.resolve("invalid-background-split"), 1, 1, 32, 32, 2,
+                1024 * 1024, 1024 * 1024, 1, 1, 1, 1024, 1,
+                1024 * 1024, 1, 2, 2));
+    }
+
+    @Test
     void workerOwnedShardLimitIsIndependentFromTransientDbSlots() {
         final ShardStoreConfig config = new ShardStoreConfig(tempDir.resolve("owned-bounded"), 1, 2, 32, 64,
                 1, 1024 * 1024, 1024 * 1024, 1, 1, 1024);
