@@ -3,6 +3,8 @@ package io.nereusstream.delay.adapter;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 
+import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
@@ -251,8 +253,10 @@ public final class DestinationPhysicalAdmission {
 
     private static String requireClusterId(final String value) {
         Objects.requireNonNull(value, "targetClusterId");
-        if (value.isBlank() || value.indexOf('\0') >= 0) {
-            throw new IllegalArgumentException("targetClusterId must be nonblank");
+        final String decoded = new String(value.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8);
+        if (!decoded.equals(value) || value.isBlank() || value.indexOf('\0') >= 0
+                || !value.equals(Normalizer.normalize(value, Normalizer.Form.NFC))) {
+            throw new IllegalArgumentException("targetClusterId must be nonblank NFC UTF-8");
         }
         return value;
     }

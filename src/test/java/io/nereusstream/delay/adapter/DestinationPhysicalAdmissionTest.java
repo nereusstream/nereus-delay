@@ -109,6 +109,16 @@ class DestinationPhysicalAdmissionTest {
         assertEquals(10, admission.workerSnapshot().protectedReadyBytes());
     }
 
+    @Test
+    void targetClusterIdentityRejectsNonCanonicalText() {
+        final DestinationPhysicalAdmission admission = new DestinationPhysicalAdmission(2, 20);
+        final String nonCanonical = "cluster" + '\u0301';
+        assertThrows(IllegalArgumentException.class,
+                () -> admission.registerTargetCluster(nonCanonical, 2, 20));
+        assertThrows(IllegalArgumentException.class,
+                () -> admission.registerTargetCluster("cluster\0", 2, 20));
+    }
+
     private static DestinationPhysicalAdmission.LaneSpec spec(final DestinationLaneId lane,
                                                                final String cluster,
                                                                final long minimumRequests,

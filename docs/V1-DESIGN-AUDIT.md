@@ -468,6 +468,12 @@ identity，避免把无法成为合法 `BrokerResourceIdentityV1` 的文本交�
 `DestinationAdapterTest.targetResourcesRejectNonCanonicalBrokerIdentityText` 覆盖
 该构造期边界。
 
+物理 admission registry 现在对同一 target cluster identity 使用相同的
+canonical UTF-8/NFC fence；非 canonical 文本不能先进入 Worker/cluster 容量域，
+避免 Unicode 等价字符串被拆成两个独立的 hard-cap accounting key。
+`DestinationPhysicalAdmissionTest.targetClusterIdentityRejectsNonCanonicalText`
+覆盖该构造期边界。
+
 本地 `DestinationPhysicalAdmission`/`BoundedDestinationPublishAdapter` 现在把
 target 请求的 physical request/byte charge 作为显式 reservation：Worker 和 target
 cluster hard cap、每 Lane cap 以及所有其它 READY Lane 的 committed minimum 都在
