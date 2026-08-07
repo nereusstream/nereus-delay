@@ -1,12 +1,15 @@
 package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.CheckpointResourceV1;
 import io.nereusstream.delay.protocol.CheckpointUploadIntentV1;
+import io.nereusstream.delay.protocol.CheckpointUploadStateV1;
 import io.nereusstream.delay.protocol.EvidenceCursorV1;
 import io.nereusstream.delay.protocol.RecoveryFloorRefV1;
 import io.nereusstream.delay.protocol.RecoveryPinV1;
 import io.nereusstream.delay.protocol.SourcePosition;
 
+import java.nio.ByteBuffer;
 import java.util.Objects;
 import java.util.List;
 import java.util.Optional;
@@ -93,12 +96,14 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
     public RecoveryCatalog.Publication publishUploadedCheckpoint(final CheckpointUploadIntentV1 publishedIntent,
                                                                   final CheckpointManifest manifest,
                                                                   final long expectedCatalogGeneration) {
+        final CheckpointUploadIntentV1 intent = Objects.requireNonNull(publishedIntent, "publishedIntent");
+        final CheckpointManifest requested = Objects.requireNonNull(manifest, "manifest");
+        validateUploadedPublicationRequest(intent, requested, expectedCatalogGeneration);
         final RecoveryCatalog.Publication result = Objects.requireNonNull(backend.publishUploadedCheckpoint(
-                Objects.requireNonNull(publishedIntent, "publishedIntent"),
-                Objects.requireNonNull(manifest, "manifest"), expectedCatalogGeneration),
+                intent, requested, expectedCatalogGeneration),
                 "Oxia upload-intent publication result");
-        validatePublicationIdentity(manifest, result);
-        validatePublicationFloor(manifest, result);
+        validatePublicationIdentity(requested, result);
+        validatePublicationFloor(requested, result);
         if (result.catalogGeneration() < expectedCatalogGeneration) {
             throw new IllegalStateException("Oxia upload-intent publication regressed catalog generation");
         }
@@ -224,6 +229,48 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
         }
     }
 
+    /**
+     * Mirrors the local catalog's request-to-manifest binding before an
+     * external Oxia CAS is attempted.  The remote backend must not become the
+     * first place that discovers a malformed or cross-shard upload intent.
+     */
+    private static void validateUploadedPublicationRequest(final CheckpointUploadIntentV1 intent,
+                                                           final CheckpointManifest manifest,
+                                                           final long expectedCatalogGeneration) {
+        if (intent.state() != CheckpointUploadStateV1.PUBLISHED || intent.publishedManifest() == null) {
+            throw new IllegalArgumentException("catalog publication requires a PUBLISHED upload intent");
+        }
+        if (expectedCatalogGeneration < 0) {
+            throw new IllegalArgumentException("catalog generation must be non-negative");
+        }
+        if (expectedCatalogGeneration != intent.baseCatalogGeneration()) {
+            throw new IllegalStateException("upload intent base catalog generation does not match publication CAS");
+        }
+        if (!intent.shard().shardId().equals(manifest.shardId())
+                || !Bytes.constantTimeEquals(intent.recoveryLineageId(), manifest.recoveryLineageId())
+                || !Bytes.constantTimeEquals(intent.checkpointId(), manifest.checkpointId())) {
+            throw new IllegalArgumentException("upload intent and manifest shard/checkpoint identity differ");
+        }
+        final CheckpointResourceV1 resource = intent.publishedManifest();
+        if (!Bytes.constantTimeEquals(resource.manifestSha256(), manifest.manifestSha256())
+                || resource.manifestLength() != manifest.canonicalJsonBytes().length) {
+            throw new IllegalArgumentException("published manifest object identity does not match manifest bytes");
+        }
+        if (!Bytes.constantTimeEquals(intent.owner().deploymentId(), manifest.createdBy().deploymentId())
+                || !Bytes.constantTimeEquals(intent.owner().workerRunId(), manifest.createdBy().workerRunId())
+                || intent.owner().ownerEpoch() != manifest.createdBy().ownerEpoch()) {
+            throw new IllegalArgumentException("upload intent owner does not match manifest creator");
+        }
+        if (!Bytes.constantTimeEquals(intent.sourceStoreIncarnation(), uuidBytes(manifest.sourceStoreIncarnation()))) {
+            throw new IllegalArgumentException("upload intent store incarnation does not match manifest");
+        }
+        final CheckpointManifest.ParentCheckpoint parent = manifest.parentCheckpoint();
+        if (!sameBytes(intent.parentCheckpointId(), parent == null ? null : parent.checkpointId())
+                || !sameHashHex(intent.parentManifestSha256(), parent == null ? null : parent.manifestSha256())) {
+            throw new IllegalArgumentException("upload intent parent checkpoint identity does not match manifest");
+        }
+    }
+
     private void validatePublicationFloor(final CheckpointManifest requested,
                                           final RecoveryCatalog.Publication result) {
         final RecoveryFloor publicationFloor = result.floor();
@@ -263,6 +310,19 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
         } catch (IllegalArgumentException exception) {
             return false;
         }
+    }
+
+    private static boolean sameBytes(final byte[] left, final byte[] right) {
+        return left == null ? right == null : right != null && Bytes.constantTimeEquals(left, right);
+    }
+
+    private static boolean sameHashHex(final byte[] left, final String right) {
+        return left == null ? right == null : right != null && Bytes.hex(left).equals(right);
+    }
+
+    private static byte[] uuidBytes(final java.util.UUID value) {
+        return ByteBuffer.allocate(16).putLong(value.getMostSignificantBits())
+                .putLong(value.getLeastSignificantBits()).array();
     }
 
     private CheckpointManifest publishedManifest(final byte[] checkpointId) {

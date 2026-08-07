@@ -172,6 +172,49 @@ class RecoveryCatalogTest {
         assertEquals(1, catalog.publishUploadedCheckpoint(published, manifest, 1).catalogGeneration());
         assertEquals(1, new OxiaRecoveryCatalog(catalog)
                 .publishUploadedCheckpoint(published, manifest, 1).catalogGeneration());
+        final OxiaRecoveryCatalog.CasBackend mustNotReceiveInvalidRequest = new OxiaRecoveryCatalog.CasBackend() {
+            @Override
+            public RecoveryCatalog.Publication publish(final CheckpointManifest ignored, final long expected) {
+                throw new AssertionError("invalid upload intent reached Oxia publish");
+            }
+
+            @Override
+            public RecoveryCatalog.Publication publishUploadedCheckpoint(
+                    final CheckpointUploadIntentV1 ignoredIntent, final CheckpointManifest ignoredManifest,
+                    final long expected) {
+                throw new AssertionError("invalid upload intent reached Oxia upload publication");
+            }
+
+            @Override
+            public RecoveryFloor advanceFloor(final byte[] ignored, final long expected, final byte[] digest) {
+                throw new AssertionError("invalid upload intent reached Oxia floor CAS");
+            }
+
+            @Override
+            public java.util.Optional<CheckpointManifest> manifest(final byte[] ignored) {
+                throw new AssertionError("invalid upload intent reached Oxia manifest read");
+            }
+
+            @Override
+            public java.util.Optional<RecoveryFloor> currentFloor() {
+                throw new AssertionError("invalid upload intent reached Oxia floor read");
+            }
+
+            @Override
+            public void validatePublishedRestoreCandidate(final CheckpointManifest ignored) {
+                throw new AssertionError("invalid upload intent reached Oxia restore validation");
+            }
+
+            @Override
+            public java.util.Optional<RecoveryCatalog.FloorCoverage> proveFloorCoverage(
+                    final byte[] ignored, final long sequence,
+                    final io.nereusstream.delay.protocol.SourcePosition... positions) {
+                throw new AssertionError("invalid upload intent reached Oxia coverage proof");
+            }
+        };
+        assertThrows(IllegalStateException.class,
+                () -> new OxiaRecoveryCatalog(mustNotReceiveInvalidRequest)
+                        .publishUploadedCheckpoint(published, manifest, 2));
         assertThrows(IllegalArgumentException.class, () -> catalog.publishUploadedCheckpoint(
                 new CheckpointUploadIntentV1(new ShardSubjectV1(shard), lineage, manifest.checkpointId(), owner,
                         uuidBytes(manifest.sourceStoreIncarnation()), id32(75), 1, null, null, profile,

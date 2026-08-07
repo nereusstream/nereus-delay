@@ -732,7 +732,9 @@ than a successful query or applied frame.
 generation 已被其它操作推进；同 ID 不同 manifest hash 或 Object Store
 container/key/version/profile 仍 fail closed。这仍不等于
 Object Store 真实性或 Oxia transaction；Oxia validation adapter 同样允许
-generation 相等的 exact reread，但拒绝 generation 回退。
+generation 相等的 exact reread，但拒绝 generation 回退。它现在在调用外部
+upload-intent CAS 前复用同一组 state、base generation、对象身份、owner、store
+incarnation 和 parent identity 校验；非法请求不会先触达 Oxia。
 
 Legacy/typed local Recovery Floor CAS 也支持 exact successor reread（含
 checkpoint、manifest、source/mutation 和 evidence/cursor identity），response
