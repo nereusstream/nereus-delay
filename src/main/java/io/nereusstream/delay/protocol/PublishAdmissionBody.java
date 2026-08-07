@@ -246,6 +246,7 @@ public final class PublishAdmissionBody {
         final ProfileRefV1 capabilityRef = ProfileRefV1.decode(descriptor.capabilityProfile());
         if (!destinationProfile.deliveryCapability().equals(capabilityRef)
                 || destinationProfile.adapterKind() != capabilityProfile.adapterKind()
+                || destinationProfile.adapterEncodingVersion() != 1
                 || !Arrays.equals(destinationProfile.targetResource().canonicalBytes(), descriptor.targetResource())) {
             throw new IllegalArgumentException("Publish Admission Profile identity mismatch");
         }

@@ -102,6 +102,13 @@ public class PublishAdmissionBodyTest {
                 new DeliveryCapabilitySemanticV1(AdapterKindV1.PULSAR, OutcomeCapabilityV1.AT_LEAST_ONCE,
                         TimingCapabilityV1.ORDINARY_MANAGED, null, 0, 0, 0, 0,
                         bytes(32, 45), bytes(32, 46), 0, 0)));
+        final DestinationProfileSemanticV1 encodingMismatchBody = new DestinationProfileSemanticV1(
+                AdapterKindV1.PULSAR, target, 1, TargetPartitionPolicyV1.HASH_ONLY,
+                TargetPartitionHashInputV1.ORDERING_KEY, List.of(), capability.ref(), 1, 500, 100,
+                bytes(32, 49), 1_000, 128, 512, 1, Bytes.utf8("pulsar-encoding-mismatch"), 0, 0, 2,
+                bytes(32, 50));
+        assertThrows(IllegalArgumentException.class, () -> admission.requireTimingPolicy(
+                encodingMismatchBody, capabilityBody));
 
         final DestinationProfileSemanticV1 partitionMismatchBody = new DestinationProfileSemanticV1(
                 AdapterKindV1.PULSAR, target, 2, TargetPartitionPolicyV1.EXPLICIT_ONLY,
