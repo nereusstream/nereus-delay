@@ -352,6 +352,11 @@ drain or admission logic can use it. `DelayShardTest` covers both
 `commandDedupeLookupRejectsForeignSourcePosition` and
 `claimLookupRejectsForeignMessageShard`.
 
+`SloObservationOutboxStore.get` now applies the same sample-id key/value fence
+as its bounded scan, so a misplaced `meta_cf/SLO_OUTBOX` record cannot be
+consumed by Start/Final merge logic; `SloObservationOutboxStoreTest` covers
+both direct and scan reads.
+
 The embedded Kafka ingress now checks source-offset exhaustion before creating
 the next queued position and advances the counter only after the position has
 validated successfully. `EmbeddedDelayServiceTest` covers the

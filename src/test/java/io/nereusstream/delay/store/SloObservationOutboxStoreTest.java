@@ -37,6 +37,7 @@ class SloObservationOutboxStoreTest {
                     KeyCodec.metaSloOutbox(anotherSampleId), outbox.canonicalBytes()));
             final SloObservationOutboxStore outboxStore = new SloObservationOutboxStore(store);
 
+            assertThrows(IllegalStateException.class, () -> outboxStore.get(anotherSampleId));
             assertThrows(IllegalStateException.class, () -> outboxStore.scan(10));
         }
     }

@@ -31,7 +31,14 @@ public final class SloObservationOutboxStore {
     public synchronized SloObservationOutboxV1 get(final byte[] sampleId) {
         final ValueEnvelope.Decoded value = store.getValue(ColumnFamily.META, KeyCodec.metaSloOutbox(sampleId),
                 VALUE_TYPE);
-        return value == null ? null : SloObservationOutboxV1.decode(value.payload());
+        if (value == null) {
+            return null;
+        }
+        final SloObservationOutboxV1 outbox = SloObservationOutboxV1.decode(value.payload());
+        if (!Bytes.constantTimeEquals(sampleId, outbox.sampleId())) {
+            throw new IllegalStateException("SLO_OUTBOX key/value sample identity mismatch");
+        }
+        return outbox;
     }
 
     /**

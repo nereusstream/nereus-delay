@@ -594,6 +594,10 @@ Source Position；Claim lookup/scan 则检查其 `DelayMessageId` 的 self-routi
 Shard，避免跨 Shard 的旧去重结果或 Claim 进入 source replay、owner drain 或
 admission；证据为 `DelayShardTest.commandDedupeLookupRejectsForeignSourcePosition`
 与 `DelayShardTest.claimLookupRejectsForeignMessageShard`。
+SLO outbox 的 direct `get(sampleId)` 也与 bounded scan 使用同一
+`meta_cf/SLO_OUTBOX` key/value sample-id fence，错挂的 Start 不会进入 Final
+merge；`SloObservationOutboxStoreTest.scanRejectsKeyValueSampleIdentityMismatch`
+覆盖 direct 与 scan 两条读取路径。
 Retired Lane guard 的直接读取也校验其 terminal Source Position 属于当前
 Shard；错挂的退休证明不会通过 `getLaneTerminalGuard` 暴露。
 `ShardStore.flushAndSync` 还提供 drain 的物理 flush/WAL-sync 原语，重开回归为
