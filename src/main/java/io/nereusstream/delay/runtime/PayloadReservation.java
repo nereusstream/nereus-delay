@@ -69,7 +69,7 @@ public record PayloadReservation(
 
     public byte[] encode() {
         final byte[] payload = committedPayload == null ? new byte[0] : committedPayload.encode();
-        return Bytes.concat(Bytes.u32be(1), shardId.routeIncarnation().bytes(), Bytes.u32be(shardId.partition()),
+        return Bytes.concat(Bytes.u32be(1), shardId.routeIncarnation().bytes(), Bytes.u32beBits(shardId.partition()),
                 reservationId, commandId.bytes(), delayMessageId.bytes(), commandHash, intent.canonicalBytes(),
                 Bytes.u64be(reservationExpiryEpochMs), Bytes.u8(status.wireValue()), Bytes.u64be(stateVersion),
                 Bytes.lp32(sourcePosition), Bytes.u8(committedPayload == null ? 0 : 1), Bytes.lp32(payload));

@@ -27,8 +27,7 @@ public record PulsarNativeSendRequest(
                 "nativeDeliveryId");
         Bytes.requireLength(submissionHash, NativePreparedDeliveryV1.HASH_LENGTH, "submissionHash");
         Objects.requireNonNull(preparedBytes, "preparedBytes");
-        if (physicalTopicCreationTimestamp < 0
-                || partition < 0 || preparedBytes.length == 0) {
+        if (physicalTopicCreationTimestamp < 0 || preparedBytes.length == 0) {
             throw new IllegalArgumentException("invalid Pulsar native send request");
         }
         requireNonZero(nativeDeliveryId, "nativeDeliveryId");

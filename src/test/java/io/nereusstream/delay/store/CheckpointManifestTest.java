@@ -67,7 +67,7 @@ class CheckpointManifestTest {
 
     @Test
     void manifestRoundTripsUnsignedSourceAndEvidencePositions() {
-        final ShardId shardId = new ShardId(RouteIncarnation.random(), 2);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), -1);
         final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster-a", UUID.randomUUID(),
                 Long.MIN_VALUE, 3, 1000);
         final EvidenceCursorV1 kafkaCursor = EvidenceCursorV1.kafka(
@@ -85,6 +85,7 @@ class CheckpointManifestTest {
                 new byte[32], new byte[32], List.of(pulsarCursor, kafkaCursor), List.of(file("a.sst", 1)));
 
         final String json = manifest.canonicalJson();
+        assertTrue(json.contains("\"partition\":4294967295"));
         assertTrue(json.contains("\"offset\":\"9223372036854775808\""));
         assertTrue(json.contains("\"nextOffsetExclusive\":\"9223372036854775808\""));
         assertTrue(json.contains("\"lastObservedLsoExclusive\":\"18446744073709551615\""));

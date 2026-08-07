@@ -504,7 +504,7 @@ public final class ShardStore implements AutoCloseable {
         ensureRealDirectory(shardsRoot);
         final Path routeRoot = shardsRoot.resolve(shardId.routeIncarnation().uuid().toString());
         ensureRealDirectory(routeRoot);
-        final Path shardRoot = routeRoot.resolve(Integer.toString(shardId.partition()));
+        final Path shardRoot = routeRoot.resolve(Integer.toUnsignedString(shardId.partition()));
         ensureRealDirectory(shardRoot);
         return shardRoot;
     }
@@ -690,7 +690,7 @@ public final class ShardStore implements AutoCloseable {
                         .array();
                 final StoreMetadata created = new StoreMetadata(1, shardId, storeIncarnation, Bytes.sha256(
                         Bytes.concat(Bytes.utf8("nereus-delay-db-identity-v1\0"), storeIncarnation,
-                                shardId.routeIncarnation().bytes(), Bytes.u32be(shardId.partition()))));
+                                shardId.routeIncarnation().bytes(), Bytes.u32beBits(shardId.partition()))));
                 try (WriteBatch batch = new WriteBatch(); WriteOptions writeOptions = new WriteOptions().setSync(true)) {
                     batch.put(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_STORE_FORMAT),
                             ValueEnvelope.encode(META_FIXED_VALUE_TYPE, Bytes.u32be(1)));

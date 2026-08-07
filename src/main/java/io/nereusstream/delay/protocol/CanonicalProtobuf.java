@@ -22,6 +22,12 @@ public final class CanonicalProtobuf {
         varint(output, value);
     }
 
+    /** Encodes a complete protobuf unsigned-32 bit pattern carried by a Java int. */
+    public static void uint32Bits(final ByteArrayOutputStream output, final int field, final int value) {
+        tag(output, field, 0);
+        varintBits(output, Integer.toUnsignedLong(value));
+    }
+
     public static void uint64(final ByteArrayOutputStream output, final int field, final long value) {
         tag(output, field, 0);
         varint(output, value);

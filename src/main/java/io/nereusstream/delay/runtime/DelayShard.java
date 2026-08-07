@@ -1943,7 +1943,7 @@ public final class DelayShard {
                     StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
         final byte[] expectedProofId = Bytes.sha256(Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
-                store.shardId().routeIncarnation().bytes(), Bytes.u32be(store.shardId().partition()),
+                store.shardId().routeIncarnation().bytes(), Bytes.u32beBits(store.shardId().partition()),
                 Bytes.i64be(closeThrough), Bytes.u32be(fenceKeyVersion), Bytes.lp32(proof.canonicalBytes()));
         if (!Bytes.constantTimeEquals(proofId, expectedProofId)
                 || !Bytes.constantTimeEquals(mutation.logicalOperationIdentity(), proofId)) {

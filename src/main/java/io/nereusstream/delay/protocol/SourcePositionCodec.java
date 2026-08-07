@@ -35,7 +35,7 @@ public final class SourcePositionCodec {
             final int presence = readUnsignedByte(input, "leader epoch presence");
             final Integer leaderEpoch = switch (presence) {
                 case 0 -> null;
-                case 1 -> readNonNegativeInt(input, "leader epoch");
+                case 1 -> readUint32Bits(input, "leader epoch");
                 default -> throw new IllegalArgumentException("invalid leader epoch presence");
             };
             final long appendTime = requireNonNegative(readLong(input, "brokerLogAppendTime"),
@@ -115,12 +115,8 @@ public final class SourcePositionCodec {
         return input.get() & 0xff;
     }
 
-    private static int readNonNegativeInt(final ByteBuffer input, final String name) {
-        final long value = Integer.toUnsignedLong(readInt(input, name));
-        if (value > Integer.MAX_VALUE) {
-            throw new IllegalArgumentException(name + " is outside signed V1 range");
-        }
-        return (int) value;
+    private static int readUint32Bits(final ByteBuffer input, final String name) {
+        return readInt(input, name);
     }
 
     private static void requireRemaining(final ByteBuffer input, final int length, final String name) {

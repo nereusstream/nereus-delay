@@ -135,7 +135,7 @@ final class CheckpointManifestJson {
         final Map<String, Object> fields = object(value, "shardId");
         keys(fields, SHARD_KEYS, "shardId");
         return new ShardId(RouteIncarnation.fromUuid(uuid(string(fields.get("routeIncarnation"),
-                "shard routeIncarnation"))), number(fields.get("partition"), "shard partition"));
+                "shard routeIncarnation"))), uint32Number(fields.get("partition"), "shard partition"));
     }
 
     private static List<EvidenceCursorV1> decodeEvidenceCursors(final Object value) {
@@ -157,7 +157,7 @@ final class CheckpointManifestJson {
                         base64(fields.get("destinationLaneId"), "destinationLaneId"),
                         base64(fields.get("laneIncarnation"), "laneIncarnation"),
                         uuidBytes(uuid(string(fields.get("topicUuid"), "topicUuid"))),
-                        number(fields.get("physicalPartition"), "physicalPartition"),
+                        uint32Number(fields.get("physicalPartition"), "physicalPartition"),
                         decimal(fields.get("evidenceGeneration"), "evidenceGeneration"),
                         decimal(fields.get("maxBrokerPersistedAtThroughCursor"),
                                 "maxBrokerPersistedAtThroughCursor"),
@@ -169,7 +169,7 @@ final class CheckpointManifestJson {
                         base64(fields.get("destinationLaneId"), "destinationLaneId"),
                         base64(fields.get("laneIncarnation"), "laneIncarnation"),
                         base64(fields.get("resourceToken"), "resourceToken"),
-                        number(fields.get("physicalPartition"), "physicalPartition"),
+                        uint32Number(fields.get("physicalPartition"), "physicalPartition"),
                         decimal(fields.get("evidenceGeneration"), "evidenceGeneration"),
                         decimal(fields.get("maxBrokerPersistedAtThroughCursor"),
                                 "maxBrokerPersistedAtThroughCursor"),
@@ -209,18 +209,18 @@ final class CheckpointManifestJson {
         if ("KAFKA".equals(kind)) {
             keys(fields, KAFKA_POSITION_KEYS, "Kafka source position");
             final ShardId shard = new ShardId(RouteIncarnation.fromUuid(uuid(string(fields.get("routeIncarnation"),
-                    "Kafka routeIncarnation"))), number(fields.get("partition"), "Kafka partition"));
+                    "Kafka routeIncarnation"))), uint32Number(fields.get("partition"), "Kafka partition"));
             final Object leader = fields.get("leaderEpoch");
             return new KafkaSourcePosition(shard, utf8Base64(fields.get("clusterId"), "clusterId"),
                     uuid(string(fields.get("topicUuid"), "topicUuid")),
                     unsignedDecimal(fields.get("offset"), "offset"),
-                    leader == null ? null : number(leader, "leaderEpoch"),
+                    leader == null ? null : uint32Number(leader, "leaderEpoch"),
                     decimal(fields.get("brokerLogAppendTime"), "brokerLogAppendTime"));
         }
         if ("PULSAR".equals(kind)) {
             keys(fields, PULSAR_POSITION_KEYS, "Pulsar source position");
             final ShardId shard = new ShardId(RouteIncarnation.fromUuid(uuid(string(fields.get("routeIncarnation"),
-                    "Pulsar routeIncarnation"))), number(fields.get("partition"), "Pulsar partition"));
+                    "Pulsar routeIncarnation"))), uint32Number(fields.get("partition"), "Pulsar partition"));
             final PulsarSourcePosition.EntryKind entryKind;
             try {
                 entryKind = PulsarSourcePosition.EntryKind.valueOf(string(fields.get("entryKind"), "entryKind"));
@@ -231,7 +231,8 @@ final class CheckpointManifestJson {
                     string(fields.get("physicalTopic"), "physicalTopic"),
                     unsignedDecimal(fields.get("ledgerId"), "ledgerId"),
                     unsignedDecimal(fields.get("entryId"), "entryId"),
-                    number(fields.get("batchIndex"), "batchIndex"), number(fields.get("batchSize"), "batchSize"),
+                    uint32Number(fields.get("batchIndex"), "batchIndex"),
+                    uint32Number(fields.get("batchSize"), "batchSize"),
                     entryKind, decimal(fields.get("brokerEntryTimestamp"), "brokerEntryTimestamp"));
         }
         throw new IllegalArgumentException("unknown source position kind: " + kind);
@@ -268,6 +269,21 @@ final class CheckpointManifestJson {
             throw new IllegalArgumentException(name + " exceeds local integer range");
         }
         return (int) parsed;
+    }
+
+    private static int uint32Number(final Object value, final String name) {
+        if (!(value instanceof JsonNumber number) || !number.text().matches("0|[1-9][0-9]*")) {
+            throw new IllegalArgumentException(name + " must be a canonical uint32 integer");
+        }
+        try {
+            final long parsed = Long.parseLong(number.text());
+            if (parsed > 0xffff_ffffL) {
+                throw new IllegalArgumentException(name + " exceeds uint32 range");
+            }
+            return (int) parsed;
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException(name + " exceeds uint32 range", exception);
+        }
     }
 
     private static long decimal(final Object value, final String name) {

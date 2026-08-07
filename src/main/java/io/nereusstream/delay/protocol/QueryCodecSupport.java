@@ -123,10 +123,10 @@ final class QueryCodecSupport {
                         CanonicalProtobuf.bytes(kafkaOutput, 2,
                                 kafka.authenticatedClusterId().getBytes(StandardCharsets.UTF_8));
                         CanonicalProtobuf.bytes(kafkaOutput, 3, uuidBytes(kafka.nativeTopicUuid()));
-                        CanonicalProtobuf.uint32(kafkaOutput, 4, kafka.shardId().partition());
+                        CanonicalProtobuf.uint32Bits(kafkaOutput, 4, kafka.shardId().partition());
                         CanonicalProtobuf.uint64Bits(kafkaOutput, 5, kafka.offset());
                         if (kafka.leaderEpoch() != null) {
-                            CanonicalProtobuf.uint32(kafkaOutput, 6, kafka.leaderEpoch());
+                            CanonicalProtobuf.uint32Bits(kafkaOutput, 6, kafka.leaderEpoch());
                         }
                         CanonicalProtobuf.int64(kafkaOutput, 7, kafka.brokerLogAppendTimeEpochMs());
                     })));
@@ -140,11 +140,11 @@ final class QueryCodecSupport {
                     CanonicalProtobuf.bytes(pulsarOutput, 2, pulsar.brokerResourceIncarnation());
                     CanonicalProtobuf.bytes(pulsarOutput, 3,
                             pulsar.physicalTopic().getBytes(StandardCharsets.UTF_8));
-                    CanonicalProtobuf.uint32(pulsarOutput, 4, pulsar.shardId().partition());
+                    CanonicalProtobuf.uint32Bits(pulsarOutput, 4, pulsar.shardId().partition());
                     CanonicalProtobuf.uint64Bits(pulsarOutput, 5, pulsar.ledgerId());
                     CanonicalProtobuf.uint64Bits(pulsarOutput, 6, pulsar.entryId());
-                    CanonicalProtobuf.uint32(pulsarOutput, 7, pulsar.normalizedBatchIndex());
-                    CanonicalProtobuf.uint32(pulsarOutput, 8, pulsar.batchSize());
+                    CanonicalProtobuf.uint32Bits(pulsarOutput, 7, pulsar.normalizedBatchIndex());
+                    CanonicalProtobuf.uint32Bits(pulsarOutput, 8, pulsar.batchSize());
                     CanonicalProtobuf.uint32(pulsarOutput, 9, pulsar.entryKind().wireValue());
                     CanonicalProtobuf.int64(pulsarOutput, 10, pulsar.brokerEntryTimestampEpochMs());
                 })));
@@ -165,11 +165,11 @@ final class QueryCodecSupport {
             final byte[] route = fixed(fields.get(0), 1, RouteIncarnation.LENGTH);
             final String cluster = utf8(bytes(fields.get(1), 2), "authenticatedClusterId");
             final UUID topic = uuid(fixed(fields.get(2), 3, 16));
-            final int partition = uint32(fields.get(3), 4);
+            final int partition = uint32Bits(fields.get(3), 4);
             final long offset = uint(fields.get(4), 5);
             final Integer leaderEpoch;
             if (fields.size() == 7) {
-                leaderEpoch = uint32(fields.get(5), 6);
+                leaderEpoch = uint32Bits(fields.get(5), 6);
                 if (fields.get(6).number() != 7) {
                     throw new IllegalArgumentException("invalid Kafka SourcePositionV1 leader epoch order");
                 }
@@ -188,12 +188,12 @@ final class QueryCodecSupport {
             final byte[] route = fixed(fields.get(0), 1, RouteIncarnation.LENGTH);
             final byte[] resource = fixed(fields.get(1), 2, 32);
             final String topic = utf8(bytes(fields.get(2), 3), "physicalTopic");
-            final int partition = uint32(fields.get(3), 4);
+            final int partition = uint32Bits(fields.get(3), 4);
             final long ledger = uint(fields.get(4), 5);
             final long entry = uint(fields.get(5), 6);
-            final int batchIndex = uint32(fields.get(6), 7);
-            final int batchSize = uint32(fields.get(7), 8);
-            final PulsarSourcePosition.EntryKind entryKind = switch (uint32(fields.get(8), 9)) {
+            final int batchIndex = uint32Bits(fields.get(6), 7);
+            final int batchSize = uint32Bits(fields.get(7), 8);
+            final PulsarSourcePosition.EntryKind entryKind = switch (uint32Bits(fields.get(8), 9)) {
                 case 1 -> PulsarSourcePosition.EntryKind.NON_BATCH;
                 case 2 -> PulsarSourcePosition.EntryKind.BATCH;
                 default -> throw new IllegalArgumentException("unknown Pulsar source entry kind");

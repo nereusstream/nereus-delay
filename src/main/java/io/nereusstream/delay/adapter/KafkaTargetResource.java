@@ -10,9 +10,6 @@ public record KafkaTargetResource(String authenticatedClusterId, UUID nativeTopi
     public KafkaTargetResource {
         authenticatedClusterId = canonicalText(authenticatedClusterId, "authenticatedClusterId");
         Objects.requireNonNull(nativeTopicUuid, "nativeTopicUuid");
-        if (partition < 0) {
-            throw new IllegalArgumentException("invalid Kafka target resource");
-        }
     }
 
     private static String canonicalText(final String value, final String name) {

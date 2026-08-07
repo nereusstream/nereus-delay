@@ -98,7 +98,7 @@ public final class PayloadReservationReceiptV1 {
                 DelayMessageId.LENGTH));
         final RouteIncarnation route = new RouteIncarnation(QueryCodecSupport.fixed(fields.get(3), 4,
                 RouteIncarnation.LENGTH));
-        final int partition = QueryCodecSupport.uint32(fields.get(4), 5);
+        final int partition = QueryCodecSupport.uint32Bits(fields.get(4), 5);
         final SourcePosition sourcePosition = QueryCodecSupport.decodeSourcePosition(
                 QueryCodecSupport.nested(fields.get(5), 6));
         final ShardId shardId = new ShardId(route, partition);
@@ -178,7 +178,7 @@ public final class PayloadReservationReceiptV1 {
             CanonicalProtobuf.bytes(output, 2, reservationId);
             CanonicalProtobuf.bytes(output, 3, delayMessageId.bytes());
             CanonicalProtobuf.bytes(output, 4, shardId.routeIncarnation().bytes());
-            CanonicalProtobuf.uint32(output, 5, shardId.partition());
+            CanonicalProtobuf.uint32Bits(output, 5, shardId.partition());
             CanonicalProtobuf.bytes(output, 6, QueryCodecSupport.encodeSourcePosition(appliedSourcePosition));
             CanonicalProtobuf.uint64(output, 7, stateVersion);
             CanonicalProtobuf.bytes(output, 8, objectStoreProfile.canonicalBytes());
@@ -230,7 +230,7 @@ public final class PayloadReservationReceiptV1 {
             CanonicalProtobuf.bytes(output, 2, reservationId);
             CanonicalProtobuf.bytes(output, 3, delayMessageId.bytes());
             CanonicalProtobuf.bytes(output, 4, shardId.routeIncarnation().bytes());
-            CanonicalProtobuf.uint32(output, 5, shardId.partition());
+            CanonicalProtobuf.uint32Bits(output, 5, shardId.partition());
             CanonicalProtobuf.bytes(output, 6, QueryCodecSupport.encodeSourcePosition(sourcePosition));
             CanonicalProtobuf.uint64(output, 7, stateVersion);
             CanonicalProtobuf.bytes(output, 8, objectStoreProfile.canonicalBytes());

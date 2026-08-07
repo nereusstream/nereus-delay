@@ -31,9 +31,6 @@ public final class PublicDestinationBindingViewV1 {
         }
         this.adapterKind = Objects.requireNonNull(adapterKind, "adapterKind");
         this.destinationAliasUtf8Nfc = requireAlias(destinationAliasUtf8Nfc);
-        if (physicalPartition < 0) {
-            throw new IllegalArgumentException("physical partition must be non-negative");
-        }
         this.physicalPartition = physicalPartition;
         this.orderingMode = Objects.requireNonNull(orderingMode, "orderingMode");
     }
@@ -68,7 +65,7 @@ public final class PublicDestinationBindingViewV1 {
             CanonicalProtobuf.bytes(output, 2, capabilityProfile.canonicalBytes());
             CanonicalProtobuf.uint32(output, 3, adapterKind.wireValue());
             CanonicalProtobuf.bytes(output, 4, destinationAliasUtf8Nfc);
-            CanonicalProtobuf.uint32(output, 5, physicalPartition);
+            CanonicalProtobuf.uint32Bits(output, 5, physicalPartition);
             CanonicalProtobuf.uint32(output, 6, orderingMode.wireValue());
         });
     }
@@ -82,7 +79,7 @@ public final class PublicDestinationBindingViewV1 {
                 ProfileRefV1.decode(QueryCodecSupport.nested(fields.get(1), 2)),
                 AdapterKindV1.fromWire(QueryCodecSupport.uint(fields.get(2), 3)),
                 QueryCodecSupport.bytes(fields.get(3), 4),
-                QueryCodecSupport.uint32(fields.get(4), 5),
+                QueryCodecSupport.uint32Bits(fields.get(4), 5),
                 OrderingMode.fromWire(QueryCodecSupport.uint(fields.get(5), 6)));
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "PublicDestinationBindingViewV1");
         return result;

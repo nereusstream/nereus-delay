@@ -6,9 +6,10 @@ import java.util.Objects;
 public record ShardId(RouteIncarnation routeIncarnation, int partition) {
     public ShardId {
         Objects.requireNonNull(routeIncarnation, "routeIncarnation");
-        if (partition < 0) {
-            throw new IllegalArgumentException("partition must be non-negative");
-        }
+    }
+
+    /** Returns the partition as its canonical unsigned-32 numeric value. */
+    public long unsignedPartition() {
+        return Integer.toUnsignedLong(partition);
     }
 }
-

@@ -177,10 +177,10 @@ public final class CommandQueuedReceiptV1 {
                         CanonicalProtobuf.bytes(kafkaOutput, 2,
                                 kafka.authenticatedClusterId().getBytes(StandardCharsets.UTF_8));
                         CanonicalProtobuf.bytes(kafkaOutput, 3, uuidBytes(kafka.nativeTopicUuid()));
-                        CanonicalProtobuf.uint32(kafkaOutput, 4, kafka.shardId().partition());
+                        CanonicalProtobuf.uint32Bits(kafkaOutput, 4, kafka.shardId().partition());
                         CanonicalProtobuf.uint64Bits(kafkaOutput, 5, kafka.offset());
                         if (kafka.leaderEpoch() != null) {
-                            CanonicalProtobuf.uint32(kafkaOutput, 6, kafka.leaderEpoch());
+                            CanonicalProtobuf.uint32Bits(kafkaOutput, 6, kafka.leaderEpoch());
                         }
                         CanonicalProtobuf.int64(kafkaOutput, 7, kafka.brokerLogAppendTimeEpochMs());
                     })));
@@ -192,11 +192,11 @@ public final class CommandQueuedReceiptV1 {
                     CanonicalProtobuf.bytes(pulsarOutput, 2, pulsar.brokerResourceIncarnation());
                     CanonicalProtobuf.bytes(pulsarOutput, 3,
                             utf8Nfc(pulsar.physicalTopic(), "physicalTopic").getBytes(StandardCharsets.UTF_8));
-                    CanonicalProtobuf.uint32(pulsarOutput, 4, pulsar.shardId().partition());
+                    CanonicalProtobuf.uint32Bits(pulsarOutput, 4, pulsar.shardId().partition());
                     CanonicalProtobuf.uint64Bits(pulsarOutput, 5, pulsar.ledgerId());
                     CanonicalProtobuf.uint64Bits(pulsarOutput, 6, pulsar.entryId());
-                    CanonicalProtobuf.uint32(pulsarOutput, 7, pulsar.normalizedBatchIndex());
-                    CanonicalProtobuf.uint32(pulsarOutput, 8, pulsar.batchSize());
+                    CanonicalProtobuf.uint32Bits(pulsarOutput, 7, pulsar.normalizedBatchIndex());
+                    CanonicalProtobuf.uint32Bits(pulsarOutput, 8, pulsar.batchSize());
                     CanonicalProtobuf.uint32(pulsarOutput, 9, pulsar.entryKind().wireValue());
                     CanonicalProtobuf.int64(pulsarOutput, 10, pulsar.brokerEntryTimestampEpochMs());
                 })));
@@ -215,7 +215,7 @@ public final class CommandQueuedReceiptV1 {
             final byte[] route = fixed(fields.get(0), 1, RouteIncarnation.LENGTH);
             final String cluster = utf8(bytes(fields.get(1), 2), "authenticatedClusterId");
             final UUID topic = uuid(fixed(fields.get(2), 3, 16));
-            final int partition = uint32Int(fields.get(3), 4);
+            final int partition = uint32Bits(fields.get(3), 4);
             final long offset = uint64Bits(fields.get(4), 5);
             final Integer leader = optionalVarint(fields, 6, "leaderEpoch");
             final long append = nonNegative(field(fields, 7), 7);
@@ -227,11 +227,11 @@ public final class CommandQueuedReceiptV1 {
             final byte[] route = fixed(fields.get(0), 1, RouteIncarnation.LENGTH);
             final byte[] resource = fixed(fields.get(1), 2, 32);
             final String topic = utf8Nfc(utf8(bytes(fields.get(2), 3), "physicalTopic"), "physicalTopic");
-            final int partition = uint32Int(fields.get(3), 4);
+            final int partition = uint32Bits(fields.get(3), 4);
             final long ledger = uint64Bits(fields.get(4), 5);
             final long entry = uint64Bits(fields.get(5), 6);
-            final int batchIndex = uint32Int(fields.get(6), 7);
-            final int batchSize = uint32Int(fields.get(7), 8);
+            final int batchIndex = uint32Bits(fields.get(6), 7);
+            final int batchSize = uint32Bits(fields.get(7), 8);
             final PulsarSourcePosition.EntryKind entryKind = switch (uint32Int(fields.get(8), 9)) {
                 case 1 -> PulsarSourcePosition.EntryKind.NON_BATCH;
                 case 2 -> PulsarSourcePosition.EntryKind.BATCH;
@@ -330,11 +330,19 @@ public final class CommandQueuedReceiptV1 {
         return (int) value;
     }
 
+    private static int uint32Bits(final CanonicalProtobuf.Reader.Field field, final int number) {
+        final long value = nonNegative(field, number);
+        if (value > 0xffff_ffffL) {
+            throw new IllegalArgumentException("protobuf uint32 field exceeds unsigned range " + number);
+        }
+        return (int) value;
+    }
+
     private static Integer optionalVarint(final List<CanonicalProtobuf.Reader.Field> fields, final int number,
                                           final String name) {
         for (CanonicalProtobuf.Reader.Field field : fields) {
             if (field.number() == number) {
-                return uint32Int(field, number);
+                return uint32Bits(field, number);
             }
         }
         return null;
@@ -481,7 +489,7 @@ public final class CommandQueuedReceiptV1 {
         public byte[] canonicalBytes() {
             return CanonicalProtobuf.message(output -> {
                 CanonicalProtobuf.bytes(output, 1, shardId.routeIncarnation().bytes());
-                CanonicalProtobuf.uint32(output, 2, shardId.partition());
+                CanonicalProtobuf.uint32Bits(output, 2, shardId.partition());
                 CanonicalProtobuf.bytes(output, 3, commandId.bytes());
                 CanonicalProtobuf.bytes(output, 4, delayMessageId.bytes());
                 CanonicalProtobuf.uint32(output, 5, commandType.wireValue());
@@ -496,7 +504,7 @@ public final class CommandQueuedReceiptV1 {
             final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "PreparedCommandRefV1");
             requireNumbers(fields, new int[]{1, 2, 3, 4, 5, 6, 7, 8, 9});
             final ShardId shard = new ShardId(new RouteIncarnation(fixed(fields.get(0), 1, 16)),
-                    uint32Int(fields.get(1), 2));
+                    uint32Bits(fields.get(1), 2));
             final CommandId commandId = new CommandId(fixed(fields.get(2), 3, CommandId.LENGTH));
             final DelayMessageId messageId = new DelayMessageId(fixed(fields.get(3), 4, DelayMessageId.LENGTH));
             final CommandType type = commandType(uint32Int(fields.get(4), 5));
@@ -571,8 +579,7 @@ public final class CommandQueuedReceiptV1 {
         public KafkaQueuedAck {
             authenticatedClusterId = utf8Nfc(authenticatedClusterId, "authenticatedClusterId");
             Objects.requireNonNull(nativeTopicUuid, "nativeTopicUuid");
-            if (partition < 0 || brokerLogAppendTimeEpochMs < 0
-                    || (leaderEpoch != null && leaderEpoch < 0)) {
+            if (brokerLogAppendTimeEpochMs < 0) {
                 throw new IllegalArgumentException("invalid Kafka queued acknowledgement");
             }
             Bytes.requireLength(responseSha256, HASH_LENGTH, "responseSha256");
@@ -594,10 +601,10 @@ public final class CommandQueuedReceiptV1 {
                                             authenticatedClusterId.getBytes(StandardCharsets.UTF_8));
                                     CanonicalProtobuf.bytes(resource, 2, uuidBytes(nativeTopicUuid));
                                 }));
-                        CanonicalProtobuf.uint32(kafka, 2, partition);
+                        CanonicalProtobuf.uint32Bits(kafka, 2, partition);
                         CanonicalProtobuf.uint64Bits(kafka, 3, offset);
                         if (leaderEpoch != null) {
-                            CanonicalProtobuf.uint32(kafka, 4, leaderEpoch);
+                            CanonicalProtobuf.uint32Bits(kafka, 4, leaderEpoch);
                         }
                         CanonicalProtobuf.int64(kafka, 5, brokerLogAppendTimeEpochMs);
                         CanonicalProtobuf.bytes(kafka, 6, responseSha256);
@@ -620,13 +627,13 @@ public final class CommandQueuedReceiptV1 {
             int index = 3;
             Integer leader = null;
             if (fields.get(index).number() == 4) {
-                leader = uint32Int(fields.get(index), 4);
+                leader = uint32Bits(fields.get(index), 4);
                 index++;
             }
             if (fields.get(index).number() != 5 || fields.size() != index + 2) {
                 throw new IllegalArgumentException("Kafka queued acknowledgement optional fields are invalid");
             }
-            return new KafkaQueuedAck(cluster, topic, uint32Int(fields.get(1), 2), uint64Bits(fields.get(2), 3),
+            return new KafkaQueuedAck(cluster, topic, uint32Bits(fields.get(1), 2), uint64Bits(fields.get(2), 3),
                     leader, nonNegative(fields.get(index), 5), fixed(fields.get(index + 1), 6, HASH_LENGTH));
         }
 
@@ -658,8 +665,8 @@ public final class CommandQueuedReceiptV1 {
             authenticatedClusterId = utf8Nfc(authenticatedClusterId, "authenticatedClusterId");
             Bytes.requireLength(brokerResourceIncarnation, 32, "brokerResourceIncarnation");
             physicalTopic = utf8Nfc(physicalTopic, "physicalTopic");
-            if (physicalTopicCreationTimestamp < 0 || partition < 0
-                    || normalizedBatchIndex < 0 || batchSize <= 0 || normalizedBatchIndex >= batchSize
+            if (physicalTopicCreationTimestamp < 0 || batchSize == 0
+                    || Integer.compareUnsigned(normalizedBatchIndex, batchSize) >= 0
                     || brokerEntryTimestampEpochMs < 0) {
                 throw new IllegalArgumentException("invalid Pulsar queued acknowledgement");
             }
@@ -690,11 +697,11 @@ public final class CommandQueuedReceiptV1 {
                                     CanonicalProtobuf.bytes(resource, 3, physicalTopic.getBytes(StandardCharsets.UTF_8));
                                     CanonicalProtobuf.uint64(resource, 4, physicalTopicCreationTimestamp);
                                 }));
-                        CanonicalProtobuf.uint32(pulsar, 2, partition);
+                        CanonicalProtobuf.uint32Bits(pulsar, 2, partition);
                         CanonicalProtobuf.uint64Bits(pulsar, 3, ledgerId);
                         CanonicalProtobuf.uint64Bits(pulsar, 4, entryId);
-                        CanonicalProtobuf.uint32(pulsar, 5, normalizedBatchIndex);
-                        CanonicalProtobuf.uint32(pulsar, 6, batchSize);
+                        CanonicalProtobuf.uint32Bits(pulsar, 5, normalizedBatchIndex);
+                        CanonicalProtobuf.uint32Bits(pulsar, 6, batchSize);
                         CanonicalProtobuf.int64(pulsar, 7, brokerEntryTimestampEpochMs);
                         CanonicalProtobuf.bytes(pulsar, 8, sendReceiptSha256);
                     })));
@@ -709,8 +716,8 @@ public final class CommandQueuedReceiptV1 {
             return new PulsarQueuedAck(utf8(bytes(resource.get(0), 1), "authenticatedClusterId"),
                     fixedBytes(bytes(resource.get(1), 2), 32, "brokerResourceIncarnation"),
                     utf8Nfc(utf8(bytes(resource.get(2), 3), "physicalTopic"), "physicalTopic"),
-                    nonNegative(resource.get(3), 4), uint32Int(fields.get(1), 2), uint64Bits(fields.get(2), 3),
-                    uint64Bits(fields.get(3), 4), uint32Int(fields.get(4), 5), uint32Int(fields.get(5), 6),
+                    nonNegative(resource.get(3), 4), uint32Bits(fields.get(1), 2), uint64Bits(fields.get(2), 3),
+                    uint64Bits(fields.get(3), 4), uint32Bits(fields.get(4), 5), uint32Bits(fields.get(5), 6),
                     nonNegative(fields.get(6), 7), fixed(fields.get(7), 8, HASH_LENGTH));
         }
 

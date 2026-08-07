@@ -21,7 +21,7 @@ public record KafkaProduceRequest(
         Objects.requireNonNull(nativeTopicUuid, "nativeTopicUuid");
         Objects.requireNonNull(commandId, "commandId");
         Objects.requireNonNull(frame, "frame");
-        if (partition < 0 || frame.length == 0) {
+        if (frame.length == 0) {
             throw new IllegalArgumentException("invalid Kafka produce request");
         }
         frame = Bytes.copy(frame);

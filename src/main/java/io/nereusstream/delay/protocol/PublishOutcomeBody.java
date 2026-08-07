@@ -280,7 +280,7 @@ public final class PublishOutcomeBody {
         }
         final byte[] subject = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, shardId.routeIncarnation().bytes());
-            CanonicalProtobuf.uint32(output, 2, shardId.partition());
+            CanonicalProtobuf.uint32Bits(output, 2, shardId.partition());
         });
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, subject);

@@ -49,6 +49,11 @@ public final class Bytes {
         return ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN).putInt((int) value).array();
     }
 
+    /** Encodes the complete unsigned-32 bit pattern carried by a Java int. */
+    public static byte[] u32beBits(final int value) {
+        return ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN).putInt(value).array();
+    }
+
     public static byte[] u64be(final long value) {
         if (value < 0) {
             throw new IllegalArgumentException("u64 out of range: " + value);

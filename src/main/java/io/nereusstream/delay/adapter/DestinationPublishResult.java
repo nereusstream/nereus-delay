@@ -31,8 +31,7 @@ public record DestinationPublishResult(
             if (evidence == null || evidence.length == 0) {
                 throw new IllegalArgumentException("published result requires side-effect evidence");
             }
-            if (brokerResource == null && brokerPartition != -1
-                    || brokerResource != null && brokerPartition < 0) {
+            if (brokerResource == null && brokerPartition != -1) {
                 throw new IllegalArgumentException("published Broker resource and partition must be paired");
             }
         } else {

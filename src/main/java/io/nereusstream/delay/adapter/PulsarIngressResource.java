@@ -20,8 +20,7 @@ public record PulsarIngressResource(
         authenticatedClusterId = canonicalText(authenticatedClusterId, "authenticatedClusterId");
         physicalTopic = canonicalText(physicalTopic, "physicalTopic");
         Bytes.requireLength(resourceIncarnation, 32, "resourceIncarnation");
-        if (physicalTopicCreationTimestamp < 0 || partition < 0
-                || partition != shardId.partition()) {
+        if (physicalTopicCreationTimestamp < 0 || partition != shardId.partition()) {
             throw new IllegalArgumentException("invalid pinned Pulsar ingress resource");
         }
         resourceIncarnation = Bytes.copy(resourceIncarnation);

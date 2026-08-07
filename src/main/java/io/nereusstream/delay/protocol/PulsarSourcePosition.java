@@ -22,8 +22,8 @@ public record PulsarSourcePosition(
         physicalTopic = canonicalText(physicalTopic, "physicalTopic");
         Objects.requireNonNull(entryKind, "entryKind");
         Bytes.requireLength(brokerResourceIncarnation, 32, "brokerResourceIncarnation");
-        if (normalizedBatchIndex < 0
-                || batchSize <= 0 || normalizedBatchIndex >= batchSize || brokerEntryTimestampEpochMs < 0) {
+        if (batchSize == 0 || Integer.compareUnsigned(normalizedBatchIndex, batchSize) >= 0
+                || brokerEntryTimestampEpochMs < 0) {
             throw new IllegalArgumentException("invalid Pulsar source position");
         }
         if (entryKind == EntryKind.NON_BATCH && (normalizedBatchIndex != 0 || batchSize != 1)) {
@@ -83,7 +83,7 @@ public record PulsarSourcePosition(
             result = Long.compareUnsigned(entryId, that.entryId);
         }
         if (result == 0) {
-            result = Integer.compare(normalizedBatchIndex, that.normalizedBatchIndex);
+            result = Integer.compareUnsigned(normalizedBatchIndex, that.normalizedBatchIndex);
         }
         return result;
     }

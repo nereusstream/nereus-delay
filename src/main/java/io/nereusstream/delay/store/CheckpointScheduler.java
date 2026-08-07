@@ -26,7 +26,7 @@ public final class CheckpointScheduler {
     private static final Comparator<ScheduledCheckpoint> ORDER = Comparator
             .comparingLong(ScheduledCheckpoint::dueAtEpochMs)
             .thenComparing(value -> Bytes.hex(value.shardId().routeIncarnation().bytes()))
-            .thenComparingInt(value -> value.shardId().partition());
+            .thenComparingLong(value -> Integer.toUnsignedLong(value.shardId().partition()));
 
     private final long intervalMs;
     private final int jitterPercent;
@@ -147,7 +147,7 @@ public final class CheckpointScheduler {
             return 0;
         }
         final byte[] digest = Bytes.sha256(JITTER_DOMAIN, shardId.routeIncarnation().bytes(),
-                Bytes.u32be(shardId.partition()));
+                Bytes.u32beBits(shardId.partition()));
         final long sample = ByteBuffer.wrap(digest).getLong();
         final long span = Math.addExact(Math.multiplyExact(maxJitter, 2), 1);
         return Math.subtractExact(Long.remainderUnsigned(sample, span), maxJitter);

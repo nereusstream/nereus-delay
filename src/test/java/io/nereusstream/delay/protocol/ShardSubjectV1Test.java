@@ -13,8 +13,15 @@ class ShardSubjectV1Test {
         assertEquals(subject, ShardSubjectV1.decode(subject.canonicalBytes()));
         assertEquals(shard, subject.shardId());
         org.junit.jupiter.api.Assertions.assertArrayEquals(
-                Bytes.concat(shard.routeIncarnation().bytes(), Bytes.u32be(shard.partition())),
+                Bytes.concat(shard.routeIncarnation().bytes(), Bytes.u32beBits(shard.partition())),
                 subject.canonicalHashBytes());
+    }
+
+    @Test
+    void preservesUnsignedHighBitPartition() {
+        final ShardSubjectV1 subject = new ShardSubjectV1(RouteIncarnation.random(), -1);
+        assertEquals(subject, ShardSubjectV1.decode(subject.canonicalBytes()));
+        assertEquals(4_294_967_295L, subject.shardId().unsignedPartition());
     }
 
     @Test
@@ -22,7 +29,7 @@ class ShardSubjectV1Test {
         final ShardSubjectV1 subject = new ShardSubjectV1(RouteIncarnation.random(), 1);
         final byte[] overflow = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, subject.routeIncarnation().bytes());
-            CanonicalProtobuf.uint64(output, 2, (long) Integer.MAX_VALUE + 1);
+            CanonicalProtobuf.uint64(output, 2, 0x1_0000_0000L);
         });
         assertThrows(IllegalArgumentException.class, () -> ShardSubjectV1.decode(overflow));
 

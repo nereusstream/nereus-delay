@@ -9,9 +9,6 @@ public final class ShardSubjectV1 {
 
     public ShardSubjectV1(final RouteIncarnation routeIncarnation, final int partition) {
         this.routeIncarnation = Objects.requireNonNull(routeIncarnation, "routeIncarnation");
-        if (partition < 0) {
-            throw new IllegalArgumentException("partition must be non-negative");
-        }
         this.partition = partition;
     }
 
@@ -34,25 +31,22 @@ public final class ShardSubjectV1 {
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, routeIncarnation.bytes());
-            CanonicalProtobuf.uint32(output, 2, partition);
+            CanonicalProtobuf.uint32Bits(output, 2, partition);
         });
     }
 
     /** Raw hash-preimage form fixed by the System Mutation Registry. */
     public byte[] canonicalHashBytes() {
-        return Bytes.concat(routeIncarnation.bytes(), Bytes.u32be(partition));
+        return Bytes.concat(routeIncarnation.bytes(), Bytes.u32beBits(partition));
     }
 
     public static ShardSubjectV1 decode(final byte[] encoded) {
         final var fields = QueryCodecSupport.read(encoded, "ShardSubjectV1");
         QueryCodecSupport.requireNumbers(fields, new int[]{1, 2}, "ShardSubjectV1");
-        final long partition = QueryCodecSupport.uint(fields.get(1), 2);
-        if (partition > Integer.MAX_VALUE) {
-            throw new IllegalArgumentException("ShardSubjectV1 partition exceeds Java int range");
-        }
+        final int partition = QueryCodecSupport.uint32Bits(fields.get(1), 2);
         final ShardSubjectV1 result = new ShardSubjectV1(
                 new RouteIncarnation(QueryCodecSupport.fixed(fields.get(0), 1, RouteIncarnation.LENGTH)),
-                (int) partition);
+                partition);
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "ShardSubjectV1");
         return result;
     }

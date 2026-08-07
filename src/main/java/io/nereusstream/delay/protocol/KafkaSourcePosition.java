@@ -21,9 +21,6 @@ public record KafkaSourcePosition(
         if (brokerLogAppendTimeEpochMs < 0) {
             throw new IllegalArgumentException("invalid Kafka source position");
         }
-        if (leaderEpoch != null && leaderEpoch < 0) {
-            throw new IllegalArgumentException("leader epoch must be non-negative");
-        }
     }
 
     @Override

@@ -17,7 +17,7 @@ public record KafkaIngressResource(
         Objects.requireNonNull(shardId, "shardId");
         authenticatedClusterId = canonicalText(authenticatedClusterId, "authenticatedClusterId");
         Objects.requireNonNull(nativeTopicUuid, "nativeTopicUuid");
-        if (partition < 0 || partition != shardId.partition()) {
+        if (partition != shardId.partition()) {
             throw new IllegalArgumentException("invalid pinned Kafka ingress resource");
         }
     }

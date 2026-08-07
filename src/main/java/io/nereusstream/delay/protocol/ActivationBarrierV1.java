@@ -31,9 +31,6 @@ public final class ActivationBarrierV1 {
                                 final int normalizedBatchIndex, final int batchSize) {
         this.kind = Objects.requireNonNull(kind, "kind");
         this.resource = Objects.requireNonNull(resource, "resource");
-        if (partition < 0) {
-            throw new IllegalArgumentException("partition must be non-negative");
-        }
         this.partition = partition;
         this.guardedSourceConnectionGeneration = guardedSourceConnectionGeneration;
         if (guardedSourceConnectionGeneration != null && guardedSourceConnectionGeneration <= 0) {
@@ -48,8 +45,9 @@ public final class ActivationBarrierV1 {
         this.observedLsoExclusive = observedLsoExclusive;
         this.ledgerId = ledgerId;
         this.entryId = entryId;
-        if (normalizedBatchIndex < 0 || batchSize < 0 || (kind == Kind.PULSAR && batchSize <= 0)
-                || (batchSize != 0 && normalizedBatchIndex >= batchSize)) {
+        if (kind != Kind.PULSAR && (normalizedBatchIndex != 0 || batchSize != 0)
+                || (kind == Kind.PULSAR && (batchSize == 0
+                || Integer.compareUnsigned(normalizedBatchIndex, batchSize) >= 0))) {
             throw new IllegalArgumentException("invalid Pulsar batch cursor");
         }
         this.normalizedBatchIndex = normalizedBatchIndex;
@@ -145,7 +143,7 @@ public final class ActivationBarrierV1 {
             switch (kind) {
                 case EMPTY -> CanonicalProtobuf.bytes(output, 1, CanonicalProtobuf.message(fields -> {
                     CanonicalProtobuf.bytes(fields, 1, resource.canonicalBytes());
-                    CanonicalProtobuf.uint32(fields, 2, partition);
+                    CanonicalProtobuf.uint32Bits(fields, 2, partition);
                     if (guardedSourceConnectionGeneration != null) {
                         CanonicalProtobuf.uint64(fields, 3, guardedSourceConnectionGeneration);
                         CanonicalProtobuf.bytes(fields, 4, resourceGuardAttestationDigest);
@@ -153,17 +151,17 @@ public final class ActivationBarrierV1 {
                 }));
                 case KAFKA -> CanonicalProtobuf.bytes(output, 2, CanonicalProtobuf.message(fields -> {
                     CanonicalProtobuf.bytes(fields, 1, resource.canonicalBytes());
-                    CanonicalProtobuf.uint32(fields, 2, partition);
+                    CanonicalProtobuf.uint32Bits(fields, 2, partition);
                     CanonicalProtobuf.uint64Bits(fields, 3, nextOffsetExclusive);
                     CanonicalProtobuf.uint64Bits(fields, 4, observedLsoExclusive);
                 }));
                 case PULSAR -> CanonicalProtobuf.bytes(output, 3, CanonicalProtobuf.message(fields -> {
                     CanonicalProtobuf.bytes(fields, 1, resource.canonicalBytes());
-                    CanonicalProtobuf.uint32(fields, 2, partition);
+                    CanonicalProtobuf.uint32Bits(fields, 2, partition);
                     CanonicalProtobuf.uint64Bits(fields, 3, ledgerId);
                     CanonicalProtobuf.uint64Bits(fields, 4, entryId);
-                    CanonicalProtobuf.uint32(fields, 5, normalizedBatchIndex);
-                    CanonicalProtobuf.uint32(fields, 6, batchSize);
+                    CanonicalProtobuf.uint32Bits(fields, 5, normalizedBatchIndex);
+                    CanonicalProtobuf.uint32Bits(fields, 6, batchSize);
                     CanonicalProtobuf.uint64(fields, 7, guardedSourceConnectionGeneration);
                     CanonicalProtobuf.bytes(fields, 8, resourceGuardAttestationDigest);
                 }));
@@ -192,21 +190,21 @@ public final class ActivationBarrierV1 {
                 if (fields.size() == 4 && fields.get(1).number() != 2) {
                     throw new IllegalArgumentException("invalid empty ActivationBarrier field order");
                 }
-                result = empty(resource, QueryCodecSupport.uint32(fields.get(1), 2), generation, digest);
+                result = empty(resource, QueryCodecSupport.uint32Bits(fields.get(1), 2), generation, digest);
             }
             case 2 -> {
                 QueryCodecSupport.requireNumbers(fields, new int[]{1, 2, 3, 4}, "KafkaActivationBarrier");
                 result = kafka(BrokerResourceIdentityV1.decode(QueryCodecSupport.nested(fields.get(0), 1)),
-                        QueryCodecSupport.uint32(fields.get(1), 2), QueryCodecSupport.uint(fields.get(2), 3),
+                        QueryCodecSupport.uint32Bits(fields.get(1), 2), QueryCodecSupport.uint(fields.get(2), 3),
                         QueryCodecSupport.uint(fields.get(3), 4));
             }
             case 3 -> {
                 QueryCodecSupport.requireNumbers(fields, new int[]{1, 2, 3, 4, 5, 6, 7, 8},
                         "PulsarActivationBarrier");
                 result = pulsar(BrokerResourceIdentityV1.decode(QueryCodecSupport.nested(fields.get(0), 1)),
-                        QueryCodecSupport.uint32(fields.get(1), 2), QueryCodecSupport.uint(fields.get(2), 3),
-                        QueryCodecSupport.uint(fields.get(3), 4), QueryCodecSupport.uint32(fields.get(4), 5),
-                        QueryCodecSupport.uint32(fields.get(5), 6), QueryCodecSupport.uint(fields.get(6), 7),
+                        QueryCodecSupport.uint32Bits(fields.get(1), 2), QueryCodecSupport.uint(fields.get(2), 3),
+                        QueryCodecSupport.uint(fields.get(3), 4), QueryCodecSupport.uint32Bits(fields.get(4), 5),
+                        QueryCodecSupport.uint32Bits(fields.get(5), 6), QueryCodecSupport.uint(fields.get(6), 7),
                         QueryCodecSupport.fixed(fields.get(7), 8, 32));
             }
             default -> throw new IllegalArgumentException("unknown ActivationBarrierV1 branch");

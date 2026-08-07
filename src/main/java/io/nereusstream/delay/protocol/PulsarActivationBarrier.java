@@ -22,9 +22,9 @@ public record PulsarActivationBarrier(
         Bytes.requireLength(brokerResourceIncarnation, 32, "brokerResourceIncarnation");
         Bytes.requireLength(resourceGuardAttestationDigest, 32, "resourceGuardAttestationDigest");
         physicalTopic = canonicalText(physicalTopic, "physicalTopic");
-        if (physicalTopic.isBlank() || normalizedLastBatchIndex < 0
-                || batchSize < 0 || guardedSourceConnectionGeneration <= 0
-                || (!empty && batchSize > 0 && normalizedLastBatchIndex >= batchSize)) {
+        if (physicalTopic.isBlank() || (empty ? batchSize != 0 : batchSize == 0)
+                || (!empty && Integer.compareUnsigned(normalizedLastBatchIndex, batchSize) >= 0)
+                || guardedSourceConnectionGeneration <= 0) {
             throw new IllegalArgumentException("invalid Pulsar activation barrier");
         }
         if (empty && (ledgerId != 0 || entryId != 0 || normalizedLastBatchIndex != 0 || batchSize != 0)) {
@@ -113,7 +113,7 @@ public record PulsarActivationBarrier(
                 || !physicalTopic.equals(pulsar.physicalTopic())) {
             throw new IllegalArgumentException("Pulsar activation barrier source identity mismatch");
         }
-        if (!empty && batchSize > 0 && pulsar.ledgerId() == ledgerId && pulsar.entryId() == entryId
+        if (!empty && batchSize != 0 && pulsar.ledgerId() == ledgerId && pulsar.entryId() == entryId
                 && pulsar.batchSize() != batchSize) {
             throw new IllegalArgumentException("Pulsar activation barrier batch shape mismatch");
         }
@@ -143,10 +143,10 @@ public record PulsarActivationBarrier(
         if (pulsar.entryId() != entryId) {
             return Long.compareUnsigned(pulsar.entryId(), entryId) > 0;
         }
-        if (batchSize > 0 && pulsar.batchSize() != batchSize) {
+        if (batchSize != 0 && pulsar.batchSize() != batchSize) {
             throw new IllegalArgumentException("Pulsar activation barrier batch shape mismatch");
         }
-        return pulsar.normalizedBatchIndex() >= normalizedLastBatchIndex;
+        return Integer.compareUnsigned(pulsar.normalizedBatchIndex(), normalizedLastBatchIndex) >= 0;
     }
 
     private static boolean allZero(final byte[] value) {

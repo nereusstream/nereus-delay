@@ -713,6 +713,22 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void sourcePositionsPreserveUnsignedPartitionLeaderAndBatchFields() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), -1);
+        final UUID topic = UUID.randomUUID();
+        final KafkaSourcePosition kafka = new KafkaSourcePosition(shard, "cluster", topic,
+                Long.MIN_VALUE, Integer.MIN_VALUE, 10);
+        assertEquals(kafka, SourcePositionCodec.decode(kafka.canonicalBytes()));
+        assertEquals(kafka, QueryCodecSupport.decodeSourcePosition(QueryCodecSupport.encodeSourcePosition(kafka)));
+
+        final PulsarSourcePosition pulsar = new PulsarSourcePosition(shard, new byte[32], "persistent://t/topic",
+                Long.MIN_VALUE, -1L, Integer.MIN_VALUE, Integer.MIN_VALUE + 1,
+                PulsarSourcePosition.EntryKind.BATCH, 10);
+        assertEquals(pulsar, SourcePositionCodec.decode(pulsar.canonicalBytes()));
+        assertEquals(pulsar, QueryCodecSupport.decodeSourcePosition(QueryCodecSupport.encodeSourcePosition(pulsar)));
+    }
+
+    @Test
     void sourcePositionsCannotCompareAcrossPhysicalResourceIncarnations() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 5);
         final java.util.UUID topic = java.util.UUID.randomUUID();

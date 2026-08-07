@@ -39,7 +39,7 @@ public final class EvidenceCursorV1 implements Comparable<EvidenceCursorV1> {
         this.destinationLaneId = fixed(destinationLaneId, 32, "destinationLaneId");
         this.laneIncarnation = fixed(laneIncarnation, 16, "laneIncarnation");
         this.evidenceResourceIncarnation = nonEmpty(evidenceResourceIncarnation, "evidenceResourceIncarnation");
-        if (physicalPartition < 0 || evidenceGeneration <= 0 || maxBrokerPersistedAtThroughCursor < 0) {
+        if (evidenceGeneration <= 0 || maxBrokerPersistedAtThroughCursor < 0) {
             throw new IllegalArgumentException("invalid evidence cursor counters");
         }
         this.physicalPartition = physicalPartition;
@@ -55,8 +55,8 @@ public final class EvidenceCursorV1 implements Comparable<EvidenceCursorV1> {
                 "physicalTopicCreationTimestamp");
         this.ledgerId = ledgerId;
         this.entryId = entryId;
-        if (normalizedBatchIndex < 0 || (kafka && batchSize != 0)
-                || (!kafka && (batchSize <= 0 || normalizedBatchIndex >= batchSize))) {
+        if ((kafka && batchSize != 0)
+                || (!kafka && (batchSize == 0 || Integer.compareUnsigned(normalizedBatchIndex, batchSize) >= 0))) {
             throw new IllegalArgumentException("invalid evidence batch cursor");
         }
         this.normalizedBatchIndex = normalizedBatchIndex;
@@ -167,7 +167,7 @@ public final class EvidenceCursorV1 implements Comparable<EvidenceCursorV1> {
             CanonicalProtobuf.bytes(output, 2, destinationLaneId);
             CanonicalProtobuf.bytes(output, 3, laneIncarnation);
             CanonicalProtobuf.bytes(output, 4, evidenceResourceIncarnation);
-            CanonicalProtobuf.uint32(output, 5, physicalPartition);
+            CanonicalProtobuf.uint32Bits(output, 5, physicalPartition);
             CanonicalProtobuf.uint64(output, 6, evidenceGeneration);
             CanonicalProtobuf.int64(output, 7, maxBrokerPersistedAtThroughCursor);
             if (kafka) {
@@ -183,8 +183,8 @@ public final class EvidenceCursorV1 implements Comparable<EvidenceCursorV1> {
                     CanonicalProtobuf.uint64(fields, 3, physicalTopicCreationTimestamp);
                     CanonicalProtobuf.uint64Bits(fields, 4, ledgerId);
                     CanonicalProtobuf.uint64Bits(fields, 5, entryId);
-                    CanonicalProtobuf.uint32(fields, 6, normalizedBatchIndex);
-                    CanonicalProtobuf.uint32(fields, 7, batchSize);
+                    CanonicalProtobuf.uint32Bits(fields, 6, normalizedBatchIndex);
+                    CanonicalProtobuf.uint32Bits(fields, 7, batchSize);
                 }));
             }
         });
@@ -200,7 +200,7 @@ public final class EvidenceCursorV1 implements Comparable<EvidenceCursorV1> {
         final byte[] lane = QueryCodecSupport.fixed(fields.get(1), 2, 32);
         final byte[] incarnation = QueryCodecSupport.fixed(fields.get(2), 3, 16);
         final byte[] resource = QueryCodecSupport.bytes(fields.get(3), 4);
-        final int partition = QueryCodecSupport.uint32(fields.get(4), 5);
+        final int partition = QueryCodecSupport.uint32Bits(fields.get(4), 5);
         final long generation = QueryCodecSupport.uint(fields.get(5), 6);
         final long maxPersisted = QueryCodecSupport.uint(fields.get(6), 7);
         final EvidenceCursorV1 result;
@@ -224,8 +224,8 @@ public final class EvidenceCursorV1 implements Comparable<EvidenceCursorV1> {
             result = pulsar(lane, incarnation, fixed(resource, 32, "resourceToken"), partition,
                     generation, maxPersisted, utf8(QueryCodecSupport.bytes(cursor.get(1), 2)),
                     QueryCodecSupport.uint(cursor.get(2), 3), QueryCodecSupport.uint(cursor.get(3), 4),
-                    QueryCodecSupport.uint(cursor.get(4), 5), QueryCodecSupport.uint32(cursor.get(5), 6),
-                    QueryCodecSupport.uint32(cursor.get(6), 7));
+                    QueryCodecSupport.uint(cursor.get(4), 5), QueryCodecSupport.uint32Bits(cursor.get(5), 6),
+                    QueryCodecSupport.uint32Bits(cursor.get(6), 7));
         }
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "EvidenceCursorV1");
         return result;
@@ -249,7 +249,7 @@ public final class EvidenceCursorV1 implements Comparable<EvidenceCursorV1> {
         if (result != 0) {
             return result;
         }
-        result = Integer.compare(physicalPartition, other.physicalPartition);
+        result = Integer.compareUnsigned(physicalPartition, other.physicalPartition);
         if (result != 0) {
             return result;
         }
@@ -297,7 +297,7 @@ public final class EvidenceCursorV1 implements Comparable<EvidenceCursorV1> {
         if (result != 0) {
             return result;
         }
-        return Integer.compare(normalizedBatchIndex, other.normalizedBatchIndex);
+        return Integer.compareUnsigned(normalizedBatchIndex, other.normalizedBatchIndex);
     }
 
     private static long nonNegative(final long value, final String name) {

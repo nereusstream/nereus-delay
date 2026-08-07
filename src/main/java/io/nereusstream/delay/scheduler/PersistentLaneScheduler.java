@@ -453,7 +453,7 @@ public final class PersistentLaneScheduler {
     private static OwnerIdentityV1 defaultOwner(final ShardStore store) {
         Objects.requireNonNull(store, "store");
         final byte[] worker = Bytes.concat(store.shardId().routeIncarnation().bytes(),
-                Bytes.u32be(store.shardId().partition()));
+                Bytes.u32beBits(store.shardId().partition()));
         return new OwnerIdentityV1(Bytes.utf8("embedded-scheduler"), worker, 1,
                 Bytes.sha256(Bytes.utf8("nereus-delay-embedded-scheduler-owner-v1\0"), worker));
     }

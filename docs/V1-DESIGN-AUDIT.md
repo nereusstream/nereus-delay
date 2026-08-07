@@ -1058,15 +1058,15 @@ claimed complete.
 Kafka offset and Pulsar ledger/entry Source Position fields now preserve the
 complete unsigned-64 raw bit pattern through `SourcePositionCodec`, direct
 constructors, activation barriers, evidence cursors, queued receipts, adapter
-result values, canonical protobuf helpers and checkpoint-manifest JSON. Their
-comparators and the strict Kafka successor use unsigned order, with boundary
-vectors covering high-bit values, receipt/evidence round-trips and manifest
-round-trips. The normative Registry still defines the position's partition,
-leader epoch and batch fields as `uint32`; those fields, auxiliary uint64/time
-fields, and real Broker assignment/barrier proof remain local signed/placeholder
-subsets and are release blockers. The source-order row below therefore claims
-the implemented u64 position core, not full Source Position or production
-adapter authority.
+result values, canonical protobuf helpers and checkpoint-manifest JSON. The
+position partition, leader epoch and Pulsar batch fields now preserve their
+complete unsigned-32 raw bit patterns through the same local protocol paths;
+comparators and the strict Kafka successor use unsigned order. Boundary vectors
+cover high-bit position fields, receipt/evidence round-trips and manifest
+round-trips. Auxiliary uint64/time fields, real Broker assignment/barrier proof
+and production adapter authority remain release blockers, so the source-order
+row below claims the implemented local u64/u32 position paths rather than full
+production Source Position authority.
 
 ## Source locks
 

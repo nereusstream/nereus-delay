@@ -24,7 +24,7 @@ public record PulsarSendRequest(
         Objects.requireNonNull(commandId, "commandId");
         Objects.requireNonNull(frame, "frame");
         Bytes.requireLength(resourceIncarnation, 32, "resourceIncarnation");
-        if (physicalTopicCreationTimestamp < 0 || partition < 0 || frame.length == 0) {
+        if (physicalTopicCreationTimestamp < 0 || frame.length == 0) {
             throw new IllegalArgumentException("invalid Pulsar send request");
         }
         resourceIncarnation = Bytes.copy(resourceIncarnation);

@@ -23,6 +23,21 @@ class ActivationBarrierV1Test {
     }
 
     @Test
+    void preservesUnsignedPartitionAndBatchFields() {
+        final BrokerResourceIdentityV1 kafka = BrokerResourceIdentityV1.kafka(
+                new KafkaBrokerResourceIdentityV1("cluster", UUID.randomUUID()));
+        final ActivationBarrierV1 kafkaBarrier = ActivationBarrierV1.kafka(kafka, -1, Long.MIN_VALUE, -1L);
+        assertEquals(kafkaBarrier, ActivationBarrierV1.decode(kafkaBarrier.canonicalBytes()));
+
+        final BrokerResourceIdentityV1 pulsar = BrokerResourceIdentityV1.pulsar(
+                new PulsarBrokerResourceIdentityV1("cluster", bytes(32, 1), "topic", 7));
+        final ActivationBarrierV1 pulsarBarrier = ActivationBarrierV1.pulsar(
+                pulsar, -1, Long.MIN_VALUE, -1L, Integer.MIN_VALUE, Integer.MIN_VALUE + 1,
+                9, bytes(32, 2));
+        assertEquals(pulsarBarrier, ActivationBarrierV1.decode(pulsarBarrier.canonicalBytes()));
+    }
+
+    @Test
     void enforcesResourceBranchAndGuardPairing() {
         final BrokerResourceIdentityV1 kafka = BrokerResourceIdentityV1.kafka(
                 new KafkaBrokerResourceIdentityV1("cluster", UUID.randomUUID()));
