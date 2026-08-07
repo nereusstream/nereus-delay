@@ -71,7 +71,7 @@ class CheckpointManifestTest {
         final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster-a", UUID.randomUUID(),
                 Long.MIN_VALUE, 3, 1000);
         final EvidenceCursorV1 kafkaCursor = EvidenceCursorV1.kafka(
-                filled(32, 1), filled(16, 2), filled(16, 3), 1, 4, 100,
+                filled(32, 1), filled(16, 2), filled(16, 3), 1, Long.MIN_VALUE, 100,
                 Long.MIN_VALUE, -1L);
         final EvidenceCursorV1 pulsarCursor = EvidenceCursorV1.pulsar(
                 filled(32, 4), filled(16, 5), filled(32, 6), 2, 7, 200,
@@ -89,6 +89,7 @@ class CheckpointManifestTest {
         assertTrue(json.contains("\"offset\":\"9223372036854775808\""));
         assertTrue(json.contains("\"nextOffsetExclusive\":\"9223372036854775808\""));
         assertTrue(json.contains("\"lastObservedLsoExclusive\":\"18446744073709551615\""));
+        assertTrue(json.contains("\"evidenceGeneration\":\"9223372036854775808\""));
         assertTrue(json.contains("\"ledgerId\":\"9223372036854775808\""));
         assertTrue(json.contains("\"entryId\":\"18446744073709551615\""));
         final CheckpointManifest decoded = CheckpointManifest.decodeCanonicalJson(manifest.canonicalJsonBytes());

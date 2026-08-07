@@ -39,7 +39,7 @@ public final class EvidenceCursorV1 implements Comparable<EvidenceCursorV1> {
         this.destinationLaneId = fixed(destinationLaneId, 32, "destinationLaneId");
         this.laneIncarnation = fixed(laneIncarnation, 16, "laneIncarnation");
         this.evidenceResourceIncarnation = nonEmpty(evidenceResourceIncarnation, "evidenceResourceIncarnation");
-        if (evidenceGeneration <= 0 || maxBrokerPersistedAtThroughCursor < 0) {
+        if (evidenceGeneration == 0 || maxBrokerPersistedAtThroughCursor < 0) {
             throw new IllegalArgumentException("invalid evidence cursor counters");
         }
         this.physicalPartition = physicalPartition;
@@ -168,7 +168,7 @@ public final class EvidenceCursorV1 implements Comparable<EvidenceCursorV1> {
             CanonicalProtobuf.bytes(output, 3, laneIncarnation);
             CanonicalProtobuf.bytes(output, 4, evidenceResourceIncarnation);
             CanonicalProtobuf.uint32Bits(output, 5, physicalPartition);
-            CanonicalProtobuf.uint64(output, 6, evidenceGeneration);
+            CanonicalProtobuf.uint64Bits(output, 6, evidenceGeneration);
             CanonicalProtobuf.int64(output, 7, maxBrokerPersistedAtThroughCursor);
             if (kafka) {
                 CanonicalProtobuf.bytes(output, 10, CanonicalProtobuf.message(fields -> {

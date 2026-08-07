@@ -249,7 +249,7 @@ public record CheckpointManifest(
         final StringBuilder json = new StringBuilder(512).append('{');
         if (cursor.evidenceKind() == EvidenceKindV1.KAFKA_RECEIPT_CONTIGUOUS) {
             field(json, "destinationLaneId", quote(b64(cursor.destinationLaneId())));
-            field(json, "evidenceGeneration", quote(u64(cursor.evidenceGeneration())));
+            field(json, "evidenceGeneration", quote(u64Bits(cursor.evidenceGeneration())));
             field(json, "evidenceKind", quote(cursor.evidenceKind().name()));
             field(json, "evidenceResourceIncarnation", quote(b64(cursor.evidenceResourceIncarnation())));
             field(json, "laneIncarnation", quote(b64(cursor.laneIncarnation())));
@@ -264,7 +264,7 @@ public record CheckpointManifest(
             field(json, "batchSize", u32(cursor.batchSize()));
             field(json, "destinationLaneId", quote(b64(cursor.destinationLaneId())));
             field(json, "entryId", quote(u64Bits(cursor.entryId())));
-            field(json, "evidenceGeneration", quote(u64(cursor.evidenceGeneration())));
+            field(json, "evidenceGeneration", quote(u64Bits(cursor.evidenceGeneration())));
             field(json, "evidenceKind", quote(cursor.evidenceKind().name()));
             field(json, "evidenceResourceIncarnation", quote(b64(cursor.evidenceResourceIncarnation())));
             field(json, "laneIncarnation", quote(b64(cursor.laneIncarnation())));

@@ -21,11 +21,11 @@ class EvidenceCursorV1Test {
     @Test
     void preservesUnsignedPartitionAndBatchFields() {
         final EvidenceCursorV1 kafka = EvidenceCursorV1.kafka(bytes(32, 1), bytes(16, 2), bytes(16, 3),
-                -1, 4, 100, Long.MIN_VALUE, -1L);
+                -1, Long.MIN_VALUE, 100, Long.MIN_VALUE, -1L);
         assertEquals(kafka, EvidenceCursorV1.decode(kafka.canonicalBytes()));
 
         final EvidenceCursorV1 pulsar = EvidenceCursorV1.pulsar(bytes(32, 4), bytes(16, 5), bytes(32, 6),
-                -1, 7, 200, "persistent://tenant/ns/topic", 8, Long.MIN_VALUE, -1L,
+                -1, Long.MIN_VALUE, 200, "persistent://tenant/ns/topic", 8, Long.MIN_VALUE, -1L,
                 Integer.MIN_VALUE, Integer.MIN_VALUE + 1);
         assertEquals(pulsar, EvidenceCursorV1.decode(pulsar.canonicalBytes()));
     }
