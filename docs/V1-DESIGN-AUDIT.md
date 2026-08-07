@@ -886,7 +886,10 @@ conformance tests 验证 register 和 exact advance response-loss 后的精确 r
 重读；`OxiaControlOperationAuthority.advance` 不接受更高或不同状态的后续
 CURRENT 来冒充目标 revision 的成功。它不改变上述生产边界。
 该 adapter 还在远端调用前校验 receipt identity、register revision 和
-`expectedRevision + 1` 的连续性，避免把非法请求交给 authority。
+`expectedRevision + 1` 的连续性，避免把非法请求交给 authority；本地 authority
+还以显式 checked-successor predicate 拒绝 `Long.MAX_VALUE` 的 expected revision，
+不会依赖 Java `long` 回绕来产生拒绝（`ControlOperationAuthorityTest`
+`revisionSuccessorFailsClosedBeforeLongWraparound`）。
 
 The local `DeliveryCapabilitySemanticV1` value codec now closes the Registry
 baseline/strong outcome branches and Kafka/Pulsar evidence-resource and timing

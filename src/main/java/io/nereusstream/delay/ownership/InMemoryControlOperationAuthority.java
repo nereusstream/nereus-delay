@@ -70,7 +70,7 @@ public final class InMemoryControlOperationAuthority implements ControlOperation
             return ControlOperationQueryResponseV1.integrityError();
         }
         if (existing.current().equals(next)) {
-            if (next.operationRevision() != expectedRevision + 1) {
+            if (!isExactSuccessor(expectedRevision, next.operationRevision())) {
                 return ControlOperationQueryResponseV1.integrityError();
             }
             // The original CAS may have committed before its response was
@@ -81,8 +81,7 @@ public final class InMemoryControlOperationAuthority implements ControlOperation
         if (expectedRevision != existing.current().operationRevision()) {
             return ControlOperationQueryResponseV1.integrityError();
         }
-        if (expectedRevision == Long.MAX_VALUE
-                || next.operationRevision() != expectedRevision + 1) {
+        if (!isExactSuccessor(expectedRevision, next.operationRevision())) {
             return ControlOperationQueryResponseV1.integrityError();
         }
         operations.put(key(receipt.operationId()), new Entry(receipt, next));
@@ -116,6 +115,19 @@ public final class InMemoryControlOperationAuthority implements ControlOperation
     private static String key(final byte[] operationId) {
         Objects.requireNonNull(operationId, "operationId");
         return Bytes.hex(operationId);
+    }
+
+    /**
+     * Checks a revision successor without ever evaluating a wrapping
+     * {@code expectedRevision + 1}.  Control revisions are positive signed
+     * Java values representing the V1 unsigned range that this local model
+     * can safely materialize; {@link Long#MAX_VALUE} therefore has no valid
+     * successor and must fail closed.
+     */
+    private static boolean isExactSuccessor(final long expectedRevision, final long nextRevision) {
+        return expectedRevision > 0
+                && expectedRevision < Long.MAX_VALUE
+                && nextRevision == expectedRevision + 1;
     }
 
     private record Entry(ControlOperationReceiptV1 receipt, CurrentControlOperationV1 current) {

@@ -93,6 +93,18 @@ class ControlOperationAuthorityTest {
     }
 
     @Test
+    void revisionSuccessorFailsClosedBeforeLongWraparound() {
+        final ControlOperationReceiptV1 receipt = receipt(10, Long.MAX_VALUE, 4_000);
+        final InMemoryControlOperationAuthority authority = new InMemoryControlOperationAuthority();
+        final CurrentControlOperationV1 terminal = current(receipt, Long.MAX_VALUE,
+                ControlOperationStateV1.REJECTED);
+        authority.register(receipt, terminal);
+
+        assertEquals(ControlOperationQueryResultV1.INTEGRITY_ERROR,
+                authority.advance(receipt, Long.MAX_VALUE, terminal).resultKind());
+    }
+
+    @Test
     void oxiaAdapterRejectsAResponseBoundToAnotherOperation() {
         final ControlOperationReceiptV1 receipt = receipt(3, 4_000);
         final CurrentControlOperationV1 initial = current(receipt, 1, ControlOperationStateV1.PENDING);
@@ -189,12 +201,17 @@ class ControlOperationAuthorityTest {
     }
 
     private static ControlOperationReceiptV1 receipt(final int seed, final long queryUntil) {
+        return receipt(seed, 1, queryUntil);
+    }
+
+    private static ControlOperationReceiptV1 receipt(final int seed, final long revision,
+                                                      final long queryUntil) {
         final byte[] operation = bytes(32, seed);
         final TrustedUtcIntervalEvidence registered = new TrustedUtcIntervalEvidence(1_000, 1_100,
                 TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("control-clock" + seed),
                 1, 1, 1, bytes(32, seed + 10), 0, null);
         return ControlOperationReceiptV1.create(operation, bytes(32, seed + 1), bytes(32, seed + 2),
-                bytes(32, seed + 3), 1, registered, queryUntil);
+                bytes(32, seed + 3), revision, registered, queryUntil);
     }
 
     private static CurrentControlOperationV1 current(final ControlOperationReceiptV1 receipt, final long revision,
