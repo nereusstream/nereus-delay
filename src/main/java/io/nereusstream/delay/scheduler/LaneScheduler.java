@@ -91,7 +91,8 @@ public final class LaneScheduler {
         if (ringSize == 0) {
             return result;
         }
-        while (visits < ringSize * 2 && result.size() < Math.min(maxVisitMessages, budget.maxMessages())
+        final long ringVisitLimit = boundedRingVisitLimit(ringSize);
+        while (visits < ringVisitLimit && result.size() < Math.min(maxVisitMessages, budget.maxMessages())
                 && bytes < budget.maxBytes() && System.nanoTime() - started < budget.maxElapsedNanos()) {
             final DestinationLaneId id = ring.get(cursor % ringSize);
             cursor = (cursor + 1) % ringSize;
@@ -119,6 +120,17 @@ public final class LaneScheduler {
             bytes = Math.addExact(bytes, head.accountedBytes());
         }
         return result;
+    }
+
+    /**
+     * Returns the bounded two-rotation visit budget without narrowing the
+     * multiplication back to an overflowing {@code int}.
+     */
+    static long boundedRingVisitLimit(final int ringSize) {
+        if (ringSize <= 0) {
+            return 0;
+        }
+        return (long) ringSize * 2L;
     }
 
     public synchronized void markBlocked(final DestinationLaneId laneId) {

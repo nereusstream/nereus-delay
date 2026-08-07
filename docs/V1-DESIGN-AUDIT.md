@@ -275,6 +275,12 @@ Scheduler round generations and persisted service-gap counters now saturate at
 `Long.MAX_VALUE`, and inner scheduler byte accumulation is checked; the local
 regressions are `LaneSchedulerTest.saturatesRoundGenerationBeforeServingAtLongMaximum`
 and `WorkerSchedulerTest.saturatesRoundGenerationBeforeServingAtLongMaximum`。
+The inner and outer two-rotation visit limits also widen `ring.size() * 2`
+before comparison, with `LaneSchedulerTest.ringVisitLimitUsesWideArithmetic`
+and `WorkerSchedulerTest.outerVisitLimitUsesWideArithmetic` covering the
+large-ring arithmetic boundary. This closes only the local integer-wrap path;
+the production population, time-share and fairness bounds still require the
+capacity/chaos evidence listed below.
 
 当前代码已把 Lane 的 same-key ACTIVE/TERMINAL 分支和保守本地退休证明接入
 `DelayShard`；并已补齐 Registry-shaped `ActiveLaneStateV1`、

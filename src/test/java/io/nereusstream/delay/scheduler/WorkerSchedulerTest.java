@@ -68,6 +68,14 @@ class WorkerSchedulerTest {
     }
 
     @Test
+    void outerVisitLimitUsesWideArithmetic() {
+        assertEquals(0, WorkerScheduler.boundedVisitLimit(64, 0));
+        assertEquals(64, WorkerScheduler.boundedVisitLimit(64, Integer.MAX_VALUE));
+        assertEquals((long) Integer.MAX_VALUE,
+                WorkerScheduler.boundedVisitLimit(Integer.MAX_VALUE, Integer.MAX_VALUE));
+    }
+
+    @Test
     void saturatesRestoredDeficitBeforeServing() {
         final ShardId shard = shard(21);
         final DestinationLaneId lane = lane(21);

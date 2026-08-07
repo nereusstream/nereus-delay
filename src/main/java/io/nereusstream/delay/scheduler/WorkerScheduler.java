@@ -74,7 +74,8 @@ public final class WorkerScheduler {
         if (ring.isEmpty()) {
             return result;
         }
-        while (visits < Math.min(maxVisitShards, ring.size() * 2)
+        final long visitLimit = boundedVisitLimit(maxVisitShards, ring.size());
+        while (visits < visitLimit
                 && result.size() < budget.maxMessages() && bytes < budget.maxBytes()
                 && System.nanoTime() - started < budget.maxElapsedNanos()) {
             final ShardQueue shard = shards.get(ring.get(cursor % ring.size()));
@@ -107,6 +108,17 @@ public final class WorkerScheduler {
             bytes = Math.addExact(bytes, visitBytes);
         }
         return result;
+    }
+
+    /**
+     * Computes the outer two-rotation cap in a wide type so a large ring
+     * cannot turn the bounded loop condition into a negative value.
+     */
+    static long boundedVisitLimit(final int maxVisitShards, final int ringSize) {
+        if (maxVisitShards <= 0 || ringSize <= 0) {
+            return 0;
+        }
+        return Math.min((long) maxVisitShards, (long) ringSize * 2L);
     }
 
     public synchronized void markShardBlocked(final ShardId shardId) {

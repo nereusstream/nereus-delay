@@ -88,6 +88,15 @@ class LaneSchedulerTest {
     }
 
     @Test
+    void ringVisitLimitUsesWideArithmetic() {
+        assertEquals(0, LaneScheduler.boundedRingVisitLimit(0));
+        assertEquals(4_294_967_292L,
+                LaneScheduler.boundedRingVisitLimit(Integer.MAX_VALUE - 1));
+        assertEquals(4_294_967_294L,
+                LaneScheduler.boundedRingVisitLimit(Integer.MAX_VALUE));
+    }
+
+    @Test
     void saturatesRestoredDeficitBeforeServing() {
         final DestinationLaneId lane = lane(21);
         final LaneScheduler scheduler = new LaneScheduler(10, 1);

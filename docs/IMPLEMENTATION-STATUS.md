@@ -507,6 +507,13 @@ evidence into a negative value. `LaneSchedulerTest.saturatesRoundGenerationBefor
 and `WorkerSchedulerTest.saturatesRoundGenerationBeforeServingAtLongMaximum`
 cover the two scheduler levels.
 
+The inner and outer two-rotation visit caps now widen `ring.size() * 2` before
+comparison, so a large in-memory ring cannot turn the bounded loop limit into a
+negative `int` through arithmetic wrap. `LaneSchedulerTest.ringVisitLimitUsesWideArithmetic`
+and `WorkerSchedulerTest.outerVisitLimitUsesWideArithmetic` cover the boundary;
+this is local scheduler arithmetic evidence and does not replace the required
+capacity proof for a production worker's maximum Lane/shard population.
+
 `ProfileBindingActivatePayloadV1` and `ProfileNewBindingClosePayloadV1` now
 close the Registry control branches for Profile first-binding lifecycle.
 `ProfileBindingControlState` persists strictly source-ordered activation and
