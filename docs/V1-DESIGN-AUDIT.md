@@ -939,6 +939,13 @@ CURRENT 来冒充目标 revision 的成功。它不改变上述生产边界。
 不会依赖 Java `long` 回绕来产生拒绝（`ControlOperationAuthorityTest`
 `revisionSuccessorFailsClosedBeforeLongWraparound`）。
 
+嵌入式 Command query 现在还会在 barrier 之后把 receipt 的 `commandHash`
+与 shard `dedupe_cf` 保留的命令身份核对；同一 `commandId` 但不同 hash 的
+receipt 返回 `RECEIPT_MISMATCH`，applied-receipt 路径也拒绝该 locator。
+`EmbeddedDelayServiceTest.embeddedQueryBindsReceiptCommandHashToDurableDedupeIdentity`
+提供本地证据。该检查闭合了“不能只按 ID 暴露结果”的 shard 边界，但不等于
+生产 Gateway 的租户授权、Oxia 路由或真实 Broker barrier。
+
 The local `DeliveryCapabilitySemanticV1` value codec now closes the Registry
 baseline/strong outcome branches and Kafka/Pulsar evidence-resource and timing
 compatibility checks. This is only semantic-value evidence; immutable Profile

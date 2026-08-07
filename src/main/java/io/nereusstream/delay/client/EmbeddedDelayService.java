@@ -300,6 +300,9 @@ public final class EmbeddedDelayService implements DelayClient {
         if (result == null) {
             return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
         }
+        if (!shard.matchesCommandHash(receipt.command().commandId(), receipt.command().commandHash())) {
+            return CommandQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
+        }
         return nowEpochMs > fullResultRetainUntilEpochMs
                 ? BoundedLocalQueryProjector.compactCommand(result, fullResultRetainUntilEpochMs)
                 : BoundedLocalQueryProjector.command(result, fullResultRetainUntilEpochMs, binding);
@@ -333,6 +336,9 @@ public final class EmbeddedDelayService implements DelayClient {
         final CommandResult result = shard.getCommandResult(queuedReceipt.command().commandId());
         if (result == null) {
             throw new IllegalStateException("source barrier crossed without a durable command result");
+        }
+        if (!shard.matchesCommandHash(queuedReceipt.command().commandId(), queuedReceipt.command().commandHash())) {
+            throw new IllegalArgumentException("queued receipt command hash does not match durable command identity");
         }
         final CommandApplyStatusV1 status = result.applyStatus() == ApplyStatus.APPLIED
                 ? CommandApplyStatusV1.APPLIED : CommandApplyStatusV1.REJECTED;

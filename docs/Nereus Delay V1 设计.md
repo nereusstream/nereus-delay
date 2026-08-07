@@ -2126,6 +2126,8 @@ MessageLocator =
 
 `awaitApplied` 只接受 `QueuedCommandLocator`。Native receipt/identity 在类型层面不能成为 managed query locator。Receipt 先做 bounded syntax/integrity/type validation；失败为 `INVALID_RECEIPT`。随后 Gateway 必须从 trusted Route registry 与 Authenticated Tenant Context 授权，**再**解析 owner/position 或暴露 mismatch；unknown route 与 cross-tenant 统一返回 non-enumerating `NOT_FOUND_OR_NOT_AUTHORIZED`。
 
+达到 queued barrier 后，Owner 必须把 receipt 中的 `commandId` 与 `commandHash` 同 shard `dedupe_cf` 的完整命令身份证据核对，再投影结果；hash/identity 不匹配返回 `RECEIPT_MISMATCH`，不得仅按 `commandId` 暴露另一个命令的结果。Applied receipt 也必须经过同一核对。该核对是本地 shard 读取边界，不能替代 Gateway 的租户授权与 Owner 路由。
+
 以下状态不读 stale DB：
 
 ```text

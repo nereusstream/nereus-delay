@@ -918,6 +918,19 @@ public final class DelayShard {
         return result;
     }
 
+    /**
+     * Checks the immutable command identity evidence retained with a durable
+     * result.  A query locator contains more than the command id; its command
+     * hash must match the dedupe record before the result can be projected.
+     */
+    public synchronized boolean matchesCommandHash(final CommandId commandId, final byte[] expectedCommandHash) {
+        Objects.requireNonNull(commandId, "commandId");
+        Bytes.requireLength(expectedCommandHash, 32, "expectedCommandHash");
+        requireCommandShard(commandId, "command identity lookup");
+        final CommandDedupeRecord record = readCommandDedupe(commandId);
+        return record != null && Bytes.constantTimeEquals(record.commandHash(), expectedCommandHash);
+    }
+
     public synchronized SystemMutationResult getSystemMutationResult(final byte[] mutationId) {
         Bytes.requireLength(mutationId, SystemMutation.HASH_LENGTH, "mutationId");
         final var value = store.getValue(ColumnFamily.DEDUPE, KeyCodec.dedupeSystemMutation(mutationId),

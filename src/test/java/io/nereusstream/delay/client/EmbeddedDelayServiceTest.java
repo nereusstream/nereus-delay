@@ -317,6 +317,36 @@ class EmbeddedDelayServiceTest {
     }
 
     @Test
+    void embeddedQueryBindsReceiptCommandHashToDurableDedupeIdentity() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 19);
+        final Clock clock = Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("query-command-hash")), shard, clock)) {
+            final PreparedCommand command = service.prepareSchedule(new ScheduleIntent(
+                    DestinationLaneId.derive(Bytes.utf8("query-command-hash-lane")), 2_000, 5_000,
+                    OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+            final EnqueueOutcome outcome = service.enqueue(command).toCompletableFuture().join();
+            final CommandQueuedReceiptV1 queued = service.queuedReceiptV1(outcome, 10_000,
+                    java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("query-command-hash-attempt")), 16));
+            final PreparedCommand forgedCommand = PreparedCommand.create(shard, command.commandId(),
+                    command.delayMessageId(), command.type(), command.retryUntilEpochMs(),
+                    new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("different-lane")), 3_000, 6_000,
+                            OrderingMode.BEST_EFFORT, Bytes.utf8("different-payload")).canonicalBytes());
+            final CommandQueuedReceiptV1 forged = CommandQueuedReceiptV1.create(forgedCommand,
+                    queued.sourcePosition(), queued.brokerAck(), queued.receiptQueryUntilEpochMs(),
+                    queued.physicalEnqueueAttemptId());
+
+            service.drain();
+            assertEquals(CommandQueryResult.RECEIPT_MISMATCH,
+                    service.queryCommand(forged, 1_000, 10_000, publicBinding()).resultKind());
+            assertThrows(IllegalArgumentException.class,
+                    () -> service.appliedReceiptV1(forged, 10_000, publicBinding()));
+            assertEquals(CommandQueryResult.APPLIED,
+                    service.queryCommand(queued, 1_000, 10_000, publicBinding()).resultKind());
+        }
+    }
+
+    @Test
     void embeddedQueuedReceiptRejectsNonQueuedOutcome() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
         try (EmbeddedDelayService service = new EmbeddedDelayService(ShardStoreConfig.defaults(tempDir.resolve("reject")),
