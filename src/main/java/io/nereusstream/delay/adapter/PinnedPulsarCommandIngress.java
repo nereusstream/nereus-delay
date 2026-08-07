@@ -96,10 +96,19 @@ public final class PinnedPulsarCommandIngress implements WireCommandIngressAdapt
             return completedWire(WireIngressOutcomeSupport.uncertain(command, physicalAttemptId,
                     StableCode.ENQUEUE_RESULT_UNCERTAIN, null));
         }
-        return result.handle((send, error) -> error == null
-                ? projectWire(command, request, send, receiptQueryUntilEpochMs, physicalAttemptId)
-                : WireIngressOutcomeSupport.uncertain(command, physicalAttemptId,
-                        StableCode.ENQUEUE_RESULT_UNCERTAIN, null));
+        return result.handle((send, error) -> {
+            if (error != null) {
+                return WireIngressOutcomeSupport.uncertain(command, physicalAttemptId,
+                        StableCode.ENQUEUE_RESULT_UNCERTAIN, null);
+            }
+            try {
+                return projectWire(command, request, send, receiptQueryUntilEpochMs, physicalAttemptId);
+            } catch (RuntimeException malformedResult) {
+                // A malformed adapter result is not evidence of non-persistence.
+                return WireIngressOutcomeSupport.uncertain(command, physicalAttemptId,
+                        StableCode.INTEGRITY_ERROR, StableCode.INTEGRITY_ERROR.wireValue());
+            }
+        });
     }
 
     @Override

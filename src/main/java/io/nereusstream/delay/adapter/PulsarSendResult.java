@@ -3,6 +3,8 @@ package io.nereusstream.delay.adapter;
 import io.nereusstream.delay.protocol.Bytes;
 
 import java.util.Objects;
+import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
 
 /** Typed result returned by a guarded Pulsar transport. */
 public record PulsarSendResult(
@@ -23,19 +25,22 @@ public record PulsarSendResult(
     public PulsarSendResult {
         Objects.requireNonNull(disposition, "disposition");
         if (disposition == Disposition.PERSISTED) {
-            Objects.requireNonNull(authenticatedClusterId, "authenticatedClusterId");
+            authenticatedClusterId = canonicalText(authenticatedClusterId, "authenticatedClusterId");
             Objects.requireNonNull(resourceIncarnation, "resourceIncarnation");
-            Objects.requireNonNull(physicalTopic, "physicalTopic");
+            physicalTopic = canonicalText(physicalTopic, "physicalTopic");
             Bytes.requireLength(resourceIncarnation, 32, "resourceIncarnation");
-            if (authenticatedClusterId.isBlank() || physicalTopic.isBlank() || physicalTopicCreationTimestamp < 0
-                    || partition < 0 || ledgerId < 0
+            if (stableCode != 0 || physicalTopicCreationTimestamp < 0 || partition < 0 || ledgerId < 0
                     || entryId < 0 || batchIndex < 0 || batchSize <= 0 || batchIndex >= batchSize
                     || (!batched && (batchIndex != 0 || batchSize != 1)) || brokerEntryTimestampEpochMs < 0) {
                 throw new IllegalArgumentException("invalid persisted Pulsar result");
             }
-        }
-        if (disposition != Disposition.PERSISTED && stableCode <= 0) {
-            throw new IllegalArgumentException("non-persisted Pulsar result requires a stable code");
+        } else {
+            if (stableCode <= 0 || authenticatedClusterId != null || resourceIncarnation != null
+                    || physicalTopic != null || physicalTopicCreationTimestamp != -1 || partition != -1
+                    || ledgerId != -1 || entryId != -1 || batchIndex != -1 || batchSize != -1 || batched
+                    || brokerEntryTimestampEpochMs != -1) {
+                throw new IllegalArgumentException("invalid non-persisted Pulsar result");
+            }
         }
         resourceIncarnation = resourceIncarnation == null ? null : Bytes.copy(resourceIncarnation);
         evidence = evidence == null ? null : Bytes.copy(evidence);
@@ -76,5 +81,15 @@ public record PulsarSendResult(
         PERSISTED,
         DEFINITIVELY_NOT_PERSISTED,
         UNKNOWN
+    }
+
+    private static String canonicalText(final String value, final String name) {
+        Objects.requireNonNull(value, name);
+        final String decoded = new String(value.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8);
+        if (!decoded.equals(value) || value.isBlank() || value.indexOf('\0') >= 0
+                || !value.equals(Normalizer.normalize(value, Normalizer.Form.NFC))) {
+            throw new IllegalArgumentException(name + " must be nonblank NFC UTF-8");
+        }
+        return value;
     }
 }

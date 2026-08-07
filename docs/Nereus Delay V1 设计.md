@@ -394,6 +394,14 @@ Native credential authority 在线下 snapshot issuer 用一个 Oxia transaction
 
 Future timeout、取消等待、连接断开、进程退出不自动等价于 `DEFINITELY_NOT_QUEUED`。
 
+Managed ingress 对 transport 返回的 result 也执行 closed-product 校验：`PERSISTED`
+必须使用 `OK` stable code、完整的 canonical Broker resource/position 字段，
+`DEFINITIVELY_NOT_PERSISTED`/`UNKNOWN` 不得携带成功 position 或 `OK`。适配器
+result 无法构造成合法 receipt（包括 malformed projection、缺少 response evidence
+或 query boundary 与 Broker persistence time 冲突）时，不能让异常穿透 Future，也
+不能生成非持久化 proof；必须返回带同一 Prepared Command/physical attempt 的
+`ENQUEUE_UNCERTAIN`，并把 `INTEGRITY_ERROR` 仅作为 bounded diagnostic。
+
 合法 non-persistence proof 仅为 Producer ownership 前本地拒绝、Kafka authenticated definitive rejection、Pulsar pre-persistence guard rejection，或已认证 Adapter/library 的 pre-ownership cancel。Timeout、Future cancel、丢 callback、连接/进程退出及未验证 exception 没有 proof branch，必须 `ENQUEUE_UNCERTAIN`。
 
 Batch 结果逐条返回且保持输入顺序；Broker batching 不提供跨命令原子性。

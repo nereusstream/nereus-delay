@@ -407,13 +407,19 @@ local projection 自行推断。
 也已按 Registry 严格解码；这些本地 marker apply 仍没有被误报成已经接入
 Oxia control authority。
 
-Managed Kafka/Pulsar ingress 的 transport exception、空结果或 failed stage
-现在统一映射为 Registry 的 `ENQUEUE_RESULT_UNCERTAIN`；共享 transport 若误传
+Managed Kafka/Pulsar ingress 的 transport exception、空结果、failed stage 或
+malformed receipt projection 现在统一映射为 Registry 的
+`ENQUEUE_RESULT_UNCERTAIN`；共享 transport 若误传
 `NATIVE_GUARD_DEFINITIVE_NOT_PERSISTED` 或 `NATIVE_ENQUEUE_RESULT_UNCERTAIN`，
 也会在 managed projection 边界归一化为 managed stable-code family。只有
 `PinnedPulsarNativeSubmissionAdapter` 使用 `NATIVE_ENQUEUE_RESULT_UNCERTAIN`。
-该分支映射由 `AdapterIngressTest` 覆盖，避免把 managed Command 的 retry contract
-误标成 native submission；managed null-result 和 native-code 泄漏也有回归向量。
+`KafkaProduceResult`/`PulsarSendResult` 还在入口关闭
+`PERSISTED`/non-persisted 的 stable-code、position 和 canonical identity 组合，
+避免把开放 result 变成 queued/proof。该分支映射由 `AdapterIngressTest` 覆盖，
+包括 query-boundary projection failure、canonical identity rejection、managed
+null-result 和 native-code 泄漏，避免把 managed Command 的 retry contract 误标成
+native submission；malformed result 只作为 bounded `INTEGRITY_ERROR` diagnostic，
+不是 non-persistence proof。
 
 V1 managed submission 现在还在 Producer ownership 前强制执行
 `CommandCodec.encodeFrameV1/decodeFrameV1`：`PinnedKafkaCommandIngress`、

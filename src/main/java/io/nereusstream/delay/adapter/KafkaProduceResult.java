@@ -4,6 +4,8 @@ import io.nereusstream.delay.protocol.Bytes;
 
 import java.util.Objects;
 import java.util.UUID;
+import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
 
 /** Typed result returned by a pinned Kafka transport. */
 public record KafkaProduceResult(
@@ -19,15 +21,17 @@ public record KafkaProduceResult(
     public KafkaProduceResult {
         Objects.requireNonNull(disposition, "disposition");
         if (disposition == Disposition.PERSISTED) {
-            Objects.requireNonNull(authenticatedClusterId, "authenticatedClusterId");
+            authenticatedClusterId = canonicalText(authenticatedClusterId, "authenticatedClusterId");
             Objects.requireNonNull(nativeTopicUuid, "nativeTopicUuid");
-            if (authenticatedClusterId.isBlank() || partition < 0 || offset < 0
+            if (stableCode != 0 || partition < 0 || offset < 0
                     || (leaderEpoch != null && leaderEpoch < 0) || brokerLogAppendTimeEpochMs < 0) {
                 throw new IllegalArgumentException("invalid persisted Kafka result");
             }
-        }
-        if (disposition != Disposition.PERSISTED && stableCode <= 0) {
-            throw new IllegalArgumentException("non-persisted Kafka result requires a stable code");
+        } else {
+            if (stableCode <= 0 || authenticatedClusterId != null || nativeTopicUuid != null || partition != -1
+                    || offset != -1 || leaderEpoch != null || brokerLogAppendTimeEpochMs != -1) {
+                throw new IllegalArgumentException("invalid non-persisted Kafka result");
+            }
         }
         evidence = evidence == null ? null : Bytes.copy(evidence);
     }
@@ -57,5 +61,15 @@ public record KafkaProduceResult(
         PERSISTED,
         DEFINITIVELY_NOT_PERSISTED,
         UNKNOWN
+    }
+
+    private static String canonicalText(final String value, final String name) {
+        Objects.requireNonNull(value, name);
+        final String decoded = new String(value.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8);
+        if (!decoded.equals(value) || value.isBlank() || value.indexOf('\0') >= 0
+                || !value.equals(Normalizer.normalize(value, Normalizer.Form.NFC))) {
+            throw new IllegalArgumentException(name + " must be nonblank NFC UTF-8");
+        }
+        return value;
     }
 }
