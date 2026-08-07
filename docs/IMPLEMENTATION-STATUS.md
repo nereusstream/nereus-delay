@@ -630,7 +630,8 @@ overloads remain compatibility seams and are not production activated limits.
 Inventory and manifest file ordering compares normalized names by unsigned
 UTF-8 bytes, matching the Registry rather than Java UTF-16 string order.
 Restore `copyTree` also consumes the source walk through a streaming iterator,
-so validated checkpoint restore does not materialize the entire path tree again.
+so validated checkpoint restore does not materialize the entire path tree again;
+inventory canonicalizes and rejects path names before hashing any file.
 
 Shared RocksDB resources also retain checkpoint create/upload/download slot
 counts and reject close while any bounded worker operation is still in flight.

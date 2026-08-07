@@ -80,6 +80,14 @@ class CheckpointManifestTest {
     }
 
     @Test
+    void inventoryRejectsNonCanonicalPathBeforeHashing() throws Exception {
+        final Path root = tempDir.resolve("non-canonical-name-checkpoint");
+        Files.createDirectories(root);
+        Files.writeString(root.resolve("e\u0301.sst"), "bytes");
+        assertThrows(IllegalArgumentException.class, () -> CheckpointFileInventory.collect(root));
+    }
+
+    @Test
     void inventoryAndManifestDecodeHonorExplicitPhysicalLimits() throws Exception {
         final Path root = tempDir.resolve("bounded-checkpoint");
         Files.createDirectories(root.resolve("nested"));

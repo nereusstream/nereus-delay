@@ -59,8 +59,8 @@ public record CheckpointFileInventory(String name, long length, byte[] checksum)
                 if (result.size() >= limits.maxFiles()) {
                     throw new IllegalArgumentException("checkpoint file count exceeds configured bound");
                 }
-                final String name = checkpointRoot.relativize(path).toString()
-                        .replace(path.getFileSystem().getSeparator(), "/");
+                final String name = canonicalName(checkpointRoot.relativize(path).toString()
+                        .replace(path.getFileSystem().getSeparator(), "/"));
                 final long length = Files.size(path);
                 limits.validateFile(name, length);
                 totalBytes = Math.addExact(totalBytes, length);
