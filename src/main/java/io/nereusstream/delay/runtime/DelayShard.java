@@ -907,12 +907,11 @@ public final class DelayShard {
     }
 
     public synchronized CommandResult getCommandResult(final CommandId commandId) {
+        Objects.requireNonNull(commandId, "commandId");
+        requireCommandShard(commandId, "command result lookup");
         final var value = store.getValue(ColumnFamily.DEDUPE, KeyCodec.dedupeResult(commandId), 2);
         if (value == null) {
             return null;
-        }
-        if (!store.shardId().equals(commandId.routingId().shardId())) {
-            throw new IllegalStateException("command result key shard mismatch");
         }
         final CommandResult result = CommandResult.decode(value.payload());
         validateSourcePositionShard(result.appliedSourcePosition(), "command result lookup");
@@ -1544,6 +1543,12 @@ public final class DelayShard {
     private void requireMessageShard(final DelayMessageId messageId, final String context) {
         if (!store.shardId().equals(messageId.routingId().shardId())) {
             throw new IllegalStateException("MESSAGE key shard mismatch during " + context);
+        }
+    }
+
+    private void requireCommandShard(final CommandId commandId, final String context) {
+        if (!store.shardId().equals(commandId.routingId().shardId())) {
+            throw new IllegalStateException("command result key shard mismatch during " + context);
         }
     }
 

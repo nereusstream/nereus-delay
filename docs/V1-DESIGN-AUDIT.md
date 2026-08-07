@@ -627,9 +627,9 @@ Direct `discoverReady` 也会在返回 scheduler work 前确认对应 timeline e
 `DelayMessageId` 的 self-routing Shard；即使当前 DB 只有错挂的 sidecar，也不会
 把它暴露给 Registry 路径。证据为
 `DelayShardTest.scheduleBindingLookupRejectsForeignMessageShard`。
-Message、Terminal、DLQ-export 和 message-based Claim 的 route-keyed lookup
-现在也在 RocksDB 读取前执行同一 self-routing fence；foreign ID 即使在当前 DB
-没有对应记录，也不会被降级为 not-found。证据为
+Message、Command-result、Terminal、DLQ-export 和 message-based Claim 的
+route-keyed lookup 现在也在 RocksDB 读取前执行同一 self-routing fence；foreign
+ID 即使在当前 DB 没有对应记录，也不会被降级为 not-found。证据为
 `DelayShardTest.routeKeyLookupsRejectForeignMessageShardBeforeMissingRead`。
 READY rebuild 的 candidate scan 现在按 pending bound 多读一个条目并在溢出时
 fail closed，不会静默丢掉同一 Lane 的后续 timeline head；证据为

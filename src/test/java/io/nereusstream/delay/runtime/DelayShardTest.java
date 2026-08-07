@@ -9,6 +9,7 @@ import io.nereusstream.delay.protocol.CapacityGrantV1;
 import io.nereusstream.delay.protocol.CapacityVectorV1;
 import io.nereusstream.delay.protocol.ClaimResultBody;
 import io.nereusstream.delay.protocol.CommittedPayloadDescriptorV1;
+import io.nereusstream.delay.protocol.CommandId;
 import io.nereusstream.delay.protocol.ControlAuthorV1;
 import io.nereusstream.delay.protocol.ControlOperationRequestV1;
 import io.nereusstream.delay.protocol.ControlRef;
@@ -209,6 +210,7 @@ class DelayShardTest {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 57);
         final ShardId foreignShardId = new ShardId(RouteIncarnation.random(), 58);
         final DelayMessageId foreignMessageId = DelayMessageId.random(foreignShardId);
+        final CommandId foreignCommandId = CommandId.random(foreignShardId);
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
@@ -219,6 +221,8 @@ class DelayShardTest {
                     () -> shard.getTerminalGeneration(foreignMessageId, 0));
             assertThrows(IllegalStateException.class,
                     () -> shard.getDlqExportRecord(foreignMessageId, 0));
+            assertThrows(IllegalStateException.class,
+                    () -> shard.getCommandResult(foreignCommandId));
         }
     }
 
