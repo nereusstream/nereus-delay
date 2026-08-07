@@ -1,5 +1,7 @@
 package io.nereusstream.delay.protocol;
 
+import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
 import java.util.Arrays;
 import java.util.Objects;
 
@@ -11,6 +13,7 @@ public record PulsarActivationBarrier(
         long ledgerId,
         long entryId,
         int normalizedLastBatchIndex,
+        int batchSize,
         long guardedSourceConnectionGeneration,
         byte[] resourceGuardAttestationDigest,
         boolean empty) implements SourceActivationBarrier {
@@ -18,12 +21,13 @@ public record PulsarActivationBarrier(
         Objects.requireNonNull(shardId, "shardId");
         Bytes.requireLength(brokerResourceIncarnation, 32, "brokerResourceIncarnation");
         Bytes.requireLength(resourceGuardAttestationDigest, 32, "resourceGuardAttestationDigest");
-        Objects.requireNonNull(physicalTopic, "physicalTopic");
+        physicalTopic = canonicalText(physicalTopic, "physicalTopic");
         if (physicalTopic.isBlank() || ledgerId < 0 || entryId < 0 || normalizedLastBatchIndex < 0
-                || guardedSourceConnectionGeneration <= 0) {
+                || batchSize < 0 || guardedSourceConnectionGeneration <= 0
+                || (!empty && batchSize > 0 && normalizedLastBatchIndex >= batchSize)) {
             throw new IllegalArgumentException("invalid Pulsar activation barrier");
         }
-        if (empty && (ledgerId != 0 || entryId != 0 || normalizedLastBatchIndex != 0)) {
+        if (empty && (ledgerId != 0 || entryId != 0 || normalizedLastBatchIndex != 0 || batchSize != 0)) {
             throw new IllegalArgumentException("empty Pulsar barrier must use the sentinel cursor");
         }
         if (allZero(brokerResourceIncarnation) || allZero(resourceGuardAttestationDigest)) {
@@ -37,7 +41,21 @@ public record PulsarActivationBarrier(
                                                 final String physicalTopic, final long connectionGeneration,
                                                 final byte[] guardAttestationDigest) {
         return new PulsarActivationBarrier(shardId, resourceIncarnation, physicalTopic, 0, 0, 0,
-                connectionGeneration, guardAttestationDigest, true);
+                0, connectionGeneration, guardAttestationDigest, true);
+    }
+
+    /**
+     * Compatibility constructor for callers that predate the pinned batch
+     * shape. A zero batch size means the same-entry shape cannot be fenced by
+     * this legacy seam; V1 source adapters must provide the batch size.
+     */
+    @Deprecated
+    public PulsarActivationBarrier(final ShardId shardId, final byte[] brokerResourceIncarnation,
+                                   final String physicalTopic, final long ledgerId, final long entryId,
+                                   final int normalizedLastBatchIndex, final long guardedSourceConnectionGeneration,
+                                   final byte[] resourceGuardAttestationDigest, final boolean empty) {
+        this(shardId, brokerResourceIncarnation, physicalTopic, ledgerId, entryId, normalizedLastBatchIndex, 0,
+                guardedSourceConnectionGeneration, resourceGuardAttestationDigest, empty);
     }
 
     @Override
@@ -66,6 +84,7 @@ public record PulsarActivationBarrier(
                 && ledgerId == that.ledgerId
                 && entryId == that.entryId
                 && normalizedLastBatchIndex == that.normalizedLastBatchIndex
+                && batchSize == that.batchSize
                 && guardedSourceConnectionGeneration == that.guardedSourceConnectionGeneration
                 && Arrays.equals(resourceGuardAttestationDigest, that.resourceGuardAttestationDigest)
                 && empty == that.empty;
@@ -74,7 +93,7 @@ public record PulsarActivationBarrier(
     @Override
     public int hashCode() {
         return Objects.hash(shardId, Arrays.hashCode(brokerResourceIncarnation), physicalTopic, ledgerId, entryId,
-                normalizedLastBatchIndex, guardedSourceConnectionGeneration,
+                normalizedLastBatchIndex, batchSize, guardedSourceConnectionGeneration,
                 Arrays.hashCode(resourceGuardAttestationDigest), empty);
     }
 
@@ -93,6 +112,10 @@ public record PulsarActivationBarrier(
                 || !Arrays.equals(brokerResourceIncarnation, pulsar.brokerResourceIncarnation())
                 || !physicalTopic.equals(pulsar.physicalTopic())) {
             throw new IllegalArgumentException("Pulsar activation barrier source identity mismatch");
+        }
+        if (!empty && batchSize > 0 && pulsar.ledgerId() == ledgerId && pulsar.entryId() == entryId
+                && pulsar.batchSize() != batchSize) {
+            throw new IllegalArgumentException("Pulsar activation barrier batch shape mismatch");
         }
     }
 
@@ -120,6 +143,9 @@ public record PulsarActivationBarrier(
         if (pulsar.entryId() != entryId) {
             return pulsar.entryId() > entryId;
         }
+        if (batchSize > 0 && pulsar.batchSize() != batchSize) {
+            throw new IllegalArgumentException("Pulsar activation barrier batch shape mismatch");
+        }
         return pulsar.normalizedBatchIndex() >= normalizedLastBatchIndex;
     }
 
@@ -130,5 +156,15 @@ public record PulsarActivationBarrier(
             }
         }
         return true;
+    }
+
+    private static String canonicalText(final String value, final String name) {
+        Objects.requireNonNull(value, name);
+        final String decoded = new String(value.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8);
+        if (!decoded.equals(value) || value.indexOf('\0') >= 0
+                || !value.equals(Normalizer.normalize(value, Normalizer.Form.NFC))) {
+            throw new IllegalArgumentException(name + " must be canonical UTF-8");
+        }
+        return value;
     }
 }

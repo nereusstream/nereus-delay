@@ -597,7 +597,7 @@ class OwnerLeaseTest {
         final byte[] resource = Bytes.sha256(Bytes.utf8("pulsar-resource"));
         final byte[] guard = Bytes.sha256(Bytes.utf8("guard-generation-7"));
         final PulsarActivationBarrier barrier = new PulsarActivationBarrier(shardId, resource,
-                "persistent://tenant/commands-partition-7", 4, 8, 2, 7, guard, false);
+                "persistent://tenant/commands-partition-7", 4, 8, 2, 3, 7, guard, false);
         final PulsarSourcePosition catchup = new PulsarSourcePosition(shardId, resource,
                 "persistent://tenant/commands-partition-7", 4, 8, 2, 3,
                 PulsarSourcePosition.EntryKind.BATCH, 1_000);

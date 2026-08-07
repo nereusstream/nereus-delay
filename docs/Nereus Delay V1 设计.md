@@ -695,6 +695,8 @@ Activation Barrier 是带 Broker 类型和边界方向的 cursor，不与普通 
 - Kafka：取得 lease 后从一个 pinned Fetch v13+ response 的同一 exact topic UUID partition block 捕获 read-committed `lastStableOffset`，保存为 `KAFKA_EXCLUSIVE_OFFSET(b)`；当 consumer 的 next fetch position `>= b` 时达到 barrier。`ListOffsets/endOffsets` 只有 topic name，禁止作为 correctness barrier。事务 marker、aborted record 会形成 offset gap，但不要求伪造 position audit。
 - Pulsar：取得 lease 后，Exclusive consumer 的 initial connect/reconnect 先由 source-locked `PULSAR_SUBSCRIBE_RESOURCE_GUARD_V1` 在 Broker add-consumer 前验证 exact Command Topic resource token、physical-topic creation identity、partition 与 principal。只允许从这个仍有效的 guarded consumer connection generation 调用 batch-aware `getLastMessageId`；response 与其 resource identity/partition/connection-generation attestation 一起写 `PULSAR_INCLUSIVE_MESSAGE_ID(resource,partition,m)`。API/transport 若只能给 name-bound MessageId 而不能证明同一 guarded resource generation，Route 不得激活。只有 `m` 及其最后一个 batch member都已 durable apply/quarantine 后才达到 barrier。
 
+运行时 Pulsar barrier 必须同时保存 inclusive 最后 member 的 `normalizedBatchIndex` 和该 entry 的 `batchSize`；若恢复 cursor 或 catch-up record 位于同一 `(ledgerId, entryId)`，batch shape 不一致必须在 apply 前 fail closed。只保存 member index 的旧兼容构造器不属于 V1 source-assignment 证据。
+
 空 partition 使用显式 `EMPTY_BARRIER`（Kafka pinned Fetch LSO `0` 或 Pulsar negative-entry sentinel 经 Adapter 规范化）。Barrier 固定 Route Incarnation、物理 topic/partition、Broker type 和 captured value；捕获失败、类型错误或身份不匹配时不能进入 `ACTIVE_FOR_COMMANDS`。
 即使是空 Pulsar barrier，也必须先校验本地已有非空 cursor 的 resource incarnation 与 physical topic；空边界只表示无需重放记录，不会放宽物理 source identity。旧 DB 中来自另一 Pulsar resource 的 cursor 必须 fail closed，不能直接激活。
 

@@ -40,7 +40,7 @@ class SourceActivationBarrierTest {
         resource[0] = 7;
         final byte[] guardDigest = Bytes.sha256(Bytes.utf8("guard-1"));
         final PulsarActivationBarrier barrier = new PulsarActivationBarrier(shard, resource, "persistent://t/a",
-                4, 8, 2, 11, guardDigest, false);
+                4, 8, 2, 3, 11, guardDigest, false);
         barrier.validateSourceConnection(11, guardDigest);
         assertThrows(IllegalArgumentException.class, () -> barrier.validateSourceConnection(12, guardDigest));
         assertThrows(IllegalArgumentException.class,
@@ -77,9 +77,9 @@ class SourceActivationBarrierTest {
         final byte[] resource = Bytes.sha256(Bytes.utf8("assignment-resource"));
         final byte[] guard = Bytes.sha256(Bytes.utf8("assignment-guard"));
         final PulsarActivationBarrier first = new PulsarActivationBarrier(shard, resource,
-                "persistent://t/value", 7, 9, 1, 13, guard, false);
+                "persistent://t/value", 7, 9, 1, 13, 13, guard, false);
         final PulsarActivationBarrier second = new PulsarActivationBarrier(shard, resource.clone(),
-                "persistent://t/value", 7, 9, 1, 13, guard.clone(), false);
+                "persistent://t/value", 7, 9, 1, 13, 13, guard.clone(), false);
         assertEquals(first, second);
         assertEquals(first.hashCode(), second.hashCode());
         final SourceAssignment left = new SourceAssignment(shard, Bytes.sha256(Bytes.utf8("assignment-id")), 4,
@@ -96,8 +96,30 @@ class SourceActivationBarrierTest {
         final byte[] resource = Bytes.sha256(Bytes.utf8("non-zero-resource"));
         final byte[] zero = new byte[32];
         assertThrows(IllegalArgumentException.class, () -> new PulsarActivationBarrier(shard, zero,
-                "persistent://t/zero", 0, 0, 0, 1, resource, true));
+                "persistent://t/zero", 0, 0, 0, 0, 1, resource, true));
         assertThrows(IllegalArgumentException.class, () -> new PulsarActivationBarrier(shard, resource,
-                "persistent://t/zero", 0, 0, 0, 1, zero, true));
+                "persistent://t/zero", 0, 0, 0, 0, 1, zero, true));
+    }
+
+    @Test
+    void pulsarBarrierPinsBatchShapeForTheInclusiveEntry() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
+        final byte[] resource = Bytes.sha256(Bytes.utf8("batch-shape-resource"));
+        final byte[] guard = Bytes.sha256(Bytes.utf8("batch-shape-guard"));
+        final PulsarActivationBarrier barrier = new PulsarActivationBarrier(shard, resource,
+                "persistent://t/batch-shape", 9, 11, 2, 4, 3, guard, false);
+        final PulsarSourcePosition sameEntryDifferentBatch = new PulsarSourcePosition(shard, resource,
+                "persistent://t/batch-shape", 9, 11, 2, 5,
+                PulsarSourcePosition.EntryKind.BATCH, 1);
+        assertThrows(IllegalArgumentException.class, () -> barrier.reachedBy(sameEntryDifferentBatch));
+        assertThrows(IllegalArgumentException.class, () -> barrier.validatePosition(sameEntryDifferentBatch));
+        assertThrows(IllegalArgumentException.class, () -> new PulsarActivationBarrier(shard, resource,
+                "persistent://t/batch-shape", 9, 11, 4, 4, 3, guard, false));
+        assertThrows(IllegalArgumentException.class, () -> new PulsarActivationBarrier(shard, resource,
+                "persistent://t/e\u0301", 9, 11, 2, 4, 3, guard, false));
+        final PulsarSourcePosition sameEntryAtBarrier = new PulsarSourcePosition(shard, resource,
+                "persistent://t/batch-shape", 9, 11, 2, 4,
+                PulsarSourcePosition.EntryKind.BATCH, 1);
+        assertTrue(barrier.reachedBy(sameEntryAtBarrier));
     }
 }
