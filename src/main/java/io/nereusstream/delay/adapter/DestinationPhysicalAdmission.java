@@ -188,10 +188,7 @@ public final class DestinationPhysicalAdmission {
                                       final String targetClusterId) {
         long total = 0;
         for (LaneState lane : lanes.values()) {
-            if (!lane.ready && lane != excluded || lane == excluded && excluded.ready) {
-                continue;
-            }
-            if (excluded != null && lane == excluded) {
+            if (lane == excluded || !lane.ready) {
                 continue;
             }
             if (sameCluster && targetClusterId != null && !lane.targetClusterId.equals(targetClusterId)) {
@@ -217,10 +214,7 @@ public final class DestinationPhysicalAdmission {
                                    final String targetClusterId) {
         long total = 0;
         for (LaneState lane : lanes.values()) {
-            if (!lane.ready && lane != excluded || lane == excluded && excluded.ready) {
-                continue;
-            }
-            if (excluded != null && lane == excluded) {
+            if (lane == excluded || !lane.ready) {
                 continue;
             }
             if (sameCluster && targetClusterId != null && !lane.targetClusterId.equals(targetClusterId)) {

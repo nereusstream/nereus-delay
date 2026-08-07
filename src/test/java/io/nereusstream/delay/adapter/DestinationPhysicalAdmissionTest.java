@@ -95,6 +95,20 @@ class DestinationPhysicalAdmissionTest {
         assertTrue(admission.laneSnapshot(secondLane).ready());
     }
 
+    @Test
+    void openingLaneCountsItsReadyMinimumExactlyOnce() {
+        final DestinationPhysicalAdmission admission = new DestinationPhysicalAdmission(2, 10);
+        admission.registerTargetCluster("cluster-a", 2, 10);
+        final DestinationLaneId lane = lane("exact-minimum");
+        admission.registerLane(spec(lane, "cluster-a", 2, 10, 2, 10, 1, 10));
+
+        admission.openReady(lane);
+
+        assertTrue(admission.laneSnapshot(lane).ready());
+        assertEquals(2, admission.workerSnapshot().protectedReadyRequests());
+        assertEquals(10, admission.workerSnapshot().protectedReadyBytes());
+    }
+
     private static DestinationPhysicalAdmission.LaneSpec spec(final DestinationLaneId lane,
                                                                final String cluster,
                                                                final long minimumRequests,

@@ -425,7 +425,9 @@ Lane zombie cap 立即阻止该 Lane 的新 Admission，直到 physical release 
 block。delegate stage 完成（包括 `UNKNOWN`）才释放 request/byte charge；capacity
 拒绝不会调用 delegate。`DestinationPhysicalAdmissionTest` 与
 `BoundedDestinationPublishAdapterTest` 覆盖 READY minimum、跨层 cap、identity、
-zombie 和 response completion。该组件只是进程内可重建的资源闸门，尚未接入持久
+zombie 和 response completion；开启一个尚未 READY 的 Lane 时，其候选
+READY minimum 现在只计入一次，`openingLaneCountsItsReadyMinimumExactlyOnce`
+覆盖恰好填满 Worker/target-cluster 最小保护容量的边界。该组件只是进程内可重建的资源闸门，尚未接入持久
 `ActiveLaneState`/`ReadyCertificate`、Owner/Lease/Oxia authority、真实 channel
 teardown 或 Broker evidence journal，因此不能宣称 production admission 已闭合。
 
