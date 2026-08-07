@@ -57,13 +57,15 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
                                       final byte[] evidenceCursorDigest) {
         Bytes.requireLength(checkpointId, 16, "checkpointId");
         final byte[] requestedCheckpointId = Bytes.copy(checkpointId);
+        final byte[] backendCheckpointId = Bytes.copy(requestedCheckpointId);
         if (expectedCatalogGeneration < 0) {
             throw new IllegalArgumentException("catalog generation must be non-negative");
         }
         Bytes.requireLength(evidenceCursorDigest, 32, "evidenceCursorDigest");
         final byte[] requestedEvidenceCursorDigest = Bytes.copy(evidenceCursorDigest);
+        final byte[] backendEvidenceCursorDigest = Bytes.copy(requestedEvidenceCursorDigest);
         final RecoveryFloor result = Objects.requireNonNull(
-                backend.advanceFloor(requestedCheckpointId, expectedCatalogGeneration, requestedEvidenceCursorDigest),
+                backend.advanceFloor(backendCheckpointId, expectedCatalogGeneration, backendEvidenceCursorDigest),
                 "Oxia floor result");
         if (!Bytes.constantTimeEquals(requestedCheckpointId, result.checkpointId())
                 || result.catalogGeneration() <= expectedCatalogGeneration) {
@@ -81,12 +83,13 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
                                             final List<EvidenceCursorV1> evidenceCursors) {
         Bytes.requireLength(checkpointId, 16, "checkpointId");
         final byte[] requestedCheckpointId = Bytes.copy(checkpointId);
+        final byte[] backendCheckpointId = Bytes.copy(requestedCheckpointId);
         if (expectedCatalogGeneration < 0) {
             throw new IllegalArgumentException("catalog generation must be non-negative");
         }
         final List<EvidenceCursorV1> requestedEvidenceCursors = List.copyOf(
                 Objects.requireNonNull(evidenceCursors, "evidenceCursors"));
-        final RecoveryFloorRefV1 result = Objects.requireNonNull(backend.advanceFloor(requestedCheckpointId,
+        final RecoveryFloorRefV1 result = Objects.requireNonNull(backend.advanceFloor(backendCheckpointId,
                 expectedCatalogGeneration, requestedEvidenceCursors), "Oxia typed Floor result");
         if (!Bytes.constantTimeEquals(requestedCheckpointId, result.checkpointId())
                 || result.catalogGeneration() <= expectedCatalogGeneration) {
@@ -121,7 +124,8 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
     public Optional<CheckpointManifest> manifest(final byte[] checkpointId) {
         Bytes.requireLength(checkpointId, 16, "checkpointId");
         final byte[] requestedCheckpointId = Bytes.copy(checkpointId);
-        final Optional<CheckpointManifest> result = Objects.requireNonNull(backend.manifest(requestedCheckpointId),
+        final byte[] backendCheckpointId = Bytes.copy(requestedCheckpointId);
+        final Optional<CheckpointManifest> result = Objects.requireNonNull(backend.manifest(backendCheckpointId),
                 "Oxia manifest result");
         result.ifPresent(manifest -> {
             if (!Bytes.constantTimeEquals(requestedCheckpointId, manifest.checkpointId())) {
@@ -158,17 +162,18 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
                                                                        final SourcePosition... requiredPositions) {
         Bytes.requireLength(candidateCheckpointId, 16, "candidateCheckpointId");
         final byte[] requestedCandidateCheckpointId = Bytes.copy(candidateCheckpointId);
+        final byte[] backendCandidateCheckpointId = Bytes.copy(requestedCandidateCheckpointId);
         if (requiredMutationSequence < 0) {
             throw new IllegalArgumentException("required mutation sequence must be non-negative");
         }
         final SourcePosition[] requestedPositions = Arrays.copyOf(
                 Objects.requireNonNull(requiredPositions, "requiredPositions"), requiredPositions.length);
+        final SourcePosition[] backendPositions = Arrays.copyOf(requestedPositions, requestedPositions.length);
         for (SourcePosition requiredPosition : requestedPositions) {
             Objects.requireNonNull(requiredPosition, "required source position");
         }
         final Optional<RecoveryCatalog.FloorCoverage> result = Objects.requireNonNull(
-                backend.proveFloorCoverage(requestedCandidateCheckpointId, requiredMutationSequence,
-                        requestedPositions),
+                backend.proveFloorCoverage(backendCandidateCheckpointId, requiredMutationSequence, backendPositions),
                 "Oxia floor coverage result");
         result.ifPresent(coverage -> {
             if (!Bytes.constantTimeEquals(requestedCandidateCheckpointId, coverage.candidate().checkpointId())) {

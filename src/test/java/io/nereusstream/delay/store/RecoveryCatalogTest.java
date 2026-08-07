@@ -20,6 +20,7 @@ import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -662,6 +663,60 @@ class RecoveryCatalogTest {
         backend.typedResult = wrongCursors;
         assertThrows(IllegalStateException.class,
                 () -> authority.advanceFloor(manifest.checkpointId(), 1, List.of(cursor)));
+    }
+
+    @Test
+    void OxiaBoundaryKeepsValidationSnapshotWhenBackendMutatesRequestBuffers() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 26);
+        final CheckpointManifest manifest = manifest(shard, UUID.randomUUID(), id16(260), id16(261), 0,
+                1, 1, null);
+        final RecoveryCatalog delegate = new RecoveryCatalog();
+        delegate.publish(manifest, 0);
+        final byte[] checkpointId = manifest.checkpointId();
+        final byte[] evidenceDigest = id32(262);
+        final RecoveryFloor validFloor = delegate.advanceFloor(checkpointId, 1, evidenceDigest);
+
+        final OxiaRecoveryCatalog.CasBackend mutatingBackend = new OxiaRecoveryCatalog.CasBackend() {
+            @Override
+            public RecoveryCatalog.Publication publish(final CheckpointManifest ignored, final long expected) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public RecoveryFloor advanceFloor(final byte[] requestedCheckpointId, final long expected,
+                                               final byte[] requestedEvidenceDigest) {
+                requestedCheckpointId[0] ^= 0x55;
+                requestedEvidenceDigest[0] ^= 0x33;
+                return validFloor;
+            }
+
+            @Override
+            public Optional<CheckpointManifest> manifest(final byte[] requestedCheckpointId) {
+                requestedCheckpointId[0] ^= 0x11;
+                return Optional.of(manifest);
+            }
+
+            @Override
+            public Optional<RecoveryFloor> currentFloor() {
+                return Optional.empty();
+            }
+
+            @Override
+            public void validatePublishedRestoreCandidate(final CheckpointManifest ignored) {
+            }
+
+            @Override
+            public Optional<RecoveryCatalog.FloorCoverage> proveFloorCoverage(
+                    final byte[] ignored, final long sequence,
+                    final io.nereusstream.delay.protocol.SourcePosition... positions) {
+                return Optional.empty();
+            }
+        };
+
+        final OxiaRecoveryCatalog authority = new OxiaRecoveryCatalog(mutatingBackend);
+        assertEquals(validFloor, authority.advanceFloor(checkpointId, 1, evidenceDigest));
+        assertArrayEquals(manifest.checkpointId(), checkpointId);
+        assertArrayEquals(id32(262), evidenceDigest);
     }
 
     private static CheckpointManifest manifest(final ShardId shard, final UUID topic, final byte[] lineage,
