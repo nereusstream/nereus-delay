@@ -313,6 +313,14 @@ public final class PersistentLaneScheduler {
             throw new IllegalStateException("READY points to a missing message: " + value.messageId());
         }
         final MessageRecord message = MessageRecord.decode(messageValue.payload());
+        if (!store.shardId().equals(value.messageId().routingId().shardId())) {
+            throw new IllegalStateException("READY message key belongs to another Shard: " + value.messageId());
+        }
+        final var scheduleSourcePosition = SourcePositionCodec.decode(message.scheduleSourcePosition());
+        if (!store.shardId().equals(scheduleSourcePosition.shardId())) {
+            throw new IllegalStateException("READY message source position belongs to another Shard: "
+                    + value.messageId());
+        }
         if (message.status() != MessageStatus.SCHEDULED || message.generation() != value.generation()
                 || !message.laneId().equals(key.laneId())) {
             throw new IllegalStateException("READY points to a non-current scheduled message: " + value.messageId());
@@ -323,11 +331,9 @@ public final class PersistentLaneScheduler {
         final byte[] timelineKey = message.orderingMode()
                 == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO
                 ? KeyCodec.timelineOrdered(message.laneId(), timelineEligibleAt,
-                SourcePositionCodec.decode(message.scheduleSourcePosition()).sourceOrderToken(), value.messageId(),
-                message.generation())
+                scheduleSourcePosition.sourceOrderToken(), value.messageId(), message.generation())
                 : KeyCodec.timelineDue(message.laneId(), timelineEligibleAt,
-                SourcePositionCodec.decode(message.scheduleSourcePosition()).sourceOrderToken(), value.messageId(),
-                message.generation());
+                scheduleSourcePosition.sourceOrderToken(), value.messageId(), message.generation());
         if (!Bytes.constantTimeEquals(value.timelineKeySha256(), Bytes.sha256(timelineKey))) {
             throw new IllegalStateException("READY timeline digest mismatch: " + value.messageId());
         }

@@ -6056,12 +6056,10 @@ public final class DelayShard {
             }
             final io.nereusstream.delay.protocol.DestinationLaneId candidateLane;
             if (entry.key()[0] == INFLIGHT_CLAIMED_KIND) {
-                candidateLane = ClaimRecord.decode(ValueEnvelope.decode(entry.value(), ClaimRecord.VALUE_TYPE)
-                        .payload()).laneId();
+                candidateLane = decodeClaim(entry).laneId();
             } else if (entry.key()[0] == INFLIGHT_PUBLISHING_KIND
                     || entry.key()[0] == INFLIGHT_UNCERTAIN_KIND) {
-                candidateLane = PublishAttemptLedger.decode(
-                        ValueEnvelope.decode(entry.value(), PublishAttemptLedger.VALUE_TYPE).payload()).laneId();
+                candidateLane = decodePublishAttempt(entry).laneId();
             } else {
                 throw new IllegalStateException("unknown inflight kind during lane retirement");
             }

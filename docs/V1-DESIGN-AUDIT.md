@@ -581,6 +581,14 @@ Command result、terminal history、reservation、open attempt、DLQ export 与
 GC projection 的 direct reads 也做相同的 Source Position shard 检查；带有
 message/command locator 的值同时检查其 self-routing Shard。跨 Shard 的历史
 不能成为本地 query、drain 或 compaction 输入。
+Lane 退休的最后一轮 inflight 扫描也复用 Claim/attempt 的 key/value 与 Source
+Position 校验，错挂的 ledger 会直接 fence 退休，而不会只被当作普通 pending
+work；`DelayShardTest.laneRetirementRejectsInflightKeyValueMismatchBeforeRetiring`
+覆盖这一边界。
+`PersistentLaneScheduler` 的 READY 恢复还会在重算 timeline key 前检查 READY
+消息的 self-routing Shard 与 `scheduleSourcePosition` Shard，避免 scheduler-only
+recovery 把跨 Shard 的 READY head 放入本地公平 ring；证据为
+`LaneSchedulerTest.fencedRecoveryRejectsReadyMessageFromAnotherShard`。
 Retired Lane guard 的直接读取也校验其 terminal Source Position 属于当前
 Shard；错挂的退休证明不会通过 `getLaneTerminalGuard` 暴露。
 `ShardStore.flushAndSync` 还提供 drain 的物理 flush/WAL-sync 原语，重开回归为

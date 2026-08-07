@@ -257,6 +257,41 @@ class LaneSchedulerTest {
         }
     }
 
+    @Test
+    void fencedRecoveryRejectsReadyMessageFromAnotherShard() {
+        final DestinationLaneId lane = lane(23);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 23);
+        final ShardId otherShardId = new ShardId(RouteIncarnation.random(), 24);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("ready-source-shard-mismatch"));
+        final SourcePosition foreignSource = new KafkaSourcePosition(otherShardId, "cluster", UUID.randomUUID(), 4,
+                null, 1_004);
+        final LaneRecord laneRecord = new LaneRecord(lane, new byte[16], 1, 1, AdmissionGate.OPEN,
+                RuntimeReadiness.READY, 2, 1_000);
+        final DelayMessageId messageId = DelayMessageId.random(shardId);
+        final MessageRecord message = new MessageRecord(MessageStatus.SCHEDULED, 3, 4, 1_000, 9_000, lane,
+                OrderingMode.BEST_EFFORT, new byte[]{1, 2, 3}, foreignSource.canonicalBytes());
+        final byte[] readyKey = KeyCodec.timelineReady(1_000, lane, laneRecord.laneVersion());
+        final byte[] timelineKey = KeyCodec.timelineDue(lane, 1_000, foreignSource.sourceOrderToken(), messageId,
+                message.generation());
+        final ReadyIndexValue ready = new ReadyIndexValue(lane, 1_000, laneRecord.laneVersion(), messageId,
+                message.generation(), Bytes.sha256(timelineKey));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(lane),
+                        LaneRecordEnvelopeV1.active(laneRecord.encode()).canonicalBytes());
+                batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(messageId), message.encode());
+                batch.putValue(ColumnFamily.TIMELINE, 1, timelineKey,
+                        new TimelineEntry(messageId, message.generation()).encode());
+                batch.putValue(ColumnFamily.TIMELINE, 3, readyKey, ready.encode());
+            });
+            final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
+            scheduler.register(laneRecord);
+
+            assertThrows(IllegalStateException.class, () -> scheduler.rebuildFromAuthoritativeReady(1));
+        }
+    }
+
     private static LaneRecord record(final DestinationLaneId lane, final int weight) {
         return new LaneRecord(lane, new byte[16], 1, 0, AdmissionGate.OPEN, RuntimeReadiness.READY, weight, 0);
     }

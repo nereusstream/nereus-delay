@@ -1439,6 +1439,52 @@ class DelayShardTest {
     }
 
     @Test
+    void laneRetirementRejectsInflightKeyValueMismatchBeforeRetiring() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("lane-retirement-inflight-mismatch"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 74);
+        final byte[] tuple = Bytes.utf8("lane-retirement-inflight-mismatch-tuple");
+        final DestinationLaneId lane = DestinationLaneId.derive(tuple);
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("lane-retirement-inflight-mismatch")), 9_000);
+        final KafkaSourcePosition source = position(shardId, 0, 1_000);
+        final ProfileRefV1 destination = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2),
+                ProfileKindV1.DESTINATION);
+        final ProfileRefV1 capability = new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4),
+                ProfileKindV1.DELIVERY_CAPABILITY);
+        final byte[] retirementId = bytes(32, 6);
+        final byte[] valueAttemptId = Bytes.sha256(Bytes.utf8("lane-retirement-value-attempt"));
+        final byte[] keyAttemptId = Bytes.sha256(Bytes.utf8("lane-retirement-key-attempt"));
+        final PublishAttemptLedger misplaced = PublishAttemptLedger.publishing(schedule.delayMessageId(), 0,
+                valueAttemptId, Bytes.sha256(Bytes.utf8("lane-retirement-claim")), 1, 1, lane, new byte[16],
+                Bytes.sha256(Bytes.utf8("lane-retirement-owner")), new byte[16],
+                Bytes.sha256(Bytes.utf8("lane-retirement-prepared")), Bytes.utf8("lane-retirement-admission"),
+                source.canonicalBytes());
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, source).stableCode());
+            store.write(batch -> {
+                batch.delete(ColumnFamily.ID, KeyCodec.idMessage(schedule.delayMessageId()));
+                batch.delete(ColumnFamily.TIMELINE, KeyCodec.timelineDue(lane, 2_000,
+                        source.sourceOrderToken(), schedule.delayMessageId(), 0));
+                batch.delete(ColumnFamily.TIMELINE, KeyCodec.timelineExpiry(5_000, lane,
+                        schedule.delayMessageId(), 0));
+                batch.putValue(ColumnFamily.INFLIGHT, PublishAttemptLedger.VALUE_TYPE,
+                        KeyCodec.inflight((byte) 2, 1, keyAttemptId), misplaced.encode());
+            });
+            final LaneRecord closed = shard.updateLaneGate(lane, 1, AdmissionGate.CLOSED);
+            final LaneTerminalGuardV1 guard = new LaneTerminalGuardV1(closed.laneIncarnation(),
+                    closed.laneControlVersion(), source, destination, capability, tuple, retirementId, 1);
+            final LaneRetirementProgressV1 progress = new LaneRetirementProgressV1(retirementId, 1, source);
+
+            final IllegalStateException exception = assertThrows(IllegalStateException.class,
+                    () -> shard.retireLaneWithTerminalGuard(lane, closed.laneControlVersion(), progress, guard));
+            assertEquals("open publish attempt key/value mismatch", exception.getMessage());
+        }
+    }
+
+    @Test
     void hardQuotaRejectsNewScheduleAndReleasesOnCancel() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("quota"));
         final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 1, 3, 1,
