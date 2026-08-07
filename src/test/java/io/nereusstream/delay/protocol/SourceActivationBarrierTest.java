@@ -34,6 +34,16 @@ class SourceActivationBarrierTest {
     }
 
     @Test
+    void KafkaBarrierRejectsNonCanonicalClusterIdentityAtConstruction() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 7);
+        final UUID topic = UUID.randomUUID();
+        assertThrows(IllegalArgumentException.class,
+                () -> new KafkaActivationBarrier(shard, "cluster\u0301", topic, 1));
+        assertThrows(IllegalArgumentException.class,
+                () -> new KafkaActivationBarrier(shard, "cluster\0", topic, 1));
+    }
+
+    @Test
     void PulsarBarrierRequiresTheInclusiveFinalBatchMember() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 1);
         final byte[] resource = new byte[32];

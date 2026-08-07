@@ -1051,7 +1051,8 @@ claimed complete.
 覆盖了原本可能把扣费参数解释成加费的输入边界。这是 shard-local quota
 完整性证据，仍不替代 Route Broker charge authority 或多 shard placement proof。
 
-本地 `PulsarActivationBarrier` 现在把 non-empty inclusive cursor 的
+本地 `KafkaActivationBarrier` 现在在构造时复用 Source Position 的 canonical
+UTF-8/NFC identity fence；无效 cluster identity 不会进入 assignment。`PulsarActivationBarrier` 现在把 non-empty inclusive cursor 的
 `batchSize` 与最后 member index 一起固定；同一 ledger/entry 的 batch-shape 漂移在
 `validatePosition/reachedBy` 即 fail closed，而不是把另一种 batch 形状判为已越过
 barrier。兼容构造器仍明确不计入 V1 source-assignment 证据。

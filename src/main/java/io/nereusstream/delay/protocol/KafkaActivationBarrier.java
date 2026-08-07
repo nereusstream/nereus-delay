@@ -1,5 +1,7 @@
 package io.nereusstream.delay.protocol;
 
+import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -11,7 +13,7 @@ public record KafkaActivationBarrier(
         long exclusiveOffset) implements SourceActivationBarrier {
     public KafkaActivationBarrier {
         Objects.requireNonNull(shardId, "shardId");
-        Objects.requireNonNull(authenticatedClusterId, "authenticatedClusterId");
+        authenticatedClusterId = canonicalText(authenticatedClusterId, "authenticatedClusterId");
         Objects.requireNonNull(nativeTopicUuid, "nativeTopicUuid");
         if (authenticatedClusterId.isBlank() || exclusiveOffset < 0) {
             throw new IllegalArgumentException("invalid Kafka activation barrier");
@@ -43,5 +45,15 @@ public record KafkaActivationBarrier(
         final long nextReadableOffset = kafka.offset() == Long.MAX_VALUE
                 ? Long.MAX_VALUE : kafka.offset() + 1;
         return nextReadableOffset >= exclusiveOffset;
+    }
+
+    private static String canonicalText(final String value, final String name) {
+        Objects.requireNonNull(value, name);
+        final String decoded = new String(value.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8);
+        if (!decoded.equals(value) || value.indexOf('\0') >= 0
+                || !value.equals(Normalizer.normalize(value, Normalizer.Form.NFC))) {
+            throw new IllegalArgumentException(name + " must be canonical UTF-8");
+        }
+        return value;
     }
 }
