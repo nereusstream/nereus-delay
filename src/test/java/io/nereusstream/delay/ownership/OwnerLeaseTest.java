@@ -335,11 +335,14 @@ class OwnerLeaseTest {
             final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("gap-assignment")), 1,
                     barrier), SourceReplaySuccessor.strictKafka());
+            final SourceReplayRecord firstRecord = new SourceReplayRecord(firstCommand, first, null, null);
+            final SourceReplayRecord gapRecord = new SourceReplayRecord(gapCommand, gap, null, null);
+            final SourceReplayCursor<SourceReplayRecord> cursor = SourceReplayCursor.of(List.of(
+                    firstRecord, gapRecord).iterator());
             assertThrows(IllegalStateException.class,
-                    () -> owned.replayCatchup(List.of(
-                            new SourceReplayRecord(firstCommand, first, null, null),
-                            new SourceReplayRecord(gapCommand, gap, null, null)), 101));
+                    () -> owned.replayCatchupTurn(cursor, 101, ReplayTurnBudget.unbounded()));
             assertEquals(first, owned.lastCatchupPosition());
+            assertEquals(gapRecord, cursor.peek());
         }
     }
 

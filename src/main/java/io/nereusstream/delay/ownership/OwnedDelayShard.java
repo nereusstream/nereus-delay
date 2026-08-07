@@ -251,7 +251,7 @@ public final class OwnedDelayShard {
             if (canonicalBytes > budget.maxCanonicalBytes() - recordBytes) {
                 return new SourceReplayTurn<>(results, false);
             }
-            final SourceReplayRecord record = records.next();
+            final SourceReplayRecord record = records.peek();
             final SourcePosition position = record.position();
             if (!delegate.shardId().equals(position.shardId())) {
                 throw new IllegalArgumentException("source replay position does not belong to shard");
@@ -263,6 +263,10 @@ public final class OwnedDelayShard {
             }
             validateCatchupOrder(position);
             final CommandResult result = delegate.apply(record.command(), position);
+            // Advance the caller-owned cursor only after the shard WriteBatch
+            // has returned successfully.  A validation or storage failure
+            // must leave the exact source record available for retry.
+            records.next();
             lastCatchupPosition = position;
             results.add(result);
             recordCount++;
@@ -329,7 +333,7 @@ public final class OwnedDelayShard {
             if (canonicalBytes > budget.maxCanonicalBytes() - recordBytes) {
                 return new SourceReplayTurn<>(results, false);
             }
-            final SourceReplayMutation record = records.next();
+            final SourceReplayMutation record = records.peek();
             final SourcePosition position = record.position();
             if (!delegate.shardId().equals(position.shardId())) {
                 throw new IllegalArgumentException("system replay position does not belong to shard");
@@ -342,6 +346,7 @@ public final class OwnedDelayShard {
             validateCatchupOrder(position);
             final SystemMutationResult result = delegate.applySystemMutation(record.mutation(), position,
                     verificationKey);
+            records.next();
             lastCatchupPosition = position;
             results.add(result);
             recordCount++;
@@ -407,7 +412,7 @@ public final class OwnedDelayShard {
             if (canonicalBytes > budget.maxCanonicalBytes() - recordBytes) {
                 return new SourceReplayTurn<>(results, false);
             }
-            final SourceReplayEntry record = records.next();
+            final SourceReplayEntry record = records.peek();
             final SourcePosition position = record.position();
             validateReplayPosition(position, record.sourceConnectionGeneration(), record.guardAttestationDigest());
             if (record instanceof SourceReplayRecord commandRecord) {
@@ -422,6 +427,7 @@ public final class OwnedDelayShard {
             } else {
                 throw new IllegalArgumentException("unsupported source replay entry: " + record.getClass());
             }
+            records.next();
             recordCount++;
             canonicalBytes = Math.addExact(canonicalBytes, recordBytes);
         }

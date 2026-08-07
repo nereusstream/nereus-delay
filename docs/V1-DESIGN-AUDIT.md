@@ -512,8 +512,11 @@ canonical-byte 计费使用 exact source-position bytes 加 canonical NDL1/Syste
 Mutation frame；单项超出 byte cap 会在消费/WriteBatch 前 fail closed。cursor
 只保留一条 look-ahead，因此 yield 不会丢失下一条 source record；旧的完整
 `Iterable` overload 明确使用 unbounded compatibility budget，不能作为生产
-source consumer 的 bounded turn。`OwnerLeaseTest` 已覆盖 record-cap 后的
-cursor continuation 与 single-record byte overflow。
+source consumer 的 bounded turn。实现先 `peek()` 并完成 shard WriteBatch，
+成功返回后才 `next()`；校验、fencing 或存储失败会让 exact look-ahead record
+留在 cursor 上，下一轮可以原样重试。`OwnerLeaseTest` 已覆盖 record-cap 后的
+cursor continuation、single-record byte overflow，以及 source-gap 后的 cursor
+保留。
 
 V1 的 assignment 接管路径现在还会显式 pin `SourceReplaySuccessor`：同一
 canonical Source Position 的 broker redelivery 可以由 durable apply 幂等处理，

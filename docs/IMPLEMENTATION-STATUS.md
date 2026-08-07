@@ -612,8 +612,12 @@ caller-owned `SourceReplayCursor` keeps one look-ahead record, so a byte cap
 never consumes the first record of the next turn; `SourceReplayTurn` reports
 whether another turn is needed. The legacy whole-`Iterable` methods remain
 compatibility conveniences and use an explicitly unbounded budget; they are
-not the production source-consumer boundary. `OwnerLeaseTest` covers cursor
-continuation and fail-closed single-record byte overflow.
+not the production source-consumer boundary. Each replay branch advances the
+cursor only after the shard WriteBatch returns successfully, so validation,
+fencing or storage failure leaves the exact physical record available for
+retry. `OwnerLeaseTest` covers cursor continuation, fail-closed single-record
+byte overflow, and retention of the exact look-ahead record after a source-gap
+failure.
 
 `CheckpointScheduler` now provides a bounded process-local schedule for each
 owned shard: interval and deterministic per-shard jitter are validated, due

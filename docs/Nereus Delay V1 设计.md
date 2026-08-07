@@ -705,6 +705,10 @@ then ACK/commit source
 ```
 
 WriteBatch 任一部分失败则整体不推进。Broker committed cursor 比 DB 更靠前时也必须 rewind。
+Source consumer 的 look-ahead cursor 只能在该记录的 shard WriteBatch 成功返回后推进；
+校验、fencing 或存储失败必须让同一 physical record 保留在 cursor 上，供下一次
+bounded replay turn 原样重试。不能先消费 source cursor、再把失败记录交给调用方自行
+猜测或重新定位。
 
 每个 physical record 先按 outer kind 分支；Client Command 与 System Mutation 不共享 identity/query namespace。
 
