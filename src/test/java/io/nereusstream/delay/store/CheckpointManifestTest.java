@@ -94,6 +94,11 @@ class CheckpointManifestTest {
         final byte[] manifestBytes = manifestFixture(root).canonicalJsonBytes();
         assertThrows(IllegalArgumentException.class,
                 () -> CheckpointManifest.decodeCanonicalJson(manifestBytes, tinyManifest));
+
+        final CheckpointManifestLimits oneManifestFile = new CheckpointManifestLimits(
+                1, 1L << 20, 1L << 20, 1024, 1 << 20, 10, 1024);
+        assertThrows(IllegalArgumentException.class,
+                () -> CheckpointManifest.decodeCanonicalJson(manifestBytes, oneManifestFile));
     }
 
     private CheckpointManifest manifestFixture(final Path root) throws Exception {

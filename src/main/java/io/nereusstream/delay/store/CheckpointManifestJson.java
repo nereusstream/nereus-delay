@@ -63,7 +63,7 @@ final class CheckpointManifestJson {
         if (!java.util.Arrays.equals(json.getBytes(StandardCharsets.UTF_8), encoded)) {
             throw new IllegalArgumentException("manifest is not valid UTF-8");
         }
-        final Parser parser = new Parser(json);
+        final Parser parser = new Parser(json, Math.max(limits.maxFiles(), limits.maxEvidenceCursors()));
         final Map<String, Object> root = object(parser.parse(), "manifest");
         parser.ensureEnd();
         keys(root, ROOT_KEYS, "manifest");
@@ -352,10 +352,12 @@ final class CheckpointManifestJson {
 
     private static final class Parser {
         private final String input;
+        private final int maxArrayElements;
         private int index;
 
-        private Parser(final String input) {
+        private Parser(final String input, final int maxArrayElements) {
             this.input = input;
+            this.maxArrayElements = maxArrayElements;
         }
 
         private Object parse() {
@@ -419,6 +421,9 @@ final class CheckpointManifestJson {
                 return result;
             }
             while (true) {
+                if (result.size() >= maxArrayElements) {
+                    throw error("JSON array exceeds configured element bound");
+                }
                 result.add(value());
                 skipWhitespace();
                 if (take(']')) {

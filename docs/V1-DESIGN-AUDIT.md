@@ -830,7 +830,8 @@ PUBLISHED successor，且不再次调用 adapter。
 恢复；显式 `CheckpointManifestLimits` 还把文件数、单文件/总 bytes、路径和
 manifest bytes、evidence cursor 数以及每个 object identity 字段长度绑定到
 inventory、canonical decode、upload 和 restore 边界，原始 manifest byte cap 在
-JSON parse 前检查，其余超限在本地 hash/provider I/O 前 fail closed。无 limits
+JSON parse 前检查，file/evidence array bound 在 parser materialize 时检查，其余
+超限在本地 hash/provider I/O 前 fail closed。无 limits
 overload 保留为 embedded compatibility seam，不能作为 production activated
 limits；这仍只是本地文件完整性边界，不替代 Object Store 内容证明。
 
