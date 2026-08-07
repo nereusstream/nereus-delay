@@ -45,10 +45,12 @@ public final class OxiaControlTargetRegistrationAuthority implements ControlTarg
     @Override
     public Optional<PreparedControlOperationV1> find(final byte[] operationId) {
         validateOperationId(operationId);
-        final Optional<PreparedControlOperationV1> result = Objects.requireNonNull(backend.find(operationId),
+        final byte[] requestedOperationId = Bytes.copy(operationId);
+        final byte[] backendOperationId = Bytes.copy(requestedOperationId);
+        final Optional<PreparedControlOperationV1> result = Objects.requireNonNull(backend.find(backendOperationId),
                 "Oxia target lookup result");
         if (result.isPresent()
-                && !Bytes.constantTimeEquals(operationId, result.orElseThrow().operationId())) {
+                && !Bytes.constantTimeEquals(requestedOperationId, result.orElseThrow().operationId())) {
             throw new IllegalStateException("Oxia target lookup returned another operation");
         }
         return result;

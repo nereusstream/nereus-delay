@@ -104,7 +104,9 @@ and target-marker transition graph before its in-memory revision CAS; this is
 projection validation only and does not provide durable Oxia operation state.
 `OxiaControlTargetRegistrationAuthority` applies the same exact Prepared-byte
 and operation-ID checks around its injected backend; it is a validation
-adapter, not a real Oxia client or transport classifier.
+adapter, not a real Oxia client or transport classifier. Lookup buffers are
+copied into separate backend and validation snapshots, so a backend cannot
+rewrite the operation identity used by the response check.
 `ControlSystemMutationFactoryV1` now centralizes the signed envelope and
 logical-identity derivation, while operation-specific body encoding and
 service-key trust remain outside this local seam.

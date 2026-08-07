@@ -20,6 +20,7 @@ import java.security.KeyPairGenerator;
 import java.util.List;
 import java.util.Optional;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -79,6 +80,36 @@ class OxiaControlTargetRegistrationAuthorityTest {
                 ControlTargetRegistrationAuthority.RegistrationResult.ALREADY_RECORDED, Optional.of(other));
         assertThrows(IllegalStateException.class,
                 () -> new OxiaControlTargetRegistrationAuthority(backend).find(requested.operationId()));
+    }
+
+    @Test
+    void adapterKeepsLookupIdentitySnapshotWhenBackendMutatesBuffer() throws Exception {
+        final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final PreparedControlOperationV1 prepared = prepared(keyPair, 6);
+        final byte[] requestedOperationId = prepared.operationId();
+        final OxiaControlTargetRegistrationAuthority.CasBackend backend =
+                new OxiaControlTargetRegistrationAuthority.CasBackend() {
+                    @Override
+                    public ControlTargetRegistrationAuthority.RegistrationResult register(
+                            final PreparedControlOperationV1 ignored) {
+                        throw new UnsupportedOperationException();
+                    }
+
+                    @Override
+                    public Optional<PreparedControlOperationV1> find(final byte[] operationId) {
+                        operationId[0] ^= 0x44;
+                        return Optional.of(prepared);
+                    }
+
+                    @Override
+                    public void validateMutation(final PreparedControlOperationV1 ignored,
+                                                 final ControlTargetRefV1 target, final SystemMutation mutation) {
+                        throw new UnsupportedOperationException();
+                    }
+                };
+        assertEquals(prepared,
+                new OxiaControlTargetRegistrationAuthority(backend).find(requestedOperationId).orElseThrow());
+        assertArrayEquals(prepared.operationId(), requestedOperationId);
     }
 
     private static PreparedControlOperationV1 prepared(final KeyPair keyPair, final int seed) {

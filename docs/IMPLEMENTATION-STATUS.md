@@ -88,8 +88,9 @@ transport classifier or production target lookup.
 
 `OxiaControlTargetRegistrationAuthority` now wraps the external registration
 CAS surface with exact Prepared-byte reread and operation-ID/lookup identity
-checks. Its injected `CasBackend` remains the production Oxia transaction and
-transport boundary; the adapter does not claim to implement that client.
+checks; lookup request and validation identity use independent byte snapshots.
+Its injected `CasBackend` remains the production Oxia transaction and transport
+boundary; the adapter does not claim to implement that client.
 
 `ControlSystemMutationFactoryV1` now derives the closed Control mutation type
 and logical identity from the Prepared target, signs the supplied canonical
