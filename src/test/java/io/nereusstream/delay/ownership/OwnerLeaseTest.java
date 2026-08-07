@@ -213,6 +213,74 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void boundedCatchupTurnRetainsTheCursorForTheNextTurn() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 16);
+        final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = authority.acquire(shardId, "worker-bounded-replay", 100, 100).orElseThrow();
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("bounded-catchup-replay"));
+        final UUID topic = UUID.randomUUID();
+        final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 2);
+        final KafkaSourcePosition firstPosition = new KafkaSourcePosition(shardId, "cluster", topic, 0,
+                null, 1_000);
+        final KafkaSourcePosition secondPosition = new KafkaSourcePosition(shardId, "cluster", topic, 1,
+                null, 1_001);
+        final PreparedCommand first = PreparedCommand.schedule(shardId,
+                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("bounded-first")), 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("first")), 10_000);
+        final PreparedCommand second = PreparedCommand.schedule(shardId,
+                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("bounded-second")), 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("second")), 10_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            owned.markCatchingUp(new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("bounded-assignment")), 1,
+                    barrier));
+            final SourceReplayCursor<SourceReplayRecord> cursor = SourceReplayCursor.of(List.of(
+                    new SourceReplayRecord(first, firstPosition, null, null),
+                    new SourceReplayRecord(second, secondPosition, null, null)).iterator());
+            final ReplayTurnBudget budget = new ReplayTurnBudget(1, Long.MAX_VALUE, Long.MAX_VALUE);
+
+            final SourceReplayTurn<io.nereusstream.delay.runtime.CommandResult> firstTurn =
+                    owned.replayCatchupTurn(cursor, 101, budget);
+            assertEquals(1, firstTurn.results().size());
+            assertTrue(firstTurn.hasMore());
+            assertEquals(firstPosition, owned.lastCatchupPosition());
+
+            final SourceReplayTurn<io.nereusstream.delay.runtime.CommandResult> secondTurn =
+                    owned.replayCatchupTurn(cursor, 101, budget);
+            assertEquals(1, secondTurn.results().size());
+            assertFalse(secondTurn.hasMore());
+            assertEquals(secondPosition, owned.lastCatchupPosition());
+        }
+    }
+
+    @Test
+    void boundedCatchupTurnRejectsARecordLargerThanTheCanonicalByteCap() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 17);
+        final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = authority.acquire(shardId, "worker-byte-budget", 100, 100).orElseThrow();
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("byte-budget-replay"));
+        final UUID topic = UUID.randomUUID();
+        final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster", topic, 0,
+                null, 1_000);
+        final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 1);
+        final PreparedCommand command = PreparedCommand.schedule(shardId,
+                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("byte-budget-lane")), 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            owned.markCatchingUp(new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("byte-budget-assignment")), 1,
+                    barrier));
+            final SourceReplayCursor<SourceReplayRecord> cursor = SourceReplayCursor.of(List.of(
+                    new SourceReplayRecord(command, position, null, null)).iterator());
+            assertThrows(IllegalArgumentException.class,
+                    () -> owned.replayCatchupTurn(cursor, 101, new ReplayTurnBudget(1, 1, Long.MAX_VALUE)));
+            assertEquals(null, owned.lastCatchupPosition());
+        }
+    }
+
+    @Test
     void liveCatchupClockFencesBeforeApplyingAfterLeaseExpiry() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 15);
         final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();

@@ -1,6 +1,7 @@
 package io.nereusstream.delay.ownership;
 
 import io.nereusstream.delay.protocol.PreparedCommand;
+import io.nereusstream.delay.protocol.CommandCodec;
 import io.nereusstream.delay.protocol.PulsarActivationBarrier;
 import io.nereusstream.delay.protocol.SourceActivationBarrier;
 import io.nereusstream.delay.protocol.SourcePosition;
@@ -181,14 +182,9 @@ public final class OwnedDelayShard {
     }
 
     /**
-     * Applies assigned Command Topic records while the shard is still
-     * catching up. Each record is validated against the accepted physical
-     * source barrier, applied through the same synchronous shard WriteBatch as
-     * normal commands, and only then advances the local catch-up cursor.
-     *
-     * <p>This is a local command-replay seam. It deliberately does not claim
-     * a broker consumer, implement System Mutation replay, or replace the
-     * production assignment/lease transaction.</p>
+     * Compatibility whole-iterable replay. Production source consumers must
+     * use {@link #replayCatchupTurn(SourceReplayCursor, LongSupplier,
+     * ReplayTurnBudget)} so a source turn cannot grow without a bound.
      */
     public synchronized List<CommandResult> replayCatchup(final Iterable<SourceReplayRecord> records,
                                                            final long nowEpochMs) {
@@ -205,14 +201,51 @@ public final class OwnedDelayShard {
                                                            final LongSupplier clock) {
         Objects.requireNonNull(records, "records");
         Objects.requireNonNull(clock, "clock");
-        if (state != ShardLifecycleState.CATCHING_UP) {
-            throw new IllegalStateException("shard is not catching up");
-        }
+        return replayCatchupTurn(SourceReplayCursor.of(records.iterator()), clock,
+                ReplayTurnBudget.unbounded()).results();
+    }
+
+    /** Replays at most one bounded catch-up turn using a fixed owner clock. */
+    public synchronized SourceReplayTurn<CommandResult> replayCatchupTurn(
+            final SourceReplayCursor<? extends SourceReplayRecord> records, final long nowEpochMs,
+            final ReplayTurnBudget budget) {
+        return replayCatchupTurn(records, () -> nowEpochMs, budget);
+    }
+
+    /**
+     * Replays one bounded catch-up turn. The caller retains the cursor and
+     * invokes this method again when {@link SourceReplayTurn#hasMore()} is
+     * true. The next record is looked up before applying it so the canonical
+     * byte cap never consumes a record that belongs to a later turn.
+     */
+    public synchronized SourceReplayTurn<CommandResult> replayCatchupTurn(
+            final SourceReplayCursor<? extends SourceReplayRecord> records, final LongSupplier clock,
+            final ReplayTurnBudget budget) {
+        Objects.requireNonNull(records, "records");
+        Objects.requireNonNull(clock, "clock");
+        Objects.requireNonNull(budget, "budget");
         ensureReplayWindow(readClock(clock));
+        final long startedNanos = System.nanoTime();
+        int recordCount = 0;
+        long canonicalBytes = 0;
         final List<CommandResult> results = new ArrayList<>();
-        for (SourceReplayRecord record : records) {
+        while (true) {
             ensureReplayWindow(readClock(clock));
-            Objects.requireNonNull(record, "source replay record");
+            if (!records.hasNext()) {
+                return new SourceReplayTurn<>(results, true);
+            }
+            if (turnCapReached(recordCount, canonicalBytes, startedNanos, budget)) {
+                return new SourceReplayTurn<>(results, false);
+            }
+            final SourceReplayRecord candidate = records.peek();
+            final long recordBytes = canonicalReplayBytes(candidate);
+            if (recordBytes > budget.maxCanonicalBytes()) {
+                throw new IllegalArgumentException("single source replay record exceeds canonical-byte turn budget");
+            }
+            if (canonicalBytes > budget.maxCanonicalBytes() - recordBytes) {
+                return new SourceReplayTurn<>(results, false);
+            }
+            final SourceReplayRecord record = records.next();
             final SourcePosition position = record.position();
             if (!delegate.shardId().equals(position.shardId())) {
                 throw new IllegalArgumentException("source replay position does not belong to shard");
@@ -226,8 +259,9 @@ public final class OwnedDelayShard {
             final CommandResult result = delegate.apply(record.command(), position);
             lastCatchupPosition = position;
             results.add(result);
+            recordCount++;
+            canonicalBytes = Math.addExact(canonicalBytes, recordBytes);
         }
-        return List.copyOf(results);
     }
 
     /** Returns the last position applied or observed during this catch-up. */
@@ -235,11 +269,7 @@ public final class OwnedDelayShard {
         return lastCatchupPosition;
     }
 
-    /**
-     * Applies signed System Mutation records during the same guarded catch-up
-     * window. The source cursor advances only after the shard has persisted the
-     * mutation result and Source Position in its synchronous WriteBatch.
-     */
+    /** Compatibility whole-iterable System Mutation replay. */
     public synchronized List<SystemMutationResult> replaySystemMutations(
             final Iterable<SourceReplayMutation> records, final PublicKey verificationKey,
             final long nowEpochMs) {
@@ -253,14 +283,47 @@ public final class OwnedDelayShard {
         Objects.requireNonNull(records, "records");
         Objects.requireNonNull(verificationKey, "verificationKey");
         Objects.requireNonNull(clock, "clock");
-        if (state != ShardLifecycleState.CATCHING_UP) {
-            throw new IllegalStateException("shard is not catching up");
-        }
+        return replaySystemMutationsTurn(SourceReplayCursor.of(records.iterator()), verificationKey, clock,
+                ReplayTurnBudget.unbounded()).results();
+    }
+
+    /** Replays at most one bounded System Mutation turn using a fixed clock. */
+    public synchronized SourceReplayTurn<SystemMutationResult> replaySystemMutationsTurn(
+            final SourceReplayCursor<? extends SourceReplayMutation> records, final PublicKey verificationKey,
+            final long nowEpochMs, final ReplayTurnBudget budget) {
+        return replaySystemMutationsTurn(records, verificationKey, () -> nowEpochMs, budget);
+    }
+
+    /** Replays one bounded signed System Mutation turn. */
+    public synchronized SourceReplayTurn<SystemMutationResult> replaySystemMutationsTurn(
+            final SourceReplayCursor<? extends SourceReplayMutation> records, final PublicKey verificationKey,
+            final LongSupplier clock, final ReplayTurnBudget budget) {
+        Objects.requireNonNull(records, "records");
+        Objects.requireNonNull(verificationKey, "verificationKey");
+        Objects.requireNonNull(clock, "clock");
+        Objects.requireNonNull(budget, "budget");
         ensureReplayWindow(readClock(clock));
+        final long startedNanos = System.nanoTime();
+        int recordCount = 0;
+        long canonicalBytes = 0;
         final List<SystemMutationResult> results = new ArrayList<>();
-        for (SourceReplayMutation record : records) {
+        while (true) {
             ensureReplayWindow(readClock(clock));
-            Objects.requireNonNull(record, "source replay mutation");
+            if (!records.hasNext()) {
+                return new SourceReplayTurn<>(results, true);
+            }
+            if (turnCapReached(recordCount, canonicalBytes, startedNanos, budget)) {
+                return new SourceReplayTurn<>(results, false);
+            }
+            final SourceReplayMutation candidate = records.peek();
+            final long recordBytes = canonicalReplayBytes(candidate);
+            if (recordBytes > budget.maxCanonicalBytes()) {
+                throw new IllegalArgumentException("single source replay record exceeds canonical-byte turn budget");
+            }
+            if (canonicalBytes > budget.maxCanonicalBytes() - recordBytes) {
+                return new SourceReplayTurn<>(results, false);
+            }
+            final SourceReplayMutation record = records.next();
             final SourcePosition position = record.position();
             if (!delegate.shardId().equals(position.shardId())) {
                 throw new IllegalArgumentException("system replay position does not belong to shard");
@@ -275,17 +338,12 @@ public final class OwnedDelayShard {
                     verificationKey);
             lastCatchupPosition = position;
             results.add(result);
+            recordCount++;
+            canonicalBytes = Math.addExact(canonicalBytes, recordBytes);
         }
-        return List.copyOf(results);
     }
 
-    /**
-     * Replays the single mixed Command/System Mutation Shard Log in source
-     * order.  Both branches use the same physical source guard and cursor;
-     * the cursor advances only after the selected delegate WriteBatch has
-     * committed.  The local seam still does not own a Kafka/Pulsar consumer or
-     * the production assignment/activation transaction.
-     */
+    /** Compatibility whole-iterable mixed replay. */
     public synchronized List<SourceReplayOutcome> replay(
             final Iterable<? extends SourceReplayEntry> records, final PublicKey verificationKey,
             final long nowEpochMs) {
@@ -299,11 +357,51 @@ public final class OwnedDelayShard {
         Objects.requireNonNull(records, "records");
         Objects.requireNonNull(verificationKey, "verificationKey");
         Objects.requireNonNull(clock, "clock");
+        return replayTurn(SourceReplayCursor.of(records.iterator()), verificationKey, clock,
+                ReplayTurnBudget.unbounded()).results();
+    }
+
+    /** Replays at most one bounded mixed source turn using a fixed clock. */
+    public synchronized SourceReplayTurn<SourceReplayOutcome> replayTurn(
+            final SourceReplayCursor<? extends SourceReplayEntry> records, final PublicKey verificationKey,
+            final long nowEpochMs, final ReplayTurnBudget budget) {
+        return replayTurn(records, verificationKey, () -> nowEpochMs, budget);
+    }
+
+    /**
+     * Replays one bounded mixed Command/System Mutation source turn. Commands
+     * and mutations retain one source cursor, so a turn cap cannot reorder the
+     * two branches or advance the cursor before the selected WriteBatch commits.
+     */
+    public synchronized SourceReplayTurn<SourceReplayOutcome> replayTurn(
+            final SourceReplayCursor<? extends SourceReplayEntry> records, final PublicKey verificationKey,
+            final LongSupplier clock, final ReplayTurnBudget budget) {
+        Objects.requireNonNull(records, "records");
+        Objects.requireNonNull(verificationKey, "verificationKey");
+        Objects.requireNonNull(clock, "clock");
+        Objects.requireNonNull(budget, "budget");
         ensureReplayWindow(readClock(clock));
+        final long startedNanos = System.nanoTime();
+        int recordCount = 0;
+        long canonicalBytes = 0;
         final List<SourceReplayOutcome> results = new ArrayList<>();
-        for (SourceReplayEntry record : records) {
+        while (true) {
             ensureReplayWindow(readClock(clock));
-            Objects.requireNonNull(record, "source replay entry");
+            if (!records.hasNext()) {
+                return new SourceReplayTurn<>(results, true);
+            }
+            if (turnCapReached(recordCount, canonicalBytes, startedNanos, budget)) {
+                return new SourceReplayTurn<>(results, false);
+            }
+            final SourceReplayEntry candidate = records.peek();
+            final long recordBytes = canonicalReplayBytes(candidate);
+            if (recordBytes > budget.maxCanonicalBytes()) {
+                throw new IllegalArgumentException("single source replay record exceeds canonical-byte turn budget");
+            }
+            if (canonicalBytes > budget.maxCanonicalBytes() - recordBytes) {
+                return new SourceReplayTurn<>(results, false);
+            }
+            final SourceReplayEntry record = records.next();
             final SourcePosition position = record.position();
             validateReplayPosition(position, record.sourceConnectionGeneration(), record.guardAttestationDigest());
             if (record instanceof SourceReplayRecord commandRecord) {
@@ -318,8 +416,32 @@ public final class OwnedDelayShard {
             } else {
                 throw new IllegalArgumentException("unsupported source replay entry: " + record.getClass());
             }
+            recordCount++;
+            canonicalBytes = Math.addExact(canonicalBytes, recordBytes);
         }
-        return List.copyOf(results);
+    }
+
+    private static boolean turnCapReached(final int recordCount, final long canonicalBytes,
+                                          final long startedNanos, final ReplayTurnBudget budget) {
+        if (recordCount >= budget.maxRecords() || canonicalBytes >= budget.maxCanonicalBytes()) {
+            return true;
+        }
+        final long elapsedNanos = System.nanoTime() - startedNanos;
+        return elapsedNanos >= budget.maxElapsedNanos();
+    }
+
+    private static long canonicalReplayBytes(final SourceReplayEntry record) {
+        Objects.requireNonNull(record, "source replay entry");
+        final int positionBytes = record.position().canonicalBytes().length;
+        final int frameBytes;
+        if (record instanceof SourceReplayRecord commandRecord) {
+            frameBytes = CommandCodec.encodeFrame(commandRecord.command()).length;
+        } else if (record instanceof SourceReplayMutation mutationRecord) {
+            frameBytes = mutationRecord.mutation().encodeFrame().length;
+        } else {
+            throw new IllegalArgumentException("unsupported source replay entry: " + record.getClass());
+        }
+        return Math.addExact(positionBytes, frameBytes);
     }
 
     private void ensureReplayWindow(final long nowEpochMs) {

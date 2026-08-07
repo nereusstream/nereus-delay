@@ -494,6 +494,17 @@ source-order stream 中选择分支，每条记录先走同一 shard WriteBatch�
 真实 Kafka/Pulsar consumer、Oxia session/ephemeral authority、broker assignment/
 guard 或 production activation transaction。
 
+为了闭合主设计 §8.4 的 source-turn 约束，当前 seam 还提供
+`SourceReplayCursor`、`ReplayTurnBudget` 和 `SourceReplayTurn`：
+`replayCatchupTurn`、`replaySystemMutationsTurn` 与混合 `replayTurn` 在每次
+写入前同时检查 record count、canonical bytes 和 monotonic elapsed-time cap。
+canonical-byte 计费使用 exact source-position bytes 加 canonical NDL1/System
+Mutation frame；单项超出 byte cap 会在消费/WriteBatch 前 fail closed。cursor
+只保留一条 look-ahead，因此 yield 不会丢失下一条 source record；旧的完整
+`Iterable` overload 明确使用 unbounded compatibility budget，不能作为生产
+source consumer 的 bounded turn。`OwnerLeaseTest` 已覆盖 record-cap 后的
+cursor continuation 与 single-record byte overflow。
+
 V1 的 assignment 接管路径现在还会显式 pin `SourceReplaySuccessor`：同一
 canonical Source Position 的 broker redelivery 可以由 durable apply 幂等处理，
 但任何后继位置都必须由 adapter proof 判定为 immediate successor；内置的
