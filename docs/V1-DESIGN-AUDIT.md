@@ -529,6 +529,14 @@ nested identity 和 owner 匹配，但
 真实 adapter 的 authenticated response、lease protection CAS/TTL authority、
 retention barrier、external proof ownership 仍是 release blocker。
 
+`ChannelResourceIdentityV1` now preserves the complete raw unsigned patterns for
+its physical `channel_generation` and optional `evidence_generation` fields,
+matching the already raw `EvidenceCursorV1.evidence_generation` boundary. Zero
+remains invalid; credential binding generations and protection revisions remain
+bounded non-zero control versions. `ChannelResourceIdentityV1Test`
+`preservesUnsignedChannelAndEvidenceGenerationBits` covers the high-bit
+transactional-channel vector.
+
 `PublishAdmissionBody` 还把 `PreparedPublishDescriptorV1` 的 adapter kind、固定
 adapter encoding version（并要求 immutable Destination Profile 也 pin 版本 `1`）、target resource、physical partition 与嵌套
 `ChannelResourceIdentityV1` 做 exact equality，要求 `business_metadata` branch

@@ -40,6 +40,57 @@ class ChannelResourceIdentityV1Test {
         assertThrows(IllegalArgumentException.class, () -> ChannelResourceIdentityV1.decode(channelWithBadLease));
     }
 
+    @Test
+    void preservesUnsignedChannelAndEvidenceGenerationBits() {
+        final long highBitGeneration = Long.MIN_VALUE;
+        final ChannelResourceIdentityV1 channel = ChannelResourceIdentityV1.decode(
+                highBitKafkaTransactionalChannel(highBitGeneration));
+
+        assertEquals(highBitGeneration, channel.channelGeneration());
+        assertEquals(highBitGeneration, channel.evidenceGeneration());
+        assertArrayEquals(channel.canonicalBytes(), ChannelResourceIdentityV1.decode(channel.canonicalBytes())
+                .canonicalBytes());
+    }
+
+    private static byte[] highBitKafkaTransactionalChannel(final long generation) {
+        final byte[] lane = Bytes.sha256(Bytes.utf8("high-bit-channel-lane"));
+        final byte[] laneIncarnation = new byte[16];
+        final BrokerResourceIdentityV1 target = BrokerResourceIdentityV1.kafka(
+                new KafkaBrokerResourceIdentityV1("high-bit-cluster",
+                        java.util.UUID.nameUUIDFromBytes(Bytes.utf8("high-bit-channel-topic"))));
+        final byte[] producer = Bytes.utf8("high-bit-producer");
+        final byte[] guardDigest = Bytes.sha256(Bytes.utf8("high-bit-guard"));
+        final byte[] bindingDigest = Bytes.sha256(Bytes.utf8("high-bit-binding"));
+        final byte[] fingerprint = Bytes.sha256(Bytes.utf8("high-bit-fingerprint"));
+        final byte[] prefix = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint32(output, 1, AdapterKindV1.KAFKA.wireValue());
+            CanonicalProtobuf.uint32(output, 2, ChannelKindV1.KAFKA_TRANSACTIONAL_RECEIPT.wireValue());
+            CanonicalProtobuf.bytes(output, 3, lane);
+            CanonicalProtobuf.bytes(output, 4, laneIncarnation);
+            CanonicalProtobuf.bytes(output, 5, target.canonicalBytes());
+            CanonicalProtobuf.uint32(output, 6, 0);
+            CanonicalProtobuf.uint64Bits(output, 7, generation);
+            CanonicalProtobuf.uint32(output, 8, 0);
+            CanonicalProtobuf.bytes(output, 9, producer);
+            CanonicalProtobuf.bytes(output, 10, Bytes.sha256(producer));
+            CanonicalProtobuf.bytes(output, 11, target.canonicalBytes());
+            CanonicalProtobuf.uint64Bits(output, 12, generation);
+            CanonicalProtobuf.bytes(output, 13, guardDigest);
+        });
+        final ProfileRefV1 profile = new ProfileRefV1(Bytes.utf8("high-bit-destination"), 1,
+                Bytes.sha256(Bytes.utf8("high-bit-destination-semantic")), ProfileKindV1.DESTINATION);
+        final TrustedUtcIntervalEvidence issuedAt = new TrustedUtcIntervalEvidence(1_000, 1_001,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("high-bit-clock"),
+                1, 1, 1, Bytes.sha256(Bytes.utf8("high-bit-time")), 0, null);
+        final CredentialUseLeaseV1 lease = new CredentialUseLeaseV1(profile,
+                CredentialUseKindV1.DESTINATION_CHANNEL,
+                CredentialUseLeaseV1.destinationChannelHolderScope(prefix), 1, bindingDigest, fingerprint,
+                issuedAt, 9_000, 1);
+        return new ChannelResourceIdentityV1(AdapterKindV1.KAFKA, ChannelKindV1.KAFKA_TRANSACTIONAL_RECEIPT,
+                lane, laneIncarnation, target, 0, generation, 0, producer, Bytes.sha256(producer), target, generation,
+                guardDigest, 1, bindingDigest, fingerprint, lease).canonicalBytes();
+    }
+
     private static byte[] rewrite(final byte[] encoded, final int number, final long value) {
         return CanonicalProtobuf.message(output -> {
             final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(encoded);

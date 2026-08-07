@@ -49,8 +49,8 @@ public final class ChannelResourceIdentityV1 {
             throw new IllegalArgumentException("physicalPartition is outside uint32 range");
         }
         this.physicalPartition = physicalPartition;
-        if (channelGeneration <= 0) {
-            throw new IllegalArgumentException("channelGeneration must be positive");
+        if (channelGeneration == 0) {
+            throw new IllegalArgumentException("channelGeneration must be non-zero");
         }
         this.channelGeneration = channelGeneration;
         if (channelSlot < 0 || channelSlot > 0xffff_ffffL) {
@@ -72,7 +72,7 @@ public final class ChannelResourceIdentityV1 {
             throw new IllegalArgumentException("channel kind/evidence resource presence mismatch");
         }
         if (evidenceResource != null) {
-            if (evidenceResource.kind() != targetResource.kind() || evidenceGeneration <= 0) {
+            if (evidenceResource.kind() != targetResource.kind() || evidenceGeneration == 0) {
                 throw new IllegalArgumentException("evidence resource identity mismatch");
             }
         }
@@ -199,12 +199,12 @@ public final class ChannelResourceIdentityV1 {
                 QueryCodecSupport.fixed(fields.get(3), 4, LANE_INCARNATION_LENGTH),
                 BrokerResourceIdentityV1.decode(QueryCodecSupport.nested(fields.get(4), 5)),
                 QueryCodecSupport.uint(fields.get(5), 6),
-                positive(QueryCodecSupport.uint(fields.get(6), 7), "channelGeneration"),
+                nonZero(QueryCodecSupport.uint(fields.get(6), 7), "channelGeneration"),
                 QueryCodecSupport.uint(fields.get(7), 8),
                 QueryCodecSupport.bytes(fields.get(8), 9),
                 QueryCodecSupport.fixed(fields.get(9), 10, HASH_LENGTH),
                 hasEvidence ? BrokerResourceIdentityV1.decode(QueryCodecSupport.nested(fields.get(10), 11)) : null,
-                hasEvidence ? positive(QueryCodecSupport.uint(fields.get(11), 12), "evidenceGeneration") : null,
+                hasEvidence ? nonZero(QueryCodecSupport.uint(fields.get(11), 12), "evidenceGeneration") : null,
                 QueryCodecSupport.fixed(fields.get(hasEvidence ? 12 : 10), 13, HASH_LENGTH),
                 positive(QueryCodecSupport.uint(fields.get(hasEvidence ? 13 : 11), 14),
                         "credentialBindingGeneration"),
@@ -222,13 +222,13 @@ public final class ChannelResourceIdentityV1 {
         CanonicalProtobuf.bytes(output, 4, laneIncarnation);
         CanonicalProtobuf.bytes(output, 5, targetResource.canonicalBytes());
         CanonicalProtobuf.uint32(output, 6, physicalPartition);
-        CanonicalProtobuf.uint64(output, 7, channelGeneration);
+        CanonicalProtobuf.uint64Bits(output, 7, channelGeneration);
         CanonicalProtobuf.uint32(output, 8, channelSlot);
         CanonicalProtobuf.bytes(output, 9, producerOrTransactionalIdentity);
         CanonicalProtobuf.bytes(output, 10, producerOrTransactionalIdentitySha256);
         if (evidenceResource != null) {
             CanonicalProtobuf.bytes(output, 11, evidenceResource.canonicalBytes());
-            CanonicalProtobuf.uint64(output, 12, evidenceGeneration);
+            CanonicalProtobuf.uint64Bits(output, 12, evidenceGeneration);
         }
         CanonicalProtobuf.bytes(output, 13, resourceGuardAttestationDigest);
     }
@@ -255,6 +255,13 @@ public final class ChannelResourceIdentityV1 {
     private static long positive(final long value, final String name) {
         if (value <= 0) {
             throw new IllegalArgumentException(name + " must be positive");
+        }
+        return value;
+    }
+
+    private static long nonZero(final long value, final String name) {
+        if (value == 0) {
+            throw new IllegalArgumentException(name + " must be non-zero");
         }
         return value;
     }
