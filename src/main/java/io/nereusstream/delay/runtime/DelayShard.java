@@ -15,7 +15,9 @@ import io.nereusstream.delay.protocol.CommitLargeScheduleBodyV1;
 import io.nereusstream.delay.protocol.ControlRef;
 import io.nereusstream.delay.protocol.ControlTargetRefV1;
 import io.nereusstream.delay.protocol.DestinationLaneId;
+import io.nereusstream.delay.protocol.DestinationProfileSemanticV1;
 import io.nereusstream.delay.protocol.DelayMessageId;
+import io.nereusstream.delay.protocol.DeliveryCapabilitySemanticV1;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.DlqExportResultBody;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
@@ -33,6 +35,7 @@ import io.nereusstream.delay.protocol.ProfileBindingActivatePayloadV1;
 import io.nereusstream.delay.protocol.ProfileBindingControlState;
 import io.nereusstream.delay.protocol.ProfileNewBindingClosePayloadV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
+import io.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
 import io.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1;
 import io.nereusstream.delay.protocol.PublishAdmissionBody;
 import io.nereusstream.delay.protocol.PublishOutcomeBody;
@@ -106,6 +109,7 @@ public final class DelayShard {
     private final PayloadProofTrustSetControlCatalog payloadProofTrustSetControlCatalog;
     private final RetryPolicyCatalog retryPolicyCatalog;
     private final ControlTargetRegistrationAuthority controlTargetRegistrationAuthority;
+    private final ProfileCatalog profileCatalog;
     private PayloadProofTrustSetControlState payloadProofTrustSetControlState;
     private ProfileBindingControlState profileBindingControlState;
     private final ShardCapacityEnvelopeV1 capacityEnvelope;
@@ -198,12 +202,31 @@ public final class DelayShard {
                       final PayloadProofTrustSetControlCatalog payloadProofTrustSetControlCatalog,
                       final RetryPolicyCatalog retryPolicyCatalog,
                       final ControlTargetRegistrationAuthority controlTargetRegistrationAuthority) {
+        this(store, config, payloadProofTrustSet, capacityEnvelope, v1ScheduleResolver,
+                payloadProofTrustSetControlCatalog, retryPolicyCatalog, controlTargetRegistrationAuthority, null);
+    }
+
+    /**
+     * Opens a shard with an optional exact Profile semantic catalog. When
+     * supplied, Publish Admission applies validate the descriptor timing
+     * against the pinned Destination/Delivery Capability semantics; without
+     * it, only ordinary managed {@code actionAt=deliverAt} is accepted.
+     */
+    public DelayShard(final ShardStore store, final DelayShardConfig config,
+                      final PayloadProofTrustSet payloadProofTrustSet,
+                      final ShardCapacityEnvelopeV1 capacityEnvelope,
+                      final V1ScheduleResolver v1ScheduleResolver,
+                      final PayloadProofTrustSetControlCatalog payloadProofTrustSetControlCatalog,
+                      final RetryPolicyCatalog retryPolicyCatalog,
+                      final ControlTargetRegistrationAuthority controlTargetRegistrationAuthority,
+                      final ProfileCatalog profileCatalog) {
         this.store = Objects.requireNonNull(store, "store");
         this.config = Objects.requireNonNull(config, "config");
         this.payloadProofTrustSet = payloadProofTrustSet;
         this.payloadProofTrustSetControlCatalog = payloadProofTrustSetControlCatalog;
         this.retryPolicyCatalog = retryPolicyCatalog;
         this.controlTargetRegistrationAuthority = controlTargetRegistrationAuthority;
+        this.profileCatalog = profileCatalog;
         this.capacityEnvelope = capacityEnvelope;
         this.v1ScheduleResolver = v1ScheduleResolver;
         final var sourceValue = store.getValue(ColumnFamily.META, KeyCodec.metaFixed(META_APPLIED_SOURCE_POSITION), 1);
@@ -1727,6 +1750,7 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
+        validatePublishAdmissionTiming(body);
         body.requireTiming(body.descriptor().actionAtEpochMs(), body.descriptor().expireAtEpochMs());
         final DelayMessageId messageId = new DelayMessageId(body.messageId());
         final io.nereusstream.delay.protocol.DestinationLaneId laneId =
@@ -1796,6 +1820,25 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }
+    }
+
+    private void validatePublishAdmissionTiming(final PublishAdmissionBody body) {
+        if (profileCatalog == null) {
+            body.requireOrdinaryManagedTiming();
+            return;
+        }
+        final ProfileRefV1 destinationRef = ProfileRefV1.decode(body.descriptor().destinationProfile());
+        final ProfileRefV1 capabilityRef = ProfileRefV1.decode(body.descriptor().capabilityProfile());
+        final ProfileSemanticEnvelopeV1 destination = profileCatalog.resolve(destinationRef);
+        final ProfileSemanticEnvelopeV1 capability = profileCatalog.resolve(capabilityRef);
+        if (destination == null || capability == null
+                || !destination.ref().equals(destinationRef)
+                || !capability.ref().equals(capabilityRef)
+                || !(destination.body() instanceof DestinationProfileSemanticV1 destinationBody)
+                || !(capability.body() instanceof DeliveryCapabilitySemanticV1 capabilityBody)) {
+            throw new IllegalArgumentException("Publish Admission Profile semantics are unavailable");
+        }
+        body.requireTimingPolicy(destinationBody, capabilityBody);
     }
 
     /**

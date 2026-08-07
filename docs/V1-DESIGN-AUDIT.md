@@ -477,6 +477,14 @@ kind 也按 Registry 字段位置固定。`PublishAdmissionBodyTest` 的
 fail-closed 路径。这是本地跨对象解析证据，不替代 Profile semantic publication、
 authenticated channel registration 或真实 Producer admission authority。
 
+Descriptor timing 的结构解析现在允许 `actionAt <= deliverAt`，但不把提前值当作
+许可：没有 Profile catalog 的兼容 shard 只接受 ordinary managed，配置 exact
+catalog 的 shard 才会按 Destination/Delivery Capability semantic bytes 验证固定
+Pulsar handoff lead、capability bit、target resource 和 checked subtraction。
+`PublishAdmissionBodyTest.retainsCertifiedHandoffTimingForProfileSemanticValidation`
+与 `acceptsOnlyThePinnedPulsarHandoffLead` 覆盖这一分层边界；真实 Profile 发布、
+Broker guard attestation 和 Producer admission authority 仍是 release blocker。
+
 `ResolveUncertainBody` 的 `ATTACH_PUBLISHED_EVIDENCE`/
 `ATTACH_NOT_PUBLISHED_EVIDENCE` 分支也不再接受任意 opaque nested bytes，
 而是要求 typed evidence 的 Publish Attempt owner 和 verification status

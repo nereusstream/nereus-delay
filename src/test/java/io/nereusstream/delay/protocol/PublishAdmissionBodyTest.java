@@ -44,6 +44,54 @@ public class PublishAdmissionBodyTest {
     }
 
     @Test
+    void retainsCertifiedHandoffTimingForProfileSemanticValidation() {
+        final Fixture fixture = Fixture.createWithActionAt(
+                new ShardId(RouteIncarnation.random(), 6), 1_500);
+        final PublishAdmissionBody admission = PublishAdmissionBody.decode(fixture.body());
+
+        assertEquals(1_500, admission.descriptor().actionAtEpochMs());
+        assertThrows(IllegalArgumentException.class, admission::requireOrdinaryManagedTiming);
+    }
+
+    @Test
+    void rejectsActionAfterBusinessVisibilityTimeBeforeProfileLookup() {
+        final Fixture fixture = Fixture.createWithActionAt(
+                new ShardId(RouteIncarnation.random(), 7), 2_001);
+
+        assertThrows(IllegalArgumentException.class, () -> PublishAdmissionBody.decode(fixture.body()));
+    }
+
+    @Test
+    void acceptsOnlyThePinnedPulsarHandoffLead() {
+        final BrokerResourceIdentityV1 target = BrokerResourceIdentityV1.pulsar(
+                new PulsarBrokerResourceIdentityV1("cluster", bytes(32, 40),
+                        "persistent://tenant/ns/topic", 1));
+        final DeliveryCapabilitySemanticV1 capabilityBody = new DeliveryCapabilitySemanticV1(
+                AdapterKindV1.PULSAR, OutcomeCapabilityV1.AT_LEAST_ONCE,
+                TimingCapabilityV1.ORDINARY_MANAGED | TimingCapabilityV1.PULSAR_GUARDED_HANDOFF,
+                null, 0, 0, 0, 0, bytes(32, 41), bytes(32, 42), 0, 0);
+        final ProfileSemanticEnvelopeV1 capability = new ProfileSemanticEnvelopeV1(
+                ProfileKindV1.DELIVERY_CAPABILITY, Bytes.utf8("pulsar-capability"), 1, capabilityBody);
+        final DestinationProfileSemanticV1 destinationBody = new DestinationProfileSemanticV1(
+                AdapterKindV1.PULSAR, target, 1, TargetPartitionPolicyV1.HASH_ONLY,
+                TargetPartitionHashInputV1.ORDERING_KEY, List.of(), capability.ref(), 1, 500, 100,
+                bytes(32, 43), 1_000, 128, 512, 1, Bytes.utf8("pulsar-destination"), 0, 0, 1,
+                bytes(32, 44));
+        final ProfileSemanticEnvelopeV1 destination = new ProfileSemanticEnvelopeV1(
+                ProfileKindV1.DESTINATION, Bytes.utf8("pulsar-destination"), 1, destinationBody);
+        final Fixture fixture = Fixture.createWithProfiles(new ShardId(RouteIncarnation.random(), 8),
+                destination.ref().canonicalBytes(), capability.ref().canonicalBytes(), target,
+                AdapterKindV1.PULSAR, 1_500);
+        final PublishAdmissionBody admission = PublishAdmissionBody.decode(fixture.body());
+
+        admission.requireTimingPolicy(destinationBody, capabilityBody);
+        assertThrows(IllegalArgumentException.class, () -> admission.requireTimingPolicy(destinationBody,
+                new DeliveryCapabilitySemanticV1(AdapterKindV1.PULSAR, OutcomeCapabilityV1.AT_LEAST_ONCE,
+                        TimingCapabilityV1.ORDINARY_MANAGED, null, 0, 0, 0, 0,
+                        bytes(32, 45), bytes(32, 46), 0, 0)));
+    }
+
+    @Test
     void rejectsMessageRoutedToDifferentBodyShard() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
         final DelayMessageId messageId = DelayMessageId.random(new ShardId(RouteIncarnation.random(), 4));
@@ -68,6 +116,14 @@ public class PublishAdmissionBodyTest {
                 }
             }
         });
+    }
+
+    private static byte[] bytes(final int length, final int seed) {
+        final byte[] value = new byte[length];
+        for (int index = 0; index < length; index++) {
+            value[index] = (byte) (seed + index);
+        }
+        return value;
     }
 
     private static byte[] tamperDescriptorScalar(final byte[] body, final int descriptorField,
@@ -119,6 +175,69 @@ public class PublishAdmissionBodyTest {
                     Bytes.sha256(Bytes.utf8("obligations")), Bytes.sha256(Bytes.utf8("semantic")), 1, 1);
         }
 
+        public static Fixture createWithActionAt(final ShardId shard, final long actionAt) {
+            return createInternal(shard, DelayMessageId.random(shard), new byte[16],
+                    Bytes.sha256(Bytes.utf8("timeline")), 1, 0, 0,
+                    Bytes.sha256(Bytes.utf8("obligations")), Bytes.sha256(Bytes.utf8("semantic")), 1, 1,
+                    actionAt);
+        }
+
+        public static Fixture createWithProfiles(final ShardId shard, final byte[] destinationProfile,
+                                                 final byte[] capabilityProfile,
+                                                 final BrokerResourceIdentityV1 target,
+                                                 final AdapterKindV1 adapterKind, final long actionAt) {
+            final DelayMessageId messageId = DelayMessageId.random(shard);
+            final byte[] owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 7,
+                    Bytes.sha256(Bytes.utf8("lease"))).canonicalBytes();
+            final byte[] lane = Bytes.sha256(Bytes.utf8("lane"));
+            final byte[] targetBytes = target.canonicalBytes();
+            final byte[] bindingDigest = Bytes.sha256(Bytes.utf8("binding"));
+            final byte[] fingerprint = Bytes.sha256(Bytes.utf8("fingerprint"));
+            final byte[] time = trustedTime(1_000, 1_000);
+            final byte[] laneIncarnation = new byte[16];
+            final byte[] channelPrefix = channelPrefix(adapterKind, lane, laneIncarnation, targetBytes);
+            final byte[] lease = lease(destinationProfile, bindingDigest, fingerprint, time,
+                    CredentialUseLeaseV1.destinationChannelHolderScope(channelPrefix));
+            final byte[] channel = channel(channelPrefix, bindingDigest, fingerprint, lease);
+            final byte[] payload = payload(Bytes.utf8("hello"));
+            final byte[] metadata = metadata();
+            final byte[] attempt = Bytes.sha256(Bytes.utf8("attempt"));
+            final byte[] reserved = reserved(shard, messageId, attempt, destinationProfile, capabilityProfile);
+            final byte[] descriptor = descriptor(adapterKind, lane, laneIncarnation, destinationProfile,
+                    capabilityProfile, targetBytes, channel, messageId, attempt, payload, metadata, reserved,
+                    1, actionAt);
+            final byte[] materialization = materialization(destinationProfile, capabilityProfile, targetBytes,
+                    messageId, payload, metadata, descriptor, actionAt);
+            final byte[] claim = claim(shard, messageId, lane, laneIncarnation, owner, materialization,
+                    Bytes.sha256(Bytes.utf8("timeline")), 1, 0, 0,
+                    Bytes.sha256(Bytes.utf8("obligations")), Bytes.sha256(Bytes.utf8("semantic")), 1);
+            final byte[] certificate = certificate(owner, shard, lane, laneIncarnation, channel, time,
+                    bindingDigest, fingerprint);
+            final byte[] body = CanonicalProtobuf.message(output -> {
+                CanonicalProtobuf.bytes(output, 1, subject(shard));
+                CanonicalProtobuf.uint32(output, 2, SystemMutationType.PUBLISH_ADMISSION.wireValue());
+                CanonicalProtobuf.int64(output, 3, 9_000);
+                CanonicalProtobuf.bytes(output, 10, ownerBody(owner));
+                CanonicalProtobuf.bytes(output, 11, new byte[16]);
+                CanonicalProtobuf.bytes(output, 12, Bytes.sha256(Bytes.utf8("claim")));
+                CanonicalProtobuf.bytes(output, 13, lane);
+                CanonicalProtobuf.bytes(output, 14, laneIncarnation);
+                CanonicalProtobuf.bytes(output, 15, messageId.bytes());
+                CanonicalProtobuf.uint32(output, 16, 0);
+                CanonicalProtobuf.bytes(output, 17, attempt);
+                CanonicalProtobuf.bytes(output, 18,
+                        Bytes.sha256(Bytes.utf8("nereus-delay-prepared-publish-v1\0"), descriptor));
+                CanonicalProtobuf.bytes(output, 19, charge());
+                CanonicalProtobuf.bytes(output, 20, certificateDigest(certificate));
+                CanonicalProtobuf.bytes(output, 21, channel);
+                CanonicalProtobuf.bytes(output, 22, descriptor);
+                CanonicalProtobuf.bytes(output, 23, certificate);
+                CanonicalProtobuf.bytes(output, 24, trustedTime(2_000, 2_001));
+                CanonicalProtobuf.bytes(output, 25, claim);
+            });
+            return new Fixture(body, owner, messageId, descriptor, lane);
+        }
+
         public static Fixture createForSource(final ShardId shard, final DelayMessageId messageId,
                                                final byte[] laneIncarnation, final byte[] timelineKey,
                                                final int sourceWorkKind,
@@ -161,6 +280,18 @@ public class PublishAdmissionBodyTest {
                                               final int expectedUncertainRetryAdmissionsUsed,
                                               final byte[] obligationSetDigest, final byte[] semanticDigest,
                                               final int attemptNo, final long stateVersion) {
+            return createInternal(shard, messageId, laneIncarnation, timelineKeySha256, sourceWorkKind,
+                    expectedAdmissionsUsed, expectedUncertainRetryAdmissionsUsed, obligationSetDigest,
+                    semanticDigest, attemptNo, stateVersion, 2_000);
+        }
+
+        private static Fixture createInternal(final ShardId shard, final DelayMessageId messageId,
+                                              final byte[] laneIncarnation, final byte[] timelineKeySha256,
+                                              final int sourceWorkKind,
+                                              final int expectedAdmissionsUsed,
+                                              final int expectedUncertainRetryAdmissionsUsed,
+                                              final byte[] obligationSetDigest, final byte[] semanticDigest,
+                                              final int attemptNo, final long stateVersion, final long actionAt) {
             final byte[] owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 7,
                     Bytes.sha256(Bytes.utf8("lease"))).canonicalBytes();
             final byte[] lane = Bytes.sha256(Bytes.utf8("lane"));
@@ -179,9 +310,9 @@ public class PublishAdmissionBodyTest {
             final byte[] attempt = Bytes.sha256(Bytes.utf8("attempt"));
             final byte[] reserved = reserved(shard, messageId, attempt, destinationProfile, capabilityProfile);
             final byte[] descriptor = descriptor(lane, laneIncarnation, destinationProfile, capabilityProfile,
-                    target, channel, messageId, attempt, payload, metadata, reserved, attemptNo);
+                    target, channel, messageId, attempt, payload, metadata, reserved, attemptNo, actionAt);
             final byte[] materialization = materialization(destinationProfile, capabilityProfile, target, messageId,
-                    payload, metadata, descriptor);
+                    payload, metadata, descriptor, actionAt);
             final byte[] claim = claim(shard, messageId, lane, laneIncarnation, owner, materialization,
                     timelineKeySha256, sourceWorkKind, expectedAdmissionsUsed,
                     expectedUncertainRetryAdmissionsUsed, obligationSetDigest, semanticDigest, stateVersion);
@@ -272,8 +403,13 @@ public class PublishAdmissionBodyTest {
 
         private static byte[] channelPrefix(final byte[] lane, final byte[] laneIncarnation,
                                             final byte[] target) {
+            return channelPrefix(AdapterKindV1.KAFKA, lane, laneIncarnation, target);
+        }
+
+        private static byte[] channelPrefix(final AdapterKindV1 adapterKind, final byte[] lane,
+                                            final byte[] laneIncarnation, final byte[] target) {
             return CanonicalProtobuf.message(output -> {
-                CanonicalProtobuf.uint32(output, 1, 1);
+                CanonicalProtobuf.uint32(output, 1, adapterKind.wireValue());
                 CanonicalProtobuf.uint32(output, 2, 1);
                 CanonicalProtobuf.bytes(output, 3, lane);
                 CanonicalProtobuf.bytes(output, 4, laneIncarnation);
@@ -339,9 +475,28 @@ public class PublishAdmissionBodyTest {
                                          final byte[] target, final byte[] channel, final DelayMessageId messageId,
                                          final byte[] attempt, final byte[] payload, final byte[] metadata,
                                          final byte[] reserved, final int attemptNo) {
+            return descriptor(lane, laneIncarnation, destinationProfile, capabilityProfile, target, channel,
+                    messageId, attempt, payload, metadata, reserved, attemptNo, 2_000);
+        }
+
+        private static byte[] descriptor(final byte[] lane, final byte[] laneIncarnation,
+                                         final byte[] destinationProfile, final byte[] capabilityProfile,
+                                         final byte[] target, final byte[] channel, final DelayMessageId messageId,
+                                         final byte[] attempt, final byte[] payload, final byte[] metadata,
+                                         final byte[] reserved, final int attemptNo, final long actionAt) {
+            return descriptor(AdapterKindV1.KAFKA, lane, laneIncarnation, destinationProfile, capabilityProfile,
+                    target, channel, messageId, attempt, payload, metadata, reserved, attemptNo, actionAt);
+        }
+
+        private static byte[] descriptor(final AdapterKindV1 adapterKind, final byte[] lane,
+                                         final byte[] laneIncarnation, final byte[] destinationProfile,
+                                         final byte[] capabilityProfile, final byte[] target,
+                                         final byte[] channel, final DelayMessageId messageId,
+                                         final byte[] attempt, final byte[] payload, final byte[] metadata,
+                                         final byte[] reserved, final int attemptNo, final long actionAt) {
             return CanonicalProtobuf.message(output -> {
                 CanonicalProtobuf.uint32(output, 1, 1);
-                CanonicalProtobuf.uint32(output, 2, 1);
+                CanonicalProtobuf.uint32(output, 2, adapterKind.wireValue());
                 CanonicalProtobuf.uint32(output, 3, 1);
                 CanonicalProtobuf.bytes(output, 4, lane);
                 CanonicalProtobuf.bytes(output, 5, laneIncarnation);
@@ -359,14 +514,21 @@ public class PublishAdmissionBodyTest {
                 CanonicalProtobuf.bytes(output, 17, reserved);
                 CanonicalProtobuf.int64(output, 18, 2_000);
                 CanonicalProtobuf.int64(output, 19, 5_000);
-                CanonicalProtobuf.int64(output, 20, 2_000);
+                CanonicalProtobuf.int64(output, 20, actionAt);
             });
         }
 
         private static byte[] materialization(final byte[] destinationProfile, final byte[] capabilityProfile,
                                               final byte[] target, final DelayMessageId messageId,
                                               final byte[] payload, final byte[] metadata, final byte[] descriptor) {
-            final byte[] descriptorFields = descriptor;
+            return materialization(destinationProfile, capabilityProfile, target, messageId, payload, metadata,
+                    descriptor, 2_000);
+        }
+
+        private static byte[] materialization(final byte[] destinationProfile, final byte[] capabilityProfile,
+                                              final byte[] target, final DelayMessageId messageId,
+                                              final byte[] payload, final byte[] metadata, final byte[] descriptor,
+                                              final long actionAt) {
             return CanonicalProtobuf.message(output -> {
                 CanonicalProtobuf.bytes(output, 1, destinationProfile);
                 CanonicalProtobuf.bytes(output, 2, capabilityProfile);
@@ -378,7 +540,7 @@ public class PublishAdmissionBodyTest {
                 CanonicalProtobuf.bytes(output, 8, metadata);
                 CanonicalProtobuf.int64(output, 9, 2_000);
                 CanonicalProtobuf.int64(output, 10, 5_000);
-                CanonicalProtobuf.int64(output, 11, 2_000);
+                CanonicalProtobuf.int64(output, 11, actionAt);
             });
         }
 

@@ -179,6 +179,62 @@ public final class PublishAdmissionBody {
         }
     }
 
+    /** Requires the ordinary managed timing relationship for a non-catalogued Admission. */
+    public void requireOrdinaryManagedTiming() {
+        if (descriptor.actionAtEpochMs() != descriptor.deliverAtEpochMs()) {
+            throw new IllegalArgumentException("ordinary managed Admission requires actionAt=deliverAt");
+        }
+    }
+
+    /**
+     * Validates the profile-pinned timing relationship for a managed Admission.
+     * Ordinary managed delivery uses {@code actionAt=deliverAt}; certified
+     * Pulsar handoff uses the one fixed lead from the immutable Destination
+     * Profile and the guarded-handoff capability bit.
+     */
+    public void requireTimingPolicy(final DestinationProfileSemanticV1 destinationProfile,
+                                    final DeliveryCapabilitySemanticV1 capabilityProfile) {
+        Objects.requireNonNull(destinationProfile, "destinationProfile");
+        Objects.requireNonNull(capabilityProfile, "capabilityProfile");
+        final ProfileRefV1 destinationRef = ProfileRefV1.decode(descriptor.destinationProfile());
+        final ProfileRefV1 capabilityRef = ProfileRefV1.decode(descriptor.capabilityProfile());
+        if (!destinationProfile.deliveryCapability().equals(capabilityRef)
+                || destinationProfile.adapterKind() != capabilityProfile.adapterKind()
+                || !Arrays.equals(destinationProfile.targetResource().canonicalBytes(), descriptor.targetResource())) {
+            throw new IllegalArgumentException("Publish Admission Profile identity mismatch");
+        }
+        final ChannelResourceIdentityV1 channelIdentity = ChannelResourceIdentityV1.decode(channel.canonicalBytes());
+        if (destinationProfile.adapterKind() != channelIdentity.adapterKind()
+                || !Arrays.equals(destinationProfile.targetResource().canonicalBytes(),
+                channelIdentity.targetResource().canonicalBytes())) {
+            throw new IllegalArgumentException("Publish Admission Profile/channel identity mismatch");
+        }
+        final long deliverAt = descriptor.deliverAtEpochMs();
+        final long actionAt = descriptor.actionAtEpochMs();
+        if (actionAt == deliverAt) {
+            if (!TimingCapabilityV1.includes(capabilityProfile.timingCapabilityBits(),
+                    TimingCapabilityV1.ORDINARY_MANAGED)) {
+                throw new IllegalArgumentException("ordinary managed timing is not capability-authorized");
+            }
+            return;
+        }
+        if (destinationProfile.adapterKind() != AdapterKindV1.PULSAR
+                || destinationProfile.handoffLeadMs() <= 0
+                || !TimingCapabilityV1.includes(capabilityProfile.timingCapabilityBits(),
+                TimingCapabilityV1.PULSAR_GUARDED_HANDOFF)) {
+            throw new IllegalArgumentException("certified Pulsar handoff is not capability-authorized");
+        }
+        final long expectedActionAt;
+        try {
+            expectedActionAt = Math.subtractExact(deliverAt, destinationProfile.handoffLeadMs());
+        } catch (ArithmeticException overflow) {
+            throw new IllegalArgumentException("Pulsar handoff timing underflows deliverAt", overflow);
+        }
+        if (expectedActionAt < 0 || actionAt != expectedActionAt) {
+            throw new IllegalArgumentException("Pulsar handoff actionAt does not match the pinned lead");
+        }
+    }
+
     private void validateCrossObjectEqualities() {
         final ChannelResourceIdentityV1 channelIdentity = ChannelResourceIdentityV1.decode(channel.canonicalBytes());
         if (!Arrays.equals(descriptor.destinationLaneId(), laneId)
@@ -227,7 +283,7 @@ public final class PublishAdmissionBody {
             throw new IllegalArgumentException("Publish Admission certificate outlives channel credential lease");
         }
         if (descriptor.deliverAtEpochMs() < 0 || descriptor.expireAtEpochMs() < descriptor.deliverAtEpochMs()
-                || descriptor.actionAtEpochMs() < 0 || descriptor.actionAtEpochMs() != descriptor.deliverAtEpochMs()) {
+                || descriptor.actionAtEpochMs() < 0 || descriptor.actionAtEpochMs() > descriptor.deliverAtEpochMs()) {
             throw new IllegalArgumentException("unsupported Publish Admission timing");
         }
     }
@@ -285,7 +341,7 @@ public final class PublishAdmissionBody {
         final long deliverAt = unsigned(field(fields, 18), 18);
         final long expireAt = unsigned(field(fields, 19), 19);
         final long actionAt = unsigned(field(fields, 20), 20);
-        if (expireAt < deliverAt || actionAt != deliverAt) {
+        if (expireAt < deliverAt || actionAt > deliverAt) {
             throw new IllegalArgumentException("invalid PreparedPublishDescriptor timing");
         }
         final byte[] preparedHash = Bytes.sha256(Bytes.utf8("nereus-delay-prepared-publish-v1\0"), encoded);
