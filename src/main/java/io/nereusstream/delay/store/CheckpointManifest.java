@@ -422,7 +422,6 @@ public record CheckpointManifest(
                             byte[] sourceEvidenceSha256, int sourceKeyVersion, byte[] sourceSignature) {
         public CreatedAt {
             if (earliestEpochMs < 0 || latestEpochMs < earliestEpochMs || source == null || source.isBlank()
-                    || sourceConfigGeneration < 0 || sampleSequence < 0 || monotonicAnchorNs < 0
                     || sourceKeyVersion < 0) {
                 throw new IllegalArgumentException("invalid checkpoint time evidence");
             }
@@ -462,9 +461,9 @@ public record CheckpointManifest(
         private String toJson() {
             return "{\"earliestEpochMs\":" + quote(Long.toString(earliestEpochMs))
                     + ",\"latestEpochMs\":" + quote(Long.toString(latestEpochMs))
-                    + ",\"monotonicAnchorNs\":" + quote(u64(monotonicAnchorNs))
-                    + ",\"sampleSequence\":" + quote(u64(sampleSequence)) + ",\"source\":" + quote(source)
-                    + ",\"sourceConfigGeneration\":" + quote(u64(sourceConfigGeneration))
+                    + ",\"monotonicAnchorNs\":" + quote(u64Bits(monotonicAnchorNs))
+                    + ",\"sampleSequence\":" + quote(u64Bits(sampleSequence)) + ",\"source\":" + quote(source)
+                    + ",\"sourceConfigGeneration\":" + quote(u64Bits(sourceConfigGeneration))
                     + ",\"sourceEvidenceSha256\":" + quote(hex(sourceEvidenceSha256))
                     + ",\"sourceId\":" + quote(b64(sourceId)) + ",\"sourceKeyVersion\":" + sourceKeyVersion
                     + ",\"sourceSignature\":" + (sourceSignature == null ? "null" : quote(b64(sourceSignature)))

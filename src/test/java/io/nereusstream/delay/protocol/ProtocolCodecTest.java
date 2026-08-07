@@ -928,6 +928,18 @@ class ProtocolCodecTest {
         assertThrows(IllegalArgumentException.class, () -> evidence.requireEarliestAtLeast(1_001));
     }
 
+    @Test
+    void trustedUtcEvidencePreservesUnsignedCounterBitPatterns() {
+        final TrustedUtcIntervalEvidence evidence = new TrustedUtcIntervalEvidence(1_000, 1_005,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("host-high-bit"),
+                Long.MIN_VALUE, -1L, Long.MIN_VALUE, Bytes.sha256(Bytes.utf8("sample-high-bit")), 0, null);
+        final TrustedUtcIntervalEvidence decoded = TrustedUtcIntervalEvidence.decode(evidence.canonicalBytes());
+        assertEquals(Long.MIN_VALUE, decoded.sourceConfigGeneration());
+        assertEquals(-1L, decoded.sampleSequence());
+        assertEquals(Long.MIN_VALUE, decoded.monotonicAnchorNs());
+        assertArrayEquals(evidence.canonicalBytes(), decoded.canonicalBytes());
+    }
+
     private static byte[] systemBody(final ShardId shard, final SystemMutationType type, final long retryUntil) {
         final byte[] subject = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());

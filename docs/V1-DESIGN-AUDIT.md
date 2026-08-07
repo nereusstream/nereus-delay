@@ -1063,8 +1063,11 @@ position partition, leader epoch and Pulsar batch fields now preserve their
 complete unsigned-32 raw bit patterns through the same local protocol paths;
 comparators and the strict Kafka successor use unsigned order. Boundary vectors
 cover high-bit position fields, receipt/evidence round-trips and manifest
-round-trips. Auxiliary uint64/time fields, real Broker assignment/barrier proof
-and production adapter authority remain release blockers, so the source-order
+round-trips. The three `TrustedUtcIntervalEvidenceV1` uint64 counters also
+preserve their raw bit patterns through the canonical codec and checkpoint
+`createdAt` JSON. Other auxiliary uint64/time fields, real Broker
+assignment/barrier proof and production adapter authority remain release
+blockers, so the source-order
 row below claims the implemented local u64/u32 position paths rather than full
 production Source Position authority.
 

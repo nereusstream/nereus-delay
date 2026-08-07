@@ -79,7 +79,8 @@ class CheckpointManifestTest {
         final CheckpointManifest manifest = new CheckpointManifest(
                 bytes(1), bytes(2), 4, null, null,
                 new CheckpointManifest.CreatedBy(bytes(3), bytes(4), 42),
-                new CheckpointManifest.CreatedAt(1000, 1001, "CERTIFIED_HOST_CLOCK", bytes(5), 1, 2, 3,
+                new CheckpointManifest.CreatedAt(1000, 1001, "CERTIFIED_HOST_CLOCK", bytes(5),
+                        Long.MIN_VALUE, -1L, Long.MIN_VALUE,
                         Bytes.sha256(Bytes.utf8("evidence")), 0, null),
                 shardId, Bytes.sha256(Bytes.utf8("db")), UUID.randomUUID(), 1, 7, position,
                 new byte[32], new byte[32], List.of(pulsarCursor, kafkaCursor), List.of(file("a.sst", 1)));
@@ -90,6 +91,9 @@ class CheckpointManifestTest {
         assertTrue(json.contains("\"nextOffsetExclusive\":\"9223372036854775808\""));
         assertTrue(json.contains("\"lastObservedLsoExclusive\":\"18446744073709551615\""));
         assertTrue(json.contains("\"evidenceGeneration\":\"9223372036854775808\""));
+        assertTrue(json.contains("\"sourceConfigGeneration\":\"9223372036854775808\""));
+        assertTrue(json.contains("\"sampleSequence\":\"18446744073709551615\""));
+        assertTrue(json.contains("\"monotonicAnchorNs\":\"9223372036854775808\""));
         assertTrue(json.contains("\"ledgerId\":\"9223372036854775808\""));
         assertTrue(json.contains("\"entryId\":\"18446744073709551615\""));
         final CheckpointManifest decoded = CheckpointManifest.decodeCanonicalJson(manifest.canonicalJsonBytes());
