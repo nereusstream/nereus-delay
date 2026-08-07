@@ -3,6 +3,7 @@ package io.nereusstream.delay.runtime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.ToIntFunction;
 
 /**
  * Bounded local scheduler bridge for durable Lane-close cursors.
@@ -39,21 +40,34 @@ public final class LaneCloseMaterializer {
         }
 
         public int scannedRecords() {
-            return laneResults.stream().mapToInt(DelayShard.LaneCloseMaterializationResult::scannedRecords).sum();
+            return checkedSum(DelayShard.LaneCloseMaterializationResult::scannedRecords, "scanned records");
         }
 
         public int materializedMessages() {
-            return laneResults.stream()
-                    .mapToInt(DelayShard.LaneCloseMaterializationResult::materializedMessages).sum();
+            return checkedSum(DelayShard.LaneCloseMaterializationResult::materializedMessages,
+                    "materialized messages");
         }
 
         public int materializedReservations() {
-            return laneResults.stream()
-                    .mapToInt(DelayShard.LaneCloseMaterializationResult::materializedReservations).sum();
+            return checkedSum(DelayShard.LaneCloseMaterializationResult::materializedReservations,
+                    "materialized reservations");
         }
 
         public boolean complete() {
             return laneResults.stream().allMatch(DelayShard.LaneCloseMaterializationResult::complete);
+        }
+
+        private int checkedSum(final ToIntFunction<DelayShard.LaneCloseMaterializationResult> extractor,
+                               final String label) {
+            int total = 0;
+            try {
+                for (DelayShard.LaneCloseMaterializationResult result : laneResults) {
+                    total = Math.addExact(total, extractor.applyAsInt(result));
+                }
+            } catch (ArithmeticException exception) {
+                throw new IllegalStateException("Lane close materializer " + label + " overflow", exception);
+            }
+            return total;
         }
     }
 }

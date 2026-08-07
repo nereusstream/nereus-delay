@@ -6594,9 +6594,18 @@ public final class DelayShard {
             boolean complete) {
         public LaneCloseMaterializationResult {
             Objects.requireNonNull(laneId, "laneId");
+            final int materializedTotal = checkedMaterializedTotal(materializedMessages, materializedReservations);
             if (closeVersion < 0 || scannedRecords < 0 || materializedMessages < 0
-                    || materializedReservations < 0 || materializedMessages + materializedReservations > scannedRecords) {
+                    || materializedReservations < 0 || materializedTotal > scannedRecords) {
                 throw new IllegalArgumentException("invalid Lane close materialization result");
+            }
+        }
+
+        private static int checkedMaterializedTotal(final int messages, final int reservations) {
+            try {
+                return Math.addExact(messages, reservations);
+            } catch (ArithmeticException exception) {
+                throw new IllegalArgumentException("Lane close materialization counts overflow", exception);
             }
         }
     }

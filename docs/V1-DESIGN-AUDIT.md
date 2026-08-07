@@ -598,6 +598,9 @@ admitted-obligation set 的 generation 才会物化为
 继续执行而不会把它混入 due-publish scan。它仍不证明 close-owned Claim 标记、
 admitted outcome retirement、对象句柄 quiescence/GC、Recovery-Floor retention
 或 owner/Oxia 负责的生产 materializer 编排已经闭合。
+单个 close-materialization result 的 message/reservation 计数和一个 bounded
+turn 的跨 Lane 聚合现在都使用 checked addition；`LaneCloseMaterializerTest`
+覆盖 `int` wrap 会被拒绝，而不是伪造未超界的物化结果。
 直接的 Lane 读取也会校验 `meta_cf/LANE` 值内 Lane id，以及 close cursor 的
 Lane id/incarnation/control version/source shard；错挂的管理投影在暴露给调度或
 物化器前 fail closed，回归证据为 `DelayShardTest` 的 key/value identity tests。
