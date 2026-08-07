@@ -844,7 +844,9 @@ JSON parse 前检查，file/evidence array bound 在 parser materialize 时检�
 使用 normalized UTF-8 unsigned byte order，而不是 Java UTF-16 order；restore 的
 `copyTree` 通过 streaming iterator 复制，不再把整棵路径树 materialize，inventory
 也在任何 file hash 前拒绝非 canonical path；restore-tmp cleanup 使用
-post-order `walkFileTree`，不再建立 sorted whole-tree list。无 limits
+post-order `walkFileTree`，不再建立 sorted whole-tree list；inventory 和 manifest
+limits 的 total-byte checked addition 溢出也会统一 fail closed，而不是泄漏
+`ArithmeticException`。无 limits
 overload 保留为 embedded compatibility seam，不能作为 production activated
 limits；这仍只是本地文件完整性边界，不替代 Object Store 内容证明。
 

@@ -110,6 +110,15 @@ class CheckpointManifestTest {
     }
 
     @Test
+    void manifestTotalFileBytesOverflowFailsAsValidationError() {
+        final CheckpointManifest manifest = manifestWithFiles(List.of(
+                file("a.sst", Long.MAX_VALUE), file("b.sst", 1)));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> CheckpointManifestLimits.unbounded().validateManifest(manifest));
+    }
+
+    @Test
     void checkpointFilesUseUnsignedUtf8NameOrder() throws Exception {
         final Path root = tempDir.resolve("unicode-checkpoint");
         Files.createDirectories(root);
@@ -149,6 +158,13 @@ class CheckpointManifestTest {
                         Bytes.sha256(Bytes.utf8("evidence")), 0, null),
                 shardId, Bytes.sha256(Bytes.utf8("db")), UUID.randomUUID(), 1, 7, position,
                 new byte[32], new byte[32], List.of(), files);
+    }
+
+    private static CheckpointManifest.FileEntry file(final String name, final long length) {
+        final byte[] checksum = new byte[32];
+        java.util.Arrays.fill(checksum, (byte) 1);
+        return new CheckpointManifest.FileEntry(name, length, checksum, Bytes.utf8("object/" + name),
+                Bytes.utf8("version-1"), null);
     }
 
     private static byte[] bytes(final int last) {

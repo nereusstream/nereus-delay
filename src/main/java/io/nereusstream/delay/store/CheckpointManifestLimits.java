@@ -50,7 +50,11 @@ public record CheckpointManifestLimits(
                     || (file.etag() != null && file.etag().length > maxObjectIdentityBytes)) {
                 throw new IllegalArgumentException("checkpoint file object identity exceeds configured bound");
             }
-            totalBytes = Math.addExact(totalBytes, file.length());
+            try {
+                totalBytes = Math.addExact(totalBytes, file.length());
+            } catch (ArithmeticException overflow) {
+                throw new IllegalArgumentException("checkpoint total file bytes overflow", overflow);
+            }
         }
         if (totalBytes > maxTotalFileBytes) {
             throw new IllegalArgumentException("checkpoint total file bytes exceed configured bound");

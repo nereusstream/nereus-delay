@@ -63,7 +63,11 @@ public record CheckpointFileInventory(String name, long length, byte[] checksum)
                         .replace(path.getFileSystem().getSeparator(), "/"));
                 final long length = Files.size(path);
                 limits.validateFile(name, length);
-                totalBytes = Math.addExact(totalBytes, length);
+                try {
+                    totalBytes = Math.addExact(totalBytes, length);
+                } catch (ArithmeticException overflow) {
+                    throw new IllegalArgumentException("checkpoint total file bytes overflow", overflow);
+                }
                 if (totalBytes > limits.maxTotalFileBytes()) {
                     throw new IllegalArgumentException("checkpoint total file bytes exceed configured bound");
                 }
