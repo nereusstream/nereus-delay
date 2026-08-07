@@ -10,6 +10,7 @@ import io.nereusstream.delay.protocol.RecoveryPinV1;
 import io.nereusstream.delay.protocol.SourcePosition;
 
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.List;
@@ -55,21 +56,23 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
     public RecoveryFloor advanceFloor(final byte[] checkpointId, final long expectedCatalogGeneration,
                                       final byte[] evidenceCursorDigest) {
         Bytes.requireLength(checkpointId, 16, "checkpointId");
+        final byte[] requestedCheckpointId = Bytes.copy(checkpointId);
         if (expectedCatalogGeneration < 0) {
             throw new IllegalArgumentException("catalog generation must be non-negative");
         }
         Bytes.requireLength(evidenceCursorDigest, 32, "evidenceCursorDigest");
+        final byte[] requestedEvidenceCursorDigest = Bytes.copy(evidenceCursorDigest);
         final RecoveryFloor result = Objects.requireNonNull(
-                backend.advanceFloor(checkpointId, expectedCatalogGeneration, evidenceCursorDigest),
+                backend.advanceFloor(requestedCheckpointId, expectedCatalogGeneration, requestedEvidenceCursorDigest),
                 "Oxia floor result");
-        if (!Bytes.constantTimeEquals(checkpointId, result.checkpointId())
+        if (!Bytes.constantTimeEquals(requestedCheckpointId, result.checkpointId())
                 || result.catalogGeneration() <= expectedCatalogGeneration) {
             throw new IllegalStateException("Oxia floor result is not bound to the requested CAS");
         }
-        if (!Bytes.constantTimeEquals(evidenceCursorDigest, result.evidenceCursorDigest())) {
+        if (!Bytes.constantTimeEquals(requestedEvidenceCursorDigest, result.evidenceCursorDigest())) {
             throw new IllegalStateException("Oxia floor result changed evidence cursor digest");
         }
-        validateScalarFloorIdentity(result, publishedManifest(checkpointId));
+        validateScalarFloorIdentity(result, publishedManifest(requestedCheckpointId));
         return result;
     }
 
@@ -77,20 +80,22 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
     public RecoveryFloorRefV1 advanceFloor(final byte[] checkpointId, final long expectedCatalogGeneration,
                                             final List<EvidenceCursorV1> evidenceCursors) {
         Bytes.requireLength(checkpointId, 16, "checkpointId");
+        final byte[] requestedCheckpointId = Bytes.copy(checkpointId);
         if (expectedCatalogGeneration < 0) {
             throw new IllegalArgumentException("catalog generation must be non-negative");
         }
-        Objects.requireNonNull(evidenceCursors, "evidenceCursors");
-        final RecoveryFloorRefV1 result = Objects.requireNonNull(backend.advanceFloor(checkpointId,
-                expectedCatalogGeneration, evidenceCursors), "Oxia typed Floor result");
-        if (!Bytes.constantTimeEquals(checkpointId, result.checkpointId())
+        final List<EvidenceCursorV1> requestedEvidenceCursors = List.copyOf(
+                Objects.requireNonNull(evidenceCursors, "evidenceCursors"));
+        final RecoveryFloorRefV1 result = Objects.requireNonNull(backend.advanceFloor(requestedCheckpointId,
+                expectedCatalogGeneration, requestedEvidenceCursors), "Oxia typed Floor result");
+        if (!Bytes.constantTimeEquals(requestedCheckpointId, result.checkpointId())
                 || result.catalogGeneration() <= expectedCatalogGeneration) {
             throw new IllegalStateException("Oxia typed Floor result is not bound to the requested CAS");
         }
-        if (!result.evidenceCursors().equals(evidenceCursors)) {
+        if (!result.evidenceCursors().equals(requestedEvidenceCursors)) {
             throw new IllegalStateException("Oxia typed Floor result changed evidence cursors");
         }
-        validateTypedFloorIdentity(result, publishedManifest(checkpointId));
+        validateTypedFloorIdentity(result, publishedManifest(requestedCheckpointId));
         return result;
     }
 
@@ -115,10 +120,11 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
     @Override
     public Optional<CheckpointManifest> manifest(final byte[] checkpointId) {
         Bytes.requireLength(checkpointId, 16, "checkpointId");
-        final Optional<CheckpointManifest> result = Objects.requireNonNull(backend.manifest(checkpointId),
+        final byte[] requestedCheckpointId = Bytes.copy(checkpointId);
+        final Optional<CheckpointManifest> result = Objects.requireNonNull(backend.manifest(requestedCheckpointId),
                 "Oxia manifest result");
         result.ifPresent(manifest -> {
-            if (!Bytes.constantTimeEquals(checkpointId, manifest.checkpointId())) {
+            if (!Bytes.constantTimeEquals(requestedCheckpointId, manifest.checkpointId())) {
                 throw new IllegalStateException("Oxia manifest result has another checkpoint identity");
             }
         });
@@ -151,21 +157,24 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
                                                                        final long requiredMutationSequence,
                                                                        final SourcePosition... requiredPositions) {
         Bytes.requireLength(candidateCheckpointId, 16, "candidateCheckpointId");
+        final byte[] requestedCandidateCheckpointId = Bytes.copy(candidateCheckpointId);
         if (requiredMutationSequence < 0) {
             throw new IllegalArgumentException("required mutation sequence must be non-negative");
         }
-        Objects.requireNonNull(requiredPositions, "requiredPositions");
-        for (SourcePosition requiredPosition : requiredPositions) {
+        final SourcePosition[] requestedPositions = Arrays.copyOf(
+                Objects.requireNonNull(requiredPositions, "requiredPositions"), requiredPositions.length);
+        for (SourcePosition requiredPosition : requestedPositions) {
             Objects.requireNonNull(requiredPosition, "required source position");
         }
         final Optional<RecoveryCatalog.FloorCoverage> result = Objects.requireNonNull(
-                backend.proveFloorCoverage(candidateCheckpointId, requiredMutationSequence, requiredPositions),
+                backend.proveFloorCoverage(requestedCandidateCheckpointId, requiredMutationSequence,
+                        requestedPositions),
                 "Oxia floor coverage result");
         result.ifPresent(coverage -> {
-            if (!Bytes.constantTimeEquals(candidateCheckpointId, coverage.candidate().checkpointId())) {
+            if (!Bytes.constantTimeEquals(requestedCandidateCheckpointId, coverage.candidate().checkpointId())) {
                 throw new IllegalStateException("Oxia floor coverage returned another candidate");
             }
-            final CheckpointManifest candidate = publishedManifest(candidateCheckpointId);
+            final CheckpointManifest candidate = publishedManifest(requestedCandidateCheckpointId);
             validateManifestIdentity(coverage.candidate(), candidate,
                     "Oxia floor coverage changed candidate manifest");
             final CheckpointManifest floorManifest = publishedManifest(coverage.floor().checkpointId());
@@ -174,7 +183,7 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
                     || coverage.floor().includedMutationSequence() < requiredMutationSequence) {
                 throw new IllegalStateException("Oxia floor coverage does not cover the requested boundary");
             }
-            for (SourcePosition requiredPosition : requiredPositions) {
+            for (SourcePosition requiredPosition : requestedPositions) {
                 if (!coversPosition(coverage.floor().appliedSourcePosition(), requiredPosition)) {
                     throw new IllegalStateException("Oxia floor coverage has an unbound source boundary");
                 }

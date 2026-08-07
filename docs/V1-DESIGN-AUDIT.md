@@ -736,7 +736,9 @@ generation 相等的 exact reread，但拒绝 generation 回退。它现在在�
 upload-intent CAS 前复用同一组 state、base generation、对象身份、owner、store
 incarnation 和 parent identity 校验；非法请求不会先触达 Oxia。Oxia 返回的
 candidate、Floor 和 ancestry manifest 还必须与已发布值的完整 canonical JSON
-字节投影一致，不能只依赖部分字段比较。
+字节投影一致，不能只依赖部分字段比较；checkpoint ID、evidence digest、
+typed cursor 和 coverage positions 在调用 backend 前也会复制，避免可变调用
+方在 CAS 期间改变请求内容。
 
 Legacy/typed local Recovery Floor CAS 也支持 exact successor reread（含
 checkpoint、manifest、source/mutation 和 evidence/cursor identity），response
