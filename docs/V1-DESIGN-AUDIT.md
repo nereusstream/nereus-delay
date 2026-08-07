@@ -741,7 +741,10 @@ checkpoint、manifest、source/mutation 和 evidence/cursor identity），respon
 loss 不会重复推进 Floor；不同 Floor 或 identity drift 仍 fail closed。
 Floor coverage 与本地 GC guard 在 order token 相等时还要求 Source Position
 canonical bytes 完全一致；同一 Kafka offset 或 Pulsar ledger/entry/batch 的
-metadata 变体不能被当作已覆盖的 retention boundary。
+metadata 变体不能被当作已覆盖的 retention boundary。Oxia coverage response
+还必须逐项对应已发布 manifest、无重复 checkpoint，并沿着 parent id/hash、
+lineage generation、source position、mutation sequence 和 evidence cursor
+逐边验证到 candidate；跳过中间 parent 或伪造 ancestry 会 fail closed。
 
 Checkpoint GC 的 catalog-backed guard 现在会在 source/sequence/ancestry
 证明之后 reread 当前 `RecoveryPinV1`。活动 pin 若保护待删 checkpoint 的

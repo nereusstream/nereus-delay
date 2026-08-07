@@ -534,6 +534,71 @@ class RecoveryCatalogTest {
     }
 
     @Test
+    void OxiaBoundaryRejectsBrokenFloorCoverageParentChain() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 25);
+        final UUID topic = UUID.randomUUID();
+        final byte[] lineage = id16(250);
+        final CheckpointManifest genesis = manifest(shard, topic, lineage, id16(251), 0, 1, 1, null);
+        final CheckpointManifest child = manifest(shard, topic, lineage, id16(252), 1, 2, 2,
+                new CheckpointManifest.ParentCheckpoint(genesis.checkpointId(),
+                        Bytes.hex(genesis.manifestSha256())));
+        final CheckpointManifest candidate = manifest(shard, topic, lineage, id16(253), 2, 3, 3,
+                new CheckpointManifest.ParentCheckpoint(child.checkpointId(),
+                        Bytes.hex(child.manifestSha256())));
+        final RecoveryCatalog delegate = new RecoveryCatalog();
+        delegate.publish(genesis, 0);
+        delegate.publish(child, 1);
+        delegate.publish(candidate, 2);
+        final RecoveryFloor floor = delegate.advanceFloor(genesis.checkpointId(), 3, id32(254));
+
+        final class Backend implements OxiaRecoveryCatalog.CasBackend {
+            private java.util.Optional<RecoveryCatalog.FloorCoverage> coverage = java.util.Optional.of(
+                    new RecoveryCatalog.FloorCoverage(floor, candidate, List.of(genesis, candidate)));
+
+            @Override
+            public RecoveryCatalog.Publication publish(final CheckpointManifest ignored, final long expected) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public RecoveryFloor advanceFloor(final byte[] ignored, final long expected, final byte[] digest) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public java.util.Optional<CheckpointManifest> manifest(final byte[] checkpointId) {
+                return delegate.manifest(checkpointId);
+            }
+
+            @Override
+            public java.util.Optional<RecoveryFloor> currentFloor() {
+                return java.util.Optional.empty();
+            }
+
+            @Override
+            public void validatePublishedRestoreCandidate(final CheckpointManifest ignored) {
+            }
+
+            @Override
+            public java.util.Optional<RecoveryCatalog.FloorCoverage> proveFloorCoverage(
+                    final byte[] ignored, final long sequence,
+                    final io.nereusstream.delay.protocol.SourcePosition... positions) {
+                return coverage;
+            }
+        }
+
+        final Backend backend = new Backend();
+        final OxiaRecoveryCatalog authority = new OxiaRecoveryCatalog(backend);
+        assertThrows(IllegalStateException.class,
+                () -> authority.proveFloorCoverage(candidate.checkpointId(), 1,
+                        genesis.appliedShardLogPosition()));
+        backend.coverage = java.util.Optional.of(new RecoveryCatalog.FloorCoverage(floor, candidate,
+                List.of(genesis, child, candidate)));
+        assertTrue(authority.proveFloorCoverage(candidate.checkpointId(), 1,
+                genesis.appliedShardLogPosition()).isPresent());
+    }
+
+    @Test
     void OxiaBoundaryRejectsTypedFloorBoundaryAndCursorDrift() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
         final EvidenceCursorV1 cursor = EvidenceCursorV1.kafka(id32(56), id16(57), id16(58),

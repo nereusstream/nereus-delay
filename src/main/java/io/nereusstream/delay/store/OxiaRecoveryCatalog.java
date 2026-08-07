@@ -10,9 +10,11 @@ import io.nereusstream.delay.protocol.RecoveryPinV1;
 import io.nereusstream.delay.protocol.SourcePosition;
 
 import java.nio.ByteBuffer;
+import java.util.HashSet;
 import java.util.Objects;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Validation boundary for an Oxia-backed checkpoint catalog.  The backend
@@ -185,17 +187,7 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
                     candidate.manifestSha256())) {
                 throw new IllegalStateException("Oxia floor coverage ancestry does not end at candidate");
             }
-            boolean floorFound = false;
-            for (CheckpointManifest ancestor : ancestry) {
-                if (Bytes.constantTimeEquals(ancestor.checkpointId(), coverage.floor().checkpointId())
-                        && Bytes.constantTimeEquals(ancestor.manifestSha256(), coverage.floor().manifestSha256())) {
-                    floorFound = true;
-                    break;
-                }
-            }
-            if (!floorFound) {
-                throw new IllegalStateException("Oxia floor coverage ancestry omits the returned Floor");
-            }
+            validateFloorCoverageAncestry(ancestry, candidate, coverage.floor());
         });
         return result;
     }
@@ -309,6 +301,65 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
                     && Bytes.constantTimeEquals(covered.canonicalBytes(), required.canonicalBytes()));
         } catch (IllegalArgumentException exception) {
             return false;
+        }
+    }
+
+    /** Validates that the backend returned a real published parent chain. */
+    private void validateFloorCoverageAncestry(final List<CheckpointManifest> ancestry,
+                                               final CheckpointManifest candidate,
+                                               final RecoveryFloor floor) {
+        final Set<String> seenCheckpointIds = new HashSet<>();
+        CheckpointManifest previous = null;
+        boolean floorFound = false;
+        for (CheckpointManifest ancestor : ancestry) {
+            final CheckpointManifest published = publishedManifest(ancestor.checkpointId());
+            validateManifestIdentity(ancestor, published,
+                    "Oxia floor coverage ancestry changed a published manifest");
+            if (!candidate.shardId().equals(ancestor.shardId())
+                    || !Bytes.constantTimeEquals(candidate.recoveryLineageId(), ancestor.recoveryLineageId())
+                    || !seenCheckpointIds.add(Bytes.hex(ancestor.checkpointId()))) {
+                throw new IllegalStateException("Oxia floor coverage ancestry has an invalid identity or cycle");
+            }
+            if (previous != null) {
+                validateAncestryLink(previous, ancestor);
+            }
+            if (Bytes.constantTimeEquals(ancestor.checkpointId(), floor.checkpointId())
+                    && Bytes.constantTimeEquals(ancestor.manifestSha256(), floor.manifestSha256())) {
+                floorFound = true;
+            }
+            previous = ancestor;
+        }
+        if (!floorFound) {
+            throw new IllegalStateException("Oxia floor coverage ancestry omits the returned Floor");
+        }
+    }
+
+    private static void validateAncestryLink(final CheckpointManifest parent,
+                                             final CheckpointManifest child) {
+        final CheckpointManifest.ParentCheckpoint parentRef = child.parentCheckpoint();
+        if (parentRef == null
+                || !Bytes.constantTimeEquals(parentRef.checkpointId(), parent.checkpointId())
+                || !parentRef.manifestSha256().equals(Bytes.hex(parent.manifestSha256()))
+                || !Bytes.constantTimeEquals(parent.recoveryLineageId(), child.recoveryLineageId())) {
+            throw new IllegalStateException("Oxia floor coverage ancestry has a broken parent link");
+        }
+        try {
+            if (child.lineageGeneration() != Math.addExact(parent.lineageGeneration(), 1)) {
+                throw new IllegalStateException("Oxia floor coverage ancestry has a broken lineage link");
+            }
+            if (child.appliedShardLogPosition().compareTo(parent.appliedShardLogPosition()) <= 0
+                    || child.shardMutationSequence() <= parent.shardMutationSequence()) {
+                throw new IllegalStateException("Oxia floor coverage ancestry does not advance its boundary");
+            }
+        } catch (IllegalArgumentException | ArithmeticException exception) {
+            throw new IllegalStateException("Oxia floor coverage ancestry has an invalid source link", exception);
+        }
+        for (EvidenceCursorV1 parentCursor : parent.evidenceCursors()) {
+            final EvidenceCursorV1 childCursor = child.evidenceCursors().stream()
+                    .filter(cursor -> cursor.sameIdentity(parentCursor)).findFirst().orElse(null);
+            if (childCursor == null || !childCursor.dominates(parentCursor)) {
+                throw new IllegalStateException("Oxia floor coverage ancestry regresses evidence cursors");
+            }
         }
     }
 
