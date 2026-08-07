@@ -464,7 +464,15 @@ drain queue keeps its head charged until `DelayShard.apply` returns. The count,
 byte, offset, release and close-drain behavior is covered by
 `EmbeddedDelayServiceTest.sdkBackpressureRejectsBeforeSourcePositionAndByteBudgetAreConsumed`.
 `EmbeddedDelayServiceTest.closeDrainsQueuedCommandsBeforeClosingTheShardDb`
-also verifies that a reopened service can read the applied result.
+also verifies that a reopened service can read the applied result. After a
+successful drain the service enters the closed state before resource teardown;
+DB-close and shared-resource-close failures are both attempted and aggregated
+with suppressed exceptions, so a failed native close cannot skip the process
+resource release attempt. This remains an embedded lifecycle guarantee rather
+than production Producer/Broker close-drain evidence. The facade also fences
+post-close `shard()` and pending-buffer access, covered by
+`EmbeddedDelayServiceTest.closedEmbeddedServiceDoesNotExposeShardOrBufferState`,
+so callers cannot bypass the client lifecycle and mutate a closed Store.
 
 `DelayShard` now rejects negative persisted mutation and Claim sequence values
 on reopen. These counters are encoded as checked non-negative u64 values;

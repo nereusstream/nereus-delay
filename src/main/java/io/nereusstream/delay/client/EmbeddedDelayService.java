@@ -182,10 +182,12 @@ public final class EmbeddedDelayService implements DelayClient {
     }
 
     public synchronized int pendingCommandCount() {
+        ensureOpen();
         return pending.size();
     }
 
     public synchronized long pendingCommandBytes() {
+        ensureOpen();
         return pendingBytes;
     }
 
@@ -442,6 +444,7 @@ public final class EmbeddedDelayService implements DelayClient {
     }
 
     public synchronized DelayShard shard() {
+        ensureOpen();
         return shard;
     }
 
@@ -455,8 +458,24 @@ public final class EmbeddedDelayService implements DelayClient {
             // an explicit retry instead of acknowledging data loss.
             drain();
             closed = true;
-            store.close();
-            resources.close();
+            RuntimeException closeFailure = null;
+            try {
+                store.close();
+            } catch (RuntimeException exception) {
+                closeFailure = exception;
+            }
+            try {
+                resources.close();
+            } catch (RuntimeException exception) {
+                if (closeFailure == null) {
+                    closeFailure = exception;
+                } else {
+                    closeFailure.addSuppressed(exception);
+                }
+            }
+            if (closeFailure != null) {
+                throw closeFailure;
+            }
         }
     }
 

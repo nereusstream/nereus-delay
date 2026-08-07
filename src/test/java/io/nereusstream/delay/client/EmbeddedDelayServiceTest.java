@@ -156,6 +156,22 @@ class EmbeddedDelayServiceTest {
     }
 
     @Test
+    void closedEmbeddedServiceDoesNotExposeShardOrBufferState() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 32);
+        final EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("closed-access")), shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC));
+        service.close();
+        try {
+            assertThrows(IllegalStateException.class, service::shard);
+            assertThrows(IllegalStateException.class, service::pendingCommandCount);
+            assertThrows(IllegalStateException.class, service::pendingCommandBytes);
+        } finally {
+            service.close();
+        }
+    }
+
+    @Test
     void reopenedEmbeddedServiceContinuesSourceOffsets() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 1);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("reopen"));

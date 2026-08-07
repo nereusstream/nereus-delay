@@ -155,6 +155,13 @@ source offset，drain 后释放精确 byte charge；`close()` 会先同步 drain
 队头只有在 `DelayShard.apply` 返回后才释放。证据是
 `EmbeddedDelayServiceTest.sdkBackpressureRejectsBeforeSourcePositionAndByteBudgetAreConsumed`。
 以及 `EmbeddedDelayServiceTest.closeDrainsQueuedCommandsBeforeClosingTheShardDb`。
+close 还会在 DB close 失败后继续尝试释放共享 RocksDB 资源，并把后续失败作为
+suppressed exception 聚合；成功 drain 后服务立即进入 closed 状态，避免部分关闭
+时继续触碰已关闭的 Store。该清理顺序仍只属于 embedded seam，不等于真实
+Producer close-drain 或 Broker response drain。
+关闭后的 embedded service 也不再暴露底层 `DelayShard` 或 pending-buffer
+诊断读取；`EmbeddedDelayServiceTest.closedEmbeddedServiceDoesNotExposeShardOrBufferState`
+覆盖该 facade 生命周期 fence。
 这只证明本地 SDK seam；Producer buffer、batch/linger、request/delivery timeout、
 close drain 以及真实 Broker response 仍属于真实适配器 release gate。
 
