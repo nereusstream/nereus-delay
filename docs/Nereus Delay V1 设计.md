@@ -710,6 +710,10 @@ Source consumer 的 look-ahead cursor 只能在该记录的 shard WriteBatch 成
 bounded replay turn 原样重试。不能先消费 source cursor、再把失败记录交给调用方自行
 猜测或重新定位。
 
+写入 `dedupe_cf` 的 `CommandResult` 与 `SystemMutationResult` 必须携带完整、canonical
+的 `SourcePosition` bytes；空值、截断值或非 canonical wire 变体在结果对象构造/解码时
+就 fail closed，不能等到某个查询路径再决定是否接受该 source anchor。
+
 每个 physical record 先按 outer kind 分支；Client Command 与 System Mutation 不共享 identity/query namespace。
 
 Client Command 先验证 source-ordered `closedIngressDeadlineThrough` 和 Broker persistence time：若 `retryUntil <= closedIngressDeadlineThrough`，或 persistence time 晚于 `retryUntil`，则无论 compact dedupe 是否仍存在，都产生该 position 的 `REJECTED(COMMAND_RETRY_WINDOW_EXPIRED)`，且不覆盖已有逻辑结果。前一个条件使 Broker 时钟在栅栏之后回拨也不能重新打开已关闭的 retry window。窗内先查 Command Identity：同一 `commandId + commandHash` 的后续记录是 no-op，保留首次权威结果，只写 Source Position audit并推进；相同 `commandId`、不同 hash 产生 position-level `REJECTED(COMMAND_ID_CONFLICT)`。只有 first-seen identity 才进入 Client operation validation。携 Source Position 的 queued receipt 可查询这次物理结果；bare `commandId` 始终指向首次合法占用。

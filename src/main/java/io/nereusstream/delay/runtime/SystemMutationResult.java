@@ -1,6 +1,7 @@
 package io.nereusstream.delay.runtime;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.SystemMutation;
 import io.nereusstream.delay.protocol.SystemMutationType;
@@ -34,13 +35,13 @@ public record SystemMutationResult(
         }
         Objects.requireNonNull(applyStatus, "applyStatus");
         Objects.requireNonNull(stableCode, "stableCode");
-        if (appliedSourcePosition == null || appliedSourcePosition.length == 0) {
-            throw new IllegalArgumentException("appliedSourcePosition must not be empty");
-        }
+        Objects.requireNonNull(appliedSourcePosition, "appliedSourcePosition");
         mutationId = Bytes.copy(mutationId);
         mutationHash = Bytes.copy(mutationHash);
         authorIdentity = Bytes.copy(authorIdentity);
-        appliedSourcePosition = Bytes.copy(appliedSourcePosition);
+        // Keep System Mutation results subject to the same canonical source
+        // anchor fence as Command results before they enter a durable value.
+        appliedSourcePosition = SourcePositionCodec.decode(appliedSourcePosition).canonicalBytes();
     }
 
     public static SystemMutationResult from(final SystemMutation mutation, final ApplyStatus status,

@@ -1,6 +1,7 @@
 package io.nereusstream.delay.runtime;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.StableCode;
 
 import java.nio.ByteBuffer;
@@ -22,7 +23,12 @@ public record CommandResult(
         if (generation < -1 || stateVersion < 0) {
             throw new IllegalArgumentException("invalid command result");
         }
-        appliedSourcePosition = Bytes.copy(appliedSourcePosition);
+        // A durable result is only meaningful when its source-order anchor is
+        // a complete canonical Source Position.  Without this constructor
+        // fence, an empty or non-canonical byte string could survive in a
+        // result value until a later shard-specific lookup happened to read
+        // it, allowing other local projections to observe an invalid anchor.
+        appliedSourcePosition = SourcePositionCodec.decode(appliedSourcePosition).canonicalBytes();
     }
 
     @Override

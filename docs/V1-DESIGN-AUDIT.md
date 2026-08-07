@@ -225,6 +225,11 @@ mutation-sequence helper, including the applied sequence captured by resource
 retire/delete records. At `Long.MAX_VALUE` the WriteBatch fails before any
 authoritative command or position state is committed; the local evidence is
 `DelayShardTest.mutationSequenceExhaustionFailsClosedBeforeCommandMutation`.
+The durable Command/System Mutation result values apply the same source-anchor
+boundary independently: their constructors and decoders require canonical
+Source Position bytes, so an empty, truncated or non-canonical result cannot
+become a local projection before a shard-specific lookup runs. The evidence is
+`DurableResultTest`.
 Kafka's exclusive activation LSO uses the same fail-closed boundary handling:
 an applied offset at `Long.MAX_VALUE` proves a `Long.MAX_VALUE` exclusive
 barrier without wrapping the successor calculation. The local evidence is

@@ -428,6 +428,13 @@ result, or source-position state is written, so the in-memory and persisted
 sequence cannot diverge or wrap. `DelayShardTest.mutationSequenceExhaustionFailsClosedBeforeCommandMutation`
 covers the exhausted boundary.
 
+Durable `CommandResult` and `SystemMutationResult` values now validate their
+embedded Source Position through the canonical decoder at construction and
+decode time. Empty, truncated or non-canonical source bytes therefore cannot
+enter a result projection and wait for a later shard-specific query to reject
+them; `DurableResultTest` covers both result types and the trailing-byte
+adversary.
+
 `KafkaActivationBarrier` now saturates the exclusive next-readable offset at
 `Long.MAX_VALUE`; a source record at the largest representable offset no
 longer causes an arithmetic exception while proving an already-reached LSO.
