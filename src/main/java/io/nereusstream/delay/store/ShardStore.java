@@ -593,17 +593,23 @@ public final class ShardStore implements AutoCloseable {
                                          final SharedRocksDbResources resources,
                                          final UUID restoreStoreIncarnation,
                                          final boolean acquireOwnedSlot) throws IOException, RocksDBException {
+        boolean acquireSlotAcquired = false;
         boolean ownedSlotAcquired = false;
         boolean dbSlotAcquired = false;
         try {
+            resources.acquireShardAcquireSlot();
+            acquireSlotAcquired = true;
             if (acquireOwnedSlot) {
                 resources.acquireOwnedShardSlot();
                 ownedSlotAcquired = true;
             }
             resources.acquireDbSlot();
             dbSlotAcquired = true;
-            return openAtPathWithSlot(config, shardId, dbPath, resources, restoreStoreIncarnation,
-                    acquireOwnedSlot);
+            final ShardStore opened = openAtPathWithSlot(config, shardId, dbPath, resources,
+                    restoreStoreIncarnation, acquireOwnedSlot);
+            resources.releaseShardAcquireSlot();
+            acquireSlotAcquired = false;
+            return opened;
         } catch (IOException | RocksDBException | RuntimeException exception) {
             // The DB slot is acquired after the owned slot.  Release only the
             // slots that this invocation actually acquired.
@@ -612,6 +618,9 @@ public final class ShardStore implements AutoCloseable {
             }
             if (ownedSlotAcquired) {
                 resources.releaseOwnedShardSlot();
+            }
+            if (acquireSlotAcquired) {
+                resources.releaseShardAcquireSlot();
             }
             throw exception;
         }

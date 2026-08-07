@@ -19,6 +19,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
     private final Env env;
     private final WriteBufferManager writeBufferManager;
     private final RateLimiter rateLimiter;
+    private final Semaphore shardAcquireSlots;
     private final Semaphore ownedShardSlots;
     private final Semaphore openDbSlots;
     private final Semaphore checkpointCreateSlots;
@@ -26,6 +27,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
     private final Semaphore checkpointDownloadSlots;
     private final Semaphore drainSlots;
     private final AtomicBoolean closed = new AtomicBoolean();
+    private int shardAcquireCount;
     private int ownedShardCount;
     private int openDbCount;
     private int checkpointCreateCount;
@@ -54,6 +56,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
         // opened by this process.  A zero-byte limiter would silently disable
         // the global bound even though the config declares one.
         rateLimiter = new RateLimiter(config.checkpointIoBytesPerSecond());
+        shardAcquireSlots = new Semaphore(config.maxConcurrentAcquiresPerWorker(), true);
         ownedShardSlots = new Semaphore(config.maxOwnedShards(), true);
         openDbSlots = new Semaphore(config.maxOpenShardDbs(), true);
         checkpointCreateSlots = new Semaphore(config.maxConcurrentCheckpointCreatesPerWorker(), true);
@@ -77,6 +80,23 @@ public final class SharedRocksDbResources implements AutoCloseable {
 
     public RateLimiter rateLimiter() {
         return rateLimiter;
+    }
+
+    /** Reserves one slot for the bounded shard-open/restore acquisition phase. */
+    public synchronized void acquireShardAcquireSlot() {
+        ensureOpen();
+        if (!shardAcquireSlots.tryAcquire()) {
+            throw new IllegalStateException("worker concurrent shard acquire limit reached");
+        }
+        shardAcquireCount++;
+    }
+
+    public synchronized void releaseShardAcquireSlot() {
+        if (shardAcquireCount <= 0) {
+            throw new IllegalStateException("shard acquire slot released without an active acquisition");
+        }
+        shardAcquireCount--;
+        shardAcquireSlots.release();
     }
 
     /**
@@ -187,7 +207,8 @@ public final class SharedRocksDbResources implements AutoCloseable {
         if (closed.get()) {
             return;
         }
-        if (openDbCount != 0 || ownedShardCount != 0 || checkpointCreateCount != 0 || checkpointUploadCount != 0
+        if (shardAcquireCount != 0 || openDbCount != 0 || ownedShardCount != 0
+                || checkpointCreateCount != 0 || checkpointUploadCount != 0
                 || checkpointDownloadCount != 0 || drainCount != 0) {
             throw new IllegalStateException("cannot close shared RocksDB resources while work is in flight");
         }

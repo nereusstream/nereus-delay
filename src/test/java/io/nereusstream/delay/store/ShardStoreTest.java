@@ -687,6 +687,35 @@ class ShardStoreTest {
     }
 
     @Test
+    void workerAcquireSlotIsReleasedAfterOpenAndFailsBeforeOpeningWhenHeld() {
+        final ShardStoreConfig config = new ShardStoreConfig(tempDir.resolve("acquire-bounded"), 1, 2, 32, 64,
+                1, 1024 * 1024, 1024 * 1024, 1, 1, 1, 1024, 1, 1024 * 1024, 1);
+        final ShardId first = new ShardId(RouteIncarnation.random(), 5);
+        final ShardId second = new ShardId(RouteIncarnation.random(), 6);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore firstStore = ShardStore.open(config, first, resources)) {
+            assertEquals(first, firstStore.shardId());
+            // A successful open must release the short-lived acquisition slot
+            // even though the DB and owned-shard slots remain held.
+            resources.acquireShardAcquireSlot();
+            resources.releaseShardAcquireSlot();
+
+            resources.acquireShardAcquireSlot();
+            try {
+                final IllegalStateException rejected = assertThrows(IllegalStateException.class,
+                        () -> ShardStore.open(config, second, resources));
+                assertEquals("worker concurrent shard acquire limit reached", rejected.getMessage());
+            } finally {
+                resources.releaseShardAcquireSlot();
+            }
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore secondStore = ShardStore.open(config, second, resources)) {
+            assertEquals(second, secondStore.shardId());
+        }
+    }
+
+    @Test
     void perDbWriteBufferCeilingMustBePositive() {
         assertThrows(IllegalArgumentException.class, () -> new ShardStoreConfig(tempDir.resolve("invalid-wbm"),
                 1, 1, 32, 32, 1, 1024 * 1024, 1024 * 1024, 1, 1, 1, 1024, 1, 0));

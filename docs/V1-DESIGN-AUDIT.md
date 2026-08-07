@@ -1016,6 +1016,11 @@ limits；这仍只是本地文件完整性边界，不替代 Object Store 内容
 
 `SharedRocksDbResources` 现在也把 checkpoint create/upload slot 纳入进程级
 关闭保护；后台 checkpoint 或上传操作持有 slot 时，资源 close 会 fail closed。
+Shard open/restore 的短生命周期 acquisition 阶段也有独立的
+`maxConcurrentAcquiresPerWorker` slot；它在 native DB 打开或失败清理完成后立即
+释放，不会把 acquisition 并发额度错误地当成长期 owned/DB capacity。已有
+acquisition slot 被占用时，`ShardStore.open` 在创建 native handle 前 fail closed，
+回归证据为 `ShardStoreTest.workerAcquireSlotIsReleasedAfterOpenAndFailsBeforeOpeningWhenHeld`。
 同一进程的 restore/download staging 也有独立的 Worker 级 slot，并在
 manifest/file 校验、临时目录复制、验证打开和 ACTIVE 安装完成后释放；真实
 restore 回归会在返回的 DB 仍保持打开时重新取得该 slot，证明不会把恢复并发
