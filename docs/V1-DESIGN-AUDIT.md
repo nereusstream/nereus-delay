@@ -1079,7 +1079,11 @@ writer generations now preserve raw uint64 bit patterns through
 PublishAttempt records, and checkpoint `createdBy` JSON. High-bit vectors cover
 the typed identities, runtime metadata, local inflight projections and
 manifest JSON; this closes the local width/encoding path, not Oxia lease or
-production ownership authority.
+production ownership authority. The guarded Pulsar source-connection
+generation is likewise preserved as a raw uint64 through the canonical
+activation barrier, runtime barrier, replay-entry validation and
+`OwnedDelayShard`; high-bit fence vectors cover both the wire and catch-up
+paths.
 
 ## Source locks
 

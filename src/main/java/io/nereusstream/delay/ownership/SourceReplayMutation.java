@@ -16,8 +16,8 @@ public record SourceReplayMutation(SystemMutation mutation, SourcePosition posit
         if ((sourceConnectionGeneration == null) != (guardAttestationDigest == null)) {
             throw new IllegalArgumentException("source connection proof fields must be present together");
         }
-        if (sourceConnectionGeneration != null && sourceConnectionGeneration <= 0) {
-            throw new IllegalArgumentException("sourceConnectionGeneration must be positive");
+        if (sourceConnectionGeneration != null && sourceConnectionGeneration == 0) {
+            throw new IllegalArgumentException("sourceConnectionGeneration must be nonzero");
         }
         if (guardAttestationDigest != null) {
             Bytes.requireLength(guardAttestationDigest, 32, "guardAttestationDigest");

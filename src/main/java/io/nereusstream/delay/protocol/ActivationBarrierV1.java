@@ -33,8 +33,8 @@ public final class ActivationBarrierV1 {
         this.resource = Objects.requireNonNull(resource, "resource");
         this.partition = partition;
         this.guardedSourceConnectionGeneration = guardedSourceConnectionGeneration;
-        if (guardedSourceConnectionGeneration != null && guardedSourceConnectionGeneration <= 0) {
-            throw new IllegalArgumentException("guarded source connection generation must be positive");
+        if (guardedSourceConnectionGeneration != null && guardedSourceConnectionGeneration == 0) {
+            throw new IllegalArgumentException("guarded source connection generation must be nonzero");
         }
         this.resourceGuardAttestationDigest = resourceGuardAttestationDigest == null ? null
                 : fixed(resourceGuardAttestationDigest, 32, "resourceGuardAttestationDigest");
@@ -145,7 +145,7 @@ public final class ActivationBarrierV1 {
                     CanonicalProtobuf.bytes(fields, 1, resource.canonicalBytes());
                     CanonicalProtobuf.uint32Bits(fields, 2, partition);
                     if (guardedSourceConnectionGeneration != null) {
-                        CanonicalProtobuf.uint64(fields, 3, guardedSourceConnectionGeneration);
+                        CanonicalProtobuf.uint64Bits(fields, 3, guardedSourceConnectionGeneration);
                         CanonicalProtobuf.bytes(fields, 4, resourceGuardAttestationDigest);
                     }
                 }));
@@ -162,7 +162,7 @@ public final class ActivationBarrierV1 {
                     CanonicalProtobuf.uint64Bits(fields, 4, entryId);
                     CanonicalProtobuf.uint32Bits(fields, 5, normalizedBatchIndex);
                     CanonicalProtobuf.uint32Bits(fields, 6, batchSize);
-                    CanonicalProtobuf.uint64(fields, 7, guardedSourceConnectionGeneration);
+                    CanonicalProtobuf.uint64Bits(fields, 7, guardedSourceConnectionGeneration);
                     CanonicalProtobuf.bytes(fields, 8, resourceGuardAttestationDigest);
                 }));
             }

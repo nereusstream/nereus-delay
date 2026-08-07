@@ -62,16 +62,16 @@ class SourceActivationBarrierTest {
         resource[0] = 7;
         final byte[] guardDigest = Bytes.sha256(Bytes.utf8("guard-1"));
         final PulsarActivationBarrier barrier = new PulsarActivationBarrier(shard, resource, "persistent://t/a",
-                4, 8, 2, 3, 11, guardDigest, false);
-        barrier.validateSourceConnection(11, guardDigest);
-        assertThrows(IllegalArgumentException.class, () -> barrier.validateSourceConnection(12, guardDigest));
+                4, 8, 2, 3, Long.MIN_VALUE, guardDigest, false);
+        barrier.validateSourceConnection(Long.MIN_VALUE, guardDigest);
+        assertThrows(IllegalArgumentException.class, () -> barrier.validateSourceConnection(Long.MAX_VALUE, guardDigest));
         assertThrows(IllegalArgumentException.class,
                 () -> barrier.validateSourceConnection(11, Bytes.sha256(Bytes.utf8("other-guard"))));
         assertFalse(barrier.reachedBy(new PulsarSourcePosition(shard, resource, "persistent://t/a", 4, 8, 1, 3,
                 PulsarSourcePosition.EntryKind.BATCH, 1)));
         assertTrue(barrier.reachedBy(new PulsarSourcePosition(shard, resource, "persistent://t/a", 4, 8, 2, 3,
                 PulsarSourcePosition.EntryKind.BATCH, 1)));
-        assertTrue(PulsarActivationBarrier.empty(shard, resource, "persistent://t/a", 11, guardDigest)
+        assertTrue(PulsarActivationBarrier.empty(shard, resource, "persistent://t/a", Long.MIN_VALUE, guardDigest)
                 .reachedBy(null));
         final byte[] replacement = resource.clone();
         replacement[1] = 8;

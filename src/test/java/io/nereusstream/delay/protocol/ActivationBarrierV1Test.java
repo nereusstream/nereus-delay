@@ -33,8 +33,11 @@ class ActivationBarrierV1Test {
                 new PulsarBrokerResourceIdentityV1("cluster", bytes(32, 1), "topic", 7));
         final ActivationBarrierV1 pulsarBarrier = ActivationBarrierV1.pulsar(
                 pulsar, -1, Long.MIN_VALUE, -1L, Integer.MIN_VALUE, Integer.MIN_VALUE + 1,
-                9, bytes(32, 2));
+                Long.MIN_VALUE, bytes(32, 2));
         assertEquals(pulsarBarrier, ActivationBarrierV1.decode(pulsarBarrier.canonicalBytes()));
+        final ActivationBarrierV1 emptyPulsar = ActivationBarrierV1.empty(pulsar, -1, Long.MIN_VALUE,
+                bytes(32, 3));
+        assertEquals(emptyPulsar, ActivationBarrierV1.decode(emptyPulsar.canonicalBytes()));
     }
 
     @Test

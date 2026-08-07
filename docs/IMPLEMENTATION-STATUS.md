@@ -273,6 +273,11 @@ and writer generations now preserve their raw uint64 bit patterns through
 PublishAttempt records, and checkpoint `createdBy` JSON. The high-bit boundary
 is covered by `ProtocolCodecTest`, `StoreRuntimeMetadataTest`, `KeyCodecTest`,
 `ClaimRecordTest`, `PublishAttemptLedgerTest` and `CheckpointManifestTest`.
+The guarded Pulsar source-connection generation is also preserved as a raw
+uint64 through `ActivationBarrierV1`, the runtime Pulsar barrier, replay-entry
+validation and `OwnedDelayShard`; `ActivationBarrierV1Test`,
+`SourceActivationBarrierTest` and `OwnerLeaseTest` cover its high-bit fence
+path.
 
 Destination Profile target partition count/allow-list values and Native
 capability/prepared/public binding physical partitions now preserve complete

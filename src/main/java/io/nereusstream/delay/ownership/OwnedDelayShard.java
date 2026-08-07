@@ -505,7 +505,7 @@ public final class OwnedDelayShard {
         if (!(activationBarrier instanceof PulsarActivationBarrier pulsarBarrier)) {
             return;
         }
-        if (connectionGeneration == null || connectionGeneration <= 0 || guardAttestationDigest == null) {
+        if (connectionGeneration == null || connectionGeneration == 0 || guardAttestationDigest == null) {
             throw new IllegalArgumentException("Pulsar source connection proof is required");
         }
         pulsarBarrier.validateSourceConnection(connectionGeneration, guardAttestationDigest);

@@ -24,7 +24,7 @@ public record PulsarActivationBarrier(
         physicalTopic = canonicalText(physicalTopic, "physicalTopic");
         if (physicalTopic.isBlank() || (empty ? batchSize != 0 : batchSize == 0)
                 || (!empty && Integer.compareUnsigned(normalizedLastBatchIndex, batchSize) >= 0)
-                || guardedSourceConnectionGeneration <= 0) {
+                || guardedSourceConnectionGeneration == 0) {
             throw new IllegalArgumentException("invalid Pulsar activation barrier");
         }
         if (empty && (ledgerId != 0 || entryId != 0 || normalizedLastBatchIndex != 0 || batchSize != 0)) {

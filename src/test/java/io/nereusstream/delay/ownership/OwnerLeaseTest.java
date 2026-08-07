@@ -597,13 +597,16 @@ class OwnerLeaseTest {
         final byte[] resource = Bytes.sha256(Bytes.utf8("pulsar-resource"));
         final byte[] guard = Bytes.sha256(Bytes.utf8("guard-generation-7"));
         final PulsarActivationBarrier barrier = new PulsarActivationBarrier(shardId, resource,
-                "persistent://tenant/commands-partition-7", 4, 8, 2, 3, 7, guard, false);
+                "persistent://tenant/commands-partition-7", 4, 8, 2, 3, Long.MIN_VALUE, guard, false);
         final PulsarSourcePosition catchup = new PulsarSourcePosition(shardId, resource,
                 "persistent://tenant/commands-partition-7", 4, 8, 2, 3,
                 PulsarSourcePosition.EntryKind.BATCH, 1_000);
         final PulsarSourcePosition next = new PulsarSourcePosition(shardId, resource,
                 "persistent://tenant/commands-partition-7", 4, 9, 0, 1,
                 PulsarSourcePosition.EntryKind.NON_BATCH, 1_001);
+        final PreparedCommand catchupCommand = PreparedCommand.schedule(shardId,
+                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("pulsar-catchup-lane")), 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("catchup-payload")), 10_000);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("pulsar-generation"));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
@@ -611,14 +614,14 @@ class OwnerLeaseTest {
             owned.markCatchingUp(new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("assignment-pulsar")), 1,
                     barrier));
             assertThrows(IllegalArgumentException.class, () -> owned.recordCatchup(catchup));
-            owned.recordCatchup(catchup, 7L, guard);
+            owned.replayCatchup(List.of(new SourceReplayRecord(catchupCommand, catchup, Long.MIN_VALUE, guard)), 101);
             owned.activateForCommands(101);
             final PreparedCommand command = PreparedCommand.schedule(shardId,
                     new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("pulsar-generation-lane")), 2_000, 5_000,
                             OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
             assertThrows(IllegalArgumentException.class, () -> owned.apply(command, next, 101));
             assertEquals(io.nereusstream.delay.protocol.StableCode.SCHEDULED,
-                    owned.apply(command, next, 101, 7L, guard).stableCode());
+                    owned.apply(command, next, 101, Long.MIN_VALUE, guard).stableCode());
         }
     }
 
