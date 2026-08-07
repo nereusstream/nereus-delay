@@ -153,7 +153,11 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
 
     @Override
     public void validatePublishedRestoreCandidate(final CheckpointManifest candidate) {
-        backend.validatePublishedRestoreCandidate(Objects.requireNonNull(candidate, "candidate"));
+        final CheckpointManifest requested = Objects.requireNonNull(candidate, "candidate");
+        final CheckpointManifest published = publishedManifest(requested.checkpointId());
+        validateManifestIdentity(requested, published,
+                "Oxia restore candidate is not the exact published manifest");
+        backend.validatePublishedRestoreCandidate(requested);
     }
 
     @Override

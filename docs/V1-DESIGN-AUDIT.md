@@ -739,6 +739,9 @@ candidate、Floor 和 ancestry manifest 还必须与已发布值的完整 canoni
 字节投影一致，不能只依赖部分字段比较；checkpoint ID、evidence digest、
 typed cursor 和 coverage positions 在调用 backend 前也会复制，校验快照与
 backend 请求缓冲区彼此隔离，避免可变调用方或 adapter 在 CAS 期间改变请求内容。
+恢复候选入口也会先 reread 同 checkpoint 的已发布 manifest 并做完整 canonical
+投影校验，再调用 backend 的 floor/recovery-set 验证；同 ID 漂移候选不会把远端
+验证当作第一次发现错误的边界。
 
 Legacy/typed local Recovery Floor CAS 也支持 exact successor reread（含
 checkpoint、manifest、source/mutation 和 evidence/cursor identity），response

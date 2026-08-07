@@ -839,6 +839,9 @@ accepted as a successful remote CAS. Read-only `currentFloor`/
 manifest binding, candidate/floor identity, requested mutation/source-boundary
 coverage, and ancestry-endpoint checks; equal source order tokens still require
 canonical Source Position equality.
+`validatePublishedRestoreCandidate` also rereads the exact published manifest
+and rejects a same-ID canonical projection drift before invoking the backend's
+floor/recovery-set validation.
 Typed `RecoveryCandidateRefV1` and
 `RecoveryPinV1` codecs now close the candidate branch and session-bound pin
 projection, but they are still local value codecs: immutable object publication,

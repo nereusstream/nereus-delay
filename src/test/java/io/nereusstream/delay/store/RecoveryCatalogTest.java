@@ -396,6 +396,52 @@ class RecoveryCatalogTest {
     }
 
     @Test
+    void OxiaBoundaryRejectsRestoreCandidateDriftBeforeBackendValidation() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 27);
+        final CheckpointManifest published = manifest(shard, UUID.randomUUID(), id16(270), id16(271), 0,
+                1, 1, null);
+        final CheckpointManifest drifted = manifest(shard, UUID.randomUUID(), id16(270), published.checkpointId(),
+                0, 1, 1, null);
+        final RecoveryCatalog delegate = new RecoveryCatalog();
+        delegate.publish(published, 0);
+        final OxiaRecoveryCatalog.CasBackend backend = new OxiaRecoveryCatalog.CasBackend() {
+            @Override
+            public RecoveryCatalog.Publication publish(final CheckpointManifest ignored, final long expected) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public RecoveryFloor advanceFloor(final byte[] ignored, final long expected, final byte[] digest) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public Optional<CheckpointManifest> manifest(final byte[] checkpointId) {
+                return delegate.manifest(checkpointId);
+            }
+
+            @Override
+            public Optional<RecoveryFloor> currentFloor() {
+                return Optional.empty();
+            }
+
+            @Override
+            public void validatePublishedRestoreCandidate(final CheckpointManifest ignored) {
+                throw new AssertionError("drifted restore candidate reached backend");
+            }
+
+            @Override
+            public Optional<RecoveryCatalog.FloorCoverage> proveFloorCoverage(
+                    final byte[] ignored, final long sequence,
+                    final io.nereusstream.delay.protocol.SourcePosition... positions) {
+                return Optional.empty();
+            }
+        };
+        assertThrows(IllegalStateException.class,
+                () -> new OxiaRecoveryCatalog(backend).validatePublishedRestoreCandidate(drifted));
+    }
+
+    @Test
     void OxiaBoundaryRejectsPublicationFloorDrift() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 24);
         final CheckpointManifest manifest = manifest(shard, UUID.randomUUID(), id16(240), id16(241), 0,
