@@ -20,12 +20,14 @@ public record ShardQuota(long pendingMessages, long pendingBytes, long reservati
     }
 
     public ShardQuota addSchedule(final long bytes, final boolean newLane) {
+        requireNonNegativeBytes(bytes);
         return new ShardQuota(Math.addExact(pendingMessages, 1), Math.addExact(pendingBytes, bytes),
                 reservationMessages, reservationBytes, Math.addExact(laneCount, newLane ? 1 : 0),
                 Math.addExact(usageRevision, 1));
     }
 
     public ShardQuota removeSchedule(final long bytes) {
+        requireNonNegativeBytes(bytes);
         if (pendingMessages <= 0 || pendingBytes < bytes) {
             throw new IllegalStateException("shard quota usage underflow");
         }
@@ -46,12 +48,14 @@ public record ShardQuota(long pendingMessages, long pendingBytes, long reservati
     }
 
     public ShardQuota addReservation(final long bytes, final boolean newLane) {
+        requireNonNegativeBytes(bytes);
         return new ShardQuota(pendingMessages, pendingBytes, Math.addExact(reservationMessages, 1),
                 Math.addExact(reservationBytes, bytes), Math.addExact(laneCount, newLane ? 1 : 0),
                 Math.addExact(usageRevision, 1));
     }
 
     public ShardQuota removeReservation(final long bytes) {
+        requireNonNegativeBytes(bytes);
         if (reservationMessages <= 0 || reservationBytes < bytes) {
             throw new IllegalStateException("shard quota reservation underflow");
         }
@@ -72,11 +76,18 @@ public record ShardQuota(long pendingMessages, long pendingBytes, long reservati
     }
 
     public ShardQuota commitReservation(final long bytes) {
+        requireNonNegativeBytes(bytes);
         if (reservationMessages <= 0 || reservationBytes < bytes) {
             throw new IllegalStateException("shard quota reservation underflow");
         }
         return new ShardQuota(Math.addExact(pendingMessages, 1), Math.addExact(pendingBytes, bytes),
                 reservationMessages - 1, reservationBytes - bytes, laneCount, Math.addExact(usageRevision, 1));
+    }
+
+    private static void requireNonNegativeBytes(final long bytes) {
+        if (bytes < 0) {
+            throw new IllegalArgumentException("quota bytes must be non-negative");
+        }
     }
 
     public byte[] encode() {

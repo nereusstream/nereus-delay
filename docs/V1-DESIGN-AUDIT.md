@@ -943,6 +943,11 @@ claimed complete.
 | Runbooks | restore、fence、checkpoint、DLQ replay、uncertain override、disaster boundary | 在 release candidate 上完成演练并留 evidence |
 | Soak/upgrade report | 最长 retry/checkpoint/floor/GC 周期和 protocol rollout | 无 source gap、counter drift、unbounded resource 或 reader-before-writer |
 
+`ShardQuota` 的单条 message/reservation add、remove 和 commit 入口现在先拒绝
+负 bytes，再执行 checked arithmetic；`ShardQuotaTest.singleChargeOperationsRejectNegativeBytes`
+覆盖了原本可能把扣费参数解释成加费的输入边界。这是 shard-local quota
+完整性证据，仍不替代 Route Broker charge authority 或多 shard placement proof。
+
 本地 `SloObservationOutboxStore` 已把 `meta_cf/SLO_OUTBOX` 的扫描边界收紧为
 key/value `sampleId` 必须 byte-identical；错挂的 key 不会被导出为另一个样本，
 而 collector acknowledgement 仍必须匹配当前完整 record digest 才能删除。回归
