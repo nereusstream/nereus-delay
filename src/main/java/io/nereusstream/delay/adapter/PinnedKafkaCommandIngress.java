@@ -89,27 +89,34 @@ public final class PinnedKafkaCommandIngress implements WireCommandIngressAdapte
             return completedWire(WireIngressOutcomeSupport.localDefinite(command,
                     StableCode.INVALID_PREPARED_COMMAND));
         }
+        final byte[] attempt;
+        try {
+            attempt = WireIngressOutcomeSupport.requireAttempt(physicalAttemptId);
+        } catch (RuntimeException exception) {
+            return completedWire(WireIngressOutcomeSupport.localDefinite(command,
+                    StableCode.INVALID_PREPARED_COMMAND));
+        }
         final CompletionStage<KafkaProduceResult> result;
         try {
             result = transport.produce(request);
         } catch (RuntimeException exception) {
-            return completedWire(WireIngressOutcomeSupport.uncertain(command, physicalAttemptId,
+            return completedWire(WireIngressOutcomeSupport.uncertain(command, attempt,
                     StableCode.ENQUEUE_RESULT_UNCERTAIN, null));
         }
         if (result == null) {
-            return completedWire(WireIngressOutcomeSupport.uncertain(command, physicalAttemptId,
+            return completedWire(WireIngressOutcomeSupport.uncertain(command, attempt,
                     StableCode.ENQUEUE_RESULT_UNCERTAIN, null));
         }
         return result.handle((produce, error) -> {
             if (error != null) {
-                return WireIngressOutcomeSupport.uncertain(command, physicalAttemptId,
+                return WireIngressOutcomeSupport.uncertain(command, attempt,
                         StableCode.ENQUEUE_RESULT_UNCERTAIN, null);
             }
             try {
-                return projectWire(command, request, produce, receiptQueryUntilEpochMs, physicalAttemptId);
+                return projectWire(command, request, produce, receiptQueryUntilEpochMs, attempt);
             } catch (RuntimeException malformedResult) {
                 // A malformed adapter result is not evidence of non-persistence.
-                return WireIngressOutcomeSupport.uncertain(command, physicalAttemptId,
+                return WireIngressOutcomeSupport.uncertain(command, attempt,
                         StableCode.INTEGRITY_ERROR, StableCode.INTEGRITY_ERROR.wireValue());
             }
         });

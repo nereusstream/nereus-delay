@@ -394,7 +394,9 @@ Native credential authority 在线下 snapshot issuer 用一个 Oxia transaction
 
 Future timeout、取消等待、连接断开、进程退出不自动等价于 `DEFINITELY_NOT_QUEUED`。
 
-Managed ingress 对 transport 返回的 result 也执行 closed-product 校验：`PERSISTED`
+Managed ingress 在 Producer ownership 前先验证 nonzero 16-byte
+`physicalEnqueueAttemptId`；无效 attempt 只产生本地 definitive rejection，绝不调用
+transport。对 transport 返回的 result 也执行 closed-product 校验：`PERSISTED`
 必须使用 `OK` stable code、完整的 canonical Broker resource/position 字段，
 `DEFINITIVELY_NOT_PERSISTED`/`UNKNOWN` 不得携带成功 position 或 `OK`。适配器
 result 无法构造成合法 receipt（包括 malformed projection、缺少 response evidence

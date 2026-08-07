@@ -188,6 +188,44 @@ class AdapterIngressTest {
     }
 
     @Test
+    void kafkaV1RejectsInvalidPhysicalAttemptBeforeTransportOwnership() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 30);
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-attempt", UUID.randomUUID(), 30);
+        final PreparedCommand command = command(shard);
+        final java.util.concurrent.atomic.AtomicBoolean transportCalled = new java.util.concurrent.atomic.AtomicBoolean();
+        final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request -> {
+            transportCalled.set(true);
+            return CompletableFuture.failedFuture(new AssertionError("invalid attempt reached transport"));
+        };
+        try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
+            final var wire = adapter.enqueueOutcomeV1(command, 5_000, new byte[16]).toCompletableFuture().join();
+            assertEquals(EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED, wire.kind());
+            assertEquals(StableCode.INVALID_PREPARED_COMMAND, wire.definitelyNotQueued().error().code());
+            assertFalse(transportCalled.get());
+        }
+    }
+
+    @Test
+    void pulsarV1RejectsInvalidPhysicalAttemptBeforeTransportOwnership() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 31);
+        final byte[] token = Bytes.sha256(Bytes.utf8("attempt-pulsar-token"));
+        final PulsarIngressResource resource = new PulsarIngressResource(shard, "cluster-attempt-pulsar", token,
+                "persistent://tenant/ns/topic-31", 9_031, 31);
+        final PreparedCommand command = command(shard);
+        final java.util.concurrent.atomic.AtomicBoolean transportCalled = new java.util.concurrent.atomic.AtomicBoolean();
+        final PinnedPulsarCommandIngress.PulsarSendTransport transport = request -> {
+            transportCalled.set(true);
+            return CompletableFuture.failedFuture(new AssertionError("invalid attempt reached transport"));
+        };
+        try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
+            final var wire = adapter.enqueueOutcomeV1(command, 5_000, new byte[16]).toCompletableFuture().join();
+            assertEquals(EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED, wire.kind());
+            assertEquals(StableCode.INVALID_PREPARED_COMMAND, wire.definitelyNotQueued().error().code());
+            assertFalse(transportCalled.get());
+        }
+    }
+
+    @Test
     void kafkaV1WireRejectsLegacyBodyBeforeTransportOwnership() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 25);
         final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-v1", UUID.randomUUID(), 25);
