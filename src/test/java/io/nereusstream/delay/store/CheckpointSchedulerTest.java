@@ -70,6 +70,22 @@ class CheckpointSchedulerTest {
     }
 
     @Test
+    void valueEqualReconstructedClaimCannotCompleteTheInFlightAttempt() {
+        final CheckpointScheduler scheduler = new CheckpointScheduler(100, 0, 1);
+        final ShardId shard = new ShardId(RouteIncarnation.fromUuid(new java.util.UUID(11, 12)), 0);
+        scheduler.register(shard, 0);
+
+        final CheckpointScheduler.ScheduledCheckpoint claim = scheduler.claimDue(100, 1).get(0);
+        final CheckpointScheduler.ScheduledCheckpoint reconstructed =
+                new CheckpointScheduler.ScheduledCheckpoint(shard, claim.dueAtEpochMs());
+
+        assertEquals(claim, reconstructed);
+        assertThrows(IllegalStateException.class, () -> scheduler.complete(reconstructed, 100));
+        assertTrue(scheduler.isInFlight(shard));
+        assertNotEquals(0, scheduler.complete(claim, 100));
+    }
+
+    @Test
     @SuppressWarnings("deprecation")
     void shardOnlyCompletionFailsClosedBecauseItCannotCarryClaimIdentity() {
         final CheckpointScheduler scheduler = new CheckpointScheduler(100, 0, 1);

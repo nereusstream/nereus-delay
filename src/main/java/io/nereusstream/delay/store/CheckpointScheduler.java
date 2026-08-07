@@ -104,6 +104,9 @@ public final class CheckpointScheduler {
         requireTime(completedAtEpochMs, "completedAtEpochMs");
         Objects.requireNonNull(claimed, "claimed");
         final State state = requireState(claimed.shardId());
+        // The returned value is deliberately a process-local capability.  A
+        // value-equal ScheduledCheckpoint reconstructed from shardId/dueAt
+        // must not be able to complete the attempt or reset a newer schedule.
         if (!state.inFlight() || state.claim() != claimed) {
             throw new IllegalStateException("checkpoint claim is no longer current: " + claimed.shardId());
         }

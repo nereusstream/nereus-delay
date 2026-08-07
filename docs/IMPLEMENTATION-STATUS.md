@@ -698,9 +698,11 @@ failure.
 owned shard: interval and deterministic per-shard jitter are validated, due
 claims are sorted and capped, an in-flight shard cannot be claimed twice, and
 completion reschedules from the observed completion time only when the exact
-claim handle returned by `claimDue` is supplied. A shard-only completion is a
-fail-closed compatibility trap, so a late callback from an earlier claim cannot
-reset a newer attempt; `CheckpointSchedulerTest` covers both the stale-claim
+claim handle returned by `claimDue` is supplied. Completion compares that
+handle by object identity, so a value-equal handle reconstructed from
+`shardId + dueAt` is rejected. A shard-only completion is a fail-closed
+compatibility trap, so a late callback from an earlier claim cannot reset a newer
+attempt; `CheckpointSchedulerTest` covers reconstructed-handle, stale-claim
 and shard-only paths. Jitter percentage calculation divides before multiplying,
 so a valid percentage of a near-maximum interval does not fail on an
 intermediate `long` overflow; `CheckpointSchedulerTest.largeIntervalJitterUsesCheckedWideArithmetic`

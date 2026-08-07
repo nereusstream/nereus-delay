@@ -1035,8 +1035,9 @@ manifest/file 校验、临时目录复制、验证打开和 ACTIVE 安装完成�
 restore 回归会在返回的 DB 仍保持打开时重新取得该 slot，证明不会把恢复并发
 额度错误地绑定到 DB 生命周期。`CheckpointScheduler` 则以确定性 shard
 jitter、due claim 上限和 in-flight fence 提供错峰调度；completion 必须带回
-`claimDue` 返回的 exact process-local 句柄，只有当前 claim 才能推进 next due，
-shard-only 或迟到旧 claim 都 fail closed。它是 process-local 调度器，不冒充
+`claimDue` 返回的 exact process-local 句柄，并以对象身份而非
+`shardId + dueAt` 值相等进行校验，重建的 value-equal handle、shard-only
+或迟到旧 claim 都 fail closed。它是 process-local 调度器，不冒充
 checkpoint manifest、Upload Intent 或 Oxia catalog authority。
 同一资源封套现在还提供 `maxConcurrentDrainsPerWorker` 的独立 drain slot，
 争用和资源 close 保护由 `ShardStoreTest.drainSlotIsWorkerBoundedAndCloseProtected`
