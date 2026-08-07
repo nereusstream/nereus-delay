@@ -22,7 +22,7 @@ public record PulsarActivationBarrier(
         Bytes.requireLength(brokerResourceIncarnation, 32, "brokerResourceIncarnation");
         Bytes.requireLength(resourceGuardAttestationDigest, 32, "resourceGuardAttestationDigest");
         physicalTopic = canonicalText(physicalTopic, "physicalTopic");
-        if (physicalTopic.isBlank() || ledgerId < 0 || entryId < 0 || normalizedLastBatchIndex < 0
+        if (physicalTopic.isBlank() || normalizedLastBatchIndex < 0
                 || batchSize < 0 || guardedSourceConnectionGeneration <= 0
                 || (!empty && batchSize > 0 && normalizedLastBatchIndex >= batchSize)) {
             throw new IllegalArgumentException("invalid Pulsar activation barrier");
@@ -138,10 +138,10 @@ public record PulsarActivationBarrier(
         validatePosition(lastAppliedPosition);
         final PulsarSourcePosition pulsar = (PulsarSourcePosition) lastAppliedPosition;
         if (pulsar.ledgerId() != ledgerId) {
-            return pulsar.ledgerId() > ledgerId;
+            return Long.compareUnsigned(pulsar.ledgerId(), ledgerId) > 0;
         }
         if (pulsar.entryId() != entryId) {
-            return pulsar.entryId() > entryId;
+            return Long.compareUnsigned(pulsar.entryId(), entryId) > 0;
         }
         if (batchSize > 0 && pulsar.batchSize() != batchSize) {
             throw new IllegalArgumentException("Pulsar activation barrier batch shape mismatch");

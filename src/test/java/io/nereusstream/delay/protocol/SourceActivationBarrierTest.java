@@ -24,13 +24,25 @@ class SourceActivationBarrierTest {
     }
 
     @Test
-    void KafkaBarrierSaturatesExclusiveNextOffsetAtLongMaximum() {
+    void KafkaBarrierAcceptsUnsignedMaximumExclusiveOffset() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 5);
         final UUID topic = UUID.randomUUID();
         final KafkaSourcePosition lastOffset = new KafkaSourcePosition(shard, "cluster", topic,
-                Long.MAX_VALUE, null, 1);
-        assertTrue(new KafkaActivationBarrier(shard, "cluster", topic, Long.MAX_VALUE)
+                -1L, null, 1);
+        assertTrue(new KafkaActivationBarrier(shard, "cluster", topic, -1L)
                 .reachedBy(lastOffset));
+    }
+
+    @Test
+    void KafkaBarrierOrdersUnsignedHighBitOffsets() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
+        final UUID topic = UUID.randomUUID();
+        final KafkaSourcePosition highBit = new KafkaSourcePosition(shard, "cluster", topic,
+                Long.MIN_VALUE, null, 1);
+        assertTrue(new KafkaActivationBarrier(shard, "cluster", topic, Long.MIN_VALUE)
+                .reachedBy(highBit));
+        assertFalse(new KafkaActivationBarrier(shard, "cluster", topic, Long.MIN_VALUE)
+                .reachedBy(new KafkaSourcePosition(shard, "cluster", topic, Long.MAX_VALUE - 1, null, 1)));
     }
 
     @Test

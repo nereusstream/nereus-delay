@@ -213,9 +213,10 @@ covers the misplaced-value fence before a query or runtime summary can use it.
 System Mutation result reads apply the same mutationId/key check, so a
 misplaced `dedupe_cf/SYSTEM_MUTATION` result cannot be returned as another
 mutation's outcome.
-The embedded Kafka source counter also fails closed at `Long.MAX_VALUE` before
-mutating its next-offset state; `EmbeddedDelayServiceTest` proves that an
-exhausted source cannot wrap into a negative offset after a failed enqueue.
+The embedded Kafka source counter fails closed at the unsigned-64 maximum
+(the raw Java `-1L` bit pattern) before mutating its next-offset state;
+`EmbeddedDelayServiceTest` proves that an exhausted source cannot wrap to zero
+after a failed enqueue.
 Persisted Delay Shard mutation and Claim sequence metadata applies the same
 non-negative u64 boundary on activation; a high-bit-set value is treated as
 corrupt and cannot become a wrapped local sequence. The local evidence is
@@ -231,13 +232,13 @@ Source Position bytes, so an empty, truncated or non-canonical result cannot
 become a local projection before a shard-specific lookup runs. The evidence is
 `DurableResultTest`.
 Kafka's exclusive activation LSO uses the same fail-closed boundary handling:
-an applied offset at `Long.MAX_VALUE` proves a `Long.MAX_VALUE` exclusive
-barrier without wrapping the successor calculation. The local evidence is
-`SourceActivationBarrierTest.KafkaBarrierSaturatesExclusiveNextOffsetAtLongMaximum`.
+an applied offset at the unsigned-64 maximum proves an exclusive barrier
+without wrapping the successor calculation. The local evidence is
+`SourceActivationBarrierTest.KafkaBarrierAcceptsUnsignedMaximumExclusiveOffset`.
 The embedded source counter also saturates while reconstructing its next offset
-from persisted state, so restart after the maximum offset remains a controlled
-exhaustion rather than an arithmetic-open failure; the evidence is
-`EmbeddedDelayServiceTest.reopenedEmbeddedServiceSaturatesPersistedSourceOffsetExhaustion`.
+from persisted state, so restart after the unsigned maximum remains a
+controlled exhaustion rather than an arithmetic-open failure; the evidence is
+`EmbeddedDelayServiceTest.reopenedEmbeddedServiceKeepsUnsignedMaximumSourceOffsetExhaustion`.
 Canonical protocol writing now rejects values outside the unsigned 32-bit
 range, and the Registry's resource-state versions are encoded as `uint64` in
 both retire-intent fixtures and the `ResourceDeleteConfirmedBody` reference.
@@ -1054,19 +1055,18 @@ domain-separated semantic hash. They remain pure values; publication,
 credential-binding protection and catalog/authority transactions are not
 claimed complete.
 
-Source Position ordering is only locally implemented for the non-negative Java
-`long` range. The normative Registry still defines Kafka offset and Pulsar
-ledger/entry as full `uint64` values (and the position's partition, leader epoch
-and batch fields as `uint32`), while `SourcePositionCodec`, the direct position
+Kafka offset and Pulsar ledger/entry Source Position fields now preserve the
+complete unsigned-64 raw bit pattern through `SourcePositionCodec`, direct
 constructors, activation barriers, evidence cursors, queued receipts, adapter
-results, canonical protobuf helpers and checkpoint-manifest decimal decoders
-currently reject high-bit values; the comparators and Kafka successor also use
-signed arithmetic. This is a cross-layer protocol gap, not a safe one-file
-patch: accepting a high-bit source position in only one branch would make
-ordering, query/receipt bytes, barrier checks and manifest round-trips disagree.
-Full unsigned-64/unsigned-32 support with boundary vectors for Source Position,
-barriers, evidence, receipts, adapters and manifests remains a release blocker;
-the source-order row below therefore claims only the bounded local core.
+result values, canonical protobuf helpers and checkpoint-manifest JSON. Their
+comparators and the strict Kafka successor use unsigned order, with boundary
+vectors covering high-bit values, receipt/evidence round-trips and manifest
+round-trips. The normative Registry still defines the position's partition,
+leader epoch and batch fields as `uint32`; those fields, auxiliary uint64/time
+fields, and real Broker assignment/barrier proof remain local signed/placeholder
+subsets and are release blockers. The source-order row below therefore claims
+the implemented u64 position core, not full Source Position or production
+adapter authority.
 
 ## Source locks
 

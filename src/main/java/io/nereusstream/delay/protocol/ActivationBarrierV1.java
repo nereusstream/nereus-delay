@@ -44,10 +44,10 @@ public final class ActivationBarrierV1 {
         if ((guardedSourceConnectionGeneration == null) != (this.resourceGuardAttestationDigest == null)) {
             throw new IllegalArgumentException("source connection generation and guard digest must be paired");
         }
-        this.nextOffsetExclusive = nonNegative(nextOffsetExclusive, "nextOffsetExclusive");
-        this.observedLsoExclusive = nonNegative(observedLsoExclusive, "observedLsoExclusive");
-        this.ledgerId = nonNegative(ledgerId, "ledgerId");
-        this.entryId = nonNegative(entryId, "entryId");
+        this.nextOffsetExclusive = nextOffsetExclusive;
+        this.observedLsoExclusive = observedLsoExclusive;
+        this.ledgerId = ledgerId;
+        this.entryId = entryId;
         if (normalizedBatchIndex < 0 || batchSize < 0 || (kind == Kind.PULSAR && batchSize <= 0)
                 || (batchSize != 0 && normalizedBatchIndex >= batchSize)) {
             throw new IllegalArgumentException("invalid Pulsar batch cursor");
@@ -154,14 +154,14 @@ public final class ActivationBarrierV1 {
                 case KAFKA -> CanonicalProtobuf.bytes(output, 2, CanonicalProtobuf.message(fields -> {
                     CanonicalProtobuf.bytes(fields, 1, resource.canonicalBytes());
                     CanonicalProtobuf.uint32(fields, 2, partition);
-                    CanonicalProtobuf.uint64(fields, 3, nextOffsetExclusive);
-                    CanonicalProtobuf.uint64(fields, 4, observedLsoExclusive);
+                    CanonicalProtobuf.uint64Bits(fields, 3, nextOffsetExclusive);
+                    CanonicalProtobuf.uint64Bits(fields, 4, observedLsoExclusive);
                 }));
                 case PULSAR -> CanonicalProtobuf.bytes(output, 3, CanonicalProtobuf.message(fields -> {
                     CanonicalProtobuf.bytes(fields, 1, resource.canonicalBytes());
                     CanonicalProtobuf.uint32(fields, 2, partition);
-                    CanonicalProtobuf.uint64(fields, 3, ledgerId);
-                    CanonicalProtobuf.uint64(fields, 4, entryId);
+                    CanonicalProtobuf.uint64Bits(fields, 3, ledgerId);
+                    CanonicalProtobuf.uint64Bits(fields, 4, entryId);
                     CanonicalProtobuf.uint32(fields, 5, normalizedBatchIndex);
                     CanonicalProtobuf.uint32(fields, 6, batchSize);
                     CanonicalProtobuf.uint64(fields, 7, guardedSourceConnectionGeneration);
@@ -213,13 +213,6 @@ public final class ActivationBarrierV1 {
         }
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "ActivationBarrierV1");
         return result;
-    }
-
-    private static long nonNegative(final long value, final String name) {
-        if (value < 0) {
-            throw new IllegalArgumentException(name + " must be non-negative");
-        }
-        return value;
     }
 
     private static byte[] fixed(final byte[] value, final int length, final String name) {

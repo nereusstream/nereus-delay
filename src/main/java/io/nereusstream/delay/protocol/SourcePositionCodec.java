@@ -31,7 +31,7 @@ public final class SourcePositionCodec {
             final String cluster = readString(input);
             final UUID topic = readUuid(input);
             final int partition = readInt(input, "partition");
-            final long offset = requireNonNegative(readLong(input, "offset"), "offset");
+            final long offset = readLong(input, "offset");
             final int presence = readUnsignedByte(input, "leader epoch presence");
             final Integer leaderEpoch = switch (presence) {
                 case 0 -> null;
@@ -48,8 +48,8 @@ public final class SourcePositionCodec {
             final byte[] resource = readBytes(input);
             final String topic = readString(input);
             final int partition = readInt(input, "partition");
-            final long ledger = requireNonNegative(readLong(input, "ledgerId"), "ledgerId");
-            final long entry = requireNonNegative(readLong(input, "entryId"), "entryId");
+            final long ledger = readLong(input, "ledgerId");
+            final long entry = readLong(input, "entryId");
             final int batchIndex = readInt(input, "normalizedBatchIndex");
             final int batchSize = readInt(input, "batchSize");
             final int entryKind = readUnsignedByte(input, "entry kind");

@@ -56,7 +56,7 @@ public interface SourceReplaySuccessor {
     static SourceReplaySuccessor strictKafka() {
         return (previous, current) -> previous instanceof KafkaSourcePosition previousKafka
                 && current instanceof KafkaSourcePosition currentKafka
-                && previousKafka.offset() != Long.MAX_VALUE
+                && previousKafka.offset() != -1L
                 && currentKafka.offset() == previousKafka.offset() + 1;
     }
 

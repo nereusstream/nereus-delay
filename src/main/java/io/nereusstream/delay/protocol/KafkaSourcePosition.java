@@ -18,7 +18,7 @@ public record KafkaSourcePosition(
         Objects.requireNonNull(shardId, "shardId");
         authenticatedClusterId = canonicalText(authenticatedClusterId, "authenticatedClusterId");
         Objects.requireNonNull(nativeTopicUuid, "nativeTopicUuid");
-        if (offset < 0 || brokerLogAppendTimeEpochMs < 0) {
+        if (brokerLogAppendTimeEpochMs < 0) {
             throw new IllegalArgumentException("invalid Kafka source position");
         }
         if (leaderEpoch != null && leaderEpoch < 0) {
@@ -76,7 +76,7 @@ public record KafkaSourcePosition(
         // not a second order dimension.  Treating either field as a tie-break
         // would let two canonical positions for one offset appear as a later
         // record and bypass the exact-position integrity fence.
-        return Long.compare(offset, that.offset);
+        return Long.compareUnsigned(offset, that.offset);
     }
 
     private static String canonicalText(final String value, final String name) {

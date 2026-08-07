@@ -27,6 +27,12 @@ public final class CanonicalProtobuf {
         varint(output, value);
     }
 
+    /** Encodes a complete protobuf unsigned-64 bit pattern carried by a Java long. */
+    public static void uint64Bits(final ByteArrayOutputStream output, final int field, final long value) {
+        tag(output, field, 0);
+        varintBits(output, value);
+    }
+
     public static void int64(final ByteArrayOutputStream output, final int field, final long value) {
         tag(output, field, 0);
         varint(output, value);
@@ -49,6 +55,10 @@ public final class CanonicalProtobuf {
         if (value < 0) {
             throw new IllegalArgumentException("canonical V1 varints require non-negative values");
         }
+        varintBits(output, value);
+    }
+
+    private static void varintBits(final ByteArrayOutputStream output, final long value) {
         long remaining = value;
         while ((remaining & ~0x7fL) != 0) {
             output.write((int) ((remaining & 0x7fL) | 0x80L));

@@ -161,8 +161,8 @@ final class CheckpointManifestJson {
                         decimal(fields.get("evidenceGeneration"), "evidenceGeneration"),
                         decimal(fields.get("maxBrokerPersistedAtThroughCursor"),
                                 "maxBrokerPersistedAtThroughCursor"),
-                        decimal(fields.get("nextOffsetExclusive"), "nextOffsetExclusive"),
-                        decimal(fields.get("lastObservedLsoExclusive"), "lastObservedLsoExclusive")));
+                        unsignedDecimal(fields.get("nextOffsetExclusive"), "nextOffsetExclusive"),
+                        unsignedDecimal(fields.get("lastObservedLsoExclusive"), "lastObservedLsoExclusive")));
             } else {
                 keys(fields, PULSAR_EVIDENCE_KEYS, "Pulsar evidence cursor");
                 result.add(EvidenceCursorV1.pulsar(
@@ -176,8 +176,8 @@ final class CheckpointManifestJson {
                         string(fields.get("physicalTopic"), "physicalTopic"),
                         decimal(fields.get("physicalTopicCreationTimestamp"),
                                 "physicalTopicCreationTimestamp"),
-                        decimal(fields.get("ledgerId"), "ledgerId"),
-                        decimal(fields.get("entryId"), "entryId"),
+                        unsignedDecimal(fields.get("ledgerId"), "ledgerId"),
+                        unsignedDecimal(fields.get("entryId"), "entryId"),
                         number(fields.get("batchIndex"), "batchIndex"),
                         number(fields.get("batchSize"), "batchSize")));
             }
@@ -212,7 +212,8 @@ final class CheckpointManifestJson {
                     "Kafka routeIncarnation"))), number(fields.get("partition"), "Kafka partition"));
             final Object leader = fields.get("leaderEpoch");
             return new KafkaSourcePosition(shard, utf8Base64(fields.get("clusterId"), "clusterId"),
-                    uuid(string(fields.get("topicUuid"), "topicUuid")), decimal(fields.get("offset"), "offset"),
+                    uuid(string(fields.get("topicUuid"), "topicUuid")),
+                    unsignedDecimal(fields.get("offset"), "offset"),
                     leader == null ? null : number(leader, "leaderEpoch"),
                     decimal(fields.get("brokerLogAppendTime"), "brokerLogAppendTime"));
         }
@@ -228,7 +229,8 @@ final class CheckpointManifestJson {
             }
             return new PulsarSourcePosition(shard, base64(fields.get("resourceIncarnation"), "resourceIncarnation"),
                     string(fields.get("physicalTopic"), "physicalTopic"),
-                    decimal(fields.get("ledgerId"), "ledgerId"), decimal(fields.get("entryId"), "entryId"),
+                    unsignedDecimal(fields.get("ledgerId"), "ledgerId"),
+                    unsignedDecimal(fields.get("entryId"), "entryId"),
                     number(fields.get("batchIndex"), "batchIndex"), number(fields.get("batchSize"), "batchSize"),
                     entryKind, decimal(fields.get("brokerEntryTimestamp"), "brokerEntryTimestamp"));
         }
@@ -275,6 +277,18 @@ final class CheckpointManifestJson {
         }
         try {
             return Long.parseLong(text);
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException(name + " exceeds the supported uint64 range", exception);
+        }
+    }
+
+    private static long unsignedDecimal(final Object value, final String name) {
+        final String text = string(value, name);
+        if (!text.matches("0|[1-9][0-9]*")) {
+            throw new IllegalArgumentException(name + " must be a canonical unsigned decimal string");
+        }
+        try {
+            return Long.parseUnsignedLong(text);
         } catch (NumberFormatException exception) {
             throw new IllegalArgumentException(name + " exceeds the supported uint64 range", exception);
         }

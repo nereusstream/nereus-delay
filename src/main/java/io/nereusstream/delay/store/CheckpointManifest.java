@@ -227,7 +227,7 @@ public record CheckpointManifest(
                     + ",\"clusterId\":" + quote(b64(kafka.authenticatedClusterId().getBytes(StandardCharsets.UTF_8)))
                     + ",\"kind\":\"KAFKA\",\"leaderEpoch\":"
                     + (kafka.leaderEpoch() == null ? "null" : Integer.toString(kafka.leaderEpoch()))
-                    + ",\"offset\":" + quote(u64(kafka.offset())) + ",\"partition\":"
+                    + ",\"offset\":" + quote(u64Bits(kafka.offset())) + ",\"partition\":"
                     + kafka.shardId().partition() + ",\"routeIncarnation\":"
                     + quote(kafka.shardId().routeIncarnation().uuid().toString()) + ",\"topicUuid\":"
                     + quote(kafka.nativeTopicUuid().toString()) + "}";
@@ -235,9 +235,9 @@ public record CheckpointManifest(
         final PulsarSourcePosition pulsar = (PulsarSourcePosition) position;
         return "{\"batchIndex\":" + pulsar.normalizedBatchIndex() + ",\"batchSize\":" + pulsar.batchSize()
                 + ",\"brokerEntryTimestamp\":" + quote(u64(pulsar.brokerEntryTimestampEpochMs()))
-                + ",\"entryId\":" + quote(u64(pulsar.entryId())) + ",\"entryKind\":\""
+                + ",\"entryId\":" + quote(u64Bits(pulsar.entryId())) + ",\"entryKind\":\""
                 + pulsar.entryKind().name() + "\",\"kind\":\"PULSAR\",\"ledgerId\":"
-                + quote(u64(pulsar.ledgerId())) + ",\"partition\":" + pulsar.shardId().partition()
+                + quote(u64Bits(pulsar.ledgerId())) + ",\"partition\":" + pulsar.shardId().partition()
                 + ",\"physicalTopic\":" + quote(pulsar.physicalTopic()) + ",\"resourceIncarnation\":"
                 + quote(b64(pulsar.brokerResourceIncarnation())) + ",\"routeIncarnation\":"
                 + quote(pulsar.shardId().routeIncarnation().uuid().toString()) + "}";
@@ -251,22 +251,22 @@ public record CheckpointManifest(
             field(json, "evidenceKind", quote(cursor.evidenceKind().name()));
             field(json, "evidenceResourceIncarnation", quote(b64(cursor.evidenceResourceIncarnation())));
             field(json, "laneIncarnation", quote(b64(cursor.laneIncarnation())));
-            field(json, "lastObservedLsoExclusive", quote(u64(cursor.lastObservedLsoExclusive())));
+            field(json, "lastObservedLsoExclusive", quote(u64Bits(cursor.lastObservedLsoExclusive())));
             field(json, "maxBrokerPersistedAtThroughCursor",
                     quote(u64(cursor.maxBrokerPersistedAtThroughCursor())));
-            field(json, "nextOffsetExclusive", quote(u64(cursor.nextOffsetExclusive())));
+            field(json, "nextOffsetExclusive", quote(u64Bits(cursor.nextOffsetExclusive())));
             field(json, "physicalPartition", Integer.toString(cursor.physicalPartition()));
             field(json, "topicUuid", quote(uuidText(cursor.topicUuid())));
         } else {
             field(json, "batchIndex", Integer.toString(cursor.normalizedBatchIndex()));
             field(json, "batchSize", Integer.toString(cursor.batchSize()));
             field(json, "destinationLaneId", quote(b64(cursor.destinationLaneId())));
-            field(json, "entryId", quote(u64(cursor.entryId())));
+            field(json, "entryId", quote(u64Bits(cursor.entryId())));
             field(json, "evidenceGeneration", quote(u64(cursor.evidenceGeneration())));
             field(json, "evidenceKind", quote(cursor.evidenceKind().name()));
             field(json, "evidenceResourceIncarnation", quote(b64(cursor.evidenceResourceIncarnation())));
             field(json, "laneIncarnation", quote(b64(cursor.laneIncarnation())));
-            field(json, "ledgerId", quote(u64(cursor.ledgerId())));
+            field(json, "ledgerId", quote(u64Bits(cursor.ledgerId())));
             field(json, "maxBrokerPersistedAtThroughCursor",
                     quote(u64(cursor.maxBrokerPersistedAtThroughCursor())));
             field(json, "physicalPartition", Integer.toString(cursor.physicalPartition()));
@@ -296,6 +296,10 @@ public record CheckpointManifest(
         if (value < 0) {
             throw new IllegalArgumentException("unsigned manifest value is negative");
         }
+        return Long.toUnsignedString(value);
+    }
+
+    private static String u64Bits(final long value) {
         return Long.toUnsignedString(value);
     }
 

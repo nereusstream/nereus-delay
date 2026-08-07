@@ -2,6 +2,7 @@ package io.nereusstream.delay.protocol;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -686,6 +687,32 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void sourcePositionsRoundTripUnsignedHighBitOffsetsThroughReceiptAndEvidenceCodecs() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
+        final UUID topic = UUID.randomUUID();
+        final KafkaSourcePosition kafka = new KafkaSourcePosition(shard, "cluster", topic,
+                Long.MIN_VALUE, 3, 10);
+        assertEquals(kafka, SourcePositionCodec.decode(kafka.canonicalBytes()));
+        assertEquals(1, kafka.compareWithinShard(
+                new KafkaSourcePosition(shard, "cluster", topic, Long.MAX_VALUE, 3, 10)));
+
+        final PreparedCommand command = scheduleV1(shard, "unsigned-source", 2_000, 8_000, 9_000);
+        final byte[] response = Bytes.sha256(Bytes.utf8("unsigned-response"));
+        final byte[] attempt = new byte[16];
+        attempt[0] = 1;
+        final CommandQueuedReceiptV1 receipt = CommandQueuedReceiptV1.create(command, kafka,
+                new CommandQueuedReceiptV1.KafkaQueuedAck("cluster", topic, shard.partition(), Long.MIN_VALUE,
+                        3, 10, response), 9_000, attempt);
+        assertEquals(receipt, CommandQueuedReceiptV1.decodeFrame(receipt.frame()));
+
+        final EvidenceCursorV1 cursor = EvidenceCursorV1.kafka(new byte[32], new byte[16], uuidBytes(topic),
+                shard.partition(), 1, 10, Long.MIN_VALUE, -1L);
+        assertEquals(cursor, EvidenceCursorV1.decode(cursor.canonicalBytes()));
+        assertTrue(cursor.dominates(EvidenceCursorV1.kafka(new byte[32], new byte[16], uuidBytes(topic),
+                shard.partition(), 1, 10, Long.MAX_VALUE, Long.MAX_VALUE)));
+    }
+
+    @Test
     void sourcePositionsCannotCompareAcrossPhysicalResourceIncarnations() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 5);
         final java.util.UUID topic = java.util.UUID.randomUUID();
@@ -991,5 +1018,10 @@ class ProtocolCodecTest {
 
     private static byte[] nestedPlaceholder() {
         return CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1, new byte[]{1}));
+    }
+
+    private static byte[] uuidBytes(final UUID value) {
+        return ByteBuffer.allocate(16).putLong(value.getMostSignificantBits())
+                .putLong(value.getLeastSignificantBits()).array();
     }
 }

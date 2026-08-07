@@ -41,6 +41,18 @@ class SourceReplaySuccessorTest {
     }
 
     @Test
+    void strictKafkaAcceptsTheUnsignedHighBitBoundarySuccessor() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
+        final UUID topic = UUID.randomUUID();
+        final KafkaSourcePosition beforeBoundary = new KafkaSourcePosition(shard, "cluster", topic,
+                Long.MAX_VALUE, null, 100);
+        final KafkaSourcePosition afterBoundary = new KafkaSourcePosition(shard, "cluster", topic,
+                Long.MIN_VALUE, null, 101);
+
+        assertDoesNotThrow(() -> SourceReplaySuccessor.strictKafka().validate(beforeBoundary, afterBoundary));
+    }
+
+    @Test
     void strictPulsarBatchSuccessorDoesNotGuessAnEntryTransition() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
         final byte[] resource = Bytes.sha256(Bytes.utf8("resource"));

@@ -22,7 +22,7 @@ public record PulsarSourcePosition(
         physicalTopic = canonicalText(physicalTopic, "physicalTopic");
         Objects.requireNonNull(entryKind, "entryKind");
         Bytes.requireLength(brokerResourceIncarnation, 32, "brokerResourceIncarnation");
-        if (ledgerId < 0 || entryId < 0 || normalizedBatchIndex < 0
+        if (normalizedBatchIndex < 0
                 || batchSize <= 0 || normalizedBatchIndex >= batchSize || brokerEntryTimestampEpochMs < 0) {
             throw new IllegalArgumentException("invalid Pulsar source position");
         }
@@ -78,9 +78,9 @@ public record PulsarSourcePosition(
     @Override
     public int compareWithinShard(final SourcePosition other) {
         final PulsarSourcePosition that = (PulsarSourcePosition) other;
-        int result = Long.compare(ledgerId, that.ledgerId);
+        int result = Long.compareUnsigned(ledgerId, that.ledgerId);
         if (result == 0) {
-            result = Long.compare(entryId, that.entryId);
+            result = Long.compareUnsigned(entryId, that.entryId);
         }
         if (result == 0) {
             result = Integer.compare(normalizedBatchIndex, that.normalizedBatchIndex);

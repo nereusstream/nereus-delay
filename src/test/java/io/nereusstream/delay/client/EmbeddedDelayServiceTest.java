@@ -190,15 +190,15 @@ class EmbeddedDelayServiceTest {
                     OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
             final var nextOffset = EmbeddedDelayService.class.getDeclaredField("nextOffset");
             nextOffset.setAccessible(true);
-            nextOffset.setLong(service, Long.MAX_VALUE);
+            nextOffset.setLong(service, -1L);
 
             assertThrows(IllegalStateException.class, () -> service.enqueue(command));
-            assertEquals(Long.MAX_VALUE, nextOffset.getLong(service));
+            assertEquals(-1L, nextOffset.getLong(service));
         }
     }
 
     @Test
-    void reopenedEmbeddedServiceSaturatesPersistedSourceOffsetExhaustion() {
+    void reopenedEmbeddedServiceKeepsUnsignedMaximumSourceOffsetExhaustion() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 20);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("reopen-offset-exhaustion"));
         final ScheduleIntent intent = new ScheduleIntent(
@@ -208,7 +208,7 @@ class EmbeddedDelayServiceTest {
                 Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
             final PreparedCommand command = first.prepareSchedule(intent, 10_000);
             first.shard().apply(command, new KafkaSourcePosition(shard, "embedded",
-                    UUID.nameUUIDFromBytes(Bytes.utf8("embedded-command-topic")), Long.MAX_VALUE, null, 1_000));
+                    UUID.nameUUIDFromBytes(Bytes.utf8("embedded-command-topic")), -1L, null, 1_000));
         }
         try (EmbeddedDelayService second = new EmbeddedDelayService(config, shard,
                 Clock.fixed(Instant.ofEpochMilli(1_001), ZoneOffset.UTC))) {

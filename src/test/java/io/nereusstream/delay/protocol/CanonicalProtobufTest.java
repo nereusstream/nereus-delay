@@ -5,6 +5,7 @@ import java.io.ByteArrayOutputStream;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class CanonicalProtobufTest {
@@ -17,6 +18,14 @@ class CanonicalProtobufTest {
         assertThrows(IllegalArgumentException.class, () -> CanonicalProtobuf.uint32(output, 3, -1));
         assertThrows(IllegalArgumentException.class,
                 () -> CanonicalProtobuf.uint32(output, 4, 0x1_0000_0000L));
+    }
+
+    @Test
+    void uint64BitsRoundTripsTheHighBitPattern() {
+        final java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream();
+        CanonicalProtobuf.uint64Bits(output, 1, Long.MIN_VALUE);
+        final CanonicalProtobuf.Reader.Field field = new CanonicalProtobuf.Reader(output.toByteArray()).next();
+        assertEquals(Long.MIN_VALUE, field.unsignedValue());
     }
 
     @Test

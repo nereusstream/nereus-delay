@@ -15,7 +15,7 @@ public record KafkaActivationBarrier(
         Objects.requireNonNull(shardId, "shardId");
         authenticatedClusterId = canonicalText(authenticatedClusterId, "authenticatedClusterId");
         Objects.requireNonNull(nativeTopicUuid, "nativeTopicUuid");
-        if (authenticatedClusterId.isBlank() || exclusiveOffset < 0) {
+        if (authenticatedClusterId.isBlank()) {
             throw new IllegalArgumentException("invalid Kafka activation barrier");
         }
     }
@@ -42,9 +42,8 @@ public record KafkaActivationBarrier(
         }
         validatePosition(lastAppliedPosition);
         final KafkaSourcePosition kafka = (KafkaSourcePosition) lastAppliedPosition;
-        final long nextReadableOffset = kafka.offset() == Long.MAX_VALUE
-                ? Long.MAX_VALUE : kafka.offset() + 1;
-        return nextReadableOffset >= exclusiveOffset;
+        final long nextReadableOffset = kafka.offset() == -1L ? -1L : kafka.offset() + 1;
+        return Long.compareUnsigned(nextReadableOffset, exclusiveOffset) >= 0;
     }
 
     private static String canonicalText(final String value, final String name) {

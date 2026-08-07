@@ -47,14 +47,14 @@ public final class EvidenceCursorV1 implements Comparable<EvidenceCursorV1> {
         this.maxBrokerPersistedAtThroughCursor = maxBrokerPersistedAtThroughCursor;
         this.kafka = evidenceKind == EvidenceKindV1.KAFKA_RECEIPT_CONTIGUOUS;
         this.topicUuid = topicUuid == null ? null : fixed(topicUuid, 16, "topicUuid");
-        this.nextOffsetExclusive = nonNegative(nextOffsetExclusive, "nextOffsetExclusive");
-        this.lastObservedLsoExclusive = nonNegative(lastObservedLsoExclusive, "lastObservedLsoExclusive");
+        this.nextOffsetExclusive = nextOffsetExclusive;
+        this.lastObservedLsoExclusive = lastObservedLsoExclusive;
         this.resourceToken = resourceToken == null ? null : fixed(resourceToken, 32, "resourceToken");
         this.physicalTopic = physicalTopic == null ? null : nfc(physicalTopic, "physicalTopic");
         this.physicalTopicCreationTimestamp = nonNegative(physicalTopicCreationTimestamp,
                 "physicalTopicCreationTimestamp");
-        this.ledgerId = nonNegative(ledgerId, "ledgerId");
-        this.entryId = nonNegative(entryId, "entryId");
+        this.ledgerId = ledgerId;
+        this.entryId = entryId;
         if (normalizedBatchIndex < 0 || (kafka && batchSize != 0)
                 || (!kafka && (batchSize <= 0 || normalizedBatchIndex >= batchSize))) {
             throw new IllegalArgumentException("invalid evidence batch cursor");
@@ -173,16 +173,16 @@ public final class EvidenceCursorV1 implements Comparable<EvidenceCursorV1> {
             if (kafka) {
                 CanonicalProtobuf.bytes(output, 10, CanonicalProtobuf.message(fields -> {
                     CanonicalProtobuf.bytes(fields, 1, topicUuid);
-                    CanonicalProtobuf.uint64(fields, 2, nextOffsetExclusive);
-                    CanonicalProtobuf.uint64(fields, 3, lastObservedLsoExclusive);
+                    CanonicalProtobuf.uint64Bits(fields, 2, nextOffsetExclusive);
+                    CanonicalProtobuf.uint64Bits(fields, 3, lastObservedLsoExclusive);
                 }));
             } else {
                 CanonicalProtobuf.bytes(output, 11, CanonicalProtobuf.message(fields -> {
                     CanonicalProtobuf.bytes(fields, 1, resourceToken);
                     CanonicalProtobuf.bytes(fields, 2, physicalTopic.getBytes(StandardCharsets.UTF_8));
                     CanonicalProtobuf.uint64(fields, 3, physicalTopicCreationTimestamp);
-                    CanonicalProtobuf.uint64(fields, 4, ledgerId);
-                    CanonicalProtobuf.uint64(fields, 5, entryId);
+                    CanonicalProtobuf.uint64Bits(fields, 4, ledgerId);
+                    CanonicalProtobuf.uint64Bits(fields, 5, entryId);
                     CanonicalProtobuf.uint32(fields, 6, normalizedBatchIndex);
                     CanonicalProtobuf.uint32(fields, 7, batchSize);
                 }));
@@ -277,8 +277,8 @@ public final class EvidenceCursorV1 implements Comparable<EvidenceCursorV1> {
             return false;
         }
         if (kafka) {
-            return nextOffsetExclusive >= older.nextOffsetExclusive
-                    && lastObservedLsoExclusive >= older.lastObservedLsoExclusive;
+            return Long.compareUnsigned(nextOffsetExclusive, older.nextOffsetExclusive) >= 0
+                    && Long.compareUnsigned(lastObservedLsoExclusive, older.lastObservedLsoExclusive) >= 0;
         }
         return comparePulsarMember(older) >= 0;
     }

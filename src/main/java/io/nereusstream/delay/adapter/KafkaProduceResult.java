@@ -23,7 +23,7 @@ public record KafkaProduceResult(
         if (disposition == Disposition.PERSISTED) {
             authenticatedClusterId = canonicalText(authenticatedClusterId, "authenticatedClusterId");
             Objects.requireNonNull(nativeTopicUuid, "nativeTopicUuid");
-            if (stableCode != 0 || partition < 0 || offset < 0
+            if (stableCode != 0 || partition < 0
                     || (leaderEpoch != null && leaderEpoch < 0) || brokerLogAppendTimeEpochMs < 0) {
                 throw new IllegalArgumentException("invalid persisted Kafka result");
             }

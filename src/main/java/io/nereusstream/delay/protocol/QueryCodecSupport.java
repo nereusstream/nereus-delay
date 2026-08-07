@@ -73,6 +73,14 @@ final class QueryCodecSupport {
         return (int) value;
     }
 
+    static int uint32Bits(final CanonicalProtobuf.Reader.Field field, final int number) {
+        final long value = uint(field, number);
+        if (value > 0xffff_ffffL) {
+            throw new IllegalArgumentException("protobuf uint32 field exceeds unsigned range " + number);
+        }
+        return (int) value;
+    }
+
     static boolean bool(final CanonicalProtobuf.Reader.Field field, final int number) {
         final long value = uint(field, number);
         if (value > 1) {
@@ -116,7 +124,7 @@ final class QueryCodecSupport {
                                 kafka.authenticatedClusterId().getBytes(StandardCharsets.UTF_8));
                         CanonicalProtobuf.bytes(kafkaOutput, 3, uuidBytes(kafka.nativeTopicUuid()));
                         CanonicalProtobuf.uint32(kafkaOutput, 4, kafka.shardId().partition());
-                        CanonicalProtobuf.uint64(kafkaOutput, 5, kafka.offset());
+                        CanonicalProtobuf.uint64Bits(kafkaOutput, 5, kafka.offset());
                         if (kafka.leaderEpoch() != null) {
                             CanonicalProtobuf.uint32(kafkaOutput, 6, kafka.leaderEpoch());
                         }
@@ -133,8 +141,8 @@ final class QueryCodecSupport {
                     CanonicalProtobuf.bytes(pulsarOutput, 3,
                             pulsar.physicalTopic().getBytes(StandardCharsets.UTF_8));
                     CanonicalProtobuf.uint32(pulsarOutput, 4, pulsar.shardId().partition());
-                    CanonicalProtobuf.uint64(pulsarOutput, 5, pulsar.ledgerId());
-                    CanonicalProtobuf.uint64(pulsarOutput, 6, pulsar.entryId());
+                    CanonicalProtobuf.uint64Bits(pulsarOutput, 5, pulsar.ledgerId());
+                    CanonicalProtobuf.uint64Bits(pulsarOutput, 6, pulsar.entryId());
                     CanonicalProtobuf.uint32(pulsarOutput, 7, pulsar.normalizedBatchIndex());
                     CanonicalProtobuf.uint32(pulsarOutput, 8, pulsar.batchSize());
                     CanonicalProtobuf.uint32(pulsarOutput, 9, pulsar.entryKind().wireValue());

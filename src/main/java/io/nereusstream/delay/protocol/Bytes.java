@@ -53,6 +53,11 @@ public final class Bytes {
         if (value < 0) {
             throw new IllegalArgumentException("u64 out of range: " + value);
         }
+        return u64beBits(value);
+    }
+
+    /** Encodes the complete unsigned-64 bit pattern carried by a Java long. */
+    public static byte[] u64beBits(final long value) {
         return ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN).putLong(value).array();
     }
 

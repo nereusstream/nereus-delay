@@ -104,7 +104,7 @@ public final class EmbeddedDelayService implements DelayClient {
                     || !kafka.nativeTopicUuid().equals(EMBEDDED_TOPIC_UUID)) {
                 throw new IllegalStateException("embedded service cannot reopen a shard with another source identity");
             }
-            nextOffset = kafka.offset() == Long.MAX_VALUE ? Long.MAX_VALUE : kafka.offset() + 1;
+            nextOffset = kafka.offset() == -1L ? -1L : kafka.offset() + 1;
         }
     }
 
@@ -150,7 +150,7 @@ public final class EmbeddedDelayService implements DelayClient {
                     StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED.wireValue()));
         }
         final long now = clock.millis();
-        if (nextOffset == Long.MAX_VALUE) {
+        if (nextOffset == -1L) {
             throw new IllegalStateException("embedded Kafka source offset exhausted");
         }
         final long offset = nextOffset;
@@ -159,7 +159,7 @@ public final class EmbeddedDelayService implements DelayClient {
         // Advance only after the position has been validated.  A failed
         // position construction must not poison the next enqueue with a
         // wrapped negative offset.
-        nextOffset = Math.addExact(offset, 1);
+        nextOffset = offset == -1L ? -1L : offset + 1;
         final CommandQueuedReceipt receipt = new CommandQueuedReceipt(command.commandId(), command.delayMessageId(),
                 shardId, position);
         pending.addLast(new QueuedRecord(command, position, frameBytes));
