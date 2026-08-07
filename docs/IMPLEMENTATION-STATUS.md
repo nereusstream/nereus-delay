@@ -352,6 +352,12 @@ drain or admission logic can use it. `DelayShardTest` covers both
 `commandDedupeLookupRejectsForeignSourcePosition` and
 `claimLookupRejectsForeignMessageShard`.
 
+Route-keyed Message reads now perform that self-routing Shard check before the
+RocksDB lookup, so a foreign `DelayMessageId` with no local record cannot be
+silently reported as not-found. Terminal-history, DLQ-export and message-based
+Claim lookups share the same pre-read fence; the missing-record case is covered
+by `DelayShardTest.routeKeyLookupsRejectForeignMessageShardBeforeMissingRead`.
+
 `SloObservationOutboxStore.get` now applies the same sample-id key/value fence
 as its bounded scan, so a misplaced `meta_cf/SLO_OUTBOX` record cannot be
 consumed by Start/Final merge logic; `SloObservationOutboxStoreTest` covers

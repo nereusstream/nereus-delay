@@ -536,6 +536,7 @@ public final class DelayShard {
 
     public synchronized MessageRecord getMessage(final DelayMessageId messageId) {
         Objects.requireNonNull(messageId, "messageId");
+        requireMessageShard(messageId, "message lookup");
         final var value = store.getValue(ColumnFamily.ID, KeyCodec.idMessage(messageId), 1);
         return value == null ? null : validateMessageSourcePosition(messageId,
                 MessageRecord.decode(value.payload()), "message lookup");
@@ -643,6 +644,7 @@ public final class DelayShard {
      */
     public synchronized ClaimRecord findClaimForMessage(final DelayMessageId messageId) {
         Objects.requireNonNull(messageId, "messageId");
+        requireMessageShard(messageId, "Claim lookup");
         final int limit = boundedLimitPlusOne(config.maxPendingMessages());
         final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries = store.scan(ColumnFamily.INFLIGHT,
                 new byte[]{INFLIGHT_CLAIMED_KIND, 1}, new byte[]{INFLIGHT_PUBLISHING_KIND, 1}, limit);
@@ -1534,11 +1536,15 @@ public final class DelayShard {
     private MessageRecord validateMessageSourcePosition(final DelayMessageId messageId,
                                                         final MessageRecord message,
                                                         final String context) {
+        requireMessageShard(messageId, context);
+        validateSourcePositionShard(message.scheduleSourcePosition(), "MESSAGE " + context);
+        return message;
+    }
+
+    private void requireMessageShard(final DelayMessageId messageId, final String context) {
         if (!store.shardId().equals(messageId.routingId().shardId())) {
             throw new IllegalStateException("MESSAGE key shard mismatch during " + context);
         }
-        validateSourcePositionShard(message.scheduleSourcePosition(), "MESSAGE " + context);
-        return message;
     }
 
     private void validateSourcePositionShard(final byte[] encodedSourcePosition, final String context) {
@@ -3629,6 +3635,8 @@ public final class DelayShard {
 
     public synchronized TerminalGenerationRecord getTerminalGeneration(final DelayMessageId messageId,
                                                                         final int generation) {
+        Objects.requireNonNull(messageId, "messageId");
+        requireMessageShard(messageId, "terminal generation lookup");
         final var value = store.getValue(ColumnFamily.TERMINAL, KeyCodec.terminalGeneration(messageId, generation), 1);
         if (value == null) {
             return null;

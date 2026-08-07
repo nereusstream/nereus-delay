@@ -204,6 +204,25 @@ class DelayShardTest {
     }
 
     @Test
+    void routeKeyLookupsRejectForeignMessageShardBeforeMissingRead() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("missing-foreign-message-shard"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 57);
+        final ShardId foreignShardId = new ShardId(RouteIncarnation.random(), 58);
+        final DelayMessageId foreignMessageId = DelayMessageId.random(foreignShardId);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertThrows(IllegalStateException.class, () -> shard.getMessage(foreignMessageId));
+            assertThrows(IllegalStateException.class,
+                    () -> shard.findClaimForMessage(foreignMessageId));
+            assertThrows(IllegalStateException.class,
+                    () -> shard.getTerminalGeneration(foreignMessageId, 0));
+            assertThrows(IllegalStateException.class,
+                    () -> shard.getDlqExportRecord(foreignMessageId, 0));
+        }
+    }
+
+    @Test
     void commandResultLookupRejectsForeignSourcePosition() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("command-result-source-shard-mismatch"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 62);
