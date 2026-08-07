@@ -674,7 +674,10 @@ covers the command replay boundary.
 `OwnedDelayShard.applyAuthoritatively` adds the corresponding per-command
 authority reread for the post-activation path: a missing, changed, non-active,
 expired or regressed-expiry Oxia lease fences before the delegate WriteBatch;
-only an exact same-identity expiry extension is adopted locally.
+only an exact same-identity expiry extension is adopted locally. Its raw
+`DelayShard` delegate accessor is package-private and limited to ownership
+drain/inspection code, preventing external callers from bypassing the owner
+lifecycle and lease gates.
 
 The source replay seam now also exposes bounded `replayCatchupTurn`,
 `replaySystemMutationsTurn` and mixed `replayTurn` APIs. Each turn is capped by

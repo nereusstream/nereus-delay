@@ -620,8 +620,12 @@ public final class OwnedDelayShard {
         return lease;
     }
 
-    /** Returns the single-writer shard used by this fenced owner view. */
-    public synchronized DelayShard shard() {
+    /**
+     * Returns the delegate for ownership-package drain/inspection code only.
+     * Public callers must use the fenced apply/replay operations above; a raw
+     * delegate would bypass the owner lifecycle and lease checks.
+     */
+    synchronized DelayShard shard() {
         return delegate;
     }
 

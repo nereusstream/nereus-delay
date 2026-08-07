@@ -652,7 +652,9 @@ catch-up 中途过期会在下一条记录前 fence，cursor 保留在最后已�
 正常 source apply 还可使用 `OwnedDelayShard.applyAuthoritatively`，在每次
 delegate WriteBatch 前 reread Oxia lease；同 identity 的续租可以更新本地 expiry，
 而 owner/epoch/token/session、状态或 expiry 回退都会在写入前 fence。旧的本地
-apply overload 仍明确只是 embedded seam。
+apply overload 仍明确只是 embedded seam。原始 `DelayShard` delegate accessor
+现为 ownership 包内可见，仅供 drain/inspection 实现使用，包外调用方不能绕过
+owner lifecycle 和 lease gate。
 
 Worker 资源侧现在还提供了本地 `WorkerLoadVector` 与
 `WorkerPlacementPolicy`：它们先按完整 committed capacity、固定/transition
