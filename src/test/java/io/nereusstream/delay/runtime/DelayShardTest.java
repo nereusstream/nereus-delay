@@ -789,6 +789,19 @@ class DelayShardTest {
     }
 
     @Test
+    void scheduleBindingLookupRejectsForeignMessageShard() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("binding-foreign-shard"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 84);
+        final ShardId foreignShardId = new ShardId(RouteIncarnation.random(), 85);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertThrows(IllegalStateException.class,
+                    () -> shard.getV1ScheduleBinding(DelayMessageId.random(foreignShardId)));
+        }
+    }
+
+    @Test
     void registryScheduleRequiresSourceVisibleRetryPolicySemantic() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("retry-policy-catalog"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 35);

@@ -379,6 +379,9 @@ Direct `discoverReady` now makes the same final existence and key/value identity
 check before returning scheduler work; a READY projection cannot survive as a
 standalone pointer after its timeline entry is deleted. The missing-entry case
 is covered by `DelayShardTest.readyDiscoveryRejectsMissingTimelineEntry`.
+`id_cf/V1_SCHEDULE_BINDING` direct reads also reject a message ID routed to a
+different Shard before looking up the sidecar; `DelayShardTest.scheduleBindingLookupRejectsForeignMessageShard`
+covers the sidecar-only case.
 
 The embedded Kafka ingress now checks source-offset exhaustion before creating
 the next queued position and advances the counter only after the position has

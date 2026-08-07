@@ -615,6 +615,10 @@ source token 或 generation key 被篡改，不能使 READY 恢复成功。证�
 Direct `discoverReady` 也会在返回 scheduler work 前确认对应 timeline entry
 仍存在且 key/value identity 正确；READY projection 不能在 timeline 被删除后
 继续作为独立指针。证据为 `DelayShardTest.readyDiscoveryRejectsMissingTimelineEntry`。
+`id_cf/V1_SCHEDULE_BINDING` 的 direct lookup 也会在读取 sidecar 前校验
+`DelayMessageId` 的 self-routing Shard；即使当前 DB 只有错挂的 sidecar，也不会
+把它暴露给 Registry 路径。证据为
+`DelayShardTest.scheduleBindingLookupRejectsForeignMessageShard`。
 Retired Lane guard 的直接读取也校验其 terminal Source Position 属于当前
 Shard；错挂的退休证明不会通过 `getLaneTerminalGuard` 暴露。
 `ShardStore.flushAndSync` 还提供 drain 的物理 flush/WAL-sync 原语，重开回归为

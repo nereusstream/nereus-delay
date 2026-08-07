@@ -544,6 +544,9 @@ public final class DelayShard {
     /** Returns the exact accepted Registry Schedule/Prepare binding, if any. */
     public synchronized V1ScheduleBinding getV1ScheduleBinding(final DelayMessageId messageId) {
         Objects.requireNonNull(messageId, "messageId");
+        if (!store.shardId().equals(messageId.routingId().shardId())) {
+            throw new IllegalStateException("V1 Schedule binding key shard mismatch");
+        }
         final var value = store.getValue(ColumnFamily.ID, KeyCodec.idV1ScheduleBinding(messageId), 4);
         if (value == null) {
             return null;
