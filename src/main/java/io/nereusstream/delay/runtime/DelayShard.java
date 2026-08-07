@@ -1752,6 +1752,9 @@ public final class DelayShard {
         }
         validatePublishAdmissionTiming(body);
         body.requireTiming(body.descriptor().actionAtEpochMs(), body.descriptor().expireAtEpochMs());
+        body.requireBrokerTiming(sourcePosition.brokerPersistenceTimeEpochMs(),
+                config.maxIngressBrokerTimestampDivergenceMs(),
+                config.maximumAdmissionMutationEnqueueAgeMs());
         final DelayMessageId messageId = new DelayMessageId(body.messageId());
         final io.nereusstream.delay.protocol.DestinationLaneId laneId =
                 new io.nereusstream.delay.protocol.DestinationLaneId(body.laneId());

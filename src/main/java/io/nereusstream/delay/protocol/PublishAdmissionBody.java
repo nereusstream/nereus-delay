@@ -179,6 +179,52 @@ public final class PublishAdmissionBody {
         }
     }
 
+    /**
+     * Requires the source record's authenticated Broker persistence time to
+     * remain within the activated decision-evidence and expiry bounds.
+     * Arithmetic is checked so an overflowing timestamp cannot bypass the
+     * fail-closed timing fence.
+     */
+    public void requireBrokerTiming(final long brokerPersistenceTimeEpochMs,
+                                    final long maxIngressBrokerTimestampDivergenceMs,
+                                    final long maximumAdmissionMutationEnqueueAgeMs) {
+        if (brokerPersistenceTimeEpochMs < 0 || maxIngressBrokerTimestampDivergenceMs < 0
+                || maximumAdmissionMutationEnqueueAgeMs < 0) {
+            throw new IllegalArgumentException("Broker timing bounds must be non-negative");
+        }
+        final long safeBrokerDeadline;
+        final long allowedDecisionDistance;
+        try {
+            safeBrokerDeadline = Math.addExact(brokerPersistenceTimeEpochMs,
+                    maxIngressBrokerTimestampDivergenceMs);
+            allowedDecisionDistance = Math.addExact(maximumAdmissionMutationEnqueueAgeMs,
+                    maxIngressBrokerTimestampDivergenceMs);
+        } catch (ArithmeticException overflow) {
+            throw new IllegalArgumentException("Broker timing arithmetic overflow", overflow);
+        }
+        final long expiryDeadline = Math.min(descriptor.expireAtEpochMs(), readyCertificate.validUntilEpochMs());
+        if (safeBrokerDeadline >= expiryDeadline) {
+            throw new IllegalArgumentException("Broker persistence time is too close to Admission expiry");
+        }
+        final long decisionDistance;
+        try {
+            if (brokerPersistenceTimeEpochMs < decisionTime.earliestEpochMs()) {
+                decisionDistance = Math.subtractExact(decisionTime.earliestEpochMs(),
+                        brokerPersistenceTimeEpochMs);
+            } else if (brokerPersistenceTimeEpochMs > decisionTime.latestEpochMs()) {
+                decisionDistance = Math.subtractExact(brokerPersistenceTimeEpochMs,
+                        decisionTime.latestEpochMs());
+            } else {
+                decisionDistance = 0;
+            }
+        } catch (ArithmeticException overflow) {
+            throw new IllegalArgumentException("Broker/decision timing arithmetic overflow", overflow);
+        }
+        if (decisionDistance > allowedDecisionDistance) {
+            throw new IllegalArgumentException("Broker persistence time is outside Admission enqueue age");
+        }
+    }
+
     /** Requires the ordinary managed timing relationship for a non-catalogued Admission. */
     public void requireOrdinaryManagedTiming() {
         if (descriptor.actionAtEpochMs() != descriptor.deliverAtEpochMs()) {

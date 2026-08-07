@@ -486,6 +486,15 @@ checked subtraction。
 与 `acceptsOnlyThePinnedPulsarHandoffLead` 覆盖这一分层边界；真实 Profile 发布、
 Broker guard attestation 和 Producer admission authority 仍是 release blocker。
 
+Admission 的 Broker-time 边界也已有本地闭合证据：`DelayShardConfig` 暴露
+`maxIngressBrokerTimestampDivergenceMs` 与 `maximumAdmissionMutationEnqueueAgeMs`，
+`DelayShard` 在 source-ordered apply/replay 调用 `PublishAdmissionBody.requireBrokerTiming`，
+检查 `bp + divergence < min(expireAt, readyCertificate.validUntil)` 及 decision interval
+距离上界，并对加减溢出 fail closed；`PublishAdmissionBodyTest` 覆盖距离、expiry、
+divergence 和溢出拒绝，`DelayShardConfigTest` 覆盖正式字段与兼容构造器。该证据只证明
+本地状态机和算术 fence，不能替代真实 Broker timestamp certification、capacity artifact
+发布或外部 Admission authority。
+
 `ResolveUncertainBody` 的 `ATTACH_PUBLISHED_EVIDENCE`/
 `ATTACH_NOT_PUBLISHED_EVIDENCE` 分支也不再接受任意 opaque nested bytes，
 而是要求 typed evidence 的 Publish Attempt owner 和 verification status

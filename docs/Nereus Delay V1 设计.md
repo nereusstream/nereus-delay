@@ -1226,6 +1226,16 @@ Admission 的时间资格只由 body 内 Trusted UTC decision evidence 和该 re
 
 Admission parser 只在没有 Profile semantic catalog 时采用保守的 ordinary-managed 关系；配置了 exact immutable `ProfileCatalog` 的 shard，必须先按 descriptor 的两个 ProfileRef 取回 Destination 与 Delivery Capability semantic bytes，再验证 ordinary managed 或固定 lead 的 certified Pulsar handoff，并检查已 pin 的 physical partition 位于 Profile 的 count/explicit policy 内。缺少 catalog、ProfileRef/hash 不一致、能力位不足、目标资源/分区不一致或 handoff lead 计算下溢，均在 Producer 前 fail closed 为 `STALE_SYSTEM_MUTATION`；不能把 `actionAt < deliverAt` 当作任意提前发送许可。
 
+实现层的 `DelayShardConfig` 必须携带 `maxIngressBrokerTimestampDivergenceMs` 与
+`maximumAdmissionMutationEnqueueAgeMs` 两个已激活边界。`DelayShard` 在每个
+`PUBLISH_ADMISSION_V1` apply/replay 中把 source position 的 Broker persistence time
+`bp` 传给 `PublishAdmissionBody.requireBrokerTiming`，用 checked arithmetic 强制：
+`bp + divergence < min(expireAt, readyCertificate.validUntil)`，且 `bp` 到
+Trusted UTC decision interval 的距离不超过 `enqueueAge + divergence`。边界缺失、负值或
+加减溢出均 fail closed 为 `STALE_SYSTEM_MUTATION`，不会创建 attempt 或调用 Producer。
+嵌入式兼容构造器只提供受限的本地回归上界；发布构建仍必须从 Broker-time certification
+与 capacity artifact 注入这两个正式值，不能把兼容值当作生产认证结果。
+
 `PublishAttemptId` 不能只由 generation/attemptNo 生成：capacity-gated/stale Admission 不消耗 attemptNo。V1 额外绑定 exact `claimId`；被 gate 的 Claim 被撤销，下一次 Claim/Admission 得到新 ID，而 uncertain enqueue 继续复用原 exact ID/body。Claim sequence 或 generation/attempt overflow 都 fence shard，禁止 wrap。
 
 ```text

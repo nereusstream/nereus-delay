@@ -26,6 +26,19 @@ public class PublishAdmissionBodyTest {
     }
 
     @Test
+    void validatesBrokerPersistenceTimeAgainstDecisionAndExpiryBounds() {
+        final PublishAdmissionBody admission = PublishAdmissionBody.decode(
+                Fixture.create(new ShardId(RouteIncarnation.random(), 10)).body());
+
+        admission.requireBrokerTiming(2_001, 0, 0);
+        admission.requireBrokerTiming(3_000, 0, 1_000);
+        assertThrows(IllegalArgumentException.class, () -> admission.requireBrokerTiming(3_000, 0, 0));
+        assertThrows(IllegalArgumentException.class, () -> admission.requireBrokerTiming(4_999, 1, 0));
+        assertThrows(IllegalArgumentException.class,
+                () -> admission.requireBrokerTiming(Long.MAX_VALUE, 1, 0));
+    }
+
+    @Test
     void rejectsDescriptorProjectionDrift() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
         final Fixture fixture = Fixture.create(shard);
