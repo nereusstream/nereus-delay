@@ -168,6 +168,32 @@ class AdapterIngressTest {
     }
 
     @Test
+    void pulsarV1WireRejectsLegacyBodyBeforeTransportOwnership() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 26);
+        final byte[] token = Bytes.sha256(Bytes.utf8("legacy-pulsar-v1-token"));
+        final PulsarIngressResource resource = new PulsarIngressResource(shard, "cluster-pulsar-v1", token,
+                "persistent://tenant/ns/command-26", 7026, 26);
+        final PreparedCommand legacy = PreparedCommand.schedule(shard,
+                new io.nereusstream.delay.protocol.ScheduleIntent(DestinationLaneId.derive(
+                        Bytes.utf8("legacy-pulsar-v1-lane")), 2_000, 5_000, OrderingMode.BEST_EFFORT,
+                        Bytes.utf8("legacy")), 10_000);
+        final java.util.concurrent.atomic.AtomicBoolean transportCalled =
+                new java.util.concurrent.atomic.AtomicBoolean();
+        final PinnedPulsarCommandIngress.PulsarSendTransport transport = request -> {
+            transportCalled.set(true);
+            return CompletableFuture.failedFuture(new AssertionError("legacy V1 body reached transport"));
+        };
+        try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
+            final var failure = assertThrows(java.util.concurrent.CompletionException.class,
+                    () -> adapter.enqueueOutcomeV1(legacy, 5_000,
+                            java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("legacy-pulsar-v1-attempt")), 16))
+                            .toCompletableFuture().join());
+            assertTrue(failure.getCause() instanceof IllegalArgumentException);
+            assertFalse(transportCalled.get());
+        }
+    }
+
+    @Test
     void pulsarGuardRejectionIsDefinitelyNotQueued() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 1);
         final byte[] token = Bytes.sha256(Bytes.utf8("token"));
