@@ -1164,6 +1164,7 @@ public final class ShardStore implements AutoCloseable {
         }
         boolean slotAcquired = false;
         Path temporary = null;
+        Path installedTarget = null;
         try {
             resources.acquireCheckpointCreateSlot();
             slotAcquired = true;
@@ -1189,10 +1190,18 @@ public final class ShardStore implements AutoCloseable {
             } catch (java.nio.file.FileAlreadyExistsException exception) {
                 throw new IOException("checkpoint target appeared during creation: " + absoluteTarget, exception);
             }
+            installedTarget = absoluteTarget;
             temporary = null;
             forceDirectory(parent);
             return checkpointPath;
         } catch (RocksDBException | IOException | RuntimeException exception) {
+            if (installedTarget != null) {
+                try {
+                    deleteTree(installedTarget);
+                } catch (IOException cleanupException) {
+                    exception.addSuppressed(cleanupException);
+                }
+            }
             if (checkpointId != null) {
                 try {
                     persistRuntimeMetadata(previousMetadata);

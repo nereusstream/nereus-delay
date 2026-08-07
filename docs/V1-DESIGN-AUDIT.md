@@ -765,7 +765,8 @@ nested intent 也必须匹配同一 key。错挂的 GC value 会在 query/compac
 
 `ShardStore.createCheckpoint` 现在先把完整 RocksDB 镜像写入同文件系统的
 `checkpoint-tmp` 命名空间，完成后才通过 atomic rename 安装到目标路径；已有
-目标会被拒绝，失败 staging 会清理。这闭合的是本地物理 checkpoint 边界，
+目标会被拒绝；如果目标已经移动但后续目录 durability 校验失败，失败路径
+也会删除该自有目标并回滚本地 projection，失败 staging 会清理。这闭合的是本地物理 checkpoint 边界，
 不代表 Object Store 上传、manifest publication 或 Oxia CAS 已完成。
 带 manifest 的 restore 在 staged DB 打开后还会逐项比较镜像中的
 `lastCheckpointId`、`appliedShardLogPosition`、`shardMutationSequence` 和
