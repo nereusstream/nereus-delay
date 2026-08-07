@@ -825,7 +825,9 @@ public final class ShardStore implements AutoCloseable {
 
     private static void copyTree(final Path source, final Path target) throws IOException {
         try (var paths = Files.walk(source)) {
-            for (Path path : paths.toList()) {
+            final var iterator = paths.iterator();
+            while (iterator.hasNext()) {
+                final Path path = iterator.next();
                 final Path destination = target.resolve(source.relativize(path).toString());
                 if (Files.isSymbolicLink(path)) {
                     throw new IOException("checkpoint contains a symbolic link: " + path);

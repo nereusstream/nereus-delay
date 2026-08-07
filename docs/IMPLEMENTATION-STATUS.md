@@ -629,6 +629,8 @@ the finite-limit restore overload all use the same limit set. Legacy no-limits
 overloads remain compatibility seams and are not production activated limits.
 Inventory and manifest file ordering compares normalized names by unsigned
 UTF-8 bytes, matching the Registry rather than Java UTF-16 string order.
+Restore `copyTree` also consumes the source walk through a streaming iterator,
+so validated checkpoint restore does not materialize the entire path tree again.
 
 Shared RocksDB resources also retain checkpoint create/upload/download slot
 counts and reject close while any bounded worker operation is still in flight.

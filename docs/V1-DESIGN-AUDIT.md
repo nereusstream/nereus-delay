@@ -832,7 +832,8 @@ manifest bytes、evidence cursor 数以及 file/manifest object identity 字段�
 inventory、canonical decode、upload 和 restore 边界，原始 manifest byte cap 在
 JSON parse 前检查，file/evidence array bound 在 parser materialize 时检查，其余
 超限在本地 hash/provider I/O 前 fail closed；inventory 与 manifest 的文件名排序
-使用 normalized UTF-8 unsigned byte order，而不是 Java UTF-16 order。无 limits
+使用 normalized UTF-8 unsigned byte order，而不是 Java UTF-16 order；restore 的
+`copyTree` 通过 streaming iterator 复制，不再把整棵路径树 materialize。无 limits
 overload 保留为 embedded compatibility seam，不能作为 production activated
 limits；这仍只是本地文件完整性边界，不替代 Object Store 内容证明。
 
