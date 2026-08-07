@@ -101,13 +101,38 @@ class CheckpointManifestTest {
                 () -> CheckpointManifest.decodeCanonicalJson(manifestBytes, oneManifestFile));
     }
 
+    @Test
+    void checkpointFilesUseUnsignedUtf8NameOrder() throws Exception {
+        final Path root = tempDir.resolve("unicode-checkpoint");
+        Files.createDirectories(root);
+        final String bmpName = "a\uE000";
+        final String supplementaryName = "a\uD800\uDC00";
+        Files.writeString(root.resolve(supplementaryName), "supplementary");
+        Files.writeString(root.resolve(bmpName), "bmp");
+        final List<CheckpointFileInventory> inventory = CheckpointFileInventory.collect(root);
+        assertEquals(List.of(bmpName, supplementaryName), inventory.stream()
+                .map(CheckpointFileInventory::name).toList());
+
+        final List<CheckpointManifest.FileEntry> files = inventory.stream()
+                .map(file -> new CheckpointManifest.FileEntry(file.name(), file.length(), file.checksum(),
+                        Bytes.utf8("object/" + file.name()), Bytes.utf8("version-1"), null))
+                .toList();
+        final CheckpointManifest manifest = manifestWithFiles(files);
+        assertEquals(List.of(bmpName, supplementaryName), manifest.files().stream()
+                .map(CheckpointManifest.FileEntry::name).toList());
+    }
+
     private CheckpointManifest manifestFixture(final Path root) throws Exception {
-        final ShardId shardId = new ShardId(RouteIncarnation.random(), 2);
         final List<CheckpointFileInventory> inventory = CheckpointFileInventory.collect(root);
         final List<CheckpointManifest.FileEntry> files = inventory.stream()
                 .map(file -> new CheckpointManifest.FileEntry(file.name(), file.length(), file.checksum(),
                         Bytes.utf8("object/" + file.name()), Bytes.utf8("version-1"), null))
                 .toList();
+        return manifestWithFiles(files);
+    }
+
+    private CheckpointManifest manifestWithFiles(final List<CheckpointManifest.FileEntry> files) {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 2);
         final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster-a", UUID.randomUUID(), 9,
                 3, 1000);
         return new CheckpointManifest(bytes(1), bytes(2), 4, null, null,

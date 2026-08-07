@@ -12,7 +12,6 @@ import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -77,7 +76,8 @@ public record CheckpointManifest(
         if (files == null || files.isEmpty()) {
             throw new IllegalArgumentException("checkpoint manifest requires at least one file");
         }
-        files = files.stream().sorted(Comparator.comparing(FileEntry::name)).toList();
+        files = files.stream().sorted((left, right) -> CheckpointFileInventory.compareCanonicalNames(
+                left.name(), right.name())).toList();
         for (int index = 1; index < files.size(); index++) {
             if (files.get(index - 1).name().equals(files.get(index).name())) {
                 throw new IllegalArgumentException("duplicate checkpoint file name");

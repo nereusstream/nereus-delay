@@ -10,7 +10,6 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.text.Normalizer;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
@@ -70,10 +69,25 @@ public record CheckpointFileInventory(String name, long length, byte[] checksum)
                 }
                 result.add(new CheckpointFileInventory(name, length, sha256(path)));
             }
-            return result.stream().sorted(Comparator.comparing(CheckpointFileInventory::name)).toList();
+            return result.stream().sorted((left, right) -> compareCanonicalNames(left.name(), right.name())).toList();
         } catch (IOException exception) {
             throw new IllegalStateException("cannot inventory checkpoint files", exception);
         }
+    }
+
+    /** Compares normalized names by unsigned UTF-8 bytes as required by the manifest registry. */
+    static int compareCanonicalNames(final String left, final String right) {
+        final byte[] leftBytes = left.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        final byte[] rightBytes = right.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        final int common = Math.min(leftBytes.length, rightBytes.length);
+        for (int index = 0; index < common; index++) {
+            final int comparison = Integer.compare(Byte.toUnsignedInt(leftBytes[index]),
+                    Byte.toUnsignedInt(rightBytes[index]));
+            if (comparison != 0) {
+                return comparison;
+            }
+        }
+        return Integer.compare(leftBytes.length, rightBytes.length);
     }
 
     /** Streams the file so inventory creation cannot allocate an SST-sized byte array. */
