@@ -318,6 +318,14 @@ and `WorkerSchedulerTest.outerVisitLimitUsesWideArithmetic` covering the
 large-ring arithmetic boundary. This closes only the local integer-wrap path;
 the production population, time-share and fairness bounds still require the
 capacity/chaos evidence listed below.
+Lane registration now also fences `laneIncarnation` as an immutable part of a
+registered `destinationLaneId`: a different incarnation is rejected before
+the in-memory queue or `PersistentLaneScheduler` registration map can be
+replaced, while same-incarnation state updates remain supported. The local
+regression is
+`LaneSchedulerTest.rejectsLaneIncarnationChangeWithoutMutatingSchedulerState`;
+this does not replace source-ordered Lane lifecycle or terminal-guard
+authority.
 
 当前代码已把 Lane 的 same-key ACTIVE/TERMINAL 分支和保守本地退休证明接入
 `DelayShard`；并已补齐 Registry-shaped `ActiveLaneStateV1`、

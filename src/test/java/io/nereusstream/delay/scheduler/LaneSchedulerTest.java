@@ -100,6 +100,21 @@ class LaneSchedulerTest {
     }
 
     @Test
+    void rejectsLaneIncarnationChangeWithoutMutatingSchedulerState() {
+        final DestinationLaneId lane = lane(25);
+        final LaneScheduler scheduler = LaneScheduler.defaults();
+        scheduler.register(recordWithIncarnation(lane, 1));
+        scheduler.offer(item(lane, 1));
+        final LaneScheduler.SchedulerSnapshot before = scheduler.snapshot();
+
+        assertThrows(IllegalArgumentException.class,
+                () -> scheduler.register(recordWithIncarnation(lane, 2)));
+
+        assertEquals(before, scheduler.snapshot());
+        assertEquals(1, scheduler.pendingItems(lane));
+    }
+
+    @Test
     void ringVisitLimitUsesWideArithmetic() {
         assertEquals(0, LaneScheduler.boundedRingVisitLimit(0));
         assertEquals(4_294_967_292L,
@@ -315,6 +330,12 @@ class LaneSchedulerTest {
 
     private static LaneRecord record(final DestinationLaneId lane, final int weight) {
         return new LaneRecord(lane, new byte[16], 1, 0, AdmissionGate.OPEN, RuntimeReadiness.READY, weight, 0);
+    }
+
+    private static LaneRecord recordWithIncarnation(final DestinationLaneId lane, final int marker) {
+        final byte[] incarnation = new byte[16];
+        incarnation[0] = (byte) marker;
+        return new LaneRecord(lane, incarnation, 1, 0, AdmissionGate.OPEN, RuntimeReadiness.READY, 1, 0);
     }
 
     private static ScheduleWorkItem item(final DestinationLaneId lane, final int generation) {

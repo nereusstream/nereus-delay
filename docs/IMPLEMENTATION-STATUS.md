@@ -587,6 +587,15 @@ and `WorkerSchedulerTest.outerVisitLimitUsesWideArithmetic` cover the boundary;
 this is local scheduler arithmetic evidence and does not replace the required
 capacity proof for a production worker's maximum Lane/shard population.
 
+Lane registration now treats `laneIncarnation` as immutable for a registered
+`destinationLaneId`. A second registration with a different incarnation fails
+before the existing queue, deficit, ring position or persistent registration
+projection can be replaced; same-incarnation registrations remain the normal
+gate/readiness/weight update path. `LaneSchedulerTest.rejectsLaneIncarnationChangeWithoutMutatingSchedulerState`
+covers the local fence. This protects the scheduler's identity boundary only;
+source-ordered Lane lifecycle and terminal-guard authority remain in
+`DelayShard`/the external Registry.
+
 `ProfileBindingActivatePayloadV1` and `ProfileNewBindingClosePayloadV1` now
 close the Registry control branches for Profile first-binding lifecycle.
 `ProfileBindingControlState` persists strictly source-ordered activation and

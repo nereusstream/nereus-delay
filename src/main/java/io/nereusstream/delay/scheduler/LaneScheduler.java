@@ -6,6 +6,7 @@ import io.nereusstream.delay.runtime.RuntimeReadiness;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
@@ -46,13 +47,15 @@ public final class LaneScheduler {
 
     public synchronized void register(final LaneRecord lane) {
         Objects.requireNonNull(lane, "lane");
-        maxDeficitBytes = Math.max(maxDeficitBytes, checkedWeightIncrement(lane.weight()));
+        final long weightIncrement = checkedWeightIncrement(lane.weight());
         final LaneQueue existing = lanes.get(lane.laneId());
         if (existing == null) {
+            maxDeficitBytes = Math.max(maxDeficitBytes, weightIncrement);
             lanes.put(lane.laneId(), new LaneQueue(lane));
             ring.add(lane.laneId());
         } else {
             existing.update(lane);
+            maxDeficitBytes = Math.max(maxDeficitBytes, weightIncrement);
         }
     }
 
@@ -339,6 +342,7 @@ public final class LaneScheduler {
 
     private static final class LaneQueue {
         private final DestinationLaneId laneId;
+        private final byte[] laneIncarnation;
         private final Deque<ScheduleWorkItem> queue = new ArrayDeque<>();
         private int weight;
         private long deficit;
@@ -348,10 +352,14 @@ public final class LaneScheduler {
 
         private LaneQueue(final LaneRecord lane) {
             laneId = lane.laneId();
+            laneIncarnation = lane.laneIncarnation();
             update(lane);
         }
 
         private void update(final LaneRecord lane) {
+            if (!Arrays.equals(laneIncarnation, lane.laneIncarnation())) {
+                throw new IllegalArgumentException("lane incarnation cannot change for a registered lane: " + laneId);
+            }
             weight = lane.weight();
             gate = lane.admissionGate();
             runtimeReadiness = lane.runtimeReadiness();

@@ -69,8 +69,11 @@ public final class PersistentLaneScheduler {
 
     public synchronized void register(final LaneRecord lane) {
         Objects.requireNonNull(lane, "lane");
-        registered.put(lane.laneId(), lane);
         delegate.register(lane);
+        // Keep the registry update after the delegate's identity fence. A
+        // rejected incarnation must not replace the state used to persist
+        // scheduler projections.
+        registered.put(lane.laneId(), lane);
     }
 
     /** Applies the saved projections after all currently active lanes are registered. */
