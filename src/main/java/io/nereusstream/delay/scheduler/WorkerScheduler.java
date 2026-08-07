@@ -98,7 +98,9 @@ public final class WorkerScheduler {
             shard.deficit = Math.min(saturatingAdd(shard.deficit, checkedWeightIncrement(shard.weight)),
                     Math.max(maxDeficitBytes, 1));
             final long remainingBytes = budget.maxBytes() - bytes;
-            final long shardBudgetBytes = Math.min(remainingBytes, shard.deficit);
+            final long shardHeadBytes = shard.scheduler.minimumSchedulableHeadBytes();
+            final long deficitOrHead = Math.max(shard.deficit, shardHeadBytes);
+            final long shardBudgetBytes = Math.min(remainingBytes, deficitOrHead);
             if (shardBudgetBytes <= 0) {
                 continue;
             }

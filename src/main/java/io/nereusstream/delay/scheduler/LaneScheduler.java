@@ -154,6 +154,22 @@ public final class LaneScheduler {
         return requireLane(laneId).queue.size();
     }
 
+    /**
+     * Returns the smallest currently schedulable Lane-head size, or zero when
+     * no Lane can make progress. The outer Worker DRR uses this to avoid
+     * making a valid record larger than the outer deficit cap permanently
+     * unserviceable.
+     */
+    synchronized long minimumSchedulableHeadBytes() {
+        long minimum = Long.MAX_VALUE;
+        for (LaneQueue lane : lanes.values()) {
+            if (lane.schedulable() && !lane.queue.isEmpty()) {
+                minimum = Math.min(minimum, lane.queue.peekFirst().accountedBytes());
+            }
+        }
+        return minimum == Long.MAX_VALUE ? 0 : minimum;
+    }
+
     public synchronized long roundGeneration() {
         return roundGeneration;
     }

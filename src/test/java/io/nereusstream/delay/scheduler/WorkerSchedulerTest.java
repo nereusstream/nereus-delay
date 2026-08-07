@@ -81,6 +81,21 @@ class WorkerSchedulerTest {
     }
 
     @Test
+    void outerDeficitCapDoesNotMakeLargeHeadUnserviceable() {
+        final ShardId shard = shard(11);
+        final DestinationLaneId lane = lane(11);
+        final WorkerScheduler worker = new WorkerScheduler(10, 1);
+        worker.registerShard(shard, 1, LaneScheduler.defaults());
+        worker.registerLane(shard, laneRecord(lane));
+        worker.offer(new ScheduleWorkItem(lane, DelayMessageId.random(shard), 1, 1, 100));
+
+        final List<ScheduleWorkItem> result = worker.poll(new SchedulerBudget(1, 100, 1_000_000_000));
+
+        assertEquals(1, result.size());
+        assertEquals(100, result.get(0).accountedBytes());
+    }
+
+    @Test
     void restoreStartsANewOuterFirstPass() {
         final ShardId first = shard(9);
         final ShardId second = shard(10);

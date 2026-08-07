@@ -268,7 +268,11 @@ Worker 外层 DRR 也只把至少含有一个 schedulable pending head 的 shard
 process state，不伪造跨 DB 的持久原子 ring。Worker 外层 scheduler 在新建、
 restore 或 READY 集合重新激活后进入 recovery first pass：当前 eligible shard
 在重复服务前各获得一次 outer visit，首轮每 shard 最多取一条 work item；新增/恢复
-的 shard 不会被旧 hot shard 直接越过。两级 scheduler 现在还对
+的 shard 不会被旧 hot shard 直接越过。外层 visit 会读取当前最小 schedulable
+Lane head；当该合法 record 大于 outer deficit cap 时，只在全局 byte budget 足够的
+情况下临时放宽本次 shard budget，因此大记录不会被 cap 永久饿死。
+`WorkerSchedulerTest.outerDeficitCapDoesNotMakeLargeHeadUnserviceable` 覆盖该边界。
+两级 scheduler 现在还对
 `weight * quantum` 与 deficit cap 做 checked arithmetic，并对运行时 deficit 累加做
 saturating arithmetic；配置、注册或恢复导致的整数溢出不会 wrap 成可调度的错误预算。
 `LaneSchedulerTest.rejectsQuantumAndWeightArithmeticOverflow` 与
