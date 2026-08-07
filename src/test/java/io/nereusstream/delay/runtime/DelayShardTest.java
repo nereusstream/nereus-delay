@@ -419,6 +419,32 @@ class DelayShardTest {
     }
 
     @Test
+    void laneCloseMaterializationDiscoveryRejectsForeignSourcePosition() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("close-discovery-source-shard-mismatch"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 79);
+        final ShardId otherShardId = new ShardId(RouteIncarnation.random(), 80);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("close-discovery-source-shard-mismatch"));
+        final LaneRecord closed = new LaneRecord(lane, new byte[16], 1, 0,
+                AdmissionGate.CLOSED, RuntimeReadiness.BLOCKED, 1, 0);
+        final LaneCloseMaterializationCursor misplaced = new LaneCloseMaterializationCursor(lane,
+                closed.laneIncarnation(), closed.laneControlVersion(), position(otherShardId, 0, 1_000).canonicalBytes(),
+                LaneCloseMaterializationCursor.Phase.MESSAGES, null, 0, 0, 0, 0);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(lane),
+                        LaneRecordEnvelopeV1.active(closed.encode()).canonicalBytes());
+                batch.putValue(ColumnFamily.TIMELINE, LaneCloseMaterializationCursor.VALUE_TYPE,
+                        KeyCodec.timelineSystem(LaneCloseMaterializationCursor.SYSTEM_WORK_KIND, 0,
+                                lane.bytes(), closed.laneControlVersion()), misplaced.canonicalBytes());
+            });
+
+            assertThrows(IllegalStateException.class, () -> shard.discoverLaneCloseMaterialization(1));
+        }
+    }
+
+    @Test
     void admissionBudgetConfigRequiresAPositiveTotalAndSmallerUncertainBudget() {
         assertThrows(IllegalArgumentException.class,
                 () -> new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,

@@ -4331,6 +4331,7 @@ public final class DelayShard {
                     || key.nextEligibleAtEpochMs() != 0) {
                 throw new IllegalStateException("Lane close system work key/value identity mismatch");
             }
+            validateSourcePositionShard(cursor.closeSourcePosition(), "Lane close materialization discovery");
             final LaneRecord lane = readLane(laneId);
             if (lane == null || lane.admissionGate() != AdmissionGate.CLOSED
                     || lane.laneControlVersion() != cursor.closeVersion()

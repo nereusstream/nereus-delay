@@ -357,6 +357,11 @@ as its bounded scan, so a misplaced `meta_cf/SLO_OUTBOX` record cannot be
 consumed by Start/Final merge logic; `SloObservationOutboxStoreTest` covers
 both direct and scan reads.
 
+Close-materialization discovery now revalidates each cursor's embedded close
+Source Position shard before returning scheduler work, matching the direct
+cursor query path; `DelayShardTest.laneCloseMaterializationDiscoveryRejectsForeignSourcePosition`
+covers the scheduler-only read.
+
 The embedded Kafka ingress now checks source-offset exhaustion before creating
 the next queued position and advances the counter only after the position has
 validated successfully. `EmbeddedDelayServiceTest` covers the
