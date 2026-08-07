@@ -257,10 +257,18 @@ public final class PublishAdmissionBody {
             throw new IllegalArgumentException("Publish Admission Profile/channel identity mismatch");
         }
         final long physicalPartition = channelIdentity.physicalPartition();
-        if (physicalPartition >= destinationProfile.targetPartitionCount()
-                || (destinationProfile.targetPartitionPolicy() == TargetPartitionPolicyV1.EXPLICIT_ONLY
-                && !destinationProfile.allowedExplicitPartitions().contains((int) physicalPartition))) {
+        if (physicalPartition >= destinationProfile.targetPartitionCount()) {
             throw new IllegalArgumentException("Publish Admission physical partition is outside Profile policy");
+        }
+        final boolean explicitPartition = destinationProfile.allowedExplicitPartitions()
+                .contains((int) physicalPartition);
+        if (destinationProfile.targetPartitionPolicy() == TargetPartitionPolicyV1.EXPLICIT_ONLY && !explicitPartition) {
+            throw new IllegalArgumentException("Publish Admission physical partition is not explicitly allowed");
+        }
+        if (destinationProfile.targetPartitionPolicy() == TargetPartitionPolicyV1.HASH_ONLY
+                || (destinationProfile.targetPartitionPolicy() == TargetPartitionPolicyV1.EXPLICIT_OR_HASH
+                && !explicitPartition)) {
+            requireHashedPartition(destinationProfile, destinationRef, physicalPartition);
         }
         final long deliverAt = descriptor.deliverAtEpochMs();
         final long actionAt = descriptor.actionAtEpochMs();
@@ -286,6 +294,37 @@ public final class PublishAdmissionBody {
         if (expectedActionAt < 0 || actionAt != expectedActionAt) {
             throw new IllegalArgumentException("Pulsar handoff actionAt does not match the pinned lead");
         }
+    }
+
+    private void requireHashedPartition(final DestinationProfileSemanticV1 destinationProfile,
+                                        final ProfileRefV1 destinationRef, final long physicalPartition) {
+        final AdapterMetadataV1 metadata = AdapterMetadataV1.decode(descriptor.metadata());
+        final byte[] routingBytes = switch (destinationProfile.targetPartitionHashInput()) {
+            case ORDERING_KEY -> orderingKeyBytes(metadata);
+            case ADAPTER_MESSAGE_KEY -> metadata.kind() == AdapterMetadataV1.Kind.KAFKA
+                    ? nullableBytes(metadata.kafka().key())
+                    : nullableBytes(metadata.pulsar().partitionKey());
+            case DELAY_MESSAGE_ID -> descriptor.messageId();
+        };
+        final byte[] digest = Bytes.sha256(Bytes.utf8("nereus-delay-target-partition-v1"),
+                Bytes.lp32(destinationRef.profileId()), Bytes.u64be(destinationRef.version()),
+                Bytes.lp32(routingBytes));
+        final long expectedPartition = Long.remainderUnsigned(Bytes.readU64be(digest, 0),
+                destinationProfile.targetPartitionCount());
+        if (physicalPartition != expectedPartition) {
+            throw new IllegalArgumentException("Publish Admission physical partition hash mismatch");
+        }
+    }
+
+    private static byte[] nullableBytes(final byte[] value) {
+        return value == null ? new byte[0] : value;
+    }
+
+    private static byte[] orderingKeyBytes(final AdapterMetadataV1 metadata) {
+        if (metadata.kind() != AdapterMetadataV1.Kind.PULSAR) {
+            throw new IllegalArgumentException("Kafka descriptor cannot prove an ordering-key hash");
+        }
+        return nullableBytes(metadata.pulsar().orderingKey());
     }
 
     private void validateCrossObjectEqualities() {
@@ -377,6 +416,11 @@ public final class PublishAdmissionBody {
         validatePayload(payload);
         final byte[] metadata = nested(field(fields, 16), 16);
         validateAdapterMetadata(metadata);
+        final AdapterMetadataV1 metadataValue = AdapterMetadataV1.decode(metadata);
+        if ((adapterKind == AdapterKindV1.KAFKA && metadataValue.kind() != AdapterMetadataV1.Kind.KAFKA)
+                || (adapterKind == AdapterKindV1.PULSAR && metadataValue.kind() != AdapterMetadataV1.Kind.PULSAR)) {
+            throw new IllegalArgumentException("PreparedPublishDescriptor metadata branch does not match adapter");
+        }
         final int generation = intValue(field(fields, 12), 12);
         final byte[] reserved = nested(field(fields, 17), 17);
         validateReservedMetadata(reserved);

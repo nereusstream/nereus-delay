@@ -470,7 +470,8 @@ retention barrier、external proof ownership 仍是 release blocker。
 
 `PublishAdmissionBody` 还把 `PreparedPublishDescriptorV1` 的 adapter kind、固定
 adapter encoding version（并要求 immutable Destination Profile 也 pin 版本 `1`）、target resource、physical partition 与嵌套
-`ChannelResourceIdentityV1` 做 exact equality，并要求 descriptor Destination
+`ChannelResourceIdentityV1` 做 exact equality，要求 `business_metadata` branch
+与 adapter 一致，并要求 descriptor Destination
 Profile 与 channel credential lease 的 ProfileRef 一致；descriptor 的两个 Profile
 kind 也按 Registry 字段位置固定。`PublishAdmissionBodyTest` 的
 `rejectsDescriptorAdapterIdentityDrift` 覆盖哈希有效但 adapter identity 漂移的
