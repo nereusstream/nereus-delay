@@ -76,7 +76,7 @@ public final class PinnedKafkaCommandIngress implements WireCommandIngressAdapte
         }
         final KafkaProduceRequest request;
         try {
-            request = KafkaProduceRequest.from(resource, command, CommandCodec.encodeFrame(command));
+            request = KafkaProduceRequest.from(resource, command, CommandCodec.encodeFrameV1(command));
         } catch (RuntimeException exception) {
             return completedWire(WireIngressOutcomeSupport.localDefinite(command,
                     StableCode.INVALID_PREPARED_COMMAND));

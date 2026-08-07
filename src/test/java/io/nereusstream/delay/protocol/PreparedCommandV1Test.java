@@ -42,6 +42,16 @@ class PreparedCommandV1Test {
                 CommandCodec.encodeEnvelope(forged)));
     }
 
+    @Test
+    void managedPreparedSubmissionRejectsACompatibilityBody() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
+        final PreparedCommand legacy = PreparedCommand.schedule(shard,
+                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("legacy-managed")), 10, 100,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 500);
+        assertThrows(IllegalArgumentException.class,
+                () -> PreparedSubmissionV1.managed(CommandCodec.encodeFrame(legacy)));
+    }
+
     private static ProfileRefV1 destination() {
         return new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 1), ProfileKindV1.DESTINATION);
     }

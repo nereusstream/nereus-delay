@@ -72,7 +72,7 @@ public final class PinnedPulsarCommandIngress implements WireCommandIngressAdapt
         }
         final PulsarSendRequest request;
         try {
-            request = PulsarSendRequest.from(resource, command, CommandCodec.encodeFrame(command));
+            request = PulsarSendRequest.from(resource, command, CommandCodec.encodeFrameV1(command));
         } catch (RuntimeException exception) {
             return completedWire(WireIngressOutcomeSupport.localDefinite(command,
                     StableCode.INVALID_PREPARED_COMMAND));

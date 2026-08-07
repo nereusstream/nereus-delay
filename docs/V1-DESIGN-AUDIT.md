@@ -415,6 +415,15 @@ Managed Kafka/Pulsar ingress 的 transport exception、空结果或 failed stage
 该分支映射由 `AdapterIngressTest` 覆盖，避免把 managed Command 的 retry contract
 误标成 native submission；managed null-result 和 native-code 泄漏也有回归向量。
 
+V1 managed submission 现在还在 Producer ownership 前强制执行
+`CommandCodec.encodeFrameV1/decodeFrameV1`：`PinnedKafkaCommandIngress`、
+`PinnedPulsarCommandIngress` 的 `enqueueOutcomeV1` 和
+`PreparedSubmissionV1` 不再接受 legacy compatibility body；
+`AdapterIngressTest.kafkaV1WireRejectsLegacyBodyBeforeTransportOwnership` 与
+`PreparedCommandV1Test.managedPreparedSubmissionRejectsACompatibilityBody` 覆盖该
+fail-closed 边界。旧 `enqueue()` 路径仍明确保留为 compatibility seam，不被计入 V1
+submission 证据。
+
 Target publish 的本地 transport 结果现在也在 adapter 边界执行 closed-product
 校验：`PUBLISHED` 必须携带非空 delivery identity、非空 side-effect evidence、
 `StableCode.OK` 和非负 Broker persistence time；若返回 pinned Broker resource，

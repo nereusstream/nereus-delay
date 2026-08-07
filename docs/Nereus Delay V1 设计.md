@@ -354,6 +354,11 @@ interface DelayClient extends AutoCloseable {
 
 `prepare*` 不做网络 I/O。它固定 route/partition、IDs、canonical bytes、hash 和 `retryUntil`，并允许调用方把 Prepared Command 持久化。
 
+进入 V1 managed submission 的 frame 必须通过 Registry-shaped body 的严格
+`encodeFrameV1/decodeFrameV1` 校验；兼容旧 body 不能被包装成 V1
+`PreparedSubmission`，也不能到达 Producer ownership。旧版 `enqueue()` 兼容桥仍可
+使用 legacy frame，但不能冒充 V1 receipt/submission。
+
 同步 `prepare*` 只可抛出携 `StableErrorV1(stage=PREPARATION)` 的 typed `PreparationFailure`，对应本地可确定的 invalid input/snapshot/size/metadata；失败时不存在 Command identity enqueue obligation。已有 `PreparedCommand` 的 `enqueue` 对所有预期网络/容量结果正常完成为三态，不让调用方从异常类猜是否入 Broker；只有损坏的 Prepared bytes、SDK invariant 或进程级不可恢复错误才 exceptional completion。
 
 `AutoFastSchedule` 是 bounded inline-only type。`prepareAutoFast` 只使用本地已验证、尚未过期的 immutable capability snapshot 做选择，不发网络请求；它返回：

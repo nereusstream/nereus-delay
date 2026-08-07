@@ -538,7 +538,10 @@ class ProtocolCodecTest {
                 SubmissionOutcomeMessageV1.decode(SubmissionOutcomeMessageV1.nativeUncertain(nativeUncertain)
                         .canonicalBytes()));
 
-        final PreparedSubmissionV1 managedPrepared = PreparedSubmissionV1.managed(CommandCodec.encodeFrame(command));
+        final PreparedCommand managedCommand = PreparedCommand.cancelV1(shard, DelayMessageId.random(shard),
+                new MessagePreconditionV1(null, null), 9_000);
+        final PreparedSubmissionV1 managedPrepared = PreparedSubmissionV1.managed(
+                CommandCodec.encodeFrameV1(managedCommand));
         assertEquals(managedPrepared, PreparedSubmissionV1.decode(managedPrepared.canonicalBytes()));
         final NativePreparedDeliveryV1 nativePrepared = nativePreparedForOutcomeTest();
         final PreparedSubmissionV1 nativePreparedSubmission = PreparedSubmissionV1.nativePrepared(nativePrepared);

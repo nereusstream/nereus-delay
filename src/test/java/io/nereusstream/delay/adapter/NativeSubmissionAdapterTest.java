@@ -4,6 +4,9 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CommandQueuedReceiptV1;
 import io.nereusstream.delay.protocol.CommandCodec;
 import io.nereusstream.delay.protocol.DestinationLaneId;
+import io.nereusstream.delay.protocol.AdapterMetadataV1;
+import io.nereusstream.delay.protocol.DeliveryMode;
+import io.nereusstream.delay.protocol.KafkaMetadataV1;
 import io.nereusstream.delay.protocol.NativeCapabilitySnapshotV1;
 import io.nereusstream.delay.protocol.NativeDeliveryReceiptV1;
 import io.nereusstream.delay.protocol.NativePreparedDeliveryV1;
@@ -15,7 +18,8 @@ import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.OrderingMode;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.RouteIncarnation;
-import io.nereusstream.delay.protocol.ScheduleIntent;
+import io.nereusstream.delay.protocol.RetryPolicyRefV1;
+import io.nereusstream.delay.protocol.ScheduleIntentV1;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
@@ -151,9 +155,14 @@ class NativeSubmissionAdapterTest {
     void preparedSubmissionAdapterKeepsManagedBranchManaged() throws Exception {
         final Fixture fixture = fixture(4_000, 3_000);
         final ShardId shard = new ShardId(RouteIncarnation.random(), 11);
-        final PreparedCommand command = PreparedCommand.schedule(shard,
-                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("prepared-dispatch-lane")), 2_000, 5_000,
-                        OrderingMode.BEST_EFFORT, Bytes.utf8("managed-payload")), 8_000);
+        final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("managed-destination"), 1,
+                Bytes.sha256(Bytes.utf8("managed-destination-semantic")), ProfileKindV1.DESTINATION);
+        final RetryPolicyRefV1 retryPolicy = new RetryPolicyRefV1(Bytes.utf8("managed-retry"), 1,
+                Bytes.sha256(Bytes.utf8("managed-retry-semantic")));
+        final ScheduleIntentV1 intent = ScheduleIntentV1.create(destination, retryPolicy, 2_000, 5_000,
+                DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, new byte[0], Bytes.utf8("managed-payload"), null,
+                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, java.util.List.of())), null, null);
+        final PreparedCommand command = PreparedCommand.scheduleV1(shard, intent, 8_000);
         final AtomicBoolean closed = new AtomicBoolean();
         final WireCommandIngressAdapter managed = new WireCommandIngressAdapter() {
             @Override
@@ -182,7 +191,7 @@ class NativeSubmissionAdapterTest {
         try (PinnedPulsarNativeSubmissionAdapter nativeAdapter = fixture.adapter(transport);
              PreparedSubmissionAdapter adapter = new PreparedSubmissionAdapter(managed, nativeAdapter)) {
             final SubmissionOutcomeMessageV1 outcome = adapter.submit(
-                    io.nereusstream.delay.protocol.PreparedSubmissionV1.managed(CommandCodec.encodeFrame(command)),
+                    io.nereusstream.delay.protocol.PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(command)),
                     9_000, attempt(7)).toCompletableFuture().join();
             assertEquals(io.nereusstream.delay.protocol.SubmissionOutcomeKindV1.MANAGED, outcome.kind());
             assertEquals(StableCode.CLIENT_CLOSED, outcome.managed().definitelyNotQueued().error().code());

@@ -32,7 +32,7 @@ public final class PreparedSubmissionAdapter implements AutoCloseable {
                                                               final byte[] physicalEnqueueAttemptId) {
         Objects.requireNonNull(submission, "submission");
         if (submission.isManaged()) {
-            final PreparedCommand command = CommandCodec.decodeFrame(submission.managedFrame());
+            final PreparedCommand command = CommandCodec.decodeFrameV1(submission.managedFrame());
             return managedIngress.enqueueOutcomeV1(command, receiptQueryUntilEpochMs, physicalEnqueueAttemptId)
                     .thenApply(SubmissionOutcomeMessageV1::managed);
         }

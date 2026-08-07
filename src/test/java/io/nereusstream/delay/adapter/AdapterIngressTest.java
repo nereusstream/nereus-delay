@@ -4,12 +4,18 @@ import io.nereusstream.delay.client.EnqueueStatus;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CommandCodec;
 import io.nereusstream.delay.protocol.DestinationLaneId;
+import io.nereusstream.delay.protocol.AdapterMetadataV1;
+import io.nereusstream.delay.protocol.DeliveryMode;
 import io.nereusstream.delay.protocol.EnqueueOutcomeKindV1;
 import io.nereusstream.delay.protocol.OrderingMode;
 import io.nereusstream.delay.protocol.NonPersistenceProofKindV1;
+import io.nereusstream.delay.protocol.KafkaMetadataV1;
+import io.nereusstream.delay.protocol.ProfileKindV1;
+import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
+import io.nereusstream.delay.protocol.RetryPolicyRefV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
-import io.nereusstream.delay.protocol.ScheduleIntent;
+import io.nereusstream.delay.protocol.ScheduleIntentV1;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.PulsarSourcePosition;
@@ -17,6 +23,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -132,6 +139,31 @@ class AdapterIngressTest {
             final var wire = adapter.enqueueOutcomeV1(command, 5_000, attempt).toCompletableFuture().join();
             assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
             assertEquals(StableCode.ENQUEUE_RESULT_UNCERTAIN, wire.uncertain().error().code());
+        }
+    }
+
+    @Test
+    void kafkaV1WireRejectsLegacyBodyBeforeTransportOwnership() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 25);
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-v1", UUID.randomUUID(), 25);
+        final PreparedCommand legacy = PreparedCommand.schedule(shard,
+                new io.nereusstream.delay.protocol.ScheduleIntent(DestinationLaneId.derive(
+                        Bytes.utf8("legacy-v1-lane")), 2_000, 5_000, OrderingMode.BEST_EFFORT,
+                        Bytes.utf8("legacy")), 10_000);
+        final java.util.concurrent.atomic.AtomicBoolean transportCalled =
+                new java.util.concurrent.atomic.AtomicBoolean();
+        final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request -> {
+            transportCalled.set(true);
+            return CompletableFuture.failedFuture(new AssertionError("legacy V1 body reached transport"));
+        };
+        try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
+            final var wire = adapter.enqueueOutcomeV1(legacy, 5_000,
+                    java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("legacy-v1-attempt")), 16))
+                    .toCompletableFuture().join();
+            assertEquals(EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED, wire.kind());
+            assertEquals(StableCode.INVALID_PREPARED_COMMAND,
+                    wire.definitelyNotQueued().error().code());
+            assertFalse(transportCalled.get());
         }
     }
 
@@ -313,7 +345,13 @@ class AdapterIngressTest {
     }
 
     private static PreparedCommand command(final ShardId shard) {
-        return PreparedCommand.schedule(shard, new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("adapter-lane")),
-                2000, 5000, OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+        final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("adapter-destination"), 1,
+                Bytes.sha256(Bytes.utf8("adapter-destination-semantic")), ProfileKindV1.DESTINATION);
+        final RetryPolicyRefV1 retryPolicy = new RetryPolicyRefV1(Bytes.utf8("adapter-retry"), 1,
+                Bytes.sha256(Bytes.utf8("adapter-retry-semantic")));
+        final ScheduleIntentV1 intent = ScheduleIntentV1.create(destination, retryPolicy, 2_000, 5_000,
+                DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, new byte[0], Bytes.utf8("payload"), null,
+                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())), null, null);
+        return PreparedCommand.scheduleV1(shard, intent, 10_000);
     }
 }

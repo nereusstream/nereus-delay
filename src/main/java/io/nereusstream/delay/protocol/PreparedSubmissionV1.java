@@ -20,8 +20,8 @@ public final class PreparedSubmissionV1 {
 
     public static PreparedSubmissionV1 managed(final byte[] frame) {
         Objects.requireNonNull(frame, "frame");
-        final PreparedCommand decoded = CommandCodec.decodeFrame(frame);
-        if (!Arrays.equals(frame, CommandCodec.encodeFrame(decoded))) {
+        final PreparedCommand decoded = CommandCodec.decodeFrameV1(frame);
+        if (!Arrays.equals(frame, CommandCodec.encodeFrameV1(decoded))) {
             throw new IllegalArgumentException("managed PreparedSubmission frame is not canonical");
         }
         return new PreparedSubmissionV1(frame, null);
