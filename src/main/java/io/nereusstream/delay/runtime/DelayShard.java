@@ -902,7 +902,14 @@ public final class DelayShard {
         Bytes.requireLength(mutationId, SystemMutation.HASH_LENGTH, "mutationId");
         final var value = store.getValue(ColumnFamily.DEDUPE, KeyCodec.dedupeSystemMutation(mutationId),
                 SystemMutationResult.VALUE_TYPE);
-        return value == null ? null : SystemMutationResult.decode(value.payload());
+        if (value == null) {
+            return null;
+        }
+        final SystemMutationResult result = SystemMutationResult.decode(value.payload());
+        if (!Bytes.constantTimeEquals(result.mutationId(), mutationId)) {
+            throw new IllegalStateException("system mutation result key/value identity mismatch");
+        }
+        return result;
     }
 
     /** Returns the durable gc_cf retire intent for one exact resource identity/version. */
@@ -4227,7 +4234,16 @@ public final class DelayShard {
         }
         final var value = store.getValue(ColumnFamily.TIMELINE,
                 closeCursorKey(laneId, lane.laneControlVersion()), LaneCloseMaterializationCursor.VALUE_TYPE);
-        return value == null ? null : LaneCloseMaterializationCursor.decode(value.payload());
+        if (value == null) {
+            return null;
+        }
+        final LaneCloseMaterializationCursor cursor = LaneCloseMaterializationCursor.decode(value.payload());
+        if (!cursor.laneId().equals(laneId) || cursor.closeVersion() != lane.laneControlVersion()
+                || !Arrays.equals(cursor.laneIncarnation(), lane.laneIncarnation())
+                || !store.shardId().equals(SourcePositionCodec.decode(cursor.closeSourcePosition()).shardId())) {
+            throw new IllegalStateException("Lane close cursor key/value identity mismatch");
+        }
+        return cursor;
     }
 
     /**
@@ -5932,7 +5948,19 @@ public final class DelayShard {
 
     private LaneValue readLaneValue(final io.nereusstream.delay.protocol.DestinationLaneId laneId) {
         final var value = store.getValue(ColumnFamily.META, KeyCodec.metaLane(laneId), 2);
-        return value == null ? null : decodeLaneValue(value.payload());
+        if (value == null) {
+            return null;
+        }
+        final LaneValue laneValue = decodeLaneValue(value.payload());
+        if (laneValue.isActive()) {
+            final LaneRecord lane = LaneRecord.decode(laneValue.activeStateBytes());
+            if (!lane.laneId().equals(laneId)) {
+                throw new IllegalStateException("active Lane key/value identity mismatch");
+            }
+        } else if (!laneValue.terminalGuard().laneId().equals(laneId)) {
+            throw new IllegalStateException("terminal Lane key/value identity mismatch");
+        }
+        return laneValue;
     }
 
     /**

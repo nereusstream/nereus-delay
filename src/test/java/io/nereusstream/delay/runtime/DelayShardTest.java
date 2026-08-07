@@ -20,6 +20,7 @@ import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.EvidenceCursorV1;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.LaneControlTargetV1;
+import io.nereusstream.delay.protocol.LaneRecordEnvelopeV1;
 import io.nereusstream.delay.protocol.LaneRetirementProgressV1;
 import io.nereusstream.delay.protocol.LaneTerminalGuardV1;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
@@ -158,6 +159,73 @@ class DelayShardTest {
                     KeyCodec.terminalGeneration(keyMessageId, 0), misplaced.encode()));
 
             assertThrows(IllegalStateException.class, () -> shard.getTerminalGeneration(keyMessageId, 0));
+        }
+    }
+
+    @Test
+    void systemMutationResultLookupRejectsKeyValueIdentityMismatch() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-result-key-mismatch"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 56);
+        final byte[] keyMutationId = Bytes.sha256(Bytes.utf8("system-result-key"));
+        final byte[] valueMutationId = Bytes.sha256(Bytes.utf8("system-result-value"));
+        final byte[] mutationHash = Bytes.sha256(Bytes.utf8("system-result-hash"));
+        final byte[] author = AuthorIdentity.service(Bytes.utf8("system-result-service"),
+                Bytes.utf8("run-1"), 1).canonicalBytes();
+        final SystemMutationResult misplaced = new SystemMutationResult(valueMutationId, mutationHash,
+                SystemMutationType.TIME_FENCE, 9_000, author, ApplyStatus.APPLIED, StableCode.OK,
+                position(shardId, 0, 1_000).canonicalBytes());
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            store.write(batch -> batch.putValue(ColumnFamily.DEDUPE, SystemMutationResult.VALUE_TYPE,
+                    KeyCodec.dedupeSystemMutation(keyMutationId), misplaced.encode()));
+
+            assertThrows(IllegalStateException.class, () -> shard.getSystemMutationResult(keyMutationId));
+        }
+    }
+
+    @Test
+    void laneLookupRejectsKeyValueIdentityMismatch() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("lane-key-mismatch"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 57);
+        final DestinationLaneId keyLane = DestinationLaneId.derive(Bytes.utf8("lane-key"));
+        final DestinationLaneId valueLane = DestinationLaneId.derive(Bytes.utf8("lane-value"));
+        final LaneRecord misplaced = new LaneRecord(valueLane, new byte[16], 1, 0,
+                AdmissionGate.OPEN, RuntimeReadiness.READY, 1, 0);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            store.write(batch -> batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(keyLane),
+                    LaneRecordEnvelopeV1.active(misplaced.encode()).canonicalBytes()));
+
+            assertThrows(IllegalStateException.class, () -> shard.getLane(keyLane));
+        }
+    }
+
+    @Test
+    void laneCloseCursorLookupRejectsKeyValueIdentityMismatch() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("close-cursor-key-mismatch"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 58);
+        final DestinationLaneId keyLane = DestinationLaneId.derive(Bytes.utf8("close-cursor-key"));
+        final DestinationLaneId valueLane = DestinationLaneId.derive(Bytes.utf8("close-cursor-value"));
+        final LaneRecord lane = new LaneRecord(keyLane, new byte[16], 1, 0,
+                AdmissionGate.CLOSED, RuntimeReadiness.BLOCKED, 1, 0);
+        final byte[] closeSource = position(shardId, 0, 1_000).canonicalBytes();
+        final LaneCloseMaterializationCursor misplaced = new LaneCloseMaterializationCursor(valueLane,
+                new byte[16], 1, closeSource, LaneCloseMaterializationCursor.Phase.MESSAGES, null,
+                0, 0, 0, 0);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(keyLane),
+                        LaneRecordEnvelopeV1.active(lane.encode()).canonicalBytes());
+                batch.putValue(ColumnFamily.TIMELINE, LaneCloseMaterializationCursor.VALUE_TYPE,
+                        KeyCodec.timelineSystem(LaneCloseMaterializationCursor.SYSTEM_WORK_KIND, 0,
+                                keyLane.bytes(), 1), misplaced.canonicalBytes());
+            });
+
+            assertThrows(IllegalStateException.class, () -> shard.getLaneCloseCursor(keyLane));
         }
     }
 

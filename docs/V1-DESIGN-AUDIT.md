@@ -208,6 +208,9 @@ is `TerminalGenerationRecordTest`. Direct `DelayShard` history reads also
 compare the embedded `messageId/generation` with the requested terminal key;
 `DelayShardTest.terminalGenerationLookupRejectsKeyValueIdentityMismatch`
 covers the misplaced-value fence before a query or runtime summary can use it.
+System Mutation result reads apply the same mutationId/key check, so a
+misplaced `dedupe_cf/SYSTEM_MUTATION` result cannot be returned as another
+mutation's outcome.
 The embedded Kafka source counter also fails closed at `Long.MAX_VALUE` before
 mutating its next-offset state; `EmbeddedDelayServiceTest` proves that an
 exhausted source cannot wrap into a negative offset after a failed enqueue.
@@ -567,6 +570,9 @@ admitted-obligation set 的 generation 才会物化为
 继续执行而不会把它混入 due-publish scan。它仍不证明 close-owned Claim 标记、
 admitted outcome retirement、对象句柄 quiescence/GC、Recovery-Floor retention
 或 owner/Oxia 负责的生产 materializer 编排已经闭合。
+直接的 Lane 读取也会校验 `meta_cf/LANE` 值内 Lane id，以及 close cursor 的
+Lane id/incarnation/control version/source shard；错挂的管理投影在暴露给调度或
+物化器前 fail closed，回归证据为 `DelayShardTest` 的 key/value identity tests。
 `ShardStore.flushAndSync` 还提供 drain 的物理 flush/WAL-sync 原语，重开回归为
 `ShardStoreTest.flushAndSyncMakesTheShardBoundaryExplicit`；它不替代远端 callback
 quiescence 或 final checkpoint publication。
