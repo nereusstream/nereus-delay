@@ -320,6 +320,13 @@ contains one; foreign history cannot become a local query, drain or compaction
 input. `DelayShardTest` covers command-result, terminal-generation and
 publish-attempt foreign-position lookups.
 
+Activation also rereads the persisted applied Source Position and every
+source-ordered Profile/Trust-Set control marker after decoding their registered
+`meta_cf` envelopes. A DB that was physically copied with a foreign source
+history therefore cannot enter the local runtime before replay; the boundary is
+covered by `DelayShardTest.activationRejectsForeignAppliedSourcePosition` and
+`DelayShardTest.activationRejectsForeignSourcePositionInProfileControlState`.
+
 The embedded Kafka ingress now checks source-offset exhaustion before creating
 the next queued position and advances the counter only after the position has
 validated successfully. `EmbeddedDelayServiceTest` covers the

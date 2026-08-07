@@ -723,6 +723,11 @@ retire/delete union 或 fixed control states 错误地压成同一个 payload sc
 12/13 的 registered non-empty control-state envelope；错误不会等到
 `DelayShard` 构造后才暴露。`ShardStoreTest.fixedControlMetadataIsValidatedBeforeShardActivation`
 覆盖 type mismatch 和失败后 native DB 可重开的证据。
+`DelayShard` 构造时还会逐 marker 校验 key 12/13 内 Profile/Trust-Set
+source-ordered history 的 Shard，并再次确认 key 3 的 applied Position；错挂的
+历史不会进入 compare/replay 运行时，证据为
+`DelayShardTest.activationRejectsForeignAppliedSourcePosition` 与
+`DelayShardTest.activationRejectsForeignSourcePositionInProfileControlState`。
 
 主设计 §10.1 要求的可变 Store 元数据现在也有独立的本地投影：
 `StoreRuntimeMetadata` 在注册的 `meta/FIXED` key 4/6/7/8/9 中 canonical 持久

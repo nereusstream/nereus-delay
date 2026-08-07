@@ -209,6 +209,10 @@ public final class DelayShard {
         final var sourceValue = store.getValue(ColumnFamily.META, KeyCodec.metaFixed(META_APPLIED_SOURCE_POSITION), 1);
         final byte[] source = sourceValue == null ? null : sourceValue.payload();
         lastAppliedSourcePosition = source == null ? null : SourcePositionCodec.decode(source);
+        if (lastAppliedSourcePosition != null
+                && !store.shardId().equals(lastAppliedSourcePosition.shardId())) {
+            throw new IllegalStateException("persisted applied source position belongs to another shard");
+        }
         final var closedDeadline = store.getValue(ColumnFamily.META,
                 KeyCodec.metaFixed(META_CLOSED_INGRESS_DEADLINE), 1);
         closedIngressDeadlineThrough = closedDeadline == null
@@ -227,6 +231,7 @@ public final class DelayShard {
         profileBindingControlState = profileControlValue == null
                 ? ProfileBindingControlState.empty()
                 : ProfileBindingControlState.decode(profileControlValue.payload());
+        validateControlStateSourcePositions();
         final var quotaValue = store.getValue(ColumnFamily.META, KeyCodec.metaQuota(META_QUOTA_USAGE), 7);
         quota = quotaValue == null ? ShardQuota.empty() : ShardQuota.decode(quotaValue.payload());
         final var outcomeReserveValue = store.getValue(ColumnFamily.META,
@@ -1538,6 +1543,21 @@ public final class DelayShard {
         if (!store.shardId().equals(sourcePosition.shardId())) {
             throw new IllegalStateException("source position shard mismatch during " + context);
         }
+    }
+
+    private void validateControlStateSourcePositions() {
+        payloadProofTrustSetControlState.activations().forEach(marker ->
+                validateSourcePositionShard(marker.sourcePosition().canonicalBytes(),
+                        "payload proof trust-set activation state"));
+        payloadProofTrustSetControlState.closures().forEach(marker ->
+                validateSourcePositionShard(marker.sourcePosition().canonicalBytes(),
+                        "payload proof trust-set closure state"));
+        profileBindingControlState.activations().forEach(marker ->
+                validateSourcePositionShard(marker.sourcePosition().canonicalBytes(),
+                        "Profile activation state"));
+        profileBindingControlState.closures().forEach(marker ->
+                validateSourcePositionShard(marker.sourcePosition().canonicalBytes(),
+                        "Profile closure state"));
     }
 
     private List<ClosedMessageAction> prepareClosedMessageActions(

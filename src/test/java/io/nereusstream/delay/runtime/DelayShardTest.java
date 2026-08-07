@@ -267,6 +267,38 @@ class DelayShardTest {
     }
 
     @Test
+    void activationRejectsForeignAppliedSourcePosition() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("applied-source-shard-mismatch"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 68);
+        final ShardId otherShardId = new ShardId(RouteIncarnation.random(), 69);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(3),
+                    position(otherShardId, 0, 1_000).canonicalBytes()));
+
+            assertThrows(IllegalStateException.class, () -> new DelayShard(store, DelayShardConfig.defaults()));
+        }
+    }
+
+    @Test
+    void activationRejectsForeignSourcePositionInProfileControlState() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("profile-control-source-shard-mismatch"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 70);
+        final ShardId otherShardId = new ShardId(RouteIncarnation.random(), 71);
+        final ProfileRefV1 profile = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2), ProfileKindV1.DESTINATION);
+        final io.nereusstream.delay.protocol.ProfileBindingControlState state =
+                io.nereusstream.delay.protocol.ProfileBindingControlState.empty()
+                        .activate(profile, position(otherShardId, 0, 1_000));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> batch.putValue(ColumnFamily.META, 10, KeyCodec.metaFixed(13),
+                    state.canonicalBytes()));
+
+            assertThrows(IllegalStateException.class, () -> new DelayShard(store, DelayShardConfig.defaults()));
+        }
+    }
+
+    @Test
     void laneLookupRejectsKeyValueIdentityMismatch() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("lane-key-mismatch"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 57);
