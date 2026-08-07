@@ -721,6 +721,13 @@ Normal `ShardStore.open` applies the same `NOFOLLOW_LINKS` rule to the
 any symbolic path is rejected before it can be opened, so open and restore
 cannot disagree about the live-incarnation boundary; restore admission also
 rejects a symbolic incarnation or DB path behind a valid `ACTIVE` pointer.
+The fixed worker-owned `shards/<routeIncarnation>/<partition>` ancestors are
+now created and checked one component at a time as real directories as well;
+an operational symlink at any of those ownership-boundary components fails
+closed before RocksDB creation or restore staging, so a shard cannot redirect
+its DB outside the configured root namespace. `ShardStoreTest`
+`openRejectsSymbolicShardPathAncestors` covers the `shards`, route and
+partition ancestors, and confirms no external `CURRENT` marker is created.
 If the `ACTIVE` pointer itself names a missing or non-directory DB, restore
 now fails closed instead of treating the corrupt pointer as an orphan and
 overwriting it; `ShardStoreTest.restoreRejectsAnActivePointerWhoseDbIsMissing`

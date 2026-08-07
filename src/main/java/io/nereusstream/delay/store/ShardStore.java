@@ -105,10 +105,7 @@ public final class ShardStore implements AutoCloseable {
         Objects.requireNonNull(shardId, "shardId");
         Objects.requireNonNull(resources, "resources");
         try {
-            final Path shardRoot = config.rootPath().resolve("shards")
-                    .resolve(shardId.routeIncarnation().uuid().toString())
-                    .resolve(Integer.toString(shardId.partition()));
-            Files.createDirectories(shardRoot);
+            final Path shardRoot = prepareShardRoot(config, shardId);
             final Path dbPath = locateOrCreateDbPath(shardRoot);
             final ShardStore opened = openAtPath(config, shardId, dbPath, resources, null, true);
             try {
@@ -202,9 +199,12 @@ public final class ShardStore implements AutoCloseable {
         } else if (pin != null) {
             throw new IllegalArgumentException("RecoveryPin requires a catalog authority");
         }
-        final Path shardRoot = config.rootPath().resolve("shards")
-                .resolve(shardId.routeIncarnation().uuid().toString())
-                .resolve(Integer.toString(shardId.partition()));
+        final Path shardRoot;
+        try {
+            shardRoot = prepareShardRoot(config, shardId);
+        } catch (IOException exception) {
+            throw new IllegalStateException("cannot prepare shard directory", exception);
+        }
         final UUID storeUuid = UUID.randomUUID();
         final Path restoreRoot = shardRoot.resolve("restore-tmp").resolve(storeUuid.toString());
         final Path stagedDb = restoreRoot.resolve("db");
@@ -224,7 +224,9 @@ public final class ShardStore implements AutoCloseable {
             if (manifest != null) {
                 validateCheckpointManifest(shardId, checkpointPath, manifest, limits);
             }
-            Files.createDirectories(shardRoot);
+            ensureRealDirectory(shardRoot.resolve("incarnations"));
+            ensureRealDirectory(shardRoot.resolve("restore-tmp"));
+            ensureRealDirectory(restoreRoot);
             if (hasActiveDb(shardRoot)) {
                 throw new IOException("cannot restore while an active shard DB exists: " + shardRoot);
             }
@@ -249,7 +251,7 @@ public final class ShardStore implements AutoCloseable {
                     throw new IOException("install-mode DB shard identity mismatch");
                 }
             }
-            Files.createDirectories(activeDb.getParent());
+            ensureRealDirectory(activeDb.getParent());
             Files.move(stagedDb, activeDb, StandardCopyOption.ATOMIC_MOVE);
             activeDbMoved = true;
             installed = openAtPath(config, shardId, activeDb, resources, null, true);
@@ -455,6 +457,7 @@ public final class ShardStore implements AutoCloseable {
         final Path incarnations = shardRoot.resolve("incarnations");
         final List<Path> candidates;
         if (!Files.exists(incarnations, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            ensureRealDirectory(incarnations);
             return incarnations.resolve(UUID.randomUUID().toString()).resolve("db");
         }
         if (Files.isSymbolicLink(incarnations)
@@ -487,6 +490,33 @@ public final class ShardStore implements AutoCloseable {
             return candidates.get(0).resolve("db");
         }
         return incarnations.resolve(UUID.randomUUID().toString()).resolve("db");
+    }
+
+    /**
+     * Resolves the fixed local shard path without following a symbolic link in
+     * the worker-owned directory components.  The configured root itself may
+     * be a deployment symlink, but {@code shards/<route>/<partition>} is the
+     * physical ownership boundary and must remain inside that root namespace.
+     */
+    private static Path prepareShardRoot(final ShardStoreConfig config, final ShardId shardId) throws IOException {
+        Files.createDirectories(config.rootPath());
+        final Path shardsRoot = config.rootPath().resolve("shards");
+        ensureRealDirectory(shardsRoot);
+        final Path routeRoot = shardsRoot.resolve(shardId.routeIncarnation().uuid().toString());
+        ensureRealDirectory(routeRoot);
+        final Path shardRoot = routeRoot.resolve(Integer.toString(shardId.partition()));
+        ensureRealDirectory(shardRoot);
+        return shardRoot;
+    }
+
+    private static void ensureRealDirectory(final Path path) throws IOException {
+        if (!Files.exists(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            Files.createDirectory(path);
+        }
+        if (Files.isSymbolicLink(path)
+                || !Files.isDirectory(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("shard path component must be a real directory: " + path);
+        }
     }
 
     private static boolean hasActiveDb(final Path shardRoot) throws IOException {
@@ -523,7 +553,7 @@ public final class ShardStore implements AutoCloseable {
     }
 
     private static void writeActivePointer(final Path shardRoot, final UUID storeUuid) throws IOException {
-        Files.createDirectories(shardRoot.resolve("incarnations"));
+        ensureRealDirectory(shardRoot.resolve("incarnations"));
         final byte[] body = java.nio.ByteBuffer.allocate(4 + 16)
                 .putInt(ACTIVE_MAGIC).put(uuidBytes(storeUuid)).array();
         final byte[] encoded = Bytes.concat(body, Bytes.crc32cbe(body));

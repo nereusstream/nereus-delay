@@ -788,6 +788,12 @@ format/identity validation 和 install-mode write 放在同一个失败清理边
 任一失败都会先关闭 DB、Column Family handles 和 options，再释放 Worker slot。
 `ShardStoreTest.malformedExistingMetadataDoesNotLeaveRocksDbOpen` 随后用 raw
 RocksDB reopen 证明不会遗留 native 文件锁。
+固定的本地 `shards/<routeIncarnation>/<partition>` 祖先目录也不再通过
+`Files.createDirectories` 隐式跟随符号链接：open/restore 会逐级创建并用
+`NOFOLLOW_LINKS` 验证 `shards`、route 和 partition 目录，任一 ownership-boundary
+组件为符号链接都会在 RocksDB 创建或 restore staging 前 fail closed。这样
+一 shard 一 DB 的物理目录不会被重定向到配置 root 之外；回归证据为
+`ShardStoreTest.openRejectsSymbolicShardPathAncestors`。
 Restore 在把 staged DB 原子移动到新 incarnation 后，会先以正式 active path
 打开并验证 DB，再写入 `ACTIVE`；任一 pointer 安装失败都会关闭已打开句柄，
 删除未被 `ACTIVE` 指向的自有 incarnation 目录，并保留无法证明未被指向的

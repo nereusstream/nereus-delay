@@ -230,6 +230,46 @@ class ShardStoreTest {
     }
 
     @Test
+    void openRejectsSymbolicShardPathAncestors() throws Exception {
+        final RouteIncarnation routeIncarnation = RouteIncarnation.random();
+        final ShardId shardId = new ShardId(routeIncarnation, 24);
+        for (String component : List.of("shards", "route", "partition")) {
+            final Path root = tempDir.resolve("symbolic-path-" + component);
+            final Path outside = tempDir.resolve("symbolic-path-target-" + component);
+            Files.createDirectories(root);
+            Files.createDirectories(outside);
+            final Path shards = root.resolve("shards");
+            final Path route = shards.resolve(routeIncarnation.uuid().toString());
+            final Path partition = route.resolve(Integer.toString(shardId.partition()));
+            final Path link;
+            if (component.equals("shards")) {
+                link = shards;
+            } else if (component.equals("route")) {
+                Files.createDirectories(shards);
+                link = route;
+            } else {
+                Files.createDirectories(route);
+                link = partition;
+            }
+            try {
+                Files.createSymbolicLink(link, outside);
+            } catch (UnsupportedOperationException | java.nio.file.FileSystemException unsupported) {
+                return;
+            }
+
+            final ShardStoreConfig config = ShardStoreConfig.defaults(root);
+            try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+                final IllegalStateException failure = assertThrows(IllegalStateException.class,
+                        () -> ShardStore.open(config, shardId, resources));
+                assertTrue(failure.getCause() instanceof java.io.IOException);
+            }
+            try (var paths = Files.walk(outside)) {
+                assertTrue(paths.noneMatch(path -> path.getFileName().toString().equals("CURRENT")));
+            }
+        }
+    }
+
+    @Test
     void openRejectsSymbolicActivePointer() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("symbolic-active"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 24);
