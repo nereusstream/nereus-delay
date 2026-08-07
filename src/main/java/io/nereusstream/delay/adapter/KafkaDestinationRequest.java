@@ -6,6 +6,8 @@ import io.nereusstream.delay.protocol.DestinationLaneId;
 
 import java.util.Objects;
 import java.util.UUID;
+import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
 
 /** Request handed to a pinned Kafka destination transport. */
 public record KafkaDestinationRequest(
@@ -22,7 +24,7 @@ public record KafkaDestinationRequest(
         byte[] payload,
         byte[] adapterMetadata) {
     public KafkaDestinationRequest {
-        Objects.requireNonNull(authenticatedClusterId, "authenticatedClusterId");
+        authenticatedClusterId = canonicalText(authenticatedClusterId, "authenticatedClusterId");
         Objects.requireNonNull(nativeTopicUuid, "nativeTopicUuid");
         Objects.requireNonNull(laneId, "laneId");
         Objects.requireNonNull(delayMessageId, "delayMessageId");
@@ -30,7 +32,7 @@ public record KafkaDestinationRequest(
         Objects.requireNonNull(adapterMetadata, "adapterMetadata");
         Bytes.requireLength(laneIncarnation, 16, "laneIncarnation");
         Bytes.requireLength(publishAttemptId, 32, "publishAttemptId");
-        if (authenticatedClusterId.isBlank() || partition < 0 || generation < 0 || actionAtEpochMs < 0
+        if (partition < 0 || generation < 0 || actionAtEpochMs < 0
                 || deliverAtEpochMs < actionAtEpochMs) {
             throw new IllegalArgumentException("invalid Kafka destination request");
         }
@@ -66,5 +68,15 @@ public record KafkaDestinationRequest(
     @Override
     public byte[] adapterMetadata() {
         return Bytes.copy(adapterMetadata);
+    }
+
+    private static String canonicalText(final String value, final String name) {
+        Objects.requireNonNull(value, name);
+        final String decoded = new String(value.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8);
+        if (!decoded.equals(value) || value.isBlank() || value.indexOf('\0') >= 0
+                || !value.equals(Normalizer.normalize(value, Normalizer.Form.NFC))) {
+            throw new IllegalArgumentException(name + " must be nonblank NFC UTF-8");
+        }
+        return value;
     }
 }

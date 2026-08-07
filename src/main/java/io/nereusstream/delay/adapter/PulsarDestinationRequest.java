@@ -5,6 +5,8 @@ import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 
 import java.util.Objects;
+import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
 
 /** Request handed to a per-SEND guarded Pulsar destination transport. */
 public record PulsarDestinationRequest(
@@ -23,9 +25,9 @@ public record PulsarDestinationRequest(
         byte[] payload,
         byte[] adapterMetadata) {
     public PulsarDestinationRequest {
-        Objects.requireNonNull(authenticatedClusterId, "authenticatedClusterId");
+        authenticatedClusterId = canonicalText(authenticatedClusterId, "authenticatedClusterId");
         Objects.requireNonNull(resourceIncarnation, "resourceIncarnation");
-        Objects.requireNonNull(physicalTopic, "physicalTopic");
+        physicalTopic = canonicalText(physicalTopic, "physicalTopic");
         Objects.requireNonNull(laneId, "laneId");
         Objects.requireNonNull(delayMessageId, "delayMessageId");
         Objects.requireNonNull(payload, "payload");
@@ -33,7 +35,7 @@ public record PulsarDestinationRequest(
         Bytes.requireLength(resourceIncarnation, 32, "resourceIncarnation");
         Bytes.requireLength(laneIncarnation, 16, "laneIncarnation");
         Bytes.requireLength(publishAttemptId, 32, "publishAttemptId");
-        if (authenticatedClusterId.isBlank() || physicalTopic.isBlank() || physicalTopicCreationTimestamp < 0
+        if (physicalTopicCreationTimestamp < 0
                 || partition < 0 || generation < 0
                 || actionAtEpochMs < 0 || deliverAtEpochMs < actionAtEpochMs) {
             throw new IllegalArgumentException("invalid Pulsar destination request");
@@ -77,5 +79,15 @@ public record PulsarDestinationRequest(
     @Override
     public byte[] adapterMetadata() {
         return Bytes.copy(adapterMetadata);
+    }
+
+    private static String canonicalText(final String value, final String name) {
+        Objects.requireNonNull(value, name);
+        final String decoded = new String(value.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8);
+        if (!decoded.equals(value) || value.isBlank() || value.indexOf('\0') >= 0
+                || !value.equals(Normalizer.normalize(value, Normalizer.Form.NFC))) {
+            throw new IllegalArgumentException(name + " must be nonblank NFC UTF-8");
+        }
+        return value;
     }
 }

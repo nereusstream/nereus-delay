@@ -468,6 +468,12 @@ identity，避免把无法成为合法 `BrokerResourceIdentityV1` 的文本交�
 `DestinationAdapterTest.targetResourcesRejectNonCanonicalBrokerIdentityText` 覆盖
 该构造期边界。
 
+公开的 Kafka/Pulsar ingress、managed target 和 native target request value 现在在
+自身构造期重复执行同一 canonical UTF-8/NFC identity fence，不能通过直接构造绕过
+resource/profile 边界把 decomposed 或 malformed text 交给 transport。Pulsar native
+request 还拒绝全零 `nativeDeliveryId`；`AdapterRequestIdentityTest` 覆盖五个 request
+branch 的 direct-constructor rejection。
+
 物理 admission registry 现在对同一 target cluster identity 使用相同的
 canonical UTF-8/NFC fence；非 canonical 文本不能先进入 Worker/cluster 容量域，
 避免 Unicode 等价字符串被拆成两个独立的 hard-cap accounting key。

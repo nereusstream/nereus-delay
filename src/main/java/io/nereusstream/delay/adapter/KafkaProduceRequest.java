@@ -6,6 +6,8 @@ import io.nereusstream.delay.protocol.PreparedCommand;
 
 import java.util.Objects;
 import java.util.UUID;
+import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
 
 /** Request handed to a request-level pinned-topic Kafka transport. */
 public record KafkaProduceRequest(
@@ -15,11 +17,11 @@ public record KafkaProduceRequest(
         CommandId commandId,
         byte[] frame) {
     public KafkaProduceRequest {
-        Objects.requireNonNull(authenticatedClusterId, "authenticatedClusterId");
+        authenticatedClusterId = canonicalText(authenticatedClusterId, "authenticatedClusterId");
         Objects.requireNonNull(nativeTopicUuid, "nativeTopicUuid");
         Objects.requireNonNull(commandId, "commandId");
         Objects.requireNonNull(frame, "frame");
-        if (authenticatedClusterId.isBlank() || partition < 0 || frame.length == 0) {
+        if (partition < 0 || frame.length == 0) {
             throw new IllegalArgumentException("invalid Kafka produce request");
         }
         frame = Bytes.copy(frame);
@@ -34,5 +36,15 @@ public record KafkaProduceRequest(
     @Override
     public byte[] frame() {
         return Bytes.copy(frame);
+    }
+
+    private static String canonicalText(final String value, final String name) {
+        Objects.requireNonNull(value, name);
+        final String decoded = new String(value.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8);
+        if (!decoded.equals(value) || value.isBlank() || value.indexOf('\0') >= 0
+                || !value.equals(Normalizer.normalize(value, Normalizer.Form.NFC))) {
+            throw new IllegalArgumentException(name + " must be nonblank NFC UTF-8");
+        }
+        return value;
     }
 }

@@ -1,0 +1,57 @@
+package io.nereusstream.delay.adapter;
+
+import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.CommandId;
+import io.nereusstream.delay.protocol.DelayMessageId;
+import io.nereusstream.delay.protocol.DestinationLaneId;
+import io.nereusstream.delay.protocol.RouteIncarnation;
+import io.nereusstream.delay.protocol.ShardId;
+import org.junit.jupiter.api.Test;
+
+import java.util.UUID;
+
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+class AdapterRequestIdentityTest {
+    @Test
+    void ingressAndDestinationRequestsRejectNonCanonicalIdentityText() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
+        final CommandId commandId = CommandId.random(shard);
+        final DelayMessageId messageId = DelayMessageId.random(shard);
+        final DestinationLaneId laneId = DestinationLaneId.derive(Bytes.utf8("request-lane"));
+        final byte[] resource = Bytes.sha256(Bytes.utf8("request-resource"));
+        final String decomposed = "cluster" + '\u0301';
+        final String topic = "persistent://tenant/ns/topic";
+        final byte[] frame = Bytes.utf8("frame");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> new KafkaProduceRequest(decomposed, UUID.randomUUID(), shard.partition(), commandId, frame));
+        assertThrows(IllegalArgumentException.class,
+                () -> new PulsarSendRequest("cluster", resource, topic + '\u0301', 1, shard.partition(),
+                        commandId, frame));
+        assertThrows(IllegalArgumentException.class,
+                () -> new KafkaDestinationRequest(decomposed, UUID.randomUUID(), shard.partition(), laneId,
+                        new byte[16], messageId, 0, new byte[32], 1, 1, frame, new byte[0]));
+        assertThrows(IllegalArgumentException.class,
+                () -> new PulsarDestinationRequest("cluster", resource, topic + '\u0301', 1, shard.partition(),
+                        laneId, new byte[16], messageId, 0, new byte[32], 1, 1, frame, new byte[0]));
+        assertThrows(IllegalArgumentException.class,
+                () -> new PulsarNativeSendRequest("cluster", resource, topic + '\u0301', 1, shard.partition(),
+                        nonZero(32), new byte[32], frame));
+    }
+
+    @Test
+    void nativeRequestRejectsZeroDeliveryIdentity() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
+        assertThrows(IllegalArgumentException.class,
+                () -> new PulsarNativeSendRequest("cluster", Bytes.sha256(Bytes.utf8("resource")),
+                        "persistent://tenant/ns/topic", 1, shard.partition(), new byte[32], new byte[32],
+                        Bytes.utf8("prepared")));
+    }
+
+    private static byte[] nonZero(final int length) {
+        final byte[] value = new byte[length];
+        value[0] = 1;
+        return value;
+    }
+}

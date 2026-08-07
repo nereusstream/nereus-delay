@@ -5,6 +5,8 @@ import io.nereusstream.delay.protocol.NativePreparedDeliveryV1;
 import io.nereusstream.delay.protocol.NativePreparedRefV1;
 
 import java.util.Objects;
+import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
 
 /** Request handed to a guarded Pulsar native delayed-delivery transport. */
 public record PulsarNativeSendRequest(
@@ -17,18 +19,19 @@ public record PulsarNativeSendRequest(
         byte[] submissionHash,
         byte[] preparedBytes) {
     public PulsarNativeSendRequest {
-        Objects.requireNonNull(authenticatedClusterId, "authenticatedClusterId");
+        authenticatedClusterId = canonicalText(authenticatedClusterId, "authenticatedClusterId");
         Objects.requireNonNull(resourceIncarnation, "resourceIncarnation");
-        Objects.requireNonNull(physicalTopic, "physicalTopic");
+        physicalTopic = canonicalText(physicalTopic, "physicalTopic");
         Bytes.requireLength(resourceIncarnation, 32, "resourceIncarnation");
         Bytes.requireLength(nativeDeliveryId, NativePreparedRefV1.NATIVE_DELIVERY_ID_LENGTH,
                 "nativeDeliveryId");
         Bytes.requireLength(submissionHash, NativePreparedDeliveryV1.HASH_LENGTH, "submissionHash");
         Objects.requireNonNull(preparedBytes, "preparedBytes");
-        if (authenticatedClusterId.isBlank() || physicalTopic.isBlank() || physicalTopicCreationTimestamp < 0
+        if (physicalTopicCreationTimestamp < 0
                 || partition < 0 || preparedBytes.length == 0) {
             throw new IllegalArgumentException("invalid Pulsar native send request");
         }
+        requireNonZero(nativeDeliveryId, "nativeDeliveryId");
         resourceIncarnation = Bytes.copy(resourceIncarnation);
         nativeDeliveryId = Bytes.copy(nativeDeliveryId);
         submissionHash = Bytes.copy(submissionHash);
@@ -61,5 +64,24 @@ public record PulsarNativeSendRequest(
     @Override
     public byte[] preparedBytes() {
         return Bytes.copy(preparedBytes);
+    }
+
+    private static String canonicalText(final String value, final String name) {
+        Objects.requireNonNull(value, name);
+        final String decoded = new String(value.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8);
+        if (!decoded.equals(value) || value.isBlank() || value.indexOf('\0') >= 0
+                || !value.equals(Normalizer.normalize(value, Normalizer.Form.NFC))) {
+            throw new IllegalArgumentException(name + " must be nonblank NFC UTF-8");
+        }
+        return value;
+    }
+
+    private static void requireNonZero(final byte[] value, final String name) {
+        for (byte item : value) {
+            if (item != 0) {
+                return;
+            }
+        }
+        throw new IllegalArgumentException(name + " must be non-zero");
     }
 }

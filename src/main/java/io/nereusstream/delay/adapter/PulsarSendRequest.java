@@ -5,6 +5,8 @@ import io.nereusstream.delay.protocol.CommandId;
 import io.nereusstream.delay.protocol.PreparedCommand;
 
 import java.util.Objects;
+import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
 
 /** Request handed to a Broker-guarded Pulsar transport. */
 public record PulsarSendRequest(
@@ -16,14 +18,13 @@ public record PulsarSendRequest(
         CommandId commandId,
         byte[] frame) {
     public PulsarSendRequest {
-        Objects.requireNonNull(authenticatedClusterId, "authenticatedClusterId");
+        authenticatedClusterId = canonicalText(authenticatedClusterId, "authenticatedClusterId");
         Objects.requireNonNull(resourceIncarnation, "resourceIncarnation");
-        Objects.requireNonNull(physicalTopic, "physicalTopic");
+        physicalTopic = canonicalText(physicalTopic, "physicalTopic");
         Objects.requireNonNull(commandId, "commandId");
         Objects.requireNonNull(frame, "frame");
         Bytes.requireLength(resourceIncarnation, 32, "resourceIncarnation");
-        if (authenticatedClusterId.isBlank() || physicalTopic.isBlank() || physicalTopicCreationTimestamp < 0
-                || partition < 0 || frame.length == 0) {
+        if (physicalTopicCreationTimestamp < 0 || partition < 0 || frame.length == 0) {
             throw new IllegalArgumentException("invalid Pulsar send request");
         }
         resourceIncarnation = Bytes.copy(resourceIncarnation);
@@ -45,5 +46,15 @@ public record PulsarSendRequest(
     @Override
     public byte[] frame() {
         return Bytes.copy(frame);
+    }
+
+    private static String canonicalText(final String value, final String name) {
+        Objects.requireNonNull(value, name);
+        final String decoded = new String(value.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8);
+        if (!decoded.equals(value) || value.isBlank() || value.indexOf('\0') >= 0
+                || !value.equals(Normalizer.normalize(value, Normalizer.Form.NFC))) {
+            throw new IllegalArgumentException(name + " must be nonblank NFC UTF-8");
+        }
+        return value;
     }
 }
