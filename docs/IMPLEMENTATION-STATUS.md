@@ -631,7 +631,9 @@ Inventory and manifest file ordering compares normalized names by unsigned
 UTF-8 bytes, matching the Registry rather than Java UTF-16 string order.
 Restore `copyTree` also consumes the source walk through a streaming iterator,
 so validated checkpoint restore does not materialize the entire path tree again;
-inventory canonicalizes and rejects path names before hashing any file.
+inventory canonicalizes and rejects path names before hashing any file, and
+restore-tmp cleanup uses post-order `walkFileTree` deletion without a sorted
+whole-tree list.
 
 Shared RocksDB resources also retain checkpoint create/upload/download slot
 counts and reject close while any bounded worker operation is still in flight.
