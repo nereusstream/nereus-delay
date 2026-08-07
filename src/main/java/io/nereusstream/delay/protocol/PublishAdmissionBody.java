@@ -257,7 +257,8 @@ public final class PublishAdmissionBody {
             throw new IllegalArgumentException("Publish Admission Profile/channel identity mismatch");
         }
         final long physicalPartition = channelIdentity.physicalPartition();
-        if (physicalPartition >= destinationProfile.targetPartitionCount()) {
+        final long targetPartitionCount = Integer.toUnsignedLong(destinationProfile.targetPartitionCount());
+        if (physicalPartition >= targetPartitionCount) {
             throw new IllegalArgumentException("Publish Admission physical partition is outside Profile policy");
         }
         final boolean explicitPartition = destinationProfile.allowedExplicitPartitions()
@@ -310,7 +311,7 @@ public final class PublishAdmissionBody {
                 Bytes.lp32(destinationRef.profileId()), Bytes.u64be(destinationRef.version()),
                 Bytes.lp32(routingBytes));
         final long expectedPartition = Long.remainderUnsigned(Bytes.readU64be(digest, 0),
-                destinationProfile.targetPartitionCount());
+                Integer.toUnsignedLong(destinationProfile.targetPartitionCount()));
         if (physicalPartition != expectedPartition) {
             throw new IllegalArgumentException("Publish Admission physical partition hash mismatch");
         }

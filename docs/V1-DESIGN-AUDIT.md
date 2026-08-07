@@ -458,7 +458,7 @@ compatibility seam，不被计入 V1 submission/receipt 证据。
 Target publish 的本地 transport 结果现在也在 adapter 边界执行 closed-product
 校验：`PUBLISHED` 必须携带非空 delivery identity、非空 side-effect evidence、
 `StableCode.OK` 和非负 Broker persistence time；若返回 pinned Broker resource，
-必须同时携带非负 physical partition；`UNKNOWN`/`DEFINITIVELY_NOT_PUBLISHED`
+必须同时携带完整 `uint32` physical partition；`UNKNOWN`/`DEFINITIVELY_NOT_PUBLISHED`
 不得携带成功码、delivery identity、persistence time 或 Broker resource。证据是
 `DestinationPublishResult` 与 `DestinationAdapterTest` 的非法组合回归。这只收紧
 transport result 的本地输入边界；physical evidence journal、Lane/Worker/target

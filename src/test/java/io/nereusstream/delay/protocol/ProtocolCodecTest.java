@@ -308,11 +308,11 @@ class ProtocolCodecTest {
         final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("native-destination"), 2,
                 Bytes.sha256(Bytes.utf8("native-destination-semantic")), ProfileKindV1.DESTINATION);
         final NativePreparedRefV1 prepared = new NativePreparedRefV1(
-                nonZero(32, 1), Bytes.sha256(Bytes.utf8("submission")), destination, target, 2,
+                nonZero(32, 1), Bytes.sha256(Bytes.utf8("submission")), destination, target, -1,
                 Bytes.sha256(Bytes.utf8("capability-snapshot")), 5_000,
                 Bytes.sha256(Bytes.utf8("prepared-bytes")));
         final CommandQueuedReceiptV1.PulsarQueuedAck ack = new CommandQueuedReceiptV1.PulsarQueuedAck(
-                "pulsar-native", resource, "persistent://tenant/native", 1_234, 2, 4, 5, 0, 1, 1_250,
+                "pulsar-native", resource, "persistent://tenant/native", 1_234, -1, 4, 5, 0, 1, 1_250,
                 Bytes.sha256(Bytes.utf8("send-receipt")));
         final byte[] attempt = nonZero(16, 2);
 
@@ -325,7 +325,7 @@ class ProtocolCodecTest {
         assertThrows(IllegalArgumentException.class, () -> NativeDeliveryReceiptV1.decodePayload(tampered));
         assertThrows(IllegalArgumentException.class, () -> NativeDeliveryReceiptV1.create(prepared,
                 new CommandQueuedReceiptV1.PulsarQueuedAck("pulsar-native", resource,
-                        "persistent://tenant/native", 1_235, 2, 4, 5, 0, 1, 1_250,
+                        "persistent://tenant/native", 1_235, -1, 4, 5, 0, 1, 1_250,
                         Bytes.sha256(Bytes.utf8("send-receipt"))), attempt));
         assertThrows(IllegalArgumentException.class, () -> new NativePreparedRefV1(new byte[32],
                 Bytes.sha256(Bytes.utf8("submission")), destination, target, 2,
@@ -349,7 +349,7 @@ class ProtocolCodecTest {
                 Bytes.sha256(Bytes.utf8("snapshot-sample")), 0, null);
 
         final NativeCapabilitySnapshotV1 snapshot = NativeCapabilitySnapshotV1.create(destination, capability, target,
-                6, Bytes.sha256(Bytes.utf8("guard-attestation")), 11, 12,
+                -1, Bytes.sha256(Bytes.utf8("guard-attestation")), 11, 12,
                 Bytes.sha256(Bytes.utf8("binding")), Bytes.sha256(Bytes.utf8("credential-fingerprint")),
                 Bytes.sha256(Bytes.utf8("principal-scope")), issuedAt, 3_000, 13, keyPair.getPrivate());
         final NativeCapabilitySnapshotV1 decoded = NativeCapabilitySnapshotV1.decode(snapshot.canonicalBytes());
@@ -362,7 +362,7 @@ class ProtocolCodecTest {
         tamperedSignature[tamperedSignature.length - 1] ^= 1;
         assertFalse(NativeCapabilitySnapshotV1.decode(tamperedSignature).verifySignature(keyPair.getPublic()));
         assertThrows(IllegalArgumentException.class, () -> NativeCapabilitySnapshotV1.create(destination, capability,
-                target, 6, Bytes.sha256(Bytes.utf8("guard-attestation")), 11, 12,
+                target, -1, Bytes.sha256(Bytes.utf8("guard-attestation")), 11, 12,
                 Bytes.sha256(Bytes.utf8("binding")), Bytes.sha256(Bytes.utf8("credential-fingerprint")),
                 Bytes.sha256(Bytes.utf8("principal-scope")), issuedAt, 2_110, 13, keyPair.getPrivate()));
     }

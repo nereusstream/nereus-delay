@@ -48,6 +48,22 @@ class ProfileSemanticEnvelopeV1Test {
     }
 
     @Test
+    void preservesUnsignedTargetPartitionFields() {
+        final ProfileRefV1 capabilityRef = new ProfileRefV1(Bytes.utf8("unsigned-capability"), 1,
+                bytes(32, 20), ProfileKindV1.DELIVERY_CAPABILITY);
+        final DestinationProfileSemanticV1 destination = new DestinationProfileSemanticV1(
+                AdapterKindV1.KAFKA,
+                BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1("cluster", UUID.randomUUID())),
+                -1, TargetPartitionPolicyV1.EXPLICIT_OR_HASH, TargetPartitionHashInputV1.ORDERING_KEY,
+                List.of(Integer.MIN_VALUE, -2), capabilityRef, 1, 0, 0, bytes(32, 21), 1, 1, 1, 1,
+                Bytes.utf8("unsigned-destination"), 0, 0, 1, bytes(32, 22));
+
+        assertEquals(destination, DestinationProfileSemanticV1.decode(destination.canonicalBytes()));
+        assertEquals(0xffff_ffffL, Integer.toUnsignedLong(destination.targetPartitionCount()));
+        assertEquals(List.of(Integer.MIN_VALUE, -2), destination.allowedExplicitPartitions());
+    }
+
+    @Test
     void rejectsProfileBodyAndPartitionSafetyViolations() {
         final ProfileRefV1 capabilityRef = new ProfileRefV1(Bytes.utf8("capability"), 1,
                 bytes(32, 1), ProfileKindV1.DELIVERY_CAPABILITY);

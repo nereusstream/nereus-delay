@@ -64,7 +64,7 @@ public final class DestinationProfileSemanticV1 implements ProfileSemanticBodyV1
                 && targetResource.kind() != BrokerResourceIdentityV1.Kind.PULSAR)) {
             throw new IllegalArgumentException("Destination Profile adapter does not match target resource");
         }
-        if (targetPartitionCount <= 0) {
+        if (targetPartitionCount == 0) {
             throw new IllegalArgumentException("target partition count must be positive");
         }
         this.targetPartitionCount = targetPartitionCount;
@@ -208,11 +208,11 @@ public final class DestinationProfileSemanticV1 implements ProfileSemanticBodyV1
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, adapterKind.wireValue());
             CanonicalProtobuf.bytes(output, 2, targetResource.canonicalBytes());
-            CanonicalProtobuf.uint32(output, 3, targetPartitionCount);
+            CanonicalProtobuf.uint32Bits(output, 3, targetPartitionCount);
             CanonicalProtobuf.uint32(output, 4, targetPartitionPolicy.wireValue());
             CanonicalProtobuf.uint32(output, 5, targetPartitionHashInput.wireValue());
             for (int partition : allowedExplicitPartitions) {
-                CanonicalProtobuf.uint32(output, 6, partition);
+                CanonicalProtobuf.uint32Bits(output, 6, partition);
             }
             CanonicalProtobuf.bytes(output, 7, deliveryCapability.canonicalBytes());
             CanonicalProtobuf.uint32(output, 8, allowedOrderingModeBits);
@@ -245,7 +245,7 @@ public final class DestinationProfileSemanticV1 implements ProfileSemanticBodyV1
         require(fields.get(index++), 5);
         final List<Integer> partitions = new ArrayList<>();
         while (index < fields.size() && fields.get(index).number() == 6) {
-            partitions.add(QueryCodecSupport.uint32(fields.get(index++), 6));
+            partitions.add(QueryCodecSupport.uint32Bits(fields.get(index++), 6));
         }
         final int remaining = fields.size() - index;
         if (remaining != 15) {
@@ -274,7 +274,7 @@ public final class DestinationProfileSemanticV1 implements ProfileSemanticBodyV1
         final DestinationProfileSemanticV1 result = new DestinationProfileSemanticV1(
                 AdapterKindV1.fromWire(QueryCodecSupport.uint(fields.get(0), 1)),
                 BrokerResourceIdentityV1.decode(QueryCodecSupport.nested(fields.get(1), 2)),
-                QueryCodecSupport.uint32(fields.get(2), 3),
+                QueryCodecSupport.uint32Bits(fields.get(2), 3),
                 TargetPartitionPolicyV1.fromWire(QueryCodecSupport.uint(fields.get(3), 4)),
                 TargetPartitionHashInputV1.fromWire(QueryCodecSupport.uint(fields.get(4), 5)),
                 partitions,
@@ -322,9 +322,10 @@ public final class DestinationProfileSemanticV1 implements ProfileSemanticBodyV1
                                                      final TargetPartitionPolicyV1 policy) {
         Objects.requireNonNull(values, "allowedExplicitPartitions");
         final List<Integer> result = List.copyOf(values);
-        int previous = -1;
+        Integer previous = null;
         for (Integer value : result) {
-            if (value == null || value < 0 || value >= count || value <= previous) {
+            if (value == null || Integer.compareUnsigned(value, count) >= 0
+                    || previous != null && Integer.compareUnsigned(value, previous) <= 0) {
                 throw new IllegalArgumentException("explicit target partitions are not sorted/in range");
             }
             previous = value;

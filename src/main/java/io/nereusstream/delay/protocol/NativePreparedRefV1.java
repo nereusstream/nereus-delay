@@ -31,7 +31,7 @@ public final class NativePreparedRefV1 {
             throw new IllegalArgumentException("native prepared destination must be a DESTINATION profile");
         }
         this.target = Objects.requireNonNull(target, "target");
-        if (physicalPartition < 0 || capabilityExpiryEpochMs < 0) {
+        if (capabilityExpiryEpochMs < 0) {
             throw new IllegalArgumentException("invalid native prepared numbers");
         }
         Bytes.requireLength(capabilitySnapshotDigest, HASH_LENGTH, "capabilitySnapshotDigest");
@@ -80,7 +80,7 @@ public final class NativePreparedRefV1 {
             CanonicalProtobuf.bytes(output, 2, submissionHash);
             CanonicalProtobuf.bytes(output, 3, destination.canonicalBytes());
             CanonicalProtobuf.bytes(output, 4, target.canonicalBytes());
-            CanonicalProtobuf.uint32(output, 5, physicalPartition);
+            CanonicalProtobuf.uint32Bits(output, 5, physicalPartition);
             CanonicalProtobuf.bytes(output, 6, capabilitySnapshotDigest);
             CanonicalProtobuf.int64(output, 7, capabilityExpiryEpochMs);
             CanonicalProtobuf.bytes(output, 8, preparedBytesSha256);
@@ -95,7 +95,7 @@ public final class NativePreparedRefV1 {
                 QueryCodecSupport.fixed(fields.get(1), 2, HASH_LENGTH),
                 ProfileRefV1.decode(QueryCodecSupport.nested(fields.get(2), 3)),
                 PulsarBrokerResourceIdentityV1.decode(QueryCodecSupport.nested(fields.get(3), 4)),
-                QueryCodecSupport.uint32(fields.get(4), 5),
+                QueryCodecSupport.uint32Bits(fields.get(4), 5),
                 QueryCodecSupport.fixed(fields.get(5), 6, HASH_LENGTH),
                 QueryCodecSupport.uint(fields.get(6), 7),
                 QueryCodecSupport.fixed(fields.get(7), 8, HASH_LENGTH));

@@ -45,7 +45,7 @@ public final class NativePreparedDeliveryV1 {
             throw new IllegalArgumentException("native prepared capability must be a DELIVERY_CAPABILITY profile");
         }
         this.target = Objects.requireNonNull(target, "target");
-        if (physicalPartition < 0 || deliverAtEpochMs < 0 || brokerDeliverAtEpochMs < deliverAtEpochMs
+        if (deliverAtEpochMs < 0 || brokerDeliverAtEpochMs < deliverAtEpochMs
                 || (eventTimeEpochMs != null && eventTimeEpochMs < 0)) {
             throw new IllegalArgumentException("invalid NativePreparedDelivery timestamps or partition");
         }
@@ -110,7 +110,7 @@ public final class NativePreparedDeliveryV1 {
         final ProfileRefV1 capability = ProfileRefV1.decode(QueryCodecSupport.nested(fields.get(3), 4));
         final PulsarBrokerResourceIdentityV1 target = PulsarBrokerResourceIdentityV1.decode(
                 QueryCodecSupport.nested(fields.get(4), 5));
-        final int partition = QueryCodecSupport.uint32(fields.get(5), 6);
+        final int partition = QueryCodecSupport.uint32Bits(fields.get(5), 6);
         final byte[] payload = QueryCodecSupport.bytes(fields.get(6), 7);
         final PulsarMetadataV1 metadata = PulsarMetadataV1.decode(QueryCodecSupport.nested(fields.get(7), 8));
         int index = 8;
@@ -243,7 +243,7 @@ public final class NativePreparedDeliveryV1 {
         CanonicalProtobuf.bytes(output, 3, destination.canonicalBytes());
         CanonicalProtobuf.bytes(output, 4, capability.canonicalBytes());
         CanonicalProtobuf.bytes(output, 5, target.canonicalBytes());
-        CanonicalProtobuf.uint32(output, 6, physicalPartition);
+        CanonicalProtobuf.uint32Bits(output, 6, physicalPartition);
         CanonicalProtobuf.bytes(output, 7, inlinePayload);
         CanonicalProtobuf.bytes(output, 8, metadata.canonicalBytes());
         if (eventTimeEpochMs != null) {
