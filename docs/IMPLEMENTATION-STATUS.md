@@ -345,6 +345,13 @@ recomputing the timeline key. A copied READY projection therefore cannot enter
 the local fairness ring through the scheduler-only recovery path;
 `LaneSchedulerTest.fencedRecoveryRejectsReadyMessageFromAnotherShard` covers it.
 
+The internal `dedupe_cf/COMMAND` replay lookup now applies the same command-key
+Shard and result Source Position checks as the public result query, and Claim
+lookups/scans reject a `DelayMessageId` routed to another Shard before owner
+drain or admission logic can use it. `DelayShardTest` covers both
+`commandDedupeLookupRejectsForeignSourcePosition` and
+`claimLookupRejectsForeignMessageShard`.
+
 The embedded Kafka ingress now checks source-offset exhaustion before creating
 the next queued position and advances the counter only after the position has
 validated successfully. `EmbeddedDelayServiceTest` covers the

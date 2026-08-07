@@ -589,6 +589,11 @@ work；`DelayShardTest.laneRetirementRejectsInflightKeyValueMismatchBeforeRetiri
 消息的 self-routing Shard 与 `scheduleSourcePosition` Shard，避免 scheduler-only
 recovery 把跨 Shard 的 READY head 放入本地公平 ring；证据为
 `LaneSchedulerTest.fencedRecoveryRejectsReadyMessageFromAnotherShard`。
+内部 `dedupe_cf/COMMAND` replay lookup 也检查 command key 的 Shard 与结果的
+Source Position；Claim lookup/scan 则检查其 `DelayMessageId` 的 self-routing
+Shard，避免跨 Shard 的旧去重结果或 Claim 进入 source replay、owner drain 或
+admission；证据为 `DelayShardTest.commandDedupeLookupRejectsForeignSourcePosition`
+与 `DelayShardTest.claimLookupRejectsForeignMessageShard`。
 Retired Lane guard 的直接读取也校验其 terminal Source Position 属于当前
 Shard；错挂的退休证明不会通过 `getLaneTerminalGuard` 暴露。
 `ShardStore.flushAndSync` 还提供 drain 的物理 flush/WAL-sync 原语，重开回归为

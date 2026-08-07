@@ -631,7 +631,7 @@ public final class DelayShard {
         }
         final ClaimRecord claim = ClaimRecord.decode(value.payload());
         validateClaimKey(claim, key, claimId, ownerEpoch);
-        return claim;
+        return validateClaimShard(claim, "claim lookup");
     }
 
     /**
@@ -5750,7 +5750,15 @@ public final class DelayShard {
 
     private CommandDedupeRecord readCommandDedupe(final CommandId commandId) {
         final var value = store.getValue(ColumnFamily.DEDUPE, KeyCodec.dedupeCommand(commandId), 1);
-        return value == null ? null : CommandDedupeRecord.decode(value.payload());
+        if (value == null) {
+            return null;
+        }
+        if (!store.shardId().equals(commandId.routingId().shardId())) {
+            throw new IllegalStateException("command dedupe key shard mismatch");
+        }
+        final CommandDedupeRecord record = CommandDedupeRecord.decode(value.payload());
+        validateSourcePositionShard(record.result().appliedSourcePosition(), "command dedupe lookup");
+        return record;
     }
 
     private PayloadReservation findReservationForMessage(final DelayMessageId messageId) {
@@ -6116,6 +6124,13 @@ public final class DelayShard {
         final ClaimRecord claim = ClaimRecord.decode(
                 io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), ClaimRecord.VALUE_TYPE).payload());
         validateClaimKey(claim, key, claimId, ownerEpoch);
+        return validateClaimShard(claim, "claim scan");
+    }
+
+    private ClaimRecord validateClaimShard(final ClaimRecord claim, final String context) {
+        if (!store.shardId().equals(claim.delayMessageId().routingId().shardId())) {
+            throw new IllegalStateException("Claim message shard mismatch during " + context);
+        }
         return claim;
     }
 

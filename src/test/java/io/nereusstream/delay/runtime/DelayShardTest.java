@@ -225,6 +225,29 @@ class DelayShardTest {
     }
 
     @Test
+    void commandDedupeLookupRejectsForeignSourcePosition() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("command-dedupe-source-shard-mismatch"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 61);
+        final ShardId otherShardId = new ShardId(RouteIncarnation.random(), 62);
+        final PreparedCommand command = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(
+                        DestinationLaneId.derive(Bytes.utf8("command-dedupe-source-shard-mismatch-lane")),
+                        2_000, 5_000, OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 9_000);
+        final CommandResult misplaced = new CommandResult(ApplyStatus.REJECTED, StableCode.INVALID_COMMAND, -1, 0,
+                null, position(otherShardId, 0, 1_000).canonicalBytes());
+        final CommandDedupeRecord record = new CommandDedupeRecord(command.commandHash(), misplaced);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            store.write(batch -> batch.putValue(ColumnFamily.DEDUPE, 1, KeyCodec.dedupeCommand(command.commandId()),
+                    record.encode()));
+
+            assertThrows(IllegalStateException.class,
+                    () -> shard.apply(command, position(shardId, 0, 1_001)));
+        }
+    }
+
+    @Test
     void terminalGenerationLookupRejectsForeignSourcePosition() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("terminal-source-shard-mismatch"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 64);
@@ -263,6 +286,35 @@ class DelayShardTest {
                     misplaced.encodedKey(), misplaced.encode()));
 
             assertThrows(IllegalStateException.class, () -> shard.getPublishAttempt(attemptId, 1));
+        }
+    }
+
+    @Test
+    void claimLookupRejectsForeignMessageShard() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("claim-message-shard-mismatch"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 75);
+        final ShardId otherShardId = new ShardId(RouteIncarnation.random(), 76);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("claim-message-shard-mismatch-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(otherShardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("claim-message-shard-mismatch")), 9_000);
+        final AuthorIdentity owner = AuthorIdentity.owner(Bytes.utf8("claim-mismatch-deployment"),
+                Bytes.utf8("claim-mismatch-worker"), 1, Bytes.sha256(Bytes.utf8("claim-mismatch-lease")));
+        final ClaimRecord claim;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, otherShardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, position(otherShardId, 0, 1_000)).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            claim = shard.claimForPublish(schedule.delayMessageId(), owner, 3_000, new byte[0], chargeVector());
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            store.write(batch -> batch.putValue(ColumnFamily.INFLIGHT, ClaimRecord.VALUE_TYPE,
+                    claim.encodedKey(), claim.encode()));
+
+            assertThrows(IllegalStateException.class, () -> shard.getClaim(claim.claimId(), claim.ownerEpoch()));
         }
     }
 
