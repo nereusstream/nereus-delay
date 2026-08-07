@@ -299,6 +299,29 @@ class DelayShardTest {
     }
 
     @Test
+    void laneTerminalGuardLookupRejectsForeignSourcePosition() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("lane-guard-source-shard-mismatch"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 72);
+        final ShardId otherShardId = new ShardId(RouteIncarnation.random(), 73);
+        final byte[] tuple = Bytes.utf8("lane-guard-source-shard-mismatch-tuple");
+        final DestinationLaneId lane = DestinationLaneId.derive(tuple);
+        final ProfileRefV1 destination = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2),
+                ProfileKindV1.DESTINATION);
+        final ProfileRefV1 capability = new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4),
+                ProfileKindV1.DELIVERY_CAPABILITY);
+        final LaneTerminalGuardV1 misplaced = new LaneTerminalGuardV1(bytes(16, 5), 1,
+                position(otherShardId, 0, 1_000), destination, capability, tuple, bytes(32, 6), 1);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            store.write(batch -> batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(lane),
+                    LaneRecordEnvelopeV1.terminal(misplaced).canonicalBytes()));
+
+            assertThrows(IllegalStateException.class, () -> shard.getLaneTerminalGuard(lane));
+        }
+    }
+
+    @Test
     void laneLookupRejectsKeyValueIdentityMismatch() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("lane-key-mismatch"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 57);

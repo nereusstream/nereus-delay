@@ -6016,6 +6016,9 @@ public final class DelayShard {
             }
         } else if (!laneValue.terminalGuard().laneId().equals(laneId)) {
             throw new IllegalStateException("terminal Lane key/value identity mismatch");
+        } else {
+            validateSourcePositionShard(laneValue.terminalGuard().terminalSourcePosition().canonicalBytes(),
+                    "terminal Lane guard lookup");
         }
         return laneValue;
     }

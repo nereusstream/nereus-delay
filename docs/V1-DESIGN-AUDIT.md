@@ -581,6 +581,8 @@ Command result、terminal history、reservation、open attempt、DLQ export 与
 GC projection 的 direct reads 也做相同的 Source Position shard 检查；带有
 message/command locator 的值同时检查其 self-routing Shard。跨 Shard 的历史
 不能成为本地 query、drain 或 compaction 输入。
+Retired Lane guard 的直接读取也校验其 terminal Source Position 属于当前
+Shard；错挂的退休证明不会通过 `getLaneTerminalGuard` 暴露。
 `ShardStore.flushAndSync` 还提供 drain 的物理 flush/WAL-sync 原语，重开回归为
 `ShardStoreTest.flushAndSyncMakesTheShardBoundaryExplicit`；它不替代远端 callback
 quiescence 或 final checkpoint publication。

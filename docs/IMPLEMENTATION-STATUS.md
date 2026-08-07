@@ -327,6 +327,12 @@ history therefore cannot enter the local runtime before replay; the boundary is
 covered by `DelayShardTest.activationRejectsForeignAppliedSourcePosition` and
 `DelayShardTest.activationRejectsForeignSourcePositionInProfileControlState`.
 
+Terminal Lane guard reads now apply the same check to the guard's terminal
+Source Position before returning a retired Lane projection; a foreign retirement
+proof is rejected even when its Lane tuple and guard digest are otherwise valid.
+`DelayShardTest.laneTerminalGuardLookupRejectsForeignSourcePosition` covers this
+direct-read path.
+
 The embedded Kafka ingress now checks source-offset exhaustion before creating
 the next queued position and advances the counter only after the position has
 validated successfully. `EmbeddedDelayServiceTest` covers the
