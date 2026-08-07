@@ -608,6 +608,10 @@ derived key 必须一致。orphan、terminal、旧 generation 或错挂的 DUE/E
 不会变成 publish/expiry work，而是直接 fail closed；Close 物化前仍合法的
 `SCHEDULED`/`CLAIMED` generation 继续可发现。证据为
 `DelayShardTest.timelineDiscoveryRejectsOrphanDueAndExpiryEntries`。
+`rebuildReadyIndexes` 在恢复每个 Lane 的 READY head 时也要求 candidate 的
+timeline key 是当前 `MESSAGE` 的 exact derived key；仅有当前 message 而时间、
+source token 或 generation key 被篡改，不能使 READY 恢复成功。证据为
+`DelayShardTest.readyRebuildRejectsTimelineKeyThatDiffersFromCurrentMessage`。
 Retired Lane guard 的直接读取也校验其 terminal Source Position 属于当前
 Shard；错挂的退休证明不会通过 `getLaneTerminalGuard` 暴露。
 `ShardStore.flushAndSync` 还提供 drain 的物理 flush/WAL-sync 原语，重开回归为

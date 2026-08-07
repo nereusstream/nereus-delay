@@ -5659,6 +5659,9 @@ public final class DelayShard {
                 || !message.laneId().equals(expectedLane)) {
             throw new IllegalStateException("timeline points to a non-current scheduled message");
         }
+        if (!Arrays.equals(key, timelineKey(messageId, message))) {
+            throw new IllegalStateException("timeline key does not match the current scheduled message");
+        }
         final boolean ordered = message.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO;
         if ((tag == 2) != ordered) {
             throw new IllegalStateException("timeline namespace does not match ordering mode");
