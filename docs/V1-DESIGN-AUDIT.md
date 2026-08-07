@@ -1072,7 +1072,14 @@ high-bit vectors in the protocol, adapter and manifest suites. Other
 auxiliary uint64/time fields, real Broker assignment/barrier proof and
 production adapter authority remain release blockers, so the source-order
 row below claims the implemented local u64/u32 position paths rather than full
-production Source Position authority.
+production Source Position authority. Ownership/fencing `ownerEpoch` and
+writer generations now preserve raw uint64 bit patterns through
+`OwnerIdentityV1`, the OWNER/FENCE/SERVICE `AuthorIdentity` branches,
+`ShardControlResultV1`, StoreRuntimeMetadata/inflight keys, Claim and
+PublishAttempt records, and checkpoint `createdBy` JSON. High-bit vectors cover
+the typed identities, runtime metadata, local inflight projections and
+manifest JSON; this closes the local width/encoding path, not Oxia lease or
+production ownership authority.
 
 ## Source locks
 

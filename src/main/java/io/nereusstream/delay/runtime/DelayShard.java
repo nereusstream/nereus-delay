@@ -648,7 +648,7 @@ public final class DelayShard {
     /** Returns the exact local Claim at an Owner Epoch, or {@code null} when it is no longer live. */
     public synchronized ClaimRecord getClaim(final byte[] claimId, final long ownerEpoch) {
         Bytes.requireLength(claimId, ClaimRecord.HASH_LENGTH, "claimId");
-        if (ownerEpoch <= 0) {
+        if (ownerEpoch == 0) {
             throw new IllegalArgumentException("ownerEpoch must be positive");
         }
         final byte[] key = KeyCodec.inflight(INFLIGHT_CLAIMED_KIND, ownerEpoch, claimId);
@@ -720,7 +720,7 @@ public final class DelayShard {
         final byte[] timelineKey = timelineKey(messageId, current);
         final long nextClaimSequence = Math.addExact(claimSequence, 1);
         final byte[] claimId = Bytes.sha256(Bytes.utf8("nereus-delay-claim-id-v1\0"),
-                store.metadata().storeIncarnation(), Bytes.u64be(owner.generation()), Bytes.u64be(nextClaimSequence),
+                store.metadata().storeIncarnation(), Bytes.u64beBits(owner.generation()), Bytes.u64be(nextClaimSequence),
                 messageId.bytes(), Bytes.u32be(current.generation()), Bytes.u64be(lane.laneVersion()));
         final TimelineWorkRef currentTimeline = current.runtimeIndex().timeline();
         final int workKind = currentTimeline != null
@@ -833,7 +833,7 @@ public final class DelayShard {
      * owner drain.</p>
      */
     public synchronized int revokeClaimsForOwner(final long ownerEpoch) {
-        if (ownerEpoch <= 0) {
+        if (ownerEpoch == 0) {
             throw new IllegalArgumentException("ownerEpoch must be positive");
         }
         final int limit = boundedLimitPlusOne(config.maxPendingMessages());
@@ -3742,7 +3742,7 @@ public final class DelayShard {
     public synchronized PublishAttemptLedger getPublishAttempt(final byte[] publishAttemptId,
                                                                 final long ownerEpoch) {
         Bytes.requireLength(publishAttemptId, PublishAttemptLedger.HASH_LENGTH, "publishAttemptId");
-        if (ownerEpoch <= 0) {
+        if (ownerEpoch == 0) {
             throw new IllegalArgumentException("ownerEpoch must be positive");
         }
         final PublishAttemptLedger publishing = readPublishAttempt(publishAttemptId, ownerEpoch,
@@ -6108,7 +6108,7 @@ public final class DelayShard {
         final long idLength = Integer.toUnsignedLong(input.getInt());
         final byte[] attemptId = new byte[PublishAttemptLedger.HASH_LENGTH];
         input.get(attemptId);
-        if (ownerEpoch <= 0 || idLength != PublishAttemptLedger.HASH_LENGTH
+        if (ownerEpoch == 0 || idLength != PublishAttemptLedger.HASH_LENGTH
                 || !Bytes.constantTimeEquals(attemptId, obligation.publishAttemptId())) {
             throw new IllegalStateException("runtime obligation inflight identity is invalid");
         }
@@ -6246,7 +6246,7 @@ public final class DelayShard {
         input.position(2);
         final long ownerEpoch = input.getLong();
         final long idLength = Integer.toUnsignedLong(input.getInt());
-        if (ownerEpoch <= 0 || idLength != ClaimRecord.HASH_LENGTH) {
+        if (ownerEpoch == 0 || idLength != ClaimRecord.HASH_LENGTH) {
             throw new IllegalStateException("invalid Claim key owner/ID length");
         }
         final byte[] claimId = new byte[ClaimRecord.HASH_LENGTH];
@@ -6281,7 +6281,7 @@ public final class DelayShard {
         final ByteBuffer input = ByteBuffer.wrap(key);
         input.position(2);
         final long ownerEpoch = input.getLong();
-        if (ownerEpoch <= 0) {
+        if (ownerEpoch == 0) {
             throw new IllegalStateException("invalid open publish attempt owner epoch");
         }
         final long idLength = Integer.toUnsignedLong(input.getInt());

@@ -24,7 +24,7 @@ class StoreRuntimeMetadataTest {
 
     @Test
     void canonicalProjectionRoundTripsAndKeepsEvidenceSorted() {
-        final StoreRuntimeMetadata value = new StoreRuntimeMetadata(bytes(1), fixedBytes(2, 16), 42, true,
+        final StoreRuntimeMetadata value = new StoreRuntimeMetadata(bytes(1), fixedBytes(2, 16), Long.MIN_VALUE, true,
                 List.of(kafkaCursor(1)));
 
         final StoreRuntimeMetadata decoded = StoreRuntimeMetadata.decode(value.canonicalBytes());
@@ -32,7 +32,7 @@ class StoreRuntimeMetadataTest {
         assertEquals(value, decoded);
         assertArrayEquals(bytes(1), decoded.lastIngressFenceProofId());
         assertArrayEquals(fixedBytes(2, 16), decoded.lastCheckpointId());
-        assertEquals(42, decoded.lastOpenedOwnerEpoch());
+        assertEquals(Long.MIN_VALUE, decoded.lastOpenedOwnerEpoch());
         assertTrue(decoded.cleanCloseMarker());
         assertEquals(1, decoded.evidenceCursors().size());
     }
@@ -66,9 +66,9 @@ class StoreRuntimeMetadataTest {
             assertFalse(store.runtimeMetadata().cleanCloseMarker());
             store.recordLastIngressFenceProofId(bytes(3));
             store.recordLastCheckpointId(fixedBytes(4, 16));
-            store.recordOpenedOwnerEpoch(7);
+            store.recordOpenedOwnerEpoch(Long.MIN_VALUE);
             store.recordEvidenceCursors(List.of(kafkaCursor(2)));
-            assertThrows(IllegalArgumentException.class, () -> store.recordOpenedOwnerEpoch(6));
+            assertThrows(IllegalArgumentException.class, () -> store.recordOpenedOwnerEpoch(Long.MAX_VALUE));
             assertArrayEquals(bytes(3), IngressFenceState.decode(
                     store.getValue(ColumnFamily.META, KeyCodec.metaFixed(4), 1).payload()).proofId());
             assertEquals(IngressFenceState.OPEN, IngressFenceState.decode(
@@ -77,7 +77,8 @@ class StoreRuntimeMetadataTest {
             assertEquals(List.of(kafkaCursor(2)), StoreRuntimeMetadata.decodeEvidenceCursors(
                     store.getValue(ColumnFamily.META, KeyCodec.metaFixed(6), 1).payload()));
             assertArrayEquals(fixedBytes(4, 16), store.getValue(ColumnFamily.META, KeyCodec.metaFixed(7), 1).payload());
-            assertArrayEquals(Bytes.u64be(7), store.getValue(ColumnFamily.META, KeyCodec.metaFixed(8), 1).payload());
+            assertArrayEquals(Bytes.u64beBits(Long.MIN_VALUE),
+                    store.getValue(ColumnFamily.META, KeyCodec.metaFixed(8), 1).payload());
             assertArrayEquals(new byte[]{0}, store.getValue(ColumnFamily.META, KeyCodec.metaFixed(9), 1).payload());
             assertNull(store.get(ColumnFamily.META, KeyCodec.metaFixed(10)));
         }
@@ -87,7 +88,7 @@ class StoreRuntimeMetadataTest {
             final StoreRuntimeMetadata projection = reopened.runtimeMetadata();
             assertArrayEquals(bytes(3), projection.lastIngressFenceProofId());
             assertArrayEquals(fixedBytes(4, 16), projection.lastCheckpointId());
-            assertEquals(7, projection.lastOpenedOwnerEpoch());
+            assertEquals(Long.MIN_VALUE, projection.lastOpenedOwnerEpoch());
             assertEquals(List.of(kafkaCursor(2)), projection.evidenceCursors());
             assertFalse(projection.cleanCloseMarker());
             reopened.close();

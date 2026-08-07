@@ -13,8 +13,8 @@ public final class ShardControlResultV1 {
                                 final Long ownerEpoch, final StableCode stableCode) {
         this.shard = Objects.requireNonNull(shard, "shard");
         this.lifecycle = Objects.requireNonNull(lifecycle, "lifecycle");
-        if (ownerEpoch != null && ownerEpoch <= 0) {
-            throw new IllegalArgumentException("ownerEpoch must be positive when present");
+        if (ownerEpoch != null && ownerEpoch == 0) {
+            throw new IllegalArgumentException("ownerEpoch must be nonzero when present");
         }
         this.ownerEpoch = ownerEpoch;
         this.stableCode = Objects.requireNonNull(stableCode, "stableCode");
@@ -41,7 +41,7 @@ public final class ShardControlResultV1 {
             CanonicalProtobuf.bytes(output, 1, shard.canonicalBytes());
             CanonicalProtobuf.uint32(output, 2, lifecycle.wireValue());
             if (ownerEpoch != null) {
-                CanonicalProtobuf.uint64(output, 3, ownerEpoch);
+                CanonicalProtobuf.uint64Bits(output, 3, ownerEpoch);
             }
             CanonicalProtobuf.uint32(output, 4, stableCode.wireValue());
         });

@@ -771,9 +771,6 @@ public final class ShardStore implements AutoCloseable {
                 throw new IllegalArgumentException("invalid persisted owner epoch");
             }
             ownerEpoch = Bytes.readU64be(ownerBytes, 0);
-            if (ownerEpoch < 0) {
-                throw new IllegalArgumentException("persisted owner epoch is outside signed V1 range");
-            }
         }
         final boolean cleanClose;
         if (cleanBytes == null) {
@@ -856,7 +853,7 @@ public final class ShardStore implements AutoCloseable {
                 ValueEnvelope.encode(META_FIXED_VALUE_TYPE, next.evidenceCursorArrayCanonicalBytes()));
         putOptionalFixedValue(batch, metaHandle, META_CHECKPOINT_ID, next.lastCheckpointId());
         batch.put(metaHandle, KeyCodec.metaFixed(META_OWNER_EPOCH),
-                ValueEnvelope.encode(META_FIXED_VALUE_TYPE, Bytes.u64be(next.lastOpenedOwnerEpoch())));
+                ValueEnvelope.encode(META_FIXED_VALUE_TYPE, Bytes.u64beBits(next.lastOpenedOwnerEpoch())));
         batch.put(metaHandle, KeyCodec.metaFixed(META_CLEAN_CLOSE_MARKER),
                 ValueEnvelope.encode(META_FIXED_VALUE_TYPE,
                         Bytes.u8(next.cleanCloseMarker() ? 1 : 0)));
@@ -1080,8 +1077,8 @@ public final class ShardStore implements AutoCloseable {
     /** Persists a non-decreasing Owner Epoch observed at Store open. */
     public synchronized void recordOpenedOwnerEpoch(final long ownerEpoch) {
         ensureOpen();
-        if (ownerEpoch <= 0 || ownerEpoch < runtimeMetadata.lastOpenedOwnerEpoch()) {
-            throw new IllegalArgumentException("owner epoch regressed or is not positive");
+        if (ownerEpoch == 0 || Long.compareUnsigned(ownerEpoch, runtimeMetadata.lastOpenedOwnerEpoch()) < 0) {
+            throw new IllegalArgumentException("owner epoch regressed or is zero");
         }
         persistRuntimeMetadata(new StoreRuntimeMetadata(runtimeMetadata.lastIngressFenceProofId(),
                 runtimeMetadata.lastCheckpointId(), ownerEpoch, false, runtimeMetadata.evidenceCursors()));

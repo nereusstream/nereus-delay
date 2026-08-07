@@ -18,7 +18,7 @@ class ControlResultCodecTest {
         final LaneControlResultV1 lane = new LaneControlResultV1(laneId, bytes(16, 5), 6,
                 LaneAdmissionGateV1.OPEN, 7, StableCode.OK);
         final ShardControlResultV1 shardResult = new ShardControlResultV1(shard, ShardLifecycleStateV1.ACTIVE_FOR_COMMANDS,
-                8L, StableCode.OK);
+                Long.MIN_VALUE, StableCode.OK);
         final CheckpointControlResultV1 checkpoint = new CheckpointControlResultV1(shard, bytes(16, 6),
                 bytes(32, 7), 9);
         final ProfileControlResultV1 profile = new ProfileControlResultV1(destination,

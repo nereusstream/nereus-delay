@@ -27,8 +27,8 @@ public final class AuthorIdentity {
         this.kind = Objects.requireNonNull(kind, "kind");
         this.first = nonEmpty(first, "author identity first field");
         this.second = nonEmpty(second, "author identity second field");
-        if (generation <= 0) {
-            throw new IllegalArgumentException("author identity generation/epoch must be positive");
+        if (generation == 0) {
+            throw new IllegalArgumentException("author identity generation/epoch must be nonzero");
         }
         this.generation = generation;
         this.digest = digest == null ? new byte[0] : fixed(digest, "author identity digest");
@@ -86,7 +86,7 @@ public final class AuthorIdentity {
             case OWNER -> CanonicalProtobuf.message(output -> {
                 CanonicalProtobuf.bytes(output, 1, first);
                 CanonicalProtobuf.bytes(output, 2, second);
-                CanonicalProtobuf.uint32(output, 3, generation);
+                CanonicalProtobuf.uint64Bits(output, 3, generation);
                 CanonicalProtobuf.bytes(output, 4, digest);
             });
             case CONTROL -> CanonicalProtobuf.message(output -> {
@@ -96,12 +96,12 @@ public final class AuthorIdentity {
             });
             case FENCE -> CanonicalProtobuf.message(output -> {
                 CanonicalProtobuf.bytes(output, 1, first);
-                CanonicalProtobuf.uint32(output, 2, generation);
+                CanonicalProtobuf.uint64Bits(output, 2, generation);
             });
             case SERVICE -> CanonicalProtobuf.message(output -> {
                 CanonicalProtobuf.bytes(output, 1, first);
                 CanonicalProtobuf.bytes(output, 2, second);
-                CanonicalProtobuf.uint32(output, 3, generation);
+                CanonicalProtobuf.uint64Bits(output, 3, generation);
             });
         };
         final int field = switch (kind) {
@@ -179,7 +179,7 @@ public final class AuthorIdentity {
     }
 
     private static long positive(final CanonicalProtobuf.Reader.Field field, final int number) {
-        if (field.number() != number || field.wireType() != 0 || field.unsignedValue() <= 0) {
+        if (field.number() != number || field.wireType() != 0 || field.unsignedValue() == 0) {
             throw new IllegalArgumentException("invalid AuthorIdentity numeric field " + number);
         }
         return field.unsignedValue();

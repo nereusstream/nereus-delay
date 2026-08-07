@@ -16,8 +16,8 @@ public final class OwnerIdentityV1 {
                            final byte[] leaseFencingDigest) {
         this.deploymentId = nonEmpty(deploymentId, "deploymentId");
         this.workerRunId = nonEmpty(workerRunId, "workerRunId");
-        if (ownerEpoch <= 0) {
-            throw new IllegalArgumentException("ownerEpoch must be positive");
+        if (ownerEpoch == 0) {
+            throw new IllegalArgumentException("ownerEpoch must be nonzero");
         }
         this.ownerEpoch = ownerEpoch;
         Bytes.requireLength(leaseFencingDigest, HASH_LENGTH, "leaseFencingDigest");
@@ -44,7 +44,7 @@ public final class OwnerIdentityV1 {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, deploymentId);
             CanonicalProtobuf.bytes(output, 2, workerRunId);
-            CanonicalProtobuf.uint64(output, 3, ownerEpoch);
+            CanonicalProtobuf.uint64Bits(output, 3, ownerEpoch);
             CanonicalProtobuf.bytes(output, 4, leaseFencingDigest);
         });
     }

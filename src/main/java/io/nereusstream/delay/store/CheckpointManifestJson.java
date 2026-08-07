@@ -111,7 +111,8 @@ final class CheckpointManifestJson {
         final Map<String, Object> fields = object(value, "createdBy");
         keys(fields, CREATED_BY_KEYS, "createdBy");
         return new CheckpointManifest.CreatedBy(base64(fields.get("deploymentId"), "deploymentId"),
-                base64(fields.get("workerRunId"), "workerRunId"), decimal(fields.get("ownerEpoch"), "ownerEpoch"));
+                base64(fields.get("workerRunId"), "workerRunId"),
+                unsignedDecimal(fields.get("ownerEpoch"), "ownerEpoch"));
     }
 
     private static CheckpointManifest.CreatedAt decodeCreatedAt(final Object value) {

@@ -18,7 +18,7 @@ class PublishAttemptLedgerTest {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 0);
         final PublishAttemptLedger ledger = PublishAttemptLedger.publishing(
                 DelayMessageId.random(shardId), 0, Bytes.sha256(Bytes.utf8("publish-attempt")),
-                Bytes.sha256(Bytes.utf8("claim")), 1, 1,
+                Bytes.sha256(Bytes.utf8("claim")), Long.MIN_VALUE, 1,
                 DestinationLaneId.derive(Bytes.utf8("publish-attempt-lane")), new byte[16],
                 new byte[]{1}, new byte[16], Bytes.sha256(Bytes.utf8("prepared")), new byte[]{2}, new byte[]{3});
         final byte[] encoded = ledger.encode();

@@ -53,6 +53,13 @@ class KeyCodecTest {
     }
 
     @Test
+    void inflightKeyPreservesUnsignedOwnerEpochBits() {
+        final byte[] attemptId = Bytes.sha256(Bytes.utf8("owner-epoch-attempt"));
+        assertArrayEquals(Bytes.concat(new byte[]{1, 1}, Bytes.u64beBits(Long.MIN_VALUE), Bytes.lp32(attemptId)),
+                KeyCodec.inflight((byte) 1, Long.MIN_VALUE, attemptId));
+    }
+
+    @Test
     void remainingRegisteredKeyNamespacesRejectInvalidComponents() {
         final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("lane"));
         final byte[] resourceId = Bytes.sha256(Bytes.utf8("protected-resource"));

@@ -901,6 +901,25 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void ownerAndWriterGenerationsPreserveUnsignedBitPatterns() {
+        final long highBit = Long.MIN_VALUE;
+        final AuthorIdentity owner = AuthorIdentity.decode(AuthorIdentity.owner(Bytes.utf8("deployment"),
+                Bytes.utf8("worker"), highBit, Bytes.sha256(Bytes.utf8("owner-lease"))).canonicalBytes());
+        final AuthorIdentity fence = AuthorIdentity.decode(AuthorIdentity.fence(Bytes.utf8("fence"), highBit)
+                .canonicalBytes());
+        final AuthorIdentity service = AuthorIdentity.decode(AuthorIdentity.service(Bytes.utf8("service"),
+                Bytes.utf8("service-run"), highBit).canonicalBytes());
+        final OwnerIdentityV1 typedOwner = OwnerIdentityV1.decode(new OwnerIdentityV1(
+                Bytes.utf8("deployment"), Bytes.utf8("worker"), highBit,
+                Bytes.sha256(Bytes.utf8("typed-owner-lease"))).canonicalBytes());
+
+        assertEquals(highBit, owner.generation());
+        assertEquals(highBit, fence.generation());
+        assertEquals(highBit, service.generation());
+        assertEquals(highBit, typedOwner.ownerEpoch());
+    }
+
+    @Test
     void systemMutationBodyPrefixCannotDriftFromOuterEnvelope() throws Exception {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 11);
         final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");

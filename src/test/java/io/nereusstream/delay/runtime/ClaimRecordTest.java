@@ -38,7 +38,8 @@ class ClaimRecordTest {
         final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster", java.util.UUID.randomUUID(),
                 0, 0, 1_000);
         final AuthorIdentity owner = AuthorIdentity.owner(Bytes.utf8("claim-record-deployment"),
-                Bytes.utf8("claim-record-worker"), 42, Bytes.sha256(Bytes.utf8("claim-record-fence")));
+                Bytes.utf8("claim-record-worker"), Long.MIN_VALUE,
+                Bytes.sha256(Bytes.utf8("claim-record-fence")));
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {

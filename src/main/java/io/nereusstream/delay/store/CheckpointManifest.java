@@ -394,8 +394,8 @@ public record CheckpointManifest(
         public CreatedBy {
             requireNonZero(deploymentId, "deploymentId");
             requireNonZero(workerRunId, "workerRunId");
-            if (ownerEpoch < 0) {
-                throw new IllegalArgumentException("ownerEpoch must be non-negative");
+            if (ownerEpoch == 0) {
+                throw new IllegalArgumentException("ownerEpoch must be nonzero");
             }
             deploymentId = Bytes.copy(deploymentId);
             workerRunId = Bytes.copy(workerRunId);
@@ -413,7 +413,7 @@ public record CheckpointManifest(
 
         private String toJson() {
             return "{\"deploymentId\":" + quote(b64(deploymentId)) + ",\"ownerEpoch\":"
-                    + quote(u64(ownerEpoch)) + ",\"workerRunId\":" + quote(b64(workerRunId)) + "}";
+                    + quote(u64Bits(ownerEpoch)) + ",\"workerRunId\":" + quote(b64(workerRunId)) + "}";
         }
     }
 

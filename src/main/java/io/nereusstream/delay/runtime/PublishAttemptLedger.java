@@ -46,7 +46,7 @@ public final class PublishAttemptLedger {
                                 final AttemptLedgerState state, final byte[] outcomeBytes,
                                 final byte[] evidenceBytes, final byte[] sourcePosition) {
         this.delayMessageId = Objects.requireNonNull(delayMessageId, "delayMessageId");
-        if (generation < 0 || ownerEpoch <= 0 || attemptNo <= 0) {
+        if (generation < 0 || ownerEpoch == 0 || attemptNo <= 0) {
             throw new IllegalArgumentException("invalid publish attempt generation/owner/attempt");
         }
         this.generation = generation;
@@ -166,7 +166,7 @@ public final class PublishAttemptLedger {
 
     public byte[] encode() {
         return Bytes.concat(Bytes.u32be(1), delayMessageId.bytes(), Bytes.u32be(generation), publishAttemptId,
-                claimId, Bytes.u64be(ownerEpoch), Bytes.u32be(attemptNo), laneId.bytes(), laneIncarnation,
+                claimId, Bytes.u64beBits(ownerEpoch), Bytes.u32be(attemptNo), laneId.bytes(), laneIncarnation,
                 Bytes.lp32(ownerIdentity), storeIncarnation, preparedPublishHash, Bytes.lp32(admissionBytes),
                 new byte[]{(byte) state.wireValue()}, Bytes.lp32(outcomeBytes), Bytes.lp32(evidenceBytes),
                 Bytes.lp32(sourcePosition));
@@ -245,11 +245,7 @@ public final class PublishAttemptLedger {
 
     private static long readU64(final ByteBuffer input, final String name) {
         requireRemaining(input, Long.BYTES);
-        final long value = input.getLong();
-        if (value < 0) {
-            throw new IllegalArgumentException(name + " exceeds signed range");
-        }
-        return value;
+        return input.getLong();
     }
 
     private static byte[] readFixed(final ByteBuffer input, final int length, final String name) {

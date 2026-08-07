@@ -31,9 +31,6 @@ public record StoreRuntimeMetadata(
         lastIngressFenceProofId = optionalIdentity(lastIngressFenceProofId, FENCE_PROOF_ID_LENGTH,
                 "lastIngressFenceProofId");
         lastCheckpointId = optionalIdentity(lastCheckpointId, CHECKPOINT_ID_LENGTH, "lastCheckpointId");
-        if (lastOpenedOwnerEpoch < 0) {
-            throw new IllegalArgumentException("lastOpenedOwnerEpoch must be non-negative");
-        }
         Objects.requireNonNull(evidenceCursors, "evidenceCursors");
         if (evidenceCursors.size() > MAX_EVIDENCE_CURSORS) {
             throw new IllegalArgumentException("too many evidence cursors");
@@ -138,7 +135,7 @@ public record StoreRuntimeMetadata(
             if (lastCheckpointId != null) {
                 CanonicalProtobuf.bytes(output, 2, lastCheckpointId);
             }
-            CanonicalProtobuf.uint64(output, 3, lastOpenedOwnerEpoch);
+            CanonicalProtobuf.uint64Bits(output, 3, lastOpenedOwnerEpoch);
             CanonicalProtobuf.uint32(output, 4, cleanCloseMarker ? 1 : 0);
             for (EvidenceCursorV1 cursor : evidenceCursors) {
                 CanonicalProtobuf.bytes(output, 5, cursor.canonicalBytes());
@@ -229,7 +226,7 @@ public record StoreRuntimeMetadata(
     }
 
     private static long unsigned(final CanonicalProtobuf.Reader.Field field, final int number) {
-        if (field.number() != number || field.wireType() != 0 || field.unsignedValue() < 0) {
+        if (field.number() != number || field.wireType() != 0) {
             throw new IllegalArgumentException("invalid StoreRuntimeMetadata integer field " + number);
         }
         return field.unsignedValue();

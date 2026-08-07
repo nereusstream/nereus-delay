@@ -78,7 +78,7 @@ class CheckpointManifestTest {
                 "persistent://tenant/ns/topic", Long.MIN_VALUE, Long.MIN_VALUE, -1L, 0, 1);
         final CheckpointManifest manifest = new CheckpointManifest(
                 bytes(1), bytes(2), 4, null, null,
-                new CheckpointManifest.CreatedBy(bytes(3), bytes(4), 42),
+                new CheckpointManifest.CreatedBy(bytes(3), bytes(4), Long.MIN_VALUE),
                 new CheckpointManifest.CreatedAt(1000, 1001, "CERTIFIED_HOST_CLOCK", bytes(5),
                         Long.MIN_VALUE, -1L, Long.MIN_VALUE,
                         Bytes.sha256(Bytes.utf8("evidence")), 0, null),
@@ -94,11 +94,13 @@ class CheckpointManifestTest {
         assertTrue(json.contains("\"sourceConfigGeneration\":\"9223372036854775808\""));
         assertTrue(json.contains("\"sampleSequence\":\"18446744073709551615\""));
         assertTrue(json.contains("\"monotonicAnchorNs\":\"9223372036854775808\""));
+        assertTrue(json.contains("\"ownerEpoch\":\"9223372036854775808\""));
         assertTrue(json.contains("\"ledgerId\":\"9223372036854775808\""));
         assertTrue(json.contains("\"entryId\":\"18446744073709551615\""));
         assertTrue(json.contains("\"physicalTopicCreationTimestamp\":\"9223372036854775808\""));
         final CheckpointManifest decoded = CheckpointManifest.decodeCanonicalJson(manifest.canonicalJsonBytes());
         assertEquals(json, decoded.canonicalJson());
+        assertEquals(Long.MIN_VALUE, decoded.createdBy().ownerEpoch());
         assertEquals(Long.MIN_VALUE, ((KafkaSourcePosition) decoded.appliedShardLogPosition()).offset());
         assertTrue(decoded.evidenceCursors().stream().anyMatch(cursor ->
                 cursor.evidenceKind().name().equals("KAFKA_RECEIPT_CONTIGUOUS")

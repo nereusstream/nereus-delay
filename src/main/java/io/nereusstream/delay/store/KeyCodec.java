@@ -122,10 +122,10 @@ public final class KeyCodec {
 
     public static byte[] inflight(final byte recordKind, final long ownerEpoch, final byte[] attemptId) {
         Objects.requireNonNull(attemptId, "attemptId");
-        if (recordKind < 1 || recordKind > 3 || ownerEpoch < 0 || attemptId.length == 0) {
+        if (recordKind < 1 || recordKind > 3 || attemptId.length == 0) {
             throw new IllegalArgumentException("invalid inflight key values");
         }
-        return Bytes.concat(new byte[]{recordKind, 1}, Bytes.u64be(ownerEpoch), Bytes.lp32(attemptId));
+        return Bytes.concat(new byte[]{recordKind, 1}, Bytes.u64beBits(ownerEpoch), Bytes.lp32(attemptId));
     }
 
     public static byte[] terminalGeneration(final DelayMessageId messageId, final int generation) {

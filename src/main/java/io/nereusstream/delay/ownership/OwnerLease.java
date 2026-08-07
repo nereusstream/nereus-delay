@@ -24,7 +24,7 @@ public record OwnerLease(
         Objects.requireNonNull(ownerId, "ownerId");
         Objects.requireNonNull(state, "state");
         Bytes.requireLength(leaseToken, 32, "leaseToken");
-        if (ownerId.isBlank() || ownerEpoch <= 0 || expiresAtEpochMs < 0) {
+        if (ownerId.isBlank() || ownerEpoch == 0 || expiresAtEpochMs < 0) {
             throw new IllegalArgumentException("invalid owner lease");
         }
         leaseToken = Bytes.copy(leaseToken);
