@@ -468,6 +468,15 @@ nested identity 和 owner 匹配，但
 真实 adapter 的 authenticated response、lease protection CAS/TTL authority、
 retention barrier、external proof ownership 仍是 release blocker。
 
+`PublishAdmissionBody` 还把 `PreparedPublishDescriptorV1` 的 adapter kind、固定
+adapter encoding version、target resource、physical partition 与嵌套
+`ChannelResourceIdentityV1` 做 exact equality，并要求 descriptor Destination
+Profile 与 channel credential lease 的 ProfileRef 一致；descriptor 的两个 Profile
+kind 也按 Registry 字段位置固定。`PublishAdmissionBodyTest` 的
+`rejectsDescriptorAdapterIdentityDrift` 覆盖哈希有效但 adapter identity 漂移的
+fail-closed 路径。这是本地跨对象解析证据，不替代 Profile semantic publication、
+authenticated channel registration 或真实 Producer admission authority。
+
 `ResolveUncertainBody` 的 `ATTACH_PUBLISHED_EVIDENCE`/
 `ATTACH_NOT_PUBLISHED_EVIDENCE` 分支也不再接受任意 opaque nested bytes，
 而是要求 typed evidence 的 Publish Attempt owner 和 verification status

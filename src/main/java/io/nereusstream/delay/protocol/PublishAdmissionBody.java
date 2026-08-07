@@ -189,6 +189,10 @@ public final class PublishAdmissionBody {
                 || !Arrays.equals(descriptor.publishAttemptId(), publishAttemptId)) {
             throw new IllegalArgumentException("Publish Admission descriptor identity mismatch");
         }
+        if (!Arrays.equals(descriptor.destinationProfile(),
+                channelIdentity.credentialUseLease().profile().canonicalBytes())) {
+            throw new IllegalArgumentException("Publish Admission descriptor/channel Profile mismatch");
+        }
         if (!Arrays.equals(readyCertificate.ownerIdentity(), ownerIdentity)
                 || !Arrays.equals(readyCertificate.storeIncarnation(), storeIncarnation)
                 || !Arrays.equals(readyCertificate.destinationLaneId(), laneId)
@@ -247,12 +251,19 @@ public final class PublishAdmissionBody {
         }
         final byte[] destinationProfile = nested(field(fields, 6), 6);
         final byte[] capabilityProfile = nested(field(fields, 7), 7);
-        validateProfileRef(destinationProfile);
-        validateProfileRef(capabilityProfile);
+        validateProfileRef(destinationProfile, ProfileKindV1.DESTINATION);
+        validateProfileRef(capabilityProfile, ProfileKindV1.DELIVERY_CAPABILITY);
         final byte[] targetResource = nested(field(fields, 8), 8);
         validateBrokerResource(targetResource);
         final byte[] channel = nested(field(fields, 10), 10);
-        decodeChannel(channel);
+        final ChannelResourceIdentityV1 channelIdentity = ChannelResourceIdentityV1.decode(channel);
+        final AdapterKindV1 adapterKind = AdapterKindV1.fromWire(unsigned(field(fields, 2), 2));
+        if (unsigned(field(fields, 3), 3) != 1
+                || channelIdentity.adapterKind() != adapterKind
+                || channelIdentity.physicalPartition() != unsigned(field(fields, 9), 9)
+                || !Arrays.equals(targetResource, channelIdentity.targetResource().canonicalBytes())) {
+            throw new IllegalArgumentException("PreparedPublishDescriptor channel identity mismatch");
+        }
         final byte[] payload = nested(field(fields, 15), 15);
         validatePayload(payload);
         final byte[] metadata = nested(field(fields, 16), 16);
@@ -376,6 +387,14 @@ public final class PublishAdmissionBody {
         final long kind = unsigned(field(fields, 4), 4);
         if (kind < 1 || kind > 4) {
             throw new IllegalArgumentException("invalid ProfileRef kind");
+        }
+    }
+
+    private static void validateProfileRef(final byte[] encoded, final ProfileKindV1 expectedKind) {
+        validateProfileRef(encoded);
+        final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "ProfileRef");
+        if (unsigned(field(fields, 4), 4) != expectedKind.wireValue()) {
+            throw new IllegalArgumentException("ProfileRef kind does not match its descriptor field");
         }
     }
 

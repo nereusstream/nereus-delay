@@ -2,7 +2,9 @@ package io.nereusstream.delay.protocol;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -33,6 +35,15 @@ public class PublishAdmissionBodyTest {
     }
 
     @Test
+    void rejectsDescriptorAdapterIdentityDrift() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 5);
+        final Fixture fixture = Fixture.create(shard);
+        final byte[] drifted = tamperDescriptorScalar(fixture.body(), 2, AdapterKindV1.PULSAR.wireValue());
+
+        assertThrows(IllegalArgumentException.class, () -> PublishAdmissionBody.decode(drifted));
+    }
+
+    @Test
     void rejectsMessageRoutedToDifferentBodyShard() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
         final DelayMessageId messageId = DelayMessageId.random(new ShardId(RouteIncarnation.random(), 4));
@@ -52,6 +63,45 @@ public class PublishAdmissionBodyTest {
                     CanonicalProtobuf.bytes(output, 18, hash);
                 } else if (field.wireType() == 0) {
                     CanonicalProtobuf.int64(output, field.number(), field.unsignedValue());
+                } else {
+                    CanonicalProtobuf.bytes(output, field.number(), field.rawValue());
+                }
+            }
+        });
+    }
+
+    private static byte[] tamperDescriptorScalar(final byte[] body, final int descriptorField,
+                                                 final long value) {
+        final List<CanonicalProtobuf.Reader.Field> outerFields = new ArrayList<>();
+        final CanonicalProtobuf.Reader outerReader = new CanonicalProtobuf.Reader(body);
+        while (outerReader.hasRemaining()) {
+            outerFields.add(outerReader.next());
+        }
+        final byte[] descriptor = outerFields.stream().filter(field -> field.number() == 22)
+                .findFirst().orElseThrow().rawValue();
+        final byte[] driftedDescriptor = CanonicalProtobuf.message(output -> {
+            final CanonicalProtobuf.Reader descriptorReader = new CanonicalProtobuf.Reader(descriptor);
+            while (descriptorReader.hasRemaining()) {
+                final CanonicalProtobuf.Reader.Field field = descriptorReader.next();
+                if (field.number() == descriptorField) {
+                    CanonicalProtobuf.uint64(output, descriptorField, value);
+                } else if (field.wireType() == 0) {
+                    CanonicalProtobuf.uint64(output, field.number(), field.unsignedValue());
+                } else {
+                    CanonicalProtobuf.bytes(output, field.number(), field.rawValue());
+                }
+            }
+        });
+        final byte[] driftedHash = Bytes.sha256(Bytes.utf8("nereus-delay-prepared-publish-v1\0"),
+                driftedDescriptor);
+        return CanonicalProtobuf.message(output -> {
+            for (CanonicalProtobuf.Reader.Field field : outerFields) {
+                if (field.number() == 18) {
+                    CanonicalProtobuf.bytes(output, 18, driftedHash);
+                } else if (field.number() == 22) {
+                    CanonicalProtobuf.bytes(output, 22, driftedDescriptor);
+                } else if (field.wireType() == 0) {
+                    CanonicalProtobuf.uint64(output, field.number(), field.unsignedValue());
                 } else {
                     CanonicalProtobuf.bytes(output, field.number(), field.rawValue());
                 }
