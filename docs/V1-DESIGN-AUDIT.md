@@ -496,6 +496,10 @@ divergence 和溢出拒绝，`DelayShardConfigTest` 覆盖正式字段与兼容�
 本地状态机和算术 fence，不能替代真实 Broker timestamp certification、capacity artifact
 发布或外部 Admission authority。
 
+同一 apply/replay 路径还会在 timing/profile fence 失败时撤销 exact matching live Claim，
+并持久化 `STALE_SYSTEM_MUTATION`；`DelayShardTest.publishAdmissionTimingFailureRevokesMatchingClaimBeforePersistingStaleMutation`
+覆盖该 no-attempt/no-Producer 前置状态。该测试仍属于本地状态机证据，不代表外部 authority 已部署。
+
 `ResolveUncertainBody` 的 `ATTACH_PUBLISHED_EVIDENCE`/
 `ATTACH_NOT_PUBLISHED_EVIDENCE` 分支也不再接受任意 opaque nested bytes，
 而是要求 typed evidence 的 Publish Attempt owner 和 verification status

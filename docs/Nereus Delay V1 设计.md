@@ -1235,6 +1235,8 @@ Trusted UTC decision interval 的距离不超过 `enqueueAge + divergence`。边
 加减溢出均 fail closed 为 `STALE_SYSTEM_MUTATION`，不会创建 attempt 或调用 Producer。
 嵌入式兼容构造器只提供受限的本地回归上界；发布构建仍必须从 Broker-time certification
 与 capacity artifact 注入这两个正式值，不能把兼容值当作生产认证结果。
+本地 apply/replay 在这些 timing/profile fence 失败时，会先撤销仍与 body 完全匹配的 live Claim，
+再持久化 `STALE_SYSTEM_MUTATION`；因此不会留下可继续执行的 Claim，也不会分配 attempt。
 
 `PublishAttemptId` 不能只由 generation/attemptNo 生成：capacity-gated/stale Admission 不消耗 attemptNo。V1 额外绑定 exact `claimId`；被 gate 的 Claim 被撤销，下一次 Claim/Admission 得到新 ID，而 uncertain enqueue 继续复用原 exact ID/body。Claim sequence 或 generation/attempt overflow 都 fence shard，禁止 wrap。
 

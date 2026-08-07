@@ -1750,11 +1750,17 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
-        validatePublishAdmissionTiming(body);
-        body.requireTiming(body.descriptor().actionAtEpochMs(), body.descriptor().expireAtEpochMs());
-        body.requireBrokerTiming(sourcePosition.brokerPersistenceTimeEpochMs(),
-                config.maxIngressBrokerTimestampDivergenceMs(),
-                config.maximumAdmissionMutationEnqueueAgeMs());
+        try {
+            validatePublishAdmissionTiming(body);
+            body.requireTiming(body.descriptor().actionAtEpochMs(), body.descriptor().expireAtEpochMs());
+            body.requireBrokerTiming(sourcePosition.brokerPersistenceTimeEpochMs(),
+                    config.maxIngressBrokerTimestampDivergenceMs(),
+                    config.maximumAdmissionMutationEnqueueAgeMs());
+        } catch (IllegalArgumentException timingFailure) {
+            revokeMatchingAdmissionClaim(body, author);
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
         final DelayMessageId messageId = new DelayMessageId(body.messageId());
         final io.nereusstream.delay.protocol.DestinationLaneId laneId =
                 new io.nereusstream.delay.protocol.DestinationLaneId(body.laneId());
@@ -1823,6 +1829,22 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }
+    }
+
+    private void revokeMatchingAdmissionClaim(final PublishAdmissionBody body,
+                                               final io.nereusstream.delay.protocol.AuthorIdentity author) {
+        final ClaimRecord claim = getClaim(body.claimId(), author.generation());
+        if (claim == null || !Arrays.equals(claim.preconditionBytes(), body.claimPrecondition().canonicalBytes())) {
+            return;
+        }
+        final MessageRecord current = getMessage(new DelayMessageId(body.messageId()));
+        if (current == null || current.status() != MessageStatus.CLAIMED
+                || current.generation() != body.generation()
+                || current.stateVersion() != claim.runtimeRevision()
+                || !Arrays.equals(current.runtimeIndex().claimId(), claim.claimId())) {
+            return;
+        }
+        revokeClaim(claim.claimId(), author.generation());
     }
 
     private void validatePublishAdmissionTiming(final PublishAdmissionBody body) {

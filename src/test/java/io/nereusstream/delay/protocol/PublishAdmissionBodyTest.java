@@ -399,6 +399,18 @@ public class PublishAdmissionBodyTest {
                     semanticDigest, attemptNo, stateVersion);
         }
 
+        public static Fixture createForSource(final ShardId shard, final DelayMessageId messageId,
+                                               final byte[] laneIncarnation, final byte[] timelineKey,
+                                               final int sourceWorkKind,
+                                               final int expectedAdmissionsUsed,
+                                               final int expectedUncertainRetryAdmissionsUsed,
+                                               final byte[] obligationSetDigest, final byte[] semanticDigest,
+                                               final int attemptNo, final long stateVersion, final long actionAt) {
+            return createInternal(shard, messageId, laneIncarnation, Bytes.sha256(timelineKey), sourceWorkKind,
+                    expectedAdmissionsUsed, expectedUncertainRetryAdmissionsUsed, obligationSetDigest,
+                    semanticDigest, attemptNo, stateVersion, actionAt);
+        }
+
         private static Fixture createInternal(final ShardId shard, final DelayMessageId messageId,
                                               final byte[] laneIncarnation, final byte[] timelineKeySha256,
                                               final int sourceWorkKind,

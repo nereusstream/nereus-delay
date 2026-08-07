@@ -3516,6 +3516,53 @@ class DelayShardTest {
     }
 
     @Test
+    void publishAdmissionTimingFailureRevokesMatchingClaimBeforePersistingStaleMutation() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("admission-timing-claim"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 19);
+        final DelayMessageId messageId = DelayMessageId.random(shardId);
+        final DestinationLaneId lane = new DestinationLaneId(Bytes.sha256(Bytes.utf8("lane")));
+        final PreparedCommand schedule = PreparedCommand.create(shardId,
+                io.nereusstream.delay.protocol.CommandId.random(shardId), messageId,
+                io.nereusstream.delay.protocol.CommandType.SCHEDULE, 9_000,
+                io.nereusstream.delay.protocol.CommandBodies.schedule(
+                        new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                                OrderingMode.BEST_EFFORT, Bytes.utf8("timing-claim"))));
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 2_001);
+        final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = keyPairGenerator.generateKeyPair();
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final Fixture fixture = Fixture.createForSource(shardId, messageId,
+                    shard.getLane(lane).laneIncarnation(),
+                    KeyCodec.timelineDue(lane, 2_000, schedulePosition.sourceOrderToken(), messageId, 0),
+                    1, 0, 0, Bytes.sha256(Bytes.utf8("obligations")), Bytes.sha256(Bytes.utf8("semantic")),
+                    1, 1, 1_500);
+            final PublishAdmissionBody fixtureAdmission = PublishAdmissionBody.decode(fixture.body());
+            final AuthorIdentity owner = AuthorIdentity.decode(fixture.owner());
+            final ClaimRecord claim = shard.claimForPublish(messageId, owner, 3_000,
+                    fixtureAdmission.descriptor().materializationBytes(), chargeVector());
+            final byte[] claimBody = replaceAdmissionClaim(fixture.body(), claim, store.metadata().storeIncarnation());
+            final PublishAdmissionBody admissionBody = PublishAdmissionBody.decode(claimBody);
+            final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_ADMISSION,
+                    9_000, Bytes.sha256(Bytes.utf8("admission-timing-claim")), claimBody, fixture.owner(), 1,
+                    keyPair.getPrivate());
+
+            assertEquals(MessageStatus.CLAIMED, shard.getMessage(fixture.messageId()).status());
+            assertEquals(StableCode.STALE_SYSTEM_MUTATION,
+                    shard.applySystemMutation(mutation, admissionPosition, keyPair.getPublic()).stableCode());
+            assertEquals(MessageStatus.SCHEDULED, shard.getMessage(fixture.messageId()).status());
+            assertNull(shard.getClaim(claim.claimId(), owner.generation()));
+            assertNull(shard.findOpenPublishAttempt(admissionBody.publishAttemptId()));
+            assertEquals(1, shard.discoverReady(10_000, 10).size());
+        }
+    }
+
+    @Test
     void admissionOutcomeReserveChargeIsReleasedByVerifiedPublish() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("admission-outcome-release"));
         final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,
