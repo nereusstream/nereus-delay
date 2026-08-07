@@ -573,6 +573,10 @@ admitted outcome retirement、对象句柄 quiescence/GC、Recovery-Floor retent
 直接的 Lane 读取也会校验 `meta_cf/LANE` 值内 Lane id，以及 close cursor 的
 Lane id/incarnation/control version/source shard；错挂的管理投影在暴露给调度或
 物化器前 fail closed，回归证据为 `DelayShardTest` 的 key/value identity tests。
+`id_cf/MESSAGE` 的直接读取及 activation/Close/retirement bounded scans 还会
+校验 self-routing key 的 Shard 与值内 `scheduleSourcePosition` 的 Shard；跨
+Shard 错挂的当前 Message 不会被当作本地工作，证据为
+`DelayShardTest.messageLookupRejectsForeignSourcePosition`。
 `ShardStore.flushAndSync` 还提供 drain 的物理 flush/WAL-sync 原语，重开回归为
 `ShardStoreTest.flushAndSyncMakesTheShardBoundaryExplicit`；它不替代远端 callback
 quiescence 或 final checkpoint publication。

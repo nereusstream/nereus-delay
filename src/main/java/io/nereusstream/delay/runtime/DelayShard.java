@@ -530,8 +530,10 @@ public final class DelayShard {
     }
 
     public synchronized MessageRecord getMessage(final DelayMessageId messageId) {
+        Objects.requireNonNull(messageId, "messageId");
         final var value = store.getValue(ColumnFamily.ID, KeyCodec.idMessage(messageId), 1);
-        return value == null ? null : MessageRecord.decode(value.payload());
+        return value == null ? null : validateMessageSourcePosition(messageId,
+                MessageRecord.decode(value.payload()), "message lookup");
     }
 
     /** Returns the exact accepted Registry Schedule/Prepare binding, if any. */
@@ -1476,12 +1478,14 @@ public final class DelayShard {
                 && message.runtimeIndex().attemptObligations().isEmpty();
     }
 
-    private static MessageRecord decodeMessageEntry(
+    private MessageRecord decodeMessageEntry(
             final io.nereusstream.delay.store.ShardStore.KeyValue entry, final String context) {
         if (entry.key().length != 2 + DelayMessageId.LENGTH || entry.key()[0] != 1 || entry.key()[1] != 1) {
             throw new IllegalStateException("invalid MESSAGE key during " + context);
         }
-        return MessageRecord.decode(ValueEnvelope.decode(entry.value(), 1).payload());
+        final DelayMessageId messageId = messageIdFromEntry(entry);
+        return validateMessageSourcePosition(messageId,
+                MessageRecord.decode(ValueEnvelope.decode(entry.value(), 1).payload()), context);
     }
 
     private static DelayMessageId messageIdFromEntry(
@@ -1506,6 +1510,19 @@ public final class DelayShard {
             throw new IllegalStateException("RESERVATION key/value identity mismatch during " + context);
         }
         return reservation;
+    }
+
+    private MessageRecord validateMessageSourcePosition(final DelayMessageId messageId,
+                                                        final MessageRecord message,
+                                                        final String context) {
+        if (!store.shardId().equals(messageId.routingId().shardId())) {
+            throw new IllegalStateException("MESSAGE key shard mismatch during " + context);
+        }
+        final SourcePosition sourcePosition = SourcePositionCodec.decode(message.scheduleSourcePosition());
+        if (!store.shardId().equals(sourcePosition.shardId())) {
+            throw new IllegalStateException("MESSAGE source position shard mismatch during " + context);
+        }
+        return message;
     }
 
     private List<ClosedMessageAction> prepareClosedMessageActions(
@@ -1630,8 +1647,7 @@ public final class DelayShard {
             if (entry.key().length != 2 + DelayMessageId.LENGTH || entry.key()[0] != 1 || entry.key()[1] != 1) {
                 throw new IllegalStateException("invalid MESSAGE key during lane Close");
             }
-            final MessageRecord message = MessageRecord.decode(
-                    io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), 1).payload());
+            final MessageRecord message = decodeMessageEntry(entry, "lane Close");
             if (message.laneId().equals(laneId) && !isTerminalStatus(message.status())
                     && message.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO) {
                 return true;
@@ -5748,8 +5764,7 @@ public final class DelayShard {
             }
             final byte[] messageBytes = Arrays.copyOfRange(entry.key(), 2, entry.key().length);
             final DelayMessageId messageId = new DelayMessageId(messageBytes);
-            final MessageRecord message = MessageRecord.decode(
-                    io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), 1).payload());
+            final MessageRecord message = decodeMessageEntry(entry, "runtime-index reconciliation");
             messages.put(messageId, message);
             validateMessageRuntimeBranches(messageId, message);
             if (isTerminalStatus(message.status())) {
@@ -5980,8 +5995,7 @@ public final class DelayShard {
             if (entry.key().length != 2 + DelayMessageId.LENGTH || entry.key()[0] != 1 || entry.key()[1] != 1) {
                 throw new IllegalStateException("invalid MESSAGE key during lane retirement");
             }
-            final MessageRecord message = MessageRecord.decode(
-                    ValueEnvelope.decode(entry.value(), 1).payload());
+            final MessageRecord message = decodeMessageEntry(entry, "lane retirement");
             if (message.laneId().equals(laneId)) {
                 return true;
             }

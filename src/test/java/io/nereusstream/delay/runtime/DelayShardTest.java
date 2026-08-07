@@ -185,6 +185,25 @@ class DelayShardTest {
     }
 
     @Test
+    void messageLookupRejectsForeignSourcePosition() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("message-source-shard-mismatch"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 59);
+        final ShardId otherShardId = new ShardId(RouteIncarnation.random(), 60);
+        final DelayMessageId messageId = DelayMessageId.random(shardId);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("message-source-shard-mismatch-lane"));
+        final MessageRecord misplaced = new MessageRecord(MessageStatus.SCHEDULED, 0, 1, 2_000, 5_000, lane,
+                OrderingMode.BEST_EFFORT, Bytes.utf8("payload"), position(otherShardId, 0, 1_000).canonicalBytes());
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            store.write(batch -> batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(messageId),
+                    misplaced.encode()));
+
+            assertThrows(IllegalStateException.class, () -> shard.getMessage(messageId));
+        }
+    }
+
+    @Test
     void laneLookupRejectsKeyValueIdentityMismatch() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("lane-key-mismatch"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 57);
