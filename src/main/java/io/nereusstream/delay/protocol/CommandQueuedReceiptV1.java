@@ -383,7 +383,9 @@ public final class CommandQueuedReceiptV1 {
 
     private static String utf8Nfc(final String value, final String name) {
         Objects.requireNonNull(value, name);
-        if (!value.equals(Normalizer.normalize(value, Normalizer.Form.NFC)) || value.indexOf('\0') >= 0
+        final String decoded = new String(value.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8);
+        if (!decoded.equals(value) || !value.equals(Normalizer.normalize(value, Normalizer.Form.NFC))
+                || value.indexOf('\0') >= 0
                 || value.isBlank()) {
             throw new IllegalArgumentException(name + " must be nonblank NFC UTF-8");
         }

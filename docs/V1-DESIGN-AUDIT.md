@@ -809,6 +809,14 @@ that direct-construction path. Decoder length prefixes and fixed-width fields
 also fail with the closed validation error instead of leaking a buffer-underflow
 or arithmetic exception; `ProtocolCodecTest.sourcePositionDecoderRejectsTruncatedLengthAndFixedFields`
 covers the malformed-byte path.
+The same strict UTF-8 round-trip fence now applies to direct construction of
+Kafka/Pulsar broker resource identities, Pulsar `EvidenceCursorV1` physical
+topics, and both managed queued-receipt `SafeBrokerAck` branches. These values
+also become canonical identity bytes, so accepting an unpaired surrogate and
+letting the JDK silently encode it as U+FFFD would otherwise make an in-memory
+identity differ from its wire identity; `ProtocolCodecTest`
+`brokerEvidenceAndQueuedAckIdentitiesRejectNonCanonicalUtf8AtConstruction`
+covers all of those constructor paths.
 The same exact-position check is applied to the owner catch-up cursor before
 activation, not only to the subsequent Command/System Mutation WriteBatch.
 An empty Pulsar activation barrier still validates a non-null persisted cursor's

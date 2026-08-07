@@ -742,6 +742,33 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void brokerEvidenceAndQueuedAckIdentitiesRejectNonCanonicalUtf8AtConstruction() {
+        final UUID topic = UUID.randomUUID();
+        assertThrows(IllegalArgumentException.class,
+                () -> new KafkaBrokerResourceIdentityV1("cluster\uD800", topic));
+
+        final byte[] resource = Bytes.sha256(Bytes.utf8("broker-resource"));
+        assertThrows(IllegalArgumentException.class,
+                () -> new PulsarBrokerResourceIdentityV1("cluster\uD800", resource, "topic", 1));
+        assertThrows(IllegalArgumentException.class,
+                () -> new PulsarBrokerResourceIdentityV1("cluster", resource, "topic\uD800", 1));
+
+        final byte[] lane = Bytes.sha256(Bytes.utf8("evidence-lane"));
+        final byte[] incarnation = Bytes.sha256(Bytes.utf8("lane-incarnation"));
+        assertThrows(IllegalArgumentException.class,
+                () -> EvidenceCursorV1.pulsar(lane, incarnation, resource, 0, 1, 1,
+                        "topic\uD800", 1, 1, 1, 0, 1));
+
+        final byte[] response = Bytes.sha256(Bytes.utf8("response"));
+        assertThrows(IllegalArgumentException.class,
+                () -> new CommandQueuedReceiptV1.KafkaQueuedAck("cluster\uD800", topic, 0, 1,
+                        null, 1, response));
+        assertThrows(IllegalArgumentException.class,
+                () -> new CommandQueuedReceiptV1.PulsarQueuedAck("cluster", resource, "topic\uD800", 1,
+                        0, 1, 1, 0, 1, 1, response));
+    }
+
+    @Test
     void sourcePositionDecoderRejectsTruncatedLengthAndFixedFields() {
         final byte[] truncatedLength = new byte[1 + 16 + 3];
         truncatedLength[0] = (byte) SourcePositionKind.KAFKA.wireValue();

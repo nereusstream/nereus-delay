@@ -1,5 +1,6 @@
 package io.nereusstream.delay.protocol;
 
+import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
 import java.util.Arrays;
 import java.util.List;
@@ -99,7 +100,8 @@ public final class PulsarBrokerResourceIdentityV1 {
 
     private static String nfc(final String value, final String name) {
         Objects.requireNonNull(value, name);
-        if (value.isBlank() || value.indexOf('\0') >= 0
+        final String decoded = new String(value.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8);
+        if (!decoded.equals(value) || value.isBlank() || value.indexOf('\0') >= 0
                 || !value.equals(Normalizer.normalize(value, Normalizer.Form.NFC))) {
             throw new IllegalArgumentException(name + " must be nonblank NFC UTF-8");
         }
