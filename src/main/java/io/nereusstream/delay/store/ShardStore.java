@@ -210,6 +210,8 @@ public final class ShardStore implements AutoCloseable {
         final Path stagedDb = restoreRoot.resolve("db");
         final Path activeDb = shardRoot.resolve("incarnations").resolve(storeUuid.toString()).resolve("db");
         boolean downloadSlotAcquired = false;
+        boolean activeDbMoved = false;
+        ShardStore installed = null;
         try {
             resources.acquireCheckpointDownloadSlot();
             downloadSlotAcquired = true;
@@ -242,22 +244,23 @@ public final class ShardStore implements AutoCloseable {
             if (pin != null) {
                 validateRecoveryPin(shardId, manifest, catalog, pin);
             }
-            try (ShardStore installed = openAtPath(config, shardId, stagedDb, resources, storeUuid, false)) {
-                if (!installed.shardId().equals(shardId)) {
+            try (ShardStore prepared = openAtPath(config, shardId, stagedDb, resources, storeUuid, false)) {
+                if (!prepared.shardId().equals(shardId)) {
                     throw new IOException("install-mode DB shard identity mismatch");
                 }
             }
             Files.createDirectories(activeDb.getParent());
             Files.move(stagedDb, activeDb, StandardCopyOption.ATOMIC_MOVE);
-            writeActivePointer(shardRoot, storeUuid);
-            deleteTree(restoreRoot);
-            return openAtPath(config, shardId, activeDb, resources, null, true);
-        } catch (IOException | RocksDBException exception) {
-            try {
-                deleteTree(restoreRoot);
-            } catch (IOException cleanupException) {
-                exception.addSuppressed(cleanupException);
+            activeDbMoved = true;
+            installed = openAtPath(config, shardId, activeDb, resources, null, true);
+            if (!installed.shardId().equals(shardId)) {
+                throw new IOException("install-mode DB shard identity mismatch");
             }
+            deleteTree(restoreRoot);
+            writeActivePointer(shardRoot, storeUuid);
+            return installed;
+        } catch (IOException | RocksDBException exception) {
+            cleanupFailedRestore(restoreRoot, activeDb, shardRoot, storeUuid, activeDbMoved, installed, exception);
             throw new IllegalStateException("cannot restore shard checkpoint", exception);
         } catch (RuntimeException exception) {
             // A failed staged open/metadata validation can surface as a
@@ -268,16 +271,55 @@ public final class ShardStore implements AutoCloseable {
             if (!downloadSlotAcquired) {
                 throw exception;
             }
-            try {
-                deleteTree(restoreRoot);
-            } catch (IOException cleanupException) {
-                exception.addSuppressed(cleanupException);
-            }
+            cleanupFailedRestore(restoreRoot, activeDb, shardRoot, storeUuid, activeDbMoved, installed, exception);
             throw new IllegalStateException("cannot restore shard checkpoint", exception);
         } finally {
             if (downloadSlotAcquired) {
                 resources.releaseCheckpointDownloadSlot();
             }
+        }
+    }
+
+    private static void cleanupFailedRestore(final Path restoreRoot, final Path activeDb, final Path shardRoot,
+                                             final UUID storeUuid, final boolean activeDbMoved,
+                                             final ShardStore installed, final Throwable failure) {
+        if (installed != null) {
+            try {
+                installed.close();
+            } catch (RuntimeException cleanupException) {
+                failure.addSuppressed(cleanupException);
+            }
+        }
+        if (activeDbMoved && canRemoveUnpublishedActiveDb(shardRoot, storeUuid)) {
+            try {
+                deleteTree(activeDb);
+                deleteTree(activeDb.getParent());
+            } catch (IOException cleanupException) {
+                failure.addSuppressed(cleanupException);
+            }
+        }
+        try {
+            deleteTree(restoreRoot);
+        } catch (IOException cleanupException) {
+            failure.addSuppressed(cleanupException);
+        }
+    }
+
+    /** Only remove an installed DB when ACTIVE cannot already refer to it. */
+    private static boolean canRemoveUnpublishedActiveDb(final Path shardRoot, final UUID storeUuid) {
+        final Path activePointer = shardRoot.resolve("ACTIVE");
+        if (!Files.exists(activePointer, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            return true;
+        }
+        if (Files.isSymbolicLink(activePointer)) {
+            return false;
+        }
+        try {
+            return !storeUuid.equals(readActivePointer(activePointer));
+        } catch (IOException exception) {
+            // An unreadable pointer may already have been atomically replaced;
+            // preserve the DB for offline repair rather than delete blindly.
+            return false;
         }
     }
 

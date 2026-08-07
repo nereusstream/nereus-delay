@@ -778,6 +778,11 @@ format/identity validation 和 install-mode write 放在同一个失败清理边
 任一失败都会先关闭 DB、Column Family handles 和 options，再释放 Worker slot。
 `ShardStoreTest.malformedExistingMetadataDoesNotLeaveRocksDbOpen` 随后用 raw
 RocksDB reopen 证明不会遗留 native 文件锁。
+Restore 在把 staged DB 原子移动到新 incarnation 后，会先以正式 active path
+打开并验证 DB，再写入 `ACTIVE`；任一 pointer 安装失败都会关闭已打开句柄，
+删除未被 `ACTIVE` 指向的自有 incarnation 目录，并保留无法证明未被指向的
+目录供离线修复。`ShardStoreTest.failedActivePointerInstallRemovesUnpublishedDb`
+覆盖 `ACTIVE.tmp` 故障路径。
 Restore admission 只把 checksum-validated `ACTIVE` pointer 指向的
 incarnation 视为 live DB；pointer 尚未切换时留下的 orphan incarnation 不会
 阻塞新的 atomic restore，且不会被悄悄当作 active 覆盖。

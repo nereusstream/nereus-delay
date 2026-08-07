@@ -726,8 +726,13 @@ overwriting it; `ShardStoreTest.restoreRejectsAnActivePointerWhoseDbIsMissing`
 covers this store-integrity boundary. An absent `ACTIVE` pointer remains the
 only case in which an orphan incarnation can be replaced by a new restore.
 Runtime validation failures after staging begins now remove the private
-`restore-tmp` tree as well as releasing the download slot; a pre-acquisition
-concurrency rejection keeps its original bounded-resource error.
+`restore-tmp` tree as well as releasing the download slot; after the staged DB
+is atomically moved, restore opens it through the formal active path before
+writing `ACTIVE`, and pointer-install failure closes the DB and removes only
+the unreferenced incarnation it owns (an unreadable pointer is preserved for
+offline repair). `ShardStoreTest.failedActivePointerInstallRemovesUnpublishedDb`
+covers the `ACTIVE.tmp` failure path; a pre-acquisition concurrency rejection
+keeps its original bounded-resource error.
 After RocksDB itself has opened, the normal shard-open path has one failure
 cleanup boundary around metadata reads/decoding, format and identity checks,
 and install-mode writes: every DB/Column Family handle and options object is

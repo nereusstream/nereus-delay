@@ -461,6 +461,35 @@ class ShardStoreTest {
     }
 
     @Test
+    void failedActivePointerInstallRemovesUnpublishedDb() throws Exception {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 26);
+        final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("pointer-failure-source"));
+        final Path checkpoint = tempDir.resolve("pointer-failure-checkpoint");
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(sourceConfig);
+             ShardStore source = ShardStore.open(sourceConfig, shardId, resources)) {
+            source.createCheckpoint(checkpoint);
+        }
+
+        final ShardStoreConfig targetConfig = ShardStoreConfig.defaults(tempDir.resolve("pointer-failure-target"));
+        final Path shardRoot = targetConfig.rootPath().resolve("shards")
+                .resolve(shardId.routeIncarnation().uuid().toString())
+                .resolve(Integer.toString(shardId.partition()));
+        Files.createDirectories(shardRoot);
+        Files.createDirectory(shardRoot.resolve("ACTIVE.tmp"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(targetConfig)) {
+            assertThrows(IllegalStateException.class,
+                    () -> ShardStore.restoreFromCheckpoint(targetConfig, shardId, resources, checkpoint));
+        }
+        final Path incarnations = shardRoot.resolve("incarnations");
+        if (Files.exists(incarnations)) {
+            try (var paths = Files.list(incarnations)) {
+                assertTrue(paths.toList().isEmpty());
+            }
+        }
+        assertTrue(Files.isDirectory(shardRoot.resolve("ACTIVE.tmp")));
+    }
+
+    @Test
     void catalogBoundRestoreRequiresPublishedFloorEligibleManifest() throws Exception {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 20);
         final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("catalog-source"));
