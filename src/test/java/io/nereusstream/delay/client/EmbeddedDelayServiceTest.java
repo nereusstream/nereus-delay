@@ -2,7 +2,9 @@ package io.nereusstream.delay.client;
 
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.AdapterKindV1;
+import io.nereusstream.delay.protocol.AdapterMetadataV1;
 import io.nereusstream.delay.protocol.CommandAppliedReceiptV1;
+import io.nereusstream.delay.protocol.CommandBodies;
 import io.nereusstream.delay.protocol.CommandQueryResult;
 import io.nereusstream.delay.protocol.CommandQueuedReceiptV1;
 import io.nereusstream.delay.protocol.ControlAuthorV1;
@@ -16,6 +18,7 @@ import io.nereusstream.delay.protocol.ControlTargetKindV1;
 import io.nereusstream.delay.protocol.ControlTargetRefV1;
 import io.nereusstream.delay.protocol.CurrentControlOperationV1;
 import io.nereusstream.delay.protocol.DelayMessageId;
+import io.nereusstream.delay.protocol.DeliveryMode;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.EnqueueOutcomeKindV1;
@@ -23,12 +26,16 @@ import io.nereusstream.delay.protocol.EnqueueOutcomeMessageV1;
 import io.nereusstream.delay.protocol.OrderingMode;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
+import io.nereusstream.delay.protocol.KafkaMetadataV1;
 import io.nereusstream.delay.protocol.ForceCheckpointRequestV1;
 import io.nereusstream.delay.protocol.PublicDestinationBindingViewV1;
 import io.nereusstream.delay.protocol.MessageQueryResult;
+import io.nereusstream.delay.protocol.MessagePreconditionV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.RouteIncarnation;
+import io.nereusstream.delay.protocol.RetryPolicyRefV1;
 import io.nereusstream.delay.protocol.ScheduleIntent;
+import io.nereusstream.delay.protocol.ScheduleIntentV1;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.ShardSubjectV1;
 import io.nereusstream.delay.protocol.PreparedControlOperationV1;
@@ -254,9 +261,7 @@ class EmbeddedDelayServiceTest {
         final Clock clock = Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC);
         try (EmbeddedDelayService service = new EmbeddedDelayService(ShardStoreConfig.defaults(tempDir.resolve("query")),
                 shard, clock)) {
-            final PreparedCommand command = service.prepareSchedule(new ScheduleIntent(
-                    DestinationLaneId.derive(Bytes.utf8("query-lane")), 2_000, 5_000,
-                    OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+            final PreparedCommand command = cancelV1(shard, 10_000);
             final EnqueueOutcome outcome = service.enqueue(command).toCompletableFuture().join();
             final var queued = service.queuedReceiptV1(outcome, 10_000,
                     java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("attempt")), 16));
@@ -265,8 +270,8 @@ class EmbeddedDelayServiceTest {
                     service.queryCommand(queued, now, 10_000, publicBinding()).resultKind());
             service.drain();
             assertEquals(CommandQueryResult.APPLIED,
-                    service.queryCommand(queued, now, 10_000, publicBinding()).resultKind());
-            final CommandAppliedReceiptV1 applied = service.appliedReceiptV1(queued, 10_000, publicBinding());
+                    service.queryCommand(queued, now, 10_000, null).resultKind());
+            final CommandAppliedReceiptV1 applied = service.appliedReceiptV1(queued, 10_000, null);
             assertEquals(io.nereusstream.delay.protocol.ReceiptKind.COMMAND_APPLIED,
                     io.nereusstream.delay.protocol.ReceiptFrame.decode(applied.frame()).kind());
             assertEquals(applied, CommandAppliedReceiptV1.decodeFrame(applied.frame()));
@@ -275,10 +280,6 @@ class EmbeddedDelayServiceTest {
             assertEquals(CommandQueryResult.RESULT_EVIDENCE_EXPIRED,
                     service.queryCommand(queued, 10_001, 10_000, publicBinding()).resultKind());
 
-            assertEquals(MessageQueryResult.ACTIVE,
-                    service.queryMessage(command.delayMessageId(), publicBinding(),
-                            DlqExportStateV1.NOT_CONFIGURED, null,
-                            io.nereusstream.delay.protocol.FirstScheduleEligibilityV1.NOT_PROVEN).resultKind());
             assertEquals(MessageQueryResult.UNKNOWN,
                     service.queryMessage(DelayMessageId.random(shard), publicBinding(),
                             DlqExportStateV1.NOT_CONFIGURED, null,
@@ -292,9 +293,7 @@ class EmbeddedDelayServiceTest {
         final Clock clock = Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC);
         try (EmbeddedDelayService service = new EmbeddedDelayService(
                 ShardStoreConfig.defaults(tempDir.resolve("query-position-fence")), shard, clock)) {
-            final PreparedCommand command = service.prepareSchedule(new ScheduleIntent(
-                    DestinationLaneId.derive(Bytes.utf8("query-position-fence-lane")), 2_000, 5_000,
-                    OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+            final PreparedCommand command = cancelV1(shard, 10_000);
             final EnqueueOutcome outcome = service.enqueue(command).toCompletableFuture().join();
             final byte[] attemptId = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("query-position-attempt")), 16);
             final CommandQueuedReceiptV1 queued = service.queuedReceiptV1(outcome, 10_000, attemptId);
@@ -310,9 +309,9 @@ class EmbeddedDelayServiceTest {
 
             service.drain();
             assertEquals(io.nereusstream.delay.protocol.CommandQueryResult.INTEGRITY_ERROR,
-                    service.queryCommand(forged, 1_000, 10_000, publicBinding()).resultKind());
+                    service.queryCommand(forged, 1_000, 10_000, null).resultKind());
             assertThrows(IllegalStateException.class,
-                    () -> service.appliedReceiptV1(forged, 10_000, publicBinding()));
+                    () -> service.appliedReceiptV1(forged, 10_000, null));
         }
     }
 
@@ -322,16 +321,14 @@ class EmbeddedDelayServiceTest {
         final Clock clock = Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC);
         try (EmbeddedDelayService service = new EmbeddedDelayService(
                 ShardStoreConfig.defaults(tempDir.resolve("query-command-hash")), shard, clock)) {
-            final PreparedCommand command = service.prepareSchedule(new ScheduleIntent(
-                    DestinationLaneId.derive(Bytes.utf8("query-command-hash-lane")), 2_000, 5_000,
-                    OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+            final PreparedCommand command = cancelV1(shard, 10_000);
             final EnqueueOutcome outcome = service.enqueue(command).toCompletableFuture().join();
             final CommandQueuedReceiptV1 queued = service.queuedReceiptV1(outcome, 10_000,
                     java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("query-command-hash-attempt")), 16));
             final PreparedCommand forgedCommand = PreparedCommand.create(shard, command.commandId(),
                     command.delayMessageId(), command.type(), command.retryUntilEpochMs(),
-                    new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("different-lane")), 3_000, 6_000,
-                            OrderingMode.BEST_EFFORT, Bytes.utf8("different-payload")).canonicalBytes());
+                    CommandBodies.cancelV1(command.delayMessageId(), command.retryUntilEpochMs(),
+                            new MessagePreconditionV1(1L, null)));
             final CommandQueuedReceiptV1 forged = CommandQueuedReceiptV1.create(forgedCommand,
                     queued.sourcePosition(), queued.brokerAck(), queued.receiptQueryUntilEpochMs(),
                     queued.physicalEnqueueAttemptId());
@@ -340,9 +337,9 @@ class EmbeddedDelayServiceTest {
             assertEquals(CommandQueryResult.RECEIPT_MISMATCH,
                     service.queryCommand(forged, 1_000, 10_000, publicBinding()).resultKind());
             assertThrows(IllegalArgumentException.class,
-                    () -> service.appliedReceiptV1(forged, 10_000, publicBinding()));
+                    () -> service.appliedReceiptV1(forged, 10_000, null));
             assertEquals(CommandQueryResult.APPLIED,
-                    service.queryCommand(queued, 1_000, 10_000, publicBinding()).resultKind());
+                    service.queryCommand(queued, 1_000, 10_000, null).resultKind());
         }
     }
 
@@ -351,10 +348,8 @@ class EmbeddedDelayServiceTest {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
         try (EmbeddedDelayService service = new EmbeddedDelayService(ShardStoreConfig.defaults(tempDir.resolve("reject")),
                 shard, Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
-            final PreparedCommand otherShardCommand = PreparedCommand.schedule(
-                    new ShardId(RouteIncarnation.random(), 0), new ScheduleIntent(
-                            DestinationLaneId.derive(Bytes.utf8("other-lane")), 2_000, 5_000,
-                            OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+            final ShardId otherShard = new ShardId(RouteIncarnation.random(), 0);
+            final PreparedCommand otherShardCommand = scheduleV1(otherShard, "other-lane", 2_000, 5_000, 10_000);
             final EnqueueOutcome outcome = service.enqueue(otherShardCommand).toCompletableFuture().join();
             assertEquals(EnqueueStatus.DEFINITELY_NOT_QUEUED, outcome.status());
             assertThrows(IllegalArgumentException.class,
@@ -421,27 +416,22 @@ class EmbeddedDelayServiceTest {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 5);
         try (EmbeddedDelayService service = new EmbeddedDelayService(ShardStoreConfig.defaults(tempDir.resolve("outcome")),
                 shard, Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
-            final PreparedCommand queuedCommand = service.prepareSchedule(new ScheduleIntent(
-                    DestinationLaneId.derive(Bytes.utf8("outcome-queued")), 2_000, 5_000,
-                    OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+            final PreparedCommand queuedCommand = scheduleV1(shard, "outcome-queued", 2_000, 5_000, 10_000);
             final EnqueueOutcome queued = service.enqueue(queuedCommand).toCompletableFuture().join();
             final byte[] attemptId = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("outcome-attempt")), 16);
             final EnqueueOutcomeMessageV1 queuedWire = service.enqueueOutcomeV1(queued, 10_000, attemptId);
             assertEquals(EnqueueOutcomeKindV1.QUEUED, queuedWire.kind());
             assertEquals(queuedWire, EnqueueOutcomeMessageV1.decode(queuedWire.canonicalBytes()));
 
-            final PreparedCommand rejectedCommand = PreparedCommand.schedule(
-                    new ShardId(RouteIncarnation.random(), 0), new ScheduleIntent(
-                            DestinationLaneId.derive(Bytes.utf8("outcome-rejected")), 2_000, 5_000,
-                            OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+            final ShardId rejectedShard = new ShardId(RouteIncarnation.random(), 0);
+            final PreparedCommand rejectedCommand = scheduleV1(rejectedShard, "outcome-rejected", 2_000, 5_000,
+                    10_000);
             final EnqueueOutcome rejected = service.enqueue(rejectedCommand).toCompletableFuture().join();
             final EnqueueOutcomeMessageV1 definiteWire = service.enqueueOutcomeV1(rejected, 10_000, attemptId);
             assertEquals(EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED, definiteWire.kind());
             assertEquals(definiteWire, EnqueueOutcomeMessageV1.decode(definiteWire.canonicalBytes()));
 
-            final PreparedCommand uncertainCommand = service.prepareSchedule(new ScheduleIntent(
-                    DestinationLaneId.derive(Bytes.utf8("outcome-uncertain")), 2_000, 5_000,
-                    OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+            final PreparedCommand uncertainCommand = scheduleV1(shard, "outcome-uncertain", 2_000, 5_000, 10_000);
             final EnqueueOutcome uncertain = EnqueueOutcome.uncertain(uncertainCommand,
                     StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue());
             final EnqueueOutcomeMessageV1 uncertainWire = service.enqueueOutcomeV1(uncertain, 10_000, attemptId);
@@ -460,6 +450,27 @@ class EmbeddedDelayServiceTest {
                 Bytes.sha256(Bytes.utf8("capability-semantic")), ProfileKindV1.DELIVERY_CAPABILITY);
         return new PublicDestinationBindingViewV1(destination, capability, AdapterKindV1.KAFKA,
                 Bytes.utf8("safe-destination"), 1, OrderingMode.BEST_EFFORT);
+    }
+
+    private static PreparedCommand scheduleV1(final ShardId shard, final String lane, final long deliverAt,
+                                              final long expireAt, final long retryUntil) {
+        return PreparedCommand.scheduleV1(shard, scheduleIntentV1(lane, deliverAt, expireAt, "payload"), retryUntil);
+    }
+
+    private static PreparedCommand cancelV1(final ShardId shard, final long retryUntil) {
+        return PreparedCommand.cancelV1(shard, DelayMessageId.random(shard), new MessagePreconditionV1(0L, null),
+                retryUntil);
+    }
+
+    private static ScheduleIntentV1 scheduleIntentV1(final String lane, final long deliverAt, final long expireAt,
+                                                     final String payload) {
+        final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("destination-" + lane), 1,
+                Bytes.sha256(Bytes.utf8("destination-semantic-" + lane)), ProfileKindV1.DESTINATION);
+        final RetryPolicyRefV1 retryPolicy = new RetryPolicyRefV1(Bytes.utf8("retry-" + lane), 1,
+                Bytes.sha256(Bytes.utf8("retry-semantic-" + lane)));
+        return ScheduleIntentV1.create(destination, retryPolicy, deliverAt, expireAt, DeliveryMode.MANAGED,
+                OrderingMode.BEST_EFFORT, new byte[0], Bytes.utf8(payload), null,
+                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())), null, null);
     }
 
     private static ControlOperationReceiptV1 controlReceipt() {

@@ -63,6 +63,14 @@ public final class PinnedPulsarCommandIngress implements WireCommandIngressAdapt
                                                                        final long receiptQueryUntilEpochMs,
                                                                        final byte[] physicalAttemptId) {
         Objects.requireNonNull(command, "command");
+        final byte[] v1Frame;
+        try {
+            v1Frame = CommandCodec.encodeFrameV1(command);
+        } catch (RuntimeException exception) {
+            // A compatibility body cannot be represented by a V1 ref/union;
+            // fail before any local V1 outcome projection or transport call.
+            return CompletableFuture.failedFuture(exception);
+        }
         if (closed.get()) {
             return completedWire(WireIngressOutcomeSupport.localDefinite(command, StableCode.CLIENT_CLOSED));
         }
@@ -72,7 +80,7 @@ public final class PinnedPulsarCommandIngress implements WireCommandIngressAdapt
         }
         final PulsarSendRequest request;
         try {
-            request = PulsarSendRequest.from(resource, command, CommandCodec.encodeFrameV1(command));
+            request = PulsarSendRequest.from(resource, command, v1Frame);
         } catch (RuntimeException exception) {
             return completedWire(WireIngressOutcomeSupport.localDefinite(command,
                     StableCode.INVALID_PREPARED_COMMAND));

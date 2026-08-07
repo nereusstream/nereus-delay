@@ -28,6 +28,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AdapterIngressTest {
@@ -157,12 +158,11 @@ class AdapterIngressTest {
             return CompletableFuture.failedFuture(new AssertionError("legacy V1 body reached transport"));
         };
         try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
-            final var wire = adapter.enqueueOutcomeV1(legacy, 5_000,
-                    java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("legacy-v1-attempt")), 16))
-                    .toCompletableFuture().join();
-            assertEquals(EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED, wire.kind());
-            assertEquals(StableCode.INVALID_PREPARED_COMMAND,
-                    wire.definitelyNotQueued().error().code());
+            final var failure = assertThrows(java.util.concurrent.CompletionException.class,
+                    () -> adapter.enqueueOutcomeV1(legacy, 5_000,
+                            java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("legacy-v1-attempt")), 16))
+                            .toCompletableFuture().join());
+            assertTrue(failure.getCause() instanceof IllegalArgumentException);
             assertFalse(transportCalled.get());
         }
     }

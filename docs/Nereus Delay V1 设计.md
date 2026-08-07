@@ -357,7 +357,10 @@ interface DelayClient extends AutoCloseable {
 进入 V1 managed submission 的 frame 必须通过 Registry-shaped body 的严格
 `encodeFrameV1/decodeFrameV1` 校验；兼容旧 body 不能被包装成 V1
 `PreparedSubmission`，也不能到达 Producer ownership。旧版 `enqueue()` 兼容桥仍可
-使用 legacy frame，但不能冒充 V1 receipt/submission。
+使用 legacy frame，但不能冒充 V1 receipt/submission。任何 V1 receipt/union 中的
+`PreparedCommandRefV1` 也必须从同一 strict V1 frame digest 派生；embedded 或旧
+SDK bridge 遇到 legacy body 必须 fail closed，不能把 compatibility bytes 标成
+`ProtocolTupleV1`。
 
 同步 `prepare*` 只可抛出携 `StableErrorV1(stage=PREPARATION)` 的 typed `PreparationFailure`，对应本地可确定的 invalid input/snapshot/size/metadata；失败时不存在 Command identity enqueue obligation。已有 `PreparedCommand` 的 `enqueue` 对所有预期网络/容量结果正常完成为三态，不让调用方从异常类猜是否入 Broker；只有损坏的 Prepared bytes、SDK invariant 或进程级不可恢复错误才 exceptional completion。
 

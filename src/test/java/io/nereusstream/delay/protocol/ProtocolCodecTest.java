@@ -58,9 +58,7 @@ class ProtocolCodecTest {
     void commandQueuedReceiptKafkaPayloadBindsPreparedCommandSourceAndAck() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 8);
         final UUID topic = UUID.randomUUID();
-        final PreparedCommand command = PreparedCommand.schedule(shard,
-                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("receipt-lane")), 2_000, 8_000,
-                        OrderingMode.BEST_EFFORT, Bytes.utf8("receipt")), 9_000);
+        final PreparedCommand command = scheduleV1(shard, "receipt-lane", 2_000, 8_000, 9_000);
         final KafkaSourcePosition source = new KafkaSourcePosition(shard, "cluster-a", topic, 7, 3, 1_234);
         final CommandQueuedReceiptV1.KafkaQueuedAck ack = new CommandQueuedReceiptV1.KafkaQueuedAck(
                 "cluster-a", topic, 8, 7, 3, 1_234, Bytes.sha256(Bytes.utf8("broker-response")));
@@ -88,13 +86,33 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void commandQueuedReceiptRejectsCompatibilityCommandBody() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 8);
+        final UUID topic = UUID.randomUUID();
+        final PreparedCommand legacy = PreparedCommand.schedule(shard,
+                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("legacy-receipt-lane")), 2_000, 8_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("legacy-receipt")), 9_000);
+        final KafkaSourcePosition source = new KafkaSourcePosition(shard, "cluster-legacy", topic, 7, 3, 1_234);
+        final CommandQueuedReceiptV1.KafkaQueuedAck ack = new CommandQueuedReceiptV1.KafkaQueuedAck(
+                "cluster-legacy", topic, shard.partition(), 7, 3, 1_234,
+                Bytes.sha256(Bytes.utf8("legacy-response")));
+        final byte[] attempt = new byte[16];
+        attempt[15] = 1;
+
+        assertThrows(IllegalArgumentException.class,
+                () -> CommandQueuedReceiptV1.create(legacy, source, ack, 9_000, attempt));
+        assertThrows(IllegalArgumentException.class,
+                () -> CommandQueuedReceiptV1.PreparedCommandRef.from(legacy));
+    }
+
+    @Test
     void commandQueuedReceiptPulsarPayloadUsesTheClosedAckBranch() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 9);
         final byte[] resource = new byte[32];
         resource[0] = 7;
         final PulsarSourcePosition source = new PulsarSourcePosition(shard, resource, "persistent://tenant/topic",
                 4, 5, 1, 3, PulsarSourcePosition.EntryKind.BATCH, 2_345);
-        final PreparedCommand command = PreparedCommand.cancel(shard, DelayMessageId.random(shard), 0, 9_000);
+        final PreparedCommand command = cancelV1(shard, 9_000);
         final CommandQueuedReceiptV1.PulsarQueuedAck ack = new CommandQueuedReceiptV1.PulsarQueuedAck(
                 "pulsar-cluster", resource, "persistent://tenant/topic", 1_111, 9, 4, 5, 1, 3, 2_345,
                 Bytes.sha256(Bytes.utf8("send-receipt")));
@@ -189,9 +207,7 @@ class ProtocolCodecTest {
     void commandAppliedReceiptBindsQueuedDigestAndAppliedSourcePosition() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 5);
         final UUID topic = UUID.randomUUID();
-        final PreparedCommand command = PreparedCommand.schedule(shard,
-                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("applied-lane")), 1_000, 5_000,
-                        OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 8_000);
+        final PreparedCommand command = scheduleV1(shard, "applied-lane", 1_000, 5_000, 8_000);
         final KafkaSourcePosition queuedPosition = new KafkaSourcePosition(shard, "cluster-applied", topic, 10, 1,
                 1_000);
         final KafkaSourcePosition appliedPosition = new KafkaSourcePosition(shard, "cluster-applied", topic, 11, 1,
@@ -414,7 +430,7 @@ class ProtocolCodecTest {
     @Test
     void stableErrorPinsRegistryRetryabilityAndPreparedRefPresence() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 12);
-        final PreparedCommand command = PreparedCommand.cancel(shard, DelayMessageId.random(shard), 0, 9_000);
+        final PreparedCommand command = cancelV1(shard, 9_000);
         final CommandQueuedReceiptV1.PreparedCommandRef commandRef =
                 CommandQueuedReceiptV1.PreparedCommandRef.from(command);
         final StableErrorV1 uncertain = StableErrorV1.of(FailureStageV1.ENQUEUE,
@@ -481,7 +497,7 @@ class ProtocolCodecTest {
     @Test
     void enqueueAndSubmissionOutcomeUnionsKeepBranchIdentityClosed() throws Exception {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 13);
-        final PreparedCommand command = PreparedCommand.cancel(shard, DelayMessageId.random(shard), 0, 9_000);
+        final PreparedCommand command = cancelV1(shard, 9_000);
         final KafkaSourcePosition source = new KafkaSourcePosition(shard, "outcome-cluster", UUID.randomUUID(), 4,
                 1, 1_000);
         final CommandQueuedReceiptV1 queuedReceipt = CommandQueuedReceiptV1.create(command, source,
@@ -921,6 +937,23 @@ class ProtocolCodecTest {
         return NativePreparedDeliveryV1.create(nonZero(32, 20), destination, capability, target, 0,
                 Bytes.utf8("prepared-outcome-payload"), new PulsarMetadataV1(null, null, null, java.util.List.of()),
                 null, 2_100, 2_200, snapshot);
+    }
+
+    private static PreparedCommand scheduleV1(final ShardId shard, final String lane, final long deliverAt,
+                                              final long expireAt, final long retryUntil) {
+        final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("destination-" + lane), 1,
+                Bytes.sha256(Bytes.utf8("destination-semantic-" + lane)), ProfileKindV1.DESTINATION);
+        final RetryPolicyRefV1 retryPolicy = new RetryPolicyRefV1(Bytes.utf8("retry-" + lane), 1,
+                Bytes.sha256(Bytes.utf8("retry-semantic-" + lane)));
+        final ScheduleIntentV1 intent = ScheduleIntentV1.create(destination, retryPolicy, deliverAt, expireAt,
+                DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, new byte[0], Bytes.utf8("payload"), null,
+                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, java.util.List.of())), null, null);
+        return PreparedCommand.scheduleV1(shard, intent, retryUntil);
+    }
+
+    private static PreparedCommand cancelV1(final ShardId shard, final long retryUntil) {
+        return PreparedCommand.cancelV1(shard, DelayMessageId.random(shard), new MessagePreconditionV1(0L, null),
+                retryUntil);
     }
 
     private static byte[] nonZero(final int length, final int firstByte) {

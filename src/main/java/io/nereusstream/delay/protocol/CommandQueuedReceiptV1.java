@@ -434,11 +434,12 @@ public final class CommandQueuedReceiptV1 {
             frameSha256 = Bytes.copy(frameSha256);
         }
 
+        /** Projects only a Registry-shaped command; compatibility bodies fail closed. */
         public static PreparedCommandRef from(final PreparedCommand command) {
             Objects.requireNonNull(command, "command");
             return new PreparedCommandRef(command.shardId(), command.commandId(), command.delayMessageId(),
                     command.type(), ProtocolTuple.managedCommandV1(), command.commandHash(),
-                    command.retryUntilEpochMs(), Bytes.sha256(CommandCodec.encodeFrame(command)));
+                    command.retryUntilEpochMs(), Bytes.sha256(CommandCodec.encodeFrameV1(command)));
         }
 
         @Override

@@ -421,8 +421,10 @@ V1 managed submission 现在还在 Producer ownership 前强制执行
 `PreparedSubmissionV1` 不再接受 legacy compatibility body；
 `AdapterIngressTest.kafkaV1WireRejectsLegacyBodyBeforeTransportOwnership` 与
 `PreparedCommandV1Test.managedPreparedSubmissionRejectsACompatibilityBody` 覆盖该
-fail-closed 边界。旧 `enqueue()` 路径仍明确保留为 compatibility seam，不被计入 V1
-submission 证据。
+fail-closed 边界。`CommandQueuedReceiptV1.PreparedCommandRef` 也只从
+`encodeFrameV1` 派生 frame digest；`ProtocolCodecTest.commandQueuedReceiptRejectsCompatibilityCommandBody`
+证明 legacy body 不能被标成 V1 `ProtocolTuple`。旧 `enqueue()` 路径仍明确保留为
+compatibility seam，不被计入 V1 submission/receipt 证据。
 
 Target publish 的本地 transport 结果现在也在 adapter 边界执行 closed-product
 校验：`PUBLISHED` 必须携带非空 delivery identity、非空 side-effect evidence、
