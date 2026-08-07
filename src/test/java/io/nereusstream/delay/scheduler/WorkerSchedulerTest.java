@@ -58,6 +58,61 @@ class WorkerSchedulerTest {
     }
 
     @Test
+    void recoveryFirstPassServesEveryEligibleShardBeforeRepeatingOne() {
+        final ShardId first = shard(7);
+        final ShardId second = shard(8);
+        final DestinationLaneId firstLane = lane(7);
+        final DestinationLaneId secondLane = lane(8);
+        final WorkerScheduler worker = new WorkerScheduler(10, 64);
+        worker.registerShard(first, 1, LaneScheduler.defaults());
+        worker.registerShard(second, 1, LaneScheduler.defaults());
+        worker.registerLane(first, laneRecord(firstLane));
+        worker.registerLane(second, laneRecord(secondLane));
+        worker.offer(item(first, firstLane, 1));
+        worker.offer(item(first, firstLane, 2));
+        worker.offer(item(second, secondLane, 1));
+        worker.offer(item(second, secondLane, 2));
+
+        final List<ScheduleWorkItem> result = worker.poll(new SchedulerBudget(3, 100, 1_000_000_000));
+
+        assertEquals(3, result.size());
+        assertTrue(!result.get(0).messageId().routingId().shardId()
+                .equals(result.get(1).messageId().routingId().shardId()));
+    }
+
+    @Test
+    void restoreStartsANewOuterFirstPass() {
+        final ShardId first = shard(9);
+        final ShardId second = shard(10);
+        final DestinationLaneId firstLane = lane(9);
+        final DestinationLaneId secondLane = lane(10);
+        final WorkerScheduler original = new WorkerScheduler(10, 64);
+        original.registerShard(first, 1, LaneScheduler.defaults());
+        original.registerShard(second, 1, LaneScheduler.defaults());
+        original.registerLane(first, laneRecord(firstLane));
+        original.registerLane(second, laneRecord(secondLane));
+        original.offer(item(first, firstLane, 1));
+        original.offer(item(second, secondLane, 1));
+        original.poll(new SchedulerBudget(1, 100, 1_000_000_000));
+        final WorkerScheduler.WorkerSnapshot saved = original.snapshot();
+
+        final WorkerScheduler restored = new WorkerScheduler(10, 64);
+        restored.registerShard(first, 1, LaneScheduler.defaults());
+        restored.registerShard(second, 1, LaneScheduler.defaults());
+        restored.registerLane(first, laneRecord(firstLane));
+        restored.registerLane(second, laneRecord(secondLane));
+        restored.offer(item(first, firstLane, 2));
+        restored.offer(item(second, secondLane, 2));
+        restored.restore(saved);
+
+        final List<ScheduleWorkItem> result = restored.poll(new SchedulerBudget(2, 100, 1_000_000_000));
+
+        assertEquals(2, result.size());
+        assertTrue(!result.get(0).messageId().routingId().shardId()
+                .equals(result.get(1).messageId().routingId().shardId()));
+    }
+
+    @Test
     void rejectsQuantumAndWeightArithmeticOverflow() {
         assertThrows(IllegalArgumentException.class,
                 () -> new WorkerScheduler(Long.MAX_VALUE, 1));

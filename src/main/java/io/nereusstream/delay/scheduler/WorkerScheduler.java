@@ -6,9 +6,11 @@ import io.nereusstream.delay.runtime.LaneRecord;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Bounded outer DRR over shard-local Lane schedulers. A blocked shard only
@@ -23,8 +25,10 @@ public final class WorkerScheduler {
     private final int maxVisitShards;
     private final Map<ShardId, ShardQueue> shards = new HashMap<>();
     private final List<ShardId> ring = new ArrayList<>();
+    private final Set<ShardId> recoveryServed = new HashSet<>();
     private int cursor;
     private long roundGeneration;
+    private boolean recoveryFirstPass = true;
 
     public WorkerScheduler(final long quantumBytes, final int maxVisitShards) {
         if (quantumBytes <= 0 || maxVisitShards <= 0) {
@@ -51,6 +55,8 @@ public final class WorkerScheduler {
         if (existing == null) {
             shards.put(shardId, new ShardQueue(shardId, weight, laneScheduler));
             ring.add(shardId);
+            recoveryFirstPass = true;
+            recoveryServed.clear();
         } else if (existing.weight != weight || existing.scheduler != laneScheduler) {
             throw new IllegalArgumentException("shard is already registered with different scheduler settings");
         }
@@ -84,6 +90,11 @@ public final class WorkerScheduler {
             if (shard == null || !shard.schedulable()) {
                 continue;
             }
+            final boolean firstPassVisit = recoveryFirstPass;
+            final Set<ShardId> eligible = firstPassVisit ? eligibleShards() : Set.of();
+            if (firstPassVisit && recoveryServed.contains(shard.shardId)) {
+                continue;
+            }
             shard.deficit = Math.min(saturatingAdd(shard.deficit, checkedWeightIncrement(shard.weight)),
                     Math.max(maxDeficitBytes, 1));
             final long remainingBytes = budget.maxBytes() - bytes;
@@ -91,8 +102,9 @@ public final class WorkerScheduler {
             if (shardBudgetBytes <= 0) {
                 continue;
             }
+            final int visitMaxMessages = firstPassVisit ? 1 : budget.maxMessages() - result.size();
             final List<ScheduleWorkItem> visit = shard.scheduler.poll(new SchedulerBudget(
-                    budget.maxMessages() - result.size(), shardBudgetBytes,
+                    visitMaxMessages, shardBudgetBytes,
                     Math.max(1, budget.maxElapsedNanos() - (System.nanoTime() - started))));
             if (visit.isEmpty()) {
                 continue;
@@ -106,6 +118,13 @@ public final class WorkerScheduler {
             roundGeneration = nextRoundGeneration(roundGeneration);
             shard.lastServedRound = roundGeneration;
             bytes = Math.addExact(bytes, visitBytes);
+            if (firstPassVisit) {
+                recoveryServed.add(shard.shardId);
+                if (recoveryServed.containsAll(eligibleShards())) {
+                    recoveryFirstPass = false;
+                    recoveryServed.clear();
+                }
+            }
         }
         return result;
     }
@@ -127,6 +146,8 @@ public final class WorkerScheduler {
 
     public synchronized void markShardReady(final ShardId shardId) {
         requireShard(shardId).blocked = false;
+        recoveryFirstPass = true;
+        recoveryServed.clear();
     }
 
     public synchronized WorkerSnapshot snapshot() {
@@ -153,6 +174,18 @@ public final class WorkerScheduler {
         }
         cursor = ring.isEmpty() ? 0 : Math.floorMod(snapshot.cursor(), ring.size());
         roundGeneration = snapshot.roundGeneration();
+        recoveryFirstPass = true;
+        recoveryServed.clear();
+    }
+
+    private Set<ShardId> eligibleShards() {
+        final Set<ShardId> eligible = new HashSet<>();
+        for (ShardQueue shard : shards.values()) {
+            if (shard.schedulable()) {
+                eligible.add(shard.shardId);
+            }
+        }
+        return eligible;
     }
 
     private ShardQueue requireShard(final ShardId shardId) {

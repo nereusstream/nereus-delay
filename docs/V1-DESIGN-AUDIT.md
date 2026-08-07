@@ -265,11 +265,16 @@ eligible Lane 至多取一条记录，直到所有已发现 Lane 都获得机会
 typed `ActiveLaneStateV1` 运行时切换或真实 Lane certificate/adapter activation。
 Worker 外层 DRR 也只把至少含有一个 schedulable pending head 的 shard 纳入 visit，
 空 shard 不会消耗外层 deficit；其 cursor/round 仍是跨独立 shard DB 的 bounded
-process state，不伪造跨 DB 的持久原子 ring。两级 scheduler 现在还对
+process state，不伪造跨 DB 的持久原子 ring。Worker 外层 scheduler 在新建、
+restore 或 READY 集合重新激活后进入 recovery first pass：当前 eligible shard
+在重复服务前各获得一次 outer visit，首轮每 shard 最多取一条 work item；新增/恢复
+的 shard 不会被旧 hot shard 直接越过。两级 scheduler 现在还对
 `weight * quantum` 与 deficit cap 做 checked arithmetic，并对运行时 deficit 累加做
 saturating arithmetic；配置、注册或恢复导致的整数溢出不会 wrap 成可调度的错误预算。
 `LaneSchedulerTest.rejectsQuantumAndWeightArithmeticOverflow` 与
 `WorkerSchedulerTest.rejectsQuantumAndWeightArithmeticOverflow` 是本地回归证据，
+`WorkerSchedulerTest.recoveryFirstPassServesEveryEligibleShardBeforeRepeatingOne` 与
+`WorkerSchedulerTest.restoreStartsANewOuterFirstPass` 覆盖 outer recovery fairness；
 不等于 production placement/authority 已完成。Lane runtime/control version 的
 checked increment 也在 `Long.MAX_VALUE` fail closed，避免 READY key 或管理 CAS
 版本回绕；`LaneRecordTest.versionCountersFailClosedBeforeLongOverflow` 覆盖该本地边界。
