@@ -25,6 +25,12 @@ public final class OwnedDelayShard {
     private SourceAssignment sourceAssignment;
     private SourceReplaySuccessor replaySuccessor = SourceReplaySuccessor.monotonic();
     private SourcePosition lastCatchupPosition;
+    /**
+     * Guards the complete local owner-drain attempt for this shard.  The
+     * Worker-level drain semaphore limits aggregate concurrency, but it cannot
+     * distinguish two coordinators accidentally targeting the same shard.
+     */
+    private boolean drainAttemptInProgress;
 
     public OwnedDelayShard(final DelayShard delegate, final OwnerLease lease) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
@@ -581,6 +587,27 @@ public final class OwnedDelayShard {
         }
         lease = transitioned;
         state = ShardLifecycleState.DRAINING;
+    }
+
+    /**
+     * Acquires the shard-local drain-attempt gate without changing lifecycle
+     * state.  A failed attempt releases the gate so a caller can retry while
+     * the authoritative lease remains in {@code DRAINING}.
+     */
+    synchronized boolean tryAcquireDrainAttempt() {
+        if (drainAttemptInProgress) {
+            return false;
+        }
+        drainAttemptInProgress = true;
+        return true;
+    }
+
+    /** Releases the shard-local drain-attempt gate after the coordinator exits. */
+    synchronized void releaseDrainAttempt() {
+        if (!drainAttemptInProgress) {
+            throw new IllegalStateException("owner drain attempt is not active");
+        }
+        drainAttemptInProgress = false;
     }
 
     public synchronized OwnerLease lease() {

@@ -671,6 +671,10 @@ quiescence 或 final checkpoint publication。
 `OwnerDrainCoordinator` 将 source/scheduler stop、authority-gated `DRAINING`、
 Claim revoke、bounded callback poll、lease/deadline reread、flush/sync、可选
 final checkpoint、Store close 和 exact release 串成一个可重试的本地顺序；
+它还在 `OwnedDelayShard` 上持有 shard-local drain-attempt gate，避免仅靠
+Worker-wide drain semaphore 时两个 coordinator 并发关闭或释放同一 shard
+DB/lease；失败后 gate 可释放并保留 `DRAINING` 供重试。回归证据为
+`OwnerDrainCoordinatorTest.duplicateCoordinatorCannotDrainTheSameShardConcurrently`。
 如果 caller 提供 final checkpoint 的 exact 16-byte identity，coordinator 会把
 它传入 `ShardStore.createCheckpoint`，让完整镜像携带对应 `lastCheckpointId`；
 `flushAndSync` 后的可选 `commitSourceHint` 只收到最后已持久化的

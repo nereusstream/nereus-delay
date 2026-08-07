@@ -51,8 +51,13 @@ public final class OwnerDrainCoordinator {
         Objects.requireNonNull(clock, "clock");
         Objects.requireNonNull(callbacks, "callbacks");
         resources.acquireDrainSlot();
+        boolean shardDrainAcquired = false;
         boolean storeClosed = false;
         try {
+            if (!ownedShard.tryAcquireDrainAttempt()) {
+                throw new IllegalStateException("owner drain is already in progress for this shard");
+            }
+            shardDrainAcquired = true;
             final long startNow = readNow(clock);
             final OwnerLease expectedLease = ownedShard.lease();
             if (ownedShard.state() == ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
@@ -124,6 +129,9 @@ public final class OwnerDrainCoordinator {
         } finally {
             if (storeClosed) {
                 ownedShard.fence();
+            }
+            if (shardDrainAcquired) {
+                ownedShard.releaseDrainAttempt();
             }
             resources.releaseDrainSlot();
         }

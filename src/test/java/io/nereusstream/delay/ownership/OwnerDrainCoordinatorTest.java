@@ -173,6 +173,42 @@ class OwnerDrainCoordinatorTest {
         }
     }
 
+    @Test
+    void duplicateCoordinatorCannotDrainTheSameShardConcurrently() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 51);
+        final ShardStoreConfig config = new ShardStoreConfig(tempDir.resolve("drain-duplicate"),
+                1, 1, 256, 256, 2, 4L * 1024 * 1024, 4L * 1024 * 1024,
+                1, 1, 1, 4L * 1024 * 1024, 2, 4L * 1024 * 1024, 1, 1, 2);
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease acquired = backend.acquire(shardId, "worker-duplicate", 100, 500).orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = activeOwnedShard(store, acquired, authority, shardId);
+            final OwnerDrainCoordinator coordinator = new OwnerDrainCoordinator(owned, store, resources, authority);
+            final AtomicReference<RuntimeException> duplicateFailure = new AtomicReference<>();
+
+            coordinator.drain(new OwnerDrainCoordinator.DrainRequest(5_000, 0, null), () -> 101,
+                    new OwnerDrainCoordinator.DrainCallbacks() {
+                        @Override
+                        public void stopSourceAndScheduling() {
+                            try {
+                                new OwnerDrainCoordinator(owned, store, resources, authority).drain(
+                                        new OwnerDrainCoordinator.DrainRequest(5_000, 0, null), () -> 101,
+                                        () -> { });
+                            } catch (RuntimeException failure) {
+                                duplicateFailure.set(failure);
+                            }
+                        }
+                    });
+
+            assertTrue(duplicateFailure.get() instanceof IllegalStateException);
+            assertEquals("owner drain is already in progress for this shard", duplicateFailure.get().getMessage());
+            assertEquals(ShardLifecycleState.FENCED, owned.state());
+            assertTrue(backend.current(shardId).isEmpty());
+        }
+    }
+
     private static OwnedDelayShard activeOwnedShard(final ShardStore store, final OwnerLease lease,
                                                     final OxiaOwnerLeaseStore authority, final ShardId shardId) {
         final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);

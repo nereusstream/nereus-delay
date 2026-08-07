@@ -686,6 +686,13 @@ source/scheduler stop, authority-gated `DRAINING` CAS, owner Claim rollback,
 bounded callback polling, lease/deadline rereads, flush/WAL sync, optional
 physical final checkpoint, Store close and exact lease release (an empty
 current-lease reread is accepted only as release response-loss evidence).
+The coordinator also acquires a shard-local drain-attempt gate in
+`OwnedDelayShard`; the Worker-wide drain semaphore alone cannot prevent two
+coordinators from concurrently closing or releasing the same shard DB/lease.
+The gate is released on both success and fail-closed retry paths, while a
+second coordinator receives `owner drain is already in progress for this shard`.
+`OwnerDrainCoordinatorTest.duplicateCoordinatorCannotDrainTheSameShardConcurrently`
+covers this same-shard boundary.
 When the caller supplies the final checkpoint's exact 16-byte identity,
 `OwnerDrainCoordinator` passes it into `ShardStore.createCheckpoint`; the
 identity is therefore present in the copied DB metadata, while the legacy
