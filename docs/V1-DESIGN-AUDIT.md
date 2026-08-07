@@ -1054,6 +1054,20 @@ domain-separated semantic hash. They remain pure values; publication,
 credential-binding protection and catalog/authority transactions are not
 claimed complete.
 
+Source Position ordering is only locally implemented for the non-negative Java
+`long` range. The normative Registry still defines Kafka offset and Pulsar
+ledger/entry as full `uint64` values, while `SourcePositionCodec`, the direct
+position constructors, activation barriers, evidence cursors, queued receipts,
+adapter results, canonical protobuf helpers and checkpoint-manifest decimal
+decoders currently reject values above `Long.MAX_VALUE`; the comparators and
+Kafka successor also use signed arithmetic. This is a cross-layer protocol
+gap, not a safe one-file patch: accepting a high-bit source position in only one
+branch would make ordering, query/receipt bytes, barrier checks and manifest
+round-trips disagree. Full unsigned-64 support with boundary vectors for
+Source Position, barriers, evidence, receipts, adapters and manifests remains a
+release blocker; the source-order row below therefore claims only the bounded
+local core.
+
 ## Source locks
 
 | 依赖 | 审计锁 |
