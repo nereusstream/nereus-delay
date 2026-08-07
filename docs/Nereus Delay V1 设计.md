@@ -439,6 +439,10 @@ SDK 必须配置 pending command count/bytes、Producer buffer、batch/linger、
 
 Kafka/Pulsar Command Producer 与 system TIME_FENCE/control writer 都绑定 Route Broker Resource Incarnation：Kafka 使用 pinned Produce v13 topic UUID，Pulsar Producer metadata 携 Route token并经过每次 SEND guard。否则同名重建会把 `QUEUED` 赋给错误的 Route resource，V1 禁止注册或启用这种 writer。
 
+Destination Profile 绑定的 Kafka/Pulsar target resource 也必须在 Adapter 构造边界
+验证 canonical UTF-8/NFC 的 cluster/topic identity；不能先以非 canonical 文本创建
+Producer request，再依赖返回 receipt 或 query 阶段发现身份错误。
+
 ## 7. Command wire protocol
 
 ### 7.1 Shard Log envelope

@@ -119,6 +119,15 @@ class DestinationAdapterTest {
                         StableCode.INVALID_METADATA, Bytes.utf8("delivery"), -1, null, null, -1));
     }
 
+    @Test
+    void targetResourcesRejectNonCanonicalBrokerIdentityText() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new KafkaTargetResource("cluster\u0301", UUID.randomUUID(), 0));
+        assertThrows(IllegalArgumentException.class,
+                () -> new PulsarTargetResource("cluster", Bytes.sha256(Bytes.utf8("target-token")),
+                        "persistent://tenant/ns/topic\u0301", 2_001, 0));
+    }
+
     private static DestinationPublishRequest request(final long actionAt, final long deliverAt) {
         return new DestinationPublishRequest(DestinationLaneId.derive(Bytes.utf8("target-lane")), new byte[16],
                 DelayMessageId.random(new ShardId(RouteIncarnation.random(), 0)), 0, new byte[32], actionAt,

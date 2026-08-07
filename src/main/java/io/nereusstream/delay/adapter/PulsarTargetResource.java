@@ -3,6 +3,8 @@ package io.nereusstream.delay.adapter;
 import io.nereusstream.delay.protocol.Bytes;
 
 import java.util.Objects;
+import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
 
 /** Exact Pulsar target resource identity bound to a Destination Profile. */
 public record PulsarTargetResource(
@@ -12,12 +14,11 @@ public record PulsarTargetResource(
         long physicalTopicCreationTimestamp,
         int partition) {
     public PulsarTargetResource {
-        Objects.requireNonNull(authenticatedClusterId, "authenticatedClusterId");
+        authenticatedClusterId = canonicalText(authenticatedClusterId, "authenticatedClusterId");
         Objects.requireNonNull(resourceIncarnation, "resourceIncarnation");
-        Objects.requireNonNull(physicalTopic, "physicalTopic");
+        physicalTopic = canonicalText(physicalTopic, "physicalTopic");
         Bytes.requireLength(resourceIncarnation, 32, "resourceIncarnation");
-        if (authenticatedClusterId.isBlank() || physicalTopic.isBlank() || physicalTopicCreationTimestamp < 0
-                || partition < 0) {
+        if (physicalTopicCreationTimestamp < 0 || partition < 0) {
             throw new IllegalArgumentException("invalid Pulsar target resource");
         }
         resourceIncarnation = Bytes.copy(resourceIncarnation);
@@ -26,5 +27,15 @@ public record PulsarTargetResource(
     @Override
     public byte[] resourceIncarnation() {
         return Bytes.copy(resourceIncarnation);
+    }
+
+    private static String canonicalText(final String value, final String name) {
+        Objects.requireNonNull(value, name);
+        final String decoded = new String(value.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8);
+        if (!decoded.equals(value) || value.isBlank() || value.indexOf('\0') >= 0
+                || !value.equals(Normalizer.normalize(value, Normalizer.Form.NFC))) {
+            throw new IllegalArgumentException(name + " must be nonblank NFC UTF-8");
+        }
+        return value;
     }
 }

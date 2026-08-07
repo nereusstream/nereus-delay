@@ -443,6 +443,11 @@ Target publish 的本地 transport 结果现在也在 adapter 边界执行 close
 transport result 的本地输入边界；physical evidence journal、Lane/Worker/target
 cluster admission 和真实 Broker outcome proof 仍是 release blocker。
 
+Kafka/Pulsar target resource 现在也在 request 之前拒绝非 canonical cluster/topic
+identity，避免把无法成为合法 `BrokerResourceIdentityV1` 的文本交给 Producer；
+`DestinationAdapterTest.targetResourcesRejectNonCanonicalBrokerIdentityText` 覆盖
+该构造期边界。
+
 本地 `DestinationPhysicalAdmission`/`BoundedDestinationPublishAdapter` 现在把
 target 请求的 physical request/byte charge 作为显式 reservation：Worker 和 target
 cluster hard cap、每 Lane cap 以及所有其它 READY Lane 的 committed minimum 都在
