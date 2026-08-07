@@ -570,6 +570,29 @@ class DelayShardTest {
     }
 
     @Test
+    void timelineDiscoveryRejectsOrphanDueAndExpiryEntries() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("timeline-discovery-orphan"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 81);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("timeline-discovery-orphan-lane"));
+        final DelayMessageId messageId = DelayMessageId.random(shardId);
+        final KafkaSourcePosition sourcePosition = position(shardId, 0, 1_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.TIMELINE, 1,
+                        KeyCodec.timelineDue(lane, 2_000, sourcePosition.sourceOrderToken(), messageId, 0),
+                        new TimelineEntry(messageId, 0).encode());
+                batch.putValue(ColumnFamily.TIMELINE, 1,
+                        KeyCodec.timelineExpiry(5_000, lane, messageId, 0),
+                        new TimelineEntry(messageId, 0).encode());
+            });
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertThrows(IllegalStateException.class, () -> shard.discoverDue(2_000, 1));
+            assertThrows(IllegalStateException.class, () -> shard.discoverExpiry(5_000, 1));
+        }
+    }
+
+    @Test
     void messageGenerationAndStateVersionOverflowFailClosedBeforeMutation() {
         final ShardId stateVersionShardId = new ShardId(RouteIncarnation.random(), 41);
         final DestinationLaneId stateVersionLane = DestinationLaneId.derive(Bytes.utf8("state-version-overflow"));

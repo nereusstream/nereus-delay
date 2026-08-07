@@ -602,6 +602,12 @@ Close-materialization discovery 也会在返回 scheduler work 前重验 cursor 
 embedded close Source Position Shard，与 direct cursor query 保持同一边界；
 `DelayShardTest.laneCloseMaterializationDiscoveryRejectsForeignSourcePosition`
 覆盖该 scheduler-only 路径。
+`discoverDue` 与 `discoverExpiry` 现在还会把每条 timeline projection 与当前
+`id_cf/MESSAGE` 逐字段互证：status、generation、Lane、expiry 以及 exact
+derived key 必须一致。orphan、terminal、旧 generation 或错挂的 DUE/EXPIRY
+不会变成 publish/expiry work，而是直接 fail closed；Close 物化前仍合法的
+`SCHEDULED`/`CLAIMED` generation 继续可发现。证据为
+`DelayShardTest.timelineDiscoveryRejectsOrphanDueAndExpiryEntries`。
 Retired Lane guard 的直接读取也校验其 terminal Source Position 属于当前
 Shard；错挂的退休证明不会通过 `getLaneTerminalGuard` 暴露。
 `ShardStore.flushAndSync` 还提供 drain 的物理 flush/WAL-sync 原语，重开回归为

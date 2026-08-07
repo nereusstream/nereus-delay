@@ -4764,11 +4764,20 @@ public final class DelayShard {
             }
             final TimelineEntry value = TimelineEntry.decode(
                     io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), 1).payload());
-            if (!value.messageId().equals(new DelayMessageId(messageBytes)) || value.generation() != generation) {
+            final DelayMessageId messageId = new DelayMessageId(messageBytes);
+            if (!value.messageId().equals(messageId) || value.generation() != generation) {
                 throw new IllegalStateException("EXPIRY key/value identity mismatch");
             }
-            result.add(new ExpiryWork(new DelayMessageId(messageBytes), new io.nereusstream.delay.protocol.DestinationLaneId(
-                    laneBytes), generation, expireAt));
+            final io.nereusstream.delay.protocol.DestinationLaneId laneId =
+                    new io.nereusstream.delay.protocol.DestinationLaneId(laneBytes);
+            final MessageRecord message = getMessage(messageId);
+            if (message == null || (message.status() != MessageStatus.SCHEDULED
+                    && message.status() != MessageStatus.CLAIMED) || message.generation() != generation
+                    || message.expireAtEpochMs() != expireAt || !message.laneId().equals(laneId)
+                    || !Arrays.equals(entry.key(), expiryKey(messageId, message))) {
+                throw new IllegalStateException("EXPIRY timeline does not match the current message");
+            }
+            result.add(new ExpiryWork(messageId, laneId, generation, expireAt));
         }
         return List.copyOf(result);
     }
@@ -5193,8 +5202,15 @@ public final class DelayShard {
             if (!value.messageId().equals(messageId) || value.generation() != generation) {
                 throw new IllegalStateException("timeline key/value identity mismatch");
             }
-            result.add(new TimelineWork(messageId, new io.nereusstream.delay.protocol.DestinationLaneId(laneBytes),
-                    generation, eligibleAt, tag == 2));
+            final io.nereusstream.delay.protocol.DestinationLaneId laneId =
+                    new io.nereusstream.delay.protocol.DestinationLaneId(laneBytes);
+            final MessageRecord message = getMessage(messageId);
+            if (message == null || message.status() != MessageStatus.SCHEDULED
+                    || message.generation() != generation || !message.laneId().equals(laneId)
+                    || !Arrays.equals(entry.key(), timelineKey(messageId, message))) {
+                throw new IllegalStateException("DUE timeline does not match the current scheduled message");
+            }
+            result.add(new TimelineWork(messageId, laneId, generation, eligibleAt, tag == 2));
             if (result.size() >= limit) {
                 return;
             }

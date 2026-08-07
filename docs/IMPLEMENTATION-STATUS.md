@@ -362,6 +362,15 @@ Source Position shard before returning scheduler work, matching the direct
 cursor query path; `DelayShardTest.laneCloseMaterializationDiscoveryRejectsForeignSourcePosition`
 covers the scheduler-only read.
 
+`discoverDue` and `discoverExpiry` now cross-check each timeline projection
+against the current `id_cf/MESSAGE` record: status, generation, Lane, expiry
+and the exact derived key must all match. Orphan, terminal, stale-generation or
+misplaced DUE/EXPIRY entries therefore fail closed instead of becoming publish
+or expiry work; valid close-owned `SCHEDULED`/`CLAIMED` generations remain
+discoverable until their normal materialization/admission path removes them.
+`DelayShardTest.timelineDiscoveryRejectsOrphanDueAndExpiryEntries` covers both
+discovery namespaces.
+
 The embedded Kafka ingress now checks source-offset exhaustion before creating
 the next queued position and advances the counter only after the position has
 validated successfully. `EmbeddedDelayServiceTest` covers the
