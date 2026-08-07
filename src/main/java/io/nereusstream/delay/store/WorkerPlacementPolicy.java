@@ -69,7 +69,8 @@ public final class WorkerPlacementPolicy {
     private ScoredCandidate score(final WorkerCandidate candidate, final CapacityVectorV1 required,
                                   final String currentWorkerId, final long nowEpochMs,
                                   final long movementBytes) {
-        double score = dominantCapacityUtilization(candidate.hardCapacity(), required)
+        final CapacityVectorV1 projectedCapacity = candidate.committedCapacity().add(required);
+        double score = dominantCapacityUtilization(candidate.hardCapacity(), projectedCapacity)
                 + candidate.load().dominantUtilization(candidate.loadCeilings());
         if (candidate.telemetryStale(nowEpochMs, configuration.telemetryMaxAgeMs())) {
             score += configuration.staleTelemetryPenalty();

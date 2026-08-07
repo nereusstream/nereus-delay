@@ -36,6 +36,18 @@ class WorkerPlacementPolicyTest {
     }
 
     @Test
+    void projectedCommittedCapacityBreaksEqualTelemetryTie() {
+        final WorkerPlacementPolicy policy = new WorkerPlacementPolicy(new WorkerPlacementPolicy.Configuration(
+                1_000, 0, 0, 0, 0));
+        final WorkerPlacementPolicy.Decision decision = policy.select(List.of(
+                candidate("nearly-full", 10, 8, 1_000, false, 0, 10),
+                candidate("empty", 10, 0, 1_000, false, 0, 10)),
+                vector(CapacityDimensionV1.DB_INSTANCES, 1), CapacityVectorV1.empty(), CapacityVectorV1.empty(),
+                null, 1_000, 0);
+        assertEquals("empty", decision.workerId());
+    }
+
+    @Test
     void hysteresisPreventsChurn() {
         final WorkerPlacementPolicy policy = new WorkerPlacementPolicy(new WorkerPlacementPolicy.Configuration(
                 100, 0, 0.20, 0.50, 0));

@@ -279,6 +279,11 @@ saturating arithmetic；配置、注册或恢复导致的整数溢出不会 wrap
 固定 4×quantum cap 静默截成错误的长期服务比例；
 `LaneSchedulerTest.highWeightRetainsItsConfiguredDeficitQuantum` 与
 `WorkerSchedulerTest.highWeightRetainsItsConfiguredOuterDeficitQuantum` 覆盖该边界。
+Placement 的 dominant-resource score 现在使用候选的 projected
+`committedCapacity + required`，而不是只评分新 shard 的增量；因此 equal telemetry
+下已接近 hard capacity 的 worker 不会因字典序 tie-break 抢到新 shard。
+`WorkerPlacementPolicyTest.projectedCommittedCapacityBreaksEqualTelemetryTie`
+覆盖该本地 placement fence。
 `LaneSchedulerTest.rejectsQuantumAndWeightArithmeticOverflow` 与
 `WorkerSchedulerTest.rejectsQuantumAndWeightArithmeticOverflow` 是本地回归证据，
 `WorkerSchedulerTest.recoveryFirstPassServesEveryEligibleShardBeforeRepeatingOne` 与
