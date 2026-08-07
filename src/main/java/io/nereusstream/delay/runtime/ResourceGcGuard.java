@@ -81,7 +81,13 @@ public final class ResourceGcGuard {
                                     final RecoveryCatalogAuthority catalog,
                                     final byte[] candidateCheckpointId) {
         Objects.requireNonNull(catalog, "catalog");
-        final Decision scalar = evaluate(intent, confirmation, catalog.currentFloor().orElse(null));
+        final Optional<RecoveryFloor> currentFloor;
+        try {
+            currentFloor = Objects.requireNonNull(catalog.currentFloor(), "currentFloor");
+        } catch (RuntimeException exception) {
+            return Decision.FLOOR_SOURCE_OR_SEQUENCE_NOT_COVERING;
+        }
+        final Decision scalar = evaluate(intent, confirmation, currentFloor.orElse(null));
         if (scalar != Decision.SOURCE_AND_SEQUENCE_COVERED) {
             return scalar;
         }
@@ -99,10 +105,15 @@ public final class ResourceGcGuard {
         }
         final long requiredSequence = Math.max(intent.appliedMutationSequence(),
                 confirmation.appliedMutationSequence());
-        return catalog.proveFloorCoverage(candidateCheckpointId, requiredSequence, intentPosition,
-                confirmationPosition).isPresent()
-                ? Decision.SOURCE_AND_SEQUENCE_COVERED
-                : Decision.FLOOR_SOURCE_OR_SEQUENCE_NOT_COVERING;
+        try {
+            return Objects.requireNonNull(catalog.proveFloorCoverage(candidateCheckpointId, requiredSequence,
+                            intentPosition, confirmationPosition), "floor coverage")
+                    .isPresent()
+                    ? Decision.SOURCE_AND_SEQUENCE_COVERED
+                    : Decision.FLOOR_SOURCE_OR_SEQUENCE_NOT_COVERING;
+        } catch (RuntimeException exception) {
+            return Decision.FLOOR_SOURCE_OR_SEQUENCE_NOT_COVERING;
+        }
     }
 
     /**

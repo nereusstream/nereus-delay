@@ -57,6 +57,26 @@ class ResourceGcGuardTest {
                         authority(fixture.floor(), floorPin, null), fixture.floor().checkpointId()));
     }
 
+    @Test
+    void checkpointGcFailsClosedWhenRecoveryFloorCannotBeRead() {
+        final Fixture fixture = fixture();
+        assertEquals(ResourceGcGuard.Decision.FLOOR_SOURCE_OR_SEQUENCE_NOT_COVERING,
+                ResourceGcGuard.evaluate(fixture.intent(), fixture.confirmation(),
+                        authority(fixture.floor(), null, null,
+                                new IllegalStateException("floor read unavailable"), null),
+                        fixture.floor().checkpointId()));
+    }
+
+    @Test
+    void checkpointGcFailsClosedWhenFloorCoverageCannotBeProved() {
+        final Fixture fixture = fixture();
+        assertEquals(ResourceGcGuard.Decision.FLOOR_SOURCE_OR_SEQUENCE_NOT_COVERING,
+                ResourceGcGuard.evaluate(fixture.intent(), fixture.confirmation(),
+                        authority(fixture.floor(), null, null, null,
+                                new IllegalStateException("coverage proof unavailable")),
+                        fixture.floor().checkpointId()));
+    }
+
     private static Fixture fixture() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
         final SourcePosition intentPosition = position(shard, 1, 1_001);
@@ -96,6 +116,13 @@ class ResourceGcGuardTest {
 
     private static RecoveryCatalogAuthority authority(final RecoveryFloor floor, final RecoveryPinV1 pin,
                                                       final RuntimeException pinFailure) {
+        return authority(floor, pin, pinFailure, null, null);
+    }
+
+    private static RecoveryCatalogAuthority authority(final RecoveryFloor floor, final RecoveryPinV1 pin,
+                                                      final RuntimeException pinFailure,
+                                                      final RuntimeException floorFailure,
+                                                      final RuntimeException proofFailure) {
         return new RecoveryCatalogAuthority() {
             @Override
             public RecoveryCatalog.Publication publish(final CheckpointManifest manifest,
@@ -116,6 +143,9 @@ class ResourceGcGuardTest {
 
             @Override
             public Optional<RecoveryFloor> currentFloor() {
+                if (floorFailure != null) {
+                    throw floorFailure;
+                }
                 return Optional.of(floor);
             }
 
@@ -128,6 +158,9 @@ class ResourceGcGuardTest {
             public Optional<RecoveryCatalog.FloorCoverage> proveFloorCoverage(
                     final byte[] candidateCheckpointId, final long requiredMutationSequence,
                     final SourcePosition... requiredPositions) {
+                if (proofFailure != null) {
+                    throw proofFailure;
+                }
                 throw new AssertionError("Floor proof must not be reached while a pin blocks deletion");
             }
 

@@ -752,6 +752,8 @@ candidate 或 observed Floor，返回 `RECOVERY_PIN_PROTECTS_RESOURCE`；pin
 读取失败返回 `RECOVERY_PIN_STATE_UNAVAILABLE`，两者都禁止本地 tombstone
 compact。这只闭合了本地 pin-aware necessary condition，仍不等于 Oxia
 session CAS、provider delete attestation 或完整的 external GC orchestration。
+当前 Floor 读取或 ancestry coverage proof 任一 authority 异常也会返回
+`FLOOR_SOURCE_OR_SEQUENCE_NOT_COVERING`，不会把异常当作无保护而删除 tombstone。
 
 `DelayShard` 的本地 `gc_cf/TASK` lookup 还会把 requested resource kind、identity
 hash 和 expected version 与嵌入的 retire intent 逐项比对；delete confirmation 的
