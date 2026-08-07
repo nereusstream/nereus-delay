@@ -53,8 +53,12 @@ final class CheckpointManifestJson {
     private CheckpointManifestJson() {
     }
 
-    static CheckpointManifest decode(final byte[] encoded) {
+    static CheckpointManifest decode(final byte[] encoded, final CheckpointManifestLimits limits) {
         Objects.requireNonNull(encoded, "encoded");
+        Objects.requireNonNull(limits, "limits");
+        if (encoded.length > limits.maxManifestBytes()) {
+            throw new IllegalArgumentException("manifest bytes exceed configured bound");
+        }
         final String json = new String(encoded, StandardCharsets.UTF_8);
         if (!java.util.Arrays.equals(json.getBytes(StandardCharsets.UTF_8), encoded)) {
             throw new IllegalArgumentException("manifest is not valid UTF-8");
@@ -82,6 +86,7 @@ final class CheckpointManifestJson {
                 hex(root.get("referencedSemanticVersionsDigest"), "referencedSemanticVersionsDigest"),
                 decodeEvidenceCursors(root.get("evidenceCursors")),
                 decodeFiles(root.get("files")));
+        manifest.validateLimits(limits);
 
         if (number(root.get("manifestVersion"), "manifestVersion") != 1) {
             throw new IllegalArgumentException("unsupported manifest version");

@@ -827,7 +827,12 @@ attestation、Object Store immutability 或 Oxia intent/catalog transaction；
 PUBLISHED successor，且不再次调用 adapter。
 `CheckpointFileInventory` 与 restore 的 `copyTree` 现在都会拒绝符号链接及目录
 之外的非 regular 文件，避免把 checkpoint 中未知的物理文件静默丢弃后仍继续
-恢复；这仍只是本地文件完整性边界，不替代 Object Store 内容证明。
+恢复；显式 `CheckpointManifestLimits` 还把文件数、单文件/总 bytes、路径和
+manifest bytes、evidence cursor 数以及每个 object identity 字段长度绑定到
+inventory、canonical decode、upload 和 restore 边界，原始 manifest byte cap 在
+JSON parse 前检查，其余超限在本地 hash/provider I/O 前 fail closed。无 limits
+overload 保留为 embedded compatibility seam，不能作为 production activated
+limits；这仍只是本地文件完整性边界，不替代 Object Store 内容证明。
 
 `SharedRocksDbResources` 现在也把 checkpoint create/upload slot 纳入进程级
 关闭保护；后台 checkpoint 或上传操作持有 slot 时，资源 close 会 fail closed。

@@ -79,6 +79,40 @@ class CheckpointManifestTest {
         assertThrows(IllegalArgumentException.class, () -> CheckpointFileInventory.collect(root));
     }
 
+    @Test
+    void inventoryAndManifestDecodeHonorExplicitPhysicalLimits() throws Exception {
+        final Path root = tempDir.resolve("bounded-checkpoint");
+        Files.createDirectories(root.resolve("nested"));
+        Files.writeString(root.resolve("CURRENT"), "MANIFEST-1\n");
+        Files.writeString(root.resolve("nested").resolve("000001.sst"), "sst-bytes");
+        final CheckpointManifestLimits oneFile = new CheckpointManifestLimits(
+                1, 1L << 20, 1L << 20, 1024, 1 << 20, 10, 1024);
+        assertThrows(IllegalArgumentException.class, () -> CheckpointFileInventory.collect(root, oneFile));
+
+        final CheckpointManifestLimits tinyManifest = new CheckpointManifestLimits(
+                10, 1L << 20, 1L << 20, 1024, 1, 10, 1024);
+        final byte[] manifestBytes = manifestFixture(root).canonicalJsonBytes();
+        assertThrows(IllegalArgumentException.class,
+                () -> CheckpointManifest.decodeCanonicalJson(manifestBytes, tinyManifest));
+    }
+
+    private CheckpointManifest manifestFixture(final Path root) throws Exception {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 2);
+        final List<CheckpointFileInventory> inventory = CheckpointFileInventory.collect(root);
+        final List<CheckpointManifest.FileEntry> files = inventory.stream()
+                .map(file -> new CheckpointManifest.FileEntry(file.name(), file.length(), file.checksum(),
+                        Bytes.utf8("object/" + file.name()), Bytes.utf8("version-1"), null))
+                .toList();
+        final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster-a", UUID.randomUUID(), 9,
+                3, 1000);
+        return new CheckpointManifest(bytes(1), bytes(2), 4, null, null,
+                new CheckpointManifest.CreatedBy(bytes(3), bytes(4), 42),
+                new CheckpointManifest.CreatedAt(1000, 1001, "CERTIFIED_HOST_CLOCK", bytes(5), 1, 2, 3,
+                        Bytes.sha256(Bytes.utf8("evidence")), 0, null),
+                shardId, Bytes.sha256(Bytes.utf8("db")), UUID.randomUUID(), 1, 7, position,
+                new byte[32], new byte[32], List.of(), files);
+    }
+
     private static byte[] bytes(final int last) {
         final byte[] value = new byte[16];
         value[15] = (byte) last;

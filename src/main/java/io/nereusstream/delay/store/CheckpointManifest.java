@@ -196,13 +196,24 @@ public record CheckpointManifest(
         return Bytes.sha256(canonicalJsonBytes());
     }
 
+    /** Validates this immutable projection against an activated manifest limit set. */
+    public void validateLimits(final CheckpointManifestLimits limits) {
+        Objects.requireNonNull(limits, "limits").validateManifest(this);
+    }
+
     /**
      * Decodes only the exact V1 canonical JSON projection emitted by this
      * class.  A downloaded manifest is recovery authority only after this
      * byte-for-byte canonicality check succeeds.
      */
     public static CheckpointManifest decodeCanonicalJson(final byte[] encoded) {
-        return CheckpointManifestJson.decode(encoded);
+        return decodeCanonicalJson(encoded, CheckpointManifestLimits.unbounded());
+    }
+
+    /** Decodes canonical JSON only when it fits the activated manifest limits. */
+    public static CheckpointManifest decodeCanonicalJson(final byte[] encoded,
+                                                         final CheckpointManifestLimits limits) {
+        return CheckpointManifestJson.decode(encoded, Objects.requireNonNull(limits, "limits"));
     }
 
     private String shardIdJson() {

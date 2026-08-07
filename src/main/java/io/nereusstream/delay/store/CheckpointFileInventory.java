@@ -12,6 +12,7 @@ import java.security.NoSuchAlgorithmException;
 import java.text.Normalizer;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 
 /** Immutable checksum inventory of the complete physical RocksDB checkpoint. */
 public record CheckpointFileInventory(String name, long length, byte[] checksum) {
@@ -30,37 +31,48 @@ public record CheckpointFileInventory(String name, long length, byte[] checksum)
     }
 
     public static List<CheckpointFileInventory> collect(final Path checkpointRoot) {
+        return collect(checkpointRoot, CheckpointManifestLimits.unbounded());
+    }
+
+    /** Collects an inventory while enforcing the activated physical limits. */
+    public static List<CheckpointFileInventory> collect(final Path checkpointRoot,
+                                                        final CheckpointManifestLimits limits) {
         if (Files.isSymbolicLink(checkpointRoot)
                 || !Files.isDirectory(checkpointRoot, LinkOption.NOFOLLOW_LINKS)) {
             throw new IllegalArgumentException("checkpoint root is not a real directory: " + checkpointRoot);
         }
+        Objects.requireNonNull(limits, "limits");
         try (var paths = Files.walk(checkpointRoot)) {
-            return paths.filter(path -> {
+            final List<CheckpointFileInventory> result = new java.util.ArrayList<>();
+            long totalBytes = 0;
+            final var iterator = paths.iterator();
+            while (iterator.hasNext()) {
+                final Path path = iterator.next();
                 if (Files.isSymbolicLink(path)) {
                     throw new IllegalArgumentException("checkpoint contains a symbolic link: " + path);
                 }
                 if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
-                    return false;
+                    continue;
                 }
                 if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
                     throw new IllegalArgumentException("checkpoint contains a non-regular file: " + path);
                 }
-                return true;
-            })
-                    .map(path -> create(checkpointRoot, path))
-                    .sorted(Comparator.comparing(CheckpointFileInventory::name))
-                    .toList();
+                if (result.size() >= limits.maxFiles()) {
+                    throw new IllegalArgumentException("checkpoint file count exceeds configured bound");
+                }
+                final String name = checkpointRoot.relativize(path).toString()
+                        .replace(path.getFileSystem().getSeparator(), "/");
+                final long length = Files.size(path);
+                limits.validateFile(name, length);
+                totalBytes = Math.addExact(totalBytes, length);
+                if (totalBytes > limits.maxTotalFileBytes()) {
+                    throw new IllegalArgumentException("checkpoint total file bytes exceed configured bound");
+                }
+                result.add(new CheckpointFileInventory(name, length, sha256(path)));
+            }
+            return result.stream().sorted(Comparator.comparing(CheckpointFileInventory::name)).toList();
         } catch (IOException exception) {
             throw new IllegalStateException("cannot inventory checkpoint files", exception);
-        }
-    }
-
-    private static CheckpointFileInventory create(final Path root, final Path path) {
-        try {
-            return new CheckpointFileInventory(root.relativize(path).toString().replace(path.getFileSystem().getSeparator(), "/"),
-                    Files.size(path), sha256(path));
-        } catch (IOException exception) {
-            throw new IllegalStateException("cannot read checkpoint file: " + path, exception);
         }
     }
 

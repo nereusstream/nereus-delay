@@ -24,11 +24,20 @@ import java.util.Objects;
 public final class CheckpointUploadCoordinator {
     private final SharedRocksDbResources resources;
     private final CheckpointUploadIntentStore intentStore;
+    private final CheckpointManifestLimits limits;
 
     public CheckpointUploadCoordinator(final SharedRocksDbResources resources,
                                        final CheckpointUploadIntentStore intentStore) {
+        this(resources, intentStore, CheckpointManifestLimits.unbounded());
+    }
+
+    /** Creates an upload coordinator with explicit finite inventory limits. */
+    public CheckpointUploadCoordinator(final SharedRocksDbResources resources,
+                                       final CheckpointUploadIntentStore intentStore,
+                                       final CheckpointManifestLimits limits) {
         this.resources = Objects.requireNonNull(resources, "resources");
         this.intentStore = Objects.requireNonNull(intentStore, "intentStore");
+        this.limits = Objects.requireNonNull(limits, "limits");
     }
 
     public CheckpointUploadIntentV1 upload(final Path checkpointDirectory,
@@ -47,6 +56,7 @@ public final class CheckpointUploadCoordinator {
             throw new IllegalArgumentException("checkpoint upload requires PENDING_UPLOAD intent");
         }
         validateManifestIdentity(pending, manifest);
+        manifest.validateLimits(limits);
         final byte[] manifestBytes = manifest.canonicalJsonBytes();
         final var published = intentStore.currentPublishedFor(pending);
         if (published.isPresent()) {
@@ -61,7 +71,7 @@ public final class CheckpointUploadCoordinator {
         if (current.isEmpty() || !current.orElseThrow().equals(pending)) {
             throw new IllegalStateException("checkpoint upload intent is not the current exact pending value");
         }
-        validateLocalCheckpoint(checkpointDirectory, manifest);
+        validateLocalCheckpoint(checkpointDirectory, manifest, limits);
         final CheckpointUploadRequest request = new CheckpointUploadRequest(pending, manifest,
                 checkpointDirectory, manifestBytes);
 
@@ -104,13 +114,14 @@ public final class CheckpointUploadCoordinator {
     }
 
     private static void validateLocalCheckpoint(final Path checkpointDirectory,
-                                                final CheckpointManifest manifest) {
+                                                final CheckpointManifest manifest,
+                                                final CheckpointManifestLimits limits) {
         if (Files.isSymbolicLink(checkpointDirectory)
                 || !Files.isDirectory(checkpointDirectory, LinkOption.NOFOLLOW_LINKS)
                 || !Files.isRegularFile(checkpointDirectory.resolve("CURRENT"), LinkOption.NOFOLLOW_LINKS)) {
             throw new IllegalArgumentException("checkpoint upload source is not a complete RocksDB directory");
         }
-        final List<CheckpointFileInventory> actual = CheckpointFileInventory.collect(checkpointDirectory);
+        final List<CheckpointFileInventory> actual = CheckpointFileInventory.collect(checkpointDirectory, limits);
         final List<CheckpointManifest.FileEntry> expected = manifest.files();
         if (actual.size() != expected.size()) {
             throw new IllegalArgumentException("checkpoint upload file count differs from manifest");

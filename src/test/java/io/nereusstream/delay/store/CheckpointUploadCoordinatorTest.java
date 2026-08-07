@@ -145,6 +145,28 @@ class CheckpointUploadCoordinatorTest {
         }
     }
 
+    @Test
+    void explicitManifestLimitsRejectBeforeProviderIo() throws Exception {
+        final Fixture fixture = fixture();
+        final CheckpointUploadIntentStore intentStore = new CheckpointUploadIntentStore();
+        intentStore.create(fixture.pending());
+        final AtomicBoolean called = new AtomicBoolean();
+        final CheckpointManifestLimits limits = new CheckpointManifestLimits(
+                1, 1L << 20, 1L << 20, 1024, 1 << 20, 10, 1024);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(
+                ShardStoreConfig.defaults(tempDir.resolve("bounded-manifest")))) {
+            final CheckpointUploadCoordinator coordinator = new CheckpointUploadCoordinator(resources, intentStore,
+                    limits);
+            assertThrows(IllegalArgumentException.class, () -> coordinator.upload(fixture.directory(),
+                    fixture.pending(), fixture.manifest(), 1_000, request -> {
+                        called.set(true);
+                        return fixture.resource();
+                    }));
+        }
+        assertEquals(false, called.get());
+        assertEquals(fixture.pending(), intentStore.current().orElseThrow());
+    }
+
     private Fixture fixture() throws Exception {
         final Path directory = tempDir.resolve("checkpoint-" + UUID.randomUUID());
         Files.createDirectories(directory);
