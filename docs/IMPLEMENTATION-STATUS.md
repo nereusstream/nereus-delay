@@ -382,6 +382,10 @@ is covered by `DelayShardTest.readyDiscoveryRejectsMissingTimelineEntry`.
 `id_cf/V1_SCHEDULE_BINDING` direct reads also reject a message ID routed to a
 different Shard before looking up the sidecar; `DelayShardTest.scheduleBindingLookupRejectsForeignMessageShard`
 covers the sidecar-only case.
+READY rebuild candidate scans now read one entry past the configured pending
+bound and fail closed on overflow instead of silently dropping a Lane's later
+timeline heads; `DelayShardTest.readyRebuildRejectsTimelineCandidateScanOverflow`
+covers the bounded recovery case.
 
 The embedded Kafka ingress now checks source-offset exhaustion before creating
 the next queued position and advances the counter only after the position has

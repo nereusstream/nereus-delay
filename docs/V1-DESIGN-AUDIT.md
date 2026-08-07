@@ -619,6 +619,9 @@ Direct `discoverReady` 也会在返回 scheduler work 前确认对应 timeline e
 `DelayMessageId` 的 self-routing Shard；即使当前 DB 只有错挂的 sidecar，也不会
 把它暴露给 Registry 路径。证据为
 `DelayShardTest.scheduleBindingLookupRejectsForeignMessageShard`。
+READY rebuild 的 candidate scan 现在按 pending bound 多读一个条目并在溢出时
+fail closed，不会静默丢掉同一 Lane 的后续 timeline head；证据为
+`DelayShardTest.readyRebuildRejectsTimelineCandidateScanOverflow`。
 Retired Lane guard 的直接读取也校验其 terminal Source Position 属于当前
 Shard；错挂的退休证明不会通过 `getLaneTerminalGuard` 暴露。
 `ShardStore.flushAndSync` 还提供 drain 的物理 flush/WAL-sync 原语，重开回归为

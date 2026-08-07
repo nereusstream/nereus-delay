@@ -5616,10 +5616,15 @@ public final class DelayShard {
                     timelineEligibilityAt(includedMessage), timelineKey(includedMessageId, includedMessage),
                     includedMessage.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO);
         }
+        final int candidateLimit = boundedLimitPlusOne(config.maxPendingMessages());
         for (byte tag = 1; tag <= 2; tag++) {
             final byte[] prefix = Bytes.concat(new byte[]{tag, 1}, laneId.bytes());
             final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries = store.scan(ColumnFamily.TIMELINE,
-                    prefix, prefixUpperBound(prefix), boundedLimit(config.maxPendingMessages()));
+                    prefix, prefixUpperBound(prefix), candidateLimit);
+            if (entries.size() >= candidateLimit
+                    && config.maxPendingMessages() < Integer.MAX_VALUE) {
+                throw new IllegalStateException("timeline candidate scan exceeded configured bound");
+            }
             for (var entry : entries) {
                 final TimelineCandidate candidate = decodeTimelineCandidate(entry, tag, laneId);
                 if (excludedMessageId != null && candidate.messageId().equals(excludedMessageId)

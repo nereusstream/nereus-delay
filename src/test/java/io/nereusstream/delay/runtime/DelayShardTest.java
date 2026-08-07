@@ -1158,6 +1158,39 @@ class DelayShardTest {
     }
 
     @Test
+    void readyRebuildRejectsTimelineCandidateScanOverflow() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("ready-candidate-overflow"));
+        final DelayShardConfig shardConfig = new DelayShardConfig(
+                365L * 24 * 60 * 60 * 1000, 1, 365L * 24 * 60 * 60 * 1000,
+                1, 1L << 20, 10, 1L << 20, 1L << 32, 24L * 60 * 60 * 1000);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 86);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("ready-candidate-overflow-lane"));
+        final PreparedCommand first = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("first")), 9_000);
+        final KafkaSourcePosition firstPosition = position(shardId, 0, 1_000);
+        final DelayMessageId secondMessageId = DelayMessageId.random(shardId);
+        final KafkaSourcePosition secondPosition = position(shardId, 1, 1_001);
+        final MessageRecord second = new MessageRecord(MessageStatus.SCHEDULED, 0, 1, 3_000, 5_000, lane,
+                OrderingMode.BEST_EFFORT, Bytes.utf8("second"), secondPosition.canonicalBytes());
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, shardConfig);
+            assertEquals(StableCode.SCHEDULED, shard.apply(first, firstPosition).stableCode());
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(secondMessageId), second.encode());
+                batch.putValue(ColumnFamily.TIMELINE, 1,
+                        KeyCodec.timelineDue(lane, 3_000, secondPosition.sourceOrderToken(), secondMessageId, 0),
+                        new TimelineEntry(secondMessageId, 0).encode());
+                batch.putValue(ColumnFamily.TIMELINE, 1,
+                        KeyCodec.timelineExpiry(5_000, lane, secondMessageId, 0),
+                        new TimelineEntry(secondMessageId, 0).encode());
+            });
+            assertThrows(IllegalStateException.class, shard::rebuildReadyIndexes);
+        }
+    }
+
+    @Test
     void sourceOrderedLaneControlPausesAndResumesWithClaimRollback() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("lane-control"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 6);
