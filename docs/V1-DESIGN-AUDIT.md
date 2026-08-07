@@ -777,6 +777,10 @@ nested intent 也必须匹配同一 key。错挂的 GC value 会在 query/compac
 目标会被拒绝；如果目标已经移动但后续目录 durability 校验失败，失败路径
 也会删除该自有目标并回滚本地 projection，失败 staging 会清理。这闭合的是本地物理 checkpoint 边界，
 不代表 Object Store 上传、manifest publication 或 Oxia CAS 已完成。
+`checkpoint-tmp` parent/staging directory 现在必须是 `NOFOLLOW_LINKS` 下的真实目录，
+而 `ACTIVE.tmp` 在写入前拒绝符号链接和非 regular file；因此临时路径不能把
+checkpoint 或 ACTIVE pointer 写到外部目标。`ShardStoreTest.checkpointAndActivePointerTemporaryPathsRejectSymbolicLinks`
+验证了 staging symlink fail-closed 以及 pointer target bytes 保持不变。
 带 manifest 的 restore 在 staged DB 打开后还会逐项比较镜像中的
 `lastCheckpointId`、`appliedShardLogPosition`、`shardMutationSequence` 和
 typed evidence-cursor projection；文件 checksum 正确但运行时状态与 manifest

@@ -530,6 +530,51 @@ class ShardStoreTest {
     }
 
     @Test
+    void checkpointAndActivePointerTemporaryPathsRejectSymbolicLinks() throws Exception {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 52);
+        final ShardStoreConfig checkpointConfig = ShardStoreConfig.defaults(tempDir.resolve("checkpoint-tmp-link"));
+        final Path checkpointParent = tempDir.resolve("checkpoint-tmp-link-parent");
+        final Path checkpoint = checkpointParent.resolve("checkpoint");
+        final Path checkpointOutside = tempDir.resolve("checkpoint-tmp-link-target");
+        Files.createDirectories(checkpointParent);
+        Files.createDirectories(checkpointOutside);
+        try {
+            Files.createSymbolicLink(checkpointParent.resolve("checkpoint-tmp"), checkpointOutside);
+        } catch (UnsupportedOperationException | java.nio.file.FileSystemException unsupported) {
+            return;
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(checkpointConfig);
+             ShardStore store = ShardStore.open(checkpointConfig, shardId, resources)) {
+            assertThrows(IllegalStateException.class, () -> store.createCheckpoint(checkpoint));
+        }
+        try (var paths = Files.walk(checkpointOutside)) {
+            assertTrue(paths.noneMatch(path -> path.getFileName().toString().equals("CURRENT")));
+        }
+
+        final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("active-tmp-source"));
+        final Path sourceCheckpoint = tempDir.resolve("active-tmp-source-checkpoint");
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(sourceConfig);
+             ShardStore source = ShardStore.open(sourceConfig, shardId, resources)) {
+            source.createCheckpoint(sourceCheckpoint);
+        }
+        final ShardStoreConfig targetConfig = ShardStoreConfig.defaults(tempDir.resolve("active-tmp-target"));
+        final Path targetShardRoot = targetConfig.rootPath().resolve("shards")
+                .resolve(shardId.routeIncarnation().uuid().toString())
+                .resolve(Integer.toString(shardId.partition()));
+        Files.createDirectories(targetShardRoot);
+        final Path pointerOutside = tempDir.resolve("active-tmp-pointer-target");
+        final byte[] pointerBytes = Bytes.utf8("preserve-this-pointer-target");
+        Files.write(pointerOutside, pointerBytes);
+        Files.createSymbolicLink(targetShardRoot.resolve("ACTIVE.tmp"), pointerOutside);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(targetConfig)) {
+            assertThrows(IllegalStateException.class,
+                    () -> ShardStore.restoreFromCheckpoint(targetConfig, shardId, resources, sourceCheckpoint));
+        }
+        assertArrayEquals(pointerBytes, Files.readAllBytes(pointerOutside));
+        assertTrue(Files.isSymbolicLink(targetShardRoot.resolve("ACTIVE.tmp")));
+    }
+
+    @Test
     void catalogBoundRestoreRequiresPublishedFloorEligibleManifest() throws Exception {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 20);
         final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("catalog-source"));

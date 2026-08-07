@@ -558,6 +558,11 @@ public final class ShardStore implements AutoCloseable {
                 .putInt(ACTIVE_MAGIC).put(uuidBytes(storeUuid)).array();
         final byte[] encoded = Bytes.concat(body, Bytes.crc32cbe(body));
         final Path temporary = shardRoot.resolve("ACTIVE.tmp");
+        if (Files.isSymbolicLink(temporary)
+                || (Files.exists(temporary, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                && !Files.isRegularFile(temporary, java.nio.file.LinkOption.NOFOLLOW_LINKS))) {
+            throw new IOException("ACTIVE.tmp must be a regular non-symbolic file: " + temporary);
+        }
         Files.write(temporary, encoded, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING,
                 StandardOpenOption.WRITE);
         try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.WRITE)) {
@@ -1209,7 +1214,8 @@ public final class ShardStore implements AutoCloseable {
             }
             Files.createDirectories(parent);
             final Path stagingRoot = parent.resolve("checkpoint-tmp");
-            Files.createDirectories(stagingRoot);
+            ensureRealDirectory(parent);
+            ensureRealDirectory(stagingRoot);
             temporary = stagingRoot.resolve(UUID.randomUUID().toString());
             try (Checkpoint checkpoint = Checkpoint.create(db)) {
                 checkpoint.createCheckpoint(temporary.toString());
@@ -1256,6 +1262,10 @@ public final class ShardStore implements AutoCloseable {
     }
 
     private static void forceDirectory(final Path directory) throws IOException {
+        if (Files.isSymbolicLink(directory)
+                || !Files.isDirectory(directory, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("directory must be a real directory: " + directory);
+        }
         try (FileChannel channel = FileChannel.open(directory, StandardOpenOption.READ)) {
             channel.force(true);
         }

@@ -807,6 +807,12 @@ RocksDB image under the same-filesystem `checkpoint-tmp` namespace, atomically
 rename it into the requested checkpoint path, checksum the full directory,
 emit the closed manifest JSON projection, and install a validated checkpoint
 into a new local Store Incarnation without merging into an open DB. The local
+`checkpoint-tmp` parent is now required to be a real non-symbolic directory,
+and `ACTIVE.tmp` is rejected before writing when it is a symbolic link or a
+non-regular file; a failed restore/pointer install therefore cannot overwrite
+an external target through a temporary path. `ShardStoreTest`
+`checkpointAndActivePointerTemporaryPathsRejectSymbolicLinks` covers both
+boundaries and verifies the external target bytes remain unchanged.
 `CheckpointUploadCoordinator` now inventories the exact local file set before
 provider I/O, requires the RocksDB `CURRENT` marker, charges the Worker upload
 slot, validates returned manifest
