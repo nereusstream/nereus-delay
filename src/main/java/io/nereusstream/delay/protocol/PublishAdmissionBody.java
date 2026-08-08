@@ -483,8 +483,8 @@ public final class PublishAdmissionBody {
         decodeChannel(channel);
         nested(field(fields, 7), 7);
         nested(field(fields, 8), 8);
-        unsigned(field(fields, 9), 9);
-        unsigned(field(fields, 10), 10);
+        final long brokerResourceAttestationGeneration = rawUnsigned(field(fields, 9), 9);
+        final long configGeneration = rawUnsigned(field(fields, 10), 10);
         final TrustedUtcIntervalEvidence issuedAt = TrustedUtcIntervalEvidence.decode(
                 nested(field(fields, 12), 12));
         final byte[] digest = bytes(field(fields, 16), 16);
@@ -494,7 +494,8 @@ public final class PublishAdmissionBody {
             throw new IllegalArgumentException("ReadyCertificate digest mismatch");
         }
         return new ReadyCertificate(encoded, owner, bytes(field(fields, 3), 3), bytes(field(fields, 4), 4),
-                bytes(field(fields, 5), 5), channel, unsigned(field(fields, 11), 11), issuedAt,
+                bytes(field(fields, 5), 5), channel, brokerResourceAttestationGeneration, configGeneration,
+                unsigned(field(fields, 11), 11), issuedAt,
                 rawUnsigned(field(fields, 13), 13), bytes(field(fields, 14), 14), bytes(field(fields, 15), 15), digest);
     }
 
@@ -1100,6 +1101,8 @@ public final class PublishAdmissionBody {
         private final byte[] destinationLaneId;
         private final byte[] laneIncarnation;
         private final byte[] channel;
+        private final long brokerResourceAttestationGeneration;
+        private final long configGeneration;
         private final long validUntilEpochMs;
         private final TrustedUtcIntervalEvidence issuedAt;
         private final long credentialBindingGeneration;
@@ -1109,7 +1112,9 @@ public final class PublishAdmissionBody {
 
         private ReadyCertificate(final byte[] canonicalBytes, final byte[] ownerIdentity,
                                  final byte[] storeIncarnation, final byte[] destinationLaneId,
-                                 final byte[] laneIncarnation, final byte[] channel, final long validUntilEpochMs,
+                                 final byte[] laneIncarnation, final byte[] channel,
+                                 final long brokerResourceAttestationGeneration, final long configGeneration,
+                                 final long validUntilEpochMs,
                                  final TrustedUtcIntervalEvidence issuedAt, final long credentialBindingGeneration,
                                  final byte[] credentialBindingDigest, final byte[] credentialFingerprint,
                                  final byte[] certificateDigest) {
@@ -1119,6 +1124,8 @@ public final class PublishAdmissionBody {
             this.destinationLaneId = fixed(destinationLaneId, HASH_LENGTH, "certificate lane id");
             this.laneIncarnation = fixed(laneIncarnation, INCARNATION_LENGTH, "certificate lane incarnation");
             this.channel = copy(channel);
+            this.brokerResourceAttestationGeneration = brokerResourceAttestationGeneration;
+            this.configGeneration = configGeneration;
             this.validUntilEpochMs = validUntilEpochMs;
             this.issuedAt = issuedAt;
             if (credentialBindingGeneration == 0) {
@@ -1154,6 +1161,14 @@ public final class PublishAdmissionBody {
 
         public byte[] channel() {
             return copy(channel);
+        }
+
+        public long brokerResourceAttestationGeneration() {
+            return brokerResourceAttestationGeneration;
+        }
+
+        public long configGeneration() {
+            return configGeneration;
         }
 
         public long validUntilEpochMs() {

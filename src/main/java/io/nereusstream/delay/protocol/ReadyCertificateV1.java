@@ -64,6 +64,14 @@ public final class ReadyCertificateV1 {
         return delegate.channel();
     }
 
+    public long brokerResourceAttestationGeneration() {
+        return delegate.brokerResourceAttestationGeneration();
+    }
+
+    public long configGeneration() {
+        return delegate.configGeneration();
+    }
+
     public long validUntilEpochMs() {
         return delegate.validUntilEpochMs();
     }

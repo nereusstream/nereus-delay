@@ -505,6 +505,10 @@ path.
 matching the already raw credential-binding generation. The snapshot test
 covers both high-bit fields; guarded Broker rollout attestation remains an
 external authority gate.
+The nested `ReadyCertificateV1` Broker attestation and config generations now
+also preserve their complete raw `uint64` patterns through the shared
+Admission/certificate decoder; `ReadyCertificateV1Test` covers both high-bit
+values.
 
 `TrustedUtcClock` now provides the local Worker timing guard that was missing
 behind the evidence codec: it advances an approved interval from an injected

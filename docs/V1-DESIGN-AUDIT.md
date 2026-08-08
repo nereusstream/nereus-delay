@@ -781,6 +781,11 @@ nonzero `uint64` bits. High-bit coverage is provided by
 `ControlResultCodecTest`, `ChannelResourceIdentityV1Test`,
 `ProtocolCodecTest`, and the Publish Admission/Ready Certificate fixtures.
 
+The nested Ready Certificate Broker attestation and config generations now
+also preserve complete raw `uint64` patterns through the shared
+Admission/certificate decoder; `ReadyCertificateV1Test` covers both high-bit
+values. The external Broker rollout remains the authority for their meaning.
+
 `PublishAdmissionBody` 还把 `PreparedPublishDescriptorV1` 的 adapter kind、固定
 adapter encoding version（并要求 immutable Destination Profile 也 pin 版本 `1`）、target resource、physical partition 与嵌套
 `ChannelResourceIdentityV1` 做 exact equality，要求 `business_metadata` branch
