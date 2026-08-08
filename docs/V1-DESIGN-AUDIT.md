@@ -238,6 +238,13 @@ boundary independently: their constructors and decoders require canonical
 Source Position bytes, so an empty, truncated or non-canonical result cannot
 become a local projection before a shard-specific lookup runs. The evidence is
 `DurableResultTest`.
+The Client Command position audit now also closes the replay boundary for
+position-level outcomes: its exact `commandId[41]` value is read when the same
+Source Position is delivered again, allowing a previously persisted fence
+rejection or `COMMAND_ID_CONFLICT` to return the same result without creating a
+logical Command Result or appending another audit. A missing or cross-shard
+POSITION value remains fail-closed. `DelayShardTest` covers both exact replay
+paths.
 Kafka's exclusive activation LSO uses the same fail-closed boundary handling:
 an applied offset at the unsigned-64 maximum proves an exclusive barrier
 without wrapping the successor calculation. The local evidence is

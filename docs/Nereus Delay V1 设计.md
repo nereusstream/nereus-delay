@@ -744,6 +744,8 @@ bounded replay turn 原样重试。不能先消费 source cursor、再把失败�
 
 Client Command 先验证 source-ordered `closedIngressDeadlineThrough` 和 Broker persistence time：若 `retryUntil <= closedIngressDeadlineThrough`，或 persistence time 晚于 `retryUntil`，则无论 compact dedupe 是否仍存在，都产生该 position 的 `REJECTED(COMMAND_RETRY_WINDOW_EXPIRED)`，且不覆盖已有逻辑结果。前一个条件使 Broker 时钟在栅栏之后回拨也不能重新打开已关闭的 retry window。窗内先查 Command Identity：同一 `commandId + commandHash` 的后续记录是 no-op，保留首次权威结果，只写 Source Position audit并推进；相同 `commandId`、不同 hash 产生 position-level `REJECTED(COMMAND_ID_CONFLICT)`。只有 first-seen identity 才进入 Client operation validation。携 Source Position 的 queued receipt 可查询这次物理结果；bare `commandId` 始终指向首次合法占用。
 
+`dedupe_cf/POSITION` 的 value 固定为该 physical record 的 `commandId[41]`，不是逻辑 Command Result。若 RocksDB batch 已成功而 source ACK 丢失，exact 同一 Source Position 重放必须先用该 POSITION audit 识别已经产生的 position-level `COMMAND_RETRY_WINDOW_EXPIRED` 或 `COMMAND_ID_CONFLICT`，返回同一稳定结果且不追加写入；缺少匹配的 POSITION/COMMAND evidence 仍 fail closed。
+
 System Mutation 使用：
 
 ```text

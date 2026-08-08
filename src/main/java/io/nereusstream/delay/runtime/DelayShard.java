@@ -306,6 +306,24 @@ public final class DelayShard {
                     }
                     return prior.result();
                 }
+                final CommandId positionCommandId = readPositionAuditCommandId(sourcePosition);
+                if (positionCommandId != null && positionCommandId.equals(command.commandId())) {
+                    if (prior != null) {
+                        // The position audit is the evidence that this exact
+                        // physical record already produced the conflict. Do
+                        // not append another audit or mutate the first command
+                        // identity while replaying after a lost source ACK.
+                        return rejected(StableCode.COMMAND_ID_CONFLICT, sourcePosition, -1, 0, null);
+                    }
+                    if (closedIngressDeadlineThrough >= 0
+                            && command.retryUntilEpochMs() <= closedIngressDeadlineThrough) {
+                        // A fence rejection deliberately has no logical
+                        // COMMAND/RESULT record. Its POSITION audit is still
+                        // sufficient to make the exact source record replay
+                        // idempotent after the RocksDB batch was acknowledged.
+                        return rejected(StableCode.COMMAND_RETRY_WINDOW_EXPIRED, sourcePosition, -1, 0, null);
+                    }
+                }
                 throw new IllegalStateException("duplicate source position without matching command evidence");
             }
         }
@@ -5880,6 +5898,16 @@ public final class DelayShard {
         final CommandDedupeRecord record = CommandDedupeRecord.decode(value.payload());
         validateSourcePositionShard(record.result().appliedSourcePosition(), "command dedupe lookup");
         return record;
+    }
+
+    private CommandId readPositionAuditCommandId(final SourcePosition position) {
+        final var value = store.getValue(ColumnFamily.DEDUPE, KeyCodec.dedupePosition(position.canonicalBytes()), 3);
+        if (value == null) {
+            return null;
+        }
+        final CommandId commandId = new CommandId(value.payload());
+        requireCommandShard(commandId, "position audit lookup");
+        return commandId;
     }
 
     private PayloadReservation findReservationForMessage(final DelayMessageId messageId) {

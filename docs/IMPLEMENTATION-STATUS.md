@@ -1074,7 +1074,11 @@ registration and full DLQ/replay retention remain pending.
 The local `TIME_FENCE_V1` increment now validates the exact proof ID, fence key
 version and Trusted-UTC lower bound, monotonically persists
 `closedIngressDeadlineThrough`, and rejects later commands at the position level
-without overwriting an existing command identity/result. Reservation-expiry
+without overwriting an existing command identity/result. The POSITION audit now
+also makes an exact replay of a fence rejection or command-ID conflict
+idempotent after a successful RocksDB batch with a lost source ACK; it returns
+the same position-level result without creating a logical Command Result.
+`DelayShardTest` covers both replay paths. Reservation-expiry
 watermark overlay now makes still-RESERVED payload reservations immediately
 appear `EXPIRED` to Commit/Cancel/Query, while the bounded
 `RESERVATION_EXPIRY` cursor materializes the state and releases reservation

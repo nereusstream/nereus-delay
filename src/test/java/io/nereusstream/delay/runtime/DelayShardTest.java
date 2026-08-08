@@ -1017,6 +1017,7 @@ class DelayShardTest {
                             OrderingMode.BEST_EFFORT, new byte[0])));
             final CommandResult conflict = shard.apply(conflicting, position(shardId, 1, 10_001));
             assertEquals(StableCode.COMMAND_ID_CONFLICT, conflict.stableCode());
+            assertEquals(conflict, shard.apply(conflicting, position(shardId, 1, 10_001)));
         }
     }
 
@@ -4603,6 +4604,7 @@ class DelayShardTest {
             assertEquals(StableCode.COMMAND_RETRY_WINDOW_EXPIRED, closedResult.stableCode());
             assertNull(shard.getMessage(closed.delayMessageId()));
             assertNull(shard.getCommandResult(closed.commandId()));
+            assertEquals(closedResult, shard.apply(closed, position(shardId, 1, 2_500)));
 
             final PreparedCommand open = PreparedCommand.schedule(shardId,
                     new io.nereusstream.delay.protocol.ScheduleIntent(lane, 4_000, 7_000,
