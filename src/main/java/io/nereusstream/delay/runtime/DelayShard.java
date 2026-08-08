@@ -1082,6 +1082,9 @@ public final class DelayShard {
                     throw new IllegalStateException("System Mutation source position regressed");
                 }
                 if (order == 0 && !Arrays.equals(prior.appliedSourcePosition(), sourcePosition.canonicalBytes())) {
+                    if (!Arrays.equals(lastAppliedSourcePosition.canonicalBytes(), sourcePosition.canonicalBytes())) {
+                        throw new IllegalStateException("duplicate source position has conflicting System Mutation");
+                    }
                     // The exact mutation identity/hash above proves that this
                     // is a replay of a later physical duplicate whose source
                     // position was already committed before its ACK was lost.

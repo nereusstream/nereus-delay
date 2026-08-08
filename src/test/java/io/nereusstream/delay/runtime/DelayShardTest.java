@@ -2089,6 +2089,8 @@ class DelayShardTest {
             assertEquals(duplicatePosition, shard.lastAppliedSourcePosition());
             assertArrayEquals(expiryPosition.canonicalBytes(), shard.getSystemMutationResult(mutation.systemMutationId())
                     .appliedSourcePosition());
+            assertThrows(IllegalStateException.class,
+                    () -> shard.applySystemMutation(mutation, position(shardId, 2, 1_003), keyPair.getPublic()));
         }
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
