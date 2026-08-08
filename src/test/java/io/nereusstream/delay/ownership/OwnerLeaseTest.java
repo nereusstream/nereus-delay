@@ -102,6 +102,13 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void ownerEpochSuccessorUsesTheCompleteUnsignedDomain() {
+        assertEquals(Long.MIN_VALUE, InMemoryOwnerLeaseStore.nextEpoch(Long.MAX_VALUE));
+        assertEquals(-2L, InMemoryOwnerLeaseStore.nextEpoch(-3L));
+        assertThrows(IllegalStateException.class, () -> InMemoryOwnerLeaseStore.nextEpoch(-1L));
+    }
+
+    @Test
     void authoritativeApplyFencesAStillLocallyValidStaleLease() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 18);
         final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();

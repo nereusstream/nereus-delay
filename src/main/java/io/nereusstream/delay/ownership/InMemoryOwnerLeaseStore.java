@@ -23,7 +23,7 @@ public final class InMemoryOwnerLeaseStore implements OwnerLeaseStore {
         if (current != null && current.validAt(nowEpochMs)) {
             return Optional.empty();
         }
-        final long epoch = Math.addExact(epochs.getOrDefault(shardId, 0L), 1);
+        final long epoch = nextEpoch(epochs.getOrDefault(shardId, 0L));
         epochs.put(shardId, epoch);
         final OwnerLease next = new OwnerLease(shardId, ownerId, epoch, randomBytes(),
                 Math.addExact(nowEpochMs, leaseDurationMs));
@@ -41,7 +41,7 @@ public final class InMemoryOwnerLeaseStore implements OwnerLeaseStore {
         if (current != null && current.validAt(nowEpochMs)) {
             return Optional.empty();
         }
-        final long epoch = Math.addExact(epochs.getOrDefault(assignment.shardId(), 0L), 1);
+        final long epoch = nextEpoch(epochs.getOrDefault(assignment.shardId(), 0L));
         epochs.put(assignment.shardId(), epoch);
         final OwnerLease next = new OwnerLease(assignment.shardId(), ownerId, epoch, randomBytes(),
                 Math.addExact(nowEpochMs, leaseDurationMs),
@@ -102,6 +102,19 @@ public final class InMemoryOwnerLeaseStore implements OwnerLeaseStore {
         final byte[] bytes = new byte[32];
         random.nextBytes(bytes);
         return bytes;
+    }
+
+    /**
+     * Advances the raw {@code uint64} owner epoch without treating the sign
+     * bit as an arithmetic overflow.  Oxia owns the production sequence; the
+     * in-memory authority must nevertheless model the same complete wire
+     * domain and fail only when the all-ones value has been consumed.
+     */
+    static long nextEpoch(final long current) {
+        if (current == -1L) {
+            throw new IllegalStateException("owner epoch exhausted");
+        }
+        return current + 1;
     }
 
     private static boolean same(final OwnerLease left, final OwnerLease right) {

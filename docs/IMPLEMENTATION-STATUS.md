@@ -7,6 +7,11 @@ normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20�
 the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
+The local in-memory Owner Lease authority advances the raw `uint64` epoch
+domain through the high-bit boundary and fails only when the all-ones value is
+exhausted (`OwnerLeaseTest.ownerEpochSuccessorUsesTheCompleteUnsignedDomain`).
+Production Oxia sequence allocation remains an external authority gate.
+
 The latest protocol pass also preserves the complete raw `uint32` bit pattern
 for every currently implemented V1 signing/verifier/proof key version and
 verifier version: System Mutation envelopes, Native Capability snapshots,
