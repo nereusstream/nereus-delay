@@ -499,6 +499,10 @@ class OwnerLeaseTest {
             assertEquals(duplicateMutationPosition, outcomes.get(3).position());
             assertArrayEquals(duplicateMutationPosition.canonicalBytes(), outcomes.get(3).systemMutationResult()
                     .appliedSourcePosition());
+            assertArrayEquals(commandPosition.canonicalBytes(), owned.shard().getCommandResult(command.commandId())
+                    .appliedSourcePosition());
+            assertArrayEquals(mutationPosition.canonicalBytes(), owned.shard()
+                    .getSystemMutationResult(mutation.systemMutationId()).appliedSourcePosition());
             assertEquals(duplicateMutationPosition, owned.lastCatchupPosition());
             owned.activateForCommands(101);
             assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, owned.state());
