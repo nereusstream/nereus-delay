@@ -99,6 +99,14 @@ projection's local parser. Negative vectors for a non-canonical Broker identity
 and a committed descriptor with the wrong Profile kind are in
 `ClaimResultBodyTest`.
 
+The `ExactResourceIdentityV1` retirement projection now applies the same
+branch-specific Object Store Profile fence as the committed/checkpoint
+resource codecs. Payload-object and checkpoint lengths follow the Registry's
+`uint64` non-negative domain, so a valid zero-byte object or manifest is not
+rejected before the GC intent can be persisted. `ResourceRetireIntentBodyTest`
+covers both zero-length branches and rejects a payload identity carrying a
+Destination Profile.
+
 Payload-proof trust-set semantic/reference versions now also preserve complete
 raw bits, while the source-ordered activation projection compares versions as
 unsigned values and rejects regression. This is local control-state evidence;

@@ -59,7 +59,7 @@ class ResourceRetireIntentBodyTest {
     void preservesUnsignedResourceIdentityProfileAndExternalGenerationBits() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 27);
         final byte[] payload = CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.bytes(output, 1, profileRef(Long.MIN_VALUE));
+            CanonicalProtobuf.bytes(output, 1, profileRef(Long.MIN_VALUE, ProfileKindV1.OBJECT_STORE));
             CanonicalProtobuf.bytes(output, 2, Bytes.utf8("container"));
             CanonicalProtobuf.bytes(output, 3, Bytes.utf8("object-key"));
             CanonicalProtobuf.bytes(output, 4, Bytes.utf8("version-1"));
@@ -120,6 +120,50 @@ class ResourceRetireIntentBodyTest {
     }
 
     @Test
+    void objectResourceIdentitiesUseObjectStoreProfilesAndAllowZeroLengthObjects() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 28);
+        final byte[] payload = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, profileRef(1, ProfileKindV1.OBJECT_STORE));
+            CanonicalProtobuf.bytes(output, 2, Bytes.utf8("container"));
+            CanonicalProtobuf.bytes(output, 3, Bytes.utf8("empty-object"));
+            CanonicalProtobuf.bytes(output, 4, Bytes.utf8("version-1"));
+            CanonicalProtobuf.uint64(output, 6, 0);
+            CanonicalProtobuf.bytes(output, 7, Bytes.sha256(new byte[0]));
+        });
+        final ResourceRetireIntentBody payloadBody = ResourceRetireIntentBody.decode(resourceBody(shard,
+                ResourceKind.PAYLOAD_OBJECT, branch(ResourceKind.PAYLOAD_OBJECT, payload), 1,
+                protectionSet()));
+        assertArrayEquals(payload, branch(payloadBody.resource()));
+
+        final byte[] checkpoint = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, bytes(16, 31));
+            CanonicalProtobuf.bytes(output, 2, bytes(16, 32));
+            CanonicalProtobuf.bytes(output, 3, profileRef(1, ProfileKindV1.OBJECT_STORE));
+            CanonicalProtobuf.bytes(output, 4, Bytes.utf8("container"));
+            CanonicalProtobuf.bytes(output, 5, Bytes.utf8("empty-manifest"));
+            CanonicalProtobuf.bytes(output, 6, Bytes.utf8("version-1"));
+            CanonicalProtobuf.uint64(output, 7, 0);
+            CanonicalProtobuf.bytes(output, 8, Bytes.sha256(new byte[0]));
+        });
+        final ResourceRetireIntentBody checkpointBody = ResourceRetireIntentBody.decode(resourceBody(shard,
+                ResourceKind.CHECKPOINT, branch(ResourceKind.CHECKPOINT, checkpoint), 1,
+                protectionSet()));
+        assertArrayEquals(checkpoint, branch(checkpointBody.resource()));
+
+        final byte[] wrongProfile = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, profileRef(1, ProfileKindV1.DESTINATION));
+            CanonicalProtobuf.bytes(output, 2, Bytes.utf8("container"));
+            CanonicalProtobuf.bytes(output, 3, Bytes.utf8("object"));
+            CanonicalProtobuf.bytes(output, 4, Bytes.utf8("version-1"));
+            CanonicalProtobuf.uint64(output, 6, 0);
+            CanonicalProtobuf.bytes(output, 7, Bytes.sha256(new byte[0]));
+        });
+        assertThrows(IllegalArgumentException.class, () -> ResourceRetireIntentBody.decode(resourceBody(shard,
+                ResourceKind.PAYLOAD_OBJECT, branch(ResourceKind.PAYLOAD_OBJECT, wrongProfile), 1,
+                protectionSet())));
+    }
+
+    @Test
     void branchAndProtectionDigestMismatchesAreRejected() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 19);
         final byte[] localStore = localStoreIdentity(shard);
@@ -159,16 +203,24 @@ class ResourceRetireIntentBodyTest {
     }
 
     private static byte[] profileRef() {
-        return profileRef(1);
+        return profileRef(1, ProfileKindV1.OBJECT_STORE);
     }
 
-    private static byte[] profileRef(final long version) {
+    private static byte[] profileRef(final long version, final ProfileKindV1 kind) {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, Bytes.utf8("object-store"));
             CanonicalProtobuf.uint64Bits(output, 2, version);
             CanonicalProtobuf.bytes(output, 3, Bytes.sha256(Bytes.utf8("profile")));
-            CanonicalProtobuf.uint32(output, 4, 1);
+            CanonicalProtobuf.uint32(output, 4, kind.wireValue());
         });
+    }
+
+    private static byte[] bytes(final int length, final int seed) {
+        final byte[] value = new byte[length];
+        for (int index = 0; index < length; index++) {
+            value[index] = (byte) (seed + index);
+        }
+        return value;
     }
 
     private static byte[] protectionSet(final byte[]... refs) {

@@ -150,26 +150,22 @@ public final class ResourceRetireIntentBody {
                     } else {
                         requireExact(fields, 7, kind);
                     }
-                    profileRef(nested(field(fields, 1), 1));
+                    profileRef(nested(field(fields, 1), 1), ProfileKindV1.OBJECT_STORE);
                     nonEmpty(bytes(field(fields, 2), 2), 2);
                     nonEmpty(bytes(field(fields, 3), 3), 3);
                     nonEmpty(bytes(field(fields, 4), 4), 4);
                     if (fields.size() == 7) {
                         nonEmpty(bytes(field(fields, 5), 5), 5);
                     }
-                    positive(unsigned(field(fields, 6), 6), 6);
+                    nonNegative(unsigned(field(fields, 6), 6), 6);
                     fixed(bytes(field(fields, 7), 7), HASH_LENGTH, 7);
                 }
                 case CHECKPOINT -> {
-                    requireExact(fields, 8, kind);
-                    fixed(bytes(field(fields, 1), 1), INCARNATION_LENGTH, 1);
-                    fixed(bytes(field(fields, 2), 2), INCARNATION_LENGTH, 2);
-                    profileRef(nested(field(fields, 3), 3));
-                    nonEmpty(bytes(field(fields, 4), 4), 4);
-                    nonEmpty(bytes(field(fields, 5), 5), 5);
-                    nonEmpty(bytes(field(fields, 6), 6), 6);
-                    positive(unsigned(field(fields, 7), 7), 7);
-                    fixed(bytes(field(fields, 8), 8), HASH_LENGTH, 8);
+                    // This branch is byte-identical to the closed checkpoint
+                    // resource codec. Reuse it so the retirement identity
+                    // cannot weaken its non-zero IDs or Object Store Profile
+                    // fence while adding GC-specific meaning around it.
+                    CheckpointResourceV1.decode(branch);
                 }
                 case DLQ_EXPORT_OBJECT -> {
                     requireExact(fields, 4, kind);
@@ -377,15 +373,10 @@ public final class ResourceRetireIntentBody {
         }
     }
 
-    private static void profileRef(final byte[] encoded) {
-        final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "ProfileRef");
-        requireExact(fields, 4, "ProfileRef");
-        nonEmpty(bytes(field(fields, 1), 1), 1);
-        nonZeroRaw(rawUnsigned(field(fields, 2), 2), 2);
-        fixed(bytes(field(fields, 3), 3), HASH_LENGTH, 3);
-        final long kind = unsigned(field(fields, 4), 4);
-        if (kind < 1 || kind > 4) {
-            throw new IllegalArgumentException("invalid ProfileRef kind");
+    private static void profileRef(final byte[] encoded, final ProfileKindV1 expectedKind) {
+        final ProfileRefV1 profile = ProfileRefV1.decode(encoded);
+        if (profile.profileKind() != expectedKind) {
+            throw new IllegalArgumentException("resource identity ProfileRef kind does not match resource branch");
         }
     }
 
@@ -494,13 +485,6 @@ public final class ResourceRetireIntentBody {
             throw new IllegalArgumentException("invalid nested uint field " + number);
         }
         return field.unsignedValue();
-    }
-
-    private static long positive(final long value, final int number) {
-        if (value <= 0) {
-            throw new IllegalArgumentException("nested field " + number + " must be positive");
-        }
-        return value;
     }
 
     private static long nonZeroRaw(final long value, final int number) {
