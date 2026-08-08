@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -39,6 +40,44 @@ class OxiaOwnerLeaseStoreTest {
         assertTrue(store.transition(restoring, ShardLifecycleState.ACQUIRING).isEmpty());
         assertTrue(store.transition(renewed, ShardLifecycleState.CATCHING_UP).isEmpty());
         assertFalse(store.acquire(assignment, "worker-b", session, 120, 50).isPresent());
+    }
+
+    @Test
+    void backendWithoutContextBoundAcquireCannotAllocateAShardOnlyLease() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 11);
+        final SourceAssignment assignment = new SourceAssignment(shard,
+                Bytes.sha256(Bytes.utf8("backend-assignment")), 1,
+                new KafkaActivationBarrier(shard, "cluster", UUID.randomUUID(), 0));
+        final AtomicBoolean shardOnlyAcquireCalled = new AtomicBoolean();
+        final OxiaOwnerLeaseStore.LeaseCasBackend backend = new OxiaOwnerLeaseStore.LeaseCasBackend() {
+            @Override
+            public Optional<OwnerLease> acquire(final ShardId ignored, final String ownerId,
+                                                 final long nowEpochMs, final long leaseDurationMs) {
+                shardOnlyAcquireCalled.set(true);
+                return Optional.of(new OwnerLease(ignored, ownerId, 1, nonZero(32, 10),
+                        nowEpochMs + leaseDurationMs));
+            }
+
+            @Override
+            public Optional<OwnerLease> renew(final OwnerLease expected, final long nowEpochMs,
+                                              final long leaseDurationMs) {
+                return Optional.empty();
+            }
+
+            @Override
+            public boolean release(final OwnerLease expected) {
+                return false;
+            }
+
+            @Override
+            public Optional<OwnerLease> current(final ShardId requested) {
+                return Optional.empty();
+            }
+        };
+
+        assertTrue(new OxiaOwnerLeaseStore(backend)
+                .acquire(assignment, "worker-a", nonZero(32, 11), 100, 100).isEmpty());
+        assertFalse(shardOnlyAcquireCalled.get());
     }
 
     @Test

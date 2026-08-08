@@ -717,6 +717,11 @@ fencing/assignment/session identity 的 exact `ACTIVE_FOR_COMMANDS` 重读；
 非法 transition 不会被 coincidental current state 掩盖。
 Response-loss reread 还拒绝同 identity 但 expiry 变短的 successor；本地证据为
 `OxiaOwnerLeaseStoreTest.transitionOrReadRejectsAResponseLossSuccessorWithShorterExpiry`。
+Assignment/session-bound acquisition 的 interface default 现在也 fail closed；它
+不再把未实现 context CAS 的 backend 降级成 shard-only live lease，避免在发现
+上下文丢失前先占用一个无法用于 V1 activation 的租约。本地证据为
+`OwnerLeaseTest.shardOnlyOwnerLeaseStoreCannotFallbackForContextBoundAssignment`
+和 `OxiaOwnerLeaseStoreTest.backendWithoutContextBoundAcquireCannotAllocateAShardOnlyLease`。
 Activation of `OwnedDelayShard` now leaves the local lifecycle in
 `CATCHING_UP` while the authority performs the `ACTIVE_FOR_COMMANDS` CAS; the
 local gate opens only after the exact successor is validated. The regression is

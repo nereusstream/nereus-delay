@@ -12,7 +12,11 @@ public interface OwnerLeaseStore {
     default Optional<OwnerLease> acquire(final SourceAssignment assignment, final String ownerId,
                                          final byte[] sessionIdentity, final long nowEpochMs,
                                          final long leaseDurationMs) {
-        return acquire(assignment.shardId(), ownerId, nowEpochMs, leaseDurationMs);
+        // Never fall back to shard-only acquisition: doing so would create a
+        // lease without the assignment/session fence that V1 requires. An
+        // implementation must override this method when it can CAS the full
+        // context atomically.
+        return Optional.empty();
     }
 
     Optional<OwnerLease> renew(OwnerLease expected, long nowEpochMs, long leaseDurationMs);

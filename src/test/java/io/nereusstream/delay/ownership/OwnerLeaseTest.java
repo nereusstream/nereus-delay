@@ -54,6 +54,42 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void shardOnlyOwnerLeaseStoreCannotFallbackForContextBoundAssignment() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
+        final InMemoryOwnerLeaseStore delegate = new InMemoryOwnerLeaseStore();
+        final OwnerLeaseStore shardOnly = new OwnerLeaseStore() {
+            @Override
+            public Optional<OwnerLease> acquire(final ShardId ignored, final String ownerId,
+                                                final long nowEpochMs, final long leaseDurationMs) {
+                return delegate.acquire(ignored, ownerId, nowEpochMs, leaseDurationMs);
+            }
+
+            @Override
+            public Optional<OwnerLease> renew(final OwnerLease expected, final long nowEpochMs,
+                                              final long leaseDurationMs) {
+                return delegate.renew(expected, nowEpochMs, leaseDurationMs);
+            }
+
+            @Override
+            public boolean release(final OwnerLease expected) {
+                return delegate.release(expected);
+            }
+
+            @Override
+            public Optional<OwnerLease> current(final ShardId requested) {
+                return delegate.current(requested);
+            }
+        };
+        final SourceAssignment assignment = new SourceAssignment(shard,
+                Bytes.sha256(Bytes.utf8("default-assignment")), 1,
+                new KafkaActivationBarrier(shard, "cluster", UUID.randomUUID(), 0));
+
+        assertTrue(shardOnly.acquire(assignment, "worker-a", Bytes.sha256(Bytes.utf8("session")),
+                100, 100).isEmpty());
+        assertTrue(delegate.current(shard).isEmpty());
+    }
+
+    @Test
     void epochsFenceOldOwnerAndLeaseLossStopsLocalWork() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
         final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();

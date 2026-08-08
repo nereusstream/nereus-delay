@@ -667,6 +667,13 @@ exact same-identity `ACTIVE_FOR_COMMANDS` successor after a lost transition
 response, and that reread rejects a successor whose lease expiry moved
 backwards. `OxiaOwnerLeaseStoreTest.transitionOrReadRejectsAResponseLossSuccessorWithShorterExpiry`
 covers the monotonic-expiry fence.
+The context-bound acquisition defaults in both `OwnerLeaseStore` and
+`OxiaOwnerLeaseStore.LeaseCasBackend` now fail closed instead of delegating to
+shard-only acquisition. A backend that has not implemented the atomic
+assignment/session CAS can therefore not allocate an unbound live lease (or
+leave one behind before the adapter notices the missing context); the local
+regressions are `OwnerLeaseTest.shardOnlyOwnerLeaseStoreCannotFallbackForContextBoundAssignment`
+and `OxiaOwnerLeaseStoreTest.backendWithoutContextBoundAcquireCannotAllocateAShardOnlyLease`.
 Authority-gated activation now keeps the local shard in `CATCHING_UP` until
 the exact `ACTIVE_FOR_COMMANDS` lease CAS (or its validated response-loss
 reread) succeeds; `OwnerLeaseTest.authorityGatedActivationKeepsLocalGateClosedDuringLeaseCas`

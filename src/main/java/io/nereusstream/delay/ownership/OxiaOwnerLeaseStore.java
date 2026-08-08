@@ -183,7 +183,11 @@ public final class OxiaOwnerLeaseStore implements OwnerLeaseStore {
         default Optional<OwnerLease> acquire(final SourceAssignment assignment, final String ownerId,
                                              final byte[] sessionIdentity, final long nowEpochMs,
                                              final long leaseDurationMs) {
-            return acquire(assignment.shardId(), ownerId, nowEpochMs, leaseDurationMs);
+            // A shard-only fallback would allocate an unbound lease before
+            // the adapter can detect that assignment/session identity was
+            // lost. Context-bound V1 acquisition must be explicitly supplied
+            // by the backend and otherwise fails closed without side effects.
+            return Optional.empty();
         }
 
         Optional<OwnerLease> renew(OwnerLease expected, long nowEpochMs, long leaseDurationMs);
