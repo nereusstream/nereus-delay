@@ -47,6 +47,16 @@ class ControlRequestSupportCodecTest {
     }
 
     @Test
+    void quotaTransferPlanPreservesCompleteUnsigned64BitPolicyVersion() {
+        final QuotaTransferPlanRefV1 plan = new QuotaTransferPlanRefV1(bytes(32, 31), bytes(32, 32),
+                Long.MIN_VALUE, bytes(32, 33));
+
+        final QuotaTransferPlanRefV1 decoded = QuotaTransferPlanRefV1.decode(plan.canonicalBytes());
+        assertEquals(Long.MIN_VALUE, decoded.tenantPolicyVersion());
+        assertEquals(plan, decoded);
+    }
+
+    @Test
     void supportValuesRejectInvalidWireNumbersAndNonZeroIds() {
         assertThrows(IllegalArgumentException.class, () -> AcknowledgementKindV1.fromWire(4));
         assertThrows(IllegalArgumentException.class, () -> ControlOperationKindV1.fromWire(16));

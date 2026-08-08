@@ -17,8 +17,8 @@ public final class QuotaTransferPlanRefV1 {
                                   final long tenantPolicyVersion, final byte[] planHash) {
         this.controlOperationId = nonZero(controlOperationId, "controlOperationId");
         this.requestHash = fixed(requestHash, "requestHash");
-        if (tenantPolicyVersion <= 0) {
-            throw new IllegalArgumentException("tenantPolicyVersion must be positive");
+        if (tenantPolicyVersion == 0) {
+            throw new IllegalArgumentException("tenantPolicyVersion must be nonzero");
         }
         this.tenantPolicyVersion = tenantPolicyVersion;
         this.planHash = fixed(planHash, "planHash");
@@ -44,7 +44,7 @@ public final class QuotaTransferPlanRefV1 {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, controlOperationId);
             CanonicalProtobuf.bytes(output, 2, requestHash);
-            CanonicalProtobuf.uint64(output, 3, tenantPolicyVersion);
+            CanonicalProtobuf.uint64Bits(output, 3, tenantPolicyVersion);
             CanonicalProtobuf.bytes(output, 4, planHash);
         });
     }
@@ -56,7 +56,7 @@ public final class QuotaTransferPlanRefV1 {
         final QuotaTransferPlanRefV1 result = new QuotaTransferPlanRefV1(
                 QueryCodecSupport.fixed(fields.get(0), 1, HASH_LENGTH),
                 QueryCodecSupport.fixed(fields.get(1), 2, HASH_LENGTH),
-                QueryCodecSupport.uint(fields.get(2), 3),
+                QueryCodecSupport.uint64Bits(fields.get(2), 3),
                 QueryCodecSupport.fixed(fields.get(3), 4, HASH_LENGTH));
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "QuotaTransferPlanRefV1");
         return result;

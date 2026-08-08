@@ -106,6 +106,11 @@ cross-object equality. The local catalog and Oxia CAS remain the authority for
 generation freshness, ancestry and session ownership; these tests close only
 the canonical recovery-reference wire boundary.
 
+The quota-control `QuotaTransferPlanRefV1` now preserves its nonzero tenant
+policy-version `uint64` as a raw bit pattern in the canonical control request
+value. Policy authorization and source-ordered transfer authority remain
+external; `ControlRequestSupportCodecTest` covers the high-bit round trip.
+
 Registry class-3 `meta_cf/QUOTA` now has a local per-Lane compatibility projection.
 `LaneQuotaUsageProjection` fences the message, reservation, per-Lane slot and
 per-Claim/per-attempt `inflight_messages`/`inflight_bytes` dimensions with Lane
