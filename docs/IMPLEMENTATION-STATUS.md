@@ -1087,6 +1087,12 @@ installation; it is released only after the active DB is opened or cleanup
 completes. `ShardStoreTest.completeCheckpointRestoresIntoFreshStoreIncarnation`
 also reacquires that slot immediately after a real restore returns, proving
 the slot is released before the caller closes the restored DB.
+`ShardStore.close()` now attempts every native handle/DB/options close and both
+long-lived Worker-slot releases even when an earlier JNI close reports a
+runtime failure, aggregating later failures as suppressed exceptions. A
+failed native shutdown therefore cannot strand `maxOpenShardDbs` or
+`maxOwnedShards` capacity; the store remains closed and the shared-resource
+boundary is still observable for a safe retry.
 The same process-level resource envelope now exposes
 `maxConcurrentDrainsPerWorker` and a shared drain slot. It is bounded
 independently from DB and checkpoint slots and prevents

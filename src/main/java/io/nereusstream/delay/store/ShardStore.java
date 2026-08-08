@@ -1309,25 +1309,40 @@ public final class ShardStore implements AutoCloseable {
             markerFailure = exception;
         }
         closed.set(true);
-        try {
-            for (ColumnFamilyHandle handle : handles.values()) {
-                handle.close();
-            }
-            db.close();
-            closeQuietly(columnFamilyOptions);
-            dbOptions.close();
-            resources.releaseDbSlot();
-            if (ownsShardSlot) {
-                resources.releaseOwnedShardSlot();
-            }
-            if (markerFailure != null) {
-                throw markerFailure;
-            }
-        } catch (RuntimeException closeFailure) {
-            if (markerFailure != null && closeFailure != markerFailure) {
-                closeFailure.addSuppressed(markerFailure);
-            }
+        RuntimeException closeFailure = markerFailure;
+        // Every native close and every worker-slot release is attempted even
+        // when an earlier JNI close reports a runtime failure.  Losing the
+        // release in that path would permanently consume maxOpenShardDbs or
+        // maxOwnedShards and make a healthy worker reject future ownership.
+        for (ColumnFamilyHandle handle : handles.values()) {
+            closeFailure = closeResource(closeFailure, handle::close);
+        }
+        closeFailure = closeResource(closeFailure, db::close);
+        for (ColumnFamilyOptions options : columnFamilyOptions) {
+            closeFailure = closeResource(closeFailure, options::close);
+        }
+        closeFailure = closeResource(closeFailure, dbOptions::close);
+        closeFailure = closeResource(closeFailure, resources::releaseDbSlot);
+        if (ownsShardSlot) {
+            closeFailure = closeResource(closeFailure, resources::releaseOwnedShardSlot);
+        }
+        if (closeFailure != null) {
             throw closeFailure;
+        }
+    }
+
+    private static RuntimeException closeResource(final RuntimeException first, final Runnable closeAction) {
+        try {
+            closeAction.run();
+            return first;
+        } catch (RuntimeException failure) {
+            if (first == null) {
+                return failure;
+            }
+            if (failure != first) {
+                first.addSuppressed(failure);
+            }
+            return first;
         }
     }
 
