@@ -312,6 +312,12 @@ saturating arithmetic；配置、注册或恢复导致的整数溢出不会 wrap
 固定 4×quantum cap 静默截成错误的长期服务比例；
 `LaneSchedulerTest.highWeightRetainsItsConfiguredDeficitQuantum` 与
 `WorkerSchedulerTest.highWeightRetainsItsConfiguredOuterDeficitQuantum` 覆盖该边界。
+§12.4 的本地时钟 guard 现在由 `TrustedUtcClock` 提供：它只从批准的
+`TrustedUtcIntervalEvidence` 和注入的 monotonic reading 推导保守 interval，
+对 uncertainty、sample age、wall/monotonic step 和 stabilization window
+fail closed，并只允许 qualified interval 使用严格的 due/pre-expiry 谓词；
+`TrustedUtcClockTest` 覆盖这些状态切换。同步源签名、Broker-time 认证以及
+生产 Worker/Admission 接线仍是 release blocker。
 Placement 的 dominant-resource score 现在使用候选的 projected
 `committedCapacity + required`，而不是只评分新 shard 的增量；因此 equal telemetry
 下已接近 hard capacity 的 worker 不会因字典序 tie-break 抢到新 shard。
