@@ -10,6 +10,9 @@ An unchecked item is not an implementation permission; it is a release blocker.
 The local in-memory Owner Lease authority advances the raw `uint64` epoch
 domain through the high-bit boundary and fails only when the all-ones value is
 exhausted (`OwnerLeaseTest.ownerEpochSuccessorUsesTheCompleteUnsignedDomain`).
+Lease expiry is computed before publishing the next epoch, so a checked time
+overflow leaves the epoch allocator unchanged
+(`OwnerLeaseTest.overflowingAcquireExpiryDoesNotConsumeOwnerEpoch`).
 Production Oxia sequence allocation remains an external authority gate.
 
 The latest protocol pass also preserves the complete raw `uint32` bit pattern

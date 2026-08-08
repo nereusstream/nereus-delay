@@ -1026,6 +1026,8 @@ state 也会 fail closed，即使 fencing/assignment/session identity 相同，�
 fail closed；这与 `OwnerIdentityV1`、Store runtime metadata 和 inflight key
 的 unsigned fencing 语义一致，不把 Java signed overflow 当作协议边界。
 证据为 `OwnerLeaseTest.ownerEpochSuccessorUsesTheCompleteUnsignedDomain`；
+lease 的 expiry checked-add 也在 epoch 写入之前执行，时间溢出不会消耗下一次
+接管的 epoch，证据为 `OwnerLeaseTest.overflowingAcquireExpiryDoesNotConsumeOwnerEpoch`；
 真实 Oxia sequence allocation 仍由外部 authority 负责。
 Activation 的本地 Oxia adapter 还会在 CAS response loss 后仅接受同一
 fencing/assignment/session identity 的 exact `ACTIVE_FOR_COMMANDS` 重读；

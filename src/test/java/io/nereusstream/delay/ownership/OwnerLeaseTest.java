@@ -109,6 +109,18 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void overflowingAcquireExpiryDoesNotConsumeOwnerEpoch() {
+        final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 20);
+
+        assertThrows(ArithmeticException.class,
+                () -> authority.acquire(shard, "worker-overflow", Long.MAX_VALUE, 1));
+
+        final OwnerLease acquired = authority.acquire(shard, "worker-retry", 0, 10).orElseThrow();
+        assertEquals(1, acquired.ownerEpoch());
+    }
+
+    @Test
     void authoritativeApplyFencesAStillLocallyValidStaleLease() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 18);
         final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();

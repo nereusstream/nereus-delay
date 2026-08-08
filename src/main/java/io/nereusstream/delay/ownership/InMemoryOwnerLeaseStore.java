@@ -23,10 +23,10 @@ public final class InMemoryOwnerLeaseStore implements OwnerLeaseStore {
         if (current != null && current.validAt(nowEpochMs)) {
             return Optional.empty();
         }
+        final long expiresAtEpochMs = Math.addExact(nowEpochMs, leaseDurationMs);
         final long epoch = nextEpoch(epochs.getOrDefault(shardId, 0L));
         epochs.put(shardId, epoch);
-        final OwnerLease next = new OwnerLease(shardId, ownerId, epoch, randomBytes(),
-                Math.addExact(nowEpochMs, leaseDurationMs));
+        final OwnerLease next = new OwnerLease(shardId, ownerId, epoch, randomBytes(), expiresAtEpochMs);
         leases.put(shardId, next);
         return Optional.of(next);
     }
@@ -41,10 +41,10 @@ public final class InMemoryOwnerLeaseStore implements OwnerLeaseStore {
         if (current != null && current.validAt(nowEpochMs)) {
             return Optional.empty();
         }
+        final long expiresAtEpochMs = Math.addExact(nowEpochMs, leaseDurationMs);
         final long epoch = nextEpoch(epochs.getOrDefault(assignment.shardId(), 0L));
         epochs.put(assignment.shardId(), epoch);
-        final OwnerLease next = new OwnerLease(assignment.shardId(), ownerId, epoch, randomBytes(),
-                Math.addExact(nowEpochMs, leaseDurationMs),
+        final OwnerLease next = new OwnerLease(assignment.shardId(), ownerId, epoch, randomBytes(), expiresAtEpochMs,
                 new OwnerLeaseContext(assignment.assignmentId(), assignment.assignmentEpoch(), sessionIdentity),
                 ShardLifecycleState.ACQUIRING);
         leases.put(assignment.shardId(), next);
