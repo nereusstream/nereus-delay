@@ -199,7 +199,7 @@ public final class PersistentLaneScheduler {
         final Set<DestinationLaneId> scannedLanes = new HashSet<>();
         long scannedBytes = 0;
         for (ShardStore.KeyValue entry : entries) {
-            if (System.nanoTime() - startedNanos >= budget.maxElapsedNanos() && !projections.isEmpty()) {
+            if (System.nanoTime() - startedNanos >= budget.maxElapsedNanos()) {
                 break;
             }
             final long entryBytes = Math.addExact(entry.key().length, entry.value().length);

@@ -826,6 +826,9 @@ projection 超过本次 visit 的 byte cap 会直接 fail closed，证据为
 `LaneSchedulerTest.readyDiscoveryRejectsFirstEntryThatExceedsByteBudget`；
 这与激活时必须证明最大 admitted record 能同时适配所有 scheduler cap 的
 V1/ADR 约束一致。
+同一 discovery turn 的 elapsed cap 也在首条 projection decode 前检查；已耗尽
+的 turn 不会因为尚无已收集 projection 而放行一条记录，证据为
+`LaneSchedulerTest.readyDiscoveryStopsBeforeFirstEntryWhenTimeBudgetIsElapsed`。
 内部 `dedupe_cf/COMMAND` replay lookup 也检查 command key 的 Shard 与结果的
 Source Position；Claim lookup/scan 则检查其 `DelayMessageId` 的 self-routing
 Shard，避免跨 Shard 的旧去重结果或 Claim 进入 source replay、owner drain 或
