@@ -36,6 +36,14 @@ exact-byte replay remains idempotent.
 Start reconstruction, collector merge/export and production evidence authority
 remain release blockers.
 
+The five persisted `meta/SCHEDULER` projection codecs now preserve the
+Registry's complete raw `uint64` generation/version/deficit bit patterns and
+use zero-only checks for nonzero fields; `next_index` remains a bounded local
+`uint32`. `SchedulerProjectionsV1Test.schedulerUint64FieldsPreserveCompleteRawBitPatterns`
+covers all five projection values. This is wire/reopen evidence only; the
+runtime scheduler still operates inside its certified signed Java capacity
+envelope.
+
 Registry class-3 `meta_cf/QUOTA` now has a local per-Lane compatibility projection.
 `LaneQuotaUsageProjection` fences the message, reservation, per-Lane slot and
 per-Claim/per-attempt `inflight_messages`/`inflight_bytes` dimensions with Lane

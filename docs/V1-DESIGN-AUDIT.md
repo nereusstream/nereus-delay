@@ -34,6 +34,12 @@ be merged; a different payload cannot regress observation revision. Start
 reconstruction, collector merge/export, and production SLO evidence remain
 release gates.
 
+The five `meta/SCHEDULER` projection codecs likewise retain complete raw
+`uint64` generation/version/deficit bits and keep only the bounded `next_index`
+`uint32` in local range. The focused projection vector covers discovery cursor,
+ring, deficit map, round and last-served map; runtime capacity/placement and
+Oxia scheduler authority remain separate release evidence.
+
 尚未填写的数值不是开放设计问题：它们必须由 §23 的 benchmark、capacity proof、real-service conformance 和 chaos evidence 产生，并装入已经冻结的 required config/schema。任何实现若要改变字段、状态、时序、不变量或停止条件，必须发布新的 spec/protocol revision，不能把 benchmark 输出当作协议修订。
 
 ## 权威材料

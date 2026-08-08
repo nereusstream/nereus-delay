@@ -65,6 +65,36 @@ class SchedulerProjectionsV1Test {
         assertThrows(IllegalArgumentException.class, () -> SchedulerProjectionsV1.ActiveRing.decode(duplicate));
     }
 
+    @Test
+    void schedulerUint64FieldsPreserveCompleteRawBitPatterns() {
+        final DestinationLaneId lane = lane(9);
+        final byte[] incarnation = bytes(16, 9);
+        final OwnerIdentityV1 owner = new OwnerIdentityV1(Bytes.utf8("deployment"), Bytes.utf8("worker"),
+                Long.MIN_VALUE, bytes(32, 9));
+        final SchedulerProjectionsV1.ReadyDiscoveryCursor discovery =
+                new SchedulerProjectionsV1.ReadyDiscoveryCursor(bytes(7, 4), Long.MIN_VALUE, -1L);
+        final SchedulerProjectionsV1.RingEntry ringEntry =
+                new SchedulerProjectionsV1.RingEntry(lane, incarnation, Long.MIN_VALUE);
+        final SchedulerProjectionsV1.ActiveRing ring = new SchedulerProjectionsV1.ActiveRing(
+                Long.MIN_VALUE, -1L, 0, List.of(ringEntry));
+        final SchedulerProjectionsV1.DeficitMap deficits = new SchedulerProjectionsV1.DeficitMap(List.of(
+                new SchedulerProjectionsV1.DeficitEntry(lane, incarnation, -1L, Long.MIN_VALUE)));
+        final SchedulerProjectionsV1.Round round = new SchedulerProjectionsV1.Round(-1L, owner, true);
+        final SchedulerProjectionsV1.LastServedMap served = new SchedulerProjectionsV1.LastServedMap(List.of(
+                new SchedulerProjectionsV1.LastServedEntry(lane, incarnation, -1L, Long.MIN_VALUE)));
+
+        assertArrayEquals(discovery.canonicalBytes(),
+                SchedulerProjectionsV1.ReadyDiscoveryCursor.decode(discovery.canonicalBytes()).canonicalBytes());
+        assertArrayEquals(ring.canonicalBytes(),
+                SchedulerProjectionsV1.ActiveRing.decode(ring.canonicalBytes()).canonicalBytes());
+        assertArrayEquals(deficits.canonicalBytes(),
+                SchedulerProjectionsV1.DeficitMap.decode(deficits.canonicalBytes()).canonicalBytes());
+        assertArrayEquals(round.canonicalBytes(),
+                SchedulerProjectionsV1.Round.decode(round.canonicalBytes()).canonicalBytes());
+        assertArrayEquals(served.canonicalBytes(),
+                SchedulerProjectionsV1.LastServedMap.decode(served.canonicalBytes()).canonicalBytes());
+    }
+
     private static DestinationLaneId lane(final int value) {
         final byte[] bytes = new byte[DestinationLaneId.LENGTH];
         bytes[bytes.length - 1] = (byte) value;

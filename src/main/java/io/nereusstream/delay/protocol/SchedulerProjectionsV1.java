@@ -26,8 +26,6 @@ public final class SchedulerProjectionsV1 {
         public ReadyDiscoveryCursor(final byte[] lastScannedReadyKey, final long wrapGeneration,
                                     final long activeRingGeneration) {
             this.lastScannedReadyKey = optionalBytes(lastScannedReadyKey, "lastScannedReadyKey");
-            requireNonNegative(wrapGeneration, "wrapGeneration");
-            requireNonNegative(activeRingGeneration, "activeRingGeneration");
             this.wrapGeneration = wrapGeneration;
             this.activeRingGeneration = activeRingGeneration;
             this.digest = SchedulerProjectionsV1.digest("nereus-delay-scheduler-ready-discovery-cursor-v1\0",
@@ -37,8 +35,6 @@ public final class SchedulerProjectionsV1 {
         private ReadyDiscoveryCursor(final byte[] lastScannedReadyKey, final long wrapGeneration,
                                      final long activeRingGeneration, final byte[] digest) {
             this.lastScannedReadyKey = optionalBytes(lastScannedReadyKey, "lastScannedReadyKey");
-            requireNonNegative(wrapGeneration, "wrapGeneration");
-            requireNonNegative(activeRingGeneration, "activeRingGeneration");
             this.wrapGeneration = wrapGeneration;
             this.activeRingGeneration = activeRingGeneration;
             this.digest = fixed(digest, "digest");
@@ -67,8 +63,8 @@ public final class SchedulerProjectionsV1 {
                     CanonicalProtobuf.bytes(output, 2, lastScannedReadyKey);
                     CanonicalProtobuf.bytes(output, 3, Bytes.sha256(lastScannedReadyKey));
                 }
-                CanonicalProtobuf.uint64(output, 4, wrapGeneration);
-                CanonicalProtobuf.uint64(output, 5, activeRingGeneration);
+                CanonicalProtobuf.uint64Bits(output, 4, wrapGeneration);
+                CanonicalProtobuf.uint64Bits(output, 5, activeRingGeneration);
                 CanonicalProtobuf.bytes(output, 6, digest);
             });
         }
@@ -106,8 +102,8 @@ public final class SchedulerProjectionsV1 {
                     CanonicalProtobuf.bytes(output, 2, lastScannedReadyKey);
                     CanonicalProtobuf.bytes(output, 3, Bytes.sha256(lastScannedReadyKey));
                 }
-                CanonicalProtobuf.uint64(output, 4, wrapGeneration);
-                CanonicalProtobuf.uint64(output, 5, activeRingGeneration);
+                CanonicalProtobuf.uint64Bits(output, 4, wrapGeneration);
+                CanonicalProtobuf.uint64Bits(output, 5, activeRingGeneration);
             });
         }
     }
@@ -121,7 +117,7 @@ public final class SchedulerProjectionsV1 {
                          final long observedLaneVersion) {
             this.laneId = Objects.requireNonNull(laneId, "laneId");
             this.laneIncarnation = fixedLength(laneIncarnation, 16, "laneIncarnation");
-            if (observedLaneVersion <= 0) {
+            if (observedLaneVersion == 0) {
                 throw new IllegalArgumentException("observedLaneVersion must be positive");
             }
             this.observedLaneVersion = observedLaneVersion;
@@ -143,7 +139,7 @@ public final class SchedulerProjectionsV1 {
             return CanonicalProtobuf.message(output -> {
                 CanonicalProtobuf.bytes(output, 1, laneId.bytes());
                 CanonicalProtobuf.bytes(output, 2, laneIncarnation);
-                CanonicalProtobuf.uint64(output, 3, observedLaneVersion);
+                CanonicalProtobuf.uint64Bits(output, 3, observedLaneVersion);
             });
         }
 
@@ -178,7 +174,7 @@ public final class SchedulerProjectionsV1 {
 
         public ActiveRing(final long ringGeneration, final long roundGeneration, final int nextIndex,
                           final List<RingEntry> entries) {
-            if (ringGeneration <= 0 || roundGeneration < 0) {
+            if (ringGeneration == 0) {
                 throw new IllegalArgumentException("invalid scheduler ring generations");
             }
             this.ringGeneration = ringGeneration;
@@ -194,7 +190,7 @@ public final class SchedulerProjectionsV1 {
 
         private ActiveRing(final long ringGeneration, final long roundGeneration, final int nextIndex,
                            final List<RingEntry> entries, final byte[] digest) {
-            if (ringGeneration <= 0 || roundGeneration < 0) {
+            if (ringGeneration == 0) {
                 throw new IllegalArgumentException("invalid scheduler ring generations");
             }
             this.ringGeneration = ringGeneration;
@@ -259,8 +255,8 @@ public final class SchedulerProjectionsV1 {
         private byte[] fieldsOneToFive() {
             return CanonicalProtobuf.message(output -> {
                 CanonicalProtobuf.uint32(output, 1, VERSION);
-                CanonicalProtobuf.uint64(output, 2, ringGeneration);
-                CanonicalProtobuf.uint64(output, 3, roundGeneration);
+                CanonicalProtobuf.uint64Bits(output, 2, ringGeneration);
+                CanonicalProtobuf.uint64Bits(output, 3, roundGeneration);
                 CanonicalProtobuf.uint32(output, 4, nextIndex);
                 for (RingEntry entry : entries) {
                     CanonicalProtobuf.bytes(output, 5, entry.canonicalBytes());
@@ -279,7 +275,7 @@ public final class SchedulerProjectionsV1 {
                             final long observedLaneVersion) {
             this.laneId = Objects.requireNonNull(laneId, "laneId");
             this.laneIncarnation = fixedLength(laneIncarnation, 16, "laneIncarnation");
-            if (deficitBytes < 0 || observedLaneVersion <= 0) {
+            if (observedLaneVersion == 0) {
                 throw new IllegalArgumentException("invalid scheduler deficit entry");
             }
             this.deficitBytes = deficitBytes;
@@ -306,8 +302,8 @@ public final class SchedulerProjectionsV1 {
             return CanonicalProtobuf.message(output -> {
                 CanonicalProtobuf.bytes(output, 1, laneId.bytes());
                 CanonicalProtobuf.bytes(output, 2, laneIncarnation);
-                CanonicalProtobuf.uint64(output, 3, deficitBytes);
-                CanonicalProtobuf.uint64(output, 4, observedLaneVersion);
+                CanonicalProtobuf.uint64Bits(output, 3, deficitBytes);
+                CanonicalProtobuf.uint64Bits(output, 4, observedLaneVersion);
             });
         }
 
@@ -386,7 +382,6 @@ public final class SchedulerProjectionsV1 {
         private final byte[] digest;
 
         public Round(final long roundGeneration, final OwnerIdentityV1 owner, final boolean recoveryFirstPass) {
-            requireNonNegative(roundGeneration, "roundGeneration");
             this.roundGeneration = roundGeneration;
             this.owner = Objects.requireNonNull(owner, "owner");
             this.recoveryFirstPass = recoveryFirstPass;
@@ -395,7 +390,6 @@ public final class SchedulerProjectionsV1 {
 
         private Round(final long roundGeneration, final OwnerIdentityV1 owner, final boolean recoveryFirstPass,
                       final byte[] digest) {
-            requireNonNegative(roundGeneration, "roundGeneration");
             this.roundGeneration = roundGeneration;
             this.owner = Objects.requireNonNull(owner, "owner");
             this.recoveryFirstPass = recoveryFirstPass;
@@ -439,7 +433,7 @@ public final class SchedulerProjectionsV1 {
         private byte[] fieldsOneToFour() {
             return CanonicalProtobuf.message(output -> {
                 CanonicalProtobuf.uint32(output, 1, VERSION);
-                CanonicalProtobuf.uint64(output, 2, roundGeneration);
+                CanonicalProtobuf.uint64Bits(output, 2, roundGeneration);
                 CanonicalProtobuf.bytes(output, 3, owner.canonicalBytes());
                 CanonicalProtobuf.uint32(output, 4, recoveryFirstPass ? 1 : 0);
             });
@@ -456,8 +450,6 @@ public final class SchedulerProjectionsV1 {
                                final long lastServedRound, final long serviceGapGeneration) {
             this.laneId = Objects.requireNonNull(laneId, "laneId");
             this.laneIncarnation = fixedLength(laneIncarnation, 16, "laneIncarnation");
-            requireNonNegative(lastServedRound, "lastServedRound");
-            requireNonNegative(serviceGapGeneration, "serviceGapGeneration");
             this.lastServedRound = lastServedRound;
             this.serviceGapGeneration = serviceGapGeneration;
         }
@@ -482,8 +474,8 @@ public final class SchedulerProjectionsV1 {
             return CanonicalProtobuf.message(output -> {
                 CanonicalProtobuf.bytes(output, 1, laneId.bytes());
                 CanonicalProtobuf.bytes(output, 2, laneIncarnation);
-                CanonicalProtobuf.uint64(output, 3, lastServedRound);
-                CanonicalProtobuf.uint64(output, 4, serviceGapGeneration);
+                CanonicalProtobuf.uint64Bits(output, 3, lastServedRound);
+                CanonicalProtobuf.uint64Bits(output, 4, serviceGapGeneration);
             });
         }
 
@@ -633,12 +625,6 @@ public final class SchedulerProjectionsV1 {
             throw new IllegalArgumentException(name + " must not be empty when present");
         }
         return Bytes.copy(value);
-    }
-
-    private static void requireNonNegative(final long value, final String name) {
-        if (value < 0) {
-            throw new IllegalArgumentException(name + " must be non-negative");
-        }
     }
 
     private static byte[] digest(final String domain, final byte[] fields) {
