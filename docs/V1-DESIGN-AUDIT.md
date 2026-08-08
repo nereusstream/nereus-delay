@@ -513,6 +513,16 @@ due head。否则一个远期 future Lane/Shard 会让 `recovery_first_pass` 永
 与 `WorkerSchedulerTest.futureShardDoesNotHoldRecoveryFirstPassOpenForDueWork` 覆盖
 该本地公平性边界；生产 Trusted UTC、placement 和 Owner/Oxia authority 仍不由此
 证明。
+Legacy client receipt handling now closes the remaining local locator gap:
+`CommandQueuedReceipt` binds `commandId`, `delayMessageId`, and Source Position
+to the same Shard, and embedded `awaitApplied` validates its pinned Kafka source
+before draining. `EmbeddedDelayServiceTest.awaitAppliedRejectsForeignSourceBeforeDraining`
+shows that a foreign receipt is rejected without applying queued work, and
+`EmbeddedDelayServiceTest.queuedReceiptRejectsMessageIdFromAnotherShard` covers
+cross-shard Message identity rejection. This is a local API/conformance guard;
+gateway authorization, production routing and durable receipt-retention authority
+remain release blockers.
+
 §12.4 的本地时钟 guard 现在由 `TrustedUtcClock` 提供：它只从批准的
 `TrustedUtcIntervalEvidence` 和注入的 monotonic reading 推导保守 interval，
 对 uncertainty、sample age、wall/monotonic step 和 stabilization window

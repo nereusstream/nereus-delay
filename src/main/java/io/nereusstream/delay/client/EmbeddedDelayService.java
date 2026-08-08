@@ -249,8 +249,25 @@ public final class EmbeddedDelayService implements DelayClient {
     @Override
     public synchronized CompletionStage<CommandResult> awaitApplied(final CommandQueuedReceipt receipt) {
         ensureOpen();
+        validateEmbeddedQueuedReceipt(receipt);
         drain();
         return CompletableFuture.completedFuture(shard.getCommandResult(receipt.commandId()));
+    }
+
+    /**
+     * The embedded service can only resolve locators from its pinned source.
+     * Validate before draining so a foreign or forged receipt cannot trigger
+     * source application as a side effect of an invalid query.
+     */
+    private void validateEmbeddedQueuedReceipt(final CommandQueuedReceipt receipt) {
+        Objects.requireNonNull(receipt, "receipt");
+        if (!shardId.equals(receipt.shardId())
+                || !shardId.equals(receipt.commandId().routingId().shardId())
+                || !shardId.equals(receipt.delayMessageId().routingId().shardId())
+                || !(receipt.sourcePosition() instanceof KafkaSourcePosition kafka)
+                || !isEmbeddedSource(kafka)) {
+            throw new IllegalArgumentException("queued receipt does not belong to embedded source");
+        }
     }
 
     /**

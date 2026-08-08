@@ -21,7 +21,9 @@ public record CommandQueuedReceipt(
         Objects.requireNonNull(delayMessageId, "delayMessageId");
         Objects.requireNonNull(shardId, "shardId");
         Objects.requireNonNull(sourcePosition, "sourcePosition");
-        if (!shardId.equals(commandId.routingId().shardId()) || !shardId.equals(sourcePosition.shardId())) {
+        if (!shardId.equals(commandId.routingId().shardId())
+                || !shardId.equals(delayMessageId.routingId().shardId())
+                || !shardId.equals(sourcePosition.shardId())) {
             throw new IllegalArgumentException("receipt identity does not belong to shard");
         }
     }

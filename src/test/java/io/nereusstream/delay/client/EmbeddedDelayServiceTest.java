@@ -5,6 +5,7 @@ import io.nereusstream.delay.protocol.AdapterKindV1;
 import io.nereusstream.delay.protocol.AdapterMetadataV1;
 import io.nereusstream.delay.protocol.CommandAppliedReceiptV1;
 import io.nereusstream.delay.protocol.CommandBodies;
+import io.nereusstream.delay.protocol.CommandId;
 import io.nereusstream.delay.protocol.CommandQueryResult;
 import io.nereusstream.delay.protocol.CommandQueuedReceiptV1;
 import io.nereusstream.delay.protocol.ControlAuthorV1;
@@ -92,6 +93,40 @@ class EmbeddedDelayServiceTest {
                     service.awaitApplied(outcome.receipt()).toCompletableFuture().join().stableCode());
             assertEquals(StableCode.SCHEDULED, result.code());
         }
+    }
+
+    @Test
+    void awaitAppliedRejectsForeignSourceBeforeDraining() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 34);
+        final ScheduleIntent intent = new ScheduleIntent(
+                DestinationLaneId.derive(Bytes.utf8("receipt-source-lane")), 2_000, 5_000,
+                OrderingMode.BEST_EFFORT, Bytes.utf8("payload"));
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("receipt-source")), shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final PreparedCommand command = service.prepareSchedule(intent, 10_000);
+            final EnqueueOutcome queued = service.enqueue(command).toCompletableFuture().join();
+            final CommandQueuedReceipt foreign = new CommandQueuedReceipt(command.commandId(),
+                    command.delayMessageId(), shard,
+                    new KafkaSourcePosition(shard, "foreign-cluster", UUID.randomUUID(), 0, null, 1_000));
+
+            assertThrows(IllegalArgumentException.class,
+                    () -> service.awaitApplied(foreign));
+            assertEquals(1, service.pendingCommandCount());
+            assertEquals(EnqueueStatus.QUEUED, queued.status());
+        }
+    }
+
+    @Test
+    void queuedReceiptRejectsMessageIdFromAnotherShard() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 35);
+        final ShardId foreignShard = new ShardId(RouteIncarnation.random(), 36);
+        final CommandId commandId = CommandId.random(shard);
+        final KafkaSourcePosition source = new KafkaSourcePosition(shard, "embedded", UUID.randomUUID(),
+                0, null, 1_000);
+
+        assertThrows(IllegalArgumentException.class, () -> new CommandQueuedReceipt(commandId,
+                DelayMessageId.random(foreignShard), shard, source));
     }
 
     @Test

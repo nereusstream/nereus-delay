@@ -420,6 +420,13 @@ Batch 结果逐条返回且保持输入顺序；Broker batching 不提供跨命�
 - receipt 类型和可用能力。
 - `receiptQueryUntil = checkedAdd(sourcePosition.brokerPersistenceTime, queuedReceiptQueryWindow)`；其 position audit/evidence 受 TIME_FENCE 与 Recovery Floor 保护到该边界关闭。不能从 SDK receipt time 或 Worker apply wall clock 起算。
 
+任何 legacy/in-process queued receipt 也必须先绑定同一个 `ShardId` 的
+`commandId`、`delayMessageId` 与 Source Position；固定 source 的 embedded
+client 还必须验证 pinned source identity。`awaitApplied`/query 在校验失败时
+必须立即返回 typed receipt mismatch（或本地等价的确定性错误），不得先 drain、
+apply 或推进 Source Position。Receipt 是定位与查询凭证，不是可跨 shard/source
+重解释的 bare command locator。
+
 `CommandAppliedReceipt` 只在 shard 已 durable `APPLIED` 或 `REJECTED` 后存在，包含 stable outcome、reason、applied Source Position，以及该 outcome 适用的 generation/Message Control Version (`stateVersion`)/`PublicDestinationBindingViewV1`；拒绝或 `NOT_FOUND` 不伪造不存在的 message fields，也永不序列化内部 Binding/secret/evidence/object descriptor。
 
 `NativeDeliveryReceipt` 使用独立 `nativeDeliveryId`，不伪装为 managed Delay Message。
