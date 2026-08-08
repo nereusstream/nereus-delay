@@ -317,7 +317,9 @@ saturating arithmetic；配置、注册或恢复导致的整数溢出不会 wrap
 对 uncertainty、sample age、wall/monotonic step 和 stabilization window
 fail closed，并只允许 qualified interval 使用严格的 due/pre-expiry 谓词；
 `TrustedUtcClockTest` 覆盖这些状态切换。同步源签名、Broker-time 认证以及
-生产 Worker/Admission 接线仍是 release blocker。
+生产 Worker/Admission 接线仍是 release blocker。配置还必须让
+`maxUncertainty` 覆盖 projection 两侧的 divergence 扩展，否则在 guard
+激活前直接拒绝不可能 qualified 的 timing budget。
 Placement 的 dominant-resource score 现在使用候选的 projected
 `committedCapacity + required`，而不是只评分新 shard 的增量；因此 equal telemetry
 下已接近 hard capacity 的 worker 不会因字典序 tie-break 抢到新 shard。

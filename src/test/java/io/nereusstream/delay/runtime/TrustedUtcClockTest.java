@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class TrustedUtcClockTest {
     @Test
@@ -50,6 +51,15 @@ class TrustedUtcClockTest {
         assertTrue(current.earliestEpochMs() <= 1_100);
         assertTrue(current.latestEpochMs() >= 1_100);
         assertTrue(current.allowsAdmission(current.earliestEpochMs(), current.latestEpochMs() + 1));
+    }
+
+    @Test
+    void uncertaintyBudgetIncludesBothDivergenceSides() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new TrustedUtcClock.Config(9, 1_000, 5, 0));
+
+        final TrustedUtcClock clock = new TrustedUtcClock(new TrustedUtcClock.Config(10, 1_000, 5, 0));
+        assertFalse(clock.observe(evidence(1_000, 1_001, 0)).qualified());
     }
 
     private static TrustedUtcIntervalEvidence evidence(final long earliest, final long latest,

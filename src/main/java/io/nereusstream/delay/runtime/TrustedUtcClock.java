@@ -86,7 +86,14 @@ public final class TrustedUtcClock {
     }
 
     private boolean intervalWithinBound(final TrustedUtcIntervalEvidence evidence) {
-        return evidence.latestEpochMs() - evidence.earliestEpochMs() <= config.maxUncertaintyMs();
+        final long rawWidth = evidence.latestEpochMs() - evidence.earliestEpochMs();
+        final long divergenceWidth;
+        try {
+            divergenceWidth = Math.multiplyExact(config.maxWallMonotonicDivergenceMs(), 2L);
+            return Math.addExact(rawWidth, divergenceWidth) <= config.maxUncertaintyMs();
+        } catch (ArithmeticException overflow) {
+            return false;
+        }
     }
 
     private boolean sampleIsFreshAt(final long monotonicNowNs) {
@@ -170,6 +177,14 @@ public final class TrustedUtcClock {
             if (maxUncertaintyMs < 0 || maxSampleAgeMs <= 0 || maxWallMonotonicDivergenceMs < 0
                     || stabilizationWindowMs < 0) {
                 throw new IllegalArgumentException("invalid trusted UTC clock bounds");
+            }
+            try {
+                if (Math.multiplyExact(maxWallMonotonicDivergenceMs, 2L) > maxUncertaintyMs) {
+                    throw new IllegalArgumentException(
+                            "trusted UTC uncertainty must cover wall/monotonic divergence");
+                }
+            } catch (ArithmeticException overflow) {
+                throw new IllegalArgumentException("trusted UTC divergence bound overflows", overflow);
             }
         }
     }

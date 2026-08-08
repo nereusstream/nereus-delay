@@ -301,7 +301,9 @@ step drift, requires the configured stabilization window, and exposes only a
 qualified interval for the strict `earliest >= actionAt` and
 `latest < expireAt` gates. It never reads raw wall time itself. The evidence is
 `TrustedUtcClockTest`; approved time-source/signature authority and wiring this
-guard into production Broker/Worker activation remain release blockers.
+guard into production Broker/Worker activation remain release blockers. The
+configured uncertainty cap must also cover both conservative divergence sides,
+so an impossible timing budget is rejected before the guard can activate.
 
 Destination Profile target partition count/allow-list values and Native
 capability/prepared/public binding physical partitions now preserve complete
