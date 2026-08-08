@@ -815,6 +815,11 @@ recovery 把跨 Shard 的 READY head 放入本地公平 ring；证据为
 work identity 和 READY key 都未改变时才会被抑制，合法的 Claim/READY
 transition 即使保留相同 work item 也会重新进入发现队列，证据为
 `LaneSchedulerTest.readyTransitionWithSameWorkUsesNewReadyKey`。
+发现预算也没有“第一条 oversized READY”例外：serialized key/value
+projection 超过本次 visit 的 byte cap 会直接 fail closed，证据为
+`LaneSchedulerTest.readyDiscoveryRejectsFirstEntryThatExceedsByteBudget`；
+这与激活时必须证明最大 admitted record 能同时适配所有 scheduler cap 的
+V1/ADR 约束一致。
 内部 `dedupe_cf/COMMAND` replay lookup 也检查 command key 的 Shard 与结果的
 Source Position；Claim lookup/scan 则检查其 `DelayMessageId` 的 self-routing
 Shard，避免跨 Shard 的旧去重结果或 Claim 进入 source replay、owner drain 或

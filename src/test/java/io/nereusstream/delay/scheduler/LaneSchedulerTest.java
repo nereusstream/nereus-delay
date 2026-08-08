@@ -544,6 +544,31 @@ class LaneSchedulerTest {
         }
     }
 
+    @Test
+    void readyDiscoveryRejectsFirstEntryThatExceedsByteBudget() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 32);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("ready-discovery-byte-budget"));
+        final DestinationLaneId lane = lane(43);
+        final LaneRecord laneRecord = new LaneRecord(lane, new byte[16], 1, 1,
+                AdmissionGate.OPEN, RuntimeReadiness.READY, 1, 1_000);
+        final SourcePosition source = new KafkaSourcePosition(shardId, "cluster", UUID.randomUUID(),
+                0, null, 1_000);
+        final DelayMessageId messageId = DelayMessageId.random(shardId);
+        final MessageRecord message = new MessageRecord(MessageStatus.SCHEDULED, 1, 1,
+                1_000, 9_000, lane, OrderingMode.BEST_EFFORT, new byte[]{1}, source.canonicalBytes());
+        final ReadyFixture fixture = readyFixture(laneRecord, messageId, source, message);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> putReady(batch, fixture));
+            final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
+            scheduler.register(laneRecord);
+
+            assertThrows(IllegalStateException.class, () -> scheduler.discoverReady(
+                    new SchedulerBudget(1, 1, 1_000_000_000)));
+        }
+    }
+
     private static LaneRecord record(final DestinationLaneId lane, final int weight) {
         return new LaneRecord(lane, new byte[16], 1, 0, AdmissionGate.OPEN, RuntimeReadiness.READY, weight, 0);
     }

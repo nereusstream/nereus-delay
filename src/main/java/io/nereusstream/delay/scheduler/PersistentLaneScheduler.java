@@ -203,7 +203,14 @@ public final class PersistentLaneScheduler {
                 break;
             }
             final long entryBytes = Math.addExact(entry.key().length, entry.value().length);
-            if (!projections.isEmpty() && entryBytes > budget.maxBytes() - scannedBytes) {
+            // A valid READY projection must fit every certified scheduler
+            // byte cap.  Do not make a first-entry exception that bypasses
+            // the cap; activation/configuration is responsible for proving
+            // that admitted work and its durable projection fit.
+            if (entryBytes > budget.maxBytes()) {
+                throw new IllegalStateException("READY discovery entry exceeds byte budget");
+            }
+            if (entryBytes > budget.maxBytes() - scannedBytes) {
                 break;
             }
             final ReadyProjection projection = decodeReadyProjection(entry);
