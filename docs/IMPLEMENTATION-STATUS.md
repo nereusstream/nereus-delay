@@ -111,6 +111,13 @@ policy-version `uint64` as a raw bit pattern in the canonical control request
 value. Policy authorization and source-ordered transfer authority remain
 external; `ControlRequestSupportCodecTest` covers the high-bit round trip.
 
+Lane retirement progress and terminal-guard projections now preserve the
+complete nonzero raw `uint64` mutation-sequence pattern through their digests
+and canonical codecs. The sequence is only an identity/fencing value here;
+the runtime's local source-mutation counter and lane-control successor remain
+bounded local counters. `LaneTerminalGuardV1Test` covers the high-bit progress
+and guard round trip.
+
 Registry class-3 `meta_cf/QUOTA` now has a local per-Lane compatibility projection.
 `LaneQuotaUsageProjection` fences the message, reservation, per-Lane slot and
 per-Claim/per-attempt `inflight_messages`/`inflight_bytes` dimensions with Lane

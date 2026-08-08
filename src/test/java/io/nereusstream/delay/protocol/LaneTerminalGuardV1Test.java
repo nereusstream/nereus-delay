@@ -6,6 +6,7 @@ import java.util.Arrays;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class LaneTerminalGuardV1Test {
@@ -25,6 +26,23 @@ class LaneTerminalGuardV1Test {
         assertArrayEquals(guard.canonicalBytes(), LaneTerminalGuardV1.decode(guard.canonicalBytes()).canonicalBytes());
         assertArrayEquals(progress.canonicalBytes(),
                 LaneRetirementProgressV1.decode(progress.canonicalBytes()).canonicalBytes());
+    }
+
+    @Test
+    void retirementMutationSequencesPreserveCompleteUnsigned64BitPatterns() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
+        final KafkaSourcePosition source = new KafkaSourcePosition(shard, "cluster", UUID.randomUUID(), 9,
+                2, 100);
+        final ProfileRefV1 profile = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2),
+                ProfileKindV1.DESTINATION);
+        final long highBit = Long.MIN_VALUE;
+        final LaneTerminalGuardV1 guard = new LaneTerminalGuardV1(bytes(16, 5), 7, source, profile, profile,
+                Bytes.utf8("canonical-lane-tuple"), bytes(32, 6), highBit);
+        final LaneRetirementProgressV1 progress = new LaneRetirementProgressV1(bytes(32, 7), highBit, source);
+
+        assertEquals(highBit, LaneTerminalGuardV1.decode(guard.canonicalBytes()).retirementMutationSequence());
+        assertEquals(highBit,
+                LaneRetirementProgressV1.decode(progress.canonicalBytes()).appliedShardMutationSequence());
     }
 
     @Test

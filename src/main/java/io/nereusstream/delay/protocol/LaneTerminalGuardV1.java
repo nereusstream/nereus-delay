@@ -43,8 +43,8 @@ public final class LaneTerminalGuardV1 {
         this.laneId = DestinationLaneId.derive(this.canonicalLaneTuple);
         this.canonicalLaneTupleSha256 = Bytes.sha256(this.canonicalLaneTuple);
         this.retirementIntentId = nonZero(retirementIntentId, "retirementIntentId");
-        if (retirementMutationSequence <= 0) {
-            throw new IllegalArgumentException("retirementMutationSequence must be positive");
+        if (retirementMutationSequence == 0) {
+            throw new IllegalArgumentException("retirementMutationSequence must be non-zero");
         }
         this.retirementMutationSequence = retirementMutationSequence;
         this.guardDigest = Bytes.sha256(DIGEST_DOMAIN, fieldsOneToTwelve());
@@ -69,8 +69,8 @@ public final class LaneTerminalGuardV1 {
         Bytes.requireLength(tupleDigest, HASH_LENGTH, "canonicalLaneTupleSha256");
         this.canonicalLaneTupleSha256 = Bytes.copy(tupleDigest);
         this.retirementIntentId = nonZero(retirementIntentId, "retirementIntentId");
-        if (retirementMutationSequence <= 0) {
-            throw new IllegalArgumentException("retirementMutationSequence must be positive");
+        if (retirementMutationSequence == 0) {
+            throw new IllegalArgumentException("retirementMutationSequence must be non-zero");
         }
         this.retirementMutationSequence = retirementMutationSequence;
         Bytes.requireLength(guardDigest, HASH_LENGTH, "guardDigest");
@@ -153,7 +153,8 @@ public final class LaneTerminalGuardV1 {
                 ProfileRefV1.decode(QueryCodecSupport.nested(fields.get(6), 7)),
                 ProfileRefV1.decode(QueryCodecSupport.nested(fields.get(7), 8)), tuple, tupleDigest,
                 QueryCodecSupport.fixed(fields.get(10), 11, HASH_LENGTH),
-                QueryCodecSupport.uint(fields.get(11), 12), QueryCodecSupport.fixed(fields.get(12), 13, HASH_LENGTH));
+                QueryCodecSupport.uint64Bits(fields.get(11), 12), QueryCodecSupport.fixed(fields.get(12), 13,
+                        HASH_LENGTH));
         if (!Bytes.constantTimeEquals(result.guardDigest,
                 Bytes.sha256(DIGEST_DOMAIN, result.fieldsOneToTwelve()))) {
             throw new IllegalArgumentException("LaneTerminalGuardV1 guard digest mismatch");
@@ -175,7 +176,7 @@ public final class LaneTerminalGuardV1 {
             CanonicalProtobuf.bytes(output, 9, canonicalLaneTuple);
             CanonicalProtobuf.bytes(output, 10, canonicalLaneTupleSha256);
             CanonicalProtobuf.bytes(output, 11, retirementIntentId);
-            CanonicalProtobuf.uint64(output, 12, retirementMutationSequence);
+            CanonicalProtobuf.uint64Bits(output, 12, retirementMutationSequence);
         });
     }
 

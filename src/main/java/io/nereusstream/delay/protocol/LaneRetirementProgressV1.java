@@ -16,8 +16,8 @@ public final class LaneRetirementProgressV1 {
     public LaneRetirementProgressV1(final byte[] retireMutationId, final long appliedShardMutationSequence,
                                     final SourcePosition intentSourcePosition) {
         this.retireMutationId = nonZero(retireMutationId, "retireMutationId");
-        if (appliedShardMutationSequence <= 0) {
-            throw new IllegalArgumentException("appliedShardMutationSequence must be positive");
+        if (appliedShardMutationSequence == 0) {
+            throw new IllegalArgumentException("appliedShardMutationSequence must be non-zero");
         }
         this.appliedShardMutationSequence = appliedShardMutationSequence;
         this.intentSourcePosition = Objects.requireNonNull(intentSourcePosition, "intentSourcePosition");
@@ -27,8 +27,8 @@ public final class LaneRetirementProgressV1 {
     private LaneRetirementProgressV1(final byte[] retireMutationId, final long appliedShardMutationSequence,
                                      final SourcePosition intentSourcePosition, final byte[] progressDigest) {
         this.retireMutationId = nonZero(retireMutationId, "retireMutationId");
-        if (appliedShardMutationSequence <= 0) {
-            throw new IllegalArgumentException("appliedShardMutationSequence must be positive");
+        if (appliedShardMutationSequence == 0) {
+            throw new IllegalArgumentException("appliedShardMutationSequence must be non-zero");
         }
         this.appliedShardMutationSequence = appliedShardMutationSequence;
         this.intentSourcePosition = Objects.requireNonNull(intentSourcePosition, "intentSourcePosition");
@@ -64,7 +64,7 @@ public final class LaneRetirementProgressV1 {
         QueryCodecSupport.requireNumbers(fields, new int[]{1, 2, 3, 4}, "LaneRetirementProgressV1");
         final LaneRetirementProgressV1 result = new LaneRetirementProgressV1(
                 nonZero(QueryCodecSupport.fixed(fields.get(0), 1, HASH_LENGTH), "retireMutationId"),
-                QueryCodecSupport.uint(fields.get(1), 2),
+                QueryCodecSupport.uint64Bits(fields.get(1), 2),
                 QueryCodecSupport.decodeSourcePosition(QueryCodecSupport.nested(fields.get(2), 3)),
                 QueryCodecSupport.fixed(fields.get(3), 4, HASH_LENGTH));
         if (!Bytes.constantTimeEquals(result.progressDigest,
@@ -78,7 +78,7 @@ public final class LaneRetirementProgressV1 {
     private byte[] fieldsOneToThree() {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, retireMutationId);
-            CanonicalProtobuf.uint64(output, 2, appliedShardMutationSequence);
+            CanonicalProtobuf.uint64Bits(output, 2, appliedShardMutationSequence);
             CanonicalProtobuf.bytes(output, 3, QueryCodecSupport.encodeSourcePosition(intentSourcePosition));
         });
     }
