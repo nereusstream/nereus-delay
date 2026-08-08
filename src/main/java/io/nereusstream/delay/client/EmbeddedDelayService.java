@@ -248,19 +248,18 @@ public final class EmbeddedDelayService implements DelayClient {
         ensureOpen();
         Objects.requireNonNull(outcome, "outcome");
         return switch (outcome.status()) {
-            case QUEUED -> EnqueueOutcomeMessageV1.queued(
-                    queuedReceiptV1(outcome, receiptQueryUntilEpochMs, physicalAttemptId));
-            case DEFINITELY_NOT_QUEUED -> {
-                final StableCode code = stableErrorCode(outcome);
-                final CommandQueuedReceiptV1.PreparedCommandRef command =
-                        CommandQueuedReceiptV1.PreparedCommandRef.from(outcome.preparedCommand());
-                final NonPersistenceProofV1 proof = NonPersistenceProofV1.create(
-                        NonPersistenceProofKindV1.LOCAL_BEFORE_PRODUCER_OWNERSHIP, null, command.frameSha256(),
-                        null, null, null);
-                yield EnqueueOutcomeMessageV1.definitelyNotQueued(new DefinitelyNotQueuedV1(command, proof,
-                        StableErrorV1.of(FailureStageV1.ENQUEUE, code, null, command, null, null)));
+            case QUEUED -> {
+                if (!validPhysicalAttempt(physicalAttemptId)) {
+                    yield localDefiniteOutcome(outcome.preparedCommand(), StableCode.INVALID_PREPARED_COMMAND);
+                }
+                yield EnqueueOutcomeMessageV1.queued(
+                        queuedReceiptV1(outcome, receiptQueryUntilEpochMs, physicalAttemptId));
             }
+            case DEFINITELY_NOT_QUEUED -> localDefiniteOutcome(outcome.preparedCommand(), stableErrorCode(outcome));
             case ENQUEUE_UNCERTAIN -> {
+                if (!validPhysicalAttempt(physicalAttemptId)) {
+                    yield localDefiniteOutcome(outcome.preparedCommand(), StableCode.INVALID_PREPARED_COMMAND);
+                }
                 final StableCode code = stableErrorCode(outcome);
                 final CommandQueuedReceiptV1.PreparedCommandRef command =
                         CommandQueuedReceiptV1.PreparedCommandRef.from(outcome.preparedCommand());
@@ -268,6 +267,27 @@ public final class EmbeddedDelayService implements DelayClient {
                         StableErrorV1.of(FailureStageV1.ENQUEUE, code, null, command, null, null)));
             }
         };
+    }
+
+    private static EnqueueOutcomeMessageV1 localDefiniteOutcome(final PreparedCommand command,
+                                                                  final StableCode code) {
+        final CommandQueuedReceiptV1.PreparedCommandRef ref = CommandQueuedReceiptV1.PreparedCommandRef.from(command);
+        final NonPersistenceProofV1 proof = NonPersistenceProofV1.create(
+                NonPersistenceProofKindV1.LOCAL_BEFORE_PRODUCER_OWNERSHIP, null, ref.frameSha256(), null, null, null);
+        return EnqueueOutcomeMessageV1.definitelyNotQueued(new DefinitelyNotQueuedV1(ref, proof,
+                StableErrorV1.of(FailureStageV1.ENQUEUE, code, null, ref, null, null)));
+    }
+
+    private static boolean validPhysicalAttempt(final byte[] physicalAttemptId) {
+        if (physicalAttemptId == null || physicalAttemptId.length != NonPersistenceProofV1.ATTEMPT_ID_LENGTH) {
+            return false;
+        }
+        for (byte value : physicalAttemptId) {
+            if (value != 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

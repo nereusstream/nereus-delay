@@ -1772,6 +1772,14 @@ that wrapper is failing, the result instead remains a local definitive
 ownership; `preparedSubmissionWrapperInvalidAttemptRemainsLocalDefinite` covers
 that precedence. This remains local transport-SPI evidence only.
 
+The embedded managed-outcome bridge applies the same physical-attempt rule to
+its queued and uncertain projections: a null, wrong-length, or all-zero attempt
+is returned as local `DEFINITELY_NOT_QUEUED(INVALID_PREPARED_COMMAND)` rather
+than leaking a constructor exception or emitting an uncertain union without a
+valid attempt identity. `EmbeddedDelayServiceTest.embeddedIngressProjectsAllManagedOutcomeBranches`
+covers both queued and uncertain invalid-attempt projections; the embedded
+service remains a conformance seam, not a real Broker adapter.
+
 The local physical-admission lifecycle now has an explicit Lane teardown
 boundary: after the channel/Producer generation is fenced, READY is closed and
 all physical/zombie reservations have quiesced, the caller may unregister with

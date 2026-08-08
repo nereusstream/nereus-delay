@@ -470,6 +470,11 @@ class EmbeddedDelayServiceTest {
             final EnqueueOutcomeMessageV1 queuedWire = service.enqueueOutcomeV1(queued, 10_000, attemptId);
             assertEquals(EnqueueOutcomeKindV1.QUEUED, queuedWire.kind());
             assertEquals(queuedWire, EnqueueOutcomeMessageV1.decode(queuedWire.canonicalBytes()));
+            final EnqueueOutcomeMessageV1 invalidQueuedAttempt = service.enqueueOutcomeV1(queued, 10_000,
+                    new byte[16]);
+            assertEquals(EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED, invalidQueuedAttempt.kind());
+            assertEquals(StableCode.INVALID_PREPARED_COMMAND,
+                    invalidQueuedAttempt.definitelyNotQueued().error().code());
 
             final ShardId rejectedShard = new ShardId(RouteIncarnation.random(), 0);
             final PreparedCommand rejectedCommand = scheduleV1(rejectedShard, "outcome-rejected", 2_000, 5_000,
@@ -485,6 +490,11 @@ class EmbeddedDelayServiceTest {
             final EnqueueOutcomeMessageV1 uncertainWire = service.enqueueOutcomeV1(uncertain, 10_000, attemptId);
             assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, uncertainWire.kind());
             assertEquals(uncertainWire, EnqueueOutcomeMessageV1.decode(uncertainWire.canonicalBytes()));
+            final EnqueueOutcomeMessageV1 invalidUncertainAttempt = service.enqueueOutcomeV1(uncertain, 10_000,
+                    new byte[16]);
+            assertEquals(EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED, invalidUncertainAttempt.kind());
+            assertEquals(StableCode.INVALID_PREPARED_COMMAND,
+                    invalidUncertainAttempt.definitelyNotQueued().error().code());
         }
     }
 

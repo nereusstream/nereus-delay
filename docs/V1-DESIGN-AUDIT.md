@@ -720,6 +720,13 @@ branch；`NativeSubmissionAdapterTest.preparedSubmissionWrapperRegistrationFailu
 覆盖该优先级。这仍是本地 transport-SPI 证据，不等于真实 Broker response
 attestation。
 
+`EmbeddedDelayService.enqueueOutcomeV1` 对 queued 与 uncertain 两个需要
+physical attempt 的分支也先执行同一 nonzero 16-byte 校验；null、长度错误或全零
+输入固定映射为本地 `DEFINITELY_NOT_QUEUED(INVALID_PREPARED_COMMAND)`，不会让
+`CommandQueuedReceiptV1`/`EnqueueUncertainV1` 构造器异常穿透，也不会产生无 attempt
+identity 的 uncertain union。`EmbeddedDelayServiceTest.embeddedIngressProjectsAllManagedOutcomeBranches`
+覆盖 queued/uncertain 两个投影。这仍只属于 embedded conformance seam。
+
 V1 managed submission 现在还在 Producer ownership 前强制执行
 `CommandCodec.encodeFrameV1/decodeFrameV1`：`PinnedKafkaCommandIngress`、
 `PinnedPulsarCommandIngress` 的 `enqueueOutcomeV1` 和
