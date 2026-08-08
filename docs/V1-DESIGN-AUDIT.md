@@ -331,6 +331,11 @@ arithmetic is checked before the outer deficit cap can change, so a conflicting
 duplicate Shard registration cannot influence subsequent service gaps. The
 local regression is
 `WorkerSchedulerTest.conflictingShardRegistrationDoesNotMutateOuterDeficitCap`.
+Persisted inner fairness counters are also restored for registered Lanes that
+are temporarily outside the active ring; a BLOCKED/paused Lane no longer loses
+its `lastServedRound` or deficit across owner/store restart. The local
+regression is
+`LaneSchedulerTest.fairnessCountersSurviveRestartForLaneOutsideActiveRing`.
 
 当前代码已把 Lane 的 same-key ACTIVE/TERMINAL 分支和保守本地退休证明接入
 `DelayShard`；并已补齐 Registry-shaped `ActiveLaneStateV1`、

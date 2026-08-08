@@ -95,7 +95,11 @@ public final class PersistentLaneScheduler {
         for (SchedulerProjectionsV1.LastServedEntry entry : persisted.lastServedMap().entries()) {
             lastServed.put(new LaneKey(entry.laneId(), entry.laneIncarnation()), entry);
         }
-        final List<LaneScheduler.LaneSnapshot> snapshots = delegate.orderedSnapshot().stream()
+        // Fairness counters are persisted for every registered Lane, not
+        // only the currently active ring.  A blocked/paused Lane may be
+        // absent from the ring but must retain its service-gap state when it
+        // becomes READY again after restart.
+        final List<LaneScheduler.LaneSnapshot> snapshots = delegate.snapshot().lanes().stream()
                 .map(snapshot -> {
                     final LaneRecord lane = registered.get(snapshot.laneId());
                     final byte[] incarnation = lane == null ? new byte[16] : lane.laneIncarnation();

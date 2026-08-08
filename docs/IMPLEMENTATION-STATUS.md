@@ -602,6 +602,13 @@ A conflicting scheduler/weight registration therefore cannot leave a larger
 cap behind for later visits; `WorkerSchedulerTest.conflictingShardRegistrationDoesNotMutateOuterDeficitCap`
 covers the failed-registration path.
 
+`PersistentLaneScheduler.restorePersistedState` now restores deficit and
+`lastServedRound` for every registered Lane, including a BLOCKED/paused Lane
+that is absent from the active ring. Its counters are therefore not reset when
+the Lane later becomes READY after restart;
+`LaneSchedulerTest.fairnessCountersSurviveRestartForLaneOutsideActiveRing`
+covers this recovery boundary.
+
 `ProfileBindingActivatePayloadV1` and `ProfileNewBindingClosePayloadV1` now
 close the Registry control branches for Profile first-binding lifecycle.
 `ProfileBindingControlState` persists strictly source-ordered activation and

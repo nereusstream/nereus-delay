@@ -181,6 +181,42 @@ class LaneSchedulerTest {
     }
 
     @Test
+    void fairnessCountersSurviveRestartForLaneOutsideActiveRing() {
+        final DestinationLaneId first = lane(26);
+        final DestinationLaneId blocked = lane(27);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 26);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("blocked-lane-counters"));
+        LaneScheduler.LaneSnapshot expected;
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
+            scheduler.register(record(first, 1));
+            scheduler.register(record(blocked, 1));
+            scheduler.offer(item(first, 1));
+            scheduler.offer(item(blocked, 1));
+            scheduler.poll(new SchedulerBudget(2, 1024, 1_000_000_000));
+            scheduler.markBlocked(blocked);
+            expected = scheduler.snapshot().lanes().stream()
+                    .filter(state -> state.laneId().equals(blocked))
+                    .findFirst().orElseThrow();
+        }
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
+            scheduler.register(record(first, 1));
+            scheduler.register(record(blocked, 1));
+            scheduler.restorePersistedState();
+            final LaneScheduler.LaneSnapshot restored = scheduler.snapshot().lanes().stream()
+                    .filter(state -> state.laneId().equals(blocked))
+                    .findFirst().orElseThrow();
+            assertEquals(expected.deficit(), restored.deficit());
+            assertEquals(expected.lastServedRound(), restored.lastServedRound());
+        }
+    }
+
+    @Test
     void ownerChangeRestartsRecoveryFirstPassWithoutServingLaneTwice() {
         final DestinationLaneId first = lane(18);
         final DestinationLaneId second = lane(19);
