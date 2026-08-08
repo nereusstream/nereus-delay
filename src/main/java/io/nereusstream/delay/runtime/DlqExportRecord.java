@@ -3,6 +3,7 @@ package io.nereusstream.delay.runtime;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
+import io.nereusstream.delay.protocol.PublishAdmissionBody;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
 
 import java.nio.ByteBuffer;
@@ -12,11 +13,12 @@ import java.util.Objects;
 /**
  * Durable local DLQ-export outbox projection for one terminal generation.
  *
- * <p>V1 currently creates the deterministic {@link DlqExportStateV1#NOT_CONFIGURED}
- * state because no export policy/target is present in the embedded schedule
- * model.  Future export attempts must advance this same record by the
- * source-ordered {@code DLQ_EXPORT_RESULT_V1} state machine; they may not
- * create a second export identity.</p>
+ * <p>Terminalization without an export policy creates the deterministic
+ * {@link DlqExportStateV1#NOT_CONFIGURED} state. Configured outboxes retain the
+ * exact canonical charge projection that their result callbacks must echo;
+ * every export attempt advances this same record by the source-ordered
+ * {@code DLQ_EXPORT_RESULT_V1} state machine and may not create a second export
+ * identity.</p>
  */
 public record DlqExportRecord(
         byte[] dlqExportId,
@@ -24,12 +26,14 @@ public record DlqExportRecord(
         int generation,
         long terminalRevision,
         byte[] exportEnvelopeHash,
+        byte[] retainedCharge,
         DlqExportStateV1 state,
         int physicalAttemptNo,
         byte[] appliedSourcePosition) {
     public static final int VALUE_TYPE = 8;
     private static final int HASH_LENGTH = 32;
-    private static final int VERSION = 1;
+    private static final int VERSION = 2;
+    private static final int LEGACY_VERSION = 1;
     private static final byte[] ID_DOMAIN = Bytes.utf8("nereus-delay-dlq-export-id-v1\0");
     private static final byte[] ENVELOPE_DOMAIN = Bytes.utf8("nereus-delay-dlq-export-envelope-v1\0");
 
@@ -40,7 +44,11 @@ public record DlqExportRecord(
             throw new IllegalArgumentException("invalid DLQ export generation/revision");
         }
         Bytes.requireLength(exportEnvelopeHash, HASH_LENGTH, "exportEnvelopeHash");
+        retainedCharge = PublishAdmissionBody.ChargeVector.decodeCanonical(retainedCharge).canonicalBytes();
         Objects.requireNonNull(state, "state");
+        if (state == DlqExportStateV1.NOT_CONFIGURED && !Arrays.equals(retainedCharge, emptyChargeCanonical())) {
+            throw new IllegalArgumentException("NOT_CONFIGURED DLQ export cannot retain a charge");
+        }
         if (state == DlqExportStateV1.NOT_CONFIGURED && physicalAttemptNo != 0
                 || state != DlqExportStateV1.NOT_CONFIGURED && physicalAttemptNo <= 0) {
             throw new IllegalArgumentException("DLQ export physical attempt does not match state");
@@ -52,7 +60,17 @@ public record DlqExportRecord(
         }
         dlqExportId = Bytes.copy(dlqExportId);
         exportEnvelopeHash = Bytes.copy(exportEnvelopeHash);
+        retainedCharge = Bytes.copy(retainedCharge);
         appliedSourcePosition = Bytes.copy(appliedSourcePosition);
+    }
+
+    /** Source-compatible constructor for the legacy zero-charge projection. */
+    public DlqExportRecord(final byte[] dlqExportId, final DelayMessageId messageId, final int generation,
+                           final long terminalRevision, final byte[] exportEnvelopeHash,
+                           final DlqExportStateV1 state, final int physicalAttemptNo,
+                           final byte[] appliedSourcePosition) {
+        this(dlqExportId, messageId, generation, terminalRevision, exportEnvelopeHash,
+                emptyChargeCanonical(), state, physicalAttemptNo, appliedSourcePosition);
     }
 
     /** Creates the terminal-time state used when no DLQ policy is configured. */
@@ -62,7 +80,7 @@ public record DlqExportRecord(
         final byte[] id = deriveId(messageId, generation, terminalRevision);
         return new DlqExportRecord(id, messageId, generation, terminalRevision,
                 Bytes.sha256(ENVELOPE_DOMAIN, id, messageId.bytes(), Bytes.u32be(generation),
-                        Bytes.u64be(terminalRevision)), DlqExportStateV1.NOT_CONFIGURED, 0,
+                        Bytes.u64be(terminalRevision)), emptyChargeCanonical(), DlqExportStateV1.NOT_CONFIGURED, 0,
                 appliedSourcePosition);
     }
 
@@ -70,9 +88,17 @@ public record DlqExportRecord(
     public static DlqExportRecord pending(final DelayMessageId messageId, final int generation,
                                           final long terminalRevision, final byte[] exportEnvelopeHash,
                                           final byte[] appliedSourcePosition) {
+        return pending(messageId, generation, terminalRevision, exportEnvelopeHash, emptyChargeCanonical(),
+                appliedSourcePosition);
+    }
+
+    /** Creates a configured export attempt with the exact retained charge projection. */
+    public static DlqExportRecord pending(final DelayMessageId messageId, final int generation,
+                                          final long terminalRevision, final byte[] exportEnvelopeHash,
+                                          final byte[] retainedCharge, final byte[] appliedSourcePosition) {
         final byte[] id = deriveId(messageId, generation, terminalRevision);
         return new DlqExportRecord(id, messageId, generation, terminalRevision, exportEnvelopeHash,
-                DlqExportStateV1.PENDING, 1, appliedSourcePosition);
+                retainedCharge, DlqExportStateV1.PENDING, 1, appliedSourcePosition);
     }
 
     public static byte[] deriveId(final DelayMessageId messageId, final int generation,
@@ -94,6 +120,10 @@ public record DlqExportRecord(
         return Bytes.copy(exportEnvelopeHash);
     }
 
+    public byte[] retainedCharge() {
+        return Bytes.copy(retainedCharge);
+    }
+
     @Override
     public byte[] appliedSourcePosition() {
         return Bytes.copy(appliedSourcePosition);
@@ -101,21 +131,26 @@ public record DlqExportRecord(
 
     public byte[] encode() {
         return Bytes.concat(Bytes.u32be(VERSION), dlqExportId, messageId.bytes(), Bytes.u32be(generation),
-                Bytes.u64be(terminalRevision), exportEnvelopeHash, Bytes.u8(state.wireValue()),
+                Bytes.u64be(terminalRevision), exportEnvelopeHash, Bytes.lp32(retainedCharge),
+                Bytes.u8(state.wireValue()),
                 Bytes.u32be(physicalAttemptNo), Bytes.lp32(appliedSourcePosition));
     }
 
     public static DlqExportRecord decode(final byte[] encoded) {
         final ByteBuffer input = ByteBuffer.wrap(Objects.requireNonNull(encoded, "encoded"));
-        requireRemaining(input, 4 + HASH_LENGTH + DelayMessageId.LENGTH + 4 + 8 + HASH_LENGTH + 1 + 4 + 4);
-        if (input.getInt() != VERSION) {
+        requireRemaining(input, 4);
+        final int version = input.getInt();
+        if (version != VERSION && version != LEGACY_VERSION) {
             throw new IllegalArgumentException("unsupported DLQ export record version");
         }
+        requireRemaining(input, HASH_LENGTH + DelayMessageId.LENGTH + 4 + 8 + HASH_LENGTH + 1 + 4 + 4);
         final byte[] id = readFixed(input, HASH_LENGTH, "dlqExportId");
         final byte[] message = readFixed(input, DelayMessageId.LENGTH, "messageId");
         final int generation = readU32(input, "generation");
         final long terminalRevision = readU64(input, "terminalRevision");
         final byte[] envelope = readFixed(input, HASH_LENGTH, "exportEnvelopeHash");
+        final byte[] retainedCharge = version == VERSION ? readLp32(input, "retainedCharge")
+                : emptyChargeCanonical();
         final DlqExportStateV1 state = DlqExportStateV1.fromWire(input.get() & 0xff);
         final int attempt = readU32(input, "physicalAttemptNo");
         final byte[] source = readLp32(input, "appliedSourcePosition");
@@ -123,8 +158,8 @@ public record DlqExportRecord(
             throw new IllegalArgumentException("trailing DLQ export record bytes");
         }
         final DlqExportRecord result = new DlqExportRecord(id, new DelayMessageId(message), generation,
-                terminalRevision, envelope, state, attempt, source);
-        if (!Arrays.equals(encoded, result.encode())) {
+                terminalRevision, envelope, retainedCharge, state, attempt, source);
+        if (!Arrays.equals(encoded, version == VERSION ? result.encode() : result.encodeLegacy())) {
             throw new IllegalArgumentException("non-canonical DLQ export record");
         }
         return result;
@@ -138,6 +173,7 @@ public record DlqExportRecord(
                 && generation == that.generation
                 && terminalRevision == that.terminalRevision
                 && Arrays.equals(exportEnvelopeHash, that.exportEnvelopeHash)
+                && Arrays.equals(retainedCharge, that.retainedCharge)
                 && state == that.state
                 && physicalAttemptNo == that.physicalAttemptNo
                 && Arrays.equals(appliedSourcePosition, that.appliedSourcePosition);
@@ -146,8 +182,19 @@ public record DlqExportRecord(
     @Override
     public int hashCode() {
         return Objects.hash(Arrays.hashCode(dlqExportId), messageId, generation, terminalRevision,
-                Arrays.hashCode(exportEnvelopeHash), state, physicalAttemptNo,
+                Arrays.hashCode(exportEnvelopeHash), Arrays.hashCode(retainedCharge), state, physicalAttemptNo,
                 Arrays.hashCode(appliedSourcePosition));
+    }
+
+    private byte[] encodeLegacy() {
+        return Bytes.concat(Bytes.u32be(LEGACY_VERSION), dlqExportId, messageId.bytes(), Bytes.u32be(generation),
+                Bytes.u64be(terminalRevision), exportEnvelopeHash, Bytes.u8(state.wireValue()),
+                Bytes.u32be(physicalAttemptNo), Bytes.lp32(appliedSourcePosition));
+    }
+
+    private static byte[] emptyChargeCanonical() {
+        return new PublishAdmissionBody.ChargeVector(
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0).canonicalBytes();
     }
 
     private static int readU32(final ByteBuffer input, final String name) {

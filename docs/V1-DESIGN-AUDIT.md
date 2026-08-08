@@ -588,15 +588,18 @@ source-ordered apply。
 同一关闭边界下的 `UNKNOWN` 结果保留 `UNCERTAIN` obligation 且不创建新的
 `UNCERTAIN_RETRY` timeline；后续 Resolve retry 仍由 closed-Lane gate 拒绝。
 
-DLQ Export Result 的 canonical body 已校验 `ChargeVectorV1`，但当前 embedded
-`DlqExportRecord` 尚未持久化 policy-derived retained charge projection。因而本地
-apply 只接受 canonical all-zero transfer；任何 non-zero callback transfer 都写入
-`REJECTED(STALE_SYSTEM_MUTATION)`，保留 outbox state 和 source-ordered position
-前后的可重放边界。要开放真实 DLQ charge transfer，必须先把 exact retained charge
-加入 outbox，并在同一 source-ordered state machine 中校验和释放；
-`DlqExportApplyTest` 覆盖当前 fail-closed seam。成功应用还保留 body 的
-`stable_code` 到 `SystemMutationResult`；`DLQ_EXPORT_OUTCOME_UNKNOWN` 的
-source-ordered 回归覆盖该结果可见性。
+DLQ Export Result 的 canonical body 已校验 `ChargeVectorV1`，而 configured
+`DlqExportRecord` 现在持久化 policy-derived retained charge projection；
+`NOT_CONFIGURED` terminal record 固定保留 all-zero projection，legacy v1 record
+也按 zero-charge 兼容解码。Source-ordered apply 要求每个 callback 的 transfer
+与该 outbox projection canonical byte-equal；不一致写入
+`REJECTED(STALE_SYSTEM_MUTATION)`，不改变 outbox state 或 source position
+边界，且 `UNKNOWN` 仍不会释放 charge。`DlqExportApplyTest` 覆盖 non-zero
+retained charge 的成功/不匹配结果、legacy decode 与 outbox 原子推进。真实
+policy publication、external charge authority、adapter evidence 和 Object Store
+ownership 仍是 release blocker。成功应用还保留 body 的 `stable_code` 到
+`SystemMutationResult`；`DLQ_EXPORT_OUTCOME_UNKNOWN` 的 source-ordered 回归
+覆盖该结果可见性。
 
 `PublishEvidenceV1`/`ExternalDeliveryIdentityV1` 进一步把 Registry 的
 `PublishEvidenceV1` 公共字段、kind 对应 oneof 分支、verification-status 语义、

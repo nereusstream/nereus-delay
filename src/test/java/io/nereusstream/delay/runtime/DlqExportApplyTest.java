@@ -27,6 +27,7 @@ import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 
 class DlqExportApplyTest {
     @TempDir
@@ -40,13 +41,14 @@ class DlqExportApplyTest {
         final KafkaSourcePosition source = new KafkaSourcePosition(shardId, "dlq-test", java.util.UUID.randomUUID(),
                 2, null, 2_000);
         final byte[] envelopeHash = Bytes.sha256(Bytes.utf8("dlq-envelope"));
+        final byte[] retainedCharge = chargeVectorWithActiveMessages(2);
         final MessageRecord dead = new MessageRecord(MessageStatus.DEAD_LETTER, 0, 7, 1_000, 5_000, lane,
                 OrderingMode.BEST_EFFORT, Bytes.utf8("payload"), source.canonicalBytes())
                 .withRuntimeIndex(GenerationRuntimeIndex.none(GenerationAggregateState.DEAD_LETTER, java.util.List.of(),
                         0, 0, false, 7));
         final TerminalGenerationRecord terminal = new TerminalGenerationRecord(messageId, 0,
                 MessageStatus.DEAD_LETTER, StableCode.CLAIM_PERMANENT_FAILURE, 7, source.canonicalBytes(), false);
-        final DlqExportRecord pending = DlqExportRecord.pending(messageId, 0, 7, envelopeHash,
+        final DlqExportRecord pending = DlqExportRecord.pending(messageId, 0, 7, envelopeHash, retainedCharge,
                 source.canonicalBytes());
         final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
         final KeyPair keyPair = generator.generateKeyPair();
@@ -59,7 +61,7 @@ class DlqExportApplyTest {
                 io.nereusstream.delay.protocol.DlqExportResultBody.decode(mismatchedBody)
                         .logicalOperationIdentity(), mismatchedBody, service.canonicalBytes(), 1,
                 keyPair.getPrivate());
-        final byte[] body = resultBody(shardId, messageId, pending, envelopeHash);
+        final byte[] body = resultBody(shardId, messageId, pending, envelopeHash, retainedCharge);
         final SystemMutation mutation = SystemMutation.signed(shardId,
                 SystemMutationType.DLQ_EXPORT_RESULT, 10_000,
                 io.nereusstream.delay.protocol.DlqExportResultBody.decode(body).logicalOperationIdentity(), body,
@@ -87,6 +89,7 @@ class DlqExportApplyTest {
             assertEquals(StableCode.OK, result.stableCode());
             assertEquals(DlqExportStateV1.PUBLISHED, delayShard.getDlqExportRecord(messageId, 0).state());
             assertEquals(1, delayShard.getDlqExportRecord(messageId, 0).physicalAttemptNo());
+            assertArrayEquals(retainedCharge, delayShard.getDlqExportRecord(messageId, 0).retainedCharge());
             assertEquals(result, delayShard.applySystemMutation(mutation, sourceAfterTwice(source),
                     keyPair.getPublic()));
         }

@@ -3502,12 +3502,9 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }
-        // The embedded DLQ record currently has no policy-derived retained
-        // charge projection.  Its only authoritative local transfer is zero;
-        // reject a callback-supplied non-zero vector instead of letting it
-        // manufacture quota authority.  A configured outbox must persist its
-        // exact charge before this gate can be widened.
-        if (!Bytes.constantTimeEquals(emptyChargeVectorCanonical(), body.transfer())) {
+        // The outbox retains the exact policy-derived charge at creation time;
+        // a callback may not manufacture a different quota authority.
+        if (!Bytes.constantTimeEquals(current.retainedCharge(), body.transfer())) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }
@@ -3517,7 +3514,7 @@ public final class DelayShard {
                     ? Math.addExact(body.physicalAttemptNo(), 1) : body.physicalAttemptNo();
             final DlqExportRecord next = new DlqExportRecord(current.dlqExportId(), messageId,
                     current.generation(), current.terminalRevision(), current.exportEnvelopeHash(),
-                    body.resultingState(), nextAttempt, sourcePosition.canonicalBytes());
+                    current.retainedCharge(), body.resultingState(), nextAttempt, sourcePosition.canonicalBytes());
             final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED,
                     body.stableCode(), sourcePosition.canonicalBytes());
             store.write(batch -> {
