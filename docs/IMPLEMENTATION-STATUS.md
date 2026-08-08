@@ -78,6 +78,8 @@ accepted by the catalog but rejected by payload attestation. The trust-set
 semantic test verifies both proof projections through the local verifier
 adapter; provider attestation and source-ordered trust authority remain
 external.
+The legacy `LargeScheduleIntent` reserve path carries that same raw version
+through its fixed binary projection and reopen decode.
 
 CapacityGrant source versions, QuotaGrant reference versions and
 ShardCapacityEnvelope versions now preserve their complete nonzero `uint64`

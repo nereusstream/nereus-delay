@@ -832,7 +832,7 @@ class ProtocolCodecTest {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
         final LargeScheduleIntent intent = new LargeScheduleIntent(
                 DestinationLaneId.derive(Bytes.utf8("large-lane")), 2_000, 8_000,
-                OrderingMode.BEST_EFFORT, 123_456, Bytes.sha256(Bytes.utf8("payload")), 10_000, 3);
+                OrderingMode.BEST_EFFORT, 123_456, Bytes.sha256(Bytes.utf8("payload")), 10_000, Long.MIN_VALUE);
         assertEquals(intent, CommandBodies.decodePrepareLarge(CommandBodies.prepareLarge(intent)));
         final PreparedCommand prepare = PreparedCommand.prepareLarge(shard, intent, 20_000);
         assertEquals(prepare, CommandCodec.decodeFrame(CommandCodec.encodeFrame(prepare)));
@@ -841,7 +841,8 @@ class ProtocolCodecTest {
         final KeyPair keyPair = keyPairGenerator.generateKeyPair();
         final DelayMessageId messageId = prepare.delayMessageId();
         final byte[] reservationId = Bytes.sha256(Bytes.utf8("reservation"));
-        final PayloadCommitProof proof = PayloadCommitProof.signed(3, Integer.MIN_VALUE, shard.routeIncarnation().bytes(),
+        final PayloadCommitProof proof = PayloadCommitProof.signed(Long.MIN_VALUE, Integer.MIN_VALUE,
+                shard.routeIncarnation().bytes(),
                 shard.partition(), messageId, reservationId, Bytes.sha256(Bytes.utf8("profile")),
                 Bytes.utf8("bucket"), Bytes.utf8("object-key"), Bytes.utf8("version-1"), new byte[0],
                 intent.expectedPayloadLength(), intent.payloadSha256(), 12_000, keyPair.getPrivate());

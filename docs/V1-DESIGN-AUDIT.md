@@ -65,6 +65,8 @@ The legacy and typed payload commit proof projections now preserve the same
 nonzero raw trust-set version bits through proof IDs, signatures and canonical
 decode, closing the local semantic-ref-to-attestation mismatch. Provider proof
 issuance and source-ordered trust authority remain release evidence.
+The compatibility `LargeScheduleIntent` reserve projection preserves the same
+raw version through its fixed binary encode/decode path as well.
 
 CapacityGrant source versions, QuotaGrant reference versions and
 ShardCapacityEnvelope versions likewise preserve their complete nonzero

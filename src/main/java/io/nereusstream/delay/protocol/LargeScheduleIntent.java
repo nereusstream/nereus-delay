@@ -22,7 +22,7 @@ public record LargeScheduleIntent(
         Objects.requireNonNull(orderingMode, "orderingMode");
         Bytes.requireLength(payloadSha256, 32, "payloadSha256");
         if (deliverAtEpochMs < 0 || expireAtEpochMs < deliverAtEpochMs || expectedPayloadLength < 0
-                || reservationTtlMs <= 0 || payloadProofTrustSetVersion <= 0) {
+                || reservationTtlMs <= 0 || payloadProofTrustSetVersion == 0) {
             throw new IllegalArgumentException("invalid large schedule intent");
         }
         payloadSha256 = Bytes.copy(payloadSha256);
