@@ -293,6 +293,79 @@ class LaneSchedulerTest {
     }
 
     @Test
+    void failedSchedulerProjectionWriteDoesNotAdvanceGenerationInMemory() {
+        final DestinationLaneId lane = lane(30);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 30);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("scheduler-write-failure"));
+        final long persistedGeneration;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+            final ShardStore store = ShardStore.open(config, shardId, resources);
+            try {
+                final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
+                scheduler.register(record(lane, 1));
+                scheduler.persist();
+                persistedGeneration = scheduler.discoveryCursor().activeRingGeneration();
+
+                store.close();
+                assertThrows(IllegalStateException.class, scheduler::persist);
+                assertEquals(persistedGeneration, scheduler.discoveryCursor().activeRingGeneration());
+            } finally {
+                store.close();
+            }
+        }
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final SchedulerProjectionsV1.ActiveRing activeRing = SchedulerProjectionsV1.ActiveRing.decode(
+                    store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(2), 5).payload());
+            assertEquals(persistedGeneration, activeRing.ringGeneration());
+        }
+    }
+
+    @Test
+    void failedReadyProjectionDecodeDoesNotAdvanceWrapGenerationInMemory() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 31);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("scheduler-wrap-failure"));
+        final LaneRecord firstLane = record(lane(31), 1);
+        final LaneRecord lastLane = record(lane(32), 1);
+        final SourcePosition firstSource = new KafkaSourcePosition(shardId, "cluster", UUID.randomUUID(), 0,
+                null, 1_000);
+        final ReadyFixture first = readyFixture(firstLane, DelayMessageId.random(shardId),
+                firstSource,
+                new MessageRecord(MessageStatus.SCHEDULED, 1, 1, 1_000, 9_000, firstLane.laneId(),
+                        OrderingMode.BEST_EFFORT, new byte[]{1}, firstSource.canonicalBytes()));
+        final SourcePosition lastSource = new KafkaSourcePosition(shardId, "cluster", UUID.randomUUID(), 1,
+                null, 1_001);
+        final ReadyFixture last = readyFixture(lastLane, DelayMessageId.random(shardId),
+                lastSource,
+                new MessageRecord(MessageStatus.SCHEDULED, 1, 1, 1_000, 9_000, lastLane.laneId(),
+                        OrderingMode.BEST_EFFORT, new byte[]{2}, lastSource.canonicalBytes()));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> {
+                putReady(batch, first);
+                putReady(batch, last);
+            });
+            final PersistentLaneScheduler initial = PersistentLaneScheduler.defaults(store);
+            final LaneRecord registeredOnly = record(lane(33), 1);
+            initial.register(registeredOnly);
+            initial.persist();
+            final long ringGeneration = SchedulerProjectionsV1.ActiveRing.decode(
+                    store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(2), 5).payload())
+                    .ringGeneration();
+            store.write(batch -> batch.putValue(ColumnFamily.META, 5, KeyCodec.metaScheduler(1),
+                    new SchedulerProjectionsV1.ReadyDiscoveryCursor(last.readyKey(), 0, ringGeneration)
+                            .canonicalBytes()));
+
+            final PersistentLaneScheduler recovered = PersistentLaneScheduler.defaults(store);
+            recovered.register(registeredOnly);
+            assertThrows(IllegalStateException.class,
+                    () -> recovered.discoverReady(new SchedulerBudget(1, 1024, 1_000_000_000)));
+            assertEquals(0, recovered.discoveryCursor().wrapGeneration());
+        }
+    }
+
+    @Test
     void schedulerRestoreRejectsCrossProjectionGenerationDrift() {
         final DestinationLaneId lane = lane(28);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 28);

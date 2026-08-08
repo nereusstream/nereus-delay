@@ -491,6 +491,13 @@ Scheduler round generations and persisted service-gap counters now saturate at
 `Long.MAX_VALUE`, and inner scheduler byte accumulation is checked; the local
 regressions are `LaneSchedulerTest.saturatesRoundGenerationBeforeServingAtLongMaximum`
 and `WorkerSchedulerTest.saturatesRoundGenerationBeforeServingAtLongMaximum`。
+`PersistentLaneScheduler` also computes ring and READY-cursor wrap generations
+locally and commits them to memory only after the complete five-value scheduler
+`WriteBatch` succeeds. A failed projection write or malformed READY projection
+cannot leave the process advertising a generation that was never durable; the
+local regressions are
+`LaneSchedulerTest.failedSchedulerProjectionWriteDoesNotAdvanceGenerationInMemory`
+and `LaneSchedulerTest.failedReadyProjectionDecodeDoesNotAdvanceWrapGenerationInMemory`。
 The inner and outer two-rotation visit limits also widen `ring.size() * 2`
 before comparison, with `LaneSchedulerTest.ringVisitLimitUsesWideArithmetic`
 and `WorkerSchedulerTest.outerVisitLimitUsesWideArithmetic` covering the

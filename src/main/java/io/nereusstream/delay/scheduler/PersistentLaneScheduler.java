@@ -194,7 +194,8 @@ public final class PersistentLaneScheduler {
             restorePersistedState();
         }
         final long startedNanos = System.nanoTime();
-        final List<ShardStore.KeyValue> entries = scanReadyEntries(budget.maxMessages());
+        final ReadyScan readyScan = scanReadyEntries(budget.maxMessages());
+        final List<ShardStore.KeyValue> entries = readyScan.entries();
         final List<ReadyProjection> projections = new ArrayList<>();
         final Set<DestinationLaneId> scannedLanes = new HashSet<>();
         long scannedBytes = 0;
@@ -257,7 +258,9 @@ public final class PersistentLaneScheduler {
         }
         discoveredHeads.putAll(nextHeads);
         if (!projections.isEmpty()) {
-            persist();
+            final long nextWrapGeneration = readyScan.wrapped()
+                    ? incrementWrapGeneration(wrapGeneration) : wrapGeneration;
+            persist(nextWrapGeneration);
         }
         return List.copyOf(toOffer);
     }
@@ -314,9 +317,13 @@ public final class PersistentLaneScheduler {
     }
 
     public synchronized void persist() {
+        persist(wrapGeneration);
+    }
+
+    private void persist(final long persistedWrapGeneration) {
         final LaneScheduler.SchedulerSnapshot snapshot = delegate.snapshot();
         final long nextRingGeneration = ringGeneration == Long.MAX_VALUE ? Long.MAX_VALUE : ringGeneration + 1;
-        ringGeneration = Math.max(1, nextRingGeneration);
+        final long persistedRingGeneration = Math.max(1, nextRingGeneration);
         final List<SchedulerProjectionsV1.RingEntry> ringEntries = delegate.orderedSnapshot().stream()
                 .map(state -> {
                     final LaneRecord lane = registered.get(state.laneId());
@@ -347,10 +354,12 @@ public final class PersistentLaneScheduler {
                             state.lastServedRound(), gap);
                 }).toList();
         final int nextIndex = ringEntries.isEmpty() ? 0 : snapshot.cursor() % ringEntries.size();
-        final SchedulerProjectionsV1.ActiveRing activeRing = new SchedulerProjectionsV1.ActiveRing(ringGeneration,
+        final SchedulerProjectionsV1.ActiveRing activeRing = new SchedulerProjectionsV1.ActiveRing(
+                persistedRingGeneration,
                 snapshot.roundGeneration(), nextIndex, ringEntries);
         final SchedulerProjectionsV1.ReadyDiscoveryCursor discovery =
-                new SchedulerProjectionsV1.ReadyDiscoveryCursor(lastScannedReadyKey, wrapGeneration, ringGeneration);
+                new SchedulerProjectionsV1.ReadyDiscoveryCursor(lastScannedReadyKey, persistedWrapGeneration,
+                        persistedRingGeneration);
         final SchedulerProjectionsV1.DeficitMap deficitMap = new SchedulerProjectionsV1.DeficitMap(deficits);
         final SchedulerProjectionsV1.Round round = new SchedulerProjectionsV1.Round(snapshot.roundGeneration(), owner,
                 recoveryFirstPass);
@@ -363,13 +372,18 @@ public final class PersistentLaneScheduler {
             batch.putValue(ColumnFamily.META, VALUE_TYPE, KeyCodec.metaScheduler(4), round.canonicalBytes());
             batch.putValue(ColumnFamily.META, VALUE_TYPE, KeyCodec.metaScheduler(5), lastServedMap.canonicalBytes());
         });
+        // Keep the in-memory generation projection behind the same successful
+        // WriteBatch boundary as its durable counterpart. A failed write must
+        // not make a retry describe a generation that never reached RocksDB.
+        ringGeneration = persistedRingGeneration;
+        wrapGeneration = persistedWrapGeneration;
     }
 
-    private List<ShardStore.KeyValue> scanReadyEntries(final int limit) {
+    private ReadyScan scanReadyEntries(final int limit) {
         final byte[] prefix = new byte[]{3, 1};
         final byte[] upper = new byte[]{4, 1};
         if (lastScannedReadyKey == null) {
-            return store.scan(ColumnFamily.TIMELINE, prefix, upper, limit);
+            return new ReadyScan(store.scan(ColumnFamily.TIMELINE, prefix, upper, limit), false);
         }
         if (!hasPrefix(lastScannedReadyKey, prefix)) {
             throw new IllegalStateException("persisted READY discovery cursor is outside READY namespace");
@@ -386,7 +400,7 @@ public final class PersistentLaneScheduler {
                 result.add(entry);
             }
             if (result.size() == limit) {
-                return List.copyOf(result);
+                return new ReadyScan(List.copyOf(result), false);
             }
         }
         final int remaining = limit - result.size();
@@ -394,11 +408,15 @@ public final class PersistentLaneScheduler {
             final List<ShardStore.KeyValue> head = store.scan(ColumnFamily.TIMELINE, prefix,
                     lastScannedReadyKey, remaining);
             if (!head.isEmpty()) {
-                wrapGeneration = wrapGeneration == Long.MAX_VALUE ? Long.MAX_VALUE : wrapGeneration + 1;
                 result.addAll(head);
+                return new ReadyScan(List.copyOf(result), true);
             }
         }
-        return List.copyOf(result);
+        return new ReadyScan(List.copyOf(result), false);
+    }
+
+    private static long incrementWrapGeneration(final long current) {
+        return current == Long.MAX_VALUE ? Long.MAX_VALUE : current + 1;
     }
 
     private List<ShardStore.KeyValue> scanAllReadyEntries(final int limit) {
@@ -646,6 +664,12 @@ public final class PersistentLaneScheduler {
         @Override
         public byte[] readyKey() {
             return Bytes.copy(readyKey);
+        }
+    }
+
+    private record ReadyScan(List<ShardStore.KeyValue> entries, boolean wrapped) {
+        private ReadyScan {
+            entries = List.copyOf(entries);
         }
     }
 }

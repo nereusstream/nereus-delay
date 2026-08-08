@@ -851,6 +851,14 @@ evidence into a negative value. `LaneSchedulerTest.saturatesRoundGenerationBefor
 and `WorkerSchedulerTest.saturatesRoundGenerationBeforeServingAtLongMaximum`
 cover the two scheduler levels.
 
+`PersistentLaneScheduler` now computes the next ring and READY-cursor wrap
+generations as local projections and advances the in-memory counters only after
+the five-value scheduler `WriteBatch` succeeds. A failed projection write or
+READY decode therefore cannot advertise a generation that was never durable;
+`LaneSchedulerTest.failedSchedulerProjectionWriteDoesNotAdvanceGenerationInMemory`
+and `LaneSchedulerTest.failedReadyProjectionDecodeDoesNotAdvanceWrapGenerationInMemory`
+cover both local failure boundaries.
+
 The inner and outer two-rotation visit caps now widen `ring.size() * 2` before
 comparison, so a large in-memory ring cannot turn the bounded loop limit into a
 negative `int` through arithmetic wrap. `LaneSchedulerTest.ringVisitLimitUsesWideArithmetic`
