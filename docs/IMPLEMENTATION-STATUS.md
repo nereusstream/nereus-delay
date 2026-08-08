@@ -332,7 +332,10 @@ protobuf Source Position/receipt/evidence/barrier paths, adapter result values
 and checkpoint-manifest JSON. Source Position partition, leader-epoch and
 Pulsar batch fields likewise preserve the complete unsigned-32 raw bit pattern
 through direct codecs, comparisons, receipts, barriers, evidence cursors and
-manifest JSON. Their comparisons and Kafka successor use unsigned order,
+manifest JSON. Checkpoint manifest decoding specifically uses the unsigned
+parser for Pulsar evidence-cursor `batchIndex`/`batchSize`, including the
+high-bit and all-ones values. Their comparisons and Kafka successor use
+unsigned order,
 including the `0x7fff... -> 0x8000...` boundary; high-bit position,
 receipt/evidence/manifest round-trips are covered by `ProtocolCodecTest`,
 `ActivationBarrierV1Test`, `EvidenceCursorV1Test`, `SourceReplaySuccessorTest`

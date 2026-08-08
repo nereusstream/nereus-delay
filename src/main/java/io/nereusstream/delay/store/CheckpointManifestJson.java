@@ -179,8 +179,8 @@ final class CheckpointManifestJson {
                                 "physicalTopicCreationTimestamp"),
                         unsignedDecimal(fields.get("ledgerId"), "ledgerId"),
                         unsignedDecimal(fields.get("entryId"), "entryId"),
-                        number(fields.get("batchIndex"), "batchIndex"),
-                        number(fields.get("batchSize"), "batchSize")));
+                        uint32Number(fields.get("batchIndex"), "batchIndex"),
+                        uint32Number(fields.get("batchSize"), "batchSize")));
             }
         }
         return result;

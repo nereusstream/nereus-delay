@@ -1281,6 +1281,10 @@ constructors, activation barriers, evidence cursors, queued receipts, adapter
 result values, canonical protobuf helpers and checkpoint-manifest JSON. The
 position partition, leader epoch and Pulsar batch fields now preserve their
 complete unsigned-32 raw bit patterns through the same local protocol paths;
+checkpoint manifest JSON decoding also uses the unsigned parser for Pulsar
+evidence-cursor `batchIndex`/`batchSize`, so `0x80000000` and `0xffffffff`
+round-trip instead of being rejected by a signed parser. The boundary vector is
+covered by `CheckpointManifestTest.manifestRoundTripsUnsignedSourceAndEvidencePositions`.
 comparators and the strict Kafka successor use unsigned order. Boundary vectors
 cover high-bit position fields, receipt/evidence round-trips and manifest
 round-trips. The three `TrustedUtcIntervalEvidenceV1` uint64 counters also
