@@ -1379,7 +1379,10 @@ JSON parse 前检查，file/evidence array bound 在 parser materialize 时检�
 超限在本地 hash/provider I/O 前 fail closed；inventory 与 manifest 的文件名排序
 使用 normalized UTF-8 unsigned byte order，而不是 Java UTF-16 order；restore 的
 `copyTree` 通过 streaming iterator 复制，不再把整棵路径树 materialize，inventory
-也在任何 file hash 前拒绝非 canonical path；restore-tmp cleanup 使用
+也在任何 file hash 前拒绝非 canonical path；源目录通过 admission inventory 后，
+restore-tmp 副本还会按同一 manifest 再做一次完整 inventory/checksum 校验，避免
+复制截断或 copy-time source mutation 仅因 RocksDB 仍可打开而进入 install；
+restore-tmp cleanup 使用
 post-order `walkFileTree`，不再建立 sorted whole-tree list；inventory 和 manifest
 limits 的 total-byte checked addition 溢出也会统一 fail closed，而不是泄漏
 `ArithmeticException`。无 limits

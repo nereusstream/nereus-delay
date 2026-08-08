@@ -231,6 +231,13 @@ public final class ShardStore implements AutoCloseable {
                 throw new IOException("cannot restore while an active shard DB exists: " + shardRoot);
             }
             copyTree(checkpointPath, stagedDb);
+            // The source inventory is a pre-copy admission check. Re-inventory
+            // the private copy as well so a truncated file, copy failure, or
+            // source mutation racing the copy cannot reach RocksDB open/install
+            // merely because the copied directory happens to be readable.
+            if (manifest != null) {
+                validateCheckpointManifest(shardId, stagedDb, manifest, limits);
+            }
             try (ShardStore staged = openAtPath(config, shardId, stagedDb, resources, null, false)) {
                 if (!staged.shardId().equals(shardId)) {
                     throw new IOException("restored DB shard identity mismatch");
