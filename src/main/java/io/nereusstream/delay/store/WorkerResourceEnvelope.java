@@ -59,6 +59,21 @@ public record WorkerResourceEnvelope(
         if (processMemory > maxProcessRssBytes) {
             throw new IllegalArgumentException("certified process memory exceeds maxProcessRssBytes");
         }
+        final long configuredRocksDbBudget;
+        try {
+            // The explicit shared cache and WriteBufferManager budgets are
+            // both native-memory reservations. Keep their lower bound inside
+            // the certified RocksDB-native bucket before opening any JNI
+            // resource; otherwise the aggregate RSS equation could pass while
+            // the configured shared budgets already exceed their own bucket.
+            configuredRocksDbBudget = Math.addExact(config.sharedBlockCacheBytes(),
+                    config.sharedWriteBufferBudgetBytes());
+        } catch (ArithmeticException overflow) {
+            throw new IllegalArgumentException("configured RocksDB native budget overflows", overflow);
+        }
+        if (configuredRocksDbBudget > maxRocksDbNativeBytes) {
+            throw new IllegalArgumentException("configured RocksDB shared budgets exceed native envelope");
+        }
         final long containerMemory;
         try {
             containerMemory = Math.addExact(maxProcessRssBytes, minContainerHeadroomBytes);

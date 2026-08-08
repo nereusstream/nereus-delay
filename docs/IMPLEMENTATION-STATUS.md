@@ -1172,6 +1172,12 @@ Callback quiescence and source hint commit remain caller/transport boundaries;
 timeout leaves the DB and lease in visible `DRAINING` for a safe retry rather
 than claiming completion. `OwnerDrainCoordinatorTest` covers success and
 deadline-failure sequencing.
+`WorkerResourceEnvelope.validate` also requires the explicit shared block cache
+plus WriteBufferManager budgets to fit inside the certified
+`maxRocksDbNativeBytes` bucket before JNI resources are created;
+`WorkerResourceEnvelopeTest.rejectsSharedRocksDbBudgetsOutsideTheCertifiedNativeBucket`
+covers the fail-closed boundary. This is a configuration lower-bound check,
+not a replacement for live native/RSS accounting or cgroup evidence.
 Restore admission only treats a checksum-validated `ACTIVE` pointer target as
 the live incarnation; an orphan incarnation left before pointer installation
 does not block a new atomic restore and remains available for later repair.

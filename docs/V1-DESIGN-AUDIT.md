@@ -1187,6 +1187,9 @@ lease，等待可见重试，不会在 DB 未确认关闭时释放 lease。
 callback/source quiescence 仍由调用方和真实 transport 提供，超时保持
 `DRAINING` 而不伪造成功。`OwnerDrainCoordinatorTest` 覆盖成功与 deadline
 失败边界。
+本地 Worker envelope 还会在创建 JNI 资源前检查显式 shared block cache 与
+WriteBufferManager 预算之和不超过认证的 RocksDB native 桶；聚焦回归覆盖
+拒绝路径。live native/RSS/cgroup accounting 仍是 release gate。
 Lease validity additionally rejects negative observation times even when a
 caller reaches `OwnerLease.validAt` directly rather than through an authority
 request; `OwnerLeaseTest.negativeClockCannotMakeOwnerLeaseValid` covers the

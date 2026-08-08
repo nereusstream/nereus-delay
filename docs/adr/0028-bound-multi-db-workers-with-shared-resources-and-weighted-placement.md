@@ -20,6 +20,7 @@ Memory buckets are disjoint. RocksDB-native includes cache, mutable/immutable me
 ```text
 actualXmx <= certifiedJvmHeapBytes
 actualMaxDirectMemory <= maxDirectMemoryBytes
+sharedBlockCacheBytes + sharedWriteBufferBudgetBytes <= maxRocksDbNativeBytes
 certifiedJvmHeapBytes + maxDirectMemoryBytes
   + maxRocksDbNativeBytes + maxOtherNativeBytes
   + minInProcessControlHeadroomBytes <= maxProcessRssBytes

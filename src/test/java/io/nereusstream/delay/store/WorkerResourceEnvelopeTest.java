@@ -39,4 +39,16 @@ class WorkerResourceEnvelopeTest {
                 1, 1, 1, 1, 0, 16, 0, 32, 100, 99, 100, 0, 0, 0, 1, 1);
         assertThrows(IllegalArgumentException.class, () -> insufficientFds.validate(config));
     }
+
+    @Test
+    void rejectsSharedRocksDbBudgetsOutsideTheCertifiedNativeBucket() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("native-budget"));
+        final WorkerResourceEnvelope envelope = new WorkerResourceEnvelope(
+                256L * 1024 * 1024, 128L * 1024 * 1024, 100L * 1024 * 1024, 64L * 1024 * 1024,
+                64L * 1024 * 1024, 640L * 1024 * 1024, 64L * 1024 * 1024, 1024L * 1024 * 1024,
+                10_000, 1_000, 10L * 1024 * 1024 * 1024, 2L * 1024 * 1024 * 1024,
+                256L * 1024 * 1024, 256L * 1024 * 1024, 16L * 1024 * 1024, 10_000);
+
+        assertThrows(IllegalArgumentException.class, () -> envelope.validate(config));
+    }
 }

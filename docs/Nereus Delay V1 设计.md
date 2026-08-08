@@ -2532,6 +2532,7 @@ publish/query/object/checkpoint concurrency and byte limits
 ```text
 actualXmx <= certifiedJvmHeapBytes
 actualMaxDirectMemory <= maxDirectMemoryBytes
+sharedBlockCacheBytes + sharedWriteBufferBudgetBytes <= maxRocksDbNativeBytes
 certifiedJvmHeapBytes + maxDirectMemoryBytes
   + maxRocksDbNativeBytes + maxOtherNativeBytes
   + minInProcessControlHeadroomBytes
