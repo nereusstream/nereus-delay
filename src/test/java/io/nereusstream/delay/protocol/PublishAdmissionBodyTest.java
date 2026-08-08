@@ -8,6 +8,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class PublishAdmissionBodyTest {
@@ -56,6 +57,37 @@ public class PublishAdmissionBodyTest {
 
         assertArrayEquals(destination, admission.descriptor().destinationProfile());
         assertArrayEquals(capability, admission.descriptor().capabilityProfile());
+    }
+
+    @Test
+    void hashedPartitionValidationPreservesHighBitDestinationProfileVersion() {
+        final BrokerResourceIdentityV1 target = BrokerResourceIdentityV1.kafka(
+                new KafkaBrokerResourceIdentityV1("cluster", java.util.UUID.nameUUIDFromBytes(
+                        Bytes.utf8("high-bit-hash-target"))));
+        final DeliveryCapabilitySemanticV1 capabilityBody = new DeliveryCapabilitySemanticV1(
+                AdapterKindV1.KAFKA, OutcomeCapabilityV1.AT_LEAST_ONCE,
+                TimingCapabilityV1.ORDINARY_MANAGED, null, 0, 0, 0, 0,
+                bytes(32, 71), bytes(32, 72), 0, 0);
+        final ProfileSemanticEnvelopeV1 capability = new ProfileSemanticEnvelopeV1(
+                ProfileKindV1.DELIVERY_CAPABILITY, Bytes.utf8("high-bit-hash-capability"), -1L,
+                capabilityBody);
+        final DestinationProfileSemanticV1 destinationBody = new DestinationProfileSemanticV1(
+                AdapterKindV1.KAFKA, target, 2, TargetPartitionPolicyV1.HASH_ONLY,
+                TargetPartitionHashInputV1.ADAPTER_MESSAGE_KEY, List.of(), capability.ref(), 1, 0, 0,
+                bytes(32, 73), 1_000, 128, 512, 1, Bytes.utf8("high-bit-hash-destination"), 0, 0, 1,
+                bytes(32, 74));
+        final ProfileSemanticEnvelopeV1 destination = new ProfileSemanticEnvelopeV1(
+                ProfileKindV1.DESTINATION, Bytes.utf8("high-bit-hash-destination"), Long.MIN_VALUE,
+                destinationBody);
+        final long expectedPartition = Long.remainderUnsigned(Bytes.readU64be(Bytes.sha256(
+                Bytes.utf8("nereus-delay-target-partition-v1"), Bytes.lp32(destination.ref().profileId()),
+                Bytes.u64beBits(destination.ref().version()), Bytes.lp32(Bytes.utf8("key"))), 0), 2);
+        final Fixture fixture = Fixture.createWithProfiles(new ShardId(RouteIncarnation.random(), 14),
+                destination.ref().canonicalBytes(), capability.ref().canonicalBytes(), target,
+                AdapterKindV1.KAFKA, 2_000, expectedPartition);
+
+        final PublishAdmissionBody admission = PublishAdmissionBody.decode(fixture.body());
+        assertDoesNotThrow(() -> admission.requireTimingPolicy(destinationBody, capabilityBody));
     }
 
     @Test

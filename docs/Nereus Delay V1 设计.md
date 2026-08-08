@@ -1614,6 +1614,10 @@ physicalPartition =
   unsignedBigEndian64(digest[0..7]) mod targetPartitionCount
 ```
 
+`profileVersion` 使用完整的 `uint64` bit pattern；Java signed high-bit 值不得被当作
+负数拒绝或改用另一种编码。Admission 在重算该哈希时必须与 ProfileRef 的 canonical
+`u64be` 字节完全一致。
+
 Worker 把整数 partition 直接交给 Adapter，不调用 Kafka/Pulsar 默认 partitioner。目标扩 partition 或修改输入策略创建新 Profile version。
 
 ### 13.2 Adapter SPI

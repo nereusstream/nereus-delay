@@ -77,6 +77,12 @@ Profile and Retry Policy semantic versions and their reference values likewise
 retain complete nonzero `uint64` bits in canonical bytes and semantic-hash
 preimages. This closes their local immutable-value codec boundary; catalog
 publication, activation history and source authority remain release evidence.
+The Admission target-partition hash now uses the same raw `uint64` Profile
+version bits (`PublishAdmissionBody.requireHashedPartition`), so a high-bit
+Destination Profile reference is not rejected while recomputing the Registry
+`TARGET_PARTITION_HASH_V1` digest. `PublishAdmissionBodyTest` covers the
+high-bit hash vector; target catalog/publication and external partition
+authority remain release evidence.
 
 Payload-proof trust-set semantic/reference versions now also preserve complete
 raw bits, while the source-ordered activation projection compares versions as

@@ -102,6 +102,11 @@ preimages and canonical decode. Equality remains byte/version based; catalog
 publication and source-ordered activation authority are still external.
 `ProfileSemanticEnvelopeV1Test` and `RetryPolicySemanticV1Test` cover the
 high-bit references.
+Admission target-partition hashing now feeds the exact raw Destination Profile
+version bits into the Registry digest instead of the signed `u64` helper;
+`PublishAdmissionBodyTest.hashedPartitionValidationPreservesHighBitDestinationProfileVersion`
+covers the boundary. This is local hash/codec evidence only; Profile catalog,
+partition assignment and external Broker authority remain release blockers.
 
 Payload-proof trust-set semantic/ref versions now follow the same full-width
 rule, and source-ordered activation compares them with unsigned ordering;
