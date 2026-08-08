@@ -361,9 +361,13 @@ corrupt and cannot become a wrapped local sequence. The local evidence is
 `DelayShardTest.rejectsNegativePersistedShardSequences`.
 Every source-position WriteBatch computes its successor through one checked
 mutation-sequence helper, including the applied sequence captured by resource
-retire/delete records. At `Long.MAX_VALUE` the WriteBatch fails before any
-authoritative command or position state is committed; the local evidence is
-`DelayShardTest.mutationSequenceExhaustionFailsClosedBeforeCommandMutation`.
+retire/delete records. The successful post-write update stores that checked
+successor in the in-memory projection instead of using an unchecked `++`, so a
+batch that reaches `Long.MAX_VALUE` cannot leave memory wrapped while RocksDB
+still holds the maximum. At `Long.MAX_VALUE` the next WriteBatch fails before
+any authoritative command or position state is committed; the local evidence is
+`DelayShardTest.mutationSequenceExhaustionFailsClosedBeforeCommandMutation`,
+which covers both the near-maximum commit and the exhausted boundary.
 The durable Command/System Mutation result values apply the same source-anchor
 boundary independently: their constructors and decoders require canonical
 Source Position bytes, so an empty, truncated or non-canonical result cannot

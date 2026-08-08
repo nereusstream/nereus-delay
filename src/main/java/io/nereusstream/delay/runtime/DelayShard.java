@@ -1205,7 +1205,7 @@ public final class DelayShard {
             if (!Arrays.equals(prior.appliedSourcePosition(), sourcePosition.canonicalBytes())) {
                 store.write(batch -> writePosition(batch, sourcePosition));
                 lastAppliedSourcePosition = sourcePosition;
-                mutationSequence++;
+                mutationSequence = nextMutationSequence();
             }
             return prior;
         }
@@ -1447,7 +1447,7 @@ public final class DelayShard {
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         quota = nextQuota;
         laneQuotaUsage = projectedLaneQuota;
         return result;
@@ -1503,7 +1503,7 @@ public final class DelayShard {
         });
         payloadProofTrustSetControlState = next;
         lastAppliedSourcePosition = sourcePosition;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         return result;
     }
 
@@ -1549,7 +1549,7 @@ public final class DelayShard {
         });
         profileBindingControlState = next;
         lastAppliedSourcePosition = sourcePosition;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         return result;
     }
 
@@ -2070,7 +2070,7 @@ public final class DelayShard {
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         laneQuotaUsage = nextLaneQuota;
         return result;
     }
@@ -2114,7 +2114,7 @@ public final class DelayShard {
             closedIngressDeadlineThrough = closeThrough;
         }
         lastAppliedSourcePosition = sourcePosition;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         return result;
     }
 
@@ -2355,7 +2355,7 @@ public final class DelayShard {
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         return result;
     }
 
@@ -2583,7 +2583,7 @@ public final class DelayShard {
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         laneQuotaUsage = projectedLaneQuota;
         outcomeReserve = nextOutcomeReserve;
         outcomeReserveVector = nextOutcomeReserveVector;
@@ -2621,7 +2621,7 @@ public final class DelayShard {
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         laneQuotaUsage = nextLaneQuota;
         outcomeReserve = nextOutcomeReserve;
         outcomeReserveVector = nextOutcomeReserveVector;
@@ -2708,7 +2708,7 @@ public final class DelayShard {
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         laneQuotaUsage = projectedLaneQuota;
         outcomeReserve = nextOutcomeReserve;
         outcomeReserveVector = nextOutcomeReserveVector;
@@ -2806,7 +2806,7 @@ public final class DelayShard {
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         quota = nextQuota;
         laneQuotaUsage = projectedLaneQuota;
         outcomeReserve = nextOutcomeReserve;
@@ -2892,7 +2892,7 @@ public final class DelayShard {
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         quota = nextQuota;
         laneQuotaUsage = nextLaneQuota;
         return result;
@@ -3004,7 +3004,7 @@ public final class DelayShard {
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         quota = nextQuota;
         laneQuotaUsage = nextLaneQuota;
         return result;
@@ -3156,7 +3156,7 @@ public final class DelayShard {
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         quota = nextQuota;
         laneQuotaUsage = projectedLaneQuota;
         return result;
@@ -3498,7 +3498,7 @@ public final class DelayShard {
                 writePosition(batch, sourcePosition);
             });
             lastAppliedSourcePosition = sourcePosition;
-            mutationSequence++;
+            mutationSequence = nextMutationSequence();
             quota = nextQuota;
             laneQuotaUsage = projectedLaneQuota;
             outcomeReserve = nextOutcomeReserve;
@@ -3556,7 +3556,7 @@ public final class DelayShard {
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         laneQuotaUsage = nextLaneQuota;
         outcomeReserve = nextOutcomeReserve;
         outcomeReserveVector = nextOutcomeReserveVector;
@@ -3574,7 +3574,7 @@ public final class DelayShard {
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         return result;
     }
 
@@ -3668,7 +3668,7 @@ public final class DelayShard {
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         quota = nextQuota;
         laneQuotaUsage = projectedLaneQuota;
         return result;
@@ -3722,7 +3722,7 @@ public final class DelayShard {
                 writePosition(batch, sourcePosition);
             });
             lastAppliedSourcePosition = sourcePosition;
-            mutationSequence++;
+            mutationSequence = nextMutationSequence();
             return result;
         } catch (IllegalStateException | IllegalArgumentException | ArithmeticException exception) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
@@ -3762,7 +3762,7 @@ public final class DelayShard {
             writePosition(batch, position);
         });
         lastAppliedSourcePosition = position;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         return result;
     }
 
@@ -3805,7 +3805,7 @@ public final class DelayShard {
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         return result;
     }
 
@@ -3853,7 +3853,7 @@ public final class DelayShard {
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         return result;
     }
 
@@ -4175,7 +4175,7 @@ public final class DelayShard {
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         laneQuotaUsage = projectedLaneQuota;
         outcomeReserve = nextOutcomeReserve;
         outcomeReserveVector = nextOutcomeReserveVector;
@@ -4366,7 +4366,7 @@ public final class DelayShard {
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         return nextLedger;
     }
 
@@ -4398,7 +4398,7 @@ public final class DelayShard {
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         return nextLedger;
     }
 
@@ -4482,7 +4482,7 @@ public final class DelayShard {
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         quota = nextQuota;
         laneQuotaUsage = projectedLaneQuota;
         outcomeReserve = nextOutcomeReserve;
@@ -4531,7 +4531,7 @@ public final class DelayShard {
                 writePosition(batch, sourcePosition);
             });
             lastAppliedSourcePosition = sourcePosition;
-            mutationSequence++;
+            mutationSequence = nextMutationSequence();
             laneQuotaUsage = nextLaneQuota;
             outcomeReserve = nextOutcomeReserve;
             outcomeReserveVector = nextOutcomeReserveVector;
@@ -4610,7 +4610,7 @@ public final class DelayShard {
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         quota = nextQuota;
         laneQuotaUsage = projectedLaneQuota;
         outcomeReserve = nextOutcomeReserve;
@@ -4657,7 +4657,7 @@ public final class DelayShard {
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         laneQuotaUsage = nextLaneQuota;
         outcomeReserve = nextOutcomeReserve;
         outcomeReserveVector = nextOutcomeReserveVector;
@@ -4695,7 +4695,7 @@ public final class DelayShard {
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         laneQuotaUsage = nextLaneQuota;
         outcomeReserve = nextOutcomeReserve;
         outcomeReserveVector = nextOutcomeReserveVector;
@@ -5826,7 +5826,7 @@ public final class DelayShard {
             writePosition(batch, position);
         });
         lastAppliedSourcePosition = position;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         return result;
     }
 
@@ -5949,7 +5949,7 @@ public final class DelayShard {
             writePosition(batch, position);
         });
         lastAppliedSourcePosition = position;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
         quota = nextQuota;
         laneQuotaUsage = projectedLaneQuota;
         lastResolvedSchedule = null;
@@ -6373,7 +6373,7 @@ public final class DelayShard {
             writePosition(batch, position);
         });
         lastAppliedSourcePosition = position;
-        mutationSequence++;
+        mutationSequence = nextMutationSequence();
     }
 
     private CommandDedupeRecord readCommandDedupe(final CommandId commandId) {

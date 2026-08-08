@@ -131,14 +131,24 @@ class DelayShardTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             store.write(batch -> batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(5),
-                    Bytes.u64be(Long.MAX_VALUE)));
-            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+                    Bytes.u64be(Long.MAX_VALUE - 1)));
+            final DelayShard nearExhausted = new DelayShard(store, DelayShardConfig.defaults());
 
-            assertEquals(Long.MAX_VALUE, shard.mutationSequence());
-            assertThrows(ArithmeticException.class, () -> shard.apply(command, sourcePosition));
-            assertNull(shard.getMessage(command.delayMessageId()));
-            assertNull(shard.lastAppliedSourcePosition());
-            assertEquals(Long.MAX_VALUE, shard.mutationSequence());
+            assertEquals(StableCode.SCHEDULED, nearExhausted.apply(command, sourcePosition).stableCode());
+            assertEquals(Long.MAX_VALUE, nearExhausted.mutationSequence());
+            assertEquals(Long.MAX_VALUE, ByteBuffer.wrap(store.getValue(ColumnFamily.META,
+                    KeyCodec.metaFixed(5), 1).payload()).getLong());
+
+            final DestinationLaneId blockedLane = DestinationLaneId.derive(
+                    Bytes.utf8("mutation-sequence-exhaustion-blocked-lane"));
+            final PreparedCommand blocked = PreparedCommand.schedule(shardId,
+                    new io.nereusstream.delay.protocol.ScheduleIntent(blockedLane, 2_000, 5_000,
+                            OrderingMode.BEST_EFFORT, Bytes.utf8("mutation-sequence-exhaustion-blocked")), 9_000);
+            final SourcePosition blockedPosition = position(shardId, 1, 1_001);
+            assertThrows(ArithmeticException.class, () -> nearExhausted.apply(blocked, blockedPosition));
+            assertNull(nearExhausted.getMessage(blocked.delayMessageId()));
+            assertEquals(sourcePosition, nearExhausted.lastAppliedSourcePosition());
+            assertEquals(Long.MAX_VALUE, nearExhausted.mutationSequence());
             assertEquals(Long.MAX_VALUE, ByteBuffer.wrap(store.getValue(ColumnFamily.META,
                     KeyCodec.metaFixed(5), 1).payload()).getLong());
         }

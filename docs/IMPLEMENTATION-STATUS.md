@@ -749,10 +749,14 @@ sequence and could poison resource-retirement or Claim identity derivation.
 metadata keys and verifies the shard fails closed before activation.
 The next mutation sequence is computed through one checked helper before every
 source-position WriteBatch; resource-retirement and delete-confirmed records use
-the same helper. At `Long.MAX_VALUE`, the batch is rejected before any command,
-result, or source-position state is written, so the in-memory and persisted
-sequence cannot diverge or wrap. `DelayShardTest.mutationSequenceExhaustionFailsClosedBeforeCommandMutation`
-covers the exhausted boundary.
+the same helper. The successful post-write update assigns that checked successor
+back to the in-memory projection rather than using an unchecked `++`, so a batch
+that reaches `Long.MAX_VALUE` cannot leave the process counter wrapped while the
+persisted metadata still holds the maximum. At `Long.MAX_VALUE`, the next batch
+is rejected before any command, result, or source-position state is written, so
+the in-memory and persisted sequence cannot diverge or wrap.
+`DelayShardTest.mutationSequenceExhaustionFailsClosedBeforeCommandMutation`
+covers both the near-maximum commit and the exhausted boundary.
 
 Durable `CommandResult` and `SystemMutationResult` values now validate their
 embedded Source Position through the canonical decoder at construction and
