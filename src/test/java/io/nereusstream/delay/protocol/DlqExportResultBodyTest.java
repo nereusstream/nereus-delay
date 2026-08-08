@@ -87,6 +87,20 @@ class DlqExportResultBodyTest {
     }
 
     @Test
+    void rejectsRetryNextAtOutsideTheFirstAttemptAndDeadlineInterval() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
+        final byte[] exportId = nonZero(32, 29);
+        final byte[] messageId = DelayMessageId.random(shard).bytes();
+        final byte[] envelope = nonZero(32, 30);
+        final byte[] retryAfterDeadline = retryWithNext(2,
+                StableCode.DLQ_EXPORT_OUTCOME_UNKNOWN.wireValue(), 2, 2_001);
+        final byte[] body = body(shard, exportId, messageId, envelope, 1, 3, 4,
+                StableCode.DLQ_EXPORT_OUTCOME_UNKNOWN.wireValue(), new byte[0], retryAfterDeadline, 2, 1);
+
+        assertThrows(IllegalArgumentException.class, () -> DlqExportResultBody.decode(body));
+    }
+
+    @Test
     void rejectsUnknownAttemptWithDefinitiveEvidenceOrMessageRetryDomain() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
         final byte[] exportId = nonZero(32, 5);
@@ -156,6 +170,21 @@ class DlqExportResultBodyTest {
             CanonicalProtobuf.uint32(output, 3, 1);
             CanonicalProtobuf.uint64(output, 4, 1_000);
             CanonicalProtobuf.uint64(output, 5, 2_000);
+            CanonicalProtobuf.uint32(output, 7, 1);
+            CanonicalProtobuf.uint32(output, 8, cause);
+            CanonicalProtobuf.uint32(output, 9, domain);
+        });
+    }
+
+    private static byte[] retryWithNext(final int kind, final int cause, final int domain,
+                                        final long nextRetryAt) {
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint32(output, 1, kind);
+            CanonicalProtobuf.bytes(output, 2, retryPolicyRef());
+            CanonicalProtobuf.uint32(output, 3, 1);
+            CanonicalProtobuf.uint64(output, 4, 1_000);
+            CanonicalProtobuf.uint64(output, 5, 2_000);
+            CanonicalProtobuf.uint64(output, 6, nextRetryAt);
             CanonicalProtobuf.uint32(output, 7, 1);
             CanonicalProtobuf.uint32(output, 8, cause);
             CanonicalProtobuf.uint32(output, 9, domain);

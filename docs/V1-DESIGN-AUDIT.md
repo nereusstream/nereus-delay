@@ -987,8 +987,11 @@ external DLQ policy and provider authority remain release evidence.
 The same `DLQ_EXPORT_RESULT_V1` parser now closes the nested retry boundary:
 `RetryDecisionV1` must use the exact canonical field sequence and its nested
 `RetryPolicyRefV1` is decoded (not merely accepted as nonempty bytes), including
-the complete raw nonzero policy version and 32-byte semantic hash. The negative
-vector is in `DlqExportResultBodyTest`; policy publication and source-ordered
+the complete raw nonzero policy version and 32-byte semantic hash. The parser
+also enforces the local `first_attempt_at <= next_retry_at <= retry_deadline`
+interval (and rejects a deadline before the first attempt), so a structurally
+valid retry cannot schedule outside its own decision window. Negative vectors
+are in `DlqExportResultBodyTest`; policy publication and source-ordered
 authority remain external evidence.
 
 `PublishEvidenceV1`/`ExternalDeliveryIdentityV1` 进一步把 Registry 的

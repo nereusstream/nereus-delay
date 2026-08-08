@@ -143,10 +143,12 @@ external DLQ policy/provider authority remains a release blocker.
 `DLQ_EXPORT_RESULT_V1` now also validates the nested `RetryDecisionV1` field
 order/presence and decodes its exact `RetryPolicyRefV1` (including canonical
 bytes, nonzero raw version and semantic-hash length) before accepting the
-result. A malformed nested policy reference cannot be reduced to an opaque
-nonempty byte string. `DlqExportResultBodyTest` covers the rejection path;
-policy publication, source ordering and external DLQ authority remain
-release blockers.
+result. It also enforces the local first-attempt/deadline interval for an
+optional `next_retry_at`, so a structurally valid retry cannot schedule
+outside its own decision window. A malformed nested policy reference or
+timing interval cannot be reduced to an opaque nonempty byte string;
+`DlqExportResultBodyTest` covers both rejection paths. Policy publication,
+source ordering and external DLQ authority remain release blockers.
 
 Payload-proof trust-set semantic/ref versions now follow the same full-width
 rule, and source-ordered activation compares them with unsigned ordering;

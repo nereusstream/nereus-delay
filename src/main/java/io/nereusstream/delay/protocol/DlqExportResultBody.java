@@ -228,13 +228,19 @@ public final class DlqExportResultBody {
         }
         RetryPolicyRefV1.decode(nested(field(fields, 2), 2));
         unsigned(field(fields, 3), 3);
-        unsigned(field(fields, 4), 4);
-        unsigned(field(fields, 5), 5);
+        final long firstAttemptAt = unsigned(field(fields, 4), 4);
+        final long retryDeadline = unsigned(field(fields, 5), 5);
+        if (retryDeadline < firstAttemptAt) {
+            throw new IllegalArgumentException("retry deadline precedes first attempt");
+        }
         if ((kind == 2 || kind == 4) != hasNext) {
             throw new IllegalArgumentException("retry next-at presence does not match retry kind");
         }
         if (hasNext) {
-            unsigned(field(fields, 6), 6);
+            final long nextRetryAt = unsigned(field(fields, 6), 6);
+            if (nextRetryAt < firstAttemptAt || nextRetryAt > retryDeadline) {
+                throw new IllegalArgumentException("retry next-at is outside the first-attempt/deadline interval");
+            }
         }
         if (unsigned(field(fields, 7), 7) != 1) {
             throw new IllegalArgumentException("unsupported retry jitter algorithm");
