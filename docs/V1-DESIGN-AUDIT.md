@@ -284,7 +284,11 @@ SCHEDULER projection 中持久化，恢复不会把 stale Lane 重新加入 ring
 比较 `SchedulerRoundV1.owner` 与当前 Owner；Owner/Store 更换会重新进入
 `recovery_first_pass`，由 `LaneScheduler` 跟踪已服务 Lane，保证第一轮对每个当前
 eligible Lane 至多取一条记录，直到所有已发现 Lane 都获得机会；fenced READY rebuild
-同样重启该 pass。该实现证明
+同样重启该 pass。恢复扫描本身现在从 READY namespace 的起点执行完整 bounded pass，
+不会把 rotating discovery cursor 当成已消费的条目；因此超过 `maxReadyEntries` 的
+READY 集合必然 fail closed，而不会因为 cursor 被丢弃而静默漏掉一个 head。
+`LaneSchedulerTest.fencedRecoveryUsesCompleteReadyPassDespitePersistedDiscoveryCursor`
+覆盖该边界。该实现证明
 的是单 DB 内的本地物理边界和确定性恢复顺序，不等于 Oxia owner/session fence、
 typed `ActiveLaneStateV1` 运行时切换或真实 Lane certificate/adapter activation。
 Worker 外层 DRR 也只把至少含有一个 schedulable pending head 的 shard 纳入 visit，

@@ -137,7 +137,12 @@ public final class PersistentLaneScheduler {
         }
         final int scanLimit = maxReadyEntries == Integer.MAX_VALUE
                 ? Integer.MAX_VALUE : Math.addExact(maxReadyEntries, 1);
-        final List<ShardStore.KeyValue> entries = scanReadyEntries(scanLimit);
+        // Recovery is a complete bounded pass over the authoritative READY
+        // namespace.  The rotating discovery cursor is for steady-state
+        // promotion only; using it here could consume the cursor entry as
+        // look-ahead, fill the remaining bound from the wrapped prefix, and
+        // silently omit a READY head without detecting overflow.
+        final List<ShardStore.KeyValue> entries = scanAllReadyEntries(scanLimit);
         if (entries.size() > maxReadyEntries) {
             throw new IllegalStateException("READY index exceeds scheduler recovery bound");
         }
@@ -295,6 +300,12 @@ public final class PersistentLaneScheduler {
             }
         }
         return List.copyOf(result);
+    }
+
+    private List<ShardStore.KeyValue> scanAllReadyEntries(final int limit) {
+        final byte[] prefix = new byte[]{3, 1};
+        final byte[] upper = new byte[]{4, 1};
+        return store.scan(ColumnFamily.TIMELINE, prefix, upper, limit);
     }
 
     private ReadyProjection decodeReadyProjection(final ShardStore.KeyValue entry) {

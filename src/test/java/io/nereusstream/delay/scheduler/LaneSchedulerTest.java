@@ -27,6 +27,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -387,6 +388,54 @@ class LaneSchedulerTest {
             scheduler.register(laneRecord);
 
             assertThrows(IllegalStateException.class, () -> scheduler.rebuildFromAuthoritativeReady(1));
+        }
+    }
+
+    @Test
+    void fencedRecoveryUsesCompleteReadyPassDespitePersistedDiscoveryCursor() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 29);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("ready-recovery-complete-pass"));
+        final List<LaneRecord> lanes = new ArrayList<>();
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> {
+                for (int index = 0; index < 4; index++) {
+                    final DestinationLaneId lane = lane(30 + index);
+                    final LaneRecord laneRecord = new LaneRecord(lane, new byte[16], 1, 1,
+                            AdmissionGate.OPEN, RuntimeReadiness.READY, 1, 1_000);
+                    final SourcePosition source = new KafkaSourcePosition(shardId, "cluster", UUID.randomUUID(),
+                            index, null, 1_000 + index);
+                    final DelayMessageId messageId = DelayMessageId.random(shardId);
+                    final MessageRecord message = new MessageRecord(MessageStatus.SCHEDULED, 1, 1,
+                            1_000, 9_000, lane, OrderingMode.BEST_EFFORT, new byte[]{(byte) index},
+                            source.canonicalBytes());
+                    final byte[] readyKey = KeyCodec.timelineReady(1_000, lane, laneRecord.laneVersion());
+                    final byte[] timelineKey = KeyCodec.timelineDue(lane, 1_000, source.sourceOrderToken(),
+                            messageId, message.generation());
+                    final ReadyIndexValue ready = new ReadyIndexValue(lane, 1_000, laneRecord.laneVersion(),
+                            messageId, message.generation(), Bytes.sha256(timelineKey));
+                    lanes.add(laneRecord);
+                    batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(lane),
+                            LaneRecordEnvelopeV1.active(laneRecord.encode()).canonicalBytes());
+                    batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(messageId), message.encode());
+                    batch.putValue(ColumnFamily.TIMELINE, 1, timelineKey,
+                            new TimelineEntry(messageId, message.generation()).encode());
+                    batch.putValue(ColumnFamily.TIMELINE, 3, readyKey, ready.encode());
+                }
+            });
+
+            final PersistentLaneScheduler initial = PersistentLaneScheduler.defaults(store);
+            lanes.forEach(initial::register);
+            assertEquals(4, initial.rebuildFromAuthoritativeReady(4));
+
+            // A recovery cursor points at the last scanned entry.  A complete
+            // pass must still detect all four authoritative READY entries;
+            // it must not treat the cursor as an item that can be discarded
+            // from the bounded scan.
+            final PersistentLaneScheduler recovered = PersistentLaneScheduler.defaults(store);
+            lanes.forEach(recovered::register);
+            assertThrows(IllegalStateException.class, () -> recovered.rebuildFromAuthoritativeReady(3));
         }
     }
 
