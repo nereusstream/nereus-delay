@@ -81,6 +81,36 @@ class ClaimResultBodyTest {
                 () -> ClaimResultBody.decodePrecondition(precondition(messageId, materialization)));
     }
 
+    @Test
+    void claimMaterializationRequiresDestinationAndCapabilityProfileSlots() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 16);
+        final DelayMessageId messageId = DelayMessageId.random(shard);
+        final byte[] wrongDestination = new ProfileRefV1(Bytes.utf8("claim-object-store"), 1,
+                Bytes.sha256(Bytes.utf8("claim-object-store-hash")), ProfileKindV1.OBJECT_STORE)
+                .canonicalBytes();
+        final byte[] wrongCapability = new ProfileRefV1(Bytes.utf8("claim-destination"), 1,
+                Bytes.sha256(Bytes.utf8("claim-destination-hash")), ProfileKindV1.DESTINATION)
+                .canonicalBytes();
+        final byte[] capability = new ProfileRefV1(Bytes.utf8("claim-capability"), 1,
+                Bytes.sha256(Bytes.utf8("claim-capability-hash")), ProfileKindV1.DELIVERY_CAPABILITY)
+                .canonicalBytes();
+        final byte[] broker = BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1("claim-cluster",
+                java.util.UUID.nameUUIDFromBytes(Bytes.utf8("claim-topic")))).canonicalBytes();
+
+        final byte[] wrongDestinationMaterialization = materialization(messageId, wrongDestination, capability,
+                broker, payload(), adapterMetadata());
+        final byte[] wrongCapabilityMaterialization = materialization(messageId,
+                new ProfileRefV1(Bytes.utf8("claim-destination"), 1,
+                        Bytes.sha256(Bytes.utf8("claim-destination-hash")), ProfileKindV1.DESTINATION)
+                        .canonicalBytes(),
+                wrongCapability, broker, payload(), adapterMetadata());
+
+        assertThrows(IllegalArgumentException.class, () -> ClaimResultBody.decodePrecondition(
+                precondition(messageId, wrongDestinationMaterialization)));
+        assertThrows(IllegalArgumentException.class, () -> ClaimResultBody.decodePrecondition(
+                precondition(messageId, wrongCapabilityMaterialization)));
+    }
+
     private static byte[] materialization(final DelayMessageId messageId, final byte[] destination,
                                           final byte[] capability, final byte[] broker,
                                           final byte[] payload, final byte[] metadata) {

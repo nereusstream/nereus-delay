@@ -77,6 +77,16 @@ public class PublishAdmissionBodyTest {
     }
 
     @Test
+    void rejectsClaimMaterializationProfileSlotKindDrift() {
+        final Fixture fixture = Fixture.create(new ShardId(RouteIncarnation.random(), 17));
+        final byte[] wrongDestination = Fixture.profileRef("claim-object-store",
+                ProfileKindV1.OBJECT_STORE.wireValue());
+
+        assertThrows(IllegalArgumentException.class, () -> PublishAdmissionBody.decode(
+                tamperClaimMaterializationProfile(fixture.body(), 1, wrongDestination)));
+    }
+
+    @Test
     void hashedPartitionValidationPreservesHighBitDestinationProfileVersion() {
         final BrokerResourceIdentityV1 target = BrokerResourceIdentityV1.kafka(
                 new KafkaBrokerResourceIdentityV1("cluster", java.util.UUID.nameUUIDFromBytes(
@@ -277,6 +287,64 @@ public class PublishAdmissionBodyTest {
                 }
             }
         });
+    }
+
+    private static byte[] tamperClaimMaterializationProfile(final byte[] body, final int profileField,
+                                                             final byte[] replacement) {
+        final List<CanonicalProtobuf.Reader.Field> bodyFields = readFields(body);
+        final byte[] claim = bodyFields.stream().filter(field -> field.number() == 25)
+                .findFirst().orElseThrow().rawValue();
+        final List<CanonicalProtobuf.Reader.Field> claimFields = readFields(claim);
+        final byte[] materialization = claimFields.stream().filter(field -> field.number() == 10)
+                .findFirst().orElseThrow().rawValue();
+        final byte[] changedMaterialization = CanonicalProtobuf.message(output -> {
+            for (CanonicalProtobuf.Reader.Field field : readFields(materialization)) {
+                if (field.number() == profileField) {
+                    CanonicalProtobuf.bytes(output, profileField, replacement);
+                } else {
+                    writeField(output, field);
+                }
+            }
+        });
+        final byte[] changedClaim = CanonicalProtobuf.message(output -> {
+            for (CanonicalProtobuf.Reader.Field field : claimFields) {
+                if (field.number() == 10) {
+                    CanonicalProtobuf.bytes(output, 10, changedMaterialization);
+                } else if (field.number() == 11) {
+                    CanonicalProtobuf.bytes(output, 11, Bytes.sha256(
+                            Bytes.utf8("nereus-delay-claim-materialization-v1\0"), changedMaterialization));
+                } else {
+                    writeField(output, field);
+                }
+            }
+        });
+        return CanonicalProtobuf.message(output -> {
+            for (CanonicalProtobuf.Reader.Field field : bodyFields) {
+                if (field.number() == 25) {
+                    CanonicalProtobuf.bytes(output, 25, changedClaim);
+                } else {
+                    writeField(output, field);
+                }
+            }
+        });
+    }
+
+    private static List<CanonicalProtobuf.Reader.Field> readFields(final byte[] encoded) {
+        final List<CanonicalProtobuf.Reader.Field> fields = new ArrayList<>();
+        final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(encoded);
+        while (reader.hasRemaining()) {
+            fields.add(reader.next());
+        }
+        return fields;
+    }
+
+    private static void writeField(final java.io.ByteArrayOutputStream output,
+                                   final CanonicalProtobuf.Reader.Field field) {
+        if (field.wireType() == 0) {
+            CanonicalProtobuf.uint64Bits(output, field.number(), field.unsignedValue());
+        } else {
+            CanonicalProtobuf.bytes(output, field.number(), field.rawValue());
+        }
     }
 
     private static byte[] bytes(final int length, final int seed) {

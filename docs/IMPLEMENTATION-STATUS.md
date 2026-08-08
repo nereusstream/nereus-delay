@@ -127,6 +127,13 @@ could bypass. `ClaimResultBodyTest` covers non-canonical Broker identity and a
 committed payload carrying the wrong Profile kind; full Claim materialization
 and external Object Store authority remain release blockers.
 
+Claim materialization Profile slots now also enforce the Registry union kinds:
+the first reference must be `DESTINATION` and the second must be
+`DELIVERY_CAPABILITY`. The same slot fence is applied by both
+`ClaimResultBody` and `PublishAdmissionBody`, with negative coverage in
+`ClaimResultBodyTest.claimMaterializationRequiresDestinationAndCapabilityProfileSlots`
+and `PublishAdmissionBodyTest.rejectsClaimMaterializationProfileSlotKindDrift`.
+
 `PublishAdmissionBody` now applies the same typed nested codecs to both its
 Prepared Publish descriptor and Claim materialization projections, so Admission
 cannot accept a Broker or metadata branch that Claim Result would reject, nor

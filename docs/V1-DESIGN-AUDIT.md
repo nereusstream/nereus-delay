@@ -99,6 +99,12 @@ projection's local parser. Negative vectors for a non-canonical Broker identity
 and a committed descriptor with the wrong Profile kind are in
 `ClaimResultBodyTest`.
 
+Both Claim and Publish Admission materialization parsers also enforce the
+Registry slot kinds: field 1 is `DESTINATION` and field 2 is
+`DELIVERY_CAPABILITY`. This prevents a validly encoded but semantically wrong
+Profile reference from crossing the replay-stable Claim/Admission boundary;
+the negative vectors are in `ClaimResultBodyTest` and `PublishAdmissionBodyTest`.
+
 The `ExactResourceIdentityV1` retirement projection now applies the same
 branch-specific Object Store Profile fence as the committed/checkpoint
 resource codecs. Payload-object and checkpoint lengths follow the Registry's

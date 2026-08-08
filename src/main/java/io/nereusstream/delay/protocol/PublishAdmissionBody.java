@@ -539,10 +539,6 @@ public final class PublishAdmissionBody {
                 bytes(field(fields, 15), 15), materialization);
     }
 
-    private static void validateProfileRef(final byte[] encoded) {
-        ProfileRefV1.decode(encoded);
-    }
-
     private static void validateProfileRef(final byte[] encoded, final ProfileKindV1 expectedKind) {
         if (ProfileRefV1.decode(encoded).profileKind() != expectedKind) {
             throw new IllegalArgumentException("ProfileRef kind does not match its descriptor field");
@@ -600,8 +596,8 @@ public final class PublishAdmissionBody {
     private static void validateMaterialization(final byte[] encoded) {
         final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "ClaimMaterialization");
         requireExactFields(fields, 11, "ClaimMaterialization");
-        validateProfileRef(nested(field(fields, 1), 1));
-        validateProfileRef(nested(field(fields, 2), 2));
+        validateProfileRef(nested(field(fields, 1), 1), ProfileKindV1.DESTINATION);
+        validateProfileRef(nested(field(fields, 2), 2), ProfileKindV1.DELIVERY_CAPABILITY);
         validateBrokerResource(nested(field(fields, 3), 3));
         unsigned(field(fields, 4), 4);
         fixed(bytes(field(fields, 5), 5), MESSAGE_ID_LENGTH, 5);

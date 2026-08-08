@@ -177,8 +177,8 @@ public final class ClaimResultBody {
     private static void validateMaterialization(final byte[] encoded) {
         final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "ClaimMaterialization");
         requireExact(fields, 11, "ClaimMaterialization");
-        validateProfileRef(nested(field(fields, 1), 1));
-        validateProfileRef(nested(field(fields, 2), 2));
+        validateProfileRef(nested(field(fields, 1), 1), ProfileKindV1.DESTINATION);
+        validateProfileRef(nested(field(fields, 2), 2), ProfileKindV1.DELIVERY_CAPABILITY);
         validateBrokerResource(nested(field(fields, 3), 3));
         bodyUnsigned(field(fields, 4), 4);
         fixed(field(fields, 5), 5, MESSAGE_ID_LENGTH);
@@ -193,8 +193,10 @@ public final class ClaimResultBody {
         }
     }
 
-    private static void validateProfileRef(final byte[] encoded) {
-        ProfileRefV1.decode(encoded);
+    private static void validateProfileRef(final byte[] encoded, final ProfileKindV1 expectedKind) {
+        if (ProfileRefV1.decode(encoded).profileKind() != expectedKind) {
+            throw new IllegalArgumentException("ClaimMaterialization Profile kind does not match its slot");
+        }
     }
 
     private static void validateBrokerResource(final byte[] encoded) {
