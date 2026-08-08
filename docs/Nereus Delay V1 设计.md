@@ -1432,6 +1432,14 @@ READY discovery 看 `GenerationRuntimeIndexV1.currentWork` 与 exact `TimelineWo
 
 ordered Lane 的 ready time 来自 blocking head；`ORDERED` key 按业务 `(deliverAt, effective Schedule Source Position, delayMessageId)` 选择该 head，而 `headEligibilityAt=max(actionAt,retryEligibilityAt)` 决定何时唤醒。后续消息不能越过 `CLAIMED/PUBLISHING/UNCERTAIN/RETRY_WAIT` head。
 
+每次 READY discovery 和 scheduler poll 都必须携带由 Trusted UTC/evidence barrier
+证明的 `dueThroughEpochMs`，并以 `eligibleAtEpochMs <= dueThroughEpochMs` 作为
+包含边界；不能因为 `actionAt` 或本地 wall clock 较早就提前 Claim/Admission。
+未来 READY head 可以暂时保留在进程内队列，但 due-aware poll 必须继续 fence 它，且
+durable discovery cursor 不能消费一个尚未到 due 边界的唯一 future key，避免重启后
+无法 rediscover。现有不带时间参数的 scheduler overload 只保留为 embedded/test
+兼容 seam；生产 Worker/Shard 路径必须使用带 trusted due-through 的接口。
+
 ```text
 nextEligibleAt =
   max(

@@ -1826,6 +1826,19 @@ terminal/identity/queue fence and persistent projection removal after reopen.
 This bounds the rebuildable scheduler index; it does not replace the durable
 terminal guard or external retirement authority.
 
+The scheduler boundary now carries an explicit trusted due-through time through
+`LaneScheduler`, `PersistentLaneScheduler` and `WorkerScheduler`.  Inclusive
+eligibility (`eligibleAtEpochMs <= dueThroughEpochMs`) is enforced before a
+work item can be returned for Claim; a future READY projection may be retained
+in the process-local queue, but its poll remains fenced.  The durable discovery
+cursor advances only through eligible READY keys, so a future-only slice can be
+rediscovered after restart.  `LaneSchedulerTest.duePollUsesAnInclusiveEligibilityBoundary`,
+`LaneSchedulerTest.persistentReadyDiscoveryAndPollFenceFutureDeliverAt` and
+`WorkerSchedulerTest.workerPollCarriesTheInclusiveDueThroughBoundaryToShardScheduler`
+cover the local time-boundary and restart seam.  The no-time overloads remain
+compatibility seams only; Trusted UTC production wiring, Broker-time evidence
+and Owner/Oxia scheduling authority are still release blockers.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

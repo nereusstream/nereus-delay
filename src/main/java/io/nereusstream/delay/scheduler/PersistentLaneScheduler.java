@@ -189,6 +189,23 @@ public final class PersistentLaneScheduler {
      * @return newly promoted work items in discovery order
      */
     public synchronized List<ScheduleWorkItem> discoverReady(final SchedulerBudget budget) {
+        // The legacy overload intentionally keeps its historical unbounded
+        // discovery behavior.  Production callers must provide the trusted
+        // due-through timestamp below.
+        return discoverReady(Long.MAX_VALUE, budget);
+    }
+
+    /**
+     * Promotes READY heads from the authoritative index while returning only
+     * heads whose absolute eligibility is at or before the trusted due-through
+     * time. Future heads may be retained in the in-memory queue so a later
+     * turn can serve them without relying on a second discovery pass; the
+     * downstream time-aware poll still fences them. Equality is due and
+     * therefore allowed.
+     */
+    public synchronized List<ScheduleWorkItem> discoverReady(final long dueThroughEpochMs,
+                                                              final SchedulerBudget budget) {
+        requireDueThrough(dueThroughEpochMs);
         Objects.requireNonNull(budget, "budget");
         if (!persistedRestored) {
             restorePersistedState();
@@ -199,6 +216,7 @@ public final class PersistentLaneScheduler {
         final List<ReadyProjection> projections = new ArrayList<>();
         final Set<DestinationLaneId> scannedLanes = new HashSet<>();
         long scannedBytes = 0;
+        byte[] lastEligibleReadyKey = null;
         for (ShardStore.KeyValue entry : entries) {
             if (System.nanoTime() - startedNanos >= budget.maxElapsedNanos()) {
                 break;
@@ -214,16 +232,20 @@ public final class PersistentLaneScheduler {
             if (entryBytes > budget.maxBytes() - scannedBytes) {
                 break;
             }
+            scannedBytes = Math.addExact(scannedBytes, entryBytes);
             final ReadyProjection projection = decodeReadyProjection(entry);
             if (!scannedLanes.add(projection.lane().laneId())) {
                 throw new IllegalStateException("multiple READY heads discovered for Lane: "
                         + projection.lane().laneId());
             }
             projections.add(projection);
-            scannedBytes = Math.addExact(scannedBytes, entryBytes);
+            if (projection.item().eligibleAtEpochMs() <= dueThroughEpochMs) {
+                lastEligibleReadyKey = entry.key();
+            }
         }
 
         final List<ScheduleWorkItem> toOffer = new ArrayList<>();
+        final List<ScheduleWorkItem> newlyPromoted = new ArrayList<>();
         final Map<DestinationLaneId, DiscoveredHead> nextHeads = new HashMap<>();
         for (ReadyProjection projection : projections) {
             final DestinationLaneId laneId = projection.lane().laneId();
@@ -247,17 +269,25 @@ public final class PersistentLaneScheduler {
                 continue;
             }
             nextHeads.put(laneId, new DiscoveredHead(item, projection.readyKey()));
-            toOffer.add(item);
+            newlyPromoted.add(item);
+            if (item.eligibleAtEpochMs() <= dueThroughEpochMs) {
+                toOffer.add(item);
+            }
         }
-        for (ScheduleWorkItem item : toOffer) {
+        for (ScheduleWorkItem item : newlyPromoted) {
             delegate.activateLane(item.laneId());
             delegate.offer(item);
         }
-        for (ReadyProjection projection : projections) {
-            lastScannedReadyKey = projection.readyKey();
+        // Do not consume a future READY key in the durable cursor.  The
+        // future item may be retained in this process-local queue, but a
+        // restart must be able to rediscover it before its due turn.  READY
+        // keys are ordered by eligibility, so the last eligible key is the
+        // safe cursor boundary for this time-bounded discovery turn.
+        if (lastEligibleReadyKey != null) {
+            lastScannedReadyKey = lastEligibleReadyKey;
         }
         discoveredHeads.putAll(nextHeads);
-        if (!projections.isEmpty()) {
+        if (lastEligibleReadyKey != null) {
             final long nextWrapGeneration = readyScan.wrapped()
                     ? incrementWrapGeneration(wrapGeneration) : wrapGeneration;
             persist(nextWrapGeneration);
@@ -276,6 +306,15 @@ public final class PersistentLaneScheduler {
     }
 
     public synchronized List<ScheduleWorkItem> poll(final SchedulerBudget budget) {
+        // Compatibility overload; production scheduling must pass the
+        // trusted due-through timestamp below.
+        return poll(Long.MAX_VALUE, budget);
+    }
+
+    /** Polls only work that is due through the supplied trusted time. */
+    public synchronized List<ScheduleWorkItem> poll(final long dueThroughEpochMs,
+                                                     final SchedulerBudget budget) {
+        requireDueThrough(dueThroughEpochMs);
         final List<ScheduleWorkItem> result;
         if (recoveryFirstPass) {
             final Set<DestinationLaneId> eligible = delegate.snapshot().lanes().stream()
@@ -283,17 +322,23 @@ public final class PersistentLaneScheduler {
                     .map(LaneScheduler.LaneSnapshot::laneId)
                     .collect(java.util.stream.Collectors.toSet());
             recoveryServed.retainAll(eligible);
-            result = delegate.pollRecoveryFirstPass(budget, recoveryServed);
+            result = delegate.pollRecoveryFirstPass(dueThroughEpochMs, budget, recoveryServed);
             result.forEach(item -> recoveryServed.add(item.laneId()));
             if (!eligible.isEmpty() && recoveryServed.containsAll(eligible)) {
                 recoveryFirstPass = false;
                 recoveryServed.clear();
             }
         } else {
-            result = delegate.poll(budget);
+            result = delegate.poll(dueThroughEpochMs, budget);
         }
         persist();
         return result;
+    }
+
+    private static void requireDueThrough(final long dueThroughEpochMs) {
+        if (dueThroughEpochMs < 0) {
+            throw new IllegalArgumentException("scheduler due-through time must be non-negative");
+        }
     }
 
     public synchronized void markBlocked(final DestinationLaneId laneId) {

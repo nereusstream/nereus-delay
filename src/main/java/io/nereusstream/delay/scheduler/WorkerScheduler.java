@@ -73,6 +73,15 @@ public final class WorkerScheduler {
     }
 
     public synchronized List<ScheduleWorkItem> poll(final SchedulerBudget budget) {
+        // Compatibility overload; production scheduling must pass the
+        // trusted due-through timestamp below.
+        return poll(Long.MAX_VALUE, budget);
+    }
+
+    /** Polls only work that is due through the supplied trusted time. */
+    public synchronized List<ScheduleWorkItem> poll(final long dueThroughEpochMs,
+                                                     final SchedulerBudget budget) {
+        requireDueThrough(dueThroughEpochMs);
         Objects.requireNonNull(budget, "budget");
         final long started = System.nanoTime();
         final List<ScheduleWorkItem> result = new ArrayList<>();
@@ -106,7 +115,7 @@ public final class WorkerScheduler {
                 continue;
             }
             final int visitMaxMessages = firstPassVisit ? 1 : budget.maxMessages() - result.size();
-            final List<ScheduleWorkItem> visit = shard.scheduler.poll(new SchedulerBudget(
+            final List<ScheduleWorkItem> visit = shard.scheduler.poll(dueThroughEpochMs, new SchedulerBudget(
                     visitMaxMessages, shardBudgetBytes,
                     Math.max(1, budget.maxElapsedNanos() - (System.nanoTime() - started))));
             if (visit.isEmpty()) {
@@ -130,6 +139,12 @@ public final class WorkerScheduler {
             }
         }
         return result;
+    }
+
+    private static void requireDueThrough(final long dueThroughEpochMs) {
+        if (dueThroughEpochMs < 0) {
+            throw new IllegalArgumentException("scheduler due-through time must be non-negative");
+        }
     }
 
     /**

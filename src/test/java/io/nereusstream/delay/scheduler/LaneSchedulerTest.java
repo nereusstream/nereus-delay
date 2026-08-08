@@ -57,6 +57,21 @@ class LaneSchedulerTest {
     }
 
     @Test
+    void duePollUsesAnInclusiveEligibilityBoundary() {
+        final DestinationLaneId lane = lane(2);
+        final LaneScheduler scheduler = LaneScheduler.defaults();
+        scheduler.register(record(lane, 1));
+        scheduler.offer(new ScheduleWorkItem(lane, DelayMessageId.random(
+                new ShardId(RouteIncarnation.random(), 2)), 0, 2_000, 1));
+
+        assertEquals(List.of(), scheduler.poll(1_999,
+                new SchedulerBudget(1, 1024, 1_000_000_000)));
+        assertEquals(List.of(lane), scheduler.poll(2_000,
+                new SchedulerBudget(1, 1024, 1_000_000_000)).stream()
+                .map(ScheduleWorkItem::laneId).toList());
+    }
+
+    @Test
     void weightedDeficitRoundRobinEventuallyServicesBothLanes() {
         final DestinationLaneId first = lane(3);
         final DestinationLaneId second = lane(4);
@@ -693,6 +708,41 @@ class LaneSchedulerTest {
     }
 
     @Test
+    void persistentReadyDiscoveryAndPollFenceFutureDeliverAt() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 31);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("ready-discovery-due-boundary"));
+        final DestinationLaneId lane = lane(45);
+        final LaneRecord laneRecord = new LaneRecord(lane, new byte[16], 1, 1,
+                AdmissionGate.OPEN, RuntimeReadiness.READY, 1, 2_000);
+        final SourcePosition source = new KafkaSourcePosition(shardId, "cluster", UUID.randomUUID(),
+                0, null, 1_000);
+        final DelayMessageId messageId = DelayMessageId.random(shardId);
+        final MessageRecord message = new MessageRecord(MessageStatus.SCHEDULED, 1, 1,
+                2_000, 9_000, lane, OrderingMode.BEST_EFFORT, new byte[]{1}, source.canonicalBytes());
+        final ReadyFixture fixture = readyFixture(laneRecord, messageId, source, message, 2_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> putReady(batch, fixture));
+            final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
+            scheduler.register(laneRecord);
+
+            assertEquals(List.of(), scheduler.discoverReady(1_999,
+                    new SchedulerBudget(1, 1024, 1_000_000_000)));
+            assertEquals(List.of(), scheduler.poll(1_999,
+                    new SchedulerBudget(1, 1024, 1_000_000_000)));
+            final PersistentLaneScheduler recovered = PersistentLaneScheduler.defaults(store);
+            recovered.register(laneRecord);
+            assertEquals(List.of(messageId), recovered.discoverReady(2_000,
+                    new SchedulerBudget(1, 1024, 1_000_000_000)).stream()
+                    .map(ScheduleWorkItem::messageId).toList());
+            assertEquals(List.of(messageId), recovered.poll(2_000,
+                    new SchedulerBudget(1, 1024, 1_000_000_000)).stream()
+                    .map(ScheduleWorkItem::messageId).toList());
+        }
+    }
+
+    @Test
     void readyDiscoveryRejectsFirstEntryThatExceedsByteBudget() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 32);
         final ShardStoreConfig config = ShardStoreConfig.defaults(
@@ -765,11 +815,19 @@ class LaneSchedulerTest {
 
     private static ReadyFixture readyFixture(final LaneRecord lane, final DelayMessageId messageId,
                                              final SourcePosition source, final MessageRecord message) {
-        final byte[] readyKey = KeyCodec.timelineReady(1_000, lane.laneId(), lane.laneVersion());
-        final byte[] timelineKey = KeyCodec.timelineDue(lane.laneId(), 1_000, source.sourceOrderToken(), messageId,
+        return readyFixture(lane, messageId, source, message, 1_000);
+    }
+
+    private static ReadyFixture readyFixture(final LaneRecord lane, final DelayMessageId messageId,
+                                             final SourcePosition source, final MessageRecord message,
+                                             final long eligibleAtEpochMs) {
+        final byte[] readyKey = KeyCodec.timelineReady(eligibleAtEpochMs, lane.laneId(), lane.laneVersion());
+        final byte[] timelineKey = KeyCodec.timelineDue(lane.laneId(), eligibleAtEpochMs,
+                source.sourceOrderToken(), messageId,
                 message.generation());
         return new ReadyFixture(lane, messageId, message, readyKey, timelineKey,
-                new ReadyIndexValue(lane.laneId(), 1_000, lane.laneVersion(), messageId, message.generation(),
+                new ReadyIndexValue(lane.laneId(), eligibleAtEpochMs, lane.laneVersion(), messageId,
+                        message.generation(),
                         Bytes.sha256(timelineKey)));
     }
 

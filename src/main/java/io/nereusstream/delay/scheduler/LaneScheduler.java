@@ -67,7 +67,22 @@ public final class LaneScheduler {
 
     public synchronized List<ScheduleWorkItem> poll(final SchedulerBudget budget) {
         Objects.requireNonNull(budget, "budget");
-        return pollInternal(budget, Set.of(), false);
+        // The legacy overload intentionally keeps its historical unbounded
+        // eligibility behavior.  Production callers must use the overload
+        // carrying the trusted due-through timestamp below.
+        return poll(Long.MAX_VALUE, budget);
+    }
+
+    /**
+     * Polls only work whose scheduler eligibility is no later than the
+     * supplied trusted time.  The boundary is inclusive: a work item becomes
+     * claimable exactly when {@code eligibleAtEpochMs == dueThroughEpochMs}.
+     */
+    public synchronized List<ScheduleWorkItem> poll(final long dueThroughEpochMs,
+                                                     final SchedulerBudget budget) {
+        requireDueThrough(dueThroughEpochMs);
+        Objects.requireNonNull(budget, "budget");
+        return pollInternal(budget, Set.of(), false, dueThroughEpochMs);
     }
 
     /**
@@ -78,13 +93,21 @@ public final class LaneScheduler {
      */
     synchronized List<ScheduleWorkItem> pollRecoveryFirstPass(final SchedulerBudget budget,
                                                                final Set<DestinationLaneId> alreadyServed) {
+        return pollRecoveryFirstPass(Long.MAX_VALUE, budget, alreadyServed);
+    }
+
+    synchronized List<ScheduleWorkItem> pollRecoveryFirstPass(final long dueThroughEpochMs,
+                                                               final SchedulerBudget budget,
+                                                               final Set<DestinationLaneId> alreadyServed) {
+        requireDueThrough(dueThroughEpochMs);
         Objects.requireNonNull(alreadyServed, "alreadyServed");
-        return pollInternal(budget, Set.copyOf(alreadyServed), true);
+        return pollInternal(budget, Set.copyOf(alreadyServed), true, dueThroughEpochMs);
     }
 
     private List<ScheduleWorkItem> pollInternal(final SchedulerBudget budget,
                                                 final Set<DestinationLaneId> excludedLanes,
-                                                final boolean onePerLane) {
+                                                final boolean onePerLane,
+                                                final long dueThroughEpochMs) {
         Objects.requireNonNull(budget, "budget");
         final long started = System.nanoTime();
         final List<ScheduleWorkItem> result = new ArrayList<>();
@@ -110,6 +133,9 @@ public final class LaneScheduler {
                 continue;
             }
             final ScheduleWorkItem head = lane.queue.peekFirst();
+            if (head.eligibleAtEpochMs() > dueThroughEpochMs) {
+                continue;
+            }
             final long increment = checkedWeightIncrement(lane.weight);
             lane.deficit = Math.min(saturatingAdd(lane.deficit, increment),
                     Math.max(maxDeficitBytes, head.accountedBytes()));
@@ -124,6 +150,12 @@ public final class LaneScheduler {
             bytes = Math.addExact(bytes, head.accountedBytes());
         }
         return result;
+    }
+
+    private static void requireDueThrough(final long dueThroughEpochMs) {
+        if (dueThroughEpochMs < 0) {
+            throw new IllegalArgumentException("scheduler due-through time must be non-negative");
+        }
     }
 
     /**

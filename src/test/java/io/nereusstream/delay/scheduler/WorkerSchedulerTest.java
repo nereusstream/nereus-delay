@@ -40,6 +40,22 @@ class WorkerSchedulerTest {
     }
 
     @Test
+    void workerPollCarriesTheInclusiveDueThroughBoundaryToShardScheduler() {
+        final ShardId shard = shard(26);
+        final DestinationLaneId lane = lane(26);
+        final WorkerScheduler worker = WorkerScheduler.defaults();
+        worker.registerShard(shard, 1, LaneScheduler.defaults());
+        worker.registerLane(shard, laneRecord(lane));
+        worker.offer(new ScheduleWorkItem(lane, DelayMessageId.random(shard), 1, 2_000, 1));
+
+        assertEquals(List.of(), worker.poll(1_999,
+                new SchedulerBudget(1, 1024, 1_000_000_000)));
+        assertEquals(List.of(lane), worker.poll(2_000,
+                new SchedulerBudget(1, 1024, 1_000_000_000)).stream()
+                .map(ScheduleWorkItem::laneId).toList());
+    }
+
+    @Test
     void emptyShardDoesNotConsumeOuterDeficitVisit() {
         final ShardId emptyShard = shard(5);
         final ShardId healthyShard = shard(6);

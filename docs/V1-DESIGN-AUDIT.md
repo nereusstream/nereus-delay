@@ -495,6 +495,17 @@ saturating arithmetic；配置、注册或恢复导致的整数溢出不会 wrap
 固定 4×quantum cap 静默截成错误的长期服务比例；
 `LaneSchedulerTest.highWeightRetainsItsConfiguredDeficitQuantum` 与
 `WorkerSchedulerTest.highWeightRetainsItsConfiguredOuterDeficitQuantum` 覆盖该边界。
+本轮还把 trusted due-through 明确传入两级 scheduler：`LaneScheduler` 在 inner
+poll 前检查 `eligibleAtEpochMs`，`PersistentLaneScheduler` 的 READY discovery
+只把不晚于该边界的新 head 返回，同时允许 future projection 留在本地队列并由
+后续 poll 继续 fence；durable cursor 只推进到本轮最后一个 eligible key，future-only
+切片在重启后仍可重新发现。`WorkerScheduler` 将同一边界传给每个 shard，等值按
+inclusive 语义可服务。`LaneSchedulerTest.duePollUsesAnInclusiveEligibilityBoundary`、
+`LaneSchedulerTest.persistentReadyDiscoveryAndPollFenceFutureDeliverAt` 和
+`WorkerSchedulerTest.workerPollCarriesTheInclusiveDueThroughBoundaryToShardScheduler`
+覆盖这一 local scheduler seam。无时间参数的 overload 仍是兼容接口，不是生产
+Trusted UTC/Owner/Oxia 证据；真实 time authority、Broker visibility 与 production
+Claim/Admission wiring 仍是 release blocker。
 §12.4 的本地时钟 guard 现在由 `TrustedUtcClock` 提供：它只从批准的
 `TrustedUtcIntervalEvidence` 和注入的 monotonic reading 推导保守 interval，
 对 uncertainty、sample age、wall/monotonic step 和 stabilization window
