@@ -18,6 +18,7 @@ import java.util.concurrent.CompletionStage;
 public final class PreparedSubmissionAdapter implements AutoCloseable {
     private final WireCommandIngressAdapter managedIngress;
     private final PinnedPulsarNativeSubmissionAdapter nativeSubmission;
+    private final CloseGuard closeGuard = new CloseGuard();
 
     public PreparedSubmissionAdapter(final WireCommandIngressAdapter managedIngress,
                                      final PinnedPulsarNativeSubmissionAdapter nativeSubmission) {
@@ -36,6 +37,10 @@ public final class PreparedSubmissionAdapter implements AutoCloseable {
         Objects.requireNonNull(submission, "submission");
         if (submission.isManaged()) {
             final PreparedCommand command = CommandCodec.decodeFrameV1(submission.managedFrame());
+            if (closeGuard.isClosed()) {
+                return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
+                        WireIngressOutcomeSupport.localDefinite(command, StableCode.CLIENT_CLOSED)));
+            }
             try {
                 final CompletionStage<EnqueueOutcomeMessageV1> managedOutcome =
                         managedIngress.enqueueOutcomeV1(command, receiptQueryUntilEpochMs, physicalEnqueueAttemptId);
@@ -56,6 +61,9 @@ public final class PreparedSubmissionAdapter implements AutoCloseable {
                 return managedFailure(command, physicalEnqueueAttemptId);
             }
         }
+        // The native adapter has its own pinned close gate and therefore
+        // returns the exact native-branch local-definite outcome when this
+        // wrapper has already been fenced. Keep the prepared branch fixed.
         return nativeSubmission.submit(submission.nativePrepared(), physicalEnqueueAttemptId);
     }
 
@@ -80,23 +88,25 @@ public final class PreparedSubmissionAdapter implements AutoCloseable {
 
     @Override
     public void close() {
-        RuntimeException failure = null;
-        try {
-            managedIngress.close();
-        } catch (RuntimeException exception) {
-            failure = exception;
-        }
-        try {
-            nativeSubmission.close();
-        } catch (RuntimeException exception) {
-            if (failure == null) {
+        closeGuard.close(() -> {
+            RuntimeException failure = null;
+            try {
+                managedIngress.close();
+            } catch (RuntimeException exception) {
                 failure = exception;
-            } else {
-                failure.addSuppressed(exception);
             }
-        }
-        if (failure != null) {
-            throw failure;
-        }
+            try {
+                nativeSubmission.close();
+            } catch (RuntimeException exception) {
+                if (failure == null) {
+                    failure = exception;
+                } else {
+                    failure.addSuppressed(exception);
+                }
+            }
+            if (failure != null) {
+                throw failure;
+            }
+        });
     }
 }

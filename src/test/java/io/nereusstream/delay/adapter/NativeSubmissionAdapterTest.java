@@ -224,6 +224,40 @@ class NativeSubmissionAdapterTest {
     }
 
     @Test
+    void preparedSubmissionAdapterFencesManagedSubmissionAfterClose() throws Exception {
+        final Fixture fixture = fixture(4_000, 3_000);
+        final PreparedCommand command = managedCommand();
+        final AtomicBoolean invoked = new AtomicBoolean();
+        final WireCommandIngressAdapter managed = new WireCommandIngressAdapter() {
+            @Override
+            public java.util.concurrent.CompletionStage<io.nereusstream.delay.client.EnqueueOutcome> enqueue(
+                    final PreparedCommand ignored) {
+                return CompletableFuture.failedFuture(new AssertionError("legacy managed path was used"));
+            }
+
+            @Override
+            public java.util.concurrent.CompletionStage<io.nereusstream.delay.protocol.EnqueueOutcomeMessageV1>
+            enqueueOutcomeV1(final PreparedCommand actual, final long queryUntil, final byte[] attemptId) {
+                invoked.set(true);
+                return CompletableFuture.completedFuture(WireIngressOutcomeSupport.localDefinite(actual,
+                        StableCode.INTEGRITY_ERROR));
+            }
+        };
+        final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport transport = request ->
+                CompletableFuture.failedFuture(new AssertionError("native branch was selected"));
+        try (PinnedPulsarNativeSubmissionAdapter nativeAdapter = fixture.adapter(transport)) {
+            final PreparedSubmissionAdapter adapter = new PreparedSubmissionAdapter(managed, nativeAdapter);
+            adapter.close();
+            final SubmissionOutcomeMessageV1 outcome = adapter.submit(
+                    io.nereusstream.delay.protocol.PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(command)),
+                    9_000, attempt(9)).toCompletableFuture().join();
+            assertEquals(io.nereusstream.delay.protocol.SubmissionOutcomeKindV1.MANAGED, outcome.kind());
+            assertEquals(StableCode.CLIENT_CLOSED, outcome.managed().definitelyNotQueued().error().code());
+            assertFalse(invoked.get());
+        }
+    }
+
+    @Test
     void preparedSubmissionWrapperRegistrationFailureRemainsManagedUncertain() throws Exception {
         final Fixture fixture = fixture(4_000, 3_000);
         final PreparedCommand command = managedCommand();

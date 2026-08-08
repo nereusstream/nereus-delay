@@ -1806,7 +1806,13 @@ the callback-registration case. If the physical attempt id is invalid while
 that wrapper is failing, the result instead remains a local definitive
 `INVALID_PREPARED_COMMAND` rejection with no attempt/proof of Producer
 ownership; `preparedSubmissionWrapperInvalidAttemptRemainsLocalDefinite` covers
-that precedence. This remains local transport-SPI evidence only.
+that precedence. The wrapper now owns a close fence as well: a managed
+submission after `close()` is converted locally to `CLIENT_CLOSED` without
+invoking the injected managed transport, while native submissions remain on
+the native branch and use its pinned close gate; subsequent close calls can
+retry either teardown. `NativeSubmissionAdapterTest.preparedSubmissionAdapterFencesManagedSubmissionAfterClose`
+covers this branch/lifecycle boundary. This remains local transport-SPI
+evidence only.
 
 The embedded managed-outcome bridge applies the same physical-attempt rule to
 its queued and uncertain projections: a null, wrong-length, or all-zero attempt

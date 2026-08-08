@@ -753,8 +753,12 @@ branch；`NativeSubmissionAdapterTest.preparedSubmissionWrapperRegistrationFailu
 覆盖这条边界。若 physical attempt 本身无效，即使 wrapper 正在异常路径上，
 也固定回到本地 `INVALID_PREPARED_COMMAND` definitive rejection，而不构造
 缺少 attempt identity 的 uncertain branch；`NativeSubmissionAdapterTest.preparedSubmissionWrapperInvalidAttemptRemainsLocalDefinite`
-覆盖该优先级。这仍是本地 transport-SPI 证据，不等于真实 Broker response
-attestation。
+覆盖该优先级。wrapper 自身现在也在 close 请求上 fence managed branch；close
+之后不会再调用注入的 managed transport，而是返回本地 `CLIENT_CLOSED`，native
+branch 仍交给其 pinned close gate，且失败 teardown 可由后续 close 重试。
+`NativeSubmissionAdapterTest.preparedSubmissionAdapterFencesManagedSubmissionAfterClose`
+覆盖该 branch/lifecycle 边界。这仍是本地 transport-SPI 证据，不等于真实
+Broker response attestation。
 
 `EmbeddedDelayService.enqueueOutcomeV1` 对 queued 与 uncertain 两个需要
 physical attempt 的分支也先执行同一 nonzero 16-byte 校验；null、长度错误或全零
