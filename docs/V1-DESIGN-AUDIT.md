@@ -1025,6 +1025,12 @@ The nested Ready Certificate Broker attestation and config generations now
 also preserve complete raw `uint64` patterns through the shared
 Admission/certificate decoder; `ReadyCertificateV1Test` covers both high-bit
 values. The external Broker rollout remains the authority for their meaning.
+The shared decoder also parses the nested `ActivationBarrierV1` and every
+repeated `EvidenceCursorV1`, rather than treating those fields as opaque
+non-empty bytes. It requires at least one cursor and rejects non-canonical
+nested branches plus unsorted/duplicate cursor identities before either the
+Admission body or the public `ReadyCertificateV1` wrapper can expose the
+certificate; direct-parser rejection vectors are in `ReadyCertificateV1Test`.
 
 `PublishAdmissionBody` 还把 `PreparedPublishDescriptorV1` 的 adapter kind、固定
 adapter encoding version（并要求 immutable Destination Profile 也 pin 版本 `1`）、target resource、physical partition 与嵌套

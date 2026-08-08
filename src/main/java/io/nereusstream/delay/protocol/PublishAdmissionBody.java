@@ -481,8 +481,16 @@ public final class PublishAdmissionBody {
         AuthorIdentity.decode(owner).requireFor(SystemMutationType.PUBLISH_ADMISSION);
         final byte[] channel = nested(field(fields, 6), 6);
         decodeChannel(channel);
-        nested(field(fields, 7), 7);
-        nested(field(fields, 8), 8);
+        ActivationBarrierV1.decode(nested(field(fields, 7), 7));
+        final List<EvidenceCursorV1> evidenceCursors = new ArrayList<>(evidenceCount);
+        for (int cursorIndex = 0; cursorIndex < evidenceCount; cursorIndex++) {
+            evidenceCursors.add(EvidenceCursorV1.decode(nested(fields.get(7 + cursorIndex), 8)));
+        }
+        for (int cursorIndex = 1; cursorIndex < evidenceCursors.size(); cursorIndex++) {
+            if (evidenceCursors.get(cursorIndex - 1).compareTo(evidenceCursors.get(cursorIndex)) >= 0) {
+                throw new IllegalArgumentException("ReadyCertificate evidence cursors must be sorted and unique");
+            }
+        }
         final long brokerResourceAttestationGeneration = rawUnsigned(field(fields, 9), 9);
         final long configGeneration = rawUnsigned(field(fields, 10), 10);
         final TrustedUtcIntervalEvidence issuedAt = TrustedUtcIntervalEvidence.decode(

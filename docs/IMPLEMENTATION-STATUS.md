@@ -620,6 +620,12 @@ The nested `ReadyCertificateV1` Broker attestation and config generations now
 also preserve their complete raw `uint64` patterns through the shared
 Admission/certificate decoder; `ReadyCertificateV1Test` covers both high-bit
 values.
+The same shared decoder now parses the nested `ActivationBarrierV1` and every
+repeated `EvidenceCursorV1` instead of accepting opaque non-empty bytes. It
+requires at least one cursor and rejects non-canonical nested branches or
+unsorted/duplicate cursor identities before either the Admission body or the
+public `ReadyCertificateV1` wrapper can expose the certificate;
+`ReadyCertificateV1Test` covers the direct Admission-parser rejection paths.
 
 `TrustedUtcClock` now provides the local Worker timing guard that was missing
 behind the evidence codec: it advances an approved interval from an injected
