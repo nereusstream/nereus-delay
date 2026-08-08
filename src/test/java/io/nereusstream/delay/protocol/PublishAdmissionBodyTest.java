@@ -561,6 +561,17 @@ public class PublishAdmissionBodyTest {
                     semanticDigest, attemptNo, stateVersion, actionAt);
         }
 
+        public static Fixture createForSourceWithLane(final ShardId shard, final DelayMessageId messageId,
+                                                      final byte[] laneIncarnation, final byte[] timelineKey,
+                                                      final int sourceWorkKind, final int expectedAdmissionsUsed,
+                                                      final int expectedUncertainRetryAdmissionsUsed,
+                                                      final byte[] obligationSetDigest, final byte[] semanticDigest,
+                                                      final byte[] destinationLaneId) {
+            return createInternal(shard, messageId, laneIncarnation, Bytes.sha256(timelineKey), sourceWorkKind,
+                    expectedAdmissionsUsed, expectedUncertainRetryAdmissionsUsed, obligationSetDigest,
+                    semanticDigest, 1, 1, 2_000, destinationLaneId);
+        }
+
         private static Fixture createInternal(final ShardId shard, final DelayMessageId messageId,
                                               final byte[] laneIncarnation, final byte[] timelineKeySha256,
                                               final int sourceWorkKind,
@@ -570,7 +581,7 @@ public class PublishAdmissionBodyTest {
                                               final int attemptNo, final long stateVersion) {
             return createInternal(shard, messageId, laneIncarnation, timelineKeySha256, sourceWorkKind,
                     expectedAdmissionsUsed, expectedUncertainRetryAdmissionsUsed, obligationSetDigest,
-                    semanticDigest, attemptNo, stateVersion, 2_000);
+                    semanticDigest, attemptNo, stateVersion, 2_000, Bytes.sha256(Bytes.utf8("lane")));
         }
 
         private static Fixture createInternal(final ShardId shard, final DelayMessageId messageId,
@@ -580,9 +591,22 @@ public class PublishAdmissionBodyTest {
                                               final int expectedUncertainRetryAdmissionsUsed,
                                               final byte[] obligationSetDigest, final byte[] semanticDigest,
                                               final int attemptNo, final long stateVersion, final long actionAt) {
+            return createInternal(shard, messageId, laneIncarnation, timelineKeySha256, sourceWorkKind,
+                    expectedAdmissionsUsed, expectedUncertainRetryAdmissionsUsed, obligationSetDigest,
+                    semanticDigest, attemptNo, stateVersion, actionAt, Bytes.sha256(Bytes.utf8("lane")));
+        }
+
+        private static Fixture createInternal(final ShardId shard, final DelayMessageId messageId,
+                                              final byte[] laneIncarnation, final byte[] timelineKeySha256,
+                                              final int sourceWorkKind,
+                                              final int expectedAdmissionsUsed,
+                                              final int expectedUncertainRetryAdmissionsUsed,
+                                              final byte[] obligationSetDigest, final byte[] semanticDigest,
+                                              final int attemptNo, final long stateVersion, final long actionAt,
+                                              final byte[] destinationLaneId) {
             final byte[] owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 7,
                     Bytes.sha256(Bytes.utf8("lease"))).canonicalBytes();
-            final byte[] lane = Bytes.sha256(Bytes.utf8("lane"));
+            final byte[] lane = Bytes.copy(destinationLaneId);
             final byte[] target = brokerResource();
             final byte[] destinationProfile = profileRef("destination", 1);
             final byte[] capabilityProfile = profileRef("capability", 2);

@@ -1080,7 +1080,8 @@ class DelayShardTest {
         final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
         final KafkaSourcePosition admissionPosition = position(shardId, 1, 2_001);
         final KafkaSourcePosition rejectedOutcomePosition = position(shardId, 2, 2_002);
-        final KafkaSourcePosition acceptedOutcomePosition = position(shardId, 3, 2_003);
+        final KafkaSourcePosition rejectedFirstAttemptPosition = position(shardId, 3, 2_003);
+        final KafkaSourcePosition acceptedOutcomePosition = position(shardId, 4, 2_004);
         final byte[] tuple = Bytes.utf8("retry-decision-lane-tuple");
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
         final V1ScheduleResolver resolver = new V1ScheduleResolver() {
@@ -1115,21 +1116,27 @@ class DelayShardTest {
             shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
             final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
             final KeyPair keyPair = keyPairGenerator.generateKeyPair();
-            final byte[] attemptId = Bytes.sha256(Bytes.utf8("retry-decision-attempt"));
-            final byte[] owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 7,
-                    Bytes.sha256(Bytes.utf8("lease"))).canonicalBytes();
+            final byte[] sourceTimelineKey = KeyCodec.timelineDue(lane, 2_000,
+                    schedulePosition.sourceOrderToken(), schedule.delayMessageId(), 0);
+            final Fixture fixture = Fixture.createForSourceWithLane(shardId, schedule.delayMessageId(),
+                    shard.getLane(lane).laneIncarnation(), sourceTimelineKey, 1, 0, 0,
+                    GenerationRuntimeIndex.obligationSetDigest(List.of()),
+                    Bytes.sha256(Bytes.utf8("retry-decision-semantic")), lane.bytes());
+            final PublishAdmissionBody admissionBody = PublishAdmissionBody.decode(fixture.body());
+            final byte[] attemptId = admissionBody.publishAttemptId();
+            final byte[] owner = admissionBody.ownerIdentity();
             final PublishAttemptLedger admission = PublishAttemptLedger.publishing(schedule.delayMessageId(), 0,
-                    attemptId, Bytes.sha256(Bytes.utf8("retry-decision-claim")), 7, 1, lane,
-                    shard.getLane(lane).laneIncarnation(), owner, store.metadata().storeIncarnation(),
-                    Bytes.sha256(Bytes.utf8("retry-decision-prepared")), Bytes.utf8("admission"),
+                    attemptId, admissionBody.claimId(), 7, 1, lane, admissionBody.laneIncarnation(), owner,
+                    admissionBody.storeIncarnation(), admissionBody.preparedPublishHash(), fixture.body(),
                     admissionPosition.canonicalBytes());
             shard.admitPublishAttempt(admission, admissionPosition);
+            final byte[] admissionCharge = admissionBody.chargeVector().canonicalBytes();
 
             final byte[] wrongRetry = retryDecisionForPolicy(policy, 2,
                     StableCode.DESTINATION_DEFINITIVE_RETRIABLE, 1, 2_001, 5_000, expectedNext + 1);
             final byte[] wrongOutcomeBody = publishOutcomeBody(shardId, attemptId, 2, 1,
                     StableCode.DESTINATION_DEFINITIVE_RETRIABLE, new byte[0], outcomeObservedAt, wrongRetry,
-                    chargeVector());
+                    admissionCharge);
             final SystemMutation wrongOutcome = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME,
                     9_000, publishOutcomeLogicalIdentity(wrongOutcomeBody), wrongOutcomeBody, owner, 1,
                     keyPair.getPrivate());
@@ -1140,11 +1147,25 @@ class DelayShardTest {
             assertEquals(AttemptLedgerState.PUBLISHING,
                     shard.findOpenPublishAttempt(attemptId).state());
 
+            final byte[] wrongFirstAttemptRetry = retryDecisionForPolicy(policy, 2,
+                    StableCode.DESTINATION_DEFINITIVE_RETRIABLE, 1, 2_000, 5_000, expectedNext);
+            final byte[] wrongFirstAttemptBody = publishOutcomeBody(shardId, attemptId, 2, 1,
+                    StableCode.DESTINATION_DEFINITIVE_RETRIABLE, new byte[0], outcomeObservedAt,
+                    wrongFirstAttemptRetry, admissionCharge);
+            final SystemMutation wrongFirstAttempt = SystemMutation.signed(shardId,
+                    SystemMutationType.PUBLISH_OUTCOME, 9_000,
+                    publishOutcomeLogicalIdentity(wrongFirstAttemptBody), wrongFirstAttemptBody, owner, 1,
+                    keyPair.getPrivate());
+            assertEquals(StableCode.STALE_SYSTEM_MUTATION,
+                    shard.applySystemMutation(wrongFirstAttempt, rejectedFirstAttemptPosition,
+                            keyPair.getPublic()).stableCode());
+            assertEquals(MessageStatus.PUBLISHING, shard.getMessage(schedule.delayMessageId()).status());
+
             final byte[] validRetry = retryDecisionForPolicy(policy, 2,
                     StableCode.DESTINATION_DEFINITIVE_RETRIABLE, 1, 2_001, 5_000, expectedNext);
             final byte[] validOutcomeBody = publishOutcomeBody(shardId, attemptId, 2, 1,
                     StableCode.DESTINATION_DEFINITIVE_RETRIABLE, new byte[0], outcomeObservedAt, validRetry,
-                    chargeVector());
+                    admissionCharge);
             final SystemMutation validOutcome = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME,
                     9_000, publishOutcomeLogicalIdentity(validOutcomeBody), validOutcomeBody, owner, 1,
                     keyPair.getPrivate());

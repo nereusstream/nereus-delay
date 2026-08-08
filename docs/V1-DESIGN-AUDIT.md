@@ -760,10 +760,10 @@ position bytes 一致，避免同一 offset/ledger-entry-batch 的 metadata 变�
 状态变更前重算 exact policy ref、checked retry deadline 和
 `RETRY_JITTER_V1(MESSAGE_PUBLISH)`；错误 jitter 被拒绝，正确值才进入本地
 timeline/state transition。旧的 opaque `UNKNOWN` placeholder 仍保留兼容路径。
-由于当前 attempt ledger 尚未把第一次 Admission 的 `firstAttemptAt`/
-`retryDeadline` 作为独立事实持久化，这一增量不是 full historical retry
-binding；DLQ domain、外部 policy publication/activation 和历史 retention
-仍是 release blocker。
+Canonical V1 Admission bytes 已随 attempt ledger 保留，并为该重算提供
+trusted `firstAttemptAt`；opaque legacy ledger 仍只走 structural compatibility
+path。独立 typed retry-window fields、DLQ domain、外部 policy
+publication/activation 和历史 retention 仍是 release blocker。
 Payload proof trust-set 也已补齐 canonical verifier-key list、semantic
 hash/ref、Ed25519 raw-key projection 和本地 source-time validity-window
 校验；`PayloadProofTrustSetControlState` 现在保留严格 source-ordered

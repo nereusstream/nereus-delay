@@ -2311,6 +2311,10 @@ public final class DelayShard {
                 || decision.firstAttemptAt() >= current.expireAtEpochMs()) {
             throw new IllegalArgumentException("RetryDecision does not match the pinned Retry Policy");
         }
+        final Long admittedFirstAttemptAt = admittedFirstAttemptAt(ledger);
+        if (admittedFirstAttemptAt != null && decision.firstAttemptAt() != admittedFirstAttemptAt) {
+            throw new IllegalArgumentException("RetryDecision first attempt does not match Publish Admission");
+        }
         final long expectedDeadline = Math.min(current.expireAtEpochMs(),
                 Math.addExact(decision.firstAttemptAt(), policy.maxRetryDurationMs()));
         if (decision.retryDeadline() != expectedDeadline) {
@@ -2324,6 +2328,25 @@ public final class DelayShard {
             if (decision.nextRetryAt() != expectedNext || expectedNext > decision.retryDeadline()) {
                 throw new IllegalArgumentException("RetryDecision next retry does not match deterministic jitter");
             }
+        }
+    }
+
+    /**
+     * Canonical V1 ledgers retain the complete Admission body, whose trusted
+     * decision interval is the durable first-attempt fact. Synthetic legacy
+     * ledgers may carry opaque bytes; keep that bounded compatibility seam but
+     * never downgrade a body that claims the canonical System Mutation shape.
+     */
+    private static Long admittedFirstAttemptAt(final PublishAttemptLedger ledger) {
+        try {
+            return PublishAdmissionBody.decode(ledger.admissionBytes()).decisionTime().latestEpochMs();
+        } catch (IllegalArgumentException malformedAdmission) {
+            final byte[] encoded = ledger.admissionBytes();
+            if (encoded.length > 0 && (encoded[0] & 0xff) == 0x0a) {
+                throw new IllegalArgumentException("malformed canonical PUBLISH_ADMISSION in attempt ledger",
+                        malformedAdmission);
+            }
+            return null;
         }
     }
 
