@@ -26,7 +26,7 @@ public record RecoveryFloor(
         Objects.requireNonNull(appliedSourcePosition, "appliedSourcePosition");
         Bytes.requireLength(evidenceCursorDigest, 32, "evidenceCursorDigest");
         Bytes.requireLength(floorDigest, 32, "floorDigest");
-        if (catalogGeneration <= 0 || includedMutationSequence < 0) {
+        if (catalogGeneration == 0 || includedMutationSequence < 0) {
             throw new IllegalArgumentException("invalid recovery floor counters");
         }
         recoveryLineageId = Bytes.copy(recoveryLineageId);
@@ -78,7 +78,7 @@ public record RecoveryFloor(
 
     public byte[] canonicalBytes() {
         return Bytes.concat(Bytes.u32be(1), recoveryLineageId, checkpointId, manifestSha256,
-                Bytes.u64be(catalogGeneration), Bytes.lp32(appliedSourcePosition.canonicalBytes()),
+                Bytes.u64beBits(catalogGeneration), Bytes.lp32(appliedSourcePosition.canonicalBytes()),
                 Bytes.u64be(includedMutationSequence), evidenceCursorDigest, floorDigest);
     }
 
@@ -108,7 +108,7 @@ public record RecoveryFloor(
                                          final long generation, final SourcePosition position, final long sequence,
                                          final byte[] evidence) {
         return Bytes.sha256(Bytes.utf8("nereus-delay-recovery-floor-v1\0"), lineage, checkpoint, manifest,
-                Bytes.u64be(generation), Bytes.lp32(position.canonicalBytes()), Bytes.u64be(sequence), evidence);
+                Bytes.u64beBits(generation), Bytes.lp32(position.canonicalBytes()), Bytes.u64be(sequence), evidence);
     }
 
     private static void requireNonZero(final byte[] value, final int length, final String name) {

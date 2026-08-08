@@ -56,7 +56,7 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
         if (catalogShard == null) {
             catalogShard = manifest.shardId();
         }
-        catalogGeneration = Math.addExact(catalogGeneration, 1);
+        catalogGeneration = nextCatalogGeneration(catalogGeneration);
         manifests.put(key, manifest);
         return new Publication(manifest, catalogGeneration, floor);
     }
@@ -69,8 +69,8 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
         if (typedFloorRef != null) {
             throw new IllegalStateException("typed Recovery Floor requires a typed successor");
         }
-        if (floor != null && expectedCatalogGeneration != Long.MAX_VALUE
-                && floor.catalogGeneration() == expectedCatalogGeneration + 1
+        if (floor != null && hasNextCatalogGeneration(expectedCatalogGeneration)
+                && floor.catalogGeneration() == nextCatalogGeneration(expectedCatalogGeneration)
                 && Bytes.constantTimeEquals(floor.checkpointId(), checkpointId)
                 && Bytes.constantTimeEquals(floor.evidenceCursorDigest(), evidenceCursorDigest)) {
             final CheckpointManifest reread = manifests.get(key(checkpointId));
@@ -102,7 +102,7 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
                 throw new IllegalArgumentException("recovery floor cannot regress");
             }
         }
-        catalogGeneration = Math.addExact(catalogGeneration, 1);
+        catalogGeneration = nextCatalogGeneration(catalogGeneration);
         floor = RecoveryFloor.create(candidate.recoveryLineageId(), candidate.checkpointId(),
                 candidate.manifestSha256(), catalogGeneration, candidate.appliedShardLogPosition(),
                 candidate.shardMutationSequence(), evidenceCursorDigest);
@@ -122,8 +122,8 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
                                                           final List<EvidenceCursorV1> evidenceCursors) {
         Objects.requireNonNull(checkpointId, "checkpointId");
         Objects.requireNonNull(evidenceCursors, "evidenceCursors");
-        if (typedFloorRef != null && expectedCatalogGeneration != Long.MAX_VALUE
-                && typedFloorRef.catalogGeneration() == expectedCatalogGeneration + 1
+        if (typedFloorRef != null && hasNextCatalogGeneration(expectedCatalogGeneration)
+                && typedFloorRef.catalogGeneration() == nextCatalogGeneration(expectedCatalogGeneration)
                 && Bytes.constantTimeEquals(typedFloorRef.checkpointId(), checkpointId)
                 && typedFloorRef.evidenceCursors().equals(evidenceCursors)) {
             final CheckpointManifest reread = manifests.get(key(checkpointId));
@@ -154,7 +154,7 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
             }
         }
         final RecoveryFloorRefV1 next = new RecoveryFloorRefV1(candidate.recoveryLineageId(), candidate.checkpointId(),
-                candidate.manifestSha256(), Math.addExact(catalogGeneration, 1),
+                candidate.manifestSha256(), nextCatalogGeneration(catalogGeneration),
                 candidate.appliedShardLogPosition(), candidate.shardMutationSequence(), evidenceCursors);
         if (typedFloorRef != null) {
             for (EvidenceCursorV1 previous : typedFloorRef.evidenceCursors()) {
@@ -187,9 +187,6 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
         if (publishedIntent.state() != CheckpointUploadStateV1.PUBLISHED
                 || publishedIntent.publishedManifest() == null) {
             throw new IllegalArgumentException("catalog publication requires a PUBLISHED upload intent");
-        }
-        if (expectedCatalogGeneration < 0) {
-            throw new IllegalArgumentException("catalog generation must be non-negative");
         }
         if (expectedCatalogGeneration != publishedIntent.baseCatalogGeneration()) {
             throw new IllegalStateException("upload intent base catalog generation does not match publication CAS");
@@ -515,10 +512,18 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
     public record Publication(CheckpointManifest manifest, long catalogGeneration, RecoveryFloor floor) {
         public Publication {
             Objects.requireNonNull(manifest, "manifest");
-            if (catalogGeneration < 0) {
-                throw new IllegalArgumentException("catalog generation must be non-negative");
-            }
         }
+    }
+
+    private static boolean hasNextCatalogGeneration(final long generation) {
+        return generation != -1L;
+    }
+
+    private static long nextCatalogGeneration(final long generation) {
+        if (!hasNextCatalogGeneration(generation)) {
+            throw new IllegalStateException("checkpoint catalog generation exhausted");
+        }
+        return generation + 1;
     }
 
     /** Exact local evidence returned by {@link #proveFloorCoverage(byte[], long, SourcePosition...)}. */

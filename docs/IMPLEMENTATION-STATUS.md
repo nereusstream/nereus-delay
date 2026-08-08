@@ -112,8 +112,11 @@ the high-bit boundary.
 Typed `RecoveryFloorRefV1` and session-bound `RecoveryPinV1` now preserve the
 nonzero `catalog_generation` raw `uint64` pattern through floor/pin digests and
 cross-object equality. The local catalog and Oxia CAS remain the authority for
-generation freshness, ancestry and session ownership; these tests close only
-the canonical recovery-reference wire boundary.
+generation freshness, ancestry and session ownership; their local successor and
+response checks now compare catalog generations as unsigned values and stop at
+the all-ones pattern. These tests close the local arithmetic/response boundary
+as well as the canonical recovery-reference wire boundary; production Oxia
+transaction and session authority remain external.
 
 The quota-control `QuotaTransferPlanRefV1` now preserves its nonzero tenant
 policy-version `uint64` as a raw bit pattern in the canonical control request
@@ -377,8 +380,9 @@ Physical channel/evidence generations and the credential binding generation in
 The same full-width rule now covers credential attestation/binding,
 Head/protection, use lease, Ready Certificate, native capability snapshot,
 rotation request/result, and Profile control projections. Head/protection
-revisions, resource-guard configuration generation, and other control versions
-remain bounded positive values. High-bit coverage is provided by
+revisions and other local control versions remain bounded positive values; the
+independent Broker resource-guard configuration generation now preserves raw
+nonzero `uint64` bits. High-bit coverage is provided by
 `CredentialBindingV1Test`, `ProfileControlRequestV1Test`,
 `ControlResultCodecTest`, `ChannelResourceIdentityV1Test`, `ProtocolCodecTest`,
 and the Publish Admission/Ready Certificate fixtures.

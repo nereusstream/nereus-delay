@@ -396,6 +396,56 @@ class RecoveryCatalogTest {
     }
 
     @Test
+    void OxiaBoundaryComparesCatalogGenerationsAsUnsignedValues() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 28);
+        final CheckpointManifest manifest = manifest(shard, UUID.randomUUID(), id16(280), id16(281), 0,
+                1, 1, null);
+        final byte[] evidenceDigest = id32(282);
+        final RecoveryFloor highBitFloor = RecoveryFloor.create(manifest.recoveryLineageId(), manifest.checkpointId(),
+                manifest.manifestSha256(), Long.MIN_VALUE + 1, manifest.appliedShardLogPosition(),
+                manifest.shardMutationSequence(), evidenceDigest);
+        final OxiaRecoveryCatalog.CasBackend backend = new OxiaRecoveryCatalog.CasBackend() {
+            @Override
+            public RecoveryCatalog.Publication publish(final CheckpointManifest ignored, final long expected) {
+                return new RecoveryCatalog.Publication(manifest, Long.MIN_VALUE, null);
+            }
+
+            @Override
+            public RecoveryFloor advanceFloor(final byte[] ignored, final long expected, final byte[] digest) {
+                return highBitFloor;
+            }
+
+            @Override
+            public Optional<CheckpointManifest> manifest(final byte[] ignored) {
+                return Optional.of(manifest);
+            }
+
+            @Override
+            public Optional<RecoveryFloor> currentFloor() {
+                return Optional.of(highBitFloor);
+            }
+
+            @Override
+            public void validatePublishedRestoreCandidate(final CheckpointManifest ignored) {
+            }
+
+            @Override
+            public Optional<RecoveryCatalog.FloorCoverage> proveFloorCoverage(
+                    final byte[] ignored, final long sequence,
+                    final io.nereusstream.delay.protocol.SourcePosition... positions) {
+                return Optional.empty();
+            }
+        };
+
+        final OxiaRecoveryCatalog authority = new OxiaRecoveryCatalog(backend);
+        assertEquals(Long.MIN_VALUE,
+                authority.publish(manifest, Long.MAX_VALUE).catalogGeneration());
+        assertEquals(highBitFloor,
+                authority.advanceFloor(manifest.checkpointId(), Long.MIN_VALUE, evidenceDigest));
+        assertEquals(highBitFloor, authority.currentFloor().orElseThrow());
+    }
+
+    @Test
     void OxiaBoundaryRejectsRestoreCandidateDriftBeforeBackendValidation() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 27);
         final CheckpointManifest published = manifest(shard, UUID.randomUUID(), id16(270), id16(271), 0,
