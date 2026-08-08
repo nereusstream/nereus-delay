@@ -1201,9 +1201,14 @@ checkpoint has been installed, before Store close or exact release, so a lease
 loss during a long RocksDB checkpoint cannot make the old owner close or
 release a newer owner's state. `OwnerDrainCoordinatorTest` covers this
 post-checkpoint fence.
-If Store close itself fails, the coordinator now fences locally and leaves the
-authoritative lease in visible `DRAINING` instead of releasing a lease whose DB
-shutdown was not confirmed; this preserves a safe retry boundary.
+If Store close itself fails, the coordinator leaves the local shard in
+`DRAINING` and keeps the authoritative lease instead of releasing a lease
+whose DB shutdown was not confirmed. The next drain call detects the fenced
+Store and retries only native/slot teardown; it does not repeat Claim revoke,
+callback polling, flush or checkpoint decisions. Only confirmed Store close
+and exact lease release move the shard to `FENCED`. The deterministic
+`OwnerDrainCoordinatorTest.storeCloseFailureLeavesDrainingStateForRetryableTeardown`
+regression covers this boundary.
 Callback quiescence and source hint commit remain caller/transport boundaries;
 timeout leaves the DB and lease in visible `DRAINING` for a safe retry rather
 than claiming completion. `OwnerDrainCoordinatorTest` covers success and

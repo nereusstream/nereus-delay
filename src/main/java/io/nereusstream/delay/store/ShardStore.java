@@ -1141,6 +1141,16 @@ public final class ShardStore implements AutoCloseable {
         return resources;
     }
 
+    /** Returns whether Store close has fenced operations and may need a retry. */
+    public synchronized boolean isCloseStarted() {
+        return closeStarted;
+    }
+
+    /** Returns whether every native handle and Worker slot has been released. */
+    public synchronized boolean isClosed() {
+        return closed.get();
+    }
+
     /** Returns the local mutable metadata projection; it is not remote authority. */
     public synchronized StoreRuntimeMetadata runtimeMetadata() {
         return runtimeMetadata;

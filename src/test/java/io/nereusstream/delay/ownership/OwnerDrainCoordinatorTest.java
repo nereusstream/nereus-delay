@@ -91,6 +91,42 @@ class OwnerDrainCoordinatorTest {
     }
 
     @Test
+    void storeCloseFailureLeavesDrainingStateForRetryableTeardown() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 53);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("drain-close-retry"));
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease acquired = backend.acquire(shardId, "worker-close-retry", 100, 500).orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = activeOwnedShard(store, acquired, authority, shardId);
+            final OwnerDrainCoordinator coordinator = new OwnerDrainCoordinator(owned, store, resources, authority);
+
+            // Force the first close's DB-slot release to fail after native
+            // teardown.  This is a deterministic injection of the same
+            // retryable slot-release failure that a worker can observe during
+            // a real resource race.
+            resources.releaseDbSlot();
+            assertThrows(IllegalStateException.class, () -> coordinator.drain(
+                    new OwnerDrainCoordinator.DrainRequest(5_000, 0, null), () -> 101, () -> { }));
+            assertEquals(ShardLifecycleState.DRAINING, owned.state());
+            assertTrue(backend.current(shardId).isPresent());
+            assertTrue(store.isCloseStarted());
+            assertFalse(store.isClosed());
+
+            // Restore the test slot accounting and retry only the teardown;
+            // no Claims/callbacks/flush decisions are replayed.
+            resources.acquireDbSlot();
+            final OwnerDrainCoordinator.DrainResult result = coordinator.drain(
+                    new OwnerDrainCoordinator.DrainRequest(5_000, 0, null), () -> 101, () -> { });
+            assertEquals(0, result.revokedClaims());
+            assertEquals(ShardLifecycleState.FENCED, owned.state());
+            assertTrue(store.isClosed());
+            assertTrue(backend.current(shardId).isEmpty());
+        }
+    }
+
+    @Test
     void drainReleasesTheCurrentLeaseAfterAQuiescenceRenewal() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 48);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("drain-renewal"));

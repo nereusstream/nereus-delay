@@ -26,6 +26,9 @@ public final class OwnerDrainCoordinator {
     private final ShardStore store;
     private final SharedRocksDbResources resources;
     private final OxiaOwnerLeaseStore authority;
+    private int pendingRevokedClaims;
+    private int pendingCallbackPolls;
+    private Path pendingFinalCheckpoint;
 
     public OwnerDrainCoordinator(final OwnedDelayShard ownedShard, final ShardStore store,
                                  final SharedRocksDbResources resources, final OxiaOwnerLeaseStore authority) {
@@ -60,6 +63,36 @@ public final class OwnerDrainCoordinator {
             shardDrainAcquired = true;
             final long startNow = readNow(clock);
             final OwnerLease expectedLease = ownedShard.lease();
+            if (store.isCloseStarted()) {
+                if (ownedShard.state() != ShardLifecycleState.DRAINING) {
+                    throw new IllegalStateException("Store close already started outside draining state");
+                }
+                // A previous attempt fenced Store operations but failed during
+                // retryable native/slot teardown.  Do not rerun Claim revoke,
+                // callback polling, flush or checkpoint logic: those paths
+                // are correctly fenced after closeStarted, and replaying them
+                // would turn a close retry into a new drain decision.
+                RuntimeException closeFailure = null;
+                try {
+                    store.close();
+                    storeClosed = true;
+                } catch (RuntimeException failure) {
+                    closeFailure = failure;
+                }
+                if (closeFailure != null) {
+                    // Keep local state DRAINING so this exact coordinator can
+                    // retry without releasing the authoritative lease while
+                    // native teardown remains unconfirmed.
+                    throw closeFailure;
+                }
+                ensureLeaseStillDraining(expectedLease, request, clock);
+                try {
+                    releaseExactLease(ownedShard.lease());
+                } finally {
+                    ownedShard.fence();
+                }
+                return new DrainResult(pendingRevokedClaims, pendingCallbackPolls, pendingFinalCheckpoint);
+            }
             if (ownedShard.state() == ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
                 callbacks.stopSourceAndScheduling();
                 ownedShard.beginDrain(authority, startNow);
@@ -100,12 +133,14 @@ public final class OwnerDrainCoordinator {
                 // on a newer owner’s state.
                 ensureLeaseStillDraining(expectedLease, request, clock);
             }
+            pendingRevokedClaims = revokedClaims;
+            pendingCallbackPolls = callbackPolls;
+            pendingFinalCheckpoint = finalCheckpoint;
             RuntimeException closeFailure = null;
             try {
                 store.close();
                 storeClosed = true;
             } catch (RuntimeException failure) {
-                storeClosed = true;
                 closeFailure = failure;
             }
             if (closeFailure != null) {
@@ -113,7 +148,6 @@ public final class OwnerDrainCoordinator {
                 // owning its files.  Keep the authoritative lease in
                 // DRAINING for a visible retry; releasing it here could let a
                 // new owner open the same shard while this DB is still live.
-                ownedShard.fence();
                 throw closeFailure;
             }
             try {
