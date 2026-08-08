@@ -665,6 +665,13 @@ policy 仍未完成。
 `sourceWorkKind=UNCERTAIN_RETRY`，不再根据 retry timestamp 误判为
 `DEFINITIVE_RETRY`；完整 Claim materialization/recovery 仍是独立的待完成边界。
 
+`ClaimResultBody` 现在还要求 field 20 `ChargeVectorV1 transfer` 与
+`ClaimPreconditionV1.claimed_charge` 做 canonical byte-equality。这样签名的
+permanent pre-send callback 不能在 source-ordered apply 时偷偷替换 Claim 的
+reversible charge projection；`DelayShardTest` 覆盖不一致 vector 的 fail-closed
+解析。该项只是本地 replay-stable charge fence，不能冒充完整的 grant policy、
+external charge authority 或 materialization/recovery accounting。
+
 Evidence branch validation also checks the adapter-specific target resource
 and cursor/channel branch, so a Kafka evidence envelope cannot carry a Pulsar
 resource (or vice versa); authenticated Broker response and external proof

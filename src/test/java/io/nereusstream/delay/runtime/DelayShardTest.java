@@ -4691,6 +4691,11 @@ class DelayShardTest {
             final byte[] body = claimResultBody(shardId, claimId, schedule.delayMessageId(), 0, lane,
                     laneRecord.laneIncarnation(), 1, laneRecord.laneVersion(), timelineKey, owner,
                     store.metadata().storeIncarnation(), 3_000, 1, 1_500, 1_500);
+            final byte[] mismatchedTransfer = claimResultBody(shardId, claimId, schedule.delayMessageId(), 0,
+                    lane, laneRecord.laneIncarnation(), 1, laneRecord.laneVersion(), timelineKey, owner,
+                    store.metadata().storeIncarnation(), 3_000, 1, 1_500, 1_500,
+                    chargeVectorWithActiveMessages(1));
+            assertThrows(IllegalArgumentException.class, () -> ClaimResultBody.decode(mismatchedTransfer));
             final ClaimResultBody parsed = ClaimResultBody.decode(body);
             assertEquals(1, parsed.resultKind());
             assertEquals(StableCode.CLAIM_PERMANENT_FAILURE, parsed.stableCode());
@@ -5166,6 +5171,19 @@ class DelayShardTest {
                                           final byte[] storeIncarnation, final long claimDeadline,
                                           final int sourceWorkKind, final long observedAtEarliest,
                                           final long observedAtLatest) {
+        return claimResultBody(shard, claimId, messageId, generation, lane, laneIncarnation,
+                laneControlVersion, runtimeLaneVersion, timelineKey, owner, storeIncarnation, claimDeadline,
+                sourceWorkKind, observedAtEarliest, observedAtLatest, chargeVector());
+    }
+
+    private static byte[] claimResultBody(final ShardId shard, final byte[] claimId,
+                                          final DelayMessageId messageId, final int generation,
+                                          final DestinationLaneId lane, final byte[] laneIncarnation,
+                                          final long laneControlVersion, final long runtimeLaneVersion,
+                                          final byte[] timelineKey, final byte[] owner,
+                                          final byte[] storeIncarnation, final long claimDeadline,
+                                          final int sourceWorkKind, final long observedAtEarliest,
+                                          final long observedAtLatest, final byte[] transfer) {
         final byte[] subject = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());
             CanonicalProtobuf.uint32(output, 2, shard.partition());
@@ -5208,7 +5226,7 @@ class DelayShardTest {
             CanonicalProtobuf.uint32(output, 16, 1);
             CanonicalProtobuf.uint32(output, 17, StableCode.CLAIM_PERMANENT_FAILURE.wireValue());
             CanonicalProtobuf.bytes(output, 18, observedAt);
-            CanonicalProtobuf.bytes(output, 20, chargeVector());
+            CanonicalProtobuf.bytes(output, 20, transfer);
         });
     }
 
@@ -5232,6 +5250,15 @@ class DelayShardTest {
         return CanonicalProtobuf.message(output -> {
             for (int number = 1; number <= 17; number++) {
                 CanonicalProtobuf.uint32(output, number, 0);
+            }
+        });
+    }
+
+    private static byte[] chargeVectorWithActiveMessages(final long activeMessages) {
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint64(output, 1, activeMessages);
+            for (int number = 2; number <= 17; number++) {
+                CanonicalProtobuf.uint64(output, number, 0);
             }
         });
     }

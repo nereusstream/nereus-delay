@@ -2817,11 +2817,12 @@ public final class DelayShard {
      * Applies the replay-stable CLAIM_RESULT_V1 subset.  A locally persisted
      * Claim is consumed by exact precondition/instance identity; after replay,
      * the source-derived SCHEDULED fallback remains accepted when the Claim
-     * record itself was not present in the restored checkpoint.  The full
-     * GenerationRuntimeIndex/obligation model is still pending.  This never
-     * treats a callback as a direct terminal write: the result, terminal
-     * projection, quota transfer, indexes, and source position share one
-     * synchronous batch.
+     * record itself was not present in the restored checkpoint.  The local
+     * GenerationRuntimeIndex and obligation-set fences are checked before
+     * terminalization; external materialization/recovery and grant authority
+     * remain separate release work.  This never treats a callback as a direct
+     * terminal write: the result, terminal projection, quota transfer, indexes,
+     * and source position share one synchronous batch.
      */
     private SystemMutationResult applyClaimResultMutation(final SystemMutation mutation,
                                                            final SourcePosition sourcePosition) {

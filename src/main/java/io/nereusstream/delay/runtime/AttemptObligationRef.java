@@ -10,8 +10,9 @@ import java.util.List;
 /**
  * Canonical locator for one open publish attempt.
  *
- * <p>This is the registry-shaped core projection. The surrounding generation runtime index is still pending, but
- * the key, state, key hash and reference digest are already checked as one closed value.</p>
+ * <p>This is the registry-shaped core projection used by the generation runtime
+ * index. The key, state, key hash and reference digest are checked as one
+ * closed value.</p>
  */
 public final class AttemptObligationRef {
     public static final int HASH_LENGTH = 32;

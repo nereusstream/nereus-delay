@@ -56,6 +56,13 @@ public final class ClaimResultBody {
                 || !Arrays.equals(this.laneIncarnation, precondition.laneIncarnation())) {
             throw new IllegalArgumentException("Claim Result identity does not match Claim precondition");
         }
+        // A permanent pre-send result releases the reversible Claim reservation.  The
+        // transfer is therefore the same canonical ChargeVector that the Claim froze;
+        // accepting a different projection would let a signed callback rewrite quota
+        // accounting while the source-ordered apply path has no independent authority.
+        if (!Arrays.equals(this.transfer, precondition.claimedCharge())) {
+            throw new IllegalArgumentException("Claim Result charge transfer does not match claimed charge");
+        }
     }
 
     /** Parses and validates a canonical CLAIM_RESULT_V1 body. */
