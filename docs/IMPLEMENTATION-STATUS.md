@@ -1126,17 +1126,19 @@ installation; it is released only after the active DB is opened or cleanup
 completes. `ShardStoreTest.completeCheckpointRestoresIntoFreshStoreIncarnation`
 also reacquires that slot immediately after a real restore returns, proving
 the slot is released before the caller closes the restored DB.
-`ShardStore.close()` now attempts every native handle/DB/options close and both
-long-lived Worker-slot releases even when an earlier JNI close reports a
-runtime failure, aggregating later failures as suppressed exceptions. A
-failed native shutdown therefore cannot strand `maxOpenShardDbs` or
-`maxOwnedShards` capacity; the store remains closed and the shared-resource
-boundary is still observable for a safe retry.
-`SharedRocksDbResources.close()` applies the same all-resources rule to the
-process-level rate limiter, shared write-buffer manager and block cache. A
-failure in one shared native close is retained while the remaining resources
-are still attempted, so a Worker shutdown cannot silently leak the later
-process-wide handles.
+`ShardStore.close()` now writes the clean-close marker before fencing public
+operations, closes the default Column Family as well as every named handle,
+DB/options and both long-lived Worker-slot releases, and records each item
+independently. An earlier JNI close failure is aggregated with later failures,
+but a successful item is not repeated or released twice; a later `close()`
+retries only unfinished teardown and marks the Store permanently closed only
+after every handle and slot is complete. A failed native shutdown therefore
+cannot strand `maxOpenShardDbs` or `maxOwnedShards` capacity.
+`SharedRocksDbResources.close()` applies the same retryable all-resources rule
+to the process-level rate limiter, shared write-buffer manager and block cache:
+a close failure fences new acquisitions without discarding the unfinished
+resource state, and a later close retries it while preserving the first
+failure/suppressed diagnostics.
 The long-lived owned-shard slot is also bound to the exact `ShardId`, not only
 to a numeric semaphore count. A second `ShardStore.open` for the same Shard
 therefore fails before it can open or create another RocksDB incarnation; this

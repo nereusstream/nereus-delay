@@ -30,6 +30,11 @@ public final class SharedRocksDbResources implements AutoCloseable {
     private final Semaphore checkpointDownloadSlots;
     private final Semaphore drainSlots;
     private final AtomicBoolean closed = new AtomicBoolean();
+    /** Set after the in-flight check passes; all callers are then fenced. */
+    private boolean closeStarted;
+    private boolean rateLimiterClosed;
+    private boolean writeBufferManagerClosed;
+    private boolean blockCacheClosed;
     /**
      * The logical ownership slot is identity-bound, not merely a counter.
      * Without this set two concurrent opens of the same shard could each
@@ -247,43 +252,63 @@ public final class SharedRocksDbResources implements AutoCloseable {
         if (closed.get()) {
             return;
         }
-        if (shardAcquireCount != 0 || openDbCount != 0 || ownedShardCount != 0
+        if (!closeStarted && (shardAcquireCount != 0 || openDbCount != 0 || ownedShardCount != 0
                 || !ownedShardIdentities.isEmpty()
                 || checkpointCreateCount != 0 || checkpointUploadCount != 0
-                || checkpointDownloadCount != 0 || drainCount != 0) {
+                || checkpointDownloadCount != 0 || drainCount != 0)) {
             throw new IllegalStateException("cannot close shared RocksDB resources while work is in flight");
         }
-        closed.set(true);
+        closeStarted = true;
         // Every process-level native resource must be attempted even if an
         // earlier close reports a JNI/runtime failure.  Otherwise a failed
         // rate-limiter shutdown can strand the shared write-buffer manager or
         // block cache for the lifetime of the Worker.
         RuntimeException closeFailure = null;
-        closeFailure = closeResource(closeFailure, rateLimiter::close);
-        closeFailure = closeResource(closeFailure, writeBufferManager::close);
-        closeFailure = closeResource(closeFailure, blockCache::close);
+        if (!rateLimiterClosed) {
+            try {
+                rateLimiter.close();
+                rateLimiterClosed = true;
+            } catch (RuntimeException failure) {
+                closeFailure = appendCloseFailure(closeFailure, failure);
+            }
+        }
+        if (!writeBufferManagerClosed) {
+            try {
+                writeBufferManager.close();
+                writeBufferManagerClosed = true;
+            } catch (RuntimeException failure) {
+                closeFailure = appendCloseFailure(closeFailure, failure);
+            }
+        }
+        if (!blockCacheClosed) {
+            try {
+                blockCache.close();
+                blockCacheClosed = true;
+            } catch (RuntimeException failure) {
+                closeFailure = appendCloseFailure(closeFailure, failure);
+            }
+        }
+        if (closeFailure == null && rateLimiterClosed && writeBufferManagerClosed && blockCacheClosed) {
+            closed.set(true);
+        }
         if (closeFailure != null) {
             throw closeFailure;
         }
     }
 
-    private static RuntimeException closeResource(final RuntimeException first, final Runnable closeAction) {
-        try {
-            closeAction.run();
-            return first;
-        } catch (RuntimeException failure) {
-            if (first == null) {
-                return failure;
-            }
-            if (failure != first) {
-                first.addSuppressed(failure);
-            }
-            return first;
+    private static RuntimeException appendCloseFailure(final RuntimeException first,
+                                                       final RuntimeException failure) {
+        if (first == null) {
+            return failure;
         }
+        if (failure != first) {
+            first.addSuppressed(failure);
+        }
+        return first;
     }
 
     private void ensureOpen() {
-        if (closed.get()) {
+        if (closed.get() || closeStarted) {
             throw new IllegalStateException("shared RocksDB resources are closed");
         }
     }

@@ -33,6 +33,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -70,17 +71,29 @@ public final class ShardStore implements AutoCloseable {
     private final Path dbPath;
     private final SharedRocksDbResources resources;
     private final RocksDB db;
+    private final ColumnFamilyHandle defaultColumnFamilyHandle;
     private final DBOptions dbOptions;
     private final List<ColumnFamilyOptions> columnFamilyOptions;
     private final Map<ColumnFamily, ColumnFamilyHandle> handles;
     private final StoreMetadata metadata;
     private final boolean ownsShardSlot;
     private final AtomicBoolean closed = new AtomicBoolean();
+    /** First close fences all Store operations; native teardown may be retried. */
+    private boolean closeStarted;
+    private boolean defaultColumnFamilyClosed;
+    private boolean dbClosed;
+    private boolean dbOptionsClosed;
+    private boolean dbSlotReleased;
+    private boolean ownedShardSlotReleased;
+    private final EnumSet<ColumnFamily> closedColumnFamilyHandles = EnumSet.noneOf(ColumnFamily.class);
+    private final boolean[] closedColumnFamilyOptions;
+    private boolean cleanCloseAttempted;
     private StoreRuntimeMetadata runtimeMetadata;
     private long closedIngressDeadlineThrough;
 
     private ShardStore(final ShardStoreConfig config, final ShardId shardId, final Path dbPath,
                         final SharedRocksDbResources resources, final RocksDB db, final DBOptions dbOptions,
+                        final ColumnFamilyHandle defaultColumnFamilyHandle,
                         final List<ColumnFamilyOptions> columnFamilyOptions,
                         final Map<ColumnFamily, ColumnFamilyHandle> handles, final StoreMetadata metadata,
                         final boolean ownsShardSlot, final StoreRuntimeMetadata runtimeMetadata,
@@ -90,11 +103,13 @@ public final class ShardStore implements AutoCloseable {
         this.dbPath = dbPath;
         this.resources = resources;
         this.db = db;
+        this.defaultColumnFamilyHandle = defaultColumnFamilyHandle;
         this.dbOptions = dbOptions;
         this.columnFamilyOptions = columnFamilyOptions;
         this.handles = handles;
         this.metadata = metadata;
         this.ownsShardSlot = ownsShardSlot;
+        this.closedColumnFamilyOptions = new boolean[columnFamilyOptions.size()];
         this.runtimeMetadata = runtimeMetadata;
         this.closedIngressDeadlineThrough = closedIngressDeadlineThrough;
     }
@@ -757,8 +772,9 @@ public final class ShardStore implements AutoCloseable {
                         closedIngressDeadlineThrough);
                 db.write(writeOptions, batch);
             }
-            final ShardStore result = new ShardStore(config, shardId, dbPath, resources, db, dbOptions, cfOptions,
-                    handles, metadata, ownsShardSlot, runtimeMetadata, closedIngressDeadlineThrough);
+            final ShardStore result = new ShardStore(config, shardId, dbPath, resources, db, dbOptions,
+                    openedHandles.get(0), cfOptions, handles, metadata, ownsShardSlot, runtimeMetadata,
+                    closedIngressDeadlineThrough);
             keepOpen = true;
             return result;
         } finally {
@@ -1298,56 +1314,123 @@ public final class ShardStore implements AutoCloseable {
         if (closed.get()) {
             return;
         }
-        RuntimeException markerFailure = null;
-        try {
-            // Keep the store open while the clean-close marker is written so
-            // the lifecycle guard on write() does not reject its own close
-            // protocol.  The synchronized close/read/write methods also make
-            // this marker write the final DB operation visible to callers.
-            persistRuntimeMetadata(runtimeMetadata.withCleanCloseMarker(true));
-        } catch (RuntimeException exception) {
-            markerFailure = exception;
+        RuntimeException closeFailure = null;
+        if (!cleanCloseAttempted) {
+            cleanCloseAttempted = true;
+            try {
+                // Keep the store open while the clean-close marker is written
+                // so the lifecycle guard on write() does not reject its own
+                // close protocol. The marker is attempted at most once: if it
+                // fails, the native DB may still be torn down safely and the
+                // next open will conservatively treat the store as unclean.
+                persistRuntimeMetadata(runtimeMetadata.withCleanCloseMarker(true));
+            } catch (RuntimeException exception) {
+                closeFailure = appendCloseFailure(closeFailure, exception);
+            }
         }
-        closed.set(true);
-        RuntimeException closeFailure = markerFailure;
+        // The marker write above is the final allowed Store operation. Once
+        // it has been attempted, fence all public operations even if native
+        // teardown below needs a later retry.
+        closeStarted = true;
         // Every native close and every worker-slot release is attempted even
         // when an earlier JNI close reports a runtime failure.  Losing the
         // release in that path would permanently consume maxOpenShardDbs or
         // maxOwnedShards and make a healthy worker reject future ownership.
-        for (ColumnFamilyHandle handle : handles.values()) {
-            closeFailure = closeResource(closeFailure, handle::close);
+        if (!defaultColumnFamilyClosed) {
+            try {
+                defaultColumnFamilyHandle.close();
+                defaultColumnFamilyClosed = true;
+            } catch (RuntimeException failure) {
+                closeFailure = appendCloseFailure(closeFailure, failure);
+            }
         }
-        closeFailure = closeResource(closeFailure, db::close);
-        for (ColumnFamilyOptions options : columnFamilyOptions) {
-            closeFailure = closeResource(closeFailure, options::close);
+        for (ColumnFamily family : ColumnFamily.values()) {
+            if (closedColumnFamilyHandles.contains(family)) {
+                continue;
+            }
+            try {
+                handles.get(family).close();
+                closedColumnFamilyHandles.add(family);
+            } catch (RuntimeException failure) {
+                closeFailure = appendCloseFailure(closeFailure, failure);
+            }
         }
-        closeFailure = closeResource(closeFailure, dbOptions::close);
-        closeFailure = closeResource(closeFailure, resources::releaseDbSlot);
-        if (ownsShardSlot) {
-            closeFailure = closeResource(closeFailure, () -> resources.releaseOwnedShardSlot(shardId));
+        if (!dbClosed) {
+            try {
+                db.close();
+                dbClosed = true;
+            } catch (RuntimeException failure) {
+                closeFailure = appendCloseFailure(closeFailure, failure);
+            }
+        }
+        for (int index = 0; index < columnFamilyOptions.size(); index++) {
+            if (closedColumnFamilyOptions[index]) {
+                continue;
+            }
+            try {
+                columnFamilyOptions.get(index).close();
+                closedColumnFamilyOptions[index] = true;
+            } catch (RuntimeException failure) {
+                closeFailure = appendCloseFailure(closeFailure, failure);
+            }
+        }
+        if (!dbOptionsClosed) {
+            try {
+                dbOptions.close();
+                dbOptionsClosed = true;
+            } catch (RuntimeException failure) {
+                closeFailure = appendCloseFailure(closeFailure, failure);
+            }
+        }
+        if (!dbSlotReleased) {
+            try {
+                resources.releaseDbSlot();
+                dbSlotReleased = true;
+            } catch (RuntimeException failure) {
+                closeFailure = appendCloseFailure(closeFailure, failure);
+            }
+        }
+        if (ownsShardSlot && !ownedShardSlotReleased) {
+            try {
+                resources.releaseOwnedShardSlot(shardId);
+                ownedShardSlotReleased = true;
+            } catch (RuntimeException failure) {
+                closeFailure = appendCloseFailure(closeFailure, failure);
+            }
+        }
+        if (closeFailure == null && defaultColumnFamilyClosed && dbClosed && dbOptionsClosed
+                && dbSlotReleased && (!ownsShardSlot || ownedShardSlotReleased)
+                && closedColumnFamilyHandles.size() == ColumnFamily.values().length
+                && allOptionsClosed()) {
+            closed.set(true);
         }
         if (closeFailure != null) {
             throw closeFailure;
         }
     }
 
-    private static RuntimeException closeResource(final RuntimeException first, final Runnable closeAction) {
-        try {
-            closeAction.run();
-            return first;
-        } catch (RuntimeException failure) {
-            if (first == null) {
-                return failure;
+    private boolean allOptionsClosed() {
+        for (boolean closedOption : closedColumnFamilyOptions) {
+            if (!closedOption) {
+                return false;
             }
-            if (failure != first) {
-                first.addSuppressed(failure);
-            }
-            return first;
         }
+        return true;
+    }
+
+    private static RuntimeException appendCloseFailure(final RuntimeException first,
+                                                       final RuntimeException failure) {
+        if (first == null) {
+            return failure;
+        }
+        if (failure != first) {
+            first.addSuppressed(failure);
+        }
+        return first;
     }
 
     private void ensureOpen() {
-        if (closed.get()) {
+        if (closed.get() || closeStarted) {
             throw new IllegalStateException("shard store is closed");
         }
     }
