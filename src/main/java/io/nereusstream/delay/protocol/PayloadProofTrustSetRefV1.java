@@ -10,8 +10,8 @@ public final class PayloadProofTrustSetRefV1 {
     private final byte[] semanticHash;
 
     public PayloadProofTrustSetRefV1(final long version, final byte[] semanticHash) {
-        if (version <= 0) {
-            throw new IllegalArgumentException("trust set version must be positive");
+        if (version == 0) {
+            throw new IllegalArgumentException("trust set version must be nonzero");
         }
         Bytes.requireLength(semanticHash, 32, "trustSetSemanticHash");
         this.version = version;
@@ -28,7 +28,7 @@ public final class PayloadProofTrustSetRefV1 {
 
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.uint64(output, 1, version);
+            CanonicalProtobuf.uint64Bits(output, 1, version);
             CanonicalProtobuf.bytes(output, 2, semanticHash);
         });
     }
@@ -38,7 +38,7 @@ public final class PayloadProofTrustSetRefV1 {
                 "PayloadProofTrustSetRefV1");
         QueryCodecSupport.requireNumbers(fields, new int[]{1, 2}, "PayloadProofTrustSetRefV1");
         final PayloadProofTrustSetRefV1 result = new PayloadProofTrustSetRefV1(
-                QueryCodecSupport.uint(fields.get(0), 1), QueryCodecSupport.fixed(fields.get(1), 2, 32));
+                QueryCodecSupport.uint64Bits(fields.get(0), 1), QueryCodecSupport.fixed(fields.get(1), 2, 32));
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "PayloadProofTrustSetRefV1");
         return result;
     }

@@ -44,6 +44,22 @@ class PayloadProofTrustSetSemanticV1Test {
     }
 
     @Test
+    void preservesCompleteUnsignedTrustSetVersionBits() throws Exception {
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final var key = PayloadProofVerifierKeyV1.fromPublicKey(1, generator.generateKeyPair().getPublic(), 0, 10_000);
+        final PayloadProofTrustSetSemanticV1 trustSet = new PayloadProofTrustSetSemanticV1(Long.MIN_VALUE,
+                List.of(key));
+
+        final PayloadProofTrustSetSemanticV1 decoded =
+                PayloadProofTrustSetSemanticV1.decode(trustSet.canonicalBytes());
+
+        assertEquals(Long.MIN_VALUE, decoded.version());
+        assertEquals(Long.MIN_VALUE, decoded.ref().version());
+        assertEquals(trustSet, decoded);
+        assertEquals(decoded.ref(), PayloadProofTrustSetRefV1.decode(decoded.ref().canonicalBytes()));
+    }
+
+    @Test
     void localVerifierAdapterAppliesSourceTimeValidityWindow() throws Exception {
         final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
         final var keyPair = generator.generateKeyPair();

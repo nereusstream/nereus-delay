@@ -67,6 +67,11 @@ publication and source-ordered activation authority are still external.
 `ProfileSemanticEnvelopeV1Test` and `RetryPolicySemanticV1Test` cover the
 high-bit references.
 
+Payload-proof trust-set semantic/ref versions now follow the same full-width
+rule, and source-ordered activation compares them with unsigned ordering;
+historical key-version ordering remains unsigned as well. The semantic and
+control-state tests cover high-bit round trips and version regression fencing.
+
 Registry class-3 `meta_cf/QUOTA` now has a local per-Lane compatibility projection.
 `LaneQuotaUsageProjection` fences the message, reservation, per-Lane slot and
 per-Claim/per-attempt `inflight_messages`/`inflight_bytes` dimensions with Lane

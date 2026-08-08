@@ -67,7 +67,7 @@ public final class PayloadProofTrustSetControlState {
             if (order <= 0) {
                 throw new IllegalArgumentException("trust-set activation source position regressed");
             }
-            if (trustSet.version() <= previous.trustSet().version()) {
+            if (Long.compareUnsigned(trustSet.version(), previous.trustSet().version()) <= 0) {
                 throw new IllegalArgumentException("trust-set activation version regressed");
             }
         }
@@ -216,7 +216,7 @@ public final class PayloadProofTrustSetControlState {
             Objects.requireNonNull(value, "activation marker");
             if (previousPosition != null) {
                 final int order = compare(value.sourcePosition(), previousPosition);
-                if (order <= 0 || value.trustSet().version() <= previousRef.version()) {
+                if (order <= 0 || Long.compareUnsigned(value.trustSet().version(), previousRef.version()) <= 0) {
                     throw new IllegalArgumentException("trust-set activations are not source/version ordered");
                 }
             }

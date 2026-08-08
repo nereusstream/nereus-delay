@@ -18,8 +18,8 @@ public final class PayloadProofTrustSetSemanticV1 {
 
     public PayloadProofTrustSetSemanticV1(final long version,
                                           final List<PayloadProofVerifierKeyV1> keys) {
-        if (version <= 0) {
-            throw new IllegalArgumentException("trust set version must be positive");
+        if (version == 0) {
+            throw new IllegalArgumentException("trust set version must be nonzero");
         }
         this.version = version;
         this.keys = sortedUnique(keys);
@@ -47,7 +47,7 @@ public final class PayloadProofTrustSetSemanticV1 {
 
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.uint64(output, 1, version);
+            CanonicalProtobuf.uint64Bits(output, 1, version);
             for (PayloadProofVerifierKeyV1 key : keys) {
                 CanonicalProtobuf.bytes(output, 2, key.canonicalBytes());
             }
@@ -74,7 +74,7 @@ public final class PayloadProofTrustSetSemanticV1 {
             keys.add(PayloadProofVerifierKeyV1.decode(QueryCodecSupport.nested(fields.get(index), 2)));
         }
         final PayloadProofTrustSetSemanticV1 result = new PayloadProofTrustSetSemanticV1(
-                QueryCodecSupport.uint(fields.get(0), 1), keys);
+                QueryCodecSupport.uint64Bits(fields.get(0), 1), keys);
         if (!Bytes.constantTimeEquals(result.semanticHash,
                 QueryCodecSupport.fixed(fields.get(fields.size() - 1), 3, HASH_LENGTH))) {
             throw new IllegalArgumentException("PayloadProofTrustSetSemanticV1 semantic hash mismatch");
@@ -84,7 +84,7 @@ public final class PayloadProofTrustSetSemanticV1 {
     }
 
     private byte[] computeSemanticHash() {
-        return Bytes.sha256(Bytes.utf8(HASH_DOMAIN), Bytes.u64be(version), canonicalKeyList());
+        return Bytes.sha256(Bytes.utf8(HASH_DOMAIN), Bytes.u64beBits(version), canonicalKeyList());
     }
 
     private byte[] canonicalKeyList() {

@@ -12,8 +12,8 @@ public final class PayloadProofTrustSet {
     private final Map<Integer, KeyWindow> keyWindows;
 
     public PayloadProofTrustSet(final long version, final Map<Integer, PublicKey> keys) {
-        if (version <= 0) {
-            throw new IllegalArgumentException("trust set version must be positive");
+        if (version == 0) {
+            throw new IllegalArgumentException("trust set version must be nonzero");
         }
         Objects.requireNonNull(keys, "keys");
         if (keys.isEmpty()) {

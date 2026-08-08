@@ -57,6 +57,19 @@ class PayloadProofTrustSetControlStateTest {
     }
 
     @Test
+    void activationVersionsUseUnsignedOrdering() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
+        final PayloadProofTrustSetControlState state = PayloadProofTrustSetControlState.empty()
+                .activate(ref(Long.MIN_VALUE, 1), position(shard, 10, 100))
+                .activate(ref(-1L, 2), position(shard, 20, 200));
+
+        assertEquals(-1L, state.activeTrustSet().orElseThrow().version());
+        assertEquals(state, PayloadProofTrustSetControlState.decode(state.canonicalBytes()));
+        assertThrows(IllegalArgumentException.class,
+                () -> state.activate(ref(Long.MIN_VALUE, 3), position(shard, 30, 300)));
+    }
+
+    @Test
     void canonicalOrderAndSourceIdentityAreFenced() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 5);
         final PayloadProofTrustSetRefV1 first = ref(1, 5);

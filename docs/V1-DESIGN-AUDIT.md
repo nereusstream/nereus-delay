@@ -57,6 +57,11 @@ retain complete nonzero `uint64` bits in canonical bytes and semantic-hash
 preimages. This closes their local immutable-value codec boundary; catalog
 publication, activation history and source authority remain release evidence.
 
+Payload-proof trust-set semantic/reference versions now also preserve complete
+raw bits, while the source-ordered activation projection compares versions as
+unsigned values and rejects regression. This is local control-state evidence;
+trust-set publication and authenticated source authority remain external.
+
 尚未填写的数值不是开放设计问题：它们必须由 §23 的 benchmark、capacity proof、real-service conformance 和 chaos evidence 产生，并装入已经冻结的 required config/schema。任何实现若要改变字段、状态、时序、不变量或停止条件，必须发布新的 spec/protocol revision，不能把 benchmark 输出当作协议修订。
 
 ## 权威材料
