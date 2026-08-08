@@ -39,6 +39,28 @@ class DlqExportResultBodyTest {
     }
 
     @Test
+    void rejectsHighBitRetryDecisionAttemptNumber() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
+        final byte[] exportId = nonZero(32, 23);
+        final byte[] messageId = DelayMessageId.random(shard).bytes();
+        final byte[] envelope = nonZero(32, 24);
+        final byte[] retry = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint32(output, 1, 1);
+            CanonicalProtobuf.bytes(output, 2, nestedMarker());
+            CanonicalProtobuf.uint64Bits(output, 3, Long.MIN_VALUE);
+            CanonicalProtobuf.uint64(output, 4, 1_000);
+            CanonicalProtobuf.uint64(output, 5, 2_000);
+            CanonicalProtobuf.uint32(output, 7, 1);
+            CanonicalProtobuf.uint32(output, 8, StableCode.OK.wireValue());
+            CanonicalProtobuf.uint32(output, 9, 2);
+        });
+        final byte[] body = body(shard, exportId, messageId, envelope, 1, 1, 0, StableCode.OK.wireValue(),
+                evidence(exportId), retry, 3, 1);
+
+        assertThrows(IllegalArgumentException.class, () -> DlqExportResultBody.decode(body));
+    }
+
+    @Test
     void rejectsUnknownAttemptWithDefinitiveEvidenceOrMessageRetryDomain() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
         final byte[] exportId = nonZero(32, 5);

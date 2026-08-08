@@ -71,7 +71,7 @@ public final class DlqExportResultBody {
         final byte[] exportId = fixed(field(fields, 10), 10, HASH_LENGTH);
         final byte[] messageId = fixed(field(fields, 11), 11, DelayMessageId.LENGTH);
         final int generation = boundedInt(unsigned(field(fields, 12), 12), "generation");
-        final long terminalRevision = unsigned(field(fields, 13), 13);
+        final long terminalRevision = rawUint64(field(fields, 13), 13);
         if (terminalRevision == 0) {
             throw new IllegalArgumentException("terminal revision must be non-zero");
         }
@@ -271,8 +271,15 @@ public final class DlqExportResultBody {
     }
 
     private static long unsigned(final CanonicalProtobuf.Reader.Field field, final int number) {
-        if (field.number() != number || field.wireType() != 0) {
+        if (field.number() != number || field.wireType() != 0 || field.unsignedValue() < 0) {
             throw new IllegalArgumentException("invalid DLQ export scalar field " + number);
+        }
+        return field.unsignedValue();
+    }
+
+    private static long rawUint64(final CanonicalProtobuf.Reader.Field field, final int number) {
+        if (field.number() != number || field.wireType() != 0) {
+            throw new IllegalArgumentException("invalid DLQ export raw uint64 field " + number);
         }
         return field.unsignedValue();
     }
