@@ -317,10 +317,7 @@ public final class PersistentLaneScheduler {
         requireDueThrough(dueThroughEpochMs);
         final List<ScheduleWorkItem> result;
         if (recoveryFirstPass) {
-            final Set<DestinationLaneId> eligible = delegate.snapshot().lanes().stream()
-                    .filter(state -> state.schedulable() && state.pendingItems() > 0)
-                    .map(LaneScheduler.LaneSnapshot::laneId)
-                    .collect(java.util.stream.Collectors.toSet());
+            final Set<DestinationLaneId> eligible = delegate.dueSchedulableLanes(dueThroughEpochMs);
             recoveryServed.retainAll(eligible);
             result = delegate.pollRecoveryFirstPass(dueThroughEpochMs, budget, recoveryServed);
             result.forEach(item -> recoveryServed.add(item.laneId()));

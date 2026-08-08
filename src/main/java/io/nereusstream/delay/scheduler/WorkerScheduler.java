@@ -97,18 +97,18 @@ public final class WorkerScheduler {
             final ShardQueue shard = shards.get(ring.get(cursor % ring.size()));
             cursor = (cursor + 1) % ring.size();
             visits++;
-            if (shard == null || !shard.schedulable()) {
+            if (shard == null || !shard.schedulable(dueThroughEpochMs)) {
                 continue;
             }
             final boolean firstPassVisit = recoveryFirstPass;
-            final Set<ShardId> eligible = firstPassVisit ? eligibleShards() : Set.of();
+            final Set<ShardId> eligible = firstPassVisit ? eligibleShards(dueThroughEpochMs) : Set.of();
             if (firstPassVisit && recoveryServed.contains(shard.shardId)) {
                 continue;
             }
             shard.deficit = Math.min(saturatingAdd(shard.deficit, checkedWeightIncrement(shard.weight)),
                     Math.max(maxDeficitBytes, 1));
             final long remainingBytes = budget.maxBytes() - bytes;
-            final long shardHeadBytes = shard.scheduler.minimumSchedulableHeadBytes();
+            final long shardHeadBytes = shard.scheduler.minimumSchedulableHeadBytes(dueThroughEpochMs);
             final long deficitOrHead = Math.max(shard.deficit, shardHeadBytes);
             final long shardBudgetBytes = Math.min(remainingBytes, deficitOrHead);
             if (shardBudgetBytes <= 0) {
@@ -132,7 +132,7 @@ public final class WorkerScheduler {
             bytes = Math.addExact(bytes, visitBytes);
             if (firstPassVisit) {
                 recoveryServed.add(shard.shardId);
-                if (recoveryServed.containsAll(eligibleShards())) {
+                if (recoveryServed.containsAll(eligibleShards(dueThroughEpochMs))) {
                     recoveryFirstPass = false;
                     recoveryServed.clear();
                 }
@@ -196,10 +196,11 @@ public final class WorkerScheduler {
         recoveryServed.clear();
     }
 
-    private Set<ShardId> eligibleShards() {
+    private Set<ShardId> eligibleShards(final long dueThroughEpochMs) {
+        requireDueThrough(dueThroughEpochMs);
         final Set<ShardId> eligible = new HashSet<>();
         for (ShardQueue shard : shards.values()) {
-            if (shard.schedulable()) {
+            if (shard.schedulable(dueThroughEpochMs)) {
                 eligible.add(shard.shardId);
             }
         }
@@ -273,9 +274,8 @@ public final class WorkerScheduler {
             this.scheduler = scheduler;
         }
 
-        private boolean schedulable() {
-            return !blocked && scheduler.snapshot().lanes().stream()
-                    .anyMatch(lane -> lane.schedulable() && lane.pendingItems() > 0);
+        private boolean schedulable(final long dueThroughEpochMs) {
+            return !blocked && !scheduler.dueSchedulableLanes(dueThroughEpochMs).isEmpty();
         }
     }
 }

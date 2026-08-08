@@ -506,6 +506,13 @@ inclusive 语义可服务。`LaneSchedulerTest.duePollUsesAnInclusiveEligibility
 覆盖这一 local scheduler seam。无时间参数的 overload 仍是兼容接口，不是生产
 Trusted UTC/Owner/Oxia 证据；真实 time authority、Broker visibility 与 production
 Claim/Admission wiring 仍是 release blocker。
+恢复首轮的 eligible 集合也按同一 trusted due-through 重新计算，而不是把所有
+pending head 都算作当前机会；inner/outer 的最小 head byte budget 同样只看当前
+due head。否则一个远期 future Lane/Shard 会让 `recovery_first_pass` 永不收敛，
+阻塞其它已经 due 的 work。`LaneSchedulerTest.persistentRecoveryFirstPassIgnoresFutureLaneForDueFairness`
+与 `WorkerSchedulerTest.futureShardDoesNotHoldRecoveryFirstPassOpenForDueWork` 覆盖
+该本地公平性边界；生产 Trusted UTC、placement 和 Owner/Oxia authority 仍不由此
+证明。
 §12.4 的本地时钟 guard 现在由 `TrustedUtcClock` 提供：它只从批准的
 `TrustedUtcIntervalEvidence` 和注入的 monotonic reading 推导保守 interval，
 对 uncertainty、sample age、wall/monotonic step 和 stabilization window

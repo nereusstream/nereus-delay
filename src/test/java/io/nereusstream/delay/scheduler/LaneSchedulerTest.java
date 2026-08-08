@@ -743,6 +743,31 @@ class LaneSchedulerTest {
     }
 
     @Test
+    void persistentRecoveryFirstPassIgnoresFutureLaneForDueFairness() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 34);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("scheduler-recovery-due-fairness"));
+        final DestinationLaneId dueLane = lane(46);
+        final DestinationLaneId futureLane = lane(47);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
+            scheduler.register(record(dueLane, 1));
+            scheduler.register(record(futureLane, 1));
+            scheduler.offer(new ScheduleWorkItem(dueLane, DelayMessageId.random(shardId), 1, 1_000, 1));
+            scheduler.offer(new ScheduleWorkItem(futureLane, DelayMessageId.random(shardId), 1, 10_000, 1));
+
+            assertEquals(List.of(dueLane), scheduler.poll(1_000,
+                    new SchedulerBudget(1, 1024, 1_000_000_000)).stream()
+                    .map(ScheduleWorkItem::laneId).toList());
+            scheduler.offer(new ScheduleWorkItem(dueLane, DelayMessageId.random(shardId), 2, 1_001, 1));
+            assertEquals(List.of(dueLane), scheduler.poll(1_001,
+                    new SchedulerBudget(1, 1024, 1_000_000_000)).stream()
+                    .map(ScheduleWorkItem::laneId).toList());
+        }
+    }
+
+    @Test
     void readyDiscoveryRejectsFirstEntryThatExceedsByteBudget() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 32);
         final ShardStoreConfig config = ShardStoreConfig.defaults(

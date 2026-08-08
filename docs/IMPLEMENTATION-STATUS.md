@@ -1839,6 +1839,15 @@ cover the local time-boundary and restart seam.  The no-time overloads remain
 compatibility seams only; Trusted UTC production wiring, Broker-time evidence
 and Owner/Oxia scheduling authority are still release blockers.
 
+Recovery fairness now uses the same due-through boundary when building its
+eligible Lane/Shard sets and when choosing the minimum head byte budget.  A
+future-only Lane or Shard therefore cannot keep `recovery_first_pass` open and
+starve newly due work elsewhere.  The regressions are
+`LaneSchedulerTest.persistentRecoveryFirstPassIgnoresFutureLaneForDueFairness`
+and `WorkerSchedulerTest.futureShardDoesNotHoldRecoveryFirstPassOpenForDueWork`;
+this remains local scheduler evidence rather than production placement or
+Trusted UTC authority.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

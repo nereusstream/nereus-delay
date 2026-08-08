@@ -195,6 +195,19 @@ public final class LaneScheduler {
         return requireLane(laneId).queue.peekFirst();
     }
 
+    /** Returns the currently due schedulable Lane identities for recovery fairness. */
+    synchronized Set<DestinationLaneId> dueSchedulableLanes(final long dueThroughEpochMs) {
+        requireDueThrough(dueThroughEpochMs);
+        final Set<DestinationLaneId> result = new HashSet<>();
+        for (LaneQueue lane : lanes.values()) {
+            if (lane.schedulable() && !lane.queue.isEmpty()
+                    && lane.queue.peekFirst().eligibleAtEpochMs() <= dueThroughEpochMs) {
+                result.add(lane.laneId);
+            }
+        }
+        return Set.copyOf(result);
+    }
+
     /**
      * Returns the smallest currently schedulable Lane-head size, or zero when
      * no Lane can make progress. The outer Worker DRR uses this to avoid
@@ -202,9 +215,16 @@ public final class LaneScheduler {
      * unserviceable.
      */
     synchronized long minimumSchedulableHeadBytes() {
+        return minimumSchedulableHeadBytes(Long.MAX_VALUE);
+    }
+
+    /** Returns the smallest currently due schedulable Lane-head size. */
+    synchronized long minimumSchedulableHeadBytes(final long dueThroughEpochMs) {
+        requireDueThrough(dueThroughEpochMs);
         long minimum = Long.MAX_VALUE;
         for (LaneQueue lane : lanes.values()) {
-            if (lane.schedulable() && !lane.queue.isEmpty()) {
+            if (lane.schedulable() && !lane.queue.isEmpty()
+                    && lane.queue.peekFirst().eligibleAtEpochMs() <= dueThroughEpochMs) {
                 minimum = Math.min(minimum, lane.queue.peekFirst().accountedBytes());
             }
         }

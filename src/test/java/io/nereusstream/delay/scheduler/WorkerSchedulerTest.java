@@ -56,6 +56,29 @@ class WorkerSchedulerTest {
     }
 
     @Test
+    void futureShardDoesNotHoldRecoveryFirstPassOpenForDueWork() {
+        final ShardId dueShard = shard(27);
+        final ShardId futureShard = shard(28);
+        final DestinationLaneId dueLane = lane(27);
+        final DestinationLaneId futureLane = lane(28);
+        final WorkerScheduler worker = WorkerScheduler.defaults();
+        worker.registerShard(dueShard, 1, LaneScheduler.defaults());
+        worker.registerShard(futureShard, 1, LaneScheduler.defaults());
+        worker.registerLane(dueShard, laneRecord(dueLane));
+        worker.registerLane(futureShard, laneRecord(futureLane));
+        worker.offer(new ScheduleWorkItem(dueLane, DelayMessageId.random(dueShard), 1, 1_000, 1));
+        worker.offer(new ScheduleWorkItem(futureLane, DelayMessageId.random(futureShard), 1, 10_000, 1));
+
+        assertEquals(List.of(dueLane), worker.poll(1_000,
+                new SchedulerBudget(1, 1024, 1_000_000_000)).stream()
+                .map(ScheduleWorkItem::laneId).toList());
+        worker.offer(new ScheduleWorkItem(dueLane, DelayMessageId.random(dueShard), 2, 1_001, 1));
+        assertEquals(List.of(dueLane), worker.poll(1_001,
+                new SchedulerBudget(1, 1024, 1_000_000_000)).stream()
+                .map(ScheduleWorkItem::laneId).toList());
+    }
+
+    @Test
     void emptyShardDoesNotConsumeOuterDeficitVisit() {
         final ShardId emptyShard = shard(5);
         final ShardId healthyShard = shard(6);
