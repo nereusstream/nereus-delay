@@ -24,7 +24,7 @@ public final class SloObservationOutboxV1 {
         this.start = Objects.requireNonNull(start, "start");
         this.finalObservation = finalObservation;
         if (finalObservation != null) {
-            finalObservation.validateAgainst(start);
+            validateFinalAgainstStart(finalObservation, start, null);
         }
         final byte[] expectedDigest = Bytes.sha256(DIGEST_DOMAIN, fieldsOneToThree());
         if (suppliedDigest != null && !Arrays.equals(suppliedDigest, expectedDigest)) {
@@ -55,7 +55,8 @@ public final class SloObservationOutboxV1 {
 
     public SloObservationOutboxV1 mergeFinal(final SloSampleFinalV1 incoming,
                                              final SloThresholdDirectionV1 direction) {
-        Objects.requireNonNull(incoming, "incoming").validateAgainst(start);
+        Objects.requireNonNull(direction, "direction");
+        validateFinalAgainstStart(Objects.requireNonNull(incoming, "incoming"), start, direction);
         final SloSampleFinalV1 merged = finalObservation == null
                 ? incoming : SloSampleFinalV1.merge(finalObservation, incoming, direction);
         return new SloObservationOutboxV1(start, merged, null);
@@ -95,6 +96,19 @@ public final class SloObservationOutboxV1 {
                 CanonicalProtobuf.bytes(output, 3, finalObservation.canonicalBytes());
             }
         });
+    }
+
+    private static void validateFinalAgainstStart(final SloSampleFinalV1 finalObservation,
+                                                   final SloSampleStartV1 start,
+                                                   final SloThresholdDirectionV1 mergeDirection) {
+        finalObservation.validateAgainst(start);
+        final SloObjectiveNameV1 objective = start.objective();
+        if (finalObservation.unit() != objective.requiredUnit()) {
+            throw new IllegalArgumentException("SLO final unit does not match its objective branch");
+        }
+        if (mergeDirection != null && mergeDirection != objective.requiredDirection()) {
+            throw new IllegalArgumentException("SLO merge direction does not match its objective branch");
+        }
     }
 
     @Override

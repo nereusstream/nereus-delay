@@ -1271,7 +1271,10 @@ merged Final under the shard's `meta_cf` ValueEnvelope/CRC boundary. This is
 also a bounded key-order scan plus exact key/value sample-identity and
 record-digest delete-after-ACK boundary, so an exporter can retry unchanged
 bytes without accepting a mis-keyed observation or deleting a newer one. The
-identity fence is covered by `SloObservationOutboxStoreTest`. This is
+identity fence is covered by `SloObservationOutboxStoreTest`. Final merge now also
+revalidates the closed objective branch's required unit and direction before a
+durable replacement; `SloObservationOutboxV1Test.rejectsFinalUnitAndMergeDirectionThatDisagreeWithObjective`
+covers the semantic fence. This is
 still local evidence only; multi-shard placement/Oxia authority,
 production non-outcome/recovery/emergency/source-writer reserve authority,
 transfer protocol, SLO

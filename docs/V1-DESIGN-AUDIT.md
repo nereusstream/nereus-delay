@@ -1355,7 +1355,10 @@ barrier。兼容构造器仍明确不计入 V1 source-assignment 证据。
 本地 `SloObservationOutboxStore` 已把 `meta_cf/SLO_OUTBOX` 的扫描边界收紧为
 key/value `sampleId` 必须 byte-identical；错挂的 key 不会被导出为另一个样本，
 而 collector acknowledgement 仍必须匹配当前完整 record digest 才能删除。回归
-证据为 `SloObservationOutboxStoreTest`。这只补足 shard-local 持久化完整性，不能
+证据为 `SloObservationOutboxStoreTest`。`SloObservationOutboxV1` 现在还按 closed
+objective branch 校验 Final 的 unit 与 merge direction，错误语义不会进入 durable
+outbox；`SloObservationOutboxV1Test.rejectsFinalUnitAndMergeDirectionThatDisagreeWithObjective`
+覆盖该边界。这只补足 shard-local 持久化完整性，不能
 替代 SLO Start 重建、collector merge/export 或生产观测 authority。
 
 Large-payload reservation 的本地读取也采用同一条组合身份边界：`id_cf/RESERVATION`

@@ -68,6 +68,24 @@ class SloObservationOutboxV1Test {
         assertThrows(IllegalArgumentException.class, () -> excluded.validateAgainst(start));
     }
 
+    @Test
+    void rejectsFinalUnitAndMergeDirectionThatDisagreeWithObjective() {
+        final SloSampleStartV1 start = start();
+        final SloSampleFinalV1 wrongUnit = new SloSampleFinalV1(start.sampleId(), start.startDigest(),
+                SloFinalOutcomeV1.SUCCESS, SloThresholdUnitV1.BYTES, 1, 1, null,
+                endpoint(200), bytes(32, 8), 1);
+        assertThrows(IllegalArgumentException.class,
+                () -> SloObservationOutboxV1.open(start).mergeFinal(wrongUnit,
+                        SloThresholdDirectionV1.AT_MOST));
+
+        final SloSampleFinalV1 valid = new SloSampleFinalV1(start.sampleId(), start.startDigest(),
+                SloFinalOutcomeV1.SUCCESS, SloThresholdUnitV1.MILLISECONDS, 1, 1, null,
+                endpoint(200), bytes(32, 9), 1);
+        assertThrows(IllegalArgumentException.class,
+                () -> SloObservationOutboxV1.open(start).mergeFinal(valid,
+                        SloThresholdDirectionV1.AT_LEAST));
+    }
+
     private static SloSampleStartV1 start() {
         final byte[] commandHash = bytes(32, 2);
         final byte[] physicalAttemptId = bytes(16, 3);

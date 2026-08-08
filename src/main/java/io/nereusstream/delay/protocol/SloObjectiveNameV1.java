@@ -27,6 +27,20 @@ public enum SloObjectiveNameV1 {
         return wireValue;
     }
 
+    /** Returns the V1 direction fixed by this closed objective branch. */
+    public SloThresholdDirectionV1 requiredDirection() {
+        return switch (this) {
+            case SOURCE_RETENTION_TIME_MARGIN, SOURCE_RETENTION_BYTE_MARGIN -> SloThresholdDirectionV1.AT_LEAST;
+            default -> SloThresholdDirectionV1.AT_MOST;
+        };
+    }
+
+    /** Returns the V1 measurement unit fixed by this closed objective branch. */
+    public SloThresholdUnitV1 requiredUnit() {
+        return this == SOURCE_RETENTION_BYTE_MARGIN
+                ? SloThresholdUnitV1.BYTES : SloThresholdUnitV1.MILLISECONDS;
+    }
+
     public static SloObjectiveNameV1 fromWire(final long value) {
         for (SloObjectiveNameV1 objective : values()) {
             if (objective.wireValue == value) {
