@@ -157,6 +157,11 @@ public final class LaneScheduler {
         return requireLane(laneId).queue.size();
     }
 
+    /** Returns the current in-memory head without removing it. */
+    synchronized ScheduleWorkItem pendingHead(final DestinationLaneId laneId) {
+        return requireLane(laneId).queue.peekFirst();
+    }
+
     /**
      * Returns the smallest currently schedulable Lane-head size, or zero when
      * no Lane can make progress. The outer Worker DRR uses this to avoid

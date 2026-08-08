@@ -42,6 +42,8 @@ public final class PersistentLaneScheduler {
     private final Map<DestinationLaneId, LaneRecord> registered = new HashMap<>();
     private final PersistedState persisted;
     private final Set<DestinationLaneId> recoveryServed = new HashSet<>();
+    /** Exact READY head last admitted to this process, including a polled head awaiting Claim. */
+    private final Map<DestinationLaneId, ScheduleWorkItem> discoveredHeads = new HashMap<>();
     private long ringGeneration;
     private byte[] lastScannedReadyKey;
     private long wrapGeneration;
@@ -79,6 +81,7 @@ public final class PersistentLaneScheduler {
     /** Applies the saved projections after all currently active lanes are registered. */
     public synchronized void restorePersistedState() {
         if (persisted == null) {
+            discoveredHeads.clear();
             persistedRestored = true;
             return;
         }
@@ -116,6 +119,7 @@ public final class PersistentLaneScheduler {
         final boolean ownerChanged = !persisted.round().owner().equals(owner);
         recoveryFirstPass = ownerChanged || persisted.round().recoveryFirstPass();
         recoveryServed.clear();
+        discoveredHeads.clear();
         persistedRestored = true;
     }
 
@@ -157,6 +161,8 @@ public final class PersistentLaneScheduler {
         }
         delegate.replacePending(new ArrayList<>(byLane.values()));
         delegate.rebuildActiveRing(activeOrder);
+        discoveredHeads.clear();
+        discoveredHeads.putAll(byLane);
         recoveryFirstPass = true;
         recoveryServed.clear();
         if (entries.isEmpty()) {
@@ -166,6 +172,80 @@ public final class PersistentLaneScheduler {
         }
         persist();
         return byLane.size();
+    }
+
+    /**
+     * Promotes a bounded rotating READY-index slice into the active Lane ring.
+     *
+     * <p>The READY index is authoritative; a head already present in the
+     * in-memory queue, or a head that was polled but is still awaiting its
+     * Claim result, is not offered a second time.  A changed head for the same
+     * Lane replaces that process-local discovery record after the caller has
+     * removed the old READY projection from the Store.</p>
+     *
+     * @return newly promoted work items in discovery order
+     */
+    public synchronized List<ScheduleWorkItem> discoverReady(final SchedulerBudget budget) {
+        Objects.requireNonNull(budget, "budget");
+        if (!persistedRestored) {
+            restorePersistedState();
+        }
+        final long startedNanos = System.nanoTime();
+        final List<ShardStore.KeyValue> entries = scanReadyEntries(budget.maxMessages());
+        final List<ReadyProjection> projections = new ArrayList<>();
+        final Set<DestinationLaneId> scannedLanes = new HashSet<>();
+        long scannedBytes = 0;
+        for (ShardStore.KeyValue entry : entries) {
+            if (System.nanoTime() - startedNanos >= budget.maxElapsedNanos() && !projections.isEmpty()) {
+                break;
+            }
+            final long entryBytes = Math.addExact(entry.key().length, entry.value().length);
+            if (!projections.isEmpty() && entryBytes > budget.maxBytes() - scannedBytes) {
+                break;
+            }
+            final ReadyProjection projection = decodeReadyProjection(entry);
+            if (!scannedLanes.add(projection.lane().laneId())) {
+                throw new IllegalStateException("multiple READY heads discovered for Lane: "
+                        + projection.lane().laneId());
+            }
+            projections.add(projection);
+            scannedBytes = Math.addExact(scannedBytes, entryBytes);
+        }
+
+        final List<ScheduleWorkItem> toOffer = new ArrayList<>();
+        final Map<DestinationLaneId, ScheduleWorkItem> nextHeads = new HashMap<>();
+        for (ReadyProjection projection : projections) {
+            final DestinationLaneId laneId = projection.lane().laneId();
+            final ScheduleWorkItem item = projection.item();
+            final ScheduleWorkItem queued = delegate.pendingHead(laneId);
+            final ScheduleWorkItem known = discoveredHeads.get(laneId);
+            if (queued != null) {
+                if (!sameWork(queued, item)) {
+                    throw new IllegalStateException("in-memory READY head differs from authoritative READY: "
+                            + laneId);
+                }
+                nextHeads.put(laneId, queued);
+                continue;
+            }
+            if (known != null && sameWork(known, item)) {
+                nextHeads.put(laneId, known);
+                continue;
+            }
+            nextHeads.put(laneId, item);
+            toOffer.add(item);
+        }
+        for (ScheduleWorkItem item : toOffer) {
+            delegate.activateLane(item.laneId());
+            delegate.offer(item);
+        }
+        for (ReadyProjection projection : projections) {
+            lastScannedReadyKey = projectionKey(projection);
+        }
+        discoveredHeads.putAll(nextHeads);
+        if (!projections.isEmpty()) {
+            persist();
+        }
+        return List.copyOf(toOffer);
     }
 
     /** Returns the current durable discovery cursor projection. */
@@ -281,7 +361,12 @@ public final class PersistentLaneScheduler {
             throw new IllegalStateException("persisted READY discovery cursor is outside READY namespace");
         }
         final List<ShardStore.KeyValue> result = new ArrayList<>();
-        final List<ShardStore.KeyValue> tail = store.scan(ColumnFamily.TIMELINE, lastScannedReadyKey, upper, limit);
+        // The lower bound is inclusive.  Read one extra entry so the cursor
+        // itself does not consume the whole bounded slice when it is the
+        // first key and the caller asks for a one-entry discovery turn.
+        final int tailLimit = limit == Integer.MAX_VALUE ? limit : Math.addExact(limit, 1);
+        final List<ShardStore.KeyValue> tail = store.scan(ColumnFamily.TIMELINE, lastScannedReadyKey, upper,
+                tailLimit);
         for (ShardStore.KeyValue entry : tail) {
             if (!Arrays.equals(entry.key(), lastScannedReadyKey)) {
                 result.add(entry);
@@ -366,6 +451,17 @@ public final class PersistentLaneScheduler {
         final long accountedBytes = Math.max(1, message.payloadLength());
         return new ReadyProjection(lane, new ScheduleWorkItem(key.laneId(), value.messageId(), value.generation(),
                 key.nextEligibleAtEpochMs(), accountedBytes));
+    }
+
+    private static boolean sameWork(final ScheduleWorkItem left, final ScheduleWorkItem right) {
+        return left.laneId().equals(right.laneId()) && left.messageId().equals(right.messageId())
+                && left.generation() == right.generation() && left.eligibleAtEpochMs() == right.eligibleAtEpochMs()
+                && left.accountedBytes() == right.accountedBytes();
+    }
+
+    private static byte[] projectionKey(final ReadyProjection projection) {
+        return KeyCodec.timelineReady(projection.item().eligibleAtEpochMs(), projection.lane().laneId(),
+                projection.lane().laneVersion());
     }
 
     private void validateStoredLane(final LaneRecord expected) {

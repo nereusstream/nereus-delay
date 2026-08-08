@@ -439,6 +439,67 @@ class LaneSchedulerTest {
         }
     }
 
+    @Test
+    void rotatingReadyDiscoveryDoesNotReofferPolledHeadAndFindsSuccessorAfterWrap() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 30);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("ready-discovery-rotation"));
+        final List<LaneRecord> lanes = new ArrayList<>();
+        final List<ReadyFixture> fixtures = new ArrayList<>();
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> {
+                for (int index = 0; index < 2; index++) {
+                    final DestinationLaneId lane = lane(40 + index);
+                    final LaneRecord laneRecord = new LaneRecord(lane, new byte[16], 1, 1,
+                            AdmissionGate.OPEN, RuntimeReadiness.READY, 1, 1_000);
+                    final SourcePosition source = new KafkaSourcePosition(shardId, "cluster", UUID.randomUUID(),
+                            index, null, 1_000 + index);
+                    final DelayMessageId messageId = DelayMessageId.random(shardId);
+                    final MessageRecord message = new MessageRecord(MessageStatus.SCHEDULED, 1, 1,
+                            1_000, 9_000, lane, OrderingMode.BEST_EFFORT, new byte[]{(byte) index},
+                            source.canonicalBytes());
+                    final ReadyFixture fixture = readyFixture(laneRecord, messageId, source, message);
+                    lanes.add(laneRecord);
+                    fixtures.add(fixture);
+                    putReady(batch, fixture);
+                }
+            });
+            final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
+            lanes.forEach(scheduler::register);
+            assertEquals(2, scheduler.rebuildFromAuthoritativeReady(2));
+            assertEquals(1, scheduler.poll(new SchedulerBudget(1, 1024, 1_000_000_000)).size());
+
+            // The cursor wraps to the already-polled first head.  The exact
+            // discovered-head identity prevents a second offer while the
+            // Claim result is still pending.
+            assertEquals(List.of(), scheduler.discoverReady(
+                    new SchedulerBudget(1, 1024, 1_000_000_000)));
+
+            final ReadyFixture old = fixtures.get(0);
+            final LaneRecord laneRecord = old.lane();
+            final SourcePosition nextSource = new KafkaSourcePosition(shardId, "cluster", UUID.randomUUID(),
+                    2, null, 1_002);
+            final DelayMessageId nextMessageId = DelayMessageId.random(shardId);
+            final MessageRecord nextMessage = new MessageRecord(MessageStatus.SCHEDULED, 2, 1,
+                    1_000, 9_000, laneRecord.laneId(), OrderingMode.BEST_EFFORT, new byte[]{9},
+                    nextSource.canonicalBytes());
+            final ReadyFixture next = readyFixture(laneRecord, nextMessageId, nextSource, nextMessage);
+            store.write(batch -> {
+                batch.delete(ColumnFamily.TIMELINE, old.readyKey());
+                batch.delete(ColumnFamily.TIMELINE, old.timelineKey());
+                putReady(batch, next);
+            });
+
+            assertEquals(List.of(), scheduler.discoverReady(
+                    new SchedulerBudget(1, 1024, 1_000_000_000)));
+            final List<ScheduleWorkItem> discovered = scheduler.discoverReady(
+                    new SchedulerBudget(1, 1024, 1_000_000_000));
+            assertEquals(1, discovered.size());
+            assertEquals(nextMessageId, discovered.get(0).messageId());
+        }
+    }
+
     private static LaneRecord record(final DestinationLaneId lane, final int weight) {
         return new LaneRecord(lane, new byte[16], 1, 0, AdmissionGate.OPEN, RuntimeReadiness.READY, weight, 0);
     }
@@ -458,6 +519,30 @@ class LaneSchedulerTest {
         final byte[] bytes = new byte[32];
         bytes[31] = (byte) value;
         return new DestinationLaneId(bytes);
+    }
+
+    private static ReadyFixture readyFixture(final LaneRecord lane, final DelayMessageId messageId,
+                                             final SourcePosition source, final MessageRecord message) {
+        final byte[] readyKey = KeyCodec.timelineReady(1_000, lane.laneId(), lane.laneVersion());
+        final byte[] timelineKey = KeyCodec.timelineDue(lane.laneId(), 1_000, source.sourceOrderToken(), messageId,
+                message.generation());
+        return new ReadyFixture(lane, messageId, message, readyKey, timelineKey,
+                new ReadyIndexValue(lane.laneId(), 1_000, lane.laneVersion(), messageId, message.generation(),
+                        Bytes.sha256(timelineKey)));
+    }
+
+    private static void putReady(final ShardStore.Batch batch, final ReadyFixture fixture)
+            throws org.rocksdb.RocksDBException {
+        batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(fixture.lane().laneId()),
+                LaneRecordEnvelopeV1.active(fixture.lane().encode()).canonicalBytes());
+        batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(fixture.messageId()), fixture.message().encode());
+        batch.putValue(ColumnFamily.TIMELINE, 1, fixture.timelineKey(),
+                new TimelineEntry(fixture.messageId(), fixture.message().generation()).encode());
+        batch.putValue(ColumnFamily.TIMELINE, 3, fixture.readyKey(), fixture.ready().encode());
+    }
+
+    private record ReadyFixture(LaneRecord lane, DelayMessageId messageId, MessageRecord message,
+                                byte[] readyKey, byte[] timelineKey, ReadyIndexValue ready) {
     }
 
     private static OwnerIdentityV1 owner(final long epoch) {

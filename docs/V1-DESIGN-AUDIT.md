@@ -288,6 +288,11 @@ eligible Lane 至多取一条记录，直到所有已发现 Lane 都获得机会
 不会把 rotating discovery cursor 当成已消费的条目；因此超过 `maxReadyEntries` 的
 READY 集合必然 fail closed，而不会因为 cursor 被丢弃而静默漏掉一个 head。
 `LaneSchedulerTest.fencedRecoveryUsesCompleteReadyPassDespitePersistedDiscoveryCursor`
+覆盖该边界。正常运行的 `discoverReady` 现在从同一 cursor 读取 bounded slice，
+把 exact READY/Lane/Message/timeline projection 提升到 active ring；已经 poll 但仍
+等待 Claim 的 head 由进程内 identity fence 抑制重复 offer，READY head 改变后才允许
+同 Lane 的 successor 进入队列。inclusive cursor 读取额外一个条目，保证 `limit=1`
+在首项上也能继续到 successor 或 wrap；`LaneSchedulerTest.rotatingReadyDiscoveryDoesNotReofferPolledHeadAndFindsSuccessorAfterWrap`
 覆盖该边界。该实现证明
 的是单 DB 内的本地物理边界和确定性恢复顺序，不等于 Oxia owner/session fence、
 typed `ActiveLaneStateV1` 运行时切换或真实 Lane certificate/adapter activation。
