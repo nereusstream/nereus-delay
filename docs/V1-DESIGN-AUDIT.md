@@ -1459,7 +1459,11 @@ DB 初始化；只有没有 `CURRENT` 的真正新目录才允许写入初始 me
 写入前不套用这条路径检查，安装到 `incarnations/` 后再由正常 open 验证。
 staged open/metadata validation 的 runtime failure 也会清理 private
 `restore-tmp`，而 download-slot 尚未取得时仍保留原始 bounded-concurrency
-错误。
+错误。Restore 的 staged validation、install-mode probe 和正式 installed open
+现在由显式 Store 生命周期管理；失败清理会有界重试可重试的 native/slot
+teardown，只有在 staged/prepared/installed Store 都确认完成关闭后才删除
+`restore-tmp` 或未发布 incarnation。若仍有 Store 无法证明已关闭，相关目录
+会保留供离线修复，避免把 native handle 仍在使用的目录删除。
 
 `meta/FIXED` 的 immutable key 1/2 也已与 Registry §7 的物理约束对齐：
 store format 的 payload 是 canonical u32 `1`，shard/Store identity 的

@@ -226,6 +226,8 @@ public final class ShardStore implements AutoCloseable {
         final Path activeDb = shardRoot.resolve("incarnations").resolve(storeUuid.toString()).resolve("db");
         boolean downloadSlotAcquired = false;
         boolean activeDbMoved = false;
+        ShardStore staged = null;
+        ShardStore prepared = null;
         ShardStore installed = null;
         try {
             resources.acquireCheckpointDownloadSlot();
@@ -253,26 +255,28 @@ public final class ShardStore implements AutoCloseable {
             if (manifest != null) {
                 validateCheckpointManifest(shardId, stagedDb, manifest, limits);
             }
-            try (ShardStore staged = openAtPath(config, shardId, stagedDb, resources, null, false)) {
-                if (!staged.shardId().equals(shardId)) {
-                    throw new IOException("restored DB shard identity mismatch");
-                }
-                if (manifest != null && (!java.util.Arrays.equals(manifest.dbIdentity(), staged.metadata().dbIdentity())
-                        || !manifest.sourceStoreIncarnation().equals(staged.metadata().storeIncarnationUuid()))) {
-                    throw new IOException("restored DB metadata does not match checkpoint manifest");
-                }
-                if (manifest != null) {
-                    validateRestoredRuntimeState(staged, manifest);
-                }
+            staged = openAtPath(config, shardId, stagedDb, resources, null, false);
+            if (!staged.shardId().equals(shardId)) {
+                throw new IOException("restored DB shard identity mismatch");
             }
+            if (manifest != null && (!java.util.Arrays.equals(manifest.dbIdentity(), staged.metadata().dbIdentity())
+                    || !manifest.sourceStoreIncarnation().equals(staged.metadata().storeIncarnationUuid()))) {
+                throw new IOException("restored DB metadata does not match checkpoint manifest");
+            }
+            if (manifest != null) {
+                validateRestoredRuntimeState(staged, manifest);
+            }
+            staged.close();
+            staged = null;
             if (pin != null) {
                 validateRecoveryPin(shardId, manifest, catalog, pin);
             }
-            try (ShardStore prepared = openAtPath(config, shardId, stagedDb, resources, storeUuid, false)) {
-                if (!prepared.shardId().equals(shardId)) {
-                    throw new IOException("install-mode DB shard identity mismatch");
-                }
+            prepared = openAtPath(config, shardId, stagedDb, resources, storeUuid, false);
+            if (!prepared.shardId().equals(shardId)) {
+                throw new IOException("install-mode DB shard identity mismatch");
             }
+            prepared.close();
+            prepared = null;
             ensureRealDirectory(activeDb.getParent());
             Files.move(stagedDb, activeDb, StandardCopyOption.ATOMIC_MOVE);
             activeDbMoved = true;
@@ -284,7 +288,8 @@ public final class ShardStore implements AutoCloseable {
             writeActivePointer(shardRoot, storeUuid);
             return installed;
         } catch (IOException | RocksDBException exception) {
-            cleanupFailedRestore(restoreRoot, activeDb, shardRoot, storeUuid, activeDbMoved, installed, exception);
+            cleanupFailedRestore(restoreRoot, activeDb, shardRoot, storeUuid, activeDbMoved, staged, prepared,
+                    installed, exception);
             throw new IllegalStateException("cannot restore shard checkpoint", exception);
         } catch (RuntimeException exception) {
             // A failed staged open/metadata validation can surface as a
@@ -295,7 +300,8 @@ public final class ShardStore implements AutoCloseable {
             if (!downloadSlotAcquired) {
                 throw exception;
             }
-            cleanupFailedRestore(restoreRoot, activeDb, shardRoot, storeUuid, activeDbMoved, installed, exception);
+            cleanupFailedRestore(restoreRoot, activeDb, shardRoot, storeUuid, activeDbMoved, staged, prepared,
+                    installed, exception);
             throw new IllegalStateException("cannot restore shard checkpoint", exception);
         } finally {
             if (downloadSlotAcquired) {
@@ -306,15 +312,19 @@ public final class ShardStore implements AutoCloseable {
 
     private static void cleanupFailedRestore(final Path restoreRoot, final Path activeDb, final Path shardRoot,
                                              final UUID storeUuid, final boolean activeDbMoved,
+                                             final ShardStore staged, final ShardStore prepared,
                                              final ShardStore installed, final Throwable failure) {
-        if (installed != null) {
-            try {
-                installed.close();
-            } catch (RuntimeException cleanupException) {
-                failure.addSuppressed(cleanupException);
-            }
-        }
-        if (activeDbMoved && canRemoveUnpublishedActiveDb(shardRoot, storeUuid)) {
+        // A failed close fences the Store but may leave a native handle open
+        // for a later retry.  Never delete a directory while one of these
+        // restore probes still owns that directory; doing so would turn a
+        // recoverable JNI close failure into a use-after-delete corruption
+        // window.  The second bounded attempt covers the normal retryable
+        // close path (for example, a transient slot-release failure).
+        final boolean stagedSafe = closeForRestoreCleanup(staged, failure);
+        final boolean preparedSafe = closeForRestoreCleanup(prepared, failure);
+        final boolean restoreTreeSafe = stagedSafe && preparedSafe;
+        final boolean activeDbSafe = closeForRestoreCleanup(installed, failure);
+        if (activeDbMoved && activeDbSafe && canRemoveUnpublishedActiveDb(shardRoot, storeUuid)) {
             try {
                 deleteTree(activeDb);
                 deleteTree(activeDb.getParent());
@@ -322,11 +332,30 @@ public final class ShardStore implements AutoCloseable {
                 failure.addSuppressed(cleanupException);
             }
         }
-        try {
-            deleteTree(restoreRoot);
-        } catch (IOException cleanupException) {
-            failure.addSuppressed(cleanupException);
+        if (restoreTreeSafe) {
+            try {
+                deleteTree(restoreRoot);
+            } catch (IOException cleanupException) {
+                failure.addSuppressed(cleanupException);
+            }
         }
+    }
+
+    private static boolean closeForRestoreCleanup(final ShardStore store, final Throwable failure) {
+        if (store == null) {
+            return true;
+        }
+        for (int attempt = 0; attempt < 2; attempt++) {
+            try {
+                store.close();
+                return true;
+            } catch (RuntimeException cleanupException) {
+                if (cleanupException != failure) {
+                    failure.addSuppressed(cleanupException);
+                }
+            }
+        }
+        return false;
     }
 
     /** Only remove an installed DB when ACTIVE cannot already refer to it. */

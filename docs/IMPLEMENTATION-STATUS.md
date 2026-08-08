@@ -1249,6 +1249,13 @@ closed before Worker DB/owned-shard slots are released.  The malformed-metadata
 reopen regression `ShardStoreTest.malformedExistingMetadataDoesNotLeaveRocksDbOpen`
 proves that the same physical DB can be opened again after this failure path,
 so a local validation error cannot leave a native RocksDB file lock behind.
+Restore's staged validation, install-mode probe, and formal installed open now
+also use explicit Store lifetime management. Failure cleanup makes a bounded
+retry of retryable native/slot teardown and deletes `restore-tmp` or an
+unpublished incarnation only after every staged/prepared/installed Store is
+confirmed fully closed. If any Store cannot be proven closed, its directory is
+retained for offline repair instead of deleting a path that a native handle may
+still be using.
 
 `StoreRuntimeMetadata` now provides the remaining local `meta_cf` runtime
 projection required by the design: optional `lastIngressFenceProofId` and
