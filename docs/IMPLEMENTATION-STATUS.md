@@ -1145,6 +1145,15 @@ their exact timeline keys, persists the System Mutation result, and advances
 the source position. Profile/grant activation, authenticated Oxia target
 registration and the Lane terminal guard remain release blockers.
 
+The bounded local Lane-retirement path now releases the shard's physical
+`laneCount` slot in the same WriteBatch that replaces the active Lane value
+with its terminal guard. `ShardQuota.removeLane()` rejects underflow, the
+quota projection survives reopen, and
+`DelayShardTest.laneRetirementAtomicallyReplacesActiveValueWithTerminalGuard`
+proves that a `maxLanes=1` shard can reuse the slot only after retirement.
+This closes local slot accounting; external grant/Oxia release and the full
+terminal-guard authority protocol remain release blockers.
+
 The local query increment now exposes bounded read-only
 `MessageQuerySnapshot` and `ReservationQuerySnapshot` projections. They derive
 the exact current runtime/terminal state, state version, timing, duplicate-risk

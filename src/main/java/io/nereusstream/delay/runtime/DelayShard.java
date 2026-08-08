@@ -4704,11 +4704,14 @@ public final class DelayShard {
         if (findLaneCandidate(laneId, null, -1, null, null) != null || hasLaneRuntimeWork(laneId)) {
             throw new IllegalStateException("lane still has pending or inflight work");
         }
+        final ShardQuota nextQuota = quota.removeLane();
         store.write(batch -> {
             deleteReadyKey(batch, current);
             batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(laneId),
                     LaneRecordEnvelopeV1.terminal(guard).canonicalBytes());
+            batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(META_QUOTA_USAGE), nextQuota.encode());
         });
+        quota = nextQuota;
         return guard;
     }
 

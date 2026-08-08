@@ -191,7 +191,7 @@ close drain 以及真实 Broker response 仍属于真实适配器 release gate�
 | Digest | timeline semantic digest 排除 local runtime revision；instance digest 包含它；source replay 不比较新 Owner/Store/runtime instance |
 | Cancel/Reschedule | 任一 UNCERTAIN obligation 存在即 `TOO_LATE`，不能因 current work 可逆而恢复管理权 |
 | Lane/READY | 同一 `meta_cf/LANE` key 是 ACTIVE 或 TERMINAL_GUARD；只有 `OPEN + READY + schedulable` 有一个 exact READY key |
-| Lane retirement | source-ordered gate 先到 `CLOSED`，清理与 Floor 条件满足后，same-key replacement 为 `finalGate=RETIRED` guard；retirement progress 与 terminal guard 在 equal order token 时要求 canonical Source Position 完全一致 |
+| Lane retirement | source-ordered gate 先到 `CLOSED`，清理与 Floor 条件满足后，same-key replacement 为 `finalGate=RETIRED` guard；retirement progress 与 terminal guard 在 equal order token 时要求 canonical Source Position 完全一致；本地 terminal-guard replacement 在同一 WriteBatch 释放 shard 的 `laneCount` slot，并在重启后保留该记账，`maxLanes=1` 可由回归测试证明复用；外部 grant/Oxia 释放与完整 terminal-guard authority 仍是 blocker |
 | Scheduler | Lane-first timeline + one READY head + persisted inner DRR；Worker outer DRR 从有限 shard DB 集合重建，不跨 DB 假装原子 |
 | Quota | active/pending 每非终态 generation 一次；inflight 每 Claim/attempt obligation 一次；payload ownership 不随 attempt 倍增 |
 | Recovery | candidate 必须是 exact Recovery Floor descendant；session-bound Recovery Pin 覆盖选择到 activation；ACTIVE CAS 删除 pin |

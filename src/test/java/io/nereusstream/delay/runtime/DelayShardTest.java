@@ -1640,6 +1640,8 @@ class DelayShardTest {
     @Test
     void laneRetirementAtomicallyReplacesActiveValueWithTerminalGuard() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("lane-terminal-guard"));
+        final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 1,
+                1, 1_000, 10_000);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 8);
         final byte[] tuple = Bytes.utf8("terminal-lane-tuple");
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
@@ -1654,8 +1656,9 @@ class DelayShardTest {
         final byte[] retirementId = bytes(32, 6);
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
-            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            final DelayShard shard = new DelayShard(store, shardConfig);
             assertEquals(StableCode.SCHEDULED, shard.apply(schedule, source).stableCode());
+            assertEquals(1, shard.quota().laneCount());
             // Simulate the floor-protected GC phase: no current message or
             // timeline work remains, but the lane metadata is retained.
             store.write(batch -> {
@@ -1683,19 +1686,28 @@ class DelayShardTest {
                     guard));
             assertEquals(AdmissionGate.RETIRED, shard.getLane(lane).admissionGate());
             assertEquals(guard, shard.getLaneTerminalGuard(lane));
+            assertEquals(0, shard.quota().laneCount());
             assertThrows(IllegalStateException.class,
                     () -> shard.updateLaneGate(lane, closed.laneControlVersion(), AdmissionGate.OPEN));
         }
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
-            final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults());
+            final DelayShard reopened = new DelayShard(store, shardConfig);
             assertNotNull(reopened.getLaneTerminalGuard(lane));
+            assertEquals(0, reopened.quota().laneCount());
             final PreparedCommand replacement = PreparedCommand.schedule(shardId,
                     new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_100, 5_100,
                             OrderingMode.BEST_EFFORT, Bytes.utf8("must-not-reopen")), 9_000);
             assertEquals(StableCode.LANE_TERMINALLY_CLOSED,
                     reopened.apply(replacement, position(shardId, 1, 1_001)).stableCode());
+            final DestinationLaneId replacementLane = DestinationLaneId.derive(Bytes.utf8("replacement-lane"));
+            final PreparedCommand replacementSchedule = PreparedCommand.schedule(shardId,
+                    new io.nereusstream.delay.protocol.ScheduleIntent(replacementLane, 2_100, 5_100,
+                            OrderingMode.BEST_EFFORT, Bytes.utf8("replacement")), 9_000);
+            assertEquals(StableCode.SCHEDULED,
+                    reopened.apply(replacementSchedule, position(shardId, 2, 1_002)).stableCode());
+            assertEquals(1, reopened.quota().laneCount());
         }
     }
 

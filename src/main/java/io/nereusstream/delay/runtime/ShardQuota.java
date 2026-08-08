@@ -84,6 +84,15 @@ public record ShardQuota(long pendingMessages, long pendingBytes, long reservati
                 reservationMessages - 1, reservationBytes - bytes, laneCount, Math.addExact(usageRevision, 1));
     }
 
+    /** Releases the shard Lane slot after an active Lane is replaced by a terminal guard. */
+    public ShardQuota removeLane() {
+        if (laneCount <= 0) {
+            throw new IllegalStateException("lane quota underflow");
+        }
+        return new ShardQuota(pendingMessages, pendingBytes, reservationMessages, reservationBytes,
+                laneCount - 1, Math.addExact(usageRevision, 1));
+    }
+
     private static void requireNonNegativeBytes(final long bytes) {
         if (bytes < 0) {
             throw new IllegalArgumentException("quota bytes must be non-negative");
