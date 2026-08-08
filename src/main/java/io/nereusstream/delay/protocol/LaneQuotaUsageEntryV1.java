@@ -22,8 +22,8 @@ public final class LaneQuotaUsageEntryV1 {
         this.laneId = Objects.requireNonNull(laneId, "laneId");
         this.laneIncarnation = fixed(laneIncarnation, INCARNATION_LENGTH, "laneIncarnation");
         this.usage = Objects.requireNonNull(usage, "usage");
-        if (usageRevision <= 0) {
-            throw new IllegalArgumentException("usageRevision must be positive");
+        if (usageRevision == 0) {
+            throw new IllegalArgumentException("usageRevision must be nonzero");
         }
         this.usageRevision = usageRevision;
         this.entryDigest = Bytes.sha256(DIGEST_DOMAIN, fieldsOneToFour());
@@ -65,7 +65,7 @@ public final class LaneQuotaUsageEntryV1 {
                 new DestinationLaneId(QueryCodecSupport.fixed(fields.get(0), 1, DestinationLaneId.LENGTH)),
                 QueryCodecSupport.fixed(fields.get(1), 2, INCARNATION_LENGTH),
                 PublishAdmissionBody.ChargeVector.decodeCanonical(QueryCodecSupport.nested(fields.get(2), 3)),
-                QueryCodecSupport.uint(fields.get(3), 4));
+                QueryCodecSupport.uint64Bits(fields.get(3), 4));
         if (!Bytes.constantTimeEquals(entryDigest, result.entryDigest)) {
             throw new IllegalArgumentException("LaneQuotaUsageEntryV1 digest mismatch");
         }
@@ -78,7 +78,7 @@ public final class LaneQuotaUsageEntryV1 {
             CanonicalProtobuf.bytes(output, 1, laneId.bytes());
             CanonicalProtobuf.bytes(output, 2, laneIncarnation);
             CanonicalProtobuf.bytes(output, 3, usage.canonicalBytes());
-            CanonicalProtobuf.uint64(output, 4, usageRevision);
+            CanonicalProtobuf.uint64Bits(output, 4, usageRevision);
         });
     }
 

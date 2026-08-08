@@ -19,6 +19,18 @@ class LaneQuotaUsageMapV1Test {
     }
 
     @Test
+    void usageRevisionPreservesCompleteUnsigned64BitPattern() {
+        final LaneQuotaUsageEntryV1 entry = new LaneQuotaUsageEntryV1(
+                new DestinationLaneId(bytes(32, 7)), bytes(16, 8),
+                new PublishAdmissionBody.ChargeVector(1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        1, 0), Long.MIN_VALUE);
+
+        final LaneQuotaUsageEntryV1 decoded = LaneQuotaUsageEntryV1.decode(entry.canonicalBytes());
+        assertEquals(Long.MIN_VALUE, decoded.usageRevision());
+        assertEquals(entry, decoded);
+    }
+
+    @Test
     void rejectsUnsortedDuplicateOrTamperedEntries() {
         final LaneQuotaUsageEntryV1 first = entry(1, 1);
         final LaneQuotaUsageEntryV1 second = entry(2, 2);
@@ -31,12 +43,14 @@ class LaneQuotaUsageMapV1Test {
     }
 
     private static LaneQuotaUsageEntryV1 entry(final int laneSeed, final int incarnationSeed) {
-        final byte[] laneBytes = new byte[32];
-        laneBytes[31] = (byte) laneSeed;
-        final byte[] incarnation = new byte[16];
-        incarnation[15] = (byte) incarnationSeed;
-        return new LaneQuotaUsageEntryV1(new DestinationLaneId(laneBytes), incarnation,
+        return new LaneQuotaUsageEntryV1(new DestinationLaneId(bytes(32, laneSeed)), bytes(16, incarnationSeed),
                 new PublishAdmissionBody.ChargeVector(laneSeed, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                         1, 0), incarnationSeed);
+    }
+
+    private static byte[] bytes(final int length, final int seed) {
+        final byte[] value = new byte[length];
+        value[length - 1] = (byte) seed;
+        return value;
     }
 }

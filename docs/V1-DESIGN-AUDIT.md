@@ -69,6 +69,11 @@ semantic-hash preimages. The separate `CapacityVectorV1` amount projection
 remains a checked signed local capacity envelope; this audit closes only the
 independent version-identity codec boundary.
 
+The per-Lane quota usage entry now retains the complete nonzero `uint64`
+usage-revision bit pattern in its digest and canonical bytes as well. This
+closes the map-entry revision codec boundary only; same-batch quota coupling
+and external quota authority remain separate release evidence.
+
 尚未填写的数值不是开放设计问题：它们必须由 §23 的 benchmark、capacity proof、real-service conformance 和 chaos evidence 产生，并装入已经冻结的 required config/schema。任何实现若要改变字段、状态、时序、不变量或停止条件，必须发布新的 spec/protocol revision，不能把 benchmark 输出当作协议修订。
 
 ## 权威材料

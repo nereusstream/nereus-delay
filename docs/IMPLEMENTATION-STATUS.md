@@ -80,6 +80,13 @@ bounded to signed Java capacity arithmetic; only the independent version
 identity fields use the full wire domain. Focused capacity-vector and envelope
 tests cover high-bit round trips.
 
+The Registry-shaped per-Lane quota usage entry now also preserves the complete
+nonzero `uint64` usage-revision bit pattern through its digest and canonical
+codec. This is the map-entry identity/version boundary; quota arithmetic and
+same-batch revision coupling remain local signed/runtime and external
+authority gates respectively. `LaneQuotaUsageMapV1Test` covers the high-bit
+entry round trip.
+
 Registry class-3 `meta_cf/QUOTA` now has a local per-Lane compatibility projection.
 `LaneQuotaUsageProjection` fences the message, reservation, per-Lane slot and
 per-Claim/per-attempt `inflight_messages`/`inflight_bytes` dimensions with Lane
