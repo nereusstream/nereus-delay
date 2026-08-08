@@ -384,7 +384,14 @@ The System Mutation dedupe path applies the complementary rule: an exact
 already-verified mutation at a later Source Position advances only the durable
 applied position, and replay of that same later position returns the stored
 first-result without re-running the mutation. This avoids treating a valid
-post-commit duplicate as a source-position conflict.
+post-commit duplicate as a source-position conflict. The POSITION value is now
+a closed command/system identity union: every System Mutation WriteBatch
+records its mutation ID, later duplicates replace only the physical locator,
+and a replay at an already-advanced position must match that locator. A
+command audit, a different mutation audit, missing evidence, or a cross-shard
+identity is rejected instead of being mistaken for the duplicate. The local
+evidence is `DelayShardTest.timeFenceMonotonicallyClosesIngressWithoutOverwritingCommandIdentity`
+plus the existing source-ordered System Mutation duplicate tests.
 Kafka's exclusive activation LSO uses the same fail-closed boundary handling:
 an applied offset at the unsigned-64 maximum proves an exclusive barrier
 without wrapping the successor calculation. The local evidence is

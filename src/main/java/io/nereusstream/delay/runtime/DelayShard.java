@@ -106,6 +106,7 @@ public final class DelayShard {
     private static final byte INFLIGHT_CLAIMED_KIND = 1;
     private static final byte INFLIGHT_PUBLISHING_KIND = 2;
     private static final byte INFLIGHT_UNCERTAIN_KIND = 3;
+    private static final int DEDUPE_POSITION_VALUE_TYPE = 3;
 
     private final ShardStore store;
     private final DelayShardConfig config;
@@ -1194,16 +1195,26 @@ public final class DelayShard {
                     if (!Arrays.equals(lastAppliedSourcePosition.canonicalBytes(), sourcePosition.canonicalBytes())) {
                         throw new IllegalStateException("duplicate source position has conflicting System Mutation");
                     }
-                    // The exact mutation identity/hash above proves that this
-                    // is a replay of a later physical duplicate whose source
-                    // position was already committed before its ACK was lost.
-                    // Its durable logical result remains anchored at the
-                    // first mutation, so the replay must be a no-op.
+                    final PositionAudit audit = readPositionAudit(sourcePosition);
+                    if (audit == null || audit.systemMutationId() == null
+                            || !Bytes.constantTimeEquals(audit.systemMutationId(), prior.mutationId())) {
+                        throw new IllegalStateException(
+                                "duplicate System Mutation source position has conflicting evidence");
+                    }
+                    // The exact mutation identity/hash plus the physical
+                    // POSITION audit proves that this is a replay of the
+                    // later duplicate whose WriteBatch already advanced the
+                    // shard cursor. Keep the first Source Position in the
+                    // logical result, but do not execute the mutation again.
                     return prior;
                 }
             }
             if (!Arrays.equals(prior.appliedSourcePosition(), sourcePosition.canonicalBytes())) {
-                store.write(batch -> writePosition(batch, sourcePosition));
+                store.write(batch -> {
+                    writePosition(batch, sourcePosition);
+                    batch.putValue(ColumnFamily.DEDUPE, DEDUPE_POSITION_VALUE_TYPE,
+                            KeyCodec.dedupePosition(sourcePosition.canonicalBytes()), prior.mutationId());
+                });
                 lastAppliedSourcePosition = sourcePosition;
                 mutationSequence = nextMutationSequence();
             }
@@ -3910,6 +3921,14 @@ public final class DelayShard {
             throws org.rocksdb.RocksDBException {
         batch.putValue(ColumnFamily.DEDUPE, SystemMutationResult.VALUE_TYPE,
                 KeyCodec.dedupeSystemMutation(result.mutationId()), result.encode());
+        // POSITION is a closed physical-record audit for both source-log
+        // branches. Client Commands keep their commandId[41] payload; a
+        // System Mutation uses its mutationId[32]. The audit is what lets an
+        // exact replay at the already-advanced current position be
+        // distinguished from a caller pairing a different mutation with
+        // that position.
+        batch.putValue(ColumnFamily.DEDUPE, DEDUPE_POSITION_VALUE_TYPE,
+                KeyCodec.dedupePosition(result.appliedSourcePosition()), result.mutationId());
     }
 
     private void validateMutationShard(final SystemMutation mutation, final SourcePosition sourcePosition) {
@@ -5821,7 +5840,8 @@ public final class DelayShard {
                                                       final SourcePosition position, final StableCode code) {
         final CommandResult result = rejected(code, position, -1, 0, null);
         store.write(batch -> {
-            batch.putValue(ColumnFamily.DEDUPE, 3, KeyCodec.dedupePosition(position.canonicalBytes()),
+            batch.putValue(ColumnFamily.DEDUPE, DEDUPE_POSITION_VALUE_TYPE,
+                    KeyCodec.dedupePosition(position.canonicalBytes()),
                     command.commandId().bytes());
             writePosition(batch, position);
         });
@@ -5943,7 +5963,8 @@ public final class DelayShard {
             batch.putValue(ColumnFamily.DEDUPE, 1, KeyCodec.dedupeCommand(command.commandId()),
                     new CommandDedupeRecord(command.commandHash(), result).encode());
             batch.putValue(ColumnFamily.DEDUPE, 2, KeyCodec.dedupeResult(command.commandId()), result.encode());
-            batch.putValue(ColumnFamily.DEDUPE, 3, KeyCodec.dedupePosition(position.canonicalBytes()),
+            batch.putValue(ColumnFamily.DEDUPE, DEDUPE_POSITION_VALUE_TYPE,
+                    KeyCodec.dedupePosition(position.canonicalBytes()),
                     command.commandId().bytes());
             persistQuota(batch, nextQuota, projectedLaneQuota);
             writePosition(batch, position);
@@ -6368,7 +6389,8 @@ public final class DelayShard {
 
     private void persistPositionOnly(final PreparedCommand command, final SourcePosition position) {
         store.write(batch -> {
-            batch.putValue(ColumnFamily.DEDUPE, 3, KeyCodec.dedupePosition(position.canonicalBytes()),
+            batch.putValue(ColumnFamily.DEDUPE, DEDUPE_POSITION_VALUE_TYPE,
+                    KeyCodec.dedupePosition(position.canonicalBytes()),
                     command.commandId().bytes());
             writePosition(batch, position);
         });
@@ -6390,13 +6412,57 @@ public final class DelayShard {
     }
 
     private CommandId readPositionAuditCommandId(final SourcePosition position) {
-        final var value = store.getValue(ColumnFamily.DEDUPE, KeyCodec.dedupePosition(position.canonicalBytes()), 3);
+        final PositionAudit audit = readPositionAudit(position);
+        return audit == null ? null : audit.commandId();
+    }
+
+    /**
+     * Reads the closed POSITION audit union. A source position can be occupied
+     * by either a Client Command or a System Mutation, never both.
+     */
+    private PositionAudit readPositionAudit(final SourcePosition position) {
+        final var value = store.getValue(ColumnFamily.DEDUPE,
+                KeyCodec.dedupePosition(position.canonicalBytes()), DEDUPE_POSITION_VALUE_TYPE);
         if (value == null) {
             return null;
         }
-        final CommandId commandId = new CommandId(value.payload());
-        requireCommandShard(commandId, "position audit lookup");
-        return commandId;
+        final byte[] payload = value.payload();
+        if (payload.length == CommandId.LENGTH) {
+            final CommandId commandId = new CommandId(payload);
+            requireCommandShard(commandId, "position audit lookup");
+            return PositionAudit.command(commandId);
+        }
+        if (payload.length == SystemMutation.HASH_LENGTH) {
+            final SystemMutationResult result = getSystemMutationResult(payload);
+            if (result == null) {
+                throw new IllegalStateException("System Mutation position audit has no result");
+            }
+            return PositionAudit.system(result.mutationId());
+        }
+        throw new IllegalStateException("invalid position audit identity length");
+    }
+
+    private record PositionAudit(CommandId commandId, byte[] systemMutationId) {
+        private PositionAudit {
+            if ((commandId == null) == (systemMutationId == null)) {
+                throw new IllegalArgumentException("position audit must identify exactly one record kind");
+            }
+            systemMutationId = systemMutationId == null ? null : Bytes.copy(systemMutationId);
+        }
+
+        private static PositionAudit command(final CommandId commandId) {
+            return new PositionAudit(Objects.requireNonNull(commandId, "commandId"), null);
+        }
+
+        private static PositionAudit system(final byte[] mutationId) {
+            Bytes.requireLength(mutationId, SystemMutation.HASH_LENGTH, "mutationId");
+            return new PositionAudit(null, mutationId);
+        }
+
+        @Override
+        public byte[] systemMutationId() {
+            return systemMutationId == null ? null : Bytes.copy(systemMutationId);
+        }
     }
 
     private PayloadReservation findReservationForMessage(final DelayMessageId messageId) {

@@ -1195,7 +1195,11 @@ cannot silently grow an unregistered schema.
 fixtures that need arbitrary scratch bytes use an explicitly raw test key
 instead of widening the production Registry entry point. `gc/TASK` resource
 kinds are bounded to the registered 1--10 range, and `dedupe/POSITION` rejects
-an empty canonical Source Position payload.
+an empty canonical Source Position payload. Its value type 3 is now the closed
+command/system audit union (`commandId[41]` or `systemMutationId[32]`); the
+System Mutation path writes and validates its branch so a later duplicate can
+be replayed after restart without confusing it with another record at the same
+physical position.
 `ShardStore.open` now validates the remaining fixed-key activation boundary as
 well: key 3's persisted Source Position must belong to this Shard, keys 5 and
 11 must be non-negative fixed-width sequences, and keys 12/13 must carry their
@@ -1471,6 +1475,15 @@ rejects both a new excluded Final and a previously excluded projection instead
 of allowing callers to bypass the catalog pair. `SloObservationOutboxStoreTest`
 `excludedFinalRequiresPairedHealthyObjectiveAtDurableBoundary` covers this
 boundary.
+The source-position audit now closes the complementary System Mutation replay
+boundary: `dedupe_cf/POSITION` value type 3 accepts only the registered
+`commandId[41]` or `systemMutationId[32]` branch, and every durable System
+Mutation WriteBatch records its mutation identity there. A verified duplicate
+at a later physical position records the new locator while retaining the first
+logical Source Position; replay at that already-advanced position requires the
+matching audit and rejects a command/system or different-mutation collision.
+`DelayShardTest.timeFenceMonotonicallyClosesIngressWithoutOverwritingCommandIdentity`
+and the source-ordered System Mutation dedupe tests cover the boundary.
 Equal-severity Finals now select the newest observation revision's evidence as
 well as the conservative measurement; `SloObservationOutboxV1Test.mergeUsesNewestEvidenceWhenOutcomeSeverityIsEqual`
 covers that replay boundary. This is

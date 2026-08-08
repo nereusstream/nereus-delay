@@ -2269,6 +2269,9 @@ class DelayShardTest {
             assertEquals(MessageStatus.EXPIRED, reopened.getMessage(schedule.delayMessageId()).status());
             assertEquals(StableCode.OK,
                     reopened.getSystemMutationResult(mutation.systemMutationId()).stableCode());
+            assertEquals(StableCode.OK,
+                    reopened.applySystemMutation(mutation, duplicatePosition, keyPair.getPublic()).stableCode());
+            assertEquals(duplicatePosition, reopened.lastAppliedSourcePosition());
         }
     }
 
@@ -4871,6 +4874,9 @@ class DelayShardTest {
             assertNull(shard.getMessage(closed.delayMessageId()));
             assertNull(shard.getCommandResult(closed.commandId()));
             assertEquals(closedResult, shard.apply(closed, position(shardId, 1, 2_500)));
+            assertThrows(IllegalStateException.class,
+                    () -> shard.applySystemMutation(fenceMutation, position(shardId, 1, 2_500),
+                            keyPair.getPublic()));
 
             final PreparedCommand open = PreparedCommand.schedule(shardId,
                     new io.nereusstream.delay.protocol.ScheduleIntent(lane, 4_000, 7_000,

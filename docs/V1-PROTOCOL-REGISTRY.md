@@ -1108,12 +1108,17 @@ dedupe/POSITION:         03 01 | canonicalSourcePosition
 dedupe/FENCE:            04 01 | proofId[32]
 dedupe/SYSTEM_MUTATION:  05 01 | systemMutationId[32]
 
-For the Client Command branch, `dedupe/POSITION` uses value type 3 with the exact
-`commandId[41]` payload. It is a physical position audit locator, not a logical
-`CommandResult`; an exact replay may use the matching locator together with the
-source-ordered Command/ingress-fence state to return the already-applied
-position-level result without writing another audit. Any other payload length,
-command routing shard, or source-position mismatch fails closed.
+`dedupe/POSITION` uses value type 3 as a closed physical-record audit union:
+the Client Command branch carries the exact `commandId[41]` payload, while the
+System Mutation branch carries the exact `systemMutationId[32]` payload. It is
+not a logical `CommandResult` or `SystemMutationResult`; the referenced dedupe
+record remains the authority for the first result and its original Source
+Position. An exact replay may use the matching locator together with the
+source-ordered state to return that result without reapplying it or appending
+another audit. Any other payload length, cross-shard identity, missing
+System Mutation result, or source-position mismatch fails closed. A later
+physical duplicate writes a new POSITION locator while retaining the first
+Source Position in the logical result.
 
 terminal/GENERATION:
   01 01 | messageId[41] | generation:u32be
