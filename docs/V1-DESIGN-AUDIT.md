@@ -1036,6 +1036,11 @@ retention barrier、external proof ownership 仍是 release blocker。
 `ProfileKindV1.EVIDENCE_VERIFIER`，并由 `PublishEvidenceV1Test` 覆盖错误
 Profile kind 的负向回归；Profile 注册、key activation 与签名 authority
 仍属于外部 release gate。
+`LaneTerminalGuardV1` 的两个 Profile 槽位也已在构造和 decode 路径强制为
+`DESTINATION`、`DELIVERY_CAPABILITY`，由 `LaneTerminalGuardV1Test` 覆盖
+双向错误 kind；兼容层仍把已由 resolver 解析的 canonical Lane tuple 作为
+opaque bytes 保存，完整的 tuple/profile byte projection 仍依赖 resolver 与
+外部 authority，而不是在本地猜测 tuple 结构。
 
 `ChannelResourceIdentityV1` now preserves the complete raw unsigned patterns for
 its physical `channel_generation`, optional `evidence_generation`, and

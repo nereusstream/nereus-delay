@@ -504,6 +504,12 @@ The `OperatorAttestationEvidenceV1` branch now also requires its verifier slot
 to use `ProfileKindV1.EVIDENCE_VERIFIER`; `PublishEvidenceV1Test` covers the
 wrong-kind rejection. This closes the local Profile union only; verifier
 registration, key activation and signature authority remain external gates.
+`LaneTerminalGuardV1` now applies the Registry slot fence (`DESTINATION` then
+`DELIVERY_CAPABILITY`) in both construction and decode; `LaneTerminalGuardV1Test`
+covers both invalid slot directions. The canonical Lane tuple remains an
+externally resolved opaque byte projection in this compatibility layer, so full
+tuple/profile byte projection remains a resolver/authority gate rather than an
+invented local parser.
 Physical channel/evidence generations and the credential binding generation in
 `ChannelResourceIdentityV1` now preserve raw unsigned `uint64` bit patterns
 (zero is still rejected), matching the typed `EvidenceCursorV1` generation.

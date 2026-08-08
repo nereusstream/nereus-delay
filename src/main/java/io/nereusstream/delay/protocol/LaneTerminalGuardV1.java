@@ -37,8 +37,9 @@ public final class LaneTerminalGuardV1 {
         }
         this.laneControlVersion = laneControlVersion;
         this.terminalSourcePosition = Objects.requireNonNull(terminalSourcePosition, "terminalSourcePosition");
-        this.destinationProfile = Objects.requireNonNull(destinationProfile, "destinationProfile");
-        this.capabilityProfile = Objects.requireNonNull(capabilityProfile, "capabilityProfile");
+        this.destinationProfile = requireProfile(destinationProfile, ProfileKindV1.DESTINATION, "destinationProfile");
+        this.capabilityProfile = requireProfile(capabilityProfile, ProfileKindV1.DELIVERY_CAPABILITY,
+                "capabilityProfile");
         this.canonicalLaneTuple = tuple(canonicalLaneTuple);
         this.laneId = DestinationLaneId.derive(this.canonicalLaneTuple);
         this.canonicalLaneTupleSha256 = Bytes.sha256(this.canonicalLaneTuple);
@@ -63,8 +64,9 @@ public final class LaneTerminalGuardV1 {
         }
         this.laneControlVersion = laneControlVersion;
         this.terminalSourcePosition = Objects.requireNonNull(terminalSourcePosition, "terminalSourcePosition");
-        this.destinationProfile = Objects.requireNonNull(destinationProfile, "destinationProfile");
-        this.capabilityProfile = Objects.requireNonNull(capabilityProfile, "capabilityProfile");
+        this.destinationProfile = requireProfile(destinationProfile, ProfileKindV1.DESTINATION, "destinationProfile");
+        this.capabilityProfile = requireProfile(capabilityProfile, ProfileKindV1.DELIVERY_CAPABILITY,
+                "capabilityProfile");
         this.canonicalLaneTuple = tuple(canonicalLaneTuple);
         Bytes.requireLength(tupleDigest, HASH_LENGTH, "canonicalLaneTupleSha256");
         this.canonicalLaneTupleSha256 = Bytes.copy(tupleDigest);
@@ -186,6 +188,15 @@ public final class LaneTerminalGuardV1 {
             throw new IllegalArgumentException("canonicalLaneTuple has invalid length");
         }
         return Bytes.copy(value);
+    }
+
+    private static ProfileRefV1 requireProfile(final ProfileRefV1 value, final ProfileKindV1 expected,
+                                               final String name) {
+        ProfileRefV1 result = Objects.requireNonNull(value, name);
+        if (result.profileKind() != expected) {
+            throw new IllegalArgumentException(name + " has wrong ProfileKindV1");
+        }
+        return result;
     }
 
     private static byte[] fixed(final byte[] value, final int length, final String name) {

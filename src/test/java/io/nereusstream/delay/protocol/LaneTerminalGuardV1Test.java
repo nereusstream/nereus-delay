@@ -33,10 +33,12 @@ class LaneTerminalGuardV1Test {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
         final KafkaSourcePosition source = new KafkaSourcePosition(shard, "cluster", UUID.randomUUID(), 9,
                 2, 100);
-        final ProfileRefV1 profile = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2),
+        final ProfileRefV1 destination = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2),
                 ProfileKindV1.DESTINATION);
+        final ProfileRefV1 capability = new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4),
+                ProfileKindV1.DELIVERY_CAPABILITY);
         final long highBit = Long.MIN_VALUE;
-        final LaneTerminalGuardV1 guard = new LaneTerminalGuardV1(bytes(16, 5), 7, source, profile, profile,
+        final LaneTerminalGuardV1 guard = new LaneTerminalGuardV1(bytes(16, 5), 7, source, destination, capability,
                 Bytes.utf8("canonical-lane-tuple"), bytes(32, 6), highBit);
         final LaneRetirementProgressV1 progress = new LaneRetirementProgressV1(bytes(32, 7), highBit, source);
 
@@ -50,12 +52,30 @@ class LaneTerminalGuardV1Test {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 1);
         final KafkaSourcePosition source = new KafkaSourcePosition(shard, "cluster", UUID.randomUUID(), 1,
                 null, 10);
-        final ProfileRefV1 profile = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2), ProfileKindV1.DESTINATION);
-        final LaneTerminalGuardV1 guard = new LaneTerminalGuardV1(bytes(16, 3), 1, source, profile, profile,
+        final ProfileRefV1 destination = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2), ProfileKindV1.DESTINATION);
+        final ProfileRefV1 capability = new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4),
+                ProfileKindV1.DELIVERY_CAPABILITY);
+        final LaneTerminalGuardV1 guard = new LaneTerminalGuardV1(bytes(16, 3), 1, source, destination, capability,
                 Bytes.utf8("tuple"), bytes(32, 4), 1);
         final byte[] tampered = guard.canonicalBytes();
         tampered[tampered.length - 1] ^= 1;
         assertThrows(IllegalArgumentException.class, () -> LaneTerminalGuardV1.decode(tampered));
+    }
+
+    @Test
+    void guardRequiresDestinationAndCapabilityProfileSlots() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 1);
+        final KafkaSourcePosition source = new KafkaSourcePosition(shard, "cluster", UUID.randomUUID(), 1,
+                null, 10);
+        final ProfileRefV1 destination = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2),
+                ProfileKindV1.DESTINATION);
+        final ProfileRefV1 capability = new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4),
+                ProfileKindV1.DELIVERY_CAPABILITY);
+
+        assertThrows(IllegalArgumentException.class, () -> new LaneTerminalGuardV1(bytes(16, 5), 1, source,
+                capability, capability, Bytes.utf8("tuple"), bytes(32, 6), 1));
+        assertThrows(IllegalArgumentException.class, () -> new LaneTerminalGuardV1(bytes(16, 5), 1, source,
+                destination, destination, Bytes.utf8("tuple"), bytes(32, 6), 1));
     }
 
     private static byte[] bytes(final int length, final int value) {
