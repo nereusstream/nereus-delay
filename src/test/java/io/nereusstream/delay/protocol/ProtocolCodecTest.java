@@ -975,6 +975,40 @@ class ProtocolCodecTest {
         assertArrayEquals(evidence.canonicalBytes(), decoded.canonicalBytes());
     }
 
+    @Test
+    void uint32DecodersRejectAUint64VarintOutsideTheUint32Domain() {
+        final byte[] encoded = CanonicalProtobuf.message(output ->
+                CanonicalProtobuf.uint64Bits(output, 1, Long.MIN_VALUE));
+        final CanonicalProtobuf.Reader.Field field = new CanonicalProtobuf.Reader(encoded).next();
+
+        assertThrows(IllegalArgumentException.class, () -> QueryCodecSupport.uint32Bits(field, 1));
+    }
+
+    @Test
+    void queuedReceiptRejectsHighBitInt64TimingFields() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
+        final PreparedCommand command = scheduleV1(shard, "queued-timing", 2_000, 8_000, 9_000);
+        final UUID topic = UUID.randomUUID();
+        final KafkaSourcePosition source = new KafkaSourcePosition(shard, "cluster-a", topic, 7, 3, 1_234);
+        final byte[] response = Bytes.sha256(Bytes.utf8("queued-timing-response"));
+        final CommandQueuedReceiptV1 receipt = CommandQueuedReceiptV1.create(command, source,
+                new CommandQueuedReceiptV1.KafkaQueuedAck("cluster-a", topic, shard.partition(), 7, 3, 1_234,
+                        response), 9_000, new byte[]{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1});
+        final var fields = QueryCodecSupport.read(receipt.payload(), "CommandQueuedReceiptV1");
+        final byte[] malformed = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint32(output, 1, 1);
+            CanonicalProtobuf.bytes(output, 2, fields.get(1).rawValue());
+            CanonicalProtobuf.bytes(output, 3, fields.get(2).rawValue());
+            CanonicalProtobuf.bytes(output, 4, fields.get(3).rawValue());
+            CanonicalProtobuf.uint64Bits(output, 5, Long.MIN_VALUE);
+            CanonicalProtobuf.uint64Bits(output, 6, fields.get(5).unsignedValue());
+            CanonicalProtobuf.bytes(output, 7, fields.get(6).rawValue());
+            CanonicalProtobuf.bytes(output, 8, fields.get(7).rawValue());
+        });
+
+        assertThrows(IllegalArgumentException.class, () -> CommandQueuedReceiptV1.decodePayload(malformed));
+    }
+
     private static byte[] systemBody(final ShardId shard, final SystemMutationType type, final long retryUntil) {
         final byte[] subject = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());

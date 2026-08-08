@@ -75,7 +75,7 @@ final class QueryCodecSupport {
 
     static int uint32Bits(final CanonicalProtobuf.Reader.Field field, final int number) {
         final long value = uint(field, number);
-        if (value > 0xffff_ffffL) {
+        if (value < 0 || value > 0xffff_ffffL) {
             throw new IllegalArgumentException("protobuf uint32 field exceeds unsigned range " + number);
         }
         return (int) value;

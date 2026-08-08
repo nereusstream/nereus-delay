@@ -36,6 +36,14 @@ exact-byte replay remains idempotent.
 Start reconstruction, collector merge/export and production evidence authority
 remain release blockers.
 
+The shared `uint32` decoder now rejects any varint outside the unsigned
+32-bit domain, including a malformed `uint64` value whose Java `long` view has
+the sign bit set; it no longer truncates such input into a valid-looking
+partition, key version or target index. Queued receipt decoding applies the
+same signed-range check to epoch/timing fields while keeping Pulsar physical
+topic creation identity on the raw `uint64` path. `ProtocolCodecTest` covers
+both overflow and high-bit timing rejection.
+
 The five persisted `meta/SCHEDULER` projection codecs now preserve the
 Registry's complete raw `uint64` generation/version/deficit bit patterns and
 use zero-only checks for nonzero fields; `next_index` remains a bounded local

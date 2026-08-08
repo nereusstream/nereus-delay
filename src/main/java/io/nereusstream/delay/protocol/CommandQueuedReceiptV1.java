@@ -312,7 +312,11 @@ public final class CommandQueuedReceiptV1 {
         if (field.number() != number || field.wireType() != 0) {
             throw new IllegalArgumentException("invalid protobuf varint field " + number);
         }
-        return field.unsignedValue();
+        final long value = field.unsignedValue();
+        if (value < 0) {
+            throw new IllegalArgumentException("protobuf int64 field exceeds signed range " + number);
+        }
+        return value;
     }
 
     private static long uint64Bits(final CanonicalProtobuf.Reader.Field field, final int number) {
@@ -715,7 +719,7 @@ public final class CommandQueuedReceiptV1 {
             return new PulsarQueuedAck(utf8(bytes(resource.get(0), 1), "authenticatedClusterId"),
                     fixedBytes(bytes(resource.get(1), 2), 32, "brokerResourceIncarnation"),
                     utf8Nfc(utf8(bytes(resource.get(2), 3), "physicalTopic"), "physicalTopic"),
-                    nonNegative(resource.get(3), 4), uint32Bits(fields.get(1), 2), uint64Bits(fields.get(2), 3),
+                    uint64Bits(resource.get(3), 4), uint32Bits(fields.get(1), 2), uint64Bits(fields.get(2), 3),
                     uint64Bits(fields.get(3), 4), uint32Bits(fields.get(4), 5), uint32Bits(fields.get(5), 6),
                     nonNegative(fields.get(6), 7), fixed(fields.get(7), 8, HASH_LENGTH));
         }

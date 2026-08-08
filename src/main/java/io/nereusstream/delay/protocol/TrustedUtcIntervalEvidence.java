@@ -175,7 +175,7 @@ public final class TrustedUtcIntervalEvidence {
 
     private static int uint32Bits(final CanonicalProtobuf.Reader.Field field, final int number) {
         final long value = unsigned(field, number);
-        if (value > 0xffff_ffffL) {
+        if (value < 0 || value > 0xffff_ffffL) {
             throw new IllegalArgumentException("trusted UTC field exceeds uint32 range: " + number);
         }
         return (int) value;
