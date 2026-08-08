@@ -2032,6 +2032,11 @@ wait a later descendant Recovery Floor
 then compact completion tombstone
 ```
 
+`RESOURCE_DELETE_CONFIRMED_V1` 携带的 nested RetireIntentRef 必须解析到与
+`RESOURCE_RETIRE_INTENT_V1` 完全相同的 canonical retire-intent record bytes，包含
+protection set、applied mutation sequence 和 applied Source Position；只比较 mutation
+identity/resource hash/version 的字段子集不足以授权 tombstone compaction。
+
 删除 payload 还要求无 active read/publish、Dead Letter replay deadline 已由 TIME_FENCE 关闭，并且所有 DLQ Export obligation 已成为 `PUBLISHED` 或由闭合 policy 证明的 `FAILED_PERMANENT`。V1 没有无 mutation 来源的手工 `ABANDONED` 捷径。DLQ outbox 固定 canonical export envelope；若 envelope 引用 payload/object/binding，则 terminal、exact bytes/reference 和 charge 全部保留到 export completion mutation 被 descendant Floor 包含。终态只释放 active backlog quota；physical retained bytes 到实际 GC 后才释放。
 
 取消、Close 或过期一个 `PAYLOAD_RESERVED` 不会立即使已签发 upload handle 失效于 Object Store。Reservation tombstone、object-byte quota 与 GC task 至少保留到 `closedIngressDeadlineThrough >= uploadDeadline`，再等待配置的 upload credential/request quiescence horizon、abort exact multipart upload，并做最后一次 exact version-aware HEAD/delete。只有该 `RESOURCE_DELETE_CONFIRMED_V1` 被应用后才结束；`HEAD not found` 后到达的旧 PUT 不能成为无主对象。

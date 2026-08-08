@@ -52,6 +52,26 @@ class ResourceGcGuardTest {
     }
 
     @Test
+    void deleteConfirmationMustCarryByteIdenticalRetireIntent() {
+        final Fixture fixture = fixture();
+        final ResourceRetireIntentRecord altered = new ResourceRetireIntentRecord(
+                fixture.intent().mutationId(), fixture.intent().mutationHash(), fixture.intent().resourceKind(),
+                fixture.intent().resourceIdentity(), fixture.intent().resourceIdentityHash(),
+                fixture.intent().expectedResourceStateVersion(), fixture.intent().appliedMutationSequence(),
+                Bytes.utf8("different-protection-set"), fixture.intent().appliedSourcePosition());
+        final ResourceDeleteConfirmedRecord confirmation = new ResourceDeleteConfirmedRecord(
+                fixture.confirmation().confirmationMutationId(), fixture.confirmation().confirmationMutationHash(),
+                altered, fixture.confirmation().outcome(), fixture.confirmation().appliedMutationSequence(),
+                fixture.confirmation().providerRequestIdHash(), fixture.confirmation().observedImmutableVersion(),
+                fixture.confirmation().observedEtag(), fixture.confirmation().responseHash(),
+                fixture.confirmation().observedAt(), fixture.confirmation().confirmedAt(),
+                fixture.confirmation().appliedSourcePosition());
+
+        assertEquals(ResourceGcGuard.Decision.INTENT_REFERENCE_MISMATCH,
+                ResourceGcGuard.evaluate(fixture.intent(), confirmation, fixture.floor()));
+    }
+
+    @Test
     void checkpointGcRetainsCheckpointPinnedAsCandidateOrObservedFloor() {
         final Fixture fixture = fixture();
         final RecoveryPinV1 candidatePin = pin(fixture, fixture.floor().checkpointId(),

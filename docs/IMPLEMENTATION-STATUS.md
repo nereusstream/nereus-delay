@@ -511,6 +511,11 @@ identity hash and expected resource version with the embedded retire intent
 (including the nested intent in a delete confirmation); a misplaced GC value
 is rejected before compaction or query code can use it. `DelayShardTest`
 covers the key/value identity fence.
+`ResourceGcGuard` now additionally requires the nested delete-confirmation
+intent to be byte-identical to the current retire-intent record, including its
+protection set, applied mutation sequence and applied Source Position; a
+matching mutation/resource tuple with altered retention fields returns
+`INTENT_REFERENCE_MISMATCH` instead of authorizing compaction.
 
 Exact already-published manifests are similarly reread before generation CAS;
 same-checkpoint hash drift remains an integrity conflict.

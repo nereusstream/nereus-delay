@@ -9,6 +9,7 @@ import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.store.RecoveryCatalogAuthority;
 import io.nereusstream.delay.store.RecoveryFloor;
 
+import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -194,10 +195,12 @@ public final class ResourceGcGuard {
                                       final ResourceRetireIntentRecord right) {
         Objects.requireNonNull(left, "left");
         Objects.requireNonNull(right, "right");
-        return Bytes.constantTimeEquals(left.mutationId(), right.mutationId())
-                && Bytes.constantTimeEquals(left.mutationHash(), right.mutationHash())
-                && left.resourceKind() == right.resourceKind()
-                && Bytes.constantTimeEquals(left.resourceIdentityHash(), right.resourceIdentityHash())
-                && left.expectedResourceStateVersion() == right.expectedResourceStateVersion();
+        // Delete confirmation carries a copy of the retire intent.  The
+        // source mutation/resource tuple alone is not enough to prove that
+        // copy is exact: protections, applied sequence and source position
+        // are part of the durable retention boundary as well.  Compare the
+        // canonical record bytes so a tampered or stale nested intent cannot
+        // authorize compaction.
+        return Arrays.equals(left.encode(), right.encode());
     }
 }

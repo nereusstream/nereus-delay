@@ -1416,6 +1416,10 @@ session CAS、provider delete attestation 或完整的 external GC orchestration
 hash 和 expected version 与嵌入的 retire intent 逐项比对；delete confirmation 的
 nested intent 也必须匹配同一 key。错挂的 GC value 会在 query/compaction 前 fail closed，
 回归证据为 `DelayShardTest.gcRetireIntentLookupRejectsKeyValueIdentityMismatch`。
+`ResourceGcGuard` 对 nested intent 进一步执行 canonical record-byte equality，
+因此 protection set、applied mutation sequence 或 applied Source Position 的漂移
+也会返回 `INTENT_REFERENCE_MISMATCH`，不能仅凭 mutation/resource/version 子集
+获得 tombstone compaction 资格。
 
 普通 local catalog publish 对已存在的 exact manifest 也先做 identity reread，
 因此 catalog generation 推进不会把一次已成功的 checkpoint insert 误报为冲突。
