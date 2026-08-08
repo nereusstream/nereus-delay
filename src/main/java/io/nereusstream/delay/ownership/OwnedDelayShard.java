@@ -150,6 +150,9 @@ public final class OwnedDelayShard {
         if (!delegate.shardId().equals(assignment.shardId())) {
             throw new IllegalArgumentException("source assignment does not belong to shard");
         }
+        if (lease.context() != null && lease.sourceAssignmentEpoch() <= 0) {
+            throw new IllegalArgumentException("owner lease context has no positive assignment epoch");
+        }
         if (lease.sourceAssignmentId() != null
                 && !Bytes.constantTimeEquals(lease.sourceAssignmentId(), assignment.assignmentId())) {
             throw new IllegalArgumentException("source assignment does not match owner lease context");

@@ -722,6 +722,9 @@ Assignment/session-bound acquisition 的 interface default 现在也 fail closed
 上下文丢失前先占用一个无法用于 V1 activation 的租约。本地证据为
 `OwnerLeaseTest.shardOnlyOwnerLeaseStoreCannotFallbackForContextBoundAssignment`
 和 `OxiaOwnerLeaseStoreTest.backendWithoutContextBoundAcquireCannotAllocateAShardOnlyLease`。
+V1 assignment acceptance also rejects a non-null compatibility lease context
+with assignment epoch `0`; only a positive exact assignment epoch may bind the
+catch-up window。证据为 `OwnerLeaseTest.legacyZeroEpochLeaseContextCannotAuthorizeV1Assignment`。
 Activation of `OwnedDelayShard` now leaves the local lifecycle in
 `CATCHING_UP` while the authority performs the `ACTIVE_FOR_COMMANDS` CAS; the
 local gate opens only after the exact successor is validated. The regression is

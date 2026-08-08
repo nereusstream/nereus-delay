@@ -674,6 +674,10 @@ assignment/session CAS can therefore not allocate an unbound live lease (or
 leave one behind before the adapter notices the missing context); the local
 regressions are `OwnerLeaseTest.shardOnlyOwnerLeaseStoreCannotFallbackForContextBoundAssignment`
 and `OxiaOwnerLeaseStoreTest.backendWithoutContextBoundAcquireCannotAllocateAShardOnlyLease`.
+The V1 assignment gate also rejects a non-null legacy lease context whose
+assignment epoch is zero; it cannot silently authorize a positive-epoch
+assignment. `OwnerLeaseTest.legacyZeroEpochLeaseContextCannotAuthorizeV1Assignment`
+covers this compatibility-boundary fence.
 Authority-gated activation now keeps the local shard in `CATCHING_UP` until
 the exact `ACTIVE_FOR_COMMANDS` lease CAS (or its validated response-loss
 reread) succeeds; `OwnerLeaseTest.authorityGatedActivationKeepsLocalGateClosedDuringLeaseCas`

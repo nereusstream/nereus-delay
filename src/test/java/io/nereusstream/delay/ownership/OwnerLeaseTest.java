@@ -540,6 +540,27 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void legacyZeroEpochLeaseContextCannotAuthorizeV1Assignment() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 12);
+        final UUID topic = UUID.randomUUID();
+        final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 0);
+        final SourceAssignment assignment = new SourceAssignment(shardId,
+                Bytes.sha256(Bytes.utf8("positive-assignment-epoch")), 1, barrier);
+        final OwnerLease legacyContextLease = new OwnerLease(shardId, "worker-legacy-context", 1,
+                Bytes.sha256(Bytes.utf8("legacy-context-token")), 200,
+                new OwnerLeaseContext(assignment.assignmentId(), Bytes.sha256(Bytes.utf8("legacy-session"))),
+                ShardLifecycleState.ACQUIRING);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("legacy-context-epoch"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()),
+                    legacyContextLease);
+            assertThrows(IllegalArgumentException.class, () -> owned.markCatchingUp(assignment));
+            assertEquals(ShardLifecycleState.RESTORING, owned.state());
+        }
+    }
+
+    @Test
     void lifecycleCasRejectsBackwardTransitionsAndFencedLeaseReactivation() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 15);
         final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
