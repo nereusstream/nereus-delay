@@ -714,7 +714,10 @@ managed adapter 返回 null、同步抛出，或其 `CompletionStage.thenApply(.
 Prepared Command 与 physical attempt id。包装层不能把可能已经进入 Producer
 ownership 的 managed 调用泄漏为 exceptional Future，也不能切换到 native
 branch；`NativeSubmissionAdapterTest.preparedSubmissionWrapperRegistrationFailureRemainsManagedUncertain`
-覆盖这条边界。这仍是本地 transport-SPI 证据，不等于真实 Broker response
+覆盖这条边界。若 physical attempt 本身无效，即使 wrapper 正在异常路径上，
+也固定回到本地 `INVALID_PREPARED_COMMAND` definitive rejection，而不构造
+缺少 attempt identity 的 uncertain branch；`NativeSubmissionAdapterTest.preparedSubmissionWrapperInvalidAttemptRemainsLocalDefinite`
+覆盖该优先级。这仍是本地 transport-SPI 证据，不等于真实 Broker response
 attestation。
 
 V1 managed submission 现在还在 Producer ownership 前强制执行

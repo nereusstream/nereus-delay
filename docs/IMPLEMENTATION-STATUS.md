@@ -1766,7 +1766,11 @@ original Prepared Command and physical attempt id. The wrapper must not leak an
 exceptional Future or silently switch to the native branch after managed
 transport ownership may have begun. `NativeSubmissionAdapterTest`
 `preparedSubmissionWrapperRegistrationFailureRemainsManagedUncertain` covers
-the callback-registration case; this remains local transport-SPI evidence only.
+the callback-registration case. If the physical attempt id is invalid while
+that wrapper is failing, the result instead remains a local definitive
+`INVALID_PREPARED_COMMAND` rejection with no attempt/proof of Producer
+ownership; `preparedSubmissionWrapperInvalidAttemptRemainsLocalDefinite` covers
+that precedence. This remains local transport-SPI evidence only.
 
 The local physical-admission lifecycle now has an explicit Lane teardown
 boundary: after the channel/Producer generation is fenced, READY is closed and

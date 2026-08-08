@@ -40,7 +40,7 @@ public final class PreparedSubmissionAdapter implements AutoCloseable {
                 final CompletionStage<EnqueueOutcomeMessageV1> managedOutcome =
                         managedIngress.enqueueOutcomeV1(command, receiptQueryUntilEpochMs, physicalEnqueueAttemptId);
                 if (managedOutcome == null) {
-                    return uncertainManaged(command, physicalEnqueueAttemptId);
+                    return managedFailure(command, physicalEnqueueAttemptId);
                 }
                 try {
                     return managedOutcome.thenApply(SubmissionOutcomeMessageV1::managed);
@@ -48,15 +48,27 @@ public final class PreparedSubmissionAdapter implements AutoCloseable {
                     // The managed transport may already have reached Producer
                     // ownership. A wrapper callback-registration failure is
                     // therefore not evidence of non-persistence.
-                    return uncertainManaged(command, physicalEnqueueAttemptId);
+                    return managedFailure(command, physicalEnqueueAttemptId);
                 }
             } catch (RuntimeException submissionFailure) {
                 // Preserve the same conservative boundary if an adapter
                 // throws while returning its CompletionStage.
-                return uncertainManaged(command, physicalEnqueueAttemptId);
+                return managedFailure(command, physicalEnqueueAttemptId);
             }
         }
         return nativeSubmission.submit(submission.nativePrepared(), physicalEnqueueAttemptId);
+    }
+
+    private static CompletionStage<SubmissionOutcomeMessageV1> managedFailure(final PreparedCommand command,
+                                                                                 final byte[] physicalAttemptId) {
+        try {
+            return uncertainManaged(command, physicalAttemptId);
+        } catch (RuntimeException invalidAttempt) {
+            // An invalid physical attempt cannot identify a Producer call;
+            // keep the local rejection definitive even on a broken wrapper.
+            return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
+                    WireIngressOutcomeSupport.localDefinite(command, StableCode.INVALID_PREPARED_COMMAND)));
+        }
     }
 
     private static CompletionStage<SubmissionOutcomeMessageV1> uncertainManaged(final PreparedCommand command,
