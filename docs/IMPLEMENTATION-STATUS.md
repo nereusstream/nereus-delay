@@ -100,6 +100,12 @@ unsigned-bit successor and fails only at the all-ones pattern; Object Store and
 Oxia catalog authority remain external. Protocol and intent-store tests cover
 the high-bit boundary.
 
+Typed `RecoveryFloorRefV1` and session-bound `RecoveryPinV1` now preserve the
+nonzero `catalog_generation` raw `uint64` pattern through floor/pin digests and
+cross-object equality. The local catalog and Oxia CAS remain the authority for
+generation freshness, ancestry and session ownership; these tests close only
+the canonical recovery-reference wire boundary.
+
 Registry class-3 `meta_cf/QUOTA` now has a local per-Lane compatibility projection.
 `LaneQuotaUsageProjection` fences the message, reservation, per-Lane slot and
 per-Claim/per-attempt `inflight_messages`/`inflight_bytes` dimensions with Lane

@@ -27,9 +27,9 @@ public final class RecoveryPinV1 {
         this.owner = Objects.requireNonNull(owner, "owner");
         this.candidate = Objects.requireNonNull(candidate, "candidate");
         this.observedFloor = Objects.requireNonNull(observedFloor, "observedFloor");
-        if (observedCatalogGeneration <= 0
+        if (observedCatalogGeneration == 0
                 || observedCatalogGeneration != observedFloor.catalogGeneration()) {
-            throw new IllegalArgumentException("pin catalog generation must equal observed Floor");
+            throw new IllegalArgumentException("pin catalog generation must be nonzero and equal observed Floor");
         }
         this.observedCatalogGeneration = observedCatalogGeneration;
         this.oxiaSessionIdentityDigest = fixed(oxiaSessionIdentityDigest, HASH_LENGTH,
@@ -91,7 +91,7 @@ public final class RecoveryPinV1 {
                 OwnerIdentityV1.decode(QueryCodecSupport.nested(fields.get(3), 4)),
                 RecoveryCandidateRefV1.decode(QueryCodecSupport.nested(fields.get(4), 5)),
                 RecoveryFloorRefV1.decode(QueryCodecSupport.nested(fields.get(5), 6)),
-                QueryCodecSupport.uint(fields.get(6), 7),
+                QueryCodecSupport.uint64Bits(fields.get(6), 7),
                 QueryCodecSupport.fixed(fields.get(7), 8, HASH_LENGTH));
         final byte[] digest = QueryCodecSupport.fixed(fields.get(8), 9, HASH_LENGTH);
         if (!Bytes.constantTimeEquals(digest, result.pinDigest)) {
@@ -109,7 +109,7 @@ public final class RecoveryPinV1 {
             CanonicalProtobuf.bytes(output, 4, owner.canonicalBytes());
             CanonicalProtobuf.bytes(output, 5, candidate.canonicalBytes());
             CanonicalProtobuf.bytes(output, 6, observedFloor.canonicalBytes());
-            CanonicalProtobuf.uint64(output, 7, observedCatalogGeneration);
+            CanonicalProtobuf.uint64Bits(output, 7, observedCatalogGeneration);
             CanonicalProtobuf.bytes(output, 8, oxiaSessionIdentityDigest);
         });
     }

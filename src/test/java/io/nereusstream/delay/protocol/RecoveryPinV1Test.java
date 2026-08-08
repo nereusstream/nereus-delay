@@ -25,6 +25,22 @@ class RecoveryPinV1Test {
     }
 
     @Test
+    void observedCatalogGenerationPreservesCompleteUnsigned64BitPattern() {
+        final byte[] lineage = bytes(16, 21);
+        final RecoveryFloorRefV1 floor = floor(lineage, Long.MIN_VALUE);
+        final RecoveryCandidateRefV1 candidate = new RecoveryCandidateRefV1(
+                RecoveryCandidateKindV1.CATALOG_CHECKPOINT, lineage, bytes(16, 23), bytes(32, 24), null);
+        final RecoveryPinV1 pin = new RecoveryPinV1(bytes(16, 25), new ShardSubjectV1(
+                new RouteIncarnation(bytes(16, 26)), 17), owner(), candidate, floor, Long.MIN_VALUE,
+                bytes(32, 27));
+
+        final RecoveryPinV1 decoded = RecoveryPinV1.decode(pin.canonicalBytes());
+        assertEquals(Long.MIN_VALUE, decoded.observedCatalogGeneration());
+        assertEquals(Long.MIN_VALUE, decoded.observedFloor().catalogGeneration());
+        assertEquals(pin, decoded);
+    }
+
+    @Test
     void rejectsLineageGenerationAndDigestDrift() {
         final RecoveryFloorRefV1 floor = floor(bytes(16, 1), 7);
         final RecoveryCandidateRefV1 otherLineage = new RecoveryCandidateRefV1(

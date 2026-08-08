@@ -26,6 +26,16 @@ class RecoveryFloorRefV1Test {
     }
 
     @Test
+    void catalogGenerationPreservesCompleteUnsigned64BitPattern() {
+        final RecoveryFloorRefV1 floor = new RecoveryFloorRefV1(bytes(16, 3), bytes(16, 4), bytes(32, 5),
+                Long.MIN_VALUE, source(UUID.randomUUID()), 42, List.of());
+
+        final RecoveryFloorRefV1 decoded = RecoveryFloorRefV1.decode(floor.canonicalBytes());
+        assertEquals(Long.MIN_VALUE, decoded.catalogGeneration());
+        assertEquals(floor, decoded);
+    }
+
+    @Test
     void rejectsUnsortedCursorsAndTamperedDigest() {
         final UUID topic = UUID.randomUUID();
         final EvidenceCursorV1 older = EvidenceCursorV1.kafka(bytes(32, 1), bytes(16, 2), uuidBytes(topic),
