@@ -1,11 +1,14 @@
 package io.nereusstream.delay.store;
 
+import io.nereusstream.delay.protocol.ShardId;
 import org.rocksdb.Cache;
 import org.rocksdb.Env;
 import org.rocksdb.LRUCache;
 import org.rocksdb.RateLimiter;
 import org.rocksdb.WriteBufferManager;
 
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -27,6 +30,12 @@ public final class SharedRocksDbResources implements AutoCloseable {
     private final Semaphore checkpointDownloadSlots;
     private final Semaphore drainSlots;
     private final AtomicBoolean closed = new AtomicBoolean();
+    /**
+     * The logical ownership slot is identity-bound, not merely a counter.
+     * Without this set two concurrent opens of the same shard could each
+     * create a fresh incarnation before either one installs ACTIVE.
+     */
+    private final Set<ShardId> ownedShardIdentities = new HashSet<>();
     private int shardAcquireCount;
     private int ownedShardCount;
     private int openDbCount;
@@ -112,8 +121,39 @@ public final class SharedRocksDbResources implements AutoCloseable {
         ownedShardCount++;
     }
 
+    /** Reserves the logical owned slot for one exact Shard identity. */
+    public synchronized void acquireOwnedShardSlot(final ShardId shardId) {
+        ensureOpen();
+        if (shardId == null) {
+            throw new NullPointerException("shardId");
+        }
+        if (ownedShardIdentities.contains(shardId)) {
+            throw new IllegalStateException("worker already owns shard " + shardId);
+        }
+        if (!ownedShardSlots.tryAcquire()) {
+            throw new IllegalStateException("worker maxOwnedShards limit reached");
+        }
+        ownedShardIdentities.add(shardId);
+        ownedShardCount++;
+    }
+
     public synchronized void releaseOwnedShardSlot() {
         if (ownedShardCount <= 0) {
+            throw new IllegalStateException("owned shard slot released without an owned shard");
+        }
+        ownedShardCount--;
+        ownedShardSlots.release();
+    }
+
+    /** Releases the exact logical owned slot reserved for one Shard. */
+    public synchronized void releaseOwnedShardSlot(final ShardId shardId) {
+        if (shardId == null || !ownedShardIdentities.remove(shardId)) {
+            throw new IllegalStateException("owned shard identity released without an active shard: " + shardId);
+        }
+        if (ownedShardCount <= 0) {
+            // Keep the identity set and semaphore accounting fail-closed if a
+            // caller has mixed the legacy counter-only API with this one.
+            ownedShardIdentities.add(shardId);
             throw new IllegalStateException("owned shard slot released without an owned shard");
         }
         ownedShardCount--;
@@ -208,6 +248,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
             return;
         }
         if (shardAcquireCount != 0 || openDbCount != 0 || ownedShardCount != 0
+                || !ownedShardIdentities.isEmpty()
                 || checkpointCreateCount != 0 || checkpointUploadCount != 0
                 || checkpointDownloadCount != 0 || drainCount != 0) {
             throw new IllegalStateException("cannot close shared RocksDB resources while work is in flight");

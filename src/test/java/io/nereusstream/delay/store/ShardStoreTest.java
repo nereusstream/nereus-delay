@@ -749,6 +749,30 @@ class ShardStoreTest {
     }
 
     @Test
+    void duplicateOwnedShardOpenIsRejectedBeforeCreatingAnotherDb() throws Exception {
+        final ShardStoreConfig config = new ShardStoreConfig(tempDir.resolve("duplicate-owned-shard"), 2, 2, 32,
+                64, 1, 1024 * 1024, 1024 * 1024, 1, 1, 1, 1024, 1, 1024 * 1024, 2);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 7);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+            final ShardStore first = ShardStore.open(config, shardId, resources);
+            try {
+                final IllegalStateException rejected = assertThrows(IllegalStateException.class,
+                        () -> ShardStore.open(config, shardId, resources));
+                assertEquals("worker already owns shard " + shardId, rejected.getMessage());
+                try (var paths = Files.walk(tempDir.resolve("duplicate-owned-shard").resolve("shards"))) {
+                    assertEquals(1, paths.filter(path -> path.getFileName().toString().equals("CURRENT")).count());
+                }
+            } finally {
+                first.close();
+            }
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore reopened = ShardStore.open(config, shardId, resources)) {
+            assertEquals(shardId, reopened.shardId());
+        }
+    }
+
+    @Test
     void sharedResourcesCannotCloseBeforeTheShardDb() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("resource-lifecycle"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 21);

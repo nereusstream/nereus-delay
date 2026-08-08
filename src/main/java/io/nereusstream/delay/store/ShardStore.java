@@ -607,7 +607,7 @@ public final class ShardStore implements AutoCloseable {
             resources.acquireShardAcquireSlot();
             acquireSlotAcquired = true;
             if (acquireOwnedSlot) {
-                resources.acquireOwnedShardSlot();
+                resources.acquireOwnedShardSlot(shardId);
                 ownedSlotAcquired = true;
             }
             resources.acquireDbSlot();
@@ -624,7 +624,7 @@ public final class ShardStore implements AutoCloseable {
                 resources.releaseDbSlot();
             }
             if (ownedSlotAcquired) {
-                resources.releaseOwnedShardSlot();
+                resources.releaseOwnedShardSlot(shardId);
             }
             if (acquireSlotAcquired) {
                 resources.releaseShardAcquireSlot();
@@ -1324,7 +1324,7 @@ public final class ShardStore implements AutoCloseable {
         closeFailure = closeResource(closeFailure, dbOptions::close);
         closeFailure = closeResource(closeFailure, resources::releaseDbSlot);
         if (ownsShardSlot) {
-            closeFailure = closeResource(closeFailure, resources::releaseOwnedShardSlot);
+            closeFailure = closeResource(closeFailure, () -> resources.releaseOwnedShardSlot(shardId));
         }
         if (closeFailure != null) {
             throw closeFailure;

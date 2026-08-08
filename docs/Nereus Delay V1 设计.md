@@ -1038,6 +1038,11 @@ planned drain：
 
 `checkpoint-tmp`、`restore-tmp` 和 `ACTIVE.tmp` 都属于该 shard 的本地临时边界：目录和文件必须在 `NOFOLLOW_LINKS` 下通过真实目录/文件校验，不能用符号链接把 checkpoint、restore 或 pointer 写入另一个物理路径。
 
+同一 Worker 进程的 owned-shard reservation 必须绑定 exact `ShardId`，不能只按
+数量计数；同一个 Shard 在第二次 `open` 时必须在 RocksDB open/create 前拒绝。
+这样即使两个接管线程同时看到尚不存在 `ACTIVE`，也不会各自创建可写的不同
+Store Incarnation 后再互相覆盖 active pointer。
+
 RocksDB 已经成功 `open` 后，任何 `meta_cf` 读取/解码、format/identity 校验或 install-mode 写入失败，都必须在释放 Worker 的 DB/owned-shard slot 前关闭 DB、所有 Column Family handle 及其 options；失败的 activation 不得遗留活跃 native handle 或文件锁。这个失败清理边界与 `restore-tmp` 的清理边界相同，保证下一次修复、重试或接管可以重新打开同一物理 DB，而不把一次本地校验异常变成永久资源泄漏。
 
 `meta_cf` 必须验证：

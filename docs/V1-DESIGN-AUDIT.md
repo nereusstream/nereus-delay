@@ -1406,6 +1406,12 @@ limits；这仍只是本地文件完整性边界，不替代 Object Store 内容
 一旦关闭获准，rate limiter、shared WriteBufferManager 和 block cache 会逐项尝试
 释放；某个 native close 抛出 runtime failure 时，后续资源仍会被尝试，异常以
 suppressed 形式保留，避免进程级资源被首个失败短路。
+长期 owned-shard slot 现在还绑定 exact `ShardId` identity，而不只是一个计数器。
+同一 Worker 对同一 Shard 的第二次 `ShardStore.open` 会在 native DB open/create
+之前 fail closed；这也封住了两个 no-`ACTIVE` 并发 open 各自选择新 incarnation、
+最后覆盖 `ACTIVE` 而留下一个仍可写的非 active DB 的窗口。identity 只在对应 Store
+close 时释放，`ShardStoreTest.duplicateOwnedShardOpenIsRejectedBeforeCreatingAnotherDb`
+证明重复打开不产生第二个 `CURRENT`，释放后仍可正常 reopen。
 Shard open/restore 的短生命周期 acquisition 阶段也有独立的
 `maxConcurrentAcquiresPerWorker` slot；它在 native DB 打开或失败清理完成后立即
 释放，不会把 acquisition 并发额度错误地当成长期 owned/DB capacity。已有
