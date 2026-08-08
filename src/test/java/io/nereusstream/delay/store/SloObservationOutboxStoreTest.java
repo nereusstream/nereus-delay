@@ -54,6 +54,10 @@ class SloObservationOutboxStoreTest {
 
             assertEquals(1, outboxStore.scan(10).size());
             assertEquals(sample, outboxStore.scan(10).get(0).start());
+            final long encodedBytes = ValueEnvelope.encode(SloObservationOutboxStore.VALUE_TYPE,
+                    SloObservationOutboxV1.open(sample).canonicalBytes()).length;
+            assertEquals(1, outboxStore.scan(10, encodedBytes).size());
+            assertThrows(IllegalStateException.class, () -> outboxStore.scan(10, encodedBytes - 1));
         }
     }
 

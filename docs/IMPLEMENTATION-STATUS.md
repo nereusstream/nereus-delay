@@ -1307,7 +1307,8 @@ now also wired to a synchronous `SloObservationOutboxStore`: it persists an
 immutable Start before ownership loss and atomically replaces the conservative
 merged Final under the shard's `meta_cf` ValueEnvelope/CRC boundary. This is
 also a bounded key-order scan plus exact key/value sample-identity and
-record-digest delete-after-ACK boundary, so an exporter can retry unchanged
+record-digest delete-after-ACK boundary, with a caller-supplied
+record/ValueEnvelope byte budget, so an exporter can retry unchanged
 bytes without accepting a mis-keyed observation or deleting a newer one. The
 identity fence is covered by `SloObservationOutboxStoreTest`. Final merge now also
 revalidates the closed objective branch's required unit and direction before a

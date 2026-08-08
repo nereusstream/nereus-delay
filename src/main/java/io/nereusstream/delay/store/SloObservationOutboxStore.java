@@ -81,13 +81,34 @@ public final class SloObservationOutboxStore {
 
     /** Returns a bounded key-order snapshot for at-least-once export retry. */
     public synchronized List<SloObservationOutboxV1> scan(final int limit) {
+        return scan(limit, Long.MAX_VALUE);
+    }
+
+    /**
+     * Returns a key-order snapshot bounded by both record count and encoded
+     * ValueEnvelope bytes. A first record that cannot fit fails closed; later
+     * records are left for the next export turn after earlier acknowledgements.
+     */
+    public synchronized List<SloObservationOutboxV1> scan(final int limit, final long maxBytes) {
         if (limit <= 0) {
             throw new IllegalArgumentException("SLO outbox scan limit must be positive");
+        }
+        if (maxBytes <= 0) {
+            throw new IllegalArgumentException("SLO outbox scan byte limit must be positive");
         }
         final List<ShardStore.KeyValue> entries = store.scan(ColumnFamily.META,
                 new byte[]{8, 1}, new byte[]{8, 2}, limit);
         final List<SloObservationOutboxV1> result = new ArrayList<>(entries.size());
+        long totalBytes = 0;
         for (ShardStore.KeyValue entry : entries) {
+            final long encodedBytes = entry.value().length;
+            if (encodedBytes > maxBytes - totalBytes) {
+                if (result.isEmpty()) {
+                    throw new IllegalStateException("SLO outbox record exceeds the export byte budget");
+                }
+                break;
+            }
+            totalBytes += encodedBytes;
             final byte[] key = entry.key();
             if (key.length != 34 || key[0] != 8 || key[1] != 1) {
                 throw new IllegalStateException("invalid SLO_OUTBOX key shape");

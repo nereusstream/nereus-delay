@@ -1390,7 +1390,9 @@ UTF-8/NFC identity fence；无效 cluster identity 不会进入 assignment。`Pu
 barrier。兼容构造器仍明确不计入 V1 source-assignment 证据。
 
 本地 `SloObservationOutboxStore` 已把 `meta_cf/SLO_OUTBOX` 的扫描边界收紧为
-key/value `sampleId` 必须 byte-identical；错挂的 key 不会被导出为另一个样本，
+key/value `sampleId` 必须 byte-identical，并支持 record/ValueEnvelope byte
+budget；首条超预算记录直接 fail closed，后续记录留给下一次 export turn。
+错挂的 key 不会被导出为另一个样本，
 而 collector acknowledgement 仍必须匹配当前完整 record digest 才能删除。回归
 证据为 `SloObservationOutboxStoreTest`。`SloObservationOutboxV1` 现在还按 closed
 objective branch 校验 Final 的 unit 与 merge direction，错误语义不会进入 durable
