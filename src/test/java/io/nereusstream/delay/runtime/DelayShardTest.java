@@ -697,7 +697,7 @@ class DelayShardTest {
         final byte[] owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1,
                 Bytes.sha256(Bytes.utf8("lease"))).canonicalBytes();
         final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.EXPIRE_GENERATION, 9_000,
-                Bytes.sha256(Bytes.utf8("system-state-version-overflow-operation")), body, owner, 1,
+                SystemMutation.computeExpiryLogicalIdentity(schedule.delayMessageId(), 0, 5_000), body, owner, 1,
                 keyPair.getPrivate());
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-state-version-overflow"));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
@@ -2101,8 +2101,9 @@ class DelayShardTest {
                 new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
                         OrderingMode.BEST_EFFORT, Bytes.utf8("expiry")), 9_000);
         final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
-        final KafkaSourcePosition expiryPosition = position(shardId, 1, 1_001);
-        final KafkaSourcePosition duplicatePosition = position(shardId, 2, 1_002);
+        final KafkaSourcePosition wrongIdentityPosition = position(shardId, 1, 1_001);
+        final KafkaSourcePosition expiryPosition = position(shardId, 2, 1_002);
+        final KafkaSourcePosition duplicatePosition = position(shardId, 3, 1_003);
         final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
         final KeyPair keyPair = generator.generateKeyPair();
         final TrustedUtcIntervalEvidence proof = new TrustedUtcIntervalEvidence(5_000, 5_000,
@@ -2112,11 +2113,21 @@ class DelayShardTest {
         final byte[] author = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1,
                 Bytes.sha256(Bytes.utf8("lease"))).canonicalBytes();
         final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.EXPIRE_GENERATION, 9_000,
-                Bytes.sha256(Bytes.utf8("expiry-operation")), body, author, 1, keyPair.getPrivate());
+                SystemMutation.computeExpiryLogicalIdentity(schedule.delayMessageId(), 0, 5_000), body, author, 1,
+                keyPair.getPrivate());
+        final SystemMutation wrongIdentityMutation = SystemMutation.signed(shardId,
+                SystemMutationType.EXPIRE_GENERATION, 9_000,
+                Bytes.sha256(Bytes.utf8("wrong-expiry-identity")), body, author, 1, keyPair.getPrivate());
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
             assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            final SystemMutationResult unauthorized = shard.applySystemMutation(wrongIdentityMutation,
+                    wrongIdentityPosition, keyPair.getPublic());
+            assertEquals(ApplyStatus.REJECTED, unauthorized.applyStatus());
+            assertEquals(StableCode.UNAUTHORIZED_SYSTEM_MUTATION, unauthorized.stableCode());
+            assertEquals(MessageStatus.SCHEDULED, shard.getMessage(schedule.delayMessageId()).status());
+            assertEquals(1, shard.quota().pendingMessages());
             assertEquals(StableCode.OK,
                     shard.applySystemMutation(mutation, expiryPosition, keyPair.getPublic()).stableCode());
             assertEquals(MessageStatus.EXPIRED, shard.getMessage(schedule.delayMessageId()).status());
@@ -2132,7 +2143,7 @@ class DelayShardTest {
             assertArrayEquals(expiryPosition.canonicalBytes(), shard.getSystemMutationResult(mutation.systemMutationId())
                     .appliedSourcePosition());
             assertThrows(IllegalStateException.class,
-                    () -> shard.applySystemMutation(mutation, position(shardId, 2, 1_003), keyPair.getPublic()));
+                    () -> shard.applySystemMutation(mutation, position(shardId, 3, 1_004), keyPair.getPublic()));
         }
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
@@ -2671,8 +2682,8 @@ class DelayShardTest {
                     firstRetry.runtimeIndex().timeline().semanticWorkDigest(), 2, firstRetry.stateVersion());
             final SystemMutation secondAdmission = SystemMutation.signed(shardId,
                     SystemMutationType.PUBLISH_ADMISSION, 9_000,
-                    Bytes.sha256(Bytes.utf8("remaining-second-admission")), secondFixture.body(), secondFixture.owner(),
-                    1, keyPair.getPrivate());
+                    PublishAdmissionBody.decode(secondFixture.body()).publishAttemptId(), secondFixture.body(),
+                    secondFixture.owner(), 1, keyPair.getPrivate());
             assertEquals(StableCode.OK,
                     shard.applySystemMutation(secondAdmission, secondAdmissionPosition, keyPair.getPublic())
                             .stableCode());
@@ -2951,8 +2962,8 @@ class DelayShardTest {
                     retryWork.semanticWorkDigest(), 2, uncertainRetry.stateVersion());
             final SystemMutation retryAdmission = SystemMutation.signed(shardId,
                     SystemMutationType.PUBLISH_ADMISSION, 9_000,
-                    Bytes.sha256(Bytes.utf8("uncertain-admission-retry")), fixture.body(), fixture.owner(), 1,
-                    keyPair.getPrivate());
+                    PublishAdmissionBody.decode(fixture.body()).publishAttemptId(), fixture.body(), fixture.owner(),
+                    1, keyPair.getPrivate());
 
             final SystemMutationResult result = shard.applySystemMutation(retryAdmission, retryAdmissionPosition,
                     keyPair.getPublic());
@@ -3461,11 +3472,16 @@ class DelayShardTest {
         final Fixture fixture = Fixture.createForSource(shardId, messageId,
                 LaneRecord.initial(lane, schedulePosition).laneIncarnation(), sourceTimelineKey, 1, 0, 0,
                 GenerationRuntimeIndex.obligationSetDigest(java.util.List.of()), sourceWork.semanticWorkDigest());
-        final KafkaSourcePosition admissionPosition = position(shardId, 1, 2_001);
+        final KafkaSourcePosition wrongIdentityPosition = position(shardId, 1, 2_001);
+        final KafkaSourcePosition admissionPosition = position(shardId, 2, 2_002);
         final java.security.KeyPairGenerator keyPairGenerator = java.security.KeyPairGenerator.getInstance("Ed25519");
         final java.security.KeyPair keyPair = keyPairGenerator.generateKeyPair();
         final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_ADMISSION, 9_000,
-                Bytes.sha256(Bytes.utf8("admission-operation")), fixture.body(), fixture.owner(), 1,
+                PublishAdmissionBody.decode(fixture.body()).publishAttemptId(), fixture.body(), fixture.owner(), 1,
+                keyPair.getPrivate());
+        final SystemMutation wrongIdentityMutation = SystemMutation.signed(shardId,
+                SystemMutationType.PUBLISH_ADMISSION, 9_000,
+                Bytes.sha256(Bytes.utf8("wrong-admission-identity")), fixture.body(), fixture.owner(), 1,
                 keyPair.getPrivate());
         final PublishAdmissionBody parsed = PublishAdmissionBody.decode(fixture.body());
 
@@ -3475,6 +3491,13 @@ class DelayShardTest {
             assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
             shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
             assertNull(shard.getClaim(parsed.claimId(), 1));
+
+            final SystemMutationResult unauthorized = shard.applySystemMutation(wrongIdentityMutation,
+                    wrongIdentityPosition, keyPair.getPublic());
+            assertEquals(ApplyStatus.REJECTED, unauthorized.applyStatus());
+            assertEquals(StableCode.UNAUTHORIZED_SYSTEM_MUTATION, unauthorized.stableCode());
+            assertEquals(MessageStatus.SCHEDULED, shard.getMessage(messageId).status());
+            assertNull(shard.findOpenPublishAttempt(parsed.publishAttemptId()));
 
             final SystemMutationResult result = shard.applySystemMutation(mutation, admissionPosition,
                     keyPair.getPublic());
@@ -3522,7 +3545,7 @@ class DelayShardTest {
         final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
         final KeyPair keyPair = keyPairGenerator.generateKeyPair();
         final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_ADMISSION, 9_000,
-                Bytes.sha256(Bytes.utf8("admission-outcome-reserve")), chargedBody, fixture.owner(), 1,
+                PublishAdmissionBody.decode(chargedBody).publishAttemptId(), chargedBody, fixture.owner(), 1,
                 keyPair.getPrivate());
         final KafkaSourcePosition admissionPosition = position(shardId, 1, 2_001);
 
@@ -3583,8 +3606,8 @@ class DelayShardTest {
             final byte[] chargedBody = replaceAdmissionCharge(claimBody, 2, 2);
             final PublishAdmissionBody admissionBody = PublishAdmissionBody.decode(chargedBody);
             final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_ADMISSION,
-                    9_000, Bytes.sha256(Bytes.utf8("admission-outcome-claim-gate")), chargedBody,
-                    fixture.owner(), 1, keyPair.getPrivate());
+                    9_000, PublishAdmissionBody.decode(chargedBody).publishAttemptId(), chargedBody, fixture.owner(),
+                    1, keyPair.getPrivate());
 
             assertEquals(MessageStatus.CLAIMED, shard.getMessage(messageId).status());
             assertEquals(StableCode.ADMISSION_CAPACITY_GATED,
@@ -3636,8 +3659,8 @@ class DelayShardTest {
             final byte[] claimBody = replaceAdmissionClaim(fixture.body(), claim, store.metadata().storeIncarnation());
             final PublishAdmissionBody admissionBody = PublishAdmissionBody.decode(claimBody);
             final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_ADMISSION,
-                    9_000, Bytes.sha256(Bytes.utf8("admission-timing-claim")), claimBody, fixture.owner(), 1,
-                    keyPair.getPrivate());
+                    9_000, PublishAdmissionBody.decode(claimBody).publishAttemptId(), claimBody, fixture.owner(),
+                    1, keyPair.getPrivate());
 
             assertEquals(MessageStatus.CLAIMED, shard.getMessage(fixture.messageId()).status());
             assertEquals(StableCode.STALE_SYSTEM_MUTATION,
@@ -3675,7 +3698,7 @@ class DelayShardTest {
         final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
         final KeyPair keyPair = keyPairGenerator.generateKeyPair();
         final SystemMutation admission = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_ADMISSION, 9_000,
-                Bytes.sha256(Bytes.utf8("admission-outcome-release")), chargedBody, fixture.owner(), 1,
+                PublishAdmissionBody.decode(chargedBody).publishAttemptId(), chargedBody, fixture.owner(), 1,
                 keyPair.getPrivate());
         final KafkaSourcePosition admissionPosition = position(shardId, 1, 2_001);
         final TrustedUtcIntervalEvidence outcomeObservedAt = new TrustedUtcIntervalEvidence(2_002, 2_002,
@@ -3752,7 +3775,7 @@ class DelayShardTest {
         final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
         final KeyPair keyPair = keyPairGenerator.generateKeyPair();
         final SystemMutation admission = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_ADMISSION, 9_000,
-                Bytes.sha256(Bytes.utf8("bound-capacity-admission")), chargedBody, fixture.owner(), 1,
+                PublishAdmissionBody.decode(chargedBody).publishAttemptId(), chargedBody, fixture.owner(), 1,
                 keyPair.getPrivate());
         final KafkaSourcePosition admissionPosition = position(shardId, 1, 2_001);
         final ShardCapacityEnvelopeV1 envelope = capacityEnvelope(1);
@@ -3888,8 +3911,8 @@ class DelayShardTest {
         final KeyPair keyPair = generator.generateKeyPair();
         final SystemMutation firstAdmission = SystemMutation.signed(shardId,
                 SystemMutationType.PUBLISH_ADMISSION, 9_000,
-                Bytes.sha256(Bytes.utf8("admission-budget-first")), firstFixture.body(), firstFixture.owner(), 7,
-                keyPair.getPrivate());
+                PublishAdmissionBody.decode(firstFixture.body()).publishAttemptId(), firstFixture.body(),
+                firstFixture.owner(), 7, keyPair.getPrivate());
         final KafkaSourcePosition firstAdmissionPosition = position(shardId, 1, 1_001);
         final byte[] outcomeBody = publishNotPublishedBody(shardId, firstBody.publishAttemptId(), 1,
                 StableCode.DESTINATION_DEFINITIVE_RETRIABLE, 2_002);
@@ -3917,8 +3940,8 @@ class DelayShardTest {
                     retry.runtimeIndex().timeline().semanticWorkDigest(), 2, retry.stateVersion());
             final SystemMutation secondAdmission = SystemMutation.signed(shardId,
                     SystemMutationType.PUBLISH_ADMISSION, 9_000,
-                    Bytes.sha256(Bytes.utf8("admission-budget-second")), secondFixture.body(), secondFixture.owner(),
-                    7, keyPair.getPrivate());
+                    PublishAdmissionBody.decode(secondFixture.body()).publishAttemptId(), secondFixture.body(),
+                    secondFixture.owner(), 7, keyPair.getPrivate());
             final SystemMutationResult rejected = shard.applySystemMutation(secondAdmission,
                     position(shardId, 3, 2_003), keyPair.getPublic());
 
@@ -4580,8 +4603,7 @@ class DelayShardTest {
                     claim.timelineKey(), owner.canonicalBytes(), store.metadata().storeIncarnation(), 3_000, 1,
                     2_000, 2_000);
             final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.CLAIM_RESULT, 9_000,
-                    Bytes.sha256(Bytes.utf8("claimed-result-operation")), body, owner.canonicalBytes(), 1,
-                    keyPair.getPrivate());
+                    claim.claimId(), body, owner.canonicalBytes(), 1, keyPair.getPrivate());
 
             final SystemMutationResult result = shard.applySystemMutation(mutation, resultPosition,
                     keyPair.getPublic());
@@ -4627,8 +4649,7 @@ class DelayShardTest {
                     claim.timelineKey(), owner.canonicalBytes(), store.metadata().storeIncarnation(), 3_000, 1,
                     2_000, 2_000);
             final SystemMutation resultMutation = SystemMutation.signed(shardId, SystemMutationType.CLAIM_RESULT,
-                    9_000, Bytes.sha256(Bytes.utf8("replay-dead-letter-claim-result")), resultBody,
-                    owner.canonicalBytes(), 1, keyPair.getPrivate());
+                    9_000, claim.claimId(), resultBody, owner.canonicalBytes(), 1, keyPair.getPrivate());
             assertEquals(StableCode.CLAIM_PERMANENT_FAILURE,
                     shard.applySystemMutation(resultMutation, resultPosition, keyPair.getPublic()).stableCode());
             final MessageRecord dead = shard.getMessage(schedule.delayMessageId());
@@ -4773,9 +4794,10 @@ class DelayShardTest {
                 new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
                         OrderingMode.BEST_EFFORT, Bytes.utf8("claim-result")), 9_000);
         final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
-        final KafkaSourcePosition claimResultPosition = position(shardId, 1, 1_100);
-        final KafkaSourcePosition validClaimResultPosition = position(shardId, 2, 1_101);
-        final KafkaSourcePosition duplicatePosition = position(shardId, 3, 1_102);
+        final KafkaSourcePosition wrongIdentityPosition = position(shardId, 1, 1_099);
+        final KafkaSourcePosition claimResultPosition = position(shardId, 2, 1_100);
+        final KafkaSourcePosition validClaimResultPosition = position(shardId, 3, 1_101);
+        final KafkaSourcePosition duplicatePosition = position(shardId, 4, 1_102);
         final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
         final KeyPair keyPair = generator.generateKeyPair();
         final byte[] owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1,
@@ -4799,8 +4821,18 @@ class DelayShardTest {
             assertThrows(IllegalArgumentException.class, () -> ClaimResultBody.decode(mismatchedTransfer));
             final SystemMutation mismatchedMutation = SystemMutation.signed(shardId,
                     SystemMutationType.CLAIM_RESULT, 9_000,
-                    Bytes.sha256(Bytes.utf8("claim-result-transfer-mismatch")), mismatchedTransfer, owner, 1,
+                    claimId, mismatchedTransfer, owner, 1, keyPair.getPrivate());
+            final SystemMutation wrongIdentityMutation = SystemMutation.signed(shardId,
+                    SystemMutationType.CLAIM_RESULT, 9_000,
+                    Bytes.sha256(Bytes.utf8("wrong-claim-result-identity")), body, owner, 1,
                     keyPair.getPrivate());
+            final SystemMutationResult unauthorized = shard.applySystemMutation(wrongIdentityMutation,
+                    wrongIdentityPosition, keyPair.getPublic());
+            assertEquals(ApplyStatus.REJECTED, unauthorized.applyStatus());
+            assertEquals(StableCode.UNAUTHORIZED_SYSTEM_MUTATION, unauthorized.stableCode());
+            assertEquals(MessageStatus.SCHEDULED, shard.getMessage(schedule.delayMessageId()).status());
+            assertEquals(1, shard.quota().pendingMessages());
+            assertNotNull(store.getValue(ColumnFamily.TIMELINE, timelineKey, 1));
             final SystemMutationResult mismatchedResult = shard.applySystemMutation(mismatchedMutation,
                     claimResultPosition, keyPair.getPublic());
             assertEquals(ApplyStatus.REJECTED, mismatchedResult.applyStatus());
@@ -4857,8 +4889,7 @@ class DelayShardTest {
                     laneRecord.laneIncarnation(), 1, laneRecord.laneVersion(), Bytes.sha256(timelineKey), owner,
                     store.metadata().storeIncarnation(), 3_000, 1, 1_500, 1_500);
             final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.CLAIM_RESULT, 9_000,
-                    Bytes.sha256(Bytes.utf8("claim-result-stale-operation")), body, owner, 1,
-                    keyPair.getPrivate());
+                    claimId, body, owner, 1, keyPair.getPrivate());
 
             final SystemMutationResult result = shard.applySystemMutation(mutation, claimResultPosition,
                     keyPair.getPublic());

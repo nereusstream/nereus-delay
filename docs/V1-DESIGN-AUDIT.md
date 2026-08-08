@@ -588,6 +588,19 @@ source-ordered apply。
 同一关闭边界下的 `UNKNOWN` 结果保留 `UNCERTAIN` obligation 且不创建新的
 `UNCERTAIN_RETRY` timeline；后续 Resolve retry 仍由 closed-Lane gate 拒绝。
 
+同一 logical-identity fence 现在也覆盖三个此前容易被签名 envelope 掩盖的入口：
+`PUBLISH_ADMISSION_V1` 必须使用 body 的 `PublishAttemptId`，
+`CLAIM_RESULT_V1` 必须使用 body 的 `ClaimId`，而 `EXPIRE_GENERATION_V1`
+必须使用 Registry §4.8 规定的
+`SHA-256("nereus-delay-expiry-logical-id-v1" || DelayMessageId || u32be(generation) || i64be(expireAt))`。
+任一身份不匹配都会在 handler 状态变化前持久化
+`REJECTED(UNAUTHORIZED_SYSTEM_MUTATION)` 和该 Source Position；Admission、
+Claim、expiry 的 message/timeline/quota 不被改变。`DelayShardTest` 的
+`sourceOrderedPublishAdmissionPersistsAttemptAndMutationResultTogether`、
+`sourceOrderedExpireMutationAtomicallyClosesScheduledGenerationAndDedupes` 和
+`sourceOrderedClaimResultTerminalizesMatchingReplayStableTimeline` 覆盖错误身份
+拒绝以及随后正确 mutation 的 source-ordered apply。
+
 DLQ Export Result 的 canonical body 已校验 `ChargeVectorV1`，而 configured
 `DlqExportRecord` 现在持久化 policy-derived retained charge projection；
 `NOT_CONFIGURED` terminal record 固定保留 all-zero projection，legacy v1 record

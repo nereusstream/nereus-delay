@@ -266,6 +266,27 @@ public final class SystemMutation {
                 fixed(dlqExportId, HASH_LENGTH, "dlqExportId"), Bytes.u32be(physicalAttemptNo));
     }
 
+    /** Computes the logical identity for one generation-expiry decision. */
+    public static byte[] computeExpiryLogicalIdentity(final byte[] messageId, final int generation,
+                                                      final long expireAtEpochMs) {
+        if (generation < 0) {
+            throw new IllegalArgumentException("generation must be non-negative");
+        }
+        if (expireAtEpochMs < 0) {
+            throw new IllegalArgumentException("expireAtEpochMs must be non-negative");
+        }
+        return Bytes.sha256(Bytes.utf8("nereus-delay-expiry-logical-id-v1"),
+                fixed(messageId, DelayMessageId.LENGTH, "messageId"), Bytes.u32be(generation),
+                Bytes.i64be(expireAtEpochMs));
+    }
+
+    /** Computes the logical identity for one generation-expiry decision. */
+    public static byte[] computeExpiryLogicalIdentity(final DelayMessageId messageId, final int generation,
+                                                      final long expireAtEpochMs) {
+        return computeExpiryLogicalIdentity(Objects.requireNonNull(messageId, "messageId").bytes(), generation,
+                expireAtEpochMs);
+    }
+
     /** Computes the logical identity for one DLQ export evidence resolution. */
     public static byte[] computeDlqExportEvidenceLogicalIdentity(final byte[] dlqExportId,
                                                                    final byte[] evidenceId) {

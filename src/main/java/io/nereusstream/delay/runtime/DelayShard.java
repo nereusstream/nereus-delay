@@ -1761,6 +1761,10 @@ public final class DelayShard {
     private SystemMutationResult applyPublishAdmissionMutation(final SystemMutation mutation,
                                                                 final SourcePosition sourcePosition) {
         final PublishAdmissionBody body = PublishAdmissionBody.decode(mutation.canonicalBody());
+        if (!Bytes.constantTimeEquals(mutation.logicalOperationIdentity(), body.publishAttemptId())) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
         final io.nereusstream.delay.protocol.AuthorIdentity author =
                 io.nereusstream.delay.protocol.AuthorIdentity.decode(mutation.authorIdentity());
         if (!Arrays.equals(body.ownerIdentity(), author.canonicalBytes())) {
@@ -2858,6 +2862,10 @@ public final class DelayShard {
     private SystemMutationResult applyClaimResultMutation(final SystemMutation mutation,
                                                            final SourcePosition sourcePosition) {
         final ClaimResultBody body = ClaimResultBody.decode(mutation.canonicalBody());
+        if (!Bytes.constantTimeEquals(mutation.logicalOperationIdentity(), body.claimId())) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
         final io.nereusstream.delay.protocol.AuthorIdentity author =
                 io.nereusstream.delay.protocol.AuthorIdentity.decode(mutation.authorIdentity());
         if (!Arrays.equals(author.canonicalBytes(), body.precondition().ownerIdentity())) {
@@ -3401,6 +3409,11 @@ public final class DelayShard {
         SystemMutationBodyCodec.requireMessageShard(fields, messageId, "Expire Generation");
         final int generation = bodyInt(field(fields, 11), 11);
         final long expireAt = bodyNonNegative(field(fields, 12), 12);
+        if (!Bytes.constantTimeEquals(mutation.logicalOperationIdentity(),
+                SystemMutation.computeExpiryLogicalIdentity(messageId, generation, expireAt))) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
         final TrustedUtcIntervalEvidence proof = TrustedUtcIntervalEvidence.decode(
                 bytesBody(field(fields, 13), 13));
         proof.requireEarliestAtLeast(expireAt);

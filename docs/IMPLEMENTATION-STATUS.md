@@ -180,6 +180,15 @@ PublishAttemptId || evidenceId)`. A mismatch persists
 `REJECTED(UNAUTHORIZED_SYSTEM_MUTATION)` without changing the attempt, message,
 timeline or quota; source-ordered regressions cover both wrong-identity fences and
 subsequent valid application.
+The same operation-identity check now covers the remaining message-bearing
+handlers: `PUBLISH_ADMISSION_V1` requires `PublishAttemptId`,
+`CLAIM_RESULT_V1` requires `ClaimId`, and `EXPIRE_GENERATION_V1` requires the
+Registry-derived expiry identity over `DelayMessageId`, generation and
+`expireAt`. Each mismatch persists `REJECTED(UNAUTHORIZED_SYSTEM_MUTATION)`
+before any handler state transition; `DelayShardTest` covers the three rejection
+paths and the later valid source-ordered mutation. This closes the local identity
+fence only; signed-writer trust, source routing and external authority remain
+release gates.
 `ChannelKindV1`, `CredentialUseKindV1`, `CredentialUseLeaseV1` and
 `ChannelResourceIdentityV1` now provide the shared canonical channel/lease
 identity checks: adapter/target branch, strong-capability evidence resource
