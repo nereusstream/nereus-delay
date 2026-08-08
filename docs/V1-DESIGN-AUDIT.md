@@ -519,13 +519,17 @@ to the same Shard, and embedded `awaitApplied` validates its pinned Kafka source
 and exact durable-or-pending physical locator before draining. A queued command
 without a durable POSITION audit is admitted only when the pending record has the
 same command/message/source tuple; after drain the audit is reread before the
-logical result is returned. `EmbeddedDelayServiceTest.awaitAppliedRejectsForeignSourceBeforeDraining`
+result is returned. The exact pending `DelayShard.apply` result is retained for
+that tuple, so a position-level `COMMAND_ID_CONFLICT` or fence rejection cannot
+be collapsed into the first logical result (or become `null`) by a commandId-only
+lookup. `EmbeddedDelayServiceTest.awaitAppliedRejectsForeignSourceBeforeDraining`
 and `EmbeddedDelayServiceTest.awaitAppliedRejectsSameShardReceiptWithWrongPhysicalPositionBeforeDraining`
 show that foreign or forged receipts are rejected without applying queued work,
-while `EmbeddedDelayServiceTest.queuedReceiptRejectsMessageIdFromAnotherShard`
-covers the legacy constructor identity fence. This is a local API/conformance
-guard; gateway authorization, production routing and durable receipt-retention
-authority remain release blockers.
+while `EmbeddedDelayServiceTest.awaitAppliedReturnsTheExactPendingPhysicalConflictResult`
+and `EmbeddedDelayServiceTest.queuedReceiptRejectsMessageIdFromAnotherShard` cover
+the exact pending result and legacy constructor identity fences. This is a local
+API/conformance guard; gateway authorization, production routing and durable
+receipt-retention authority remain release blockers.
 
 §12.4 的本地时钟 guard 现在由 `TrustedUtcClock` 提供：它只从批准的
 `TrustedUtcIntervalEvidence` 和注入的 monotonic reading 推导保守 interval，

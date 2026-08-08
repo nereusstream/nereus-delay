@@ -1915,13 +1915,17 @@ The embedded client receipt boundary now validates the legacy queued locator's
 locator before it drains any queued records. If a command is still pending and
 has no POSITION audit, only an exact pending `(commandId, delayMessageId,
 Source Position)` tuple is accepted; the audit is reread after drain before the
-logical result is returned. `EmbeddedDelayServiceTest.awaitAppliedRejectsForeignSourceBeforeDraining`
+result is returned. The exact pending `DelayShard.apply` result is retained for
+that tuple, so a position-level `COMMAND_ID_CONFLICT` or fence rejection cannot
+be collapsed into the first logical result (or become `null`) by a commandId-only
+lookup. `EmbeddedDelayServiceTest.awaitAppliedRejectsForeignSourceBeforeDraining`
 and `EmbeddedDelayServiceTest.awaitAppliedRejectsSameShardReceiptWithWrongPhysicalPositionBeforeDraining`
 prove that foreign or forged receipts have no pending-command side effect, while
-`EmbeddedDelayServiceTest.queuedReceiptRejectsMessageIdFromAnotherShard` covers
-the legacy constructor identity fence. This is local receipt/query evidence; it
-does not replace gateway authorization, cross-worker routing, or production
-receipt retention authority.
+`EmbeddedDelayServiceTest.awaitAppliedReturnsTheExactPendingPhysicalConflictResult`
+and `EmbeddedDelayServiceTest.queuedReceiptRejectsMessageIdFromAnotherShard` cover
+the exact pending result and legacy constructor identity fences. This is local
+receipt/query evidence; it does not replace gateway authorization, cross-worker
+routing, or production receipt retention authority.
 
 ## Verification command
 

@@ -252,12 +252,32 @@ public final class EmbeddedDelayService implements DelayClient {
     public synchronized CompletionStage<CommandResult> awaitApplied(final CommandQueuedReceipt receipt) {
         ensureOpen();
         validateEmbeddedQueuedReceipt(receipt);
-        validateEmbeddedQueuedReceiptLocator(receipt);
-        drain();
+        final QueuedRecord pendingRecord = validateEmbeddedQueuedReceiptLocator(receipt);
+        CommandResult physicalResult = null;
+        if (pendingRecord == null) {
+            drain();
+        } else {
+            // Keep the result returned by the exact pending physical record.
+            // Looking it up by commandId after drain would collapse a later
+            // position-level rejection (for example COMMAND_ID_CONFLICT) into
+            // the first logical result, and would return null for a fence-only
+            // rejection that intentionally has no logical dedupe result.
+            while (!pending.isEmpty()) {
+                final QueuedRecord record = pending.peekFirst();
+                final CommandResult result = shard.apply(record.command(), record.position());
+                pending.removeFirst();
+                pendingBytes -= record.frameBytes();
+                if (record == pendingRecord) {
+                    physicalResult = result;
+                }
+            }
+        }
         if (!shard.matchesCommandPosition(receipt.commandId(), receipt.sourcePosition())) {
             throw new IllegalArgumentException("queued receipt source position does not identify the command");
         }
-        return CompletableFuture.completedFuture(shard.getCommandResult(receipt.commandId()));
+        final CommandResult result = physicalResult == null
+                ? shard.getCommandResult(receipt.commandId()) : physicalResult;
+        return CompletableFuture.completedFuture(result);
     }
 
     /**
@@ -282,16 +302,16 @@ public final class EmbeddedDelayService implements DelayClient {
      * otherwise well-typed receipt is rejected before any pending record can be
      * applied; the command id alone is never a sufficient locator.
      */
-    private void validateEmbeddedQueuedReceiptLocator(final CommandQueuedReceipt receipt) {
+    private QueuedRecord validateEmbeddedQueuedReceiptLocator(final CommandQueuedReceipt receipt) {
         if (shard.matchesCommandPosition(receipt.commandId(), receipt.sourcePosition())) {
-            return;
+            return null;
         }
         for (QueuedRecord record : pending) {
             if (record.command().commandId().equals(receipt.commandId())
                     && record.command().delayMessageId().equals(receipt.delayMessageId())
                     && Bytes.constantTimeEquals(record.position().canonicalBytes(),
                     receipt.sourcePosition().canonicalBytes())) {
-                return;
+                return record;
             }
         }
         throw new IllegalArgumentException("queued receipt source position does not identify a pending command");

@@ -430,7 +430,13 @@ apply 或推进 Source Position。Receipt 是定位与查询凭证，不是可�
 在 embedded `awaitApplied` 中，若命令尚未 apply、因而还没有 POSITION 审计，只有
 pending 队列中 exact `(commandId, delayMessageId, Source Position)` 记录可以暂时
 证明该 locator；其它同 shard receipt 仍必须在 drain 前拒绝。drain 后必须再次读取
-POSITION 审计，不能以 `commandId` 单独暴露逻辑结果。
+POSITION 审计，不能以 `commandId` 单独暴露逻辑结果。若该 exact pending record
+的 apply 结果是 position-level rejection（例如 `COMMAND_ID_CONFLICT` 或
+`COMMAND_RETRY_WINDOW_EXPIRED`），`awaitApplied` 必须返回这次物理 apply 的结果；
+不能在 drain 后改按 `commandId` 读取首次逻辑结果，或把没有逻辑 `Command Result`
+的 fence rejection 返回为 `null`。已经完成 apply、没有 pending record 时，仍须先
+验证 durable POSITION，再读取可用的逻辑结果；V1 wire query 的 command-hash 与
+POSITION 审计校验边界不因此放宽。
 
 `CommandAppliedReceipt` 只在 shard 已 durable `APPLIED` 或 `REJECTED` 后存在，包含 stable outcome、reason、applied Source Position，以及该 outcome 适用的 generation/Message Control Version (`stateVersion`)/`PublicDestinationBindingViewV1`；拒绝或 `NOT_FOUND` 不伪造不存在的 message fields，也永不序列化内部 Binding/secret/evidence/object descriptor。
 
