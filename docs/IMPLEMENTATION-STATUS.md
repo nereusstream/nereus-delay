@@ -81,6 +81,12 @@ external.
 The legacy `LargeScheduleIntent` reserve path carries that same raw version
 through its fixed binary projection and reopen decode.
 
+`ApplyShardControlBody.semantic_version` now follows the immutable semantic
+version boundary as a raw nonzero `uint64` through the System Mutation body
+validator and typed control-body parser. Its `expected_prior_control_version`
+and Lane target control versions remain bounded local CAS values; high-bit
+semantic-version coverage is in `PayloadProofControlPayloadV1Test`.
+
 CapacityGrant source versions, QuotaGrant reference versions and
 ShardCapacityEnvelope versions now preserve their complete nonzero `uint64`
 bit patterns in canonical bytes, nested decoding and quota semantic-hash

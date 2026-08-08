@@ -58,8 +58,28 @@ class PayloadProofControlPayloadV1Test {
                 () -> new ControlReasonV1(ControlReasonKindV1.INCIDENT, new byte[0], null));
     }
 
+    @Test
+    void applyShardControlPreservesUnsignedSemanticVersionBits() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 5);
+        final ControlRef controlRef = new ControlRef(Bytes.sha256(Bytes.utf8("operation-high-bit")),
+                Bytes.sha256(Bytes.utf8("request-high-bit")), 1);
+        final byte[] body = controlBody(shard, controlRef, 12,
+                CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1,
+                        new PayloadProofTrustSetRefV1(Long.MIN_VALUE,
+                                Bytes.sha256(Bytes.utf8("trust-set-high-bit"))).canonicalBytes())),
+                Bytes.sha256(Bytes.utf8("trust-set-high-bit")), Long.MIN_VALUE);
+
+        assertEquals(Long.MIN_VALUE, ApplyShardControlBody.decode(body).semanticVersion());
+    }
+
     private static byte[] controlBody(final ShardId shard, final ControlRef controlRef, final int controlKind,
                                       final byte[] branch, final byte[] semanticHash) {
+        return controlBody(shard, controlRef, controlKind, branch, semanticHash, 1);
+    }
+
+    private static byte[] controlBody(final ShardId shard, final ControlRef controlRef, final int controlKind,
+                                      final byte[] branch, final byte[] semanticHash,
+                                      final long semanticVersion) {
         final byte[] subject = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());
             CanonicalProtobuf.uint32(output, 2, shard.partition());
@@ -72,7 +92,7 @@ class PayloadProofControlPayloadV1Test {
             CanonicalProtobuf.int64(output, 3, 9_000);
             CanonicalProtobuf.bytes(output, 10, controlRef.canonicalBytes());
             CanonicalProtobuf.uint32(output, 11, controlKind);
-            CanonicalProtobuf.uint32(output, 12, 1);
+            CanonicalProtobuf.uint64Bits(output, 12, semanticVersion);
             CanonicalProtobuf.bytes(output, 13, semanticHash);
             CanonicalProtobuf.bytes(output, 15, payload);
         });

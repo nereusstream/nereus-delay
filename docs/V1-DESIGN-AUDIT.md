@@ -68,6 +68,12 @@ issuance and source-ordered trust authority remain release evidence.
 The compatibility `LargeScheduleIntent` reserve projection preserves the same
 raw version through its fixed binary encode/decode path as well.
 
+`ApplyShardControlBody.semantic_version` now follows the same immutable
+semantic-version boundary as a raw nonzero `uint64` through the System
+Mutation body validator and typed parser. The optional
+`expected_prior_control_version` and Lane target control versions remain
+bounded local CAS values.
+
 CapacityGrant source versions, QuotaGrant reference versions and
 ShardCapacityEnvelope versions likewise preserve their complete nonzero
 `uint64` bit patterns through canonical bytes, nested decode and quota

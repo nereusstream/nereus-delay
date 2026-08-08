@@ -17,7 +17,7 @@ public final class ApplyShardControlBody {
                                   final byte[] semanticHash, final Long expectedPriorControlVersion,
                                   final byte[] payload) {
         this.controlRef = Objects.requireNonNull(controlRef, "controlRef");
-        if (controlKind < 1 || controlKind > 14 || semanticVersion <= 0) {
+        if (controlKind < 1 || controlKind > 14 || semanticVersion == 0) {
             throw new IllegalArgumentException("invalid shard control kind/version");
         }
         this.controlKind = controlKind;
@@ -33,7 +33,7 @@ public final class ApplyShardControlBody {
                 SystemMutationBodyCodec.fields(SystemMutationType.APPLY_SHARD_CONTROL, canonicalBody);
         final ControlRef controlRef = ControlRef.decode(nested(field(fields, 10), 10));
         final int controlKind = intValue(field(fields, 11), 11);
-        final long semanticVersion = unsigned(field(fields, 12), 12);
+        final long semanticVersion = rawUnsigned(field(fields, 12), 12);
         final byte[] semanticHash = fixed(field(fields, 13), 13, ControlRef.HASH_LENGTH);
         final Long expectedPrior = optionalUnsigned(fields, 14);
         final byte[] payload = nested(field(fields, 15), 15);
@@ -261,6 +261,13 @@ public final class ApplyShardControlBody {
     private static long unsigned(final CanonicalProtobuf.Reader.Field field, final int number) {
         if (field.number() != number || field.wireType() != 0 || field.unsignedValue() < 0) {
             throw new IllegalArgumentException("invalid ApplyShardControl scalar field " + number);
+        }
+        return field.unsignedValue();
+    }
+
+    private static long rawUnsigned(final CanonicalProtobuf.Reader.Field field, final int number) {
+        if (field.number() != number || field.wireType() != 0 || field.unsignedValue() == 0) {
+            throw new IllegalArgumentException("invalid ApplyShardControl uint64 field " + number);
         }
         return field.unsignedValue();
     }
