@@ -198,28 +198,7 @@ public final class ClaimResultBody {
     }
 
     private static void validateBrokerResource(final byte[] encoded) {
-        final List<CanonicalProtobuf.Reader.Field> outer = read(encoded, "BrokerResourceIdentity");
-        if (outer.size() != 1 || (outer.get(0).number() != 1 && outer.get(0).number() != 2)) {
-            throw new IllegalArgumentException("invalid BrokerResourceIdentity branch");
-        }
-        final List<CanonicalProtobuf.Reader.Field> fields = read(outer.get(0).rawValue(), "BrokerResource");
-        if (outer.get(0).number() == 1) {
-            requireExact(fields, 2, "KafkaResourceIdentity");
-            if (bytes(field(fields, 1), 1).length == 0) {
-                throw new IllegalArgumentException("Kafka resource name is empty");
-            }
-            fixed(field(fields, 2), 2, INCARNATION_LENGTH);
-        } else {
-            requireExact(fields, 4, "PulsarResourceIdentity");
-            if (bytes(field(fields, 1), 1).length == 0 || bytes(field(fields, 3), 3).length == 0) {
-                throw new IllegalArgumentException("Pulsar resource identity is incomplete");
-            }
-            fixed(field(fields, 2), 2, HASH_LENGTH);
-            bodyUnsigned(field(fields, 4), 4);
-        }
-        if (!Arrays.equals(encoded, canonical(outer))) {
-            throw new IllegalArgumentException("non-canonical BrokerResourceIdentity");
-        }
+        BrokerResourceIdentityV1.decode(encoded);
     }
 
     private static void validatePayload(final byte[] encoded) {
@@ -236,19 +215,9 @@ public final class ClaimResultBody {
                 throw new IllegalArgumentException("inline payload length/hash mismatch");
             }
         } else {
-            final List<CanonicalProtobuf.Reader.Field> object = read(nested(field(fields, 4), 4),
-                    "CommittedPayloadDescriptor");
-            requireExact(object, 9, "CommittedPayloadDescriptor");
-            validateProfileRef(nested(field(object, 1), 1));
-            if (bytes(field(object, 2), 2).length == 0 || bytes(field(object, 3), 3).length == 0
-                    || bytes(field(object, 4), 4).length == 0) {
-                throw new IllegalArgumentException("object payload identity is incomplete");
-            }
-            bodyUnsigned(field(object, 6), 6);
-            final byte[] objectHash = fixed(field(object, 7), 7, HASH_LENGTH);
-            fixed(field(object, 8), 8, HASH_LENGTH);
-            fixed(field(object, 9), 9, HASH_LENGTH);
-            if (length != bodyUnsigned(field(object, 6), 6) || !Arrays.equals(hash, objectHash)) {
+            final CommittedPayloadDescriptorV1 object = CommittedPayloadDescriptorV1.decode(
+                    nested(field(fields, 4), 4));
+            if (length != object.length() || !Arrays.equals(hash, object.payloadSha256())) {
                 throw new IllegalArgumentException("object payload length/hash mismatch");
             }
         }
@@ -258,14 +227,7 @@ public final class ClaimResultBody {
     }
 
     private static void validateAdapterMetadata(final byte[] encoded) {
-        final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "AdapterMetadata");
-        if (fields.size() != 1 || (fields.get(0).number() != 1 && fields.get(0).number() != 2)) {
-            throw new IllegalArgumentException("invalid AdapterMetadata branch");
-        }
-        nested(fields.get(0), fields.get(0).number());
-        if (!Arrays.equals(encoded, canonical(fields))) {
-            throw new IllegalArgumentException("non-canonical AdapterMetadata");
-        }
+        AdapterMetadataV1.decode(encoded);
     }
 
     private static void validateChargeVector(final byte[] encoded) {

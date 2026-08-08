@@ -119,6 +119,14 @@ of applying a signed nonnegative fence. `ClaimResultBodyTest` covers high-bit
 Destination and Delivery-Capability versions; Claim source authority and
 external placement remain release blockers.
 
+The same Claim materialization projection now delegates its nested Broker
+resource, committed Object Store descriptor and adapter-metadata branches to
+their typed codecs. This closes NFC/UTF-8, branch semantics, Object Store
+Profile-kind and fixed identity checks that a shallow non-empty-byte validator
+could bypass. `ClaimResultBodyTest` covers non-canonical Broker identity and a
+committed payload carrying the wrong Profile kind; full Claim materialization
+and external Object Store authority remain release blockers.
+
 DLQ `terminalRevision` now preserves complete nonzero `uint64` bits through
 `DlqExportRecord` identity/bytes and `DlqExportResultBody` parsing; zero remains
 invalid. `DlqExportRecordTest` and `DlqExportResultBodyTest` cover the high-bit

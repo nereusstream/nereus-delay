@@ -92,6 +92,12 @@ lengths cannot pass the projection validator; the negative vector is covered by
 The replay-stable Claim Result materialization uses the same decoder, so its
 high-bit Destination/Delivery-Capability Profile versions are not rejected by
 the Claim path; `ClaimResultBodyTest` covers that boundary.
+Its nested Broker resource, committed Object Store descriptor and adapter
+metadata now reuse the typed Registry codecs as well, so NFC/UTF-8, branch,
+Profile-kind and fixed identity semantics cannot be weakened by the Claim
+projection's local parser. Negative vectors for a non-canonical Broker identity
+and a committed descriptor with the wrong Profile kind are in
+`ClaimResultBodyTest`.
 
 Payload-proof trust-set semantic/reference versions now also preserve complete
 raw bits, while the source-ordered activation projection compares versions as
