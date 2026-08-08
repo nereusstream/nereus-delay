@@ -2000,10 +2000,15 @@ public final class DelayShard {
                         StableCode.STALE_SYSTEM_MUTATION);
             }
         }
-        final PublishAttemptLedger admission = PublishAttemptLedger.publishing(messageId, body.generation(),
-                body.publishAttemptId(), body.claimId(), author.generation(), body.descriptor().attemptNo(), laneId,
-                body.laneIncarnation(), body.ownerIdentity(), body.storeIncarnation(), body.preparedPublishHash(),
-                mutation.canonicalBody(), sourcePosition.canonicalBytes());
+        final long firstAttemptAt = body.decisionTime().latestEpochMs();
+        final RetryPolicySemanticV1 admissionPolicy = retryPolicyFor(messageId, current, sourcePosition);
+        final long retryDeadline = retryDeadlineForAdmission(firstAttemptAt, current.expireAtEpochMs(),
+                admissionPolicy);
+        final PublishAttemptLedger admission = PublishAttemptLedger.publishingWithRetryWindow(messageId,
+                body.generation(), body.publishAttemptId(), body.claimId(), author.generation(),
+                body.descriptor().attemptNo(), laneId, body.laneIncarnation(), body.ownerIdentity(),
+                body.storeIncarnation(), body.preparedPublishHash(), mutation.canonicalBody(), firstAttemptAt,
+                retryDeadline, sourcePosition.canonicalBytes());
         final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, StableCode.OK,
                 sourcePosition.canonicalBytes());
         try {
@@ -2301,7 +2306,29 @@ public final class DelayShard {
                                               final MessageRecord current,
                                               final SourcePosition sourcePosition) {
         final PublishOutcomeBody.RetryDecision decision = outcome.retryDecision();
-        if (retryPolicyCatalog == null || !decision.hasFullShape()) {
+        if (!decision.hasFullShape()) {
+            return;
+        }
+        final Long admittedFirstAttemptAt;
+        if (ledger.hasRetryWindow()) {
+            admittedFirstAttemptAt = ledger.firstAttemptAtEpochMs();
+        } else {
+            admittedFirstAttemptAt = admittedFirstAttemptAt(ledger);
+        }
+        if (admittedFirstAttemptAt != null && decision.firstAttemptAt() != admittedFirstAttemptAt) {
+            throw new IllegalArgumentException("RetryDecision first attempt does not match Publish Admission");
+        }
+        if (ledger.hasRetryWindow() && decision.retryDeadline() != ledger.retryDeadlineEpochMs()) {
+            throw new IllegalArgumentException("RetryDecision deadline does not match the attempt ledger");
+        }
+        if (retryPolicyCatalog == null) {
+            // A compatibility shard without a policy catalog cannot recompute
+            // exponential cap/jitter, but a V2 ledger still supplies the
+            // immutable first-attempt/deadline fact and must not be bypassed.
+            if (ledger.hasRetryWindow() && decision.hasNextRetryAt()
+                    && decision.nextRetryAt() > ledger.retryDeadlineEpochMs()) {
+                throw new IllegalArgumentException("RetryDecision next retry exceeds the attempt ledger deadline");
+            }
             return;
         }
         final RetryPolicySemanticV1 policy = retryPolicyFor(ledger.delayMessageId(), current, sourcePosition);
@@ -2311,12 +2338,11 @@ public final class DelayShard {
                 || decision.firstAttemptAt() >= current.expireAtEpochMs()) {
             throw new IllegalArgumentException("RetryDecision does not match the pinned Retry Policy");
         }
-        final Long admittedFirstAttemptAt = admittedFirstAttemptAt(ledger);
-        if (admittedFirstAttemptAt != null && decision.firstAttemptAt() != admittedFirstAttemptAt) {
-            throw new IllegalArgumentException("RetryDecision first attempt does not match Publish Admission");
+        final long expectedDeadline = retryDeadlineForAdmission(decision.firstAttemptAt(),
+                current.expireAtEpochMs(), policy);
+        if (ledger.hasRetryWindow() && ledger.retryDeadlineEpochMs() != expectedDeadline) {
+            throw new IllegalArgumentException("attempt ledger retry deadline does not match the pinned policy");
         }
-        final long expectedDeadline = Math.min(current.expireAtEpochMs(),
-                Math.addExact(decision.firstAttemptAt(), policy.maxRetryDurationMs()));
         if (decision.retryDeadline() != expectedDeadline) {
             throw new IllegalArgumentException("RetryDecision deadline does not match the pinned Retry Policy");
         }
@@ -2328,6 +2354,50 @@ public final class DelayShard {
             if (decision.nextRetryAt() != expectedNext || expectedNext > decision.retryDeadline()) {
                 throw new IllegalArgumentException("RetryDecision next retry does not match deterministic jitter");
             }
+        }
+    }
+
+    private static long retryDeadlineForAdmission(final long firstAttemptAt, final long expireAt,
+                                                  final RetryPolicySemanticV1 policy) {
+        if (firstAttemptAt < 0 || expireAt < firstAttemptAt) {
+            throw new IllegalArgumentException("invalid Admission retry window");
+        }
+        if (policy == null) {
+            // Legacy/non-catalogued schedules have no immutable policy budget;
+            // the message expiry remains the only safe local upper bound.
+            return expireAt;
+        }
+        try {
+            return Math.min(expireAt, Math.addExact(firstAttemptAt, policy.maxRetryDurationMs()));
+        } catch (ArithmeticException overflow) {
+            throw new IllegalArgumentException("Admission retry deadline arithmetic overflow", overflow);
+        }
+    }
+
+    /** Validates V2 ledger facts before an attempt can become durable. */
+    private void validatePersistedRetryWindow(final PublishAttemptLedger admission,
+                                              final MessageRecord current,
+                                              final SourcePosition sourcePosition) {
+        if (!admission.hasRetryWindow()) {
+            return;
+        }
+        final PublishAdmissionBody body;
+        try {
+            body = PublishAdmissionBody.decode(admission.admissionBytes());
+        } catch (IllegalArgumentException malformed) {
+            throw new IllegalArgumentException("typed retry window requires a canonical Publish Admission", malformed);
+        }
+        if (!Arrays.equals(body.publishAttemptId(), admission.publishAttemptId())
+                || body.generation() != admission.generation()
+                || !Arrays.equals(body.messageId(), admission.delayMessageId().bytes())) {
+            throw new IllegalArgumentException("typed retry window is bound to another Admission");
+        }
+        final RetryPolicySemanticV1 policy = retryPolicyFor(admission.delayMessageId(), current, sourcePosition);
+        final long expectedFirst = body.decisionTime().latestEpochMs();
+        final long expectedDeadline = retryDeadlineForAdmission(expectedFirst, current.expireAtEpochMs(), policy);
+        if (admission.firstAttemptAtEpochMs() != expectedFirst
+                || admission.retryDeadlineEpochMs() != expectedDeadline) {
+            throw new IllegalArgumentException("persisted retry window does not match Admission/policy");
         }
     }
 
@@ -4262,6 +4332,7 @@ public final class DelayShard {
                 || current.generation() != admission.generation() || !current.laneId().equals(admission.laneId())) {
             throw new IllegalStateException("publish admission is stale for the current message generation");
         }
+        validatePersistedRetryWindow(admission, current, sourcePosition);
         validateAdmissionBudget(admission.delayMessageId(), current, current.runtimeIndex(), uncertainRetryAdmission,
                 sourcePosition);
         final ClaimRecord claim = current.status() == MessageStatus.CLAIMED

@@ -1125,10 +1125,14 @@ class DelayShardTest {
             final PublishAdmissionBody admissionBody = PublishAdmissionBody.decode(fixture.body());
             final byte[] attemptId = admissionBody.publishAttemptId();
             final byte[] owner = admissionBody.ownerIdentity();
-            final PublishAttemptLedger admission = PublishAttemptLedger.publishing(schedule.delayMessageId(), 0,
-                    attemptId, admissionBody.claimId(), 7, 1, lane, admissionBody.laneIncarnation(), owner,
-                    admissionBody.storeIncarnation(), admissionBody.preparedPublishHash(), fixture.body(),
-                    admissionPosition.canonicalBytes());
+            final PublishAttemptLedger admission = PublishAttemptLedger.publishingWithRetryWindow(
+                    schedule.delayMessageId(), 0, attemptId, admissionBody.claimId(), 7, 1, lane,
+                    admissionBody.laneIncarnation(), owner, admissionBody.storeIncarnation(),
+                    admissionBody.preparedPublishHash(), fixture.body(), admissionBody.decisionTime().latestEpochMs(),
+                    5_000, admissionPosition.canonicalBytes());
+            assertTrue(admission.hasRetryWindow());
+            assertEquals(2_001, admission.firstAttemptAtEpochMs());
+            assertEquals(5_000, admission.retryDeadlineEpochMs());
             shard.admitPublishAttempt(admission, admissionPosition);
             final byte[] admissionCharge = admissionBody.chargeVector().canonicalBytes();
 
@@ -4137,14 +4141,16 @@ class DelayShardTest {
         final TrustedUtcIntervalEvidence outcomeObservedAt = new TrustedUtcIntervalEvidence(2_002, 2_002,
                 TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("outcome-clock"),
                 1, 1, 1, Bytes.sha256(Bytes.utf8("outcome-proof")), 0, null);
+        final byte[] verifiedRetry = verifiedRetryDecision(StableCode.OK,
+                parsed.decisionTime().latestEpochMs(), parsed.descriptor().expireAtEpochMs());
         final byte[] mismatchedOutcomeBody = publishOutcomeBody(shardId, parsed.publishAttemptId(), 1, 0,
                 StableCode.OK, nestedPlaceholder(), outcomeObservedAt.canonicalBytes(),
-                verifiedRetryDecision(StableCode.OK), chargeVectorWithActiveMessages(1));
+                verifiedRetry, chargeVectorWithActiveMessages(1));
         final SystemMutation mismatchedOutcome = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME,
                 9_000, publishOutcomeLogicalIdentity(mismatchedOutcomeBody), mismatchedOutcomeBody, fixture.owner(),
                 1, keyPair.getPrivate());
         final byte[] outcomeBody = publishOutcomeBody(shardId, parsed.publishAttemptId(), 1, 0, StableCode.OK,
-                nestedPlaceholder(), outcomeObservedAt.canonicalBytes(), verifiedRetryDecision(StableCode.OK),
+                nestedPlaceholder(), outcomeObservedAt.canonicalBytes(), verifiedRetry,
                 parsed.chargeVector().canonicalBytes());
         final SystemMutation outcome = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
                 publishOutcomeLogicalIdentity(outcomeBody), outcomeBody, fixture.owner(), 1,
@@ -4369,7 +4375,8 @@ class DelayShardTest {
                 firstFixture.owner(), 7, keyPair.getPrivate());
         final KafkaSourcePosition firstAdmissionPosition = position(shardId, 1, 1_001);
         final byte[] outcomeBody = publishNotPublishedBody(shardId, firstBody.publishAttemptId(), 1,
-                StableCode.DESTINATION_DEFINITIVE_RETRIABLE, 2_002);
+                StableCode.DESTINATION_DEFINITIVE_RETRIABLE, 2_002,
+                firstBody.decisionTime().latestEpochMs(), firstBody.descriptor().expireAtEpochMs());
         final SystemMutation outcome = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
                 publishOutcomeLogicalIdentity(outcomeBody), outcomeBody, firstFixture.owner(), 7,
                 keyPair.getPrivate());
@@ -5607,6 +5614,11 @@ class DelayShardTest {
     }
 
     private static byte[] verifiedRetryDecision(final StableCode stableCode) {
+        return verifiedRetryDecision(stableCode, 2_000, 5_000);
+    }
+
+    private static byte[] verifiedRetryDecision(final StableCode stableCode, final long firstAttemptAt,
+                                                final long retryDeadline) {
         final byte[] policy = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, Bytes.utf8("policy"));
             CanonicalProtobuf.uint32(output, 2, 1);
@@ -5616,8 +5628,8 @@ class DelayShardTest {
             CanonicalProtobuf.uint32(output, 1, 1);
             CanonicalProtobuf.bytes(output, 2, policy);
             CanonicalProtobuf.uint32(output, 3, 1);
-            CanonicalProtobuf.int64(output, 4, 2_000);
-            CanonicalProtobuf.int64(output, 5, 5_000);
+            CanonicalProtobuf.int64(output, 4, firstAttemptAt);
+            CanonicalProtobuf.int64(output, 5, retryDeadline);
             CanonicalProtobuf.uint32(output, 7, 1);
             CanonicalProtobuf.uint32(output, 8, stableCode.wireValue());
             CanonicalProtobuf.uint32(output, 9, 1);
@@ -5627,6 +5639,13 @@ class DelayShardTest {
     private static byte[] publishNotPublishedBody(final ShardId shard, final byte[] attemptId,
                                                   final int disposition, final StableCode stableCode,
                                                   final long nextRetryAt) {
+        return publishNotPublishedBody(shard, attemptId, disposition, stableCode, nextRetryAt, 2_000, 5_000);
+    }
+
+    private static byte[] publishNotPublishedBody(final ShardId shard, final byte[] attemptId,
+                                                  final int disposition, final StableCode stableCode,
+                                                  final long nextRetryAt, final long firstAttemptAt,
+                                                  final long retryDeadline) {
         final byte[] subject = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());
             CanonicalProtobuf.uint32(output, 2, shard.partition());
@@ -5645,8 +5664,8 @@ class DelayShardTest {
             });
             CanonicalProtobuf.bytes(output, 2, policy);
             CanonicalProtobuf.uint32(output, 3, 1);
-            CanonicalProtobuf.int64(output, 4, 2_000);
-            CanonicalProtobuf.int64(output, 5, 5_000);
+            CanonicalProtobuf.int64(output, 4, firstAttemptAt);
+            CanonicalProtobuf.int64(output, 5, retryDeadline);
             if (disposition != 2) {
                 CanonicalProtobuf.int64(output, 6, nextRetryAt);
             }

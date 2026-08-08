@@ -13,13 +13,18 @@ import java.util.Objects;
  * Durable open publish-attempt projection.
  *
  * <p>The admission and outcome bytes are retained verbatim so replay can later validate the full Registry body
- * without reconstructing it from mutable runtime state. This embedded V1 subset does not yet interpret all nested
- * Claim/Certificate/Channel fields.</p>
+ * without reconstructing it from mutable runtime state. Version 1 remains readable for legacy opaque ledgers;
+ * canonical source-applied Admissions use version 2 to persist the immutable retry window alongside those bytes.
+ * This embedded V1 subset does not yet interpret all nested Claim/Certificate/Channel fields.</p>
  */
 public final class PublishAttemptLedger {
     public static final int VALUE_TYPE = 8;
     public static final int HASH_LENGTH = 32;
     public static final int INCARNATION_LENGTH = 16;
+    private static final int LEGACY_VERSION = 1;
+    private static final int VERSION = 2;
+    /** A legacy ledger does not carry the independently typed retry window. */
+    private static final long ABSENT_RETRY_WINDOW = -1L;
 
     private final DelayMessageId delayMessageId;
     private final int generation;
@@ -33,6 +38,8 @@ public final class PublishAttemptLedger {
     private final byte[] storeIncarnation;
     private final byte[] preparedPublishHash;
     private final byte[] admissionBytes;
+    private final long firstAttemptAtEpochMs;
+    private final long retryDeadlineEpochMs;
     private final AttemptLedgerState state;
     private final byte[] outcomeBytes;
     private final byte[] evidenceBytes;
@@ -45,6 +52,19 @@ public final class PublishAttemptLedger {
                                 final byte[] preparedPublishHash, final byte[] admissionBytes,
                                 final AttemptLedgerState state, final byte[] outcomeBytes,
                                 final byte[] evidenceBytes, final byte[] sourcePosition) {
+        this(delayMessageId, generation, publishAttemptId, claimId, ownerEpoch, attemptNo, laneId, laneIncarnation,
+                ownerIdentity, storeIncarnation, preparedPublishHash, admissionBytes, state, outcomeBytes,
+                evidenceBytes, sourcePosition, ABSENT_RETRY_WINDOW, ABSENT_RETRY_WINDOW);
+    }
+
+    private PublishAttemptLedger(final DelayMessageId delayMessageId, final int generation,
+                                 final byte[] publishAttemptId, final byte[] claimId, final long ownerEpoch,
+                                 final int attemptNo, final DestinationLaneId laneId, final byte[] laneIncarnation,
+                                 final byte[] ownerIdentity, final byte[] storeIncarnation,
+                                 final byte[] preparedPublishHash, final byte[] admissionBytes,
+                                 final AttemptLedgerState state, final byte[] outcomeBytes,
+                                 final byte[] evidenceBytes, final byte[] sourcePosition,
+                                 final long firstAttemptAtEpochMs, final long retryDeadlineEpochMs) {
         this.delayMessageId = Objects.requireNonNull(delayMessageId, "delayMessageId");
         if (generation < 0 || ownerEpoch == 0 || attemptNo <= 0) {
             throw new IllegalArgumentException("invalid publish attempt generation/owner/attempt");
@@ -60,6 +80,15 @@ public final class PublishAttemptLedger {
         this.storeIncarnation = fixed(storeIncarnation, INCARNATION_LENGTH, "storeIncarnation");
         this.preparedPublishHash = fixed(preparedPublishHash, "preparedPublishHash");
         this.admissionBytes = nonEmpty(admissionBytes, "admissionBytes");
+        if ((firstAttemptAtEpochMs == ABSENT_RETRY_WINDOW) != (retryDeadlineEpochMs == ABSENT_RETRY_WINDOW)) {
+            throw new IllegalArgumentException("retry window fields must be present together");
+        }
+        if (firstAttemptAtEpochMs < ABSENT_RETRY_WINDOW || retryDeadlineEpochMs < ABSENT_RETRY_WINDOW
+                || firstAttemptAtEpochMs >= 0 && retryDeadlineEpochMs < firstAttemptAtEpochMs) {
+            throw new IllegalArgumentException("invalid persisted retry window");
+        }
+        this.firstAttemptAtEpochMs = firstAttemptAtEpochMs;
+        this.retryDeadlineEpochMs = retryDeadlineEpochMs;
         this.state = Objects.requireNonNull(state, "state");
         this.outcomeBytes = optional(outcomeBytes);
         this.evidenceBytes = optional(evidenceBytes);
@@ -84,11 +113,34 @@ public final class PublishAttemptLedger {
                 AttemptLedgerState.PUBLISHING, new byte[0], new byte[0], sourcePosition);
     }
 
+    /** Creates a canonical V2 Admission ledger with the immutable retry window. */
+    public static PublishAttemptLedger publishingWithRetryWindow(final DelayMessageId delayMessageId,
+                                                                  final int generation,
+                                                                  final byte[] publishAttemptId,
+                                                                  final byte[] claimId,
+                                                                  final long ownerEpoch,
+                                                                  final int attemptNo,
+                                                                  final DestinationLaneId laneId,
+                                                                  final byte[] laneIncarnation,
+                                                                  final byte[] ownerIdentity,
+                                                                  final byte[] storeIncarnation,
+                                                                  final byte[] preparedPublishHash,
+                                                                  final byte[] admissionBytes,
+                                                                  final long firstAttemptAtEpochMs,
+                                                                  final long retryDeadlineEpochMs,
+                                                                  final byte[] sourcePosition) {
+        return new PublishAttemptLedger(delayMessageId, generation, publishAttemptId, claimId, ownerEpoch, attemptNo,
+                laneId, laneIncarnation, ownerIdentity, storeIncarnation, preparedPublishHash, admissionBytes,
+                AttemptLedgerState.PUBLISHING, new byte[0], new byte[0], sourcePosition,
+                firstAttemptAtEpochMs, retryDeadlineEpochMs);
+    }
+
     public PublishAttemptLedger withUnknownOutcome(final byte[] outcome, final byte[] evidence,
                                                    final byte[] outcomeSourcePosition) {
         return new PublishAttemptLedger(delayMessageId, generation, publishAttemptId, claimId, ownerEpoch, attemptNo,
                 laneId, laneIncarnation, ownerIdentity, storeIncarnation, preparedPublishHash, admissionBytes,
-                AttemptLedgerState.UNCERTAIN, outcome, evidence, outcomeSourcePosition);
+                AttemptLedgerState.UNCERTAIN, outcome, evidence, outcomeSourcePosition,
+                firstAttemptAtEpochMs, retryDeadlineEpochMs);
     }
 
     public DelayMessageId delayMessageId() {
@@ -139,6 +191,25 @@ public final class PublishAttemptLedger {
         return Bytes.copy(admissionBytes);
     }
 
+    /** Returns whether this ledger independently stores the immutable retry window. */
+    public boolean hasRetryWindow() {
+        return firstAttemptAtEpochMs != ABSENT_RETRY_WINDOW;
+    }
+
+    public long firstAttemptAtEpochMs() {
+        if (!hasRetryWindow()) {
+            throw new IllegalStateException("legacy publish attempt ledger has no retry window");
+        }
+        return firstAttemptAtEpochMs;
+    }
+
+    public long retryDeadlineEpochMs() {
+        if (!hasRetryWindow()) {
+            throw new IllegalStateException("legacy publish attempt ledger has no retry window");
+        }
+        return retryDeadlineEpochMs;
+    }
+
     public AttemptLedgerState state() {
         return state;
     }
@@ -165,9 +236,14 @@ public final class PublishAttemptLedger {
     }
 
     public byte[] encode() {
-        return Bytes.concat(Bytes.u32be(1), delayMessageId.bytes(), Bytes.u32be(generation), publishAttemptId,
+        final byte[] retryWindow = hasRetryWindow()
+                ? Bytes.concat(Bytes.i64be(firstAttemptAtEpochMs), Bytes.i64be(retryDeadlineEpochMs))
+                : new byte[0];
+        return Bytes.concat(Bytes.u32be(hasRetryWindow() ? VERSION : LEGACY_VERSION), delayMessageId.bytes(),
+                Bytes.u32be(generation), publishAttemptId,
                 claimId, Bytes.u64beBits(ownerEpoch), Bytes.u32be(attemptNo), laneId.bytes(), laneIncarnation,
-                Bytes.lp32(ownerIdentity), storeIncarnation, preparedPublishHash, Bytes.lp32(admissionBytes),
+                retryWindow, Bytes.lp32(ownerIdentity), storeIncarnation, preparedPublishHash,
+                Bytes.lp32(admissionBytes),
                 new byte[]{(byte) state.wireValue()}, Bytes.lp32(outcomeBytes), Bytes.lp32(evidenceBytes),
                 Bytes.lp32(sourcePosition));
     }
@@ -175,7 +251,8 @@ public final class PublishAttemptLedger {
     public static PublishAttemptLedger decode(final byte[] encoded) {
         final ByteBuffer input = ByteBuffer.wrap(encoded);
         requireRemaining(input, Integer.BYTES);
-        if (input.getInt() != 1) {
+        final int version = input.getInt();
+        if (version != LEGACY_VERSION && version != VERSION) {
             throw new IllegalArgumentException("unsupported publish attempt ledger version");
         }
         final byte[] message = readFixed(input, DelayMessageId.LENGTH, "delayMessageId");
@@ -186,6 +263,15 @@ public final class PublishAttemptLedger {
         final int attemptNo = readU32Int(input, "attemptNo");
         final byte[] lane = readFixed(input, 32, "laneId");
         final byte[] laneIncarnation = readFixed(input, INCARNATION_LENGTH, "laneIncarnation");
+        final long firstAttemptAt;
+        final long retryDeadline;
+        if (version == VERSION) {
+            firstAttemptAt = readI64(input, "firstAttemptAt");
+            retryDeadline = readI64(input, "retryDeadline");
+        } else {
+            firstAttemptAt = ABSENT_RETRY_WINDOW;
+            retryDeadline = ABSENT_RETRY_WINDOW;
+        }
         final byte[] owner = readLp32(input, "ownerIdentity");
         final byte[] store = readFixed(input, INCARNATION_LENGTH, "storeIncarnation");
         final byte[] preparedHash = readFixed(input, HASH_LENGTH, "preparedPublishHash");
@@ -200,7 +286,7 @@ public final class PublishAttemptLedger {
         }
         final PublishAttemptLedger result = new PublishAttemptLedger(new DelayMessageId(message), generation, attempt,
                 claim, ownerEpoch, attemptNo, new DestinationLaneId(lane), laneIncarnation, owner, store, preparedHash,
-                admission, state, outcome, evidence, source);
+                admission, state, outcome, evidence, source, firstAttemptAt, retryDeadline);
         if (!Arrays.equals(encoded, result.encode())) {
             throw new IllegalArgumentException("non-canonical publish attempt ledger");
         }
@@ -248,6 +334,15 @@ public final class PublishAttemptLedger {
         return input.getLong();
     }
 
+    private static long readI64(final ByteBuffer input, final String name) {
+        requireRemaining(input, Long.BYTES);
+        final long value = input.getLong();
+        if (value < 0) {
+            throw new IllegalArgumentException(name + " must be non-negative");
+        }
+        return value;
+    }
+
     private static byte[] readFixed(final ByteBuffer input, final int length, final String name) {
         requireRemaining(input, length);
         final byte[] result = new byte[length];
@@ -276,6 +371,8 @@ public final class PublishAttemptLedger {
                 && Arrays.equals(ownerIdentity, that.ownerIdentity)
                 && Arrays.equals(storeIncarnation, that.storeIncarnation)
                 && Arrays.equals(preparedPublishHash, that.preparedPublishHash)
+                && firstAttemptAtEpochMs == that.firstAttemptAtEpochMs
+                && retryDeadlineEpochMs == that.retryDeadlineEpochMs
                 && Arrays.equals(admissionBytes, that.admissionBytes) && Arrays.equals(outcomeBytes, that.outcomeBytes)
                 && Arrays.equals(evidenceBytes, that.evidenceBytes) && Arrays.equals(sourcePosition, that.sourcePosition);
     }
@@ -289,6 +386,8 @@ public final class PublishAttemptLedger {
         result = 31 * result + Arrays.hashCode(ownerIdentity);
         result = 31 * result + Arrays.hashCode(storeIncarnation);
         result = 31 * result + Arrays.hashCode(preparedPublishHash);
+        result = 31 * result + Long.hashCode(firstAttemptAtEpochMs);
+        result = 31 * result + Long.hashCode(retryDeadlineEpochMs);
         result = 31 * result + Arrays.hashCode(admissionBytes);
         result = 31 * result + Arrays.hashCode(outcomeBytes);
         result = 31 * result + Arrays.hashCode(evidenceBytes);
