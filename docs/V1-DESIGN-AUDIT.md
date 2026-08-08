@@ -583,11 +583,14 @@ body codec 和本地 transition seam；当前 local transition 还验证了已 a
 generation 在 Close marker 后收到 definitive `NOT_PUBLISHED` 时固定写入
 `LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED` 并停止 retry。它不等于签名服务、真实
 Broker evidence、strong-capability retirement 或 production outcome authority 已完成。
-Activation 还从 durable `PUBLISHING`/`UNCERTAIN` ledgers 重建 class-2 outcome
-record/byte aggregate 与 exact 66 维 vector；兼容 shard 即使没有 immutable
-capacity envelope 也不会在重启后丢失这个本地 vector，绑定 envelope 时再校验其
-持久 grant-bound projection（未接入的外部 dimensions 保持 zero）。这仍不等于
-外部 reserve authority。
+Activation 还从 durable `PUBLISHING`/`UNCERTAIN` ledgers 重建 Registry
+`meta/QUOTA` class-2 的 canonical aggregate 与 exact 66 维 outcome vector；
+per-Lane class-3 map 提供 dimensions 1--17，open-attempt ledger 提供 outcome
+dimensions 9--15，外部/物理 dimensions 18--66 在本地兼容投影中保持 zero。
+兼容 shard 即使没有 immutable capacity envelope 也不会在重启后丢失这个本地
+vector，绑定 envelope 时再校验其持久 grant-bound projection。旧 class-1
+`ShardQuota` 与旧 class-2 `OutcomeReserveUsage` 只读用于迁移/校验，新 mutation
+写 canonical class 2 并清除 stale class 1。这仍不等于外部 reserve authority。
 Apply 同时验证 operation-specific logical identity：initial Publish Outcome 必须使用
 body 中的 `PublishAttemptId`，Evidence Resolution 必须使用
 `SHA-256("nereus-delay-evidence-resolution-logical-id-v1\0" || PublishAttemptId || evidenceId)`；

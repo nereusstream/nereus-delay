@@ -22,6 +22,7 @@ import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.DlqExportResultBody;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.LaneRecordEnvelopeV1;
+import io.nereusstream.delay.protocol.LaneQuotaUsageEntryV1;
 import io.nereusstream.delay.protocol.LaneRetirementProgressV1;
 import io.nereusstream.delay.protocol.LaneTerminalGuardV1;
 import io.nereusstream.delay.protocol.PayloadCommitProofView;
@@ -92,8 +93,10 @@ public final class DelayShard {
     private static final int META_PROFILE_CONTROL_STATE = 13;
     private static final int PAYLOAD_PROOF_CONTROL_VALUE_TYPE = 9;
     private static final int PROFILE_CONTROL_VALUE_TYPE = 10;
-    private static final int META_QUOTA_USAGE = 1;
-    private static final int META_OUTCOME_RESERVE_USAGE = 2;
+    /** Legacy compatibility projection; V1 class 1 is reserved for grant identity/version. */
+    private static final int META_LEGACY_QUOTA_USAGE = 1;
+    /** Registry class 2: canonical aggregate CapacityVectorV1 usage. */
+    private static final int META_QUOTA_AGGREGATE_USAGE = 2;
     private static final int META_LANE_QUOTA_USAGE = 3;
     private static final int CAPACITY_RESERVE_VALUE_TYPE = 8;
     private static final int CONTROL_RESERVE_NON_OUTCOME_CLASS = 3;
@@ -257,15 +260,20 @@ public final class DelayShard {
                 ? ProfileBindingControlState.empty()
                 : ProfileBindingControlState.decode(profileControlValue.payload());
         validateControlStateSourcePositions();
-        final var quotaValue = store.getValue(ColumnFamily.META, KeyCodec.metaQuota(META_QUOTA_USAGE), 7);
+        final var quotaValue = store.getValue(ColumnFamily.META, KeyCodec.metaQuota(META_LEGACY_QUOTA_USAGE), 7);
         final ShardQuota persistedQuota = quotaValue == null
                 ? null : ShardQuota.decode(quotaValue.payload());
         quota = persistedQuota == null ? ShardQuota.empty() : persistedQuota;
         final var laneQuotaValue = store.getValue(ColumnFamily.META,
                 KeyCodec.metaQuota(META_LANE_QUOTA_USAGE), 7);
-        final LaneQuotaUsageProjection rebuiltLaneQuota = rebuildLaneQuotaUsage();
+        final LaneQuotaUsageProjection persistedLaneQuota = laneQuotaValue == null
+                ? null : LaneQuotaUsageProjection.decode(laneQuotaValue.payload());
+        final long rebuildRevision = persistedQuota == null
+                ? persistedLaneQuota == null ? 0 : maxLaneQuotaRevision(persistedLaneQuota)
+                : persistedQuota.usageRevision();
+        final LaneQuotaUsageProjection rebuiltLaneQuota = rebuildLaneQuotaUsage(rebuildRevision);
         final ShardQuota rebuiltQuota = rebuildShardQuota(rebuiltLaneQuota,
-                persistedQuota == null ? 0 : persistedQuota.usageRevision());
+                rebuildRevision);
         if (persistedQuota == null) {
             // Legacy stores may have the durable records but no aggregate
             // projection yet.  Reuse the rebuilt counts in memory; the next
@@ -274,23 +282,31 @@ public final class DelayShard {
         } else if (!sameQuotaUsage(persistedQuota, rebuiltQuota)) {
             throw new IllegalStateException("persisted shard quota disagrees with runtime state");
         }
-        laneQuotaUsage = laneQuotaValue == null
-                ? rebuiltLaneQuota : LaneQuotaUsageProjection.decode(laneQuotaValue.payload());
+        laneQuotaUsage = persistedLaneQuota == null ? rebuiltLaneQuota : persistedLaneQuota;
         if (!Arrays.equals(laneQuotaUsage.canonicalBytes(), rebuiltLaneQuota.canonicalBytes())) {
             throw new IllegalStateException("persisted per-Lane quota projection disagrees with runtime state");
         }
-        final var outcomeReserveValue = store.getValue(ColumnFamily.META,
-                KeyCodec.metaQuota(META_OUTCOME_RESERVE_USAGE), 7);
-        final OutcomeReserveUsage persistedOutcomeReserve = outcomeReserveValue == null
-                ? null : OutcomeReserveUsage.decode(outcomeReserveValue.payload());
-        final OutcomeReserveUsage rebuiltOutcomeReserve = rebuildOutcomeReserveUsage();
-        if (persistedOutcomeReserve == null) {
-            outcomeReserve = rebuiltOutcomeReserve;
-        } else if (!persistedOutcomeReserve.equals(rebuiltOutcomeReserve)) {
-            throw new IllegalStateException("persisted outcome reserve disagrees with runtime state");
-        } else {
-            outcomeReserve = persistedOutcomeReserve;
+        final var aggregateQuotaValue = store.getValue(ColumnFamily.META,
+                KeyCodec.metaQuota(META_QUOTA_AGGREGATE_USAGE), 7);
+        CapacityVectorV1 persistedQuotaAggregate = null;
+        OutcomeReserveUsage legacyPersistedOutcomeReserve = null;
+        if (aggregateQuotaValue != null) {
+            try {
+                persistedQuotaAggregate = CapacityVectorV1.decode(aggregateQuotaValue.payload());
+            } catch (IllegalArgumentException notAnAggregateVector) {
+                // Stores written before the Registry class-2 projection was
+                // closed carried the scalar OutcomeReserveUsage here. Keep
+                // it readable for one-way source-ordered migration, but do
+                // not treat it as the V1 class-2 value.
+                legacyPersistedOutcomeReserve = OutcomeReserveUsage.decode(aggregateQuotaValue.payload());
+            }
         }
+        final OutcomeReserveUsage rebuiltOutcomeReserve = rebuildOutcomeReserveUsage();
+        if (legacyPersistedOutcomeReserve != null
+                && !legacyPersistedOutcomeReserve.equals(rebuiltOutcomeReserve)) {
+            throw new IllegalStateException("persisted outcome reserve disagrees with runtime state");
+        }
+        outcomeReserve = rebuiltOutcomeReserve;
         if (outcomeReserve.records() > config.maxOutcomeReserveRecords()
                 || outcomeReserve.bytes() > config.maxOutcomeReserveBytes()) {
             throw new IllegalStateException("persisted outcome reserve exceeds the active shard grant");
@@ -306,6 +322,16 @@ public final class DelayShard {
             outcomeReserveVector = rebuiltOutcomeReserveVector;
         } else if (!outcomeReserveVector.equals(rebuiltOutcomeReserveVector)) {
             throw new IllegalStateException("persisted outcome reserve vector disagrees with runtime state");
+        }
+        if (persistedQuotaAggregate != null
+                && !outcomeReserve.equals(outcomeReserveUsage(persistedQuotaAggregate))) {
+            throw new IllegalStateException("persisted outcome reserve disagrees with runtime state");
+        }
+        final CapacityVectorV1 rebuiltQuotaAggregate = aggregateQuotaUsage(rebuiltLaneQuota,
+                rebuiltOutcomeReserveVector);
+        if (persistedQuotaAggregate != null
+                && !persistedQuotaAggregate.equals(rebuiltQuotaAggregate)) {
+            throw new IllegalStateException("persisted quota aggregate disagrees with runtime state");
         }
         loadControlReserveUsage(capacityEnvelope);
         if (capacityEnvelope != null
@@ -614,6 +640,40 @@ public final class DelayShard {
                 Math.addExact(vector.amount(CapacityDimensionV1.OUTCOME_WAL_BYTES),
                         vector.amount(CapacityDimensionV1.EVIDENCE_BYTES)));
         return new OutcomeReserveUsage(records, bytes);
+    }
+
+    /**
+     * Builds the Registry class-2 aggregate from the local projections that
+     * have an exact durable ledger.  The per-Lane map owns the logical and
+     * inflight dimensions; the open-attempt projection owns outcome result,
+     * system-mutation, WAL and evidence dimensions.  External/physical
+     * dimensions remain zero until their ledgers are wired into the shard.
+     */
+    private static CapacityVectorV1 aggregateQuotaUsage(final LaneQuotaUsageProjection lanes,
+                                                        final CapacityVectorV1 outcome) {
+        Objects.requireNonNull(lanes, "lanes");
+        Objects.requireNonNull(outcome, "outcome");
+        final long[] amounts = new long[CapacityDimensionV1.COUNT];
+        for (LaneQuotaUsageEntryV1 entry : lanes.map().entries()) {
+            final long[] laneAmounts = entry.usage().toCapacityVector().amounts();
+            for (int index = 0; index < 17; index++) {
+                try {
+                    amounts[index] = Math.addExact(amounts[index], laneAmounts[index]);
+                } catch (ArithmeticException exception) {
+                    throw new IllegalStateException("quota aggregate arithmetic overflow", exception);
+                }
+            }
+        }
+        final long[] outcomeAmounts = outcome.amounts();
+        for (int index = CapacityDimensionV1.RESULT_RECORDS.wireValue() - 1;
+             index <= CapacityDimensionV1.EVIDENCE_BYTES.wireValue() - 1; index++) {
+            try {
+                amounts[index] = Math.addExact(amounts[index], outcomeAmounts[index]);
+            } catch (ArithmeticException exception) {
+                throw new IllegalStateException("quota aggregate arithmetic overflow", exception);
+            }
+        }
+        return new CapacityVectorV1(amounts);
     }
 
     public synchronized MessageRecord getMessage(final DelayMessageId messageId) {
@@ -2518,7 +2578,7 @@ public final class DelayShard {
             }
             batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(ledger.delayMessageId()), next.encode());
             persistQuota(batch, quota, projectedLaneQuota);
-            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector);
+            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector, projectedLaneQuota);
             writeSystemResult(batch, result);
             writePosition(batch, sourcePosition);
         });
@@ -2556,7 +2616,7 @@ public final class DelayShard {
             batch.delete(ColumnFamily.INFLIGHT, ledger.encodedKey());
             batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(ledger.delayMessageId()), next.encode());
             persistQuota(batch, quota, nextLaneQuota);
-            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector);
+            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector, nextLaneQuota);
             writeSystemResult(batch, result);
             writePosition(batch, sourcePosition);
         });
@@ -2643,7 +2703,7 @@ public final class DelayShard {
                 putReadyProjection(batch, projection);
             }
             persistQuota(batch, quota, projectedLaneQuota);
-            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector);
+            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector, projectedLaneQuota);
             writeSystemResult(batch, result);
             writePosition(batch, sourcePosition);
         });
@@ -2741,7 +2801,7 @@ public final class DelayShard {
                 putReadyProjection(batch, projection);
             }
             persistQuota(batch, nextQuota, projectedLaneQuota);
-            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector);
+            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector, projectedLaneQuota);
             writeSystemResult(batch, result);
             writePosition(batch, sourcePosition);
         });
@@ -3433,7 +3493,7 @@ public final class DelayShard {
                     putReadyProjection(batch, projection);
                 }
                 persistQuota(batch, nextQuota, projectedLaneQuota);
-                persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector);
+                persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector, projectedLaneQuota);
                 writeSystemResult(batch, terminalResult);
                 writePosition(batch, sourcePosition);
             });
@@ -3491,7 +3551,7 @@ public final class DelayShard {
                 putReadyProjection(batch, projection);
             }
             persistQuota(batch, quota, nextLaneQuota);
-            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector);
+            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector, nextLaneQuota);
             writeSystemResult(batch, systemResult);
             writePosition(batch, sourcePosition);
         });
@@ -4102,7 +4162,7 @@ public final class DelayShard {
                 writeSystemResult(batch, systemResult);
             }
             persistQuota(batch, quota, projectedLaneQuota);
-            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector);
+            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector, projectedLaneQuota);
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
@@ -4173,12 +4233,16 @@ public final class DelayShard {
     }
 
     private void persistOutcomeReserve(final ShardStore.Batch batch, final OutcomeReserveUsage nextUsage,
-                                       final CapacityVectorV1 nextVector)
+                                       final CapacityVectorV1 nextVector,
+                                       final LaneQuotaUsageProjection nextLaneQuota)
             throws org.rocksdb.RocksDBException {
-        if (!nextUsage.equals(outcomeReserve)) {
-            batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(META_OUTCOME_RESERVE_USAGE),
-                    nextUsage.encode());
-        }
+        // Class 1 accepted only the pre-Registry ShardQuota projection.  Once
+        // a source-ordered mutation has written the canonical class-2 vector,
+        // remove that legacy value so a later activation cannot validate a
+        // stale scalar against the current ledgers.
+        batch.delete(ColumnFamily.META, KeyCodec.metaQuota(META_LEGACY_QUOTA_USAGE));
+        batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(META_QUOTA_AGGREGATE_USAGE),
+                aggregateQuotaUsage(nextLaneQuota, nextVector).canonicalBytes());
         if (capacityEnvelope != null && !nextVector.equals(outcomeReserveVector)) {
             final byte[] key = KeyCodec.metaControlReserve(2, capacityEnvelope.outcomeReserve().grantId());
             if (nextVector.isZero()) {
@@ -4402,7 +4466,7 @@ public final class DelayShard {
                 putReadyProjection(batch, projection);
             }
             persistQuota(batch, nextQuota, projectedLaneQuota);
-            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector);
+            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector, projectedLaneQuota);
             if (systemResult != null) {
                 writeSystemResult(batch, systemResult);
             }
@@ -4451,7 +4515,7 @@ public final class DelayShard {
                 batch.delete(ColumnFamily.INFLIGHT, ledger.encodedKey());
                 batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(ledger.delayMessageId()), next.encode());
                 persistQuota(batch, quota, nextLaneQuota);
-                persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector);
+                persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector, nextLaneQuota);
                 if (systemResult != null) {
                     writeSystemResult(batch, systemResult);
                 }
@@ -4530,7 +4594,7 @@ public final class DelayShard {
                 putReadyProjection(batch, projection);
             }
             persistQuota(batch, nextQuota, projectedLaneQuota);
-            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector);
+            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector, projectedLaneQuota);
             if (systemResult != null) {
                 writeSystemResult(batch, systemResult);
             }
@@ -4577,7 +4641,7 @@ public final class DelayShard {
             batch.putValue(ColumnFamily.TERMINAL, 1,
                     KeyCodec.terminalGeneration(ledger.delayMessageId(), ledger.generation()), nextSummary.encode());
             persistQuota(batch, quota, nextLaneQuota);
-            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector);
+            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector, nextLaneQuota);
             if (systemResult != null) {
                 writeSystemResult(batch, systemResult);
             }
@@ -4615,7 +4679,7 @@ public final class DelayShard {
             batch.putValue(ColumnFamily.TERMINAL, 1,
                     KeyCodec.terminalGeneration(ledger.delayMessageId(), ledger.generation()), nextSummary.encode());
             persistQuota(batch, quota, nextLaneQuota);
-            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector);
+            persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector, nextLaneQuota);
             if (systemResult != null) {
                 writeSystemResult(batch, systemResult);
             }
@@ -4934,6 +4998,11 @@ public final class DelayShard {
     /** Returns the exact 66-dimensional outcome grant usage when an envelope is bound. */
     public synchronized CapacityVectorV1 outcomeReserveVector() {
         return outcomeReserveVector;
+    }
+
+    /** Returns the Registry class-2 aggregate for locally accounted dimensions. */
+    public synchronized CapacityVectorV1 quotaAggregateUsage() {
+        return aggregateQuotaUsage(laneQuotaUsage, outcomeReserveVector);
     }
 
     /** Returns the immutable placement envelope bound to this shard, if one was supplied. */
@@ -6014,9 +6083,11 @@ public final class DelayShard {
     private void persistQuota(final ShardStore.Batch batch, final ShardQuota nextQuota,
                               final LaneQuotaUsageProjection nextLaneQuota)
             throws org.rocksdb.RocksDBException {
-        if (!nextQuota.equals(quota)) {
-            batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(META_QUOTA_USAGE), nextQuota.encode());
-        }
+        // See persistOutcomeReserve: class 1 is a one-way compatibility
+        // projection, never a new V1 write.
+        batch.delete(ColumnFamily.META, KeyCodec.metaQuota(META_LEGACY_QUOTA_USAGE));
+        batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(META_QUOTA_AGGREGATE_USAGE),
+                aggregateQuotaUsage(nextLaneQuota, outcomeReserveVector).canonicalBytes());
         if (!Arrays.equals(nextLaneQuota.canonicalBytes(), laneQuotaUsage.canonicalBytes())) {
             batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(META_LANE_QUOTA_USAGE),
                     nextLaneQuota.canonicalBytes());
@@ -6441,7 +6512,11 @@ public final class DelayShard {
     }
 
     private LaneQuotaUsageProjection rebuildLaneQuotaUsage() {
-        final long revision = Math.max(1, quota.usageRevision());
+        return rebuildLaneQuotaUsage(quota.usageRevision());
+    }
+
+    private LaneQuotaUsageProjection rebuildLaneQuotaUsage(final long usageRevision) {
+        final long revision = Math.max(1, usageRevision);
         final long configuredLimit = Math.max(config.maxPendingMessages(), config.maxLanes());
         final int limit = boundedLimitPlusOne(configuredLimit);
         LaneQuotaUsageProjection result = LaneQuotaUsageProjection.empty();
@@ -6535,6 +6610,14 @@ public final class DelayShard {
                     true, revision);
         }
         return result;
+    }
+
+    private static long maxLaneQuotaRevision(final LaneQuotaUsageProjection projection) {
+        long revision = 0;
+        for (LaneQuotaUsageEntryV1 entry : projection.map().entries()) {
+            revision = Math.max(revision, entry.usageRevision());
+        }
+        return revision;
     }
 
     /**

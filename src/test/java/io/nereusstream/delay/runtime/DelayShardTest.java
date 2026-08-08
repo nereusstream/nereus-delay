@@ -166,6 +166,59 @@ class DelayShardTest {
     }
 
     @Test
+    void activationRejectsPersistedClass2AggregateVectorDrift() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("quota-class2-drift"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 56);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("quota-class2-drift-lane"));
+        final PreparedCommand command = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("quota-class2-drift")), 9_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(command, position(shardId, 0, 1_000)).stableCode());
+            final long[] corrupt = new long[CapacityDimensionV1.COUNT];
+            corrupt[CapacityDimensionV1.ACTIVE_MESSAGES.wireValue() - 1] = 0;
+            store.write(batch -> batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(2),
+                    new CapacityVectorV1(corrupt).canonicalBytes()));
+
+            final IllegalStateException exception = assertThrows(IllegalStateException.class,
+                    () -> new DelayShard(store, DelayShardConfig.defaults()));
+            assertEquals("persisted quota aggregate disagrees with runtime state", exception.getMessage());
+        }
+    }
+
+    @Test
+    void class1LegacyQuotaIsRemovedAndLaneRevisionSurvivesRestart() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("quota-class1-migration"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 57);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("quota-class1-migration-lane"));
+        final PreparedCommand first = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("quota-class1-first")), 9_000);
+        final PreparedCommand second = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 3_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("quota-class1-second")), 9_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(first, position(shardId, 0, 1_000)).stableCode());
+            store.write(batch -> batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(1),
+                    shard.quota().encode()));
+            assertEquals(StableCode.SCHEDULED, shard.apply(second, position(shardId, 1, 1_001)).stableCode());
+            assertNull(store.getValue(ColumnFamily.META, KeyCodec.metaQuota(1), 7));
+            assertEquals(2, shard.quota().usageRevision());
+        }
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(2, reopened.quota().usageRevision());
+            assertEquals(2, reopened.quotaAggregateUsage().amount(CapacityDimensionV1.ACTIVE_MESSAGES));
+        }
+    }
+
+    @Test
     void activationRejectsPersistedOutcomeReserveDrift() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("outcome-reserve-drift"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 55);
@@ -3782,6 +3835,10 @@ class DelayShardTest {
             assertEquals(StableCode.OK,
                     shard.applySystemMutation(admission, admissionPosition, keyPair.getPublic()).stableCode());
             assertEquals(new OutcomeReserveUsage(2, 2), shard.outcomeReserve());
+            assertEquals(2, shard.quotaAggregateUsage().amount(CapacityDimensionV1.RESULT_RECORDS));
+            assertEquals(2, shard.quotaAggregateUsage().amount(CapacityDimensionV1.RESULT_BYTES));
+            assertEquals(shard.quotaAggregateUsage(), CapacityVectorV1.decode(store.getValue(ColumnFamily.META,
+                    KeyCodec.metaQuota(2), 7).payload()));
             assertEquals(MessageStatus.PUBLISHING, shard.getMessage(messageId).status());
             assertNotNull(shard.findOpenPublishAttempt(parsed.publishAttemptId()));
         }
