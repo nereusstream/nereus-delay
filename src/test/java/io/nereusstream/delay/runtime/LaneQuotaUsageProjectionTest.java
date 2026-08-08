@@ -2,7 +2,11 @@ package io.nereusstream.delay.runtime;
 
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DestinationLaneId;
+import io.nereusstream.delay.protocol.LaneQuotaUsageEntryV1;
 import io.nereusstream.delay.protocol.LaneQuotaUsageMapV1;
+import io.nereusstream.delay.protocol.PublishAdmissionBody;
+
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -74,6 +78,26 @@ class LaneQuotaUsageProjectionTest {
         final LaneQuotaUsageProjection afterRelease = projection;
         assertThrows(IllegalStateException.class,
                 () -> afterRelease.removeInflight(lane, incarnation, 1, 1, 3));
+    }
+
+    @Test
+    void retirementRejectsAnyNonSlotUsageDimension() {
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("lane-quota-retained"));
+        final byte[] incarnation = bytes(16, 7);
+        final PublishAdmissionBody.ChargeVector usage = new PublishAdmissionBody.ChargeVector(
+                0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0);
+        final LaneQuotaUsageProjection projection = LaneQuotaUsageProjection.decode(
+                new LaneQuotaUsageMapV1(List.of(new LaneQuotaUsageEntryV1(lane, incarnation, usage, 1)))
+                        .canonicalBytes());
+
+        assertThrows(IllegalStateException.class, () -> projection.removeLane(lane, incarnation, 2));
+
+        final PublishAdmissionBody.ChargeVector strongUsage = new PublishAdmissionBody.ChargeVector(
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1);
+        final LaneQuotaUsageProjection strongProjection = LaneQuotaUsageProjection.decode(
+                new LaneQuotaUsageMapV1(List.of(new LaneQuotaUsageEntryV1(lane, incarnation, strongUsage, 1)))
+                        .canonicalBytes());
+        assertEquals(0, strongProjection.removeLane(lane, incarnation, 2).map().entries().size());
     }
 
     private static byte[] bytes(final int length, final int seed) {

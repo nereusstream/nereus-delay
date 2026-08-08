@@ -809,7 +809,10 @@ charge 的 legacy/synthetic ledger 按一个 durable record 计数，canonical a
 retirement 路径和 reopen fence。execution beyond local attempt bytes、retained、
 evidence 与外部 adapter 维度仍未接入，因此这是 map 的 local compatibility subset，
 不是完整 ActiveLaneState、grant revision coupling、Route Broker authority 或多
-shard placement proof。
+shard placement proof。退休前会扫描完整 17 维 usage vector；即使未来投影开始
+记录 retained/control/evidence 维度而当前 adapter 尚未理解，仍会 fail closed，
+不会把带残留 usage 的 Lane 变成 terminal guard，同时原子释放该 Lane 的普通
+和 strong-capability cardinality slots。
 
 Owner Lease 的本地 CAS 投影现在还按 V1 lifecycle graph 拒绝回退状态和
 `FENCED -> ACTIVE_FOR_COMMANDS` 复活；允许的前向 acquisition/activation

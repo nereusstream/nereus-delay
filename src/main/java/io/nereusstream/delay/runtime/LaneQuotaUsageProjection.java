@@ -160,13 +160,15 @@ public final class LaneQuotaUsageProjection {
         requireRevision(usageRevision);
         final LaneQuotaUsageEntryV1 current = requireEntry(laneId, laneIncarnation);
         final PublishAdmissionBody.ChargeVector usage = current.usage();
-        if (usage.activeMessages() != 0 || usage.pendingPayloadBytes() != 0
-                || usage.reservationMessages() != 0 || usage.reservationPayloadBytes() != 0
-                || usage.inflightMessages() != 0 || usage.inflightBytes() != 0) {
+        if (usage.laneCount() != 1 || usage.strongLaneCount() > 1) {
+            throw new IllegalStateException("invalid per-Lane cardinality usage");
+        }
+        if (hasLiveUsageBeyondLaneSlots(usage)) {
             throw new IllegalStateException("Lane quota still has live usage");
         }
         final PublishAdmissionBody.ChargeVector next = change(usage,
-                new long[]{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 0});
+                new long[]{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1,
+                        usage.strongLaneCount() == 0 ? 0 : -1});
         return replace(laneId, laneIncarnation, new LaneQuotaUsageEntryV1(laneId, laneIncarnation, next,
                 usageRevision));
     }
@@ -273,6 +275,21 @@ public final class LaneQuotaUsageProjection {
                 || usage.systemMutationRecords() != 0 || usage.systemMutationBytes() != 0
                 || usage.outcomeWalBytes() != 0 || usage.evidenceRecords() != 0 || usage.evidenceBytes() != 0
                 || usage.laneCount() != 0 || usage.strongLaneCount() != 0;
+    }
+
+    /**
+     * A Lane slot can be removed only after every resource dimension has been
+     * released.  Keeping this check over the complete Registry vector makes
+     * retirement fail closed when a later local projection starts accounting a
+     * dimension that the current compatibility adapter does not yet populate.
+     */
+    private static boolean hasLiveUsageBeyondLaneSlots(final PublishAdmissionBody.ChargeVector usage) {
+        return usage.activeMessages() != 0 || usage.pendingPayloadBytes() != 0 || usage.logicalStateBytes() != 0
+                || usage.retainedBytes() != 0 || usage.reservationMessages() != 0
+                || usage.reservationPayloadBytes() != 0 || usage.inflightMessages() != 0
+                || usage.inflightBytes() != 0 || usage.resultRecords() != 0 || usage.resultBytes() != 0
+                || usage.systemMutationRecords() != 0 || usage.systemMutationBytes() != 0
+                || usage.outcomeWalBytes() != 0 || usage.evidenceRecords() != 0 || usage.evidenceBytes() != 0;
     }
 
     private static byte[] fixedIncarnation(final byte[] value) {

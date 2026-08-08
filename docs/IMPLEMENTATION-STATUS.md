@@ -18,7 +18,11 @@ zero field-7 charge are conservatively counted as one durable inflight record, w
 canonical field-8 attempt bytes are retained when available. Execution beyond those
 local attempt bytes, retained, evidence and external-adapter dimensions remain zero in
 this subset, so full ActiveLaneState/grant authority and Route Broker placement are
-still release blockers.
+still release blockers. Lane retirement now releases both per-Lane cardinality slots
+and rejects any nonzero non-cardinality dimension in the complete 17-field vector,
+including dimensions that this compatibility adapter does not yet populate, so a
+future projection cannot silently retire a Lane with retained or control usage still
+attached.
 
 The typed `ActivationBarrierV1` codec now enforces the Registry rule that an
 empty Pulsar barrier must carry the guarded source-connection generation and
