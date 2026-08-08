@@ -296,6 +296,12 @@ public final class DelayShard {
             throw new IllegalStateException("persisted outcome reserve exceeds the active shard grant");
         }
         outcomeReserveVector = loadCapacityEnvelopeState(capacityEnvelope);
+        if (capacityEnvelope != null) {
+            final CapacityVectorV1 rebuiltOutcomeReserveVector = rebuildOutcomeReserveVector();
+            if (!outcomeReserveVector.equals(rebuiltOutcomeReserveVector)) {
+                throw new IllegalStateException("persisted outcome reserve vector disagrees with runtime state");
+            }
+        }
         loadControlReserveUsage(capacityEnvelope);
         if (capacityEnvelope != null
                 && !outcomeReserve.equals(outcomeReserveUsage(outcomeReserveVector))) {
@@ -6401,6 +6407,29 @@ public final class DelayShard {
                 result = result.add(outcomeReserveCharge(ledger));
             } catch (ArithmeticException exception) {
                 throw new IllegalStateException("outcome reserve rebuild overflow", exception);
+            }
+        }
+        return result;
+    }
+
+    /** Rebuilds the exact 66-dimensional outcome projection when a grant is pinned. */
+    private CapacityVectorV1 rebuildOutcomeReserveVector() {
+        final long configuredLimit = Math.max(config.maxPendingMessages(),
+                config.maxOutcomeReserveRecords());
+        final int limit = boundedLimitPlusOne(configuredLimit);
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> attempts = store.scan(ColumnFamily.INFLIGHT,
+                new byte[]{INFLIGHT_PUBLISHING_KIND, 1}, new byte[]{(byte) (INFLIGHT_UNCERTAIN_KIND + 1), 1},
+                limit);
+        if (attempts.size() >= limit && configuredLimit < Integer.MAX_VALUE) {
+            throw new IllegalStateException("outcome reserve vector rebuild exceeded configured bound");
+        }
+        CapacityVectorV1 result = CapacityVectorV1.empty();
+        for (var entry : attempts) {
+            final PublishAttemptLedger ledger = decodePublishAttempt(entry);
+            try {
+                result = result.add(outcomeCapacityCharge(ledger));
+            } catch (ArithmeticException exception) {
+                throw new IllegalStateException("outcome reserve vector rebuild overflow", exception);
             }
         }
         return result;

@@ -31,7 +31,9 @@ The local class-2 `OutcomeReserveUsage` projection is also rebuilt from all dura
 `PUBLISHING`/`UNCERTAIN` attempt ledgers during activation. A present aggregate that
 does not equal those exact admission charges fails closed; a missing legacy aggregate
 is backfilled in memory. This closes local record/byte admission accounting only and
-does not claim full 66-dimensional vector reconstruction or external reserve authority.
+when a capacity envelope is pinned, the exact 66-dimensional class-2 vector is also
+rebuilt from canonical Admission charges (non-ledger/external dimensions remain zero).
+It still does not claim external reserve authority.
 
 The typed `ActivationBarrierV1` codec now enforces the Registry rule that an
 empty Pulsar barrier must carry the guarded source-connection generation and
