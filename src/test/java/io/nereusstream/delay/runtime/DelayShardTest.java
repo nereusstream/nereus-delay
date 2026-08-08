@@ -4674,7 +4674,8 @@ class DelayShardTest {
                         OrderingMode.BEST_EFFORT, Bytes.utf8("claim-result")), 9_000);
         final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
         final KafkaSourcePosition claimResultPosition = position(shardId, 1, 1_100);
-        final KafkaSourcePosition duplicatePosition = position(shardId, 2, 1_101);
+        final KafkaSourcePosition validClaimResultPosition = position(shardId, 2, 1_101);
+        final KafkaSourcePosition duplicatePosition = position(shardId, 3, 1_102);
         final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
         final KeyPair keyPair = generator.generateKeyPair();
         final byte[] owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1,
@@ -4696,13 +4697,24 @@ class DelayShardTest {
                     store.metadata().storeIncarnation(), 3_000, 1, 1_500, 1_500,
                     chargeVectorWithActiveMessages(1));
             assertThrows(IllegalArgumentException.class, () -> ClaimResultBody.decode(mismatchedTransfer));
+            final SystemMutation mismatchedMutation = SystemMutation.signed(shardId,
+                    SystemMutationType.CLAIM_RESULT, 9_000,
+                    Bytes.sha256(Bytes.utf8("claim-result-transfer-mismatch")), mismatchedTransfer, owner, 1,
+                    keyPair.getPrivate());
+            final SystemMutationResult mismatchedResult = shard.applySystemMutation(mismatchedMutation,
+                    claimResultPosition, keyPair.getPublic());
+            assertEquals(ApplyStatus.REJECTED, mismatchedResult.applyStatus());
+            assertEquals(StableCode.STALE_SYSTEM_MUTATION, mismatchedResult.stableCode());
+            assertEquals(MessageStatus.SCHEDULED, shard.getMessage(schedule.delayMessageId()).status());
+            assertEquals(1, shard.quota().pendingMessages());
+            assertNotNull(store.getValue(ColumnFamily.TIMELINE, timelineKey, 1));
             final ClaimResultBody parsed = ClaimResultBody.decode(body);
             assertEquals(1, parsed.resultKind());
             assertEquals(StableCode.CLAIM_PERMANENT_FAILURE, parsed.stableCode());
             final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.CLAIM_RESULT, 9_000,
                     claimId, body, owner, 1, keyPair.getPrivate());
 
-            final SystemMutationResult result = shard.applySystemMutation(mutation, claimResultPosition,
+            final SystemMutationResult result = shard.applySystemMutation(mutation, validClaimResultPosition,
                     keyPair.getPublic());
 
             assertEquals(StableCode.CLAIM_PERMANENT_FAILURE, result.stableCode());
