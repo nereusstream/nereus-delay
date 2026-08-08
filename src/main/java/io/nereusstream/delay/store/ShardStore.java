@@ -127,7 +127,7 @@ public final class ShardStore implements AutoCloseable {
                 writeActivePointer(shardRoot, storeUuidFromPath(dbPath));
                 return opened;
             } catch (IOException exception) {
-                opened.close();
+                closeAfterActivePointerFailure(opened, exception);
                 throw exception;
             }
         } catch (IOException | RocksDBException exception) {
@@ -715,11 +715,19 @@ public final class ShardStore implements AutoCloseable {
         try {
             db = RocksDB.open(dbOptions, dbPath.toString(), descriptors, openedHandles);
         } catch (RocksDBException exception) {
-            closeQuietly(cfOptions);
-            dbOptions.close();
+            RuntimeException cleanupFailure = closeQuietly(cfOptions);
+            try {
+                dbOptions.close();
+            } catch (RuntimeException closeException) {
+                cleanupFailure = appendCloseFailure(cleanupFailure, closeException);
+            }
+            if (cleanupFailure != null) {
+                exception.addSuppressed(cleanupFailure);
+            }
             throw exception;
         }
         boolean keepOpen = false;
+        Throwable primaryFailure = null;
         try {
             final Map<ColumnFamily, ColumnFamilyHandle> handles = new EnumMap<>(ColumnFamily.class);
             for (int index = 0; index < ColumnFamily.values().length; index++) {
@@ -806,9 +814,19 @@ public final class ShardStore implements AutoCloseable {
                     closedIngressDeadlineThrough);
             keepOpen = true;
             return result;
+        } catch (IOException | RocksDBException | RuntimeException | Error exception) {
+            primaryFailure = exception;
+            throw exception;
         } finally {
             if (!keepOpen) {
-                closeHandles(db, openedHandles, cfOptions, dbOptions);
+                final RuntimeException cleanupFailure = closeHandles(db, openedHandles, cfOptions, dbOptions);
+                if (cleanupFailure != null) {
+                    if (primaryFailure != null) {
+                        primaryFailure.addSuppressed(cleanupFailure);
+                    } else {
+                        throw cleanupFailure;
+                    }
+                }
             }
         }
     }
@@ -1048,20 +1066,52 @@ public final class ShardStore implements AutoCloseable {
                 .setWriteBufferSize(maxWriteBufferBytesPerDb);
     }
 
-    private static void closeQuietly(final List<ColumnFamilyOptions> options) {
+    private static RuntimeException closeQuietly(final List<ColumnFamilyOptions> options) {
+        RuntimeException failure = null;
         for (ColumnFamilyOptions option : options) {
-            option.close();
+            try {
+                option.close();
+            } catch (RuntimeException closeException) {
+                failure = appendCloseFailure(failure, closeException);
+            }
         }
+        return failure;
     }
 
-    private static void closeHandles(final RocksDB db, final List<ColumnFamilyHandle> handles,
-                                     final List<ColumnFamilyOptions> options, final DBOptions dbOptions) {
+    private static RuntimeException closeHandles(final RocksDB db, final List<ColumnFamilyHandle> handles,
+                                                 final List<ColumnFamilyOptions> options, final DBOptions dbOptions) {
+        RuntimeException failure = null;
         for (ColumnFamilyHandle handle : handles) {
-            handle.close();
+            try {
+                handle.close();
+            } catch (RuntimeException closeException) {
+                failure = appendCloseFailure(failure, closeException);
+            }
         }
-        db.close();
-        closeQuietly(options);
-        dbOptions.close();
+        try {
+            db.close();
+        } catch (RuntimeException closeException) {
+            failure = appendCloseFailure(failure, closeException);
+        }
+        final RuntimeException optionsFailure = closeQuietly(options);
+        failure = appendCloseFailure(failure, optionsFailure);
+        try {
+            dbOptions.close();
+        } catch (RuntimeException closeException) {
+            failure = appendCloseFailure(failure, closeException);
+        }
+        return failure;
+    }
+
+    private static void closeAfterActivePointerFailure(final ShardStore opened, final IOException failure) {
+        for (int attempt = 0; attempt < 2; attempt++) {
+            try {
+                opened.close();
+                return;
+            } catch (RuntimeException cleanupException) {
+                failure.addSuppressed(cleanupException);
+            }
+        }
     }
 
     private static boolean hasDefaultColumnFamilyData(final RocksDB db, final ColumnFamilyHandle defaultHandle) {
@@ -1460,6 +1510,9 @@ public final class ShardStore implements AutoCloseable {
 
     private static RuntimeException appendCloseFailure(final RuntimeException first,
                                                        final RuntimeException failure) {
+        if (failure == null) {
+            return first;
+        }
         if (first == null) {
             return failure;
         }

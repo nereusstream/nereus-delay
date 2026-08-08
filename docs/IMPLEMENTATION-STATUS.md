@@ -1238,10 +1238,13 @@ Runtime validation failures after staging begins now remove the private
 `restore-tmp` tree as well as releasing the download slot; after the staged DB
 is atomically moved, restore opens it through the formal active path before
 writing `ACTIVE`, and pointer-install failure closes the DB and removes only
-the unreferenced incarnation it owns (an unreadable pointer is preserved for
-offline repair). `ShardStoreTest.failedActivePointerInstallRemovesUnpublishedDb`
-covers the `ACTIVE.tmp` failure path; a pre-acquisition concurrency rejection
-keeps its original bounded-resource error.
+the unreferenced incarnation it owns when teardown completes (an unreadable
+pointer or an incomplete retryable close is preserved for offline repair).
+Pointer-install cleanup retries the opened Store once and preserves the
+original I/O failure with suppressed teardown diagnostics.
+`ShardStoreTest.failedActivePointerInstallRemovesUnpublishedDb` covers the
+`ACTIVE.tmp` failure path; a pre-acquisition concurrency rejection keeps its
+original bounded-resource error.
 After RocksDB itself has opened, the normal shard-open path has one failure
 cleanup boundary around metadata reads/decoding, format and identity checks,
 and install-mode writes: every DB/Column Family handle and options object is
@@ -1249,6 +1252,10 @@ closed before Worker DB/owned-shard slots are released.  The malformed-metadata
 reopen regression `ShardStoreTest.malformedExistingMetadataDoesNotLeaveRocksDbOpen`
 proves that the same physical DB can be opened again after this failure path,
 so a local validation error cannot leave a native RocksDB file lock behind.
+The open-failure cleanup now attempts every Column Family handle, DB/options
+object, and the original pointer-install Store close even when one native close
+reports a runtime failure; later retryable close failures are aggregated rather
+than masking the original I/O or validation error.
 Restore's staged validation, install-mode probe, and formal installed open now
 also use explicit Store lifetime management. Failure cleanup makes a bounded
 retry of retryable native/slot teardown and deletes `restore-tmp` or an

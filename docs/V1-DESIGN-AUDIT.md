@@ -1428,7 +1428,9 @@ typed evidence-cursor projection；文件 checksum 正确但运行时状态与 m
 format/identity validation 和 install-mode write 放在同一个失败清理边界内；
 任一失败都会先关闭 DB、Column Family handles 和 options，再释放 Worker slot。
 `ShardStoreTest.malformedExistingMetadataDoesNotLeaveRocksDbOpen` 随后用 raw
-RocksDB reopen 证明不会遗留 native 文件锁。
+RocksDB reopen 证明不会遗留 native 文件锁。失败 cleanup 现在会逐项尝试
+所有 Column Family handle、DB/options，并把 close runtime failure 作为
+suppressed diagnostic 保留，而不是在第一项失败时短路。
 固定的本地 `shards/<routeIncarnation>/<partition>` 祖先目录也不再通过
 `Files.createDirectories` 隐式跟随符号链接：open/restore 会逐级创建并用
 `NOFOLLOW_LINKS` 验证 `shards`、route 和 partition 目录，任一 ownership-boundary
@@ -1437,9 +1439,10 @@ RocksDB reopen 证明不会遗留 native 文件锁。
 `ShardStoreTest.openRejectsSymbolicShardPathAncestors`。
 Restore 在把 staged DB 原子移动到新 incarnation 后，会先以正式 active path
 打开并验证 DB，再写入 `ACTIVE`；任一 pointer 安装失败都会关闭已打开句柄，
-删除未被 `ACTIVE` 指向的自有 incarnation 目录，并保留无法证明未被指向的
-目录供离线修复。`ShardStoreTest.failedActivePointerInstallRemovesUnpublishedDb`
-覆盖 `ACTIVE.tmp` 故障路径。
+在关闭成功时删除未被 `ACTIVE` 指向的自有 incarnation 目录；关闭失败会有界
+重试并保留无法证明已关闭的 orphan 目录供离线修复，同时保留原始 pointer I/O
+错误。`ShardStoreTest.failedActivePointerInstallRemovesUnpublishedDb` 覆盖
+`ACTIVE.tmp` 故障路径。
 Restore admission 只把 checksum-validated `ACTIVE` pointer 指向的
 incarnation 视为 live DB；pointer 尚未切换时留下的 orphan incarnation 不会
 阻塞新的 atomic restore，且不会被悄悄当作 active 覆盖。
