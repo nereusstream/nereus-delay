@@ -791,9 +791,10 @@ generation boundary. The same full-width rule now runs through credential
 attestation/binding, Head/protection, use lease, Ready Certificate, native
 capability snapshot, rotation request/result, and Profile control projections:
 zero is invalid, but a host signed-integer high bit is valid. Head/protection
-revisions and other local control versions remain bounded positive values; the
-independent Broker resource-guard configuration generation now preserves raw
-nonzero `uint64` bits. High-bit coverage is provided by
+revisions are nonzero complete raw `uint64` identity values; other local
+control versions remain bounded positive counters. The independent Broker
+resource-guard configuration generation also preserves raw nonzero `uint64`
+bits. High-bit coverage is provided by
 `CredentialBindingV1Test`, `ProfileControlRequestV1Test`,
 `ControlResultCodecTest`, `ChannelResourceIdentityV1Test`,
 `ProtocolCodecTest`, and the Publish Admission/Ready Certificate fixtures.
