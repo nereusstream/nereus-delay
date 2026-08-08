@@ -27,6 +27,12 @@ including dimensions that this compatibility adapter does not yet populate, so a
 future projection cannot silently retire a Lane with retained or control usage still
 attached.
 
+The local class-2 `OutcomeReserveUsage` projection is also rebuilt from all durable
+`PUBLISHING`/`UNCERTAIN` attempt ledgers during activation. A present aggregate that
+does not equal those exact admission charges fails closed; a missing legacy aggregate
+is backfilled in memory. This closes local record/byte admission accounting only and
+does not claim full 66-dimensional vector reconstruction or external reserve authority.
+
 The typed `ActivationBarrierV1` codec now enforces the Registry rule that an
 empty Pulsar barrier must carry the guarded source-connection generation and
 resource-guard attestation digest together; an unguarded empty Pulsar barrier
@@ -1223,8 +1229,10 @@ shard DB. Admission, its `PUBLISHING` ledger and the reserve projection share
 one WriteBatch; when the configured records/bytes cap cannot fit the charge,
 the source position advances with `ADMISSION_CAPACITY_GATED` and any
 reversible Claim is restored to `SCHEDULED`. Definitive or verified terminal
-settlement releases the exact charge atomically, and restart reloads the
-projection. The closed protocol codec for the 66-dimensional
+settlement releases the exact charge atomically, and restart rebuilds the local
+record/byte projection from durable `PUBLISHING`/`UNCERTAIN` ledgers before using
+it for admission. A drifted present aggregate fails activation and a missing legacy
+aggregate is backfilled in memory. The closed protocol codec for the 66-dimensional
 `CapacityVectorV1`, `CapacityGrantV1`, `QuotaGrantRefV1` and
 `ShardCapacityEnvelopeV1` is also covered by canonical round-trip and
 rejection tests, including component-grant projection and checked sums. This

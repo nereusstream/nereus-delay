@@ -166,6 +166,22 @@ class DelayShardTest {
     }
 
     @Test
+    void activationRejectsPersistedOutcomeReserveDrift() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("outcome-reserve-drift"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 55);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            new DelayShard(store, DelayShardConfig.defaults());
+            store.write(batch -> batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(2),
+                    new OutcomeReserveUsage(1, 1).encode()));
+
+            final IllegalStateException exception = assertThrows(IllegalStateException.class,
+                    () -> new DelayShard(store, DelayShardConfig.defaults()));
+            assertEquals("persisted outcome reserve disagrees with runtime state", exception.getMessage());
+        }
+    }
+
+    @Test
     void terminalGenerationLookupRejectsKeyValueIdentityMismatch() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("terminal-key-mismatch"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 53);

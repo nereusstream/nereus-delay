@@ -281,8 +281,16 @@ public final class DelayShard {
         }
         final var outcomeReserveValue = store.getValue(ColumnFamily.META,
                 KeyCodec.metaQuota(META_OUTCOME_RESERVE_USAGE), 7);
-        outcomeReserve = outcomeReserveValue == null
-                ? OutcomeReserveUsage.empty() : OutcomeReserveUsage.decode(outcomeReserveValue.payload());
+        final OutcomeReserveUsage persistedOutcomeReserve = outcomeReserveValue == null
+                ? null : OutcomeReserveUsage.decode(outcomeReserveValue.payload());
+        final OutcomeReserveUsage rebuiltOutcomeReserve = rebuildOutcomeReserveUsage();
+        if (persistedOutcomeReserve == null) {
+            outcomeReserve = rebuiltOutcomeReserve;
+        } else if (!persistedOutcomeReserve.equals(rebuiltOutcomeReserve)) {
+            throw new IllegalStateException("persisted outcome reserve disagrees with runtime state");
+        } else {
+            outcomeReserve = persistedOutcomeReserve;
+        }
         if (outcomeReserve.records() > config.maxOutcomeReserveRecords()
                 || outcomeReserve.bytes() > config.maxOutcomeReserveBytes()) {
             throw new IllegalStateException("persisted outcome reserve exceeds the active shard grant");
@@ -6373,6 +6381,29 @@ public final class DelayShard {
                 && left.reservationMessages() == right.reservationMessages()
                 && left.reservationBytes() == right.reservationBytes()
                 && left.laneCount() == right.laneCount();
+    }
+
+    /** Rebuilds the local outcome-record/byte reserve from every open attempt ledger. */
+    private OutcomeReserveUsage rebuildOutcomeReserveUsage() {
+        final long configuredLimit = Math.max(config.maxPendingMessages(),
+                config.maxOutcomeReserveRecords());
+        final int limit = boundedLimitPlusOne(configuredLimit);
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> attempts = store.scan(ColumnFamily.INFLIGHT,
+                new byte[]{INFLIGHT_PUBLISHING_KIND, 1}, new byte[]{(byte) (INFLIGHT_UNCERTAIN_KIND + 1), 1},
+                limit);
+        if (attempts.size() >= limit && configuredLimit < Integer.MAX_VALUE) {
+            throw new IllegalStateException("outcome reserve rebuild exceeded configured bound");
+        }
+        OutcomeReserveUsage result = OutcomeReserveUsage.empty();
+        for (var entry : attempts) {
+            final PublishAttemptLedger ledger = decodePublishAttempt(entry);
+            try {
+                result = result.add(outcomeReserveCharge(ledger));
+            } catch (ArithmeticException exception) {
+                throw new IllegalStateException("outcome reserve rebuild overflow", exception);
+            }
+        }
+        return result;
     }
 
     private LaneQuotaUsageProjection rebuildLaneQuotaUsage() {

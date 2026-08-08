@@ -578,6 +578,9 @@ body codec 和本地 transition seam；当前 local transition 还验证了已 a
 generation 在 Close marker 后收到 definitive `NOT_PUBLISHED` 时固定写入
 `LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED` 并停止 retry。它不等于签名服务、真实
 Broker evidence、strong-capability retirement 或 production outcome authority 已完成。
+Activation 还从 durable `PUBLISHING`/`UNCERTAIN` ledgers 重建 class-2 outcome
+record/byte aggregate，漂移时 fail closed；这不扩展为完整 66 维 charge-vector
+重建或外部 reserve authority。
 Apply 同时验证 operation-specific logical identity：initial Publish Outcome 必须使用
 body 中的 `PublishAttemptId`，Evidence Resolution 必须使用
 `SHA-256("nereus-delay-evidence-resolution-logical-id-v1\0" || PublishAttemptId || evidenceId)`；
