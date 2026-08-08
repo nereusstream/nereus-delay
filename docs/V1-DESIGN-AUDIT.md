@@ -198,6 +198,11 @@ close drain 以及真实 Broker response 仍属于真实适配器 release gate�
 | Checkpoint upload | PENDING/PUBLISHED/REAPING Upload Intent CAS；catalog 只接受 complete immutable manifest |
 | Time | Admission 使用 frozen decision interval + Broker persistence inequality；replay 不采样新墙钟 |
 
+这里的 `meta/CONTROL_RESERVE` reserveClass=3--6 与 Registry
+`meta/QUOTA` quotaClass=4 是两个不同命名空间。后者 retained/object usage
+目前只有 key subtype，没有 V1 value schema；因此不能把 control-reserve 的
+本地算术证据解释成 retained/object quota 已实现，必须先修订 Registry。
+
 Durable `MessageRecord` values use checked fixed-width decoding for every
 version-specific field. Any strict prefix of a canonical value is rejected as
 codec validation rather than leaking a buffer-underflow exception; the local
