@@ -799,6 +799,14 @@ destination adapter 对同步 transport exception 或空 stage 也不假定 owne
 `ActiveLaneState`/`ReadyCertificate`、Owner/Lease/Oxia authority、真实 channel
 teardown 或 Broker evidence journal，因此不能宣称 production admission 已闭合。
 
+Adapter close 也已按同一 fail-closed 原则收敛：第一次 close 请求立即阻断
+新的 ingress/submission/publish，但底层 channel/Producer close 抛错时仍保留
+“未完成”状态，后续生命周期调用可重试 native teardown；只有底层成功后 close
+才成为永久幂等。`CloseGuardTest` 与
+`DestinationAdapterTest.destinationCloseFailureCanBeRetriedWhileAdapterRemainsFenced`
+覆盖该本地 fence/retry 证据。它不等于 Broker-side cancellation、physical charge
+release 或生产 channel quiescence；这些仍由外部 teardown/evidence gate 证明。
+
 本地 physical-admission registry 另有明确的 Lane teardown 边界：只有 READY
 已关闭、所有 physical/zombie charge 已清零且 exact `laneIncarnation` 通过 fencing
 时才可 unregister；旧 channel 的迟到 callback 不能删除新 registration。

@@ -16,7 +16,6 @@ import io.nereusstream.delay.protocol.StableCode;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Kafka ingress adapter whose transport is required to carry the exact pinned
@@ -26,7 +25,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class PinnedKafkaCommandIngress implements WireCommandIngressAdapter {
     private final KafkaIngressResource resource;
     private final KafkaProduceTransport transport;
-    private final AtomicBoolean closed = new AtomicBoolean();
+    private final CloseGuard closeGuard = new CloseGuard();
 
     public PinnedKafkaCommandIngress(final KafkaIngressResource resource, final KafkaProduceTransport transport) {
         this.resource = Objects.requireNonNull(resource, "resource");
@@ -36,7 +35,7 @@ public final class PinnedKafkaCommandIngress implements WireCommandIngressAdapte
     @Override
     public CompletionStage<EnqueueOutcome> enqueue(final PreparedCommand command) {
         Objects.requireNonNull(command, "command");
-        if (closed.get()) {
+        if (closeGuard.isClosed()) {
             return completed(EnqueueOutcome.definitelyNotQueued(command, StableCode.CLIENT_CLOSED.wireValue()));
         }
         if (!resource.shardId().equals(command.shardId())) {
@@ -92,7 +91,7 @@ public final class PinnedKafkaCommandIngress implements WireCommandIngressAdapte
             // fail before any local V1 outcome projection or transport call.
             return CompletableFuture.failedFuture(exception);
         }
-        if (closed.get()) {
+        if (closeGuard.isClosed()) {
             return completedWire(WireIngressOutcomeSupport.localDefinite(command, StableCode.CLIENT_CLOSED));
         }
         if (!resource.shardId().equals(command.shardId())) {
@@ -146,9 +145,7 @@ public final class PinnedKafkaCommandIngress implements WireCommandIngressAdapte
 
     @Override
     public void close() {
-        if (closed.compareAndSet(false, true)) {
-            transport.close();
-        }
+        closeGuard.close(transport::close);
     }
 
     private EnqueueOutcome map(final PreparedCommand command, final KafkaProduceResult result) {

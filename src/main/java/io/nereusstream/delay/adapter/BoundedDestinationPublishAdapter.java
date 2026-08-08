@@ -28,7 +28,7 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
     private final DestinationPhysicalAdmission admission;
     private final Executor executor;
     private final ExecutorService ownedExecutor;
-    private final AtomicBoolean closed = new AtomicBoolean();
+    private final CloseGuard closeGuard = new CloseGuard();
 
     public BoundedDestinationPublishAdapter(final DestinationPublishAdapter delegate,
                                             final DestinationPhysicalAdmission admission) {
@@ -63,7 +63,7 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
      */
     public PublishCall submit(final DestinationPublishRequest request) {
         Objects.requireNonNull(request, "request");
-        if (closed.get()) {
+        if (closeGuard.isClosed()) {
             return PublishCall.completed(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
         }
         final long physicalBytes = requestPhysicalBytes(request);
@@ -75,7 +75,7 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                     StableCode.CAPABILITY_UNAVAILABLE, evidence));
         }
         final DestinationPhysicalAdmission.Reservation reservation = decision.reservation();
-        if (closed.get()) {
+        if (closeGuard.isClosed()) {
             reservation.release();
             return PublishCall.completed(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
         }
@@ -99,15 +99,28 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
 
     @Override
     public void close() {
-        if (closed.compareAndSet(false, true)) {
+        closeGuard.close(() -> {
+            RuntimeException failure = null;
             try {
                 delegate.close();
-            } finally {
-                if (ownedExecutor != null) {
+            } catch (RuntimeException exception) {
+                failure = exception;
+            }
+            if (ownedExecutor != null) {
+                try {
                     ownedExecutor.shutdown();
+                } catch (RuntimeException exception) {
+                    if (failure == null) {
+                        failure = exception;
+                    } else {
+                        failure.addSuppressed(exception);
+                    }
                 }
             }
-        }
+            if (failure != null) {
+                throw failure;
+            }
+        });
     }
 
     public static long requestPhysicalBytes(final DestinationPublishRequest request) {
@@ -124,7 +137,7 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                                 final DestinationPhysicalAdmission.Reservation reservation,
                                 final AtomicBoolean retainPhysicalCharge,
                                 final AtomicBoolean completionObserved) {
-        if (closed.get()) {
+        if (closeGuard.isClosed()) {
             outcome.complete(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
             return;
         }

@@ -1627,6 +1627,7 @@ Adapter Channel 是 Lane-scoped 的本地提交/缓冲隔离单元：
 - 一个共享 Producer/transport 只有在能够证明 per-Lane reserve、物理 charge 归属、无跨 Lane head blocking、独立 outcome/circuit，以及 Worker/cluster 为其它 READY Lane 固定保留 connection/producer/thread/request/byte minima 时才可复用；
 - 否则 Kafka/Pulsar Adapter 为 Lane 建立独立 bounded producer channel；达到持久 shard channel/Lane grant 时确定性拒绝新建 Lane，而不在运行时无限打开资源。Worker 瞬时 connection cap 不改变 Command 结果，只使该 Lane `runtimeReadiness=BLOCKED(CAPACITY)` 并触发 placement/容量修复；绝不写管理员 `ADMIN_PAUSED`。
 - Kafka channel 必须把 pinned topic UUID 带到实际 ProduceRequest；Pulsar channel 必须把 expected incarnation 带入 Producer metadata 并由 Broker guard 在每次 SEND 前核对。单独的 `probe()` 成功不是 publication authority。
+- Adapter close 一旦被请求就立即 fence 新的 ingress、submission 和 publish；底层 channel/Producer teardown 若失败，必须保留该 fence 并把 close 视为未完成，允许后续生命周期重试，直到底层关闭成功。首次失败不能把后续 close 变成 no-op，也不能把未完成 teardown 当作 physical charge 已释放。
 
 Worker 和每个 target cluster 还分别限制 Adapter connections/producers/threads/requests 总量。新 channel 只有在其完整 Lane minimum envelope 可容纳且 `minOtherReadyLane*` reserve 仍成立时才可创建。允许临时借用空闲容量，但借用者必须在下一次 Admission 前可被抢占，不能把其它 READY Lane 降到认证最小值以下。
 

@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -20,6 +21,36 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DestinationAdapterTest {
+    @Test
+    void destinationCloseFailureCanBeRetriedWhileAdapterRemainsFenced() {
+        final KafkaTargetResource resource = new KafkaTargetResource("cluster", UUID.randomUUID(), 0);
+        final AtomicInteger closeCalls = new AtomicInteger();
+        final PinnedKafkaDestinationAdapter.KafkaDestinationTransport transport =
+                new PinnedKafkaDestinationAdapter.KafkaDestinationTransport() {
+                    @Override
+                    public CompletableFuture<DestinationPublishResult> publish(
+                            final KafkaDestinationRequest request) {
+                        return CompletableFuture.completedFuture(
+                                DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
+                    }
+
+                    @Override
+                    public void close() {
+                        if (closeCalls.getAndIncrement() == 0) {
+                            throw new IllegalStateException("close failed");
+                        }
+                    }
+                };
+        final PinnedKafkaDestinationAdapter adapter = new PinnedKafkaDestinationAdapter(resource, transport);
+
+        assertThrows(IllegalStateException.class, adapter::close);
+        assertEquals(DestinationPublishResult.Disposition.UNKNOWN,
+                adapter.publish(request(100, 100)).toCompletableFuture().join().disposition());
+        adapter.close();
+        adapter.close();
+        assertEquals(2, closeCalls.get());
+    }
+
     @Test
     void kafkaDestinationPreservesAttemptAndBusinessTiming() {
         final KafkaTargetResource resource = new KafkaTargetResource("cluster", UUID.randomUUID(), 4);

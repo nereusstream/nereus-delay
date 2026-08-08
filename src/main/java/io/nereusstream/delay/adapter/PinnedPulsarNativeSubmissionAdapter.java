@@ -23,7 +23,6 @@ import java.util.Arrays;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Pulsar AUTO_FAST submission boundary.  All checks in this adapter happen
@@ -34,7 +33,7 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
     private final PublicKey issuerKey;
     private final Clock clock;
     private final PulsarNativeSendTransport transport;
-    private final AtomicBoolean closed = new AtomicBoolean();
+    private final CloseGuard closeGuard = new CloseGuard();
 
     public PinnedPulsarNativeSubmissionAdapter(final PulsarTargetResource resource,
                                                final PublicKey issuerKey, final Clock clock,
@@ -59,7 +58,7 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
     public CompletionStage<SubmissionOutcomeMessageV1> submit(final NativePreparedDeliveryV1 prepared,
                                                               final byte[] physicalEnqueueAttemptId) {
         Objects.requireNonNull(prepared, "prepared");
-        if (closed.get()) {
+        if (closeGuard.isClosed()) {
             return completed(localDefinite(prepared, StableCode.CLIENT_CLOSED));
         }
         if (!matchesPinnedResource(prepared)) {
@@ -121,9 +120,7 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
 
     @Override
     public void close() {
-        if (closed.compareAndSet(false, true)) {
-            transport.close();
-        }
+        closeGuard.close(transport::close);
     }
 
     private SubmissionOutcomeMessageV1 project(final NativePreparedDeliveryV1 prepared,

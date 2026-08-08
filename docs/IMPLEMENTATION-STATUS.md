@@ -1775,6 +1775,18 @@ covers the composed physical-charge fence. This is local transport-SPI evidence
 only; it does not establish a Broker-side absence proof or durable destination
 evidence.
 
+The local adapter close gate now fences new work on the first close request but
+does not turn a failed native teardown into a permanent no-op. `CloseGuard`
+keeps the adapter logically closed while allowing a later lifecycle call to
+retry the underlying Kafka/Pulsar channel or Producer close; completion becomes
+terminal only after that operation succeeds. The same guard is used by the
+bounded physical-admission wrapper, which still shuts down its owned executor
+and aggregates delegate/teardown failures. `CloseGuardTest` and
+`DestinationAdapterTest.destinationCloseFailureCanBeRetriedWhileAdapterRemainsFenced`
+cover the retry/fence boundary. This is local teardown evidence only: it does
+not prove Broker-side cancellation, physical-charge release, or production
+channel quiescence.
+
 `PreparedSubmissionAdapter` now preserves the same boundary at the managed
 submission wrapper: a null stage, adapter throw, or `thenApply` callback
 registration failure is projected as managed `ENQUEUE_UNCERTAIN` with the

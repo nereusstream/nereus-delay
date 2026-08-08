@@ -6,13 +6,12 @@ import io.nereusstream.delay.protocol.BrokerResourceIdentityV1;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Pulsar target adapter requiring a Broker guard for every SEND. */
 public final class PinnedPulsarDestinationAdapter implements DestinationPublishAdapter {
     private final PulsarTargetResource resource;
     private final PulsarDestinationTransport transport;
-    private final AtomicBoolean closed = new AtomicBoolean();
+    private final CloseGuard closeGuard = new CloseGuard();
 
     public PinnedPulsarDestinationAdapter(final PulsarTargetResource resource,
                                           final PulsarDestinationTransport transport) {
@@ -23,7 +22,7 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
     @Override
     public CompletionStage<DestinationPublishResult> publish(final DestinationPublishRequest request) {
         Objects.requireNonNull(request, "request");
-        if (closed.get()) {
+        if (closeGuard.isClosed()) {
             return completed(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
         }
         final PulsarDestinationRequest transportRequest;
@@ -68,9 +67,7 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
 
     @Override
     public void close() {
-        if (closed.compareAndSet(false, true)) {
-            transport.close();
-        }
+        closeGuard.close(transport::close);
     }
 
     private static CompletionStage<DestinationPublishResult> completed(final DestinationPublishResult result) {

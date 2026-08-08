@@ -16,13 +16,12 @@ import io.nereusstream.delay.protocol.StableCode;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Pulsar ingress adapter requiring a per-SEND resource guard at Broker ownership. */
 public final class PinnedPulsarCommandIngress implements WireCommandIngressAdapter {
     private final PulsarIngressResource resource;
     private final PulsarSendTransport transport;
-    private final AtomicBoolean closed = new AtomicBoolean();
+    private final CloseGuard closeGuard = new CloseGuard();
 
     public PinnedPulsarCommandIngress(final PulsarIngressResource resource, final PulsarSendTransport transport) {
         this.resource = Objects.requireNonNull(resource, "resource");
@@ -32,7 +31,7 @@ public final class PinnedPulsarCommandIngress implements WireCommandIngressAdapt
     @Override
     public CompletionStage<EnqueueOutcome> enqueue(final PreparedCommand command) {
         Objects.requireNonNull(command, "command");
-        if (closed.get()) {
+        if (closeGuard.isClosed()) {
             return completed(EnqueueOutcome.definitelyNotQueued(command, StableCode.CLIENT_CLOSED.wireValue()));
         }
         if (!resource.shardId().equals(command.shardId())) {
@@ -88,7 +87,7 @@ public final class PinnedPulsarCommandIngress implements WireCommandIngressAdapt
             // fail before any local V1 outcome projection or transport call.
             return CompletableFuture.failedFuture(exception);
         }
-        if (closed.get()) {
+        if (closeGuard.isClosed()) {
             return completedWire(WireIngressOutcomeSupport.localDefinite(command, StableCode.CLIENT_CLOSED));
         }
         if (!resource.shardId().equals(command.shardId())) {
@@ -142,9 +141,7 @@ public final class PinnedPulsarCommandIngress implements WireCommandIngressAdapt
 
     @Override
     public void close() {
-        if (closed.compareAndSet(false, true)) {
-            transport.close();
-        }
+        closeGuard.close(transport::close);
     }
 
     private EnqueueOutcome map(final PreparedCommand command, final PulsarSendResult result) {
