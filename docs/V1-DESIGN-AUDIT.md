@@ -245,6 +245,11 @@ rejection or `COMMAND_ID_CONFLICT` to return the same result without creating a
 logical Command Result or appending another audit. A missing or cross-shard
 POSITION value remains fail-closed. `DelayShardTest` covers both exact replay
 paths.
+The System Mutation dedupe path applies the complementary rule: an exact
+already-verified mutation at a later Source Position advances only the durable
+applied position, and replay of that same later position returns the stored
+first-result without re-running the mutation. This avoids treating a valid
+post-commit duplicate as a source-position conflict.
 Kafka's exclusive activation LSO uses the same fail-closed boundary handling:
 an applied offset at the unsigned-64 maximum proves an exclusive barrier
 without wrapping the successor calculation. The local evidence is

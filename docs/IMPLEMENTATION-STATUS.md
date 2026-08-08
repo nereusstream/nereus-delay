@@ -209,7 +209,11 @@ summary, ledger, pending-schedule quota, outcome reserve, System Mutation result
 and Source Position in one WriteBatch; historical settlement updates only the
 retained terminal summary, ledger, duplicate-risk and outcome reserve, so it
 cannot mutate a newer generation. Both paths return the stored result on
-duplicate mutation replay.
+duplicate mutation replay. `DelayShard` also treats a duplicate System Mutation
+at a later Source Position as a position-only advance; if that later batch was
+committed before the source ACK was lost, exact replay returns the stored result
+instead of reporting a first-position mismatch. `DelayShardTest` covers this
+post-commit replay boundary.
 `ATTACH_NOT_PUBLISHED_EVIDENCE` now settles the exact typed not-published
 obligation and applies remaining-obligation/all-absent normalization,
 including revoking a live `CLAIMED` branch before creating the definitive

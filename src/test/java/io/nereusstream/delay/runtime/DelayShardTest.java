@@ -2082,8 +2082,10 @@ class DelayShardTest {
                     shard.getTerminalGeneration(schedule.delayMessageId(), 0).terminalCode());
             assertEquals(0, shard.quota().pendingMessages());
             assertEquals(0, shard.discoverExpiry(10_000, 10).size());
-            assertEquals(StableCode.OK,
-                    shard.applySystemMutation(mutation, duplicatePosition, keyPair.getPublic()).stableCode());
+            final SystemMutationResult duplicate = shard.applySystemMutation(mutation, duplicatePosition,
+                    keyPair.getPublic());
+            assertEquals(StableCode.OK, duplicate.stableCode());
+            assertEquals(duplicate, shard.applySystemMutation(mutation, duplicatePosition, keyPair.getPublic()));
             assertEquals(duplicatePosition, shard.lastAppliedSourcePosition());
             assertArrayEquals(expiryPosition.canonicalBytes(), shard.getSystemMutationResult(mutation.systemMutationId())
                     .appliedSourcePosition());
