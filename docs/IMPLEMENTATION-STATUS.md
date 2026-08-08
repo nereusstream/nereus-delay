@@ -30,10 +30,12 @@ attached.
 The local class-2 `OutcomeReserveUsage` projection is also rebuilt from all durable
 `PUBLISHING`/`UNCERTAIN` attempt ledgers during activation. A present aggregate that
 does not equal those exact admission charges fails closed; a missing legacy aggregate
-is backfilled in memory. This closes local record/byte admission accounting only and
-when a capacity envelope is pinned, the exact 66-dimensional class-2 vector is also
-rebuilt from canonical Admission charges (non-ledger/external dimensions remain zero).
-It still does not claim external reserve authority.
+is backfilled in memory. The exact 66-dimensional outcome vector is rebuilt from the
+same canonical Admission charges for every shard, including compatibility shards
+without an immutable capacity envelope; when an envelope is pinned, the persisted
+grant-bound vector is additionally compared and bounded (non-ledger/external
+dimensions remain zero). This closes local record/byte/vector accounting only and
+still does not claim external reserve authority.
 
 The Registry's `meta/QUOTA` quotaClass=4 (retained/object usage) remains
 unimplemented: the current Registry defines its key subtype but does not yet

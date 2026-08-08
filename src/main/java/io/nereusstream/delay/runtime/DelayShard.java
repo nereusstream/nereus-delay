@@ -296,11 +296,16 @@ public final class DelayShard {
             throw new IllegalStateException("persisted outcome reserve exceeds the active shard grant");
         }
         outcomeReserveVector = loadCapacityEnvelopeState(capacityEnvelope);
-        if (capacityEnvelope != null) {
-            final CapacityVectorV1 rebuiltOutcomeReserveVector = rebuildOutcomeReserveVector();
-            if (!outcomeReserveVector.equals(rebuiltOutcomeReserveVector)) {
-                throw new IllegalStateException("persisted outcome reserve vector disagrees with runtime state");
-            }
+        final CapacityVectorV1 rebuiltOutcomeReserveVector = rebuildOutcomeReserveVector();
+        if (capacityEnvelope == null) {
+            // Compatibility shards do not persist a grant-bound vector, but
+            // their open attempt ledgers still carry the canonical Admission
+            // charge.  Rebuild that local projection as well; otherwise a
+            // restart would forget the vector and a later release could
+            // underflow even though the scalar reserve was restored.
+            outcomeReserveVector = rebuiltOutcomeReserveVector;
+        } else if (!outcomeReserveVector.equals(rebuiltOutcomeReserveVector)) {
+            throw new IllegalStateException("persisted outcome reserve vector disagrees with runtime state");
         }
         loadControlReserveUsage(capacityEnvelope);
         if (capacityEnvelope != null
@@ -6412,7 +6417,7 @@ public final class DelayShard {
         return result;
     }
 
-    /** Rebuilds the exact 66-dimensional outcome projection when a grant is pinned. */
+    /** Rebuilds the exact 66-dimensional outcome projection from open ledgers. */
     private CapacityVectorV1 rebuildOutcomeReserveVector() {
         final long configuredLimit = Math.max(config.maxPendingMessages(),
                 config.maxOutcomeReserveRecords());

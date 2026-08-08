@@ -584,8 +584,9 @@ generation 在 Close marker 后收到 definitive `NOT_PUBLISHED` 时固定写入
 `LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED` 并停止 retry。它不等于签名服务、真实
 Broker evidence、strong-capability retirement 或 production outcome authority 已完成。
 Activation 还从 durable `PUBLISHING`/`UNCERTAIN` ledgers 重建 class-2 outcome
-record/byte aggregate，漂移时 fail closed；capacity envelope 存在时也重建并校验
-exact 66 维 class-2 vector（未接入的外部 dimensions 保持 zero），但仍不等于
+record/byte aggregate 与 exact 66 维 vector；兼容 shard 即使没有 immutable
+capacity envelope 也不会在重启后丢失这个本地 vector，绑定 envelope 时再校验其
+持久 grant-bound projection（未接入的外部 dimensions 保持 zero）。这仍不等于
 外部 reserve authority。
 Apply 同时验证 operation-specific logical identity：initial Publish Outcome 必须使用
 body 中的 `PublishAttemptId`，Evidence Resolution 必须使用

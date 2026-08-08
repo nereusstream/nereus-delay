@@ -3784,7 +3784,13 @@ class DelayShardTest {
             assertEquals(new OutcomeReserveUsage(2, 2), shard.outcomeReserve());
             assertEquals(MessageStatus.PUBLISHING, shard.getMessage(messageId).status());
             assertNotNull(shard.findOpenPublishAttempt(parsed.publishAttemptId()));
+        }
 
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, shardConfig);
+            assertEquals(2, shard.outcomeReserveVector().amount(CapacityDimensionV1.RESULT_RECORDS));
+            assertEquals(2, shard.outcomeReserveVector().amount(CapacityDimensionV1.RESULT_BYTES));
             final SystemMutationResult mismatched = shard.applySystemMutation(mismatchedOutcome,
                     mismatchedOutcomePosition, keyPair.getPublic());
             assertEquals(ApplyStatus.REJECTED, mismatched.applyStatus());
