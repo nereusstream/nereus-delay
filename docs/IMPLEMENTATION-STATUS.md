@@ -1465,6 +1465,12 @@ identity fence is covered by `SloObservationOutboxStoreTest`. Final merge now al
 revalidates the closed objective branch's required unit and direction before a
 durable replacement; `SloObservationOutboxV1Test.rejectsFinalUnitAndMergeDirectionThatDisagreeWithObjective`
 covers the semantic fence.
+The durable store entry point now requires an explicit paired HEALTHY objective
+when an ALL_ACCEPTED due Final carries an exclusion; the direction-only entry
+rejects both a new excluded Final and a previously excluded projection instead
+of allowing callers to bypass the catalog pair. `SloObservationOutboxStoreTest`
+`excludedFinalRequiresPairedHealthyObjectiveAtDurableBoundary` covers this
+boundary.
 Equal-severity Finals now select the newest observation revision's evidence as
 well as the conservative measurement; `SloObservationOutboxV1Test.mergeUsesNewestEvidenceWhenOutcomeSeverityIsEqual`
 covers that replay boundary. This is

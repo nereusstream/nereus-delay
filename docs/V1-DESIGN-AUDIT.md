@@ -1538,6 +1538,10 @@ evidence，避免 revision 与 evidence 混配。`SloObservationOutboxV1Test.mer
 则 fail closed，而不是静默保留旧 reason，`SloObservationOutboxV1Test.mergeRejectsConflictingDueExclusionReasons`
 覆盖 mutually-exclusive reason 的完整性边界。这只补足 shard-local 持久化完整性，不能
 替代 SLO Start 重建、collector merge/export 或生产观测 authority。
+持久化 store 的方向-only merge 入口现在还会拒绝带 exclusion 的新旧投影；
+只有显式传入配对 HEALTHY objective 的 overload 才能写入 excluded ALL_ACCEPTED
+Final，`SloObservationOutboxStoreTest.excludedFinalRequiresPairedHealthyObjectiveAtDurableBoundary`
+覆盖该 catalog-pair 边界。
 
 Large-payload reservation 的本地读取也采用同一条组合身份边界：`id_cf/RESERVATION`
 key 中的 reservationId 必须与 `PayloadReservation` 值一致，值中的 ShardId 必须与

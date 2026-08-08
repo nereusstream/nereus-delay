@@ -2,6 +2,7 @@ package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.SloObservationOutboxV1;
+import io.nereusstream.delay.protocol.SloObjectiveV1;
 import io.nereusstream.delay.protocol.SloSampleFinalV1;
 import io.nereusstream.delay.protocol.SloSampleStartV1;
 import io.nereusstream.delay.protocol.SloThresholdDirectionV1;
@@ -74,7 +75,29 @@ public final class SloObservationOutboxStore {
         if (existing == null) {
             throw new IllegalStateException("cannot persist SLO Final without a durable Start");
         }
+        requireNoDueExclusion(finalObservation, existing);
         final SloObservationOutboxV1 merged = existing.mergeFinal(finalObservation, direction);
+        persist(KeyCodec.metaSloOutbox(merged.sampleId()), merged);
+        return merged;
+    }
+
+    /**
+     * Merges a Final whose ALL_ACCEPTED due sample may carry an exclusion.
+     * The paired HEALTHY objective is required at this durable boundary so a
+     * caller cannot persist a reason that is absent from the immutable SLO
+     * catalog pair.
+     */
+    public synchronized SloObservationOutboxV1 mergeFinal(final SloSampleFinalV1 finalObservation,
+                                                           final SloThresholdDirectionV1 direction,
+                                                           final SloObjectiveV1 healthyObjective) {
+        Objects.requireNonNull(finalObservation, "finalObservation");
+        Objects.requireNonNull(direction, "direction");
+        Objects.requireNonNull(healthyObjective, "healthyObjective");
+        final SloObservationOutboxV1 existing = get(finalObservation.sampleId());
+        if (existing == null) {
+            throw new IllegalStateException("cannot persist SLO Final without a durable Start");
+        }
+        final SloObservationOutboxV1 merged = existing.mergeFinal(finalObservation, direction, healthyObjective);
         persist(KeyCodec.metaSloOutbox(merged.sampleId()), merged);
         return merged;
     }
@@ -142,5 +165,14 @@ public final class SloObservationOutboxStore {
 
     private void persist(final byte[] key, final SloObservationOutboxV1 outbox) {
         store.write(batch -> batch.putValue(ColumnFamily.META, VALUE_TYPE, key, outbox.canonicalBytes()));
+    }
+
+    private static void requireNoDueExclusion(final SloSampleFinalV1 incoming,
+                                              final SloObservationOutboxV1 existing) {
+        if (incoming.exclusionReason() != null
+                || existing.finalObservation() != null && existing.finalObservation().exclusionReason() != null) {
+            throw new IllegalArgumentException(
+                    "SLO due exclusions require the paired HEALTHY objective at the durable merge boundary");
+        }
     }
 }
