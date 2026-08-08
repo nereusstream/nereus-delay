@@ -957,6 +957,14 @@ body 中的 `PublishAttemptId`，Evidence Resolution 必须使用
 路径中保持 attempt、message、timeline 与 quota 不变。`DelayShardTest` 覆盖 Publish
 Outcome 与 Evidence Resolution 的错误 identity fence 以及后续正确 identity 的
 source-ordered apply。
+Initial Publish Outcome 现在还把 admitted ledger 中的完整 canonical
+`OwnerIdentityV1` 与外层 Owner 做 byte-equality fence；同 epoch 但 deployment、worker
+或 lease-fencing digest 不同的作者不会仅凭 epoch 命中旧 attempt。若新 Owner epoch
+无法直接命中旧的 inflight key，bounded lookup 只为 Registry 规定的
+`UNKNOWN + OWNER_FENCED + RECOVERY_FIRST_SEND_UNCERTAIN + UNCERTAIN_HOLD` recovery
+tuple 重新绑定原 admitted ledger，并保留原 epoch key。当前 Owner 的 Oxia/guarded
+recovery 资格仍在本地 shard 之外验证；任何跨 Owner definitive 或 scheduled Outcome
+都拒绝。
 同一关闭边界下的 `UNKNOWN` 结果保留 `UNCERTAIN` obligation 且不创建新的
 `UNCERTAIN_RETRY` timeline；后续 Resolve retry 仍由 closed-Lane gate 拒绝。
 

@@ -2171,24 +2171,41 @@ public final class DelayShard {
         final byte[] evidence = optionalBodyBytes(fields, 14);
         final io.nereusstream.delay.protocol.AuthorIdentity author =
                 io.nereusstream.delay.protocol.AuthorIdentity.decode(mutation.authorIdentity());
+        final PublishOutcomeBody outcome = PublishOutcomeBody.decode(mutation.canonicalBody());
+        if (!Arrays.equals(outcome.publishAttemptId(), attemptId)) {
+            throw new IllegalArgumentException("Publish Outcome attempt identity mismatch");
+        }
+        if (!Bytes.constantTimeEquals(mutation.logicalOperationIdentity(),
+                outcome.initialLogicalOperationIdentity())) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
+        PublishAttemptLedger ledger = getPublishAttempt(attemptId, author.generation());
+        boolean recoveryUnknown = false;
+        if (ledger == null) {
+            // A different Owner epoch cannot address the durable key directly.
+            // Scan only this exact attempt so a mismatched author is reported
+            // as an authorization failure instead of being mistaken for a
+            // missing/stale attempt.  The scan is bounded and fails closed.
+            ledger = findOpenPublishAttempt(attemptId);
+            recoveryUnknown = sideEffect == 3 && isCrossOwnerRecoveryUnknown(outcome)
+                    && ledger != null && ledger.state() == AttemptLedgerState.PUBLISHING
+                    && ledger.ownerEpoch() != author.generation()
+                    && canonicalOwnerIdentity(ledger.ownerIdentity()) != null
+                    && canonicalOwnerIdentity(ledger.ownerIdentity()).generation() == ledger.ownerEpoch();
+        }
+        if (ledger == null || ledger.state() != AttemptLedgerState.PUBLISHING) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+        if (!recoveryUnknown && !matchesAdmittedOwner(ledger, author)) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
         if (sideEffect == 2) {
-            final PublishOutcomeBody outcome = PublishOutcomeBody.decode(mutation.canonicalBody());
-            if (!Arrays.equals(outcome.publishAttemptId(), attemptId)) {
-                throw new IllegalArgumentException("Publish Outcome attempt identity mismatch");
-            }
-            if (!Bytes.constantTimeEquals(mutation.logicalOperationIdentity(),
-                    outcome.initialLogicalOperationIdentity())) {
-                return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
-                        StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
-            }
-            final PublishAttemptLedger ledger = getPublishAttempt(attemptId, author.generation());
             if (ledger == null || ledger.state() != AttemptLedgerState.PUBLISHING) {
                 return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                         StableCode.STALE_SYSTEM_MUTATION);
-            }
-            if (ledger.ownerEpoch() != author.generation()) {
-                return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
-                        StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
             }
             if (!matchesRetainedOutcomeCharge(ledger, outcome.transfer())) {
                 return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
@@ -2199,25 +2216,6 @@ public final class DelayShard {
             return applyNotPublishedPublishOutcome(ledger, outcome, sourcePosition, result,
                     AttemptLedgerState.PUBLISHING, MessageStatus.PUBLISHING);
         }
-        final PublishOutcomeBody outcome;
-        if (sideEffect == 1 || sideEffect == 3) {
-            outcome = PublishOutcomeBody.decode(mutation.canonicalBody());
-            if (!Arrays.equals(outcome.publishAttemptId(), attemptId)) {
-                throw new IllegalArgumentException("Publish Outcome attempt identity mismatch");
-            }
-            if (!Bytes.constantTimeEquals(mutation.logicalOperationIdentity(),
-                    outcome.initialLogicalOperationIdentity())) {
-                return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
-                        StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
-            }
-        } else {
-            outcome = null;
-        }
-        final PublishAttemptLedger ledger = getPublishAttempt(attemptId, author.generation());
-        if (ledger == null || ledger.state() != AttemptLedgerState.PUBLISHING) {
-            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
-                        StableCode.STALE_SYSTEM_MUTATION);
-        }
         if (sideEffect == 1) {
             if (!matchesRetainedOutcomeCharge(ledger, outcome.transfer())) {
                 return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
@@ -2226,7 +2224,7 @@ public final class DelayShard {
             final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, code,
                     sourcePosition.canonicalBytes());
             try {
-                applyPublishedPublishOutcome(attemptId, author.generation(), sourcePosition, result);
+                applyPublishedPublishOutcome(ledger, sourcePosition, result, MessageStatus.PUBLISHING);
                 return result;
             } catch (IllegalStateException exception) {
                 return persistSystemResultByResult(result, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
@@ -2239,12 +2237,51 @@ public final class DelayShard {
             }
             final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, code,
                     sourcePosition.canonicalBytes());
-            applyUnknownPublishOutcome(attemptId, author.generation(), mutation.canonicalBody(), evidence,
+            applyUnknownPublishOutcome(attemptId, ledger.ownerEpoch(), mutation.canonicalBody(), evidence,
                     sourcePosition, result, outcome.retryDecision());
             return result;
         }
         return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                 StableCode.STALE_SYSTEM_MUTATION);
+    }
+
+    /**
+     * The only initial Outcome that may be authored by a recovery Owner with
+     * a different epoch.  The live Oxia/source guard is external to this
+     * local shard; keeping the tuple closed here prevents a cross-Owner
+     * definitive result or a policy retry from bypassing that authority.
+     */
+    private static boolean isCrossOwnerRecoveryUnknown(final PublishOutcomeBody outcome) {
+        return outcome.sideEffect() == 3
+                && outcome.disposition() == 4
+                && outcome.stableCode() == StableCode.RECOVERY_FIRST_SEND_UNCERTAIN
+                && outcome.evidence().length == 0
+                && outcome.retryDecision().kind() == 5
+                && !outcome.retryDecision().hasNextRetryAt();
+    }
+
+    private static AuthorIdentity canonicalOwnerIdentity(final byte[] encoded) {
+        try {
+            final AuthorIdentity identity = AuthorIdentity.decode(encoded);
+            return identity.kind() == AuthorIdentity.Kind.OWNER ? identity : null;
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
+    }
+
+    /**
+     * New V1 ledgers retain a canonical OwnerIdentity, while old embedded
+     * fixtures used an opaque owner token.  Preserve the latter compatibility
+     * seam but never weaken the canonical identity comparison.
+     */
+    private static boolean matchesAdmittedOwner(final PublishAttemptLedger ledger,
+                                                 final AuthorIdentity author) {
+        final AuthorIdentity admittedOwner = canonicalOwnerIdentity(ledger.ownerIdentity());
+        if (admittedOwner != null) {
+            return admittedOwner.generation() == ledger.ownerEpoch()
+                    && Arrays.equals(ledger.ownerIdentity(), author.canonicalBytes());
+        }
+        return ledger.ownerEpoch() == author.generation();
     }
 
     private SystemMutationResult applyEvidenceResolutionMutation(final SystemMutation mutation,

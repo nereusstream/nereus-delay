@@ -480,6 +480,14 @@ PublishAttemptId || evidenceId)`. A mismatch persists
 `REJECTED(UNAUTHORIZED_SYSTEM_MUTATION)` without changing the attempt, message,
 timeline or quota; source-ordered regressions cover both wrong-identity fences and
 subsequent valid application.
+Initial Publish Outcome apply now also compares the complete canonical admitted
+`OwnerIdentityV1`, not just its epoch; a different deployment/worker/lease digest at
+the same epoch is rejected before the attempt changes. When a recovery Owner has a
+new epoch, the bounded attempt lookup permits only the Registry's exact
+`UNKNOWN + OWNER_FENCED + RECOVERY_FIRST_SEND_UNCERTAIN + UNCERTAIN_HOLD` tuple and
+applies it against the original admitted ledger key. The current guarded-recovery
+Owner/Oxia proof remains an external authority gate; definitive or policy-retry
+cross-Owner Outcomes stay unauthorized.
 The same operation-identity check now covers the remaining message-bearing
 handlers: `PUBLISH_ADMISSION_V1` requires `PublishAttemptId`,
 `CLAIM_RESULT_V1` requires `ClaimId`, and `EXPIRE_GENERATION_V1` requires the

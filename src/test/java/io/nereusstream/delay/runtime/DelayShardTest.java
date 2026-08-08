@@ -2437,6 +2437,85 @@ class DelayShardTest {
     }
 
     @Test
+    void sourceOrderedRecoveryUnknownFencesFullOwnerIdentityAndAcceptsExactNewOwnerTuple() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-outcome-recovery-owner"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 41);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("recovery-owner-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("recovery-owner")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 1_001);
+        final KafkaSourcePosition wrongOutcomePosition = position(shardId, 2, 1_002);
+        final KafkaSourcePosition wrongRecoveryPosition = position(shardId, 3, 1_003);
+        final KafkaSourcePosition recoveryOutcomePosition = position(shardId, 4, 1_004);
+        final byte[] attemptId = Bytes.sha256(Bytes.utf8("recovery-owner-attempt"));
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final AuthorIdentity admittedOwner = AuthorIdentity.owner(Bytes.utf8("deployment"),
+                Bytes.utf8("admitted-worker"), 42, Bytes.sha256(Bytes.utf8("admitted-lease")));
+        final AuthorIdentity wrongOwner = AuthorIdentity.owner(Bytes.utf8("deployment"),
+                Bytes.utf8("wrong-worker"), 42, Bytes.sha256(Bytes.utf8("wrong-lease")));
+        final AuthorIdentity recoveryOwner = AuthorIdentity.owner(Bytes.utf8("deployment"),
+                Bytes.utf8("recovery-worker"), 43, Bytes.sha256(Bytes.utf8("recovery-lease")));
+        final byte[] wrongObservedAt = new TrustedUtcIntervalEvidence(1_002, 1_002,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("wrong-clock"), 1, 2, 2,
+                Bytes.sha256(Bytes.utf8("wrong-recovery-proof")), 0, null).canonicalBytes();
+        final byte[] recoveryObservedAt = new TrustedUtcIntervalEvidence(1_003, 1_003,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("recovery-clock"), 1, 3, 3,
+                Bytes.sha256(Bytes.utf8("recovery-proof")), 0, null).canonicalBytes();
+        final byte[] wrongBody = publishOutcomeBody(shardId, attemptId, 3, 4,
+                StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, new byte[0], wrongObservedAt,
+                uncertainHoldRetryDecision(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN));
+        final byte[] recoveryBody = publishOutcomeBody(shardId, attemptId, 3, 4,
+                StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, new byte[0], recoveryObservedAt,
+                uncertainHoldRetryDecision(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN));
+        final byte[] wrongRecoveryBody = publishOutcomeBody(shardId, attemptId, 3, 4,
+                StableCode.DESTINATION_OUTCOME_UNKNOWN, new byte[0], wrongObservedAt,
+                uncertainHoldRetryDecision(StableCode.DESTINATION_OUTCOME_UNKNOWN));
+        final SystemMutation wrongOwnerMutation = SystemMutation.signed(shardId,
+                SystemMutationType.PUBLISH_OUTCOME, 9_000, publishOutcomeLogicalIdentity(wrongBody), wrongBody,
+                wrongOwner.canonicalBytes(), 1, keyPair.getPrivate());
+        final SystemMutation recoveryMutation = SystemMutation.signed(shardId,
+                SystemMutationType.PUBLISH_OUTCOME, 9_000, publishOutcomeLogicalIdentity(recoveryBody), recoveryBody,
+                recoveryOwner.canonicalBytes(), 1, keyPair.getPrivate());
+        final SystemMutation wrongRecoveryMutation = SystemMutation.signed(shardId,
+                SystemMutationType.PUBLISH_OUTCOME, 9_000, publishOutcomeLogicalIdentity(wrongRecoveryBody),
+                wrongRecoveryBody, recoveryOwner.canonicalBytes(), 1, keyPair.getPrivate());
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final PublishAttemptLedger admission = PublishAttemptLedger.publishing(schedule.delayMessageId(), 0,
+                    attemptId, Bytes.sha256(Bytes.utf8("recovery-owner-claim")), admittedOwner.generation(), 1,
+                    lane, shard.getLane(lane).laneIncarnation(), admittedOwner.canonicalBytes(),
+                    store.metadata().storeIncarnation(), Bytes.sha256(Bytes.utf8("recovery-owner-prepared")),
+                    Bytes.utf8("admission"), admissionPosition.canonicalBytes());
+            shard.admitPublishAttempt(admission, admissionPosition);
+
+            final SystemMutationResult wrongResult = shard.applySystemMutation(wrongOwnerMutation,
+                    wrongOutcomePosition, keyPair.getPublic());
+            assertEquals(ApplyStatus.REJECTED, wrongResult.applyStatus());
+            assertEquals(StableCode.UNAUTHORIZED_SYSTEM_MUTATION, wrongResult.stableCode());
+            assertEquals(AttemptLedgerState.PUBLISHING, shard.getPublishAttempt(attemptId, 42).state());
+
+            final SystemMutationResult wrongRecoveryResult = shard.applySystemMutation(wrongRecoveryMutation,
+                    wrongRecoveryPosition, keyPair.getPublic());
+            assertEquals(ApplyStatus.REJECTED, wrongRecoveryResult.applyStatus());
+            assertEquals(StableCode.UNAUTHORIZED_SYSTEM_MUTATION, wrongRecoveryResult.stableCode());
+            assertEquals(AttemptLedgerState.PUBLISHING, shard.getPublishAttempt(attemptId, 42).state());
+
+            final SystemMutationResult recoveryResult = shard.applySystemMutation(recoveryMutation,
+                    recoveryOutcomePosition, keyPair.getPublic());
+            assertEquals(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, recoveryResult.stableCode());
+            assertEquals(MessageStatus.UNCERTAIN, shard.getMessage(schedule.delayMessageId()).status());
+            assertEquals(AttemptLedgerState.UNCERTAIN, shard.getPublishAttempt(attemptId, 42).state());
+            assertNull(shard.getPublishAttempt(attemptId, 43));
+        }
+    }
+
+    @Test
     void sourceOrderedUnknownOutcomeMaterializesPinnedPolicyUncertainRetry() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-uncertain-retry"));
         final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,
@@ -5369,6 +5448,24 @@ class DelayShardTest {
             CanonicalProtobuf.int64(output, 4, 2_000);
             CanonicalProtobuf.int64(output, 5, 5_000);
             CanonicalProtobuf.int64(output, 6, nextRetryAt);
+            CanonicalProtobuf.uint32(output, 7, 1);
+            CanonicalProtobuf.uint32(output, 8, cause.wireValue());
+            CanonicalProtobuf.uint32(output, 9, 1);
+        });
+    }
+
+    private static byte[] uncertainHoldRetryDecision(final StableCode cause) {
+        final byte[] policy = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, Bytes.utf8("recovery-hold-policy"));
+            CanonicalProtobuf.uint32(output, 2, 1);
+            CanonicalProtobuf.bytes(output, 3, Bytes.sha256(Bytes.utf8("recovery-hold-policy-hash")));
+        });
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint32(output, 1, 5);
+            CanonicalProtobuf.bytes(output, 2, policy);
+            CanonicalProtobuf.uint32(output, 3, 1);
+            CanonicalProtobuf.int64(output, 4, 2_000);
+            CanonicalProtobuf.int64(output, 5, 5_000);
             CanonicalProtobuf.uint32(output, 7, 1);
             CanonicalProtobuf.uint32(output, 8, cause.wireValue());
             CanonicalProtobuf.uint32(output, 9, 1);
