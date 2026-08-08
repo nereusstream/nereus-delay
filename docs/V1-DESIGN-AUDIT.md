@@ -567,7 +567,8 @@ READY minimum 现在只计入一次，`openingLaneCountsItsReadyMinimumExactlyOn
 不再在 adapter monitor 内同步调用 delegate，而是把调用提交到注入的
 Lane/Adapter executor（默认构造器使用 Java 21 virtual-thread executor）；因此同一
 adapter 上一个永久阻塞的同步 metadata/send 调用不会阻塞另一个健康 Lane，且
-`blockingDelegateCallDoesNotBlockHealthyLane` 覆盖了该隔离边界。该组件只是进程内可重建的资源闸门，尚未接入持久
+`blockingDelegateCallDoesNotBlockHealthyLane` 覆盖了该隔离边界；executor 拒绝或
+异常 CompletionStage 注册也会归一化为 `UNKNOWN` 并释放 reservation。该组件只是进程内可重建的资源闸门，尚未接入持久
 `ActiveLaneState`/`ReadyCertificate`、Owner/Lease/Oxia authority、真实 channel
 teardown 或 Broker evidence journal，因此不能宣称 production admission 已闭合。
 

@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -154,6 +155,24 @@ class BoundedDestinationPublishAdapterTest {
                 blocked.outcome().toCompletableFuture().get(1, TimeUnit.SECONDS).disposition());
         assertEquals(0, admission.workerSnapshot().activeRequests());
         adapter.close();
+    }
+
+    @Test
+    void executorRejectionReleasesPhysicalCharge() {
+        final DestinationLaneId lane = lane("executor-rejection");
+        final DestinationPhysicalAdmission admission = admission(lane, 1, 20, 1, 20);
+        admission.openReady(lane);
+        final DestinationPublishAdapter delegate = request ->
+                CompletableFuture.completedFuture(published());
+        final BoundedDestinationPublishAdapter adapter = new BoundedDestinationPublishAdapter(
+                delegate, admission, task -> {
+                    throw new RejectedExecutionException("executor is closed");
+                });
+
+        final DestinationPublishResult result = adapter.publish(request(lane, 10)).toCompletableFuture().join();
+        assertEquals(DestinationPublishResult.Disposition.UNKNOWN, result.disposition());
+        assertEquals(StableCode.DESTINATION_OUTCOME_UNKNOWN, result.stableCode());
+        assertEquals(0, admission.workerSnapshot().activeRequests());
     }
 
     private static DestinationPhysicalAdmission admission(final DestinationLaneId lane,

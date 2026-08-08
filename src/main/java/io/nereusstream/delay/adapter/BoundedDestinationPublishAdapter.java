@@ -9,7 +9,6 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -82,7 +81,7 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
         final CompletableFuture<DestinationPublishResult> outcome = new CompletableFuture<>();
         try {
             executor.execute(() -> invokeDelegate(request, outcome));
-        } catch (RejectedExecutionException exception) {
+        } catch (RuntimeException exception) {
             reservation.release();
             return PublishCall.completed(completedUnknownValue());
         }
@@ -112,10 +111,6 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
         return Math.addExact(request.payload().length, request.adapterMetadata().length);
     }
 
-    private static CompletionStage<DestinationPublishResult> completedUnknown() {
-        return CompletableFuture.completedFuture(completedUnknownValue());
-    }
-
     private static DestinationPublishResult completedUnknownValue() {
         return DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null);
     }
@@ -137,8 +132,12 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
             outcome.complete(completedUnknownValue());
             return;
         }
-        raw.whenComplete((value, error) -> outcome.complete(
-                error == null && value != null ? value : completedUnknownValue()));
+        try {
+            raw.whenComplete((value, error) -> outcome.complete(
+                    error == null && value != null ? value : completedUnknownValue()));
+        } catch (RuntimeException exception) {
+            outcome.complete(completedUnknownValue());
+        }
     }
 
     private static PublishCall withRelease(final DestinationPhysicalAdmission.Reservation reservation,
