@@ -59,7 +59,7 @@ public final class PreparedControlOperationV1 {
         if (!Bytes.constantTimeEquals(this.targetSnapshotHash, targetSnapshotHash(this.targets))) {
             throw new IllegalArgumentException("targetSnapshotHash mismatch");
         }
-        if (controlQueryPolicyVersion <= 0 || registrationRetryUntil < 0) {
+        if (controlQueryPolicyVersion == 0 || registrationRetryUntil < 0) {
             throw new IllegalArgumentException("invalid control query policy or registration retry deadline");
         }
         this.controlQueryPolicyVersion = controlQueryPolicyVersion;
@@ -212,7 +212,7 @@ public final class PreparedControlOperationV1 {
                 ControlOperationRequestV1.decode(QueryCodecSupport.nested(fields.get(4), 5)),
                 QueryCodecSupport.fixed(fields.get(5), 6, HASH_LENGTH), targets,
                 QueryCodecSupport.fixed(fields.get(index), 8, HASH_LENGTH),
-                QueryCodecSupport.uint(fields.get(index + 1), 9), QueryCodecSupport.uint(fields.get(index + 2), 10),
+                QueryCodecSupport.uint64Bits(fields.get(index + 1), 9), QueryCodecSupport.uint(fields.get(index + 2), 10),
                 QueryCodecSupport.fixed(fields.get(index + 3), 11, HASH_LENGTH),
                 QueryCodecSupport.uint(fields.get(index + 4), 12),
                 QueryCodecSupport.fixed(fields.get(index + 5), 13, SIGNATURE_LENGTH));
@@ -301,7 +301,7 @@ public final class PreparedControlOperationV1 {
             CanonicalProtobuf.bytes(output, 7, target.canonicalBytes());
         }
         CanonicalProtobuf.bytes(output, 8, targetSnapshotHash);
-        CanonicalProtobuf.uint64(output, 9, controlQueryPolicyVersion);
+        CanonicalProtobuf.uint64Bits(output, 9, controlQueryPolicyVersion);
         CanonicalProtobuf.int64(output, 10, registrationRetryUntil);
     }
 
@@ -329,7 +329,7 @@ public final class PreparedControlOperationV1 {
                 CanonicalProtobuf.bytes(output, 7, target.canonicalBytes());
             }
             CanonicalProtobuf.bytes(output, 8, targetSnapshotHash);
-            CanonicalProtobuf.uint64(output, 9, controlQueryPolicyVersion);
+            CanonicalProtobuf.uint64Bits(output, 9, controlQueryPolicyVersion);
             CanonicalProtobuf.int64(output, 10, registrationRetryUntil);
         }));
     }

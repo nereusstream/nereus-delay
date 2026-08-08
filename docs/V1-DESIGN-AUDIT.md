@@ -177,6 +177,9 @@ The Control Operation request union now has local canonical codecs for all
 fifteen Registry branches, including the evidence/acknowledgement matrix. It
 remains a request-value boundary and does not authenticate an actor/resource,
 construct source mutations or produce an Oxia registration receipt.
+The prepared envelope also retains the complete raw `control_query_policy_version`
+bits in its digest and signature preimage; this immutable policy reference is
+distinct from the bounded local operation-revision CAS counter.
 The Control target value layer closes the six branch shapes and field-22
 digest locally. `PreparedControlOperationV1` now additionally enforces the
 closed operation-specific target counts/kinds, mutation-identity presence and

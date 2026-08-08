@@ -44,12 +44,12 @@ class PreparedControlOperationV1Test {
                 new ShardSubjectV1(new ShardId(new RouteIncarnation(bytes(16, 3)), 0)), bytes(32, 4), bytes(32, 5));
         final PreparedControlOperationV1 prepared = PreparedControlOperationV1.prepare(bytes(32, 3),
                 request.kind(), new ControlAuthorV1(bytes(32, 4), bytes(32, 5), bytes(32, 6)), request,
-                List.of(target, shardTarget), 7, 1_000, 2, keyPair.getPrivate());
+                List.of(target, shardTarget), Long.MIN_VALUE, 1_000, 2, keyPair.getPrivate());
 
         assertTrue(prepared.verifySignature(keyPair.getPublic()));
         assertFalse(prepared.verifySignature(KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPublic()));
         assertEquals(prepared, PreparedControlOperationV1.decode(prepared.canonicalBytes()));
-        assertEquals(7, prepared.controlQueryPolicyVersion());
+        assertEquals(Long.MIN_VALUE, prepared.controlQueryPolicyVersion());
         assertEquals(2, prepared.signingKeyVersion());
     }
 

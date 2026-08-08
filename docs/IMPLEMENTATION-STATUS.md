@@ -206,6 +206,13 @@ operation state are still pending. `ControlTargetMutationBindingV1` now closes
 the local pre-registration binding check once a caller has constructed a
 mutation; it does not construct the body or authenticate the external writer.
 
+The prepared Control Operation envelope now preserves the complete raw
+`uint64` `control_query_policy_version` through its prepared digest, canonical
+decode and signature preimage. This immutable policy reference is separate
+from the local bounded `operation_revision` CAS counter; catalog lookup and
+authenticated Oxia registration remain external. `PreparedControlOperationV1Test`
+covers the high-bit round trip.
+
 The closed Control target value layer now also has canonical codecs for Shard,
 Lane, Message, Route, Profile and Quota Grant target branches, including the
 optional expected-mutation identity pair and a digest over fields 1--21. This
