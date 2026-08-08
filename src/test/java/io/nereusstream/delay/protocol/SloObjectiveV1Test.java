@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class SloObjectiveV1Test {
@@ -38,6 +39,42 @@ class SloObjectiveV1Test {
                 objective.name(), objective.population(), SloPathV1.NOT_APPLICABLE, identity, endpoint(1_000),
                 1_101L);
         assertThrows(IllegalArgumentException.class, () -> objective.validateStart(wrongTimeout));
+    }
+
+    @Test
+    void objectiveRoundTripsCompleteUnsigned64BitFields() {
+        final SloObjectiveV1 objective = new SloObjectiveV1(SloObjectiveNameV1.QUERY_LATENCY,
+                SloPopulationV1.ALL_ACCEPTED, SloThresholdDirectionV1.AT_MOST,
+                SloThresholdUnitV1.MILLISECONDS, Long.MIN_VALUE, Long.MIN_VALUE, -1L,
+                Long.MIN_VALUE, Long.MIN_VALUE, List.of(), Long.MIN_VALUE, bytes(32, 2));
+
+        final SloObjectiveV1 decoded = SloObjectiveV1.decode(objective.canonicalBytes());
+        assertEquals(Long.MIN_VALUE, decoded.threshold());
+        assertEquals(Long.MIN_VALUE, decoded.objectiveNumerator());
+        assertEquals(-1L, decoded.objectiveDenominator());
+        assertEquals(Long.MIN_VALUE, decoded.rollingWindowMs());
+        assertEquals(Long.MIN_VALUE, decoded.minimumSamples());
+        assertEquals(Long.MIN_VALUE, decoded.healthyLoadEnvelopeVersion());
+        assertArrayEquals(objective.canonicalBytes(), decoded.canonicalBytes());
+    }
+
+    @Test
+    void dueHealthyObjectiveMustMatchItsAllAcceptedCompanion() {
+        final SloObjectiveV1 healthy = dueObjective(SloPopulationV1.HEALTHY,
+                List.of(DueExclusionReasonV1.CAPACITY_GATED, DueExclusionReasonV1.ADMIN_PAUSED));
+        final SloObjectiveV1 allAccepted = dueObjective(SloPopulationV1.ALL_ACCEPTED, List.of());
+
+        healthy.validateDueCompanion(allAccepted);
+        assertThrows(IllegalArgumentException.class,
+                () -> healthy.validateDueCompanion(dueObjective(SloPopulationV1.ALL_ACCEPTED,
+                        List.of(DueExclusionReasonV1.CAPACITY_GATED))));
+    }
+
+    private static SloObjectiveV1 dueObjective(final SloPopulationV1 population,
+                                               final List<DueExclusionReasonV1> exclusions) {
+        return new SloObjectiveV1(SloObjectiveNameV1.DUE_ADMISSION_LAG, population,
+                SloThresholdDirectionV1.AT_MOST, SloThresholdUnitV1.MILLISECONDS, 100, 99, 100,
+                60_000, 10, exclusions, 7, bytes(32, 3));
     }
 
     private static byte[] identityPayload() {

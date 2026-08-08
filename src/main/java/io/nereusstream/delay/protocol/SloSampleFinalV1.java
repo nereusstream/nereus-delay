@@ -40,7 +40,7 @@ public final class SloSampleFinalV1 {
         this.startDigest = fixed(startDigest, "startDigest");
         this.outcome = Objects.requireNonNull(outcome, "outcome");
         this.unit = Objects.requireNonNull(unit, "unit");
-        if (measuredLower < 0 || measuredUpper < measuredLower) {
+        if (Long.compareUnsigned(measuredUpper, measuredLower) < 0) {
             throw new IllegalArgumentException("SLO measured interval is invalid");
         }
         this.measuredLower = measuredLower;
@@ -51,7 +51,7 @@ public final class SloSampleFinalV1 {
         this.exclusionReason = exclusionReason;
         this.finalObservation = Objects.requireNonNull(finalObservation, "finalObservation");
         this.sourceEventEvidenceSha256 = fixed(sourceEventEvidenceSha256, "sourceEventEvidenceSha256");
-        if (observationRevision <= 0) {
+        if (observationRevision == 0) {
             throw new IllegalArgumentException("SLO observation revision must be positive");
         }
         this.observationRevision = observationRevision;
@@ -122,6 +122,26 @@ public final class SloSampleFinalV1 {
     }
 
     /**
+     * Validates the additional catalog binding for an excluded ALL_ACCEPTED
+     * due sample. A reason is valid only when the paired HEALTHY objective
+     * explicitly declares it.
+     */
+    public void validateAgainst(final SloSampleStartV1 start, final SloObjectiveV1 healthyObjective) {
+        validateAgainst(start);
+        Objects.requireNonNull(healthyObjective, "healthyObjective");
+        if (exclusionReason == null) {
+            return;
+        }
+        if (start.objective() != SloObjectiveNameV1.DUE_ADMISSION_LAG
+                || start.population() != SloPopulationV1.ALL_ACCEPTED) {
+            throw new IllegalArgumentException("exclusion requires an ALL_ACCEPTED due sample");
+        }
+        if (!healthyObjective.exclusions().contains(exclusionReason)) {
+            throw new IllegalArgumentException("SLO exclusion is not in the paired HEALTHY objective set");
+        }
+    }
+
+    /**
      * Merges repeated exporter/recovery observations without allowing a bad
      * result or a worse measurement to be erased.
      */
@@ -145,16 +165,16 @@ public final class SloSampleFinalV1 {
         }
         final SloSampleFinalV1 evidenceSource = compareEvidence(current, incoming) >= 0 ? current : incoming;
         final long lower = direction == SloThresholdDirectionV1.AT_MOST
-                ? Math.max(current.measuredLower, incoming.measuredLower)
-                : Math.min(current.measuredLower, incoming.measuredLower);
+                ? unsignedMax(current.measuredLower, incoming.measuredLower)
+                : unsignedMin(current.measuredLower, incoming.measuredLower);
         final long upper = direction == SloThresholdDirectionV1.AT_MOST
-                ? Math.max(current.measuredUpper, incoming.measuredUpper)
-                : Math.min(current.measuredUpper, incoming.measuredUpper);
+                ? unsignedMax(current.measuredUpper, incoming.measuredUpper)
+                : unsignedMin(current.measuredUpper, incoming.measuredUpper);
         final DueExclusionReasonV1 exclusion = current.exclusionReason != null
                 ? current.exclusionReason : incoming.exclusionReason;
         return new SloSampleFinalV1(current.sampleId, current.startDigest, evidenceSource.outcome,
                 current.unit, lower, upper, exclusion, evidenceSource.finalObservation,
-                evidenceSource.sourceEventEvidenceSha256, Math.max(current.observationRevision,
+                evidenceSource.sourceEventEvidenceSha256, unsignedMax(current.observationRevision,
                 incoming.observationRevision));
     }
 
@@ -182,12 +202,12 @@ public final class SloSampleFinalV1 {
                 QueryCodecSupport.fixed(fields.get(2), 3, HASH_LENGTH),
                 SloFinalOutcomeV1.fromWire(QueryCodecSupport.uint(fields.get(3), 4)),
                 SloThresholdUnitV1.fromWire(QueryCodecSupport.uint(fields.get(4), 5)),
-                QueryCodecSupport.uint(fields.get(5), 6), QueryCodecSupport.uint(fields.get(6), 7),
+                QueryCodecSupport.uint64Bits(fields.get(5), 6), QueryCodecSupport.uint64Bits(fields.get(6), 7),
                 fields.size() == 12
                         ? DueExclusionReasonV1.fromWire(QueryCodecSupport.uint(fields.get(7), 8)) : null,
                 SloTimeEndpointV1.decode(QueryCodecSupport.nested(fields.get(fields.size() == 12 ? 8 : 7), 9)),
                 QueryCodecSupport.fixed(fields.get(fields.size() == 12 ? 9 : 8), 10, HASH_LENGTH),
-                QueryCodecSupport.uint(fields.get(fields.size() == 12 ? 10 : 9), 11),
+                QueryCodecSupport.uint64Bits(fields.get(fields.size() == 12 ? 10 : 9), 11),
                 QueryCodecSupport.fixed(fields.get(fields.size() - 1), 12, HASH_LENGTH));
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "SloSampleFinalV1");
         return result;
@@ -200,14 +220,14 @@ public final class SloSampleFinalV1 {
             CanonicalProtobuf.bytes(output, 3, startDigest);
             CanonicalProtobuf.uint32(output, 4, outcome.wireValue());
             CanonicalProtobuf.uint32(output, 5, unit.wireValue());
-            CanonicalProtobuf.uint64(output, 6, measuredLower);
-            CanonicalProtobuf.uint64(output, 7, measuredUpper);
+            CanonicalProtobuf.uint64Bits(output, 6, measuredLower);
+            CanonicalProtobuf.uint64Bits(output, 7, measuredUpper);
             if (exclusionReason != null) {
                 CanonicalProtobuf.uint32(output, 8, exclusionReason.wireValue());
             }
             CanonicalProtobuf.bytes(output, 9, finalObservation.canonicalBytes());
             CanonicalProtobuf.bytes(output, 10, sourceEventEvidenceSha256);
-            CanonicalProtobuf.uint64(output, 11, observationRevision);
+            CanonicalProtobuf.uint64Bits(output, 11, observationRevision);
         });
     }
 
@@ -224,7 +244,16 @@ public final class SloSampleFinalV1 {
 
     private static int compareEvidence(final SloSampleFinalV1 left, final SloSampleFinalV1 right) {
         final int severity = Integer.compare(severity(left.outcome), severity(right.outcome));
-        return severity != 0 ? severity : Long.compare(left.observationRevision, right.observationRevision);
+        return severity != 0 ? severity
+                : Long.compareUnsigned(left.observationRevision, right.observationRevision);
+    }
+
+    private static long unsignedMax(final long left, final long right) {
+        return Long.compareUnsigned(left, right) >= 0 ? left : right;
+    }
+
+    private static long unsignedMin(final long left, final long right) {
+        return Long.compareUnsigned(left, right) <= 0 ? left : right;
     }
 
     private static byte[] fixed(final byte[] value, final String name) {

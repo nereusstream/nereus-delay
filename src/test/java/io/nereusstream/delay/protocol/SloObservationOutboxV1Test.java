@@ -64,6 +64,78 @@ class SloObservationOutboxV1Test {
     }
 
     @Test
+    void finalRoundTripsAndMergesCompleteUnsigned64BitFields() {
+        final SloSampleStartV1 start = start();
+        final SloSampleFinalV1 first = new SloSampleFinalV1(start.sampleId(), start.startDigest(),
+                SloFinalOutcomeV1.BAD_TIMEOUT, SloThresholdUnitV1.MILLISECONDS,
+                Long.MIN_VALUE, -1L, null, endpoint(300), bytes(32, 17), Long.MIN_VALUE);
+        final SloSampleFinalV1 decoded = SloSampleFinalV1.decode(first.canonicalBytes());
+        assertEquals(Long.MIN_VALUE, decoded.measuredLower());
+        assertEquals(-1L, decoded.measuredUpper());
+        assertEquals(Long.MIN_VALUE, decoded.observationRevision());
+        assertArrayEquals(first.canonicalBytes(), decoded.canonicalBytes());
+
+        final SloSampleFinalV1 wider = new SloSampleFinalV1(start.sampleId(), start.startDigest(),
+                SloFinalOutcomeV1.BAD_TIMEOUT, SloThresholdUnitV1.MILLISECONDS,
+                -1L, -1L, null, endpoint(301), bytes(32, 18), -1L);
+        final SloSampleFinalV1 merged = SloSampleFinalV1.merge(first, wider,
+                SloThresholdDirectionV1.AT_MOST);
+        assertEquals(-1L, merged.measuredLower());
+        assertEquals(-1L, merged.measuredUpper());
+        assertEquals(-1L, merged.observationRevision());
+    }
+
+    @Test
+    void dueIdentityPreservesCompleteUnsignedGenerationBits() {
+        final SloSampleEventIdentityV1 identity = new SloSampleEventIdentityV1(
+                SloObjectiveNameV1.DUE_ADMISSION_LAG, CanonicalProtobuf.message(output -> {
+                    CanonicalProtobuf.bytes(output, 1, bytes(41, 19));
+                    CanonicalProtobuf.uint32Bits(output, 2, Integer.MIN_VALUE);
+                    CanonicalProtobuf.int64(output, 3, 100);
+                    CanonicalProtobuf.uint32(output, 4, SloPathV1.ORDINARY_MANAGED.wireValue());
+                }));
+
+        assertArrayEquals(identity.canonicalBytes(),
+                SloSampleEventIdentityV1.decode(identity.canonicalBytes()).canonicalBytes());
+    }
+
+    @Test
+    void excludedFinalMustBelongToPairedHealthyObjective() {
+        final SloObjectiveV1 healthy = dueObjective(SloPopulationV1.HEALTHY,
+                java.util.List.of(DueExclusionReasonV1.CAPACITY_GATED));
+        final SloObjectiveV1 allAccepted = dueObjective(SloPopulationV1.ALL_ACCEPTED, java.util.List.of());
+        healthy.validateDueCompanion(allAccepted);
+        final SloSampleEventIdentityV1 identity = new SloSampleEventIdentityV1(
+                SloObjectiveNameV1.DUE_ADMISSION_LAG, CanonicalProtobuf.message(output -> {
+                    CanonicalProtobuf.bytes(output, 1, bytes(41, 20));
+                    CanonicalProtobuf.uint32(output, 2, 1);
+                    CanonicalProtobuf.int64(output, 3, 100);
+                    CanonicalProtobuf.uint32(output, 4, SloPathV1.ORDINARY_MANAGED.wireValue());
+                }));
+        final SloSampleStartV1 start = new SloSampleStartV1(allAccepted,
+                SloPathV1.ORDINARY_MANAGED, identity, endpoint(100), 200L);
+        final SloSampleFinalV1 excluded = new SloSampleFinalV1(start.sampleId(), start.startDigest(),
+                SloFinalOutcomeV1.BAD_EVIDENCE_GAP, SloThresholdUnitV1.MILLISECONDS, 1, 2,
+                DueExclusionReasonV1.CAPACITY_GATED, endpoint(200), bytes(32, 21), 1);
+        final SloObservationOutboxV1 outbox = SloObservationOutboxV1.open(start)
+                .mergeFinal(excluded, SloThresholdDirectionV1.AT_MOST, healthy);
+        assertEquals(excluded, outbox.finalObservation());
+
+        final SloSampleFinalV1 wrongReason = new SloSampleFinalV1(start.sampleId(), start.startDigest(),
+                SloFinalOutcomeV1.BAD_EVIDENCE_GAP, SloThresholdUnitV1.MILLISECONDS, 1, 2,
+                DueExclusionReasonV1.ADMIN_PAUSED, endpoint(201), bytes(32, 22), 2);
+        assertThrows(IllegalArgumentException.class,
+                () -> wrongReason.validateAgainst(start, healthy));
+    }
+
+    private static SloObjectiveV1 dueObjective(final SloPopulationV1 population,
+                                               final java.util.List<DueExclusionReasonV1> exclusions) {
+        return new SloObjectiveV1(SloObjectiveNameV1.DUE_ADMISSION_LAG, population,
+                SloThresholdDirectionV1.AT_MOST, SloThresholdUnitV1.MILLISECONDS, 100, 99, 100,
+                60_000, 10, exclusions, 7, bytes(32, 23));
+    }
+
+    @Test
     void mergeRejectsConflictingDueExclusionReasons() {
         final SloSampleStartV1 start = dueAcceptedStart();
         final SloSampleFinalV1 capacity = new SloSampleFinalV1(start.sampleId(), start.startDigest(),

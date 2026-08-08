@@ -118,6 +118,9 @@ public final class SloSampleStartV1 {
                 throw new IllegalArgumentException("AT_MOST SLO Start requires a timeout");
             }
             final long expectedTimeout;
+            if (objective.threshold() < 0) {
+                throw new IllegalArgumentException("SLO timeout overflows epoch range");
+            }
             try {
                 expectedTimeout = Math.addExact(start.earliestEpochMs(), objective.threshold());
             } catch (ArithmeticException exception) {

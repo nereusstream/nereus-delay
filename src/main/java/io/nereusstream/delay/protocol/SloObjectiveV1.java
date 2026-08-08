@@ -47,8 +47,8 @@ public final class SloObjectiveV1 {
         this.population = Objects.requireNonNull(population, "population");
         this.direction = Objects.requireNonNull(direction, "direction");
         this.unit = Objects.requireNonNull(unit, "unit");
-        if (threshold < 0 || objectiveNumerator <= 0 || objectiveDenominator <= 0
-                || objectiveNumerator > objectiveDenominator || rollingWindowMs < 0 || minimumSamples < 0) {
+        if (objectiveNumerator == 0 || objectiveDenominator == 0
+                || Long.compareUnsigned(objectiveNumerator, objectiveDenominator) > 0) {
             throw new IllegalArgumentException("invalid SLO objective scalar");
         }
         this.threshold = threshold;
@@ -61,7 +61,7 @@ public final class SloObjectiveV1 {
             throw new IllegalArgumentException("V1 only supports BAD timeout treatment");
         }
         this.exclusions = sortedExclusions(exclusions);
-        if (healthyLoadEnvelopeVersion <= 0) {
+        if (healthyLoadEnvelopeVersion == 0) {
             throw new IllegalArgumentException("healthyLoadEnvelopeVersion must be positive");
         }
         this.healthyLoadEnvelopeVersion = healthyLoadEnvelopeVersion;
@@ -137,6 +137,40 @@ public final class SloObjectiveV1 {
         start.validateAgainst(this);
     }
 
+    /**
+     * Validates the immutable same-event pair required for a due-admission
+     * HEALTHY objective and its ALL_ACCEPTED companion.
+     *
+     * <p>The pair is catalog metadata rather than an additional wire message:
+     * the two objective digests remain independent, while every measurement
+     * policy field other than population and the HEALTHY exclusion set must
+     * agree.</p>
+     */
+    public void validateDueCompanion(final SloObjectiveV1 allAccepted) {
+        Objects.requireNonNull(allAccepted, "allAccepted");
+        if (name != SloObjectiveNameV1.DUE_ADMISSION_LAG
+                || population != SloPopulationV1.HEALTHY
+                || exclusions.isEmpty()) {
+            throw new IllegalArgumentException("the primary due objective must be HEALTHY with exclusions");
+        }
+        if (allAccepted.name != SloObjectiveNameV1.DUE_ADMISSION_LAG
+                || allAccepted.population != SloPopulationV1.ALL_ACCEPTED
+                || !allAccepted.exclusions.isEmpty()) {
+            throw new IllegalArgumentException("the due companion must be ALL_ACCEPTED without exclusions");
+        }
+        if (direction != allAccepted.direction || unit != allAccepted.unit
+                || threshold != allAccepted.threshold
+                || objectiveNumerator != allAccepted.objectiveNumerator
+                || objectiveDenominator != allAccepted.objectiveDenominator
+                || rollingWindowMs != allAccepted.rollingWindowMs
+                || minimumSamples != allAccepted.minimumSamples
+                || timeoutTreatment != allAccepted.timeoutTreatment
+                || healthyLoadEnvelopeVersion != allAccepted.healthyLoadEnvelopeVersion
+                || !Arrays.equals(healthyLoadEnvelopeDigest, allAccepted.healthyLoadEnvelopeDigest)) {
+            throw new IllegalArgumentException("due objective and companion policy fields differ");
+        }
+    }
+
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
             output.writeBytes(fieldsOneToThirteen());
@@ -174,11 +208,11 @@ public final class SloObjectiveV1 {
                 SloPopulationV1.fromWire(QueryCodecSupport.uint(fields.get(1), 2)),
                 SloThresholdDirectionV1.fromWire(QueryCodecSupport.uint(fields.get(2), 3)),
                 SloThresholdUnitV1.fromWire(QueryCodecSupport.uint(fields.get(3), 4)),
-                QueryCodecSupport.uint(fields.get(4), 5), QueryCodecSupport.uint(fields.get(5), 6),
-                QueryCodecSupport.uint(fields.get(6), 7), QueryCodecSupport.uint(fields.get(7), 8),
-                QueryCodecSupport.uint(fields.get(8), 9),
+                QueryCodecSupport.uint64Bits(fields.get(4), 5), QueryCodecSupport.uint64Bits(fields.get(5), 6),
+                QueryCodecSupport.uint64Bits(fields.get(6), 7), QueryCodecSupport.uint64Bits(fields.get(7), 8),
+                QueryCodecSupport.uint64Bits(fields.get(8), 9),
                 SloTimeoutTreatmentV1.fromWire(QueryCodecSupport.uint(fields.get(9), 10)), exclusions,
-                QueryCodecSupport.uint(fields.get(index), 12),
+                QueryCodecSupport.uint64Bits(fields.get(index), 12),
                 QueryCodecSupport.fixed(fields.get(index + 1), 13, HASH_LENGTH),
                 QueryCodecSupport.fixed(fields.get(index + 2), 14, HASH_LENGTH));
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "SloObjectiveV1");
@@ -191,16 +225,16 @@ public final class SloObjectiveV1 {
             CanonicalProtobuf.uint32(output, 2, population.wireValue());
             CanonicalProtobuf.uint32(output, 3, direction.wireValue());
             CanonicalProtobuf.uint32(output, 4, unit.wireValue());
-            CanonicalProtobuf.uint64(output, 5, threshold);
-            CanonicalProtobuf.uint64(output, 6, objectiveNumerator);
-            CanonicalProtobuf.uint64(output, 7, objectiveDenominator);
-            CanonicalProtobuf.uint64(output, 8, rollingWindowMs);
-            CanonicalProtobuf.uint64(output, 9, minimumSamples);
+            CanonicalProtobuf.uint64Bits(output, 5, threshold);
+            CanonicalProtobuf.uint64Bits(output, 6, objectiveNumerator);
+            CanonicalProtobuf.uint64Bits(output, 7, objectiveDenominator);
+            CanonicalProtobuf.uint64Bits(output, 8, rollingWindowMs);
+            CanonicalProtobuf.uint64Bits(output, 9, minimumSamples);
             CanonicalProtobuf.uint32(output, 10, timeoutTreatment.wireValue());
             for (DueExclusionReasonV1 exclusion : exclusions) {
                 CanonicalProtobuf.uint32(output, 11, exclusion.wireValue());
             }
-            CanonicalProtobuf.uint64(output, 12, healthyLoadEnvelopeVersion);
+            CanonicalProtobuf.uint64Bits(output, 12, healthyLoadEnvelopeVersion);
             CanonicalProtobuf.bytes(output, 13, healthyLoadEnvelopeDigest);
         });
     }

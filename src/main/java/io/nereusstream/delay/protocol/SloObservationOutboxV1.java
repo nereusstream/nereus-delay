@@ -62,6 +62,18 @@ public final class SloObservationOutboxV1 {
         return new SloObservationOutboxV1(start, merged, null);
     }
 
+    /** Merges a Final while also checking the paired HEALTHY exclusion set. */
+    public SloObservationOutboxV1 mergeFinal(final SloSampleFinalV1 incoming,
+                                             final SloThresholdDirectionV1 direction,
+                                             final SloObjectiveV1 healthyObjective) {
+        Objects.requireNonNull(healthyObjective, "healthyObjective");
+        Objects.requireNonNull(incoming, "incoming").validateAgainst(start, healthyObjective);
+        if (finalObservation != null) {
+            finalObservation.validateAgainst(start, healthyObjective);
+        }
+        return mergeFinal(incoming, direction);
+    }
+
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
             output.writeBytes(fieldsOneToThree());

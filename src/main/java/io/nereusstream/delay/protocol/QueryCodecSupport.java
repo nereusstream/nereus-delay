@@ -81,6 +81,14 @@ final class QueryCodecSupport {
         return (int) value;
     }
 
+    /** Returns the complete raw bit pattern of a protobuf uint64 field. */
+    static long uint64Bits(final CanonicalProtobuf.Reader.Field field, final int number) {
+        if (field.number() != number || field.wireType() != 0) {
+            throw new IllegalArgumentException("invalid protobuf uint64 field " + number);
+        }
+        return field.unsignedValue();
+    }
+
     static boolean bool(final CanonicalProtobuf.Reader.Field field, final int number) {
         final long value = uint(field, number);
         if (value > 1) {

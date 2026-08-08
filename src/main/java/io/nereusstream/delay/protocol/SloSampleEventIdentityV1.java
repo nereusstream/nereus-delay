@@ -85,7 +85,7 @@ public final class SloSampleEventIdentityV1 {
             case DUE_ADMISSION_LAG -> {
                 QueryCodecSupport.requireNumbers(fields, new int[]{1, 2, 3, 4}, "SloDueAdmissionIdentityV1");
                 fixed(fields.get(0), 1, DelayMessageId.LENGTH, "delayMessageId");
-                QueryCodecSupport.uint32(fields.get(1), 2);
+                QueryCodecSupport.uint32Bits(fields.get(1), 2);
                 QueryCodecSupport.uint(fields.get(2), 3);
                 final SloPathV1 path = SloPathV1.fromWire(QueryCodecSupport.uint(fields.get(3), 4));
                 if (path == SloPathV1.NOT_APPLICABLE || path == SloPathV1.AUTO_FAST_NATIVE) {

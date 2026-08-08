@@ -20,6 +20,20 @@ and proof-id preimage. `ProtocolCodecTest`, `CredentialBindingV1Test` and
 local codec boundary only; activated key-set membership, rotation and writer
 trust remain external release gates.
 
+The same unsigned-bit audit now covers the SLO Registry's `uint64` fields:
+objective thresholds/ratios/windows/envelope versions and Final measured
+intervals/observation revisions preserve complete raw 64-bit values through
+canonical encode/decode, unsigned interval ordering and conservative merge.
+The due-admission identity's `uint32 generation` uses the same complete-bit
+validation.
+`SloObjectiveV1Test.objectiveRoundTripsCompleteUnsigned64BitFields` and
+`SloObservationOutboxV1Test.finalRoundTripsAndMergesCompleteUnsigned64BitFields`
+cover the high-bit vectors. This closes only the local SLO wire/merge boundary;
+`SloObjectiveV1.validateDueCompanion` and the paired Final validation now also
+fence a due ALL_ACCEPTED exclusion to the closed HEALTHY companion set.
+Start reconstruction, collector merge/export and production evidence authority
+remain release blockers.
+
 Registry class-3 `meta_cf/QUOTA` now has a local per-Lane compatibility projection.
 `LaneQuotaUsageProjection` fences the message, reservation, per-Lane slot and
 per-Claim/per-attempt `inflight_messages`/`inflight_bytes` dimensions with Lane
