@@ -139,7 +139,7 @@ public final class PublishAdmissionBody {
         requireExactFields(fields, 17, "ChargeVector");
         final long[] values = new long[17];
         for (int index = 0; index < values.length; index++) {
-            values[index] = unsigned(field(fields, index + 1), index + 1);
+            values[index] = rawUnsigned(field(fields, index + 1), index + 1);
         }
         return new ChargeVector(values[0], values[1], values[2], values[3], values[4], values[5], values[6],
                 values[7], values[8], values[9], values[10], values[11], values[12], values[13], values[14],
@@ -648,7 +648,7 @@ public final class PublishAdmissionBody {
         final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "ChargeVector");
         requireExactFields(fields, 17, "ChargeVector");
         for (int number = 1; number <= 17; number++) {
-            unsigned(field(fields, number), number);
+            rawUnsigned(field(fields, number), number);
         }
     }
 
@@ -672,44 +672,54 @@ public final class PublishAdmissionBody {
             long laneCount,
             long strongLaneCount) {
         public ChargeVector {
+            // Registry ChargeVectorV1 fields are complete uint64 bit patterns.
+            // The embedded runtime applies a separate signed-capacity guard
+            // before it performs local arithmetic (see
+            // requireLocalCapacityRange()).
+        }
+
+        public long outcomeReserveRecords() {
+            requireLocalCapacityRange();
+            return Math.addExact(Math.addExact(resultRecords, systemMutationRecords), evidenceRecords);
+        }
+
+        public long outcomeReserveBytes() {
+            requireLocalCapacityRange();
+            return Math.addExact(Math.addExact(resultBytes, systemMutationBytes),
+                    Math.addExact(outcomeWalBytes, evidenceBytes));
+        }
+
+        /** Rejects values outside the embedded runtime's signed capacity envelope. */
+        public void requireLocalCapacityRange() {
             if (activeMessages < 0 || pendingPayloadBytes < 0 || logicalStateBytes < 0 || retainedBytes < 0
                     || reservationMessages < 0 || reservationPayloadBytes < 0 || inflightMessages < 0
                     || inflightBytes < 0 || resultRecords < 0 || resultBytes < 0
                     || systemMutationRecords < 0 || systemMutationBytes < 0 || outcomeWalBytes < 0
                     || evidenceRecords < 0 || evidenceBytes < 0 || laneCount < 0 || strongLaneCount < 0) {
-                throw new IllegalArgumentException("ChargeVector values must be non-negative");
+                throw new IllegalArgumentException("ChargeVector exceeds local signed capacity range");
             }
-        }
-
-        public long outcomeReserveRecords() {
-            return Math.addExact(Math.addExact(resultRecords, systemMutationRecords), evidenceRecords);
-        }
-
-        public long outcomeReserveBytes() {
-            return Math.addExact(Math.addExact(resultBytes, systemMutationBytes),
-                    Math.addExact(outcomeWalBytes, evidenceBytes));
         }
 
         /** Canonical fields 1-17 projection used by QuotaGrantRefV1. */
         public byte[] canonicalBytes() {
             return CanonicalProtobuf.message(output -> {
-                CanonicalProtobuf.uint64(output, 1, activeMessages);
-                CanonicalProtobuf.uint64(output, 2, pendingPayloadBytes);
-                CanonicalProtobuf.uint64(output, 3, logicalStateBytes);
-                CanonicalProtobuf.uint64(output, 4, retainedBytes);
-                CanonicalProtobuf.uint64(output, 5, reservationMessages);
-                CanonicalProtobuf.uint64(output, 6, reservationPayloadBytes);
-                CanonicalProtobuf.uint64(output, 7, inflightMessages);
-                CanonicalProtobuf.uint64(output, 8, inflightBytes);
-                CanonicalProtobuf.uint64(output, 9, resultRecords);
-                CanonicalProtobuf.uint64(output, 10, resultBytes);
-                CanonicalProtobuf.uint64(output, 11, systemMutationRecords);
-                CanonicalProtobuf.uint64(output, 12, systemMutationBytes);
-                CanonicalProtobuf.uint64(output, 13, outcomeWalBytes);
-                CanonicalProtobuf.uint64(output, 14, evidenceRecords);
-                CanonicalProtobuf.uint64(output, 15, evidenceBytes);
-                CanonicalProtobuf.uint64(output, 16, laneCount);
-                CanonicalProtobuf.uint64(output, 17, strongLaneCount);
+                CanonicalProtobuf.uint64Bits(output, 1, activeMessages);
+                CanonicalProtobuf.uint64Bits(output, 2, pendingPayloadBytes);
+                CanonicalProtobuf.uint64Bits(output, 3, logicalStateBytes);
+                CanonicalProtobuf.uint64Bits(output, 4, retainedBytes);
+                CanonicalProtobuf.uint64Bits(output, 5, reservationMessages);
+                CanonicalProtobuf.uint64Bits(output, 6, reservationPayloadBytes);
+                CanonicalProtobuf.uint64Bits(output, 7, inflightMessages);
+                CanonicalProtobuf.uint64Bits(output, 8, inflightBytes);
+                CanonicalProtobuf.uint64Bits(output, 9, resultRecords);
+                CanonicalProtobuf.uint64Bits(output, 10, resultBytes);
+                CanonicalProtobuf.uint64Bits(output, 11, systemMutationRecords);
+                CanonicalProtobuf.uint64Bits(output, 12, systemMutationBytes);
+                CanonicalProtobuf.uint64Bits(output, 13, outcomeWalBytes);
+                CanonicalProtobuf.uint64Bits(output, 14, evidenceRecords);
+                CanonicalProtobuf.uint64Bits(output, 15, evidenceBytes);
+                CanonicalProtobuf.uint64Bits(output, 16, laneCount);
+                CanonicalProtobuf.uint64Bits(output, 17, strongLaneCount);
             });
         }
 
@@ -719,7 +729,7 @@ public final class PublishAdmissionBody {
             requireExactFields(fields, 17, "ChargeVector");
             final long[] values = new long[17];
             for (int index = 0; index < values.length; index++) {
-                values[index] = unsigned(field(fields, index + 1), index + 1);
+                values[index] = rawUnsigned(field(fields, index + 1), index + 1);
             }
             final ChargeVector result = new ChargeVector(values[0], values[1], values[2], values[3], values[4],
                     values[5], values[6], values[7], values[8], values[9], values[10], values[11], values[12],
@@ -732,6 +742,7 @@ public final class PublishAdmissionBody {
 
         /** Projects the 17 logical charge dimensions into the closed 66-dimensional vector. */
         public CapacityVectorV1 toCapacityVector() {
+            requireLocalCapacityRange();
             final long[] amounts = new long[CapacityDimensionV1.COUNT];
             final long[] charge = {activeMessages, pendingPayloadBytes, logicalStateBytes, retainedBytes,
                     reservationMessages, reservationPayloadBytes, inflightMessages, inflightBytes, resultRecords,

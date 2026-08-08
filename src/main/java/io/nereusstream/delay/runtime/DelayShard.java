@@ -1937,7 +1937,7 @@ public final class DelayShard {
         final OutcomeReserveUsage admissionCharge;
         try {
             admissionCharge = OutcomeReserveUsage.from(body.chargeVector());
-        } catch (ArithmeticException overflow) {
+        } catch (ArithmeticException | IllegalArgumentException overflow) {
             return persistAdmissionCapacityGated(body, mutation, sourcePosition, localClaim);
         }
         if (!outcomeReserve.fits(admissionCharge, config.maxOutcomeReserveRecords(),

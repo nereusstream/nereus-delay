@@ -12,6 +12,20 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class PublishAdmissionBodyTest {
     @Test
+    void chargeVectorPreservesCompleteUnsigned64BitWireFields() {
+        final PublishAdmissionBody.ChargeVector charge = new PublishAdmissionBody.ChargeVector(
+                Long.MIN_VALUE, -1L, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Long.MIN_VALUE, -1L);
+
+        final PublishAdmissionBody.ChargeVector decoded =
+                PublishAdmissionBody.ChargeVector.decodeCanonical(charge.canonicalBytes());
+
+        assertEquals(charge, decoded);
+        assertArrayEquals(charge.canonicalBytes(), decoded.canonicalBytes());
+        assertThrows(IllegalArgumentException.class, decoded::requireLocalCapacityRange);
+        assertThrows(IllegalArgumentException.class, decoded::toCapacityVector);
+    }
+
+    @Test
     void validatesCanonicalAdmissionProjectionsAndTiming() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
         final Fixture fixture = Fixture.create(shard);

@@ -27,6 +27,7 @@ public record OutcomeReserveUsage(long records, long bytes) {
         if (charge == null) {
             return empty();
         }
+        charge.requireLocalCapacityRange();
         return new OutcomeReserveUsage(charge.outcomeReserveRecords(), charge.outcomeReserveBytes());
     }
 

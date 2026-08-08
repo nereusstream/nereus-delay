@@ -51,6 +51,15 @@ semantics. `ActiveLaneStateV1Test.preservesUnsignedLaneVersionWeightAndFailureBi
 covers the high-bit projection. The typed state remains a local persistence
 codec until full Lane/Profile/Oxia activation is available.
 
+The nested Registry `ChargeVectorV1` codec now preserves all seventeen raw
+`uint64` fields, including high-bit values, through canonical encode/decode.
+Before the embedded runtime performs signed capacity or Outcome Reserve
+arithmetic it calls the explicit local-range guard; an out-of-range charge is
+capacity-gated rather than narrowed or wrapped. `PublishAdmissionBodyTest`
+covers the wire round trip and local fail-closed projection. The separate
+`CapacityVectorV1` grant representation remains the certified signed local
+capacity envelope.
+
 Registry class-3 `meta_cf/QUOTA` now has a local per-Lane compatibility projection.
 `LaneQuotaUsageProjection` fences the message, reservation, per-Lane slot and
 per-Claim/per-attempt `inflight_messages`/`inflight_bytes` dimensions with Lane
