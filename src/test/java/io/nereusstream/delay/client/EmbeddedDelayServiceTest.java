@@ -118,6 +118,26 @@ class EmbeddedDelayServiceTest {
     }
 
     @Test
+    void awaitAppliedRejectsSameShardReceiptWithWrongPhysicalPositionBeforeDraining() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 37);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("await-position-fence")), shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final EnqueueOutcome first = service.enqueue(cancelV1(shard, 10_000)).toCompletableFuture().join();
+            final EnqueueOutcome target = service.enqueue(cancelV1(shard, 10_000)).toCompletableFuture().join();
+            final CommandQueuedReceipt forged = new CommandQueuedReceipt(target.preparedCommand().commandId(),
+                    target.preparedCommand().delayMessageId(), shard, first.receipt().sourcePosition());
+
+            assertThrows(IllegalArgumentException.class, () -> service.awaitApplied(forged));
+            assertEquals(2, service.pendingCommandCount());
+            assertNull(service.shard().getCommandResult(target.preparedCommand().commandId()));
+
+            final CommandResult applied = service.awaitApplied(target.receipt()).toCompletableFuture().join();
+            assertEquals(ApplyStatus.APPLIED, applied.applyStatus());
+        }
+    }
+
+    @Test
     void queuedReceiptRejectsMessageIdFromAnotherShard() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 35);
         final ShardId foreignShard = new ShardId(RouteIncarnation.random(), 36);

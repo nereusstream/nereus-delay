@@ -252,7 +252,11 @@ public final class EmbeddedDelayService implements DelayClient {
     public synchronized CompletionStage<CommandResult> awaitApplied(final CommandQueuedReceipt receipt) {
         ensureOpen();
         validateEmbeddedQueuedReceipt(receipt);
+        validateEmbeddedQueuedReceiptLocator(receipt);
         drain();
+        if (!shard.matchesCommandPosition(receipt.commandId(), receipt.sourcePosition())) {
+            throw new IllegalArgumentException("queued receipt source position does not identify the command");
+        }
         return CompletableFuture.completedFuture(shard.getCommandResult(receipt.commandId()));
     }
 
@@ -270,6 +274,27 @@ public final class EmbeddedDelayService implements DelayClient {
                 || !isEmbeddedSource(kafka)) {
             throw new IllegalArgumentException("queued receipt does not belong to embedded source");
         }
+    }
+
+    /**
+     * A queued command has no durable POSITION audit until it is applied, so a
+     * valid receipt may be proven by the exact pending record before drain. An
+     * otherwise well-typed receipt is rejected before any pending record can be
+     * applied; the command id alone is never a sufficient locator.
+     */
+    private void validateEmbeddedQueuedReceiptLocator(final CommandQueuedReceipt receipt) {
+        if (shard.matchesCommandPosition(receipt.commandId(), receipt.sourcePosition())) {
+            return;
+        }
+        for (QueuedRecord record : pending) {
+            if (record.command().commandId().equals(receipt.commandId())
+                    && record.command().delayMessageId().equals(receipt.delayMessageId())
+                    && Bytes.constantTimeEquals(record.position().canonicalBytes(),
+                    receipt.sourcePosition().canonicalBytes())) {
+                return;
+            }
+        }
+        throw new IllegalArgumentException("queued receipt source position does not identify a pending command");
     }
 
     /**

@@ -516,12 +516,16 @@ due head。否则一个远期 future Lane/Shard 会让 `recovery_first_pass` 永
 Legacy client receipt handling now closes the remaining local locator gap:
 `CommandQueuedReceipt` binds `commandId`, `delayMessageId`, and Source Position
 to the same Shard, and embedded `awaitApplied` validates its pinned Kafka source
-before draining. `EmbeddedDelayServiceTest.awaitAppliedRejectsForeignSourceBeforeDraining`
-shows that a foreign receipt is rejected without applying queued work, and
-`EmbeddedDelayServiceTest.queuedReceiptRejectsMessageIdFromAnotherShard` covers
-cross-shard Message identity rejection. This is a local API/conformance guard;
-gateway authorization, production routing and durable receipt-retention authority
-remain release blockers.
+and exact durable-or-pending physical locator before draining. A queued command
+without a durable POSITION audit is admitted only when the pending record has the
+same command/message/source tuple; after drain the audit is reread before the
+logical result is returned. `EmbeddedDelayServiceTest.awaitAppliedRejectsForeignSourceBeforeDraining`
+and `EmbeddedDelayServiceTest.awaitAppliedRejectsSameShardReceiptWithWrongPhysicalPositionBeforeDraining`
+show that foreign or forged receipts are rejected without applying queued work,
+while `EmbeddedDelayServiceTest.queuedReceiptRejectsMessageIdFromAnotherShard`
+covers the legacy constructor identity fence. This is a local API/conformance
+guard; gateway authorization, production routing and durable receipt-retention
+authority remain release blockers.
 
 §12.4 的本地时钟 guard 现在由 `TrustedUtcClock` 提供：它只从批准的
 `TrustedUtcIntervalEvidence` 和注入的 monotonic reading 推导保守 interval，
