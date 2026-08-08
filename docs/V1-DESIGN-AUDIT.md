@@ -1396,6 +1396,9 @@ limits；这仍只是本地文件完整性边界，不替代 Object Store 内容
 
 `SharedRocksDbResources` 现在也把 checkpoint create/upload slot 纳入进程级
 关闭保护；后台 checkpoint 或上传操作持有 slot 时，资源 close 会 fail closed。
+一旦关闭获准，rate limiter、shared WriteBufferManager 和 block cache 会逐项尝试
+释放；某个 native close 抛出 runtime failure 时，后续资源仍会被尝试，异常以
+suppressed 形式保留，避免进程级资源被首个失败短路。
 Shard open/restore 的短生命周期 acquisition 阶段也有独立的
 `maxConcurrentAcquiresPerWorker` slot；它在 native DB 打开或失败清理完成后立即
 释放，不会把 acquisition 并发额度错误地当成长期 owned/DB capacity。已有
