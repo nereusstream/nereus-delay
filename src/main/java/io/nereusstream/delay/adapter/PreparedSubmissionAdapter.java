@@ -1,11 +1,14 @@
 package io.nereusstream.delay.adapter;
 
 import io.nereusstream.delay.protocol.CommandCodec;
+import io.nereusstream.delay.protocol.EnqueueOutcomeMessageV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.PreparedSubmissionV1;
 import io.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
+import io.nereusstream.delay.protocol.StableCode;
 
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
 /**
@@ -33,10 +36,34 @@ public final class PreparedSubmissionAdapter implements AutoCloseable {
         Objects.requireNonNull(submission, "submission");
         if (submission.isManaged()) {
             final PreparedCommand command = CommandCodec.decodeFrameV1(submission.managedFrame());
-            return managedIngress.enqueueOutcomeV1(command, receiptQueryUntilEpochMs, physicalEnqueueAttemptId)
-                    .thenApply(SubmissionOutcomeMessageV1::managed);
+            try {
+                final CompletionStage<EnqueueOutcomeMessageV1> managedOutcome =
+                        managedIngress.enqueueOutcomeV1(command, receiptQueryUntilEpochMs, physicalEnqueueAttemptId);
+                if (managedOutcome == null) {
+                    return uncertainManaged(command, physicalEnqueueAttemptId);
+                }
+                try {
+                    return managedOutcome.thenApply(SubmissionOutcomeMessageV1::managed);
+                } catch (RuntimeException registrationFailure) {
+                    // The managed transport may already have reached Producer
+                    // ownership. A wrapper callback-registration failure is
+                    // therefore not evidence of non-persistence.
+                    return uncertainManaged(command, physicalEnqueueAttemptId);
+                }
+            } catch (RuntimeException submissionFailure) {
+                // Preserve the same conservative boundary if an adapter
+                // throws while returning its CompletionStage.
+                return uncertainManaged(command, physicalEnqueueAttemptId);
+            }
         }
         return nativeSubmission.submit(submission.nativePrepared(), physicalEnqueueAttemptId);
+    }
+
+    private static CompletionStage<SubmissionOutcomeMessageV1> uncertainManaged(final PreparedCommand command,
+                                                                                  final byte[] physicalAttemptId) {
+        return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
+                WireIngressOutcomeSupport.uncertain(command, physicalAttemptId,
+                        StableCode.ENQUEUE_RESULT_UNCERTAIN, null)));
     }
 
     @Override

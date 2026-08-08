@@ -186,15 +186,7 @@ class NativeSubmissionAdapterTest {
     @Test
     void preparedSubmissionAdapterKeepsManagedBranchManaged() throws Exception {
         final Fixture fixture = fixture(4_000, 3_000);
-        final ShardId shard = new ShardId(RouteIncarnation.random(), 11);
-        final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("managed-destination"), 1,
-                Bytes.sha256(Bytes.utf8("managed-destination-semantic")), ProfileKindV1.DESTINATION);
-        final RetryPolicyRefV1 retryPolicy = new RetryPolicyRefV1(Bytes.utf8("managed-retry"), 1,
-                Bytes.sha256(Bytes.utf8("managed-retry-semantic")));
-        final ScheduleIntentV1 intent = ScheduleIntentV1.create(destination, retryPolicy, 2_000, 5_000,
-                DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, new byte[0], Bytes.utf8("managed-payload"), null,
-                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, java.util.List.of())), null, null);
-        final PreparedCommand command = PreparedCommand.scheduleV1(shard, intent, 8_000);
+        final PreparedCommand command = managedCommand();
         final AtomicBoolean closed = new AtomicBoolean();
         final WireCommandIngressAdapter managed = new WireCommandIngressAdapter() {
             @Override
@@ -229,6 +221,59 @@ class NativeSubmissionAdapterTest {
             assertEquals(StableCode.CLIENT_CLOSED, outcome.managed().definitelyNotQueued().error().code());
         }
         assertTrue(closed.get());
+    }
+
+    @Test
+    void preparedSubmissionWrapperRegistrationFailureRemainsManagedUncertain() throws Exception {
+        final Fixture fixture = fixture(4_000, 3_000);
+        final PreparedCommand command = managedCommand();
+        final AtomicBoolean closed = new AtomicBoolean();
+        final WireCommandIngressAdapter managed = new WireCommandIngressAdapter() {
+            @Override
+            public java.util.concurrent.CompletionStage<io.nereusstream.delay.client.EnqueueOutcome> enqueue(
+                    final PreparedCommand ignored) {
+                return CompletableFuture.failedFuture(new AssertionError("legacy managed path was used"));
+            }
+
+            @Override
+            public java.util.concurrent.CompletionStage<io.nereusstream.delay.protocol.EnqueueOutcomeMessageV1>
+            enqueueOutcomeV1(final PreparedCommand actual, final long queryUntil, final byte[] attemptId) {
+                assertEquals(command, actual);
+                assertEquals(9_000, queryUntil);
+                assertArrayEquals(attempt(8), attemptId);
+                return new HandleRegistrationFailureFuture<>();
+            }
+
+            @Override
+            public void close() {
+                closed.set(true);
+            }
+        };
+        final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport transport = request ->
+                CompletableFuture.failedFuture(new AssertionError("native branch was selected"));
+        try (PinnedPulsarNativeSubmissionAdapter nativeAdapter = fixture.adapter(transport);
+             PreparedSubmissionAdapter adapter = new PreparedSubmissionAdapter(managed, nativeAdapter)) {
+            final SubmissionOutcomeMessageV1 outcome = adapter.submit(
+                    io.nereusstream.delay.protocol.PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(command)),
+                    9_000, attempt(8)).toCompletableFuture().join();
+            assertEquals(io.nereusstream.delay.protocol.SubmissionOutcomeKindV1.MANAGED, outcome.kind());
+            assertEquals(StableCode.ENQUEUE_RESULT_UNCERTAIN,
+                    outcome.managed().uncertain().error().code());
+            assertArrayEquals(attempt(8), outcome.managed().uncertain().physicalEnqueueAttemptId());
+        }
+        assertTrue(closed.get());
+    }
+
+    private static PreparedCommand managedCommand() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 11);
+        final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("managed-destination"), 1,
+                Bytes.sha256(Bytes.utf8("managed-destination-semantic")), ProfileKindV1.DESTINATION);
+        final RetryPolicyRefV1 retryPolicy = new RetryPolicyRefV1(Bytes.utf8("managed-retry"), 1,
+                Bytes.sha256(Bytes.utf8("managed-retry-semantic")));
+        final ScheduleIntentV1 intent = ScheduleIntentV1.create(destination, retryPolicy, 2_000, 5_000,
+                DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, new byte[0], Bytes.utf8("managed-payload"), null,
+                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, java.util.List.of())), null, null);
+        return PreparedCommand.scheduleV1(shard, intent, 8_000);
     }
 
     private static Fixture fixture(final long expiry, final long now) throws Exception {
@@ -268,6 +313,12 @@ class NativeSubmissionAdapterTest {
     }
 
     private static final class HandleRegistrationFailureFuture<T> extends CompletableFuture<T> {
+        @Override
+        public <U> CompletableFuture<U> thenApply(
+                final java.util.function.Function<? super T, ? extends U> function) {
+            throw new IllegalStateException("completion callback registration failed");
+        }
+
         @Override
         public <U> CompletableFuture<U> handle(
                 final java.util.function.BiFunction<? super T, Throwable, ? extends U> function) {

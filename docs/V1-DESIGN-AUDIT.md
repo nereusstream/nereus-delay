@@ -708,6 +708,15 @@ Kafka/Pulsar destination adapter 的 `CompletionStage.handle(...)` 注册失败�
 callback-registration 回归覆盖这条边界。这仍只是 adapter transport-SPI
 证据，真实 Broker side-effect evidence 与 absence classifier 仍是发布门禁。
 
+`PreparedSubmissionAdapter` 也在 managed wrapper 层保留该 fail-closed 语义：
+managed adapter 返回 null、同步抛出，或其 `CompletionStage.thenApply(...)`
+注册失败时，结果固定收敛为 managed `ENQUEUE_UNCERTAIN`，并保留原始
+Prepared Command 与 physical attempt id。包装层不能把可能已经进入 Producer
+ownership 的 managed 调用泄漏为 exceptional Future，也不能切换到 native
+branch；`NativeSubmissionAdapterTest.preparedSubmissionWrapperRegistrationFailureRemainsManagedUncertain`
+覆盖这条边界。这仍是本地 transport-SPI 证据，不等于真实 Broker response
+attestation。
+
 V1 managed submission 现在还在 Producer ownership 前强制执行
 `CommandCodec.encodeFrameV1/decodeFrameV1`：`PinnedKafkaCommandIngress`、
 `PinnedPulsarCommandIngress` 的 `enqueueOutcomeV1` 和

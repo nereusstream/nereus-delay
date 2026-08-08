@@ -1759,6 +1759,15 @@ and `DestinationAdapterTest.pulsarCallbackRegistrationFailureRemainsUnknown`
 cover both target branches. This is local transport-SPI evidence only; it does
 not establish a Broker-side absence proof or durable destination evidence.
 
+`PreparedSubmissionAdapter` now preserves the same boundary at the managed
+submission wrapper: a null stage, adapter throw, or `thenApply` callback
+registration failure is projected as managed `ENQUEUE_UNCERTAIN` with the
+original Prepared Command and physical attempt id. The wrapper must not leak an
+exceptional Future or silently switch to the native branch after managed
+transport ownership may have begun. `NativeSubmissionAdapterTest`
+`preparedSubmissionWrapperRegistrationFailureRemainsManagedUncertain` covers
+the callback-registration case; this remains local transport-SPI evidence only.
+
 The local physical-admission lifecycle now has an explicit Lane teardown
 boundary: after the channel/Producer generation is fenced, READY is closed and
 all physical/zombie reservations have quiesced, the caller may unregister with
