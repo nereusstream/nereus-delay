@@ -1091,6 +1091,23 @@ public final class DelayShard {
         return record != null && Bytes.constantTimeEquals(record.commandHash(), expectedCommandHash);
     }
 
+    /**
+     * Checks that an exact physical source position's POSITION audit names this
+     * client command. A logical command result and matching hash are not enough
+     * to authorize a queued receipt whose source position is the record locator.
+     */
+    public synchronized boolean matchesCommandPosition(final CommandId commandId,
+                                                       final SourcePosition sourcePosition) {
+        Objects.requireNonNull(commandId, "commandId");
+        Objects.requireNonNull(sourcePosition, "sourcePosition");
+        requireCommandShard(commandId, "command position lookup");
+        if (!store.shardId().equals(sourcePosition.shardId())) {
+            throw new IllegalArgumentException("command position does not belong to shard");
+        }
+        final PositionAudit audit = readPositionAudit(sourcePosition);
+        return audit != null && audit.commandId() != null && audit.commandId().equals(commandId);
+    }
+
     public synchronized SystemMutationResult getSystemMutationResult(final byte[] mutationId) {
         Bytes.requireLength(mutationId, SystemMutation.HASH_LENGTH, "mutationId");
         final var value = store.getValue(ColumnFamily.DEDUPE, KeyCodec.dedupeSystemMutation(mutationId),

@@ -392,6 +392,9 @@ public final class EmbeddedDelayService implements DelayClient {
         } catch (IllegalArgumentException mismatch) {
             return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
         }
+        if (!shard.matchesCommandPosition(receipt.command().commandId(), awaited)) {
+            return CommandQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
+        }
         final CommandResult result = shard.getCommandResult(receipt.command().commandId());
         if (result == null) {
             return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
@@ -428,6 +431,9 @@ public final class EmbeddedDelayService implements DelayClient {
         if (order < 0 || (order == 0 && !Bytes.constantTimeEquals(current.canonicalBytes(),
                 queuedReceipt.sourcePosition().canonicalBytes()))) {
             throw new IllegalStateException("command has not crossed its exact source barrier");
+        }
+        if (!shard.matchesCommandPosition(queuedReceipt.command().commandId(), queuedReceipt.sourcePosition())) {
+            throw new IllegalArgumentException("queued receipt source position does not identify the command");
         }
         final CommandResult result = shard.getCommandResult(queuedReceipt.command().commandId());
         if (result == null) {

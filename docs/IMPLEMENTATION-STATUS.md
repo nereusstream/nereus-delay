@@ -1562,6 +1562,15 @@ alone. `EmbeddedDelayServiceTest.embeddedQueryBindsReceiptCommandHashToDurableDe
 covers the fence; this remains a local identity check, not production gateway
 authorization or routing.
 
+The embedded query bridge also reads the exact `dedupe_cf/POSITION` audit through
+`DelayShard.matchesCommandPosition` before projecting a retained command result
+or emitting an applied receipt. A same-shard receipt forged with an earlier or
+otherwise different physical position now returns `RECEIPT_MISMATCH` even after
+the source barrier has advanced, and the applied-receipt path rejects it;
+`EmbeddedDelayServiceTest.embeddedQueryBindsReceiptToExactPhysicalPositionAudit`
+covers both paths. This is the local physical-locator fence, not production
+gateway authorization, Oxia routing, or broker evidence.
+
 `CommandQueuedReceiptV1` now also binds the `PreparedCommandRef` shard to the
 receipt Source Position shard in its shared constructor, so both local creation
 and canonical decode reject a command-from-A/source-from-B receipt. The

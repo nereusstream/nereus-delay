@@ -2275,6 +2275,9 @@ receipt barrier。
 
 之前 Queued locator 可返回 `PENDING + currentPosition`。达到 barrier 后不能返回 `UNKNOWN`：必须返回 exact result、compact `RESULT_EXPIRED`、caller receipt/position audit `RECEIPT_MISMATCH`，或 contractually expired audit 的 `RESULT_EVIDENCE_EXPIRED`。`RECEIPT_MISMATCH` 是不可信 locator 的 typed error，不是服务端 `INTEGRITY_ERROR`；safe mismatch details 只在 tenant authorization 后可见。Bare locator 可 `UNKNOWN`，但没有 barrier，绝不返回 `PENDING`。
 
+达到 barrier 后，Owner 还必须读取该精确 Source Position 的
+`dedupe_cf/POSITION` 审计，并确认它命名 receipt 的 `commandId`，然后才能投影保留的逻辑结果。仅有同 shard 的 `commandId` 和匹配 `commandHash` 不足以授权一个伪造的物理位置；缺失、跨类型（System Mutation）或命令身份不匹配的 POSITION 审计统一返回 `RECEIPT_MISMATCH`。该检查属于本地 shard 物理 locator 边界，不替代 Gateway 的租户授权与 Owner 路由。
+
 `CommandQueryResult` 是 closed union：
 
 ```text

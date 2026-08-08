@@ -1618,6 +1618,12 @@ receipt 返回 `RECEIPT_MISMATCH`，applied-receipt 路径也拒绝该 locator�
 提供本地证据。该检查闭合了“不能只按 ID 暴露结果”的 shard 边界，但不等于
 生产 Gateway 的租户授权、Oxia 路由或真实 Broker barrier。
 
+同一物理 locator 还必须通过 `DelayShard.matchesCommandPosition` 读取精确
+`dedupe_cf/POSITION` 审计并确认其命名 receipt 的 `commandId`；因此同 shard
+的较早或伪造 Source Position 即使已经跨过 barrier，也不会借用另一条命令的
+逻辑结果。`EmbeddedDelayServiceTest.embeddedQueryBindsReceiptToExactPhysicalPositionAudit`
+覆盖 query 与 applied-receipt 两条路径；缺失或跨类型 POSITION 审计均 fail closed。
+
 The local `DeliveryCapabilitySemanticV1` value codec now closes the Registry
 baseline/strong outcome branches and Kafka/Pulsar evidence-resource and timing
 compatibility checks. This is only semantic-value evidence; immutable Profile

@@ -456,6 +456,34 @@ class EmbeddedDelayServiceTest {
     }
 
     @Test
+    void embeddedQueryBindsReceiptToExactPhysicalPositionAudit() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 20);
+        final Clock clock = Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("query-position-audit")), shard, clock)) {
+            final PreparedCommand filler = cancelV1(shard, 10_000);
+            final PreparedCommand target = cancelV1(shard, 10_000);
+            final EnqueueOutcome fillerOutcome = service.enqueue(filler).toCompletableFuture().join();
+            final EnqueueOutcome targetOutcome = service.enqueue(target).toCompletableFuture().join();
+            final byte[] attemptId = java.util.Arrays.copyOf(
+                    Bytes.sha256(Bytes.utf8("query-position-audit-attempt")), 16);
+            final CommandQueuedReceiptV1 fillerReceipt = service.queuedReceiptV1(fillerOutcome, 10_000, attemptId);
+            final CommandQueuedReceiptV1 targetReceipt = service.queuedReceiptV1(targetOutcome, 10_000, attemptId);
+            final CommandQueuedReceiptV1 forged = CommandQueuedReceiptV1.create(target,
+                    fillerReceipt.sourcePosition(), fillerReceipt.brokerAck(),
+                    targetReceipt.receiptQueryUntilEpochMs(), targetReceipt.physicalEnqueueAttemptId());
+
+            service.drain();
+            assertEquals(CommandQueryResult.RECEIPT_MISMATCH,
+                    service.queryCommand(forged, 1_000, 10_000, null).resultKind());
+            assertThrows(IllegalArgumentException.class,
+                    () -> service.appliedReceiptV1(forged, 10_000, null));
+            assertEquals(CommandQueryResult.APPLIED,
+                    service.queryCommand(targetReceipt, 1_000, 10_000, null).resultKind());
+        }
+    }
+
+    @Test
     void embeddedQueuedReceiptRejectsNonQueuedOutcome() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
         try (EmbeddedDelayService service = new EmbeddedDelayService(ShardStoreConfig.defaults(tempDir.resolve("reject")),
