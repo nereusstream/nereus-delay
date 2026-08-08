@@ -103,8 +103,8 @@ public final class ActiveLaneStateV1 {
         this.executorRetryAtEpochMs = nonNegative(executorRetryAtEpochMs, "executorRetryAtEpochMs");
         this.encodedReadyKey = optionalBytes(encodedReadyKey, "encodedReadyKey");
         this.readyKeySha256 = this.encodedReadyKey == null ? null : Bytes.sha256(this.encodedReadyKey);
-        if (runtimeReadiness == RuntimeReadiness.READY && readyCertificate == null) {
-            throw new IllegalArgumentException("READY Lane must carry a ready certificate");
+        if (runtimeReadiness == RuntimeReadiness.READY && (encodedReadyKey == null || readyCertificate == null)) {
+            throw new IllegalArgumentException("READY Lane must carry a ready key and certificate");
         }
         if (runtimeReadiness != RuntimeReadiness.READY && (encodedReadyKey != null || readyCertificate != null)) {
             throw new IllegalArgumentException("non-READY Lane cannot carry ready projections");
@@ -212,6 +212,32 @@ public final class ActiveLaneStateV1 {
 
     public byte[] stateDigest() {
         return Bytes.copy(stateDigest);
+    }
+
+    /**
+     * Returns the same typed state with the local scheduler/admission
+     * projection replaced.  Immutable Profile, capability, tuple, circuit,
+     * certificate and retirement fields are deliberately retained.  The
+     * runtime uses this only when it has a complete typed projection; callers
+     * that cannot supply a BLOCKED reason or a READY certificate fail through
+     * the constructor instead of inventing a lossy compatibility value.
+     */
+    public ActiveLaneStateV1 withLocalProjection(final AdmissionGate nextAdmissionGate,
+                                                  final RuntimeReadiness nextRuntimeReadiness,
+                                                  final LaneRuntimeBlockReasonV1 nextRuntimeBlockReason,
+                                                  final long nextLaneControlVersion,
+                                                  final long nextLaneVersion,
+                                                  final long nextSchedulerWeight,
+                                                  final PublishAdmissionBody.ChargeVector nextLaneUsage,
+                                                  final Long nextEligibleAtEpochMs,
+                                                  final byte[] nextEncodedReadyKey) {
+        return new ActiveLaneStateV1(laneId, laneIncarnation, nextAdmissionGate, nextRuntimeReadiness,
+                nextRuntimeBlockReason, nextLaneControlVersion, nextLaneVersion, destinationProfile,
+                capabilityProfile, canonicalLaneTuple, nextSchedulerWeight, nextLaneUsage,
+                earliestActionAtEpochMs, nextEligibleAtEpochMs, circuitState, circuitOpenUntilEpochMs,
+                consecutiveFailures, laneRetryBackoffUntilEpochMs, executorRetryAtEpochMs,
+                nextEncodedReadyKey, nextRuntimeReadiness == RuntimeReadiness.READY ? readyCertificate : null,
+                retirement);
     }
 
     public byte[] canonicalBytes() {

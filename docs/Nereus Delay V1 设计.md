@@ -1087,6 +1087,18 @@ cleanCloseMarker
 
 不增加 per-feature application CF，避免每个 shard 的 memtable/metadata 放大。
 
+`meta_cf/LANE` 的 ACTIVE branch 在 Protocol Registry 上是直接嵌套的
+`ActiveLaneStateV1`（`LaneRecordEnvelopeV1` field 10）；它与同一个 shard 的
+READY key/certificate、immutable Profile refs、canonical Lane tuple 和 per-Lane
+`ChargeVector` 一起构成完整 Lane projection。读取时必须先区分 typed branch 和
+旧兼容适配值：typed bytes 解码失败不得回退成 `LaneRecord`，也不得把 typed state
+静默降级再写回。兼容适配只允许覆盖尚未具备完整 Profile/tuple/certificate 输入的
+历史本地存储；一旦触碰 typed ACTIVE，任何 readiness/gate/scheduler/quota 更新都
+必须保留不可变字段并在同一个 WriteBatch 写入最新 per-Lane usage；缺少 BLOCKED
+reason、READY key/certificate 或超出本地数值范围时必须 fail closed。这个兼容边界
+不改变 V1 的 wire/recovery 语义，待 Schedule/Profile/Oxia activation 输入完整后
+再移除适配路径。
+
 ### 10.3 Key
 
 所有 key 以 record type + key format version 开头。整数为 fixed-width unsigned big endian，variable bytes 长度前缀且有上限。
@@ -1410,6 +1422,11 @@ Lane activation/credential renewal 先解析 immutable reference，再在一个 
 ### 12.2 Ready 与 Expiry indexes
 
 每个满足 `admissionGate=OPEN && runtimeReadiness=READY` 且仍有可调度 work 的 Lane 在 `timeline_cf` 恰有一个 versioned READY head；其它 Lane 必须为零个。`meta_cf/LANE` 保存 optional exact current READY key；Cancel/Reschedule/Claim/retry/circuit、Pause/Resume/Break/Close、readiness/owner change 在同一 WriteBatch `delete(oldReadyKey) + optional put(newReadyKey)` 并递增 runtime `laneVersion`。`laneVersion` 用于拒绝并发 snapshot/cursor 中看到的旧 key，不把 append-only stale keys 当正常状态；它不参与 `expectedLaneControlVersion` CAS。
+
+对 typed ACTIVE branch，上述 READY/key 更新必须同时更新 `ActiveLaneStateV1` 的
+`encodedReadyKey`、certificate 及 per-Lane `ChargeVector` projection；READY 必须
+同时具备 key 与 certificate，非 READY 必须清除二者。若当前本地输入无法无损提供
+这些字段，更新应停在 fail-closed，而不是写入一个看似可调度但缺少证明的 Lane。
 
 READY discovery 看 `GenerationRuntimeIndexV1.currentWork` 与 exact `TimelineWorkRefV1`，不能把 public aggregate `UNCERTAIN` 当作“一定没有 timeline”的捷径。unordered Lane 的 policy-authorized `UNCERTAIN_RETRY` 因而可以有 READY；ordered Lane 禁止该 work kind，旧 UNCERTAIN head 只保留 order barrier、没有 successor READY。Claim 前必须同时复核 work kind、candidate attempt number、runtime revision、obligation-set digest 和两类剩余 budget。
 

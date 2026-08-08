@@ -45,6 +45,17 @@ public final class LaneQuotaUsageProjection {
         return map.canonicalBytes();
     }
 
+    /** Returns the exact usage vector for a Lane incarnation; a missing entry is corruption. */
+    public PublishAdmissionBody.ChargeVector usageFor(final DestinationLaneId laneId,
+                                                      final byte[] laneIncarnation) {
+        Objects.requireNonNull(laneId, "laneId");
+        final LaneQuotaUsageEntryV1 entry = find(laneId, fixedIncarnation(laneIncarnation));
+        if (entry == null) {
+            throw new IllegalStateException("missing per-Lane quota usage for " + laneId);
+        }
+        return entry.usage();
+    }
+
     /** Ensures that one still-live Lane slot is represented in the map. */
     public LaneQuotaUsageProjection ensureLane(final DestinationLaneId laneId, final byte[] laneIncarnation,
                                                final long usageRevision) {

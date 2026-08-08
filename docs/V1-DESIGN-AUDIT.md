@@ -57,9 +57,15 @@ Oxia scheduler authority remain separate release evidence.
 
 The Registry-shaped `ActiveLaneStateV1` projection also preserves raw unsigned
 `uint64` lane-control/lane-version/scheduler-weight/failure fields and keeps
-the separate epoch fields as nonnegative `int64`. This closes the local typed
-state codec only; Profile/Lane activation, quota coupling and Oxia authority
-remain release evidence.
+the separate epoch fields as nonnegative `int64`. `DelayShard` now recognizes
+that direct typed ACTIVE branch during reopen, rebuild and same-key projection
+updates, maps only the bounded compatibility fields to its local `LaneRecord`,
+and preserves immutable Profile/tuple/certificate/retirement data plus the
+projected per-Lane quota usage. A malformed typed value, missing BLOCKED
+reason/READY key/certificate or out-of-range compatibility field fails closed;
+there is no silent downgrade to the legacy adapter. This is still local typed
+runtime evidence; complete Profile/Lane activation, quota authority and Oxia
+ownership remain release evidence.
 
 The nested `ChargeVectorV1` now preserves the complete raw `uint64` domain at
 the wire boundary. Its embedded signed-capacity projection is guarded
@@ -464,8 +470,11 @@ READY 集合必然 fail closed，而不会因为 cursor 被丢弃而静默漏掉
 同 Lane 的 successor 进入队列。inclusive cursor 读取额外一个条目，保证 `limit=1`
 在首项上也能继续到 successor 或 wrap；`LaneSchedulerTest.rotatingReadyDiscoveryDoesNotReofferPolledHeadAndFindsSuccessorAfterWrap`
 覆盖该边界。该实现证明
-的是单 DB 内的本地物理边界和确定性恢复顺序，不等于 Oxia owner/session fence、
-typed `ActiveLaneStateV1` 运行时切换或真实 Lane certificate/adapter activation。
+的是单 DB 内的本地物理边界和确定性恢复顺序。Typed
+`ActiveLaneStateV1` 的 direct read、bounded compatibility projection and
+same-key immutable-field preservation now have local evidence, but this still
+does not equal Oxia owner/session fencing or real Lane certificate/adapter
+activation.
 Worker 外层 DRR 也只把至少含有一个 schedulable pending head 的 shard 纳入 visit，
 空 shard 不会消耗外层 deficit；其 cursor/round 仍是跨独立 shard DB 的 bounded
 process state，不伪造跨 DB 的持久原子 ring。Worker 外层 scheduler 在新建、

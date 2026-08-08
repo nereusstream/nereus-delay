@@ -1,6 +1,7 @@
 package io.nereusstream.delay.runtime;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.ActiveLaneStateV1;
 import io.nereusstream.delay.protocol.AuthorIdentity;
 import io.nereusstream.delay.protocol.CanonicalProtobuf;
 import io.nereusstream.delay.protocol.CapacityDimensionV1;
@@ -21,7 +22,9 @@ import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.EvidenceCursorV1;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.LaneControlTargetV1;
+import io.nereusstream.delay.protocol.LaneCircuitStateV1;
 import io.nereusstream.delay.protocol.LaneRecordEnvelopeV1;
+import io.nereusstream.delay.protocol.LaneRuntimeBlockReasonV1;
 import io.nereusstream.delay.protocol.LaneRetirementProgressV1;
 import io.nereusstream.delay.protocol.LaneTerminalGuardV1;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
@@ -493,6 +496,43 @@ class DelayShardTest {
                     LaneRecordEnvelopeV1.terminal(misplaced).canonicalBytes()));
 
             assertThrows(IllegalStateException.class, () -> shard.getLaneTerminalGuard(lane));
+        }
+    }
+
+    @Test
+    void typedActiveLaneStateIsReadAndUpdatedWithoutLegacyDowngrade() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("typed-lane-state-runtime"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 81);
+        final byte[] tuple = Bytes.utf8("typed-lane-state-runtime-tuple");
+        final DestinationLaneId lane = DestinationLaneId.derive(tuple);
+        final ProfileRefV1 destination = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2),
+                ProfileKindV1.DESTINATION);
+        final ProfileRefV1 capability = new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4),
+                ProfileKindV1.DELIVERY_CAPABILITY);
+        final ActiveLaneStateV1 state = new ActiveLaneStateV1(lane, bytes(16, 5), AdmissionGate.OPEN,
+                RuntimeReadiness.BLOCKED, LaneRuntimeBlockReasonV1.CAPABILITY, 1, 1, destination, capability,
+                tuple, 1, zeroChargeVector(), null, null, LaneCircuitStateV1.CLOSED, 0, 0, 0, 0,
+                null, null, null);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(lane),
+                    LaneRecordEnvelopeV1.active(state).canonicalBytes()));
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+
+            assertEquals(lane, shard.getLane(lane).laneId());
+            shard.updateLaneGate(lane, 1, AdmissionGate.CLOSED);
+
+            final LaneRecordEnvelopeV1 persisted = LaneRecordEnvelopeV1.decode(
+                    store.getValue(ColumnFamily.META, KeyCodec.metaLane(lane), 2).payload());
+            assertTrue(persisted.typedActiveState().isPresent());
+            final ActiveLaneStateV1 next = persisted.activeState();
+            assertEquals(AdmissionGate.CLOSED, next.admissionGate());
+            assertEquals(RuntimeReadiness.BLOCKED, next.runtimeReadiness());
+            assertEquals(state.destinationProfile(), next.destinationProfile());
+            assertEquals(state.capabilityProfile(), next.capabilityProfile());
+            assertArrayEquals(state.canonicalLaneTuple(), next.canonicalLaneTuple());
+            assertArrayEquals(state.laneIncarnation(), next.laneIncarnation());
+            assertEquals(state.laneUsage(), next.laneUsage());
         }
     }
 
@@ -5981,6 +6021,10 @@ class DelayShardTest {
         final byte[] result = new byte[length];
         java.util.Arrays.fill(result, (byte) value);
         return result;
+    }
+
+    private static PublishAdmissionBody.ChargeVector zeroChargeVector() {
+        return new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0);
     }
 
     private static KafkaSourcePosition position(final ShardId shard, final long offset, final long timestamp) {
