@@ -121,6 +121,17 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void invalidAcquireValueDoesNotConsumeOwnerEpoch() {
+        final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 21);
+
+        assertThrows(IllegalArgumentException.class, () -> authority.acquire(shard, "", 0, 10));
+
+        final OwnerLease acquired = authority.acquire(shard, "worker-retry", 0, 10).orElseThrow();
+        assertEquals(1, acquired.ownerEpoch());
+    }
+
+    @Test
     void authoritativeApplyFencesAStillLocallyValidStaleLease() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 18);
         final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();

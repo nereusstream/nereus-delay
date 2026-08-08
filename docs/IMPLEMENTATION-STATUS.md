@@ -13,6 +13,9 @@ exhausted (`OwnerLeaseTest.ownerEpochSuccessorUsesTheCompleteUnsignedDomain`).
 Lease expiry is computed before publishing the next epoch, so a checked time
 overflow leaves the epoch allocator unchanged
 (`OwnerLeaseTest.overflowingAcquireExpiryDoesNotConsumeOwnerEpoch`).
+The candidate `OwnerLease` and assignment/session context are also fully
+validated before the epoch/lease maps are updated, so malformed identity input
+cannot consume a fencing epoch (`OwnerLeaseTest.invalidAcquireValueDoesNotConsumeOwnerEpoch`).
 Production Oxia sequence allocation remains an external authority gate.
 
 The latest protocol pass also preserves the complete raw `uint32` bit pattern

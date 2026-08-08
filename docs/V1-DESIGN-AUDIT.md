@@ -1028,6 +1028,8 @@ fail closed；这与 `OwnerIdentityV1`、Store runtime metadata 和 inflight key
 证据为 `OwnerLeaseTest.ownerEpochSuccessorUsesTheCompleteUnsignedDomain`；
 lease 的 expiry checked-add 也在 epoch 写入之前执行，时间溢出不会消耗下一次
 接管的 epoch，证据为 `OwnerLeaseTest.overflowingAcquireExpiryDoesNotConsumeOwnerEpoch`；
+候选 lease 的 owner/context 校验同样先于 epoch/lease map 更新，非法身份输入不会
+消耗 fencing epoch，证据为 `OwnerLeaseTest.invalidAcquireValueDoesNotConsumeOwnerEpoch`；
 真实 Oxia sequence allocation 仍由外部 authority 负责。
 Activation 的本地 Oxia adapter 还会在 CAS response loss 后仅接受同一
 fencing/assignment/session identity 的 exact `ACTIVE_FOR_COMMANDS` 重读；
