@@ -71,6 +71,13 @@ Payload-proof trust-set semantic/ref versions now follow the same full-width
 rule, and source-ordered activation compares them with unsigned ordering;
 historical key-version ordering remains unsigned as well. The semantic and
 control-state tests cover high-bit round trips and version regression fencing.
+Both the legacy `PayloadCommitProof` adapter and typed `PayloadCommitProofV1`
+now carry the same nonzero raw trust-set version bits through proof IDs,
+signatures and canonical decode, so a high-bit trust-set reference cannot be
+accepted by the catalog but rejected by payload attestation. The trust-set
+semantic test verifies both proof projections through the local verifier
+adapter; provider attestation and source-ordered trust authority remain
+external.
 
 CapacityGrant source versions, QuotaGrant reference versions and
 ShardCapacityEnvelope versions now preserve their complete nonzero `uint64`

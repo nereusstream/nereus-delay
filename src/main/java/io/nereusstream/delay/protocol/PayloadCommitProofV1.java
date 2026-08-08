@@ -45,7 +45,7 @@ public final class PayloadCommitProofV1 implements PayloadCommitProofView {
         this.tenantRoutingScope = Bytes.copy(tenantRoutingScope);
         Bytes.requireLength(routeIncarnationUuid, ROUTE_LENGTH, "routeIncarnationUuid");
         this.routeIncarnationUuid = Bytes.copy(routeIncarnationUuid);
-        if (trustSetVersion <= 0 || proofKeyVersion == 0 || length < 0 || notAfterEpochMs < 0) {
+        if (trustSetVersion == 0 || proofKeyVersion == 0 || length < 0 || notAfterEpochMs < 0) {
             throw new IllegalArgumentException("invalid payload commit proof");
         }
         this.partition = partition;
@@ -158,7 +158,7 @@ public final class PayloadCommitProofV1 implements PayloadCommitProofView {
             CanonicalProtobuf.uint32Bits(output, 5, partition);
             CanonicalProtobuf.bytes(output, 6, delayMessageId.bytes());
             CanonicalProtobuf.bytes(output, 7, objectStoreProfile.canonicalBytes());
-            CanonicalProtobuf.uint64(output, 8, trustSetVersion);
+            CanonicalProtobuf.uint64Bits(output, 8, trustSetVersion);
             CanonicalProtobuf.uint32Bits(output, 9, proofKeyVersion);
             CanonicalProtobuf.bytes(output, 10, container);
             CanonicalProtobuf.bytes(output, 11, objectKey);
@@ -232,7 +232,7 @@ public final class PayloadCommitProofV1 implements PayloadCommitProofView {
         final DelayMessageId messageId = new DelayMessageId(QueryCodecSupport.fixed(fields.get(index++), 6,
                 DelayMessageId.LENGTH));
         final ProfileRefV1 profile = ProfileRefV1.decode(QueryCodecSupport.nested(fields.get(index++), 7));
-        final long trustSetVersion = QueryCodecSupport.uint(fields.get(index++), 8);
+        final long trustSetVersion = QueryCodecSupport.uint64Bits(fields.get(index++), 8);
         final int proofKeyVersion = QueryCodecSupport.uint32Bits(fields.get(index++), 9);
         final byte[] container = QueryCodecSupport.bytes(fields.get(index++), 10);
         final byte[] objectKey = QueryCodecSupport.bytes(fields.get(index++), 11);
@@ -312,7 +312,7 @@ public final class PayloadCommitProofV1 implements PayloadCommitProofView {
             CanonicalProtobuf.uint32Bits(output, 5, partition);
             CanonicalProtobuf.bytes(output, 6, delayMessageId.bytes());
             CanonicalProtobuf.bytes(output, 7, objectStoreProfile.canonicalBytes());
-            CanonicalProtobuf.uint64(output, 8, trustSetVersion);
+            CanonicalProtobuf.uint64Bits(output, 8, trustSetVersion);
             CanonicalProtobuf.bytes(output, 10, container);
             CanonicalProtobuf.bytes(output, 11, objectKey);
             CanonicalProtobuf.bytes(output, 12, immutableObjectVersion);
@@ -338,7 +338,7 @@ public final class PayloadCommitProofV1 implements PayloadCommitProofView {
             CanonicalProtobuf.uint32Bits(output, 5, partition);
             CanonicalProtobuf.bytes(output, 6, delayMessageId.bytes());
             CanonicalProtobuf.bytes(output, 7, objectStoreProfile.canonicalBytes());
-            CanonicalProtobuf.uint64(output, 8, trustSetVersion);
+            CanonicalProtobuf.uint64Bits(output, 8, trustSetVersion);
             CanonicalProtobuf.uint32Bits(output, 9, proofKeyVersion);
             CanonicalProtobuf.bytes(output, 10, container);
             CanonicalProtobuf.bytes(output, 11, objectKey);

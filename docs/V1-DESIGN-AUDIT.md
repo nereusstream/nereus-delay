@@ -61,6 +61,10 @@ Payload-proof trust-set semantic/reference versions now also preserve complete
 raw bits, while the source-ordered activation projection compares versions as
 unsigned values and rejects regression. This is local control-state evidence;
 trust-set publication and authenticated source authority remain external.
+The legacy and typed payload commit proof projections now preserve the same
+nonzero raw trust-set version bits through proof IDs, signatures and canonical
+decode, closing the local semantic-ref-to-attestation mismatch. Provider proof
+issuance and source-ordered trust authority remain release evidence.
 
 CapacityGrant source versions, QuotaGrant reference versions and
 ShardCapacityEnvelope versions likewise preserve their complete nonzero

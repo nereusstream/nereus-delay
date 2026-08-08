@@ -64,18 +64,31 @@ class PayloadProofTrustSetSemanticV1Test {
         final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
         final var keyPair = generator.generateKeyPair();
         final var key = PayloadProofVerifierKeyV1.fromPublicKey(Integer.MIN_VALUE, keyPair.getPublic(), 100, 200);
-        final PayloadProofTrustSetSemanticV1 semantic = new PayloadProofTrustSetSemanticV1(9, List.of(key));
+        final long highBitTrustSetVersion = Long.MIN_VALUE;
+        final PayloadProofTrustSetSemanticV1 semantic = new PayloadProofTrustSetSemanticV1(
+                highBitTrustSetVersion, List.of(key));
         final ShardId shard = new ShardId(RouteIncarnation.random(), 1);
         final DelayMessageId messageId = DelayMessageId.random(shard);
+        final ProfileRefV1 objectStoreProfile = new ProfileRefV1(Bytes.utf8("object-store"), 1,
+                Bytes.sha256(Bytes.utf8("profile")), ProfileKindV1.OBJECT_STORE);
         final PayloadCommitProofV1 proof = PayloadCommitProofV1.signed(Bytes.sha256(Bytes.utf8("reservation")),
                 Bytes.sha256(Bytes.utf8("scope")), shard.routeIncarnation().bytes(), shard.partition(), messageId,
-                new ProfileRefV1(Bytes.utf8("object-store"), 1, Bytes.sha256(Bytes.utf8("profile")),
-                        ProfileKindV1.OBJECT_STORE), 9, Integer.MIN_VALUE, Bytes.utf8("bucket"), Bytes.utf8("key"),
+                objectStoreProfile, highBitTrustSetVersion, Integer.MIN_VALUE,
+                Bytes.utf8("bucket"), Bytes.utf8("key"),
                 Bytes.utf8("version"), null, 1, Bytes.sha256(Bytes.utf8("payload")), 200,
                 keyPair.getPrivate());
+        final PayloadCommitProof legacyProof = PayloadCommitProof.signed(highBitTrustSetVersion,
+                Integer.MIN_VALUE, shard.routeIncarnation().bytes(), shard.partition(), messageId,
+                Bytes.sha256(Bytes.utf8("reservation")), objectStoreProfile.semanticHash(), Bytes.utf8("bucket"),
+                Bytes.utf8("key"), Bytes.utf8("version"), Bytes.utf8("etag"), 1,
+                Bytes.sha256(Bytes.utf8("payload")), 200, keyPair.getPrivate());
         final PayloadProofTrustSet adapter = PayloadProofTrustSet.fromSemantic(semantic);
 
+        assertEquals(highBitTrustSetVersion, proof.trustSetVersion());
+        assertEquals(proof, PayloadCommitProofV1.decode(proof.canonicalBytes()));
+        assertEquals(legacyProof, PayloadCommitProof.decode(legacyProof.canonicalBytes()));
         org.junit.jupiter.api.Assertions.assertTrue(adapter.verifies(proof, 150));
+        org.junit.jupiter.api.Assertions.assertTrue(adapter.verifies(legacyProof, 150));
         org.junit.jupiter.api.Assertions.assertFalse(adapter.verifies(proof, 99));
         org.junit.jupiter.api.Assertions.assertFalse(adapter.verifies(proof, 201));
     }
