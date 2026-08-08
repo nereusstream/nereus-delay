@@ -87,6 +87,23 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void commandQueuedReceiptRejectsACommandAndSourceFromDifferentShards() {
+        final ShardId commandShard = new ShardId(RouteIncarnation.random(), 8);
+        final ShardId sourceShard = new ShardId(RouteIncarnation.random(), 9);
+        final UUID topic = UUID.randomUUID();
+        final PreparedCommand command = scheduleV1(commandShard, "receipt-shard-fence", 2_000, 8_000, 9_000);
+        final KafkaSourcePosition source = new KafkaSourcePosition(sourceShard, "cluster-a", topic, 7, 3, 1_234);
+        final CommandQueuedReceiptV1.KafkaQueuedAck ack = new CommandQueuedReceiptV1.KafkaQueuedAck(
+                "cluster-a", topic, sourceShard.partition(), 7, 3, 1_234,
+                Bytes.sha256(Bytes.utf8("broker-response-shard-fence")));
+        final byte[] attempt = new byte[16];
+        attempt[15] = 1;
+
+        assertThrows(IllegalArgumentException.class,
+                () -> CommandQueuedReceiptV1.create(command, source, ack, 9_000, attempt));
+    }
+
+    @Test
     void commandQueuedReceiptRejectsCompatibilityCommandBody() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 8);
         final UUID topic = UUID.randomUUID();

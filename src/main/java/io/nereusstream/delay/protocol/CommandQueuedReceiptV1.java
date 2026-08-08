@@ -35,6 +35,9 @@ public final class CommandQueuedReceiptV1 {
         this.command = Objects.requireNonNull(command, "command");
         this.sourcePosition = Objects.requireNonNull(sourcePosition, "sourcePosition");
         this.brokerAck = Objects.requireNonNull(brokerAck, "brokerAck");
+        if (!command.shardId().equals(sourcePosition.shardId())) {
+            throw new IllegalArgumentException("Prepared command and Source Position belong to different shards");
+        }
         if (receiptQueryUntilEpochMs < sourcePosition.brokerPersistenceTimeEpochMs()) {
             throw new IllegalArgumentException("receipt query boundary precedes Broker persistence time");
         }

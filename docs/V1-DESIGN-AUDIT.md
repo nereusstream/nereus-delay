@@ -1224,6 +1224,11 @@ The embedded queued-receipt query and applied-receipt projection apply the same
 canonical-position fence at a reached barrier: a same Kafka offset or Pulsar
 ledger/entry/batch token with different metadata is an integrity failure rather
 than a successful query or applied frame.
+`CommandQueuedReceiptV1` additionally binds the `PreparedCommandRef` shard to
+the Source Position shard in the shared constructor used by both create and
+decode, so a command-from-A/source-from-B receipt is rejected before barrier
+evaluation; `ProtocolCodecTest.commandQueuedReceiptRejectsACommandAndSourceFromDifferentShards`
+covers this self-routing identity fence.
 
 本地 `RecoveryCatalog.publishUploadedCheckpoint` 现在要求 PUBLISHED intent
 与完整 manifest 的 shard、lineage、checkpoint、manifest hash/length、owner
