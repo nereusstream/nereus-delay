@@ -14,6 +14,17 @@ class CheckpointControlResultV1Test {
     }
 
     @Test
+    void catalogGenerationPreservesCompleteUnsigned64BitPattern() {
+        final CheckpointControlResultV1 result = new CheckpointControlResultV1(
+                new ShardSubjectV1(new RouteIncarnation(bytes(16, 1)), 7), bytes(16, 2), bytes(32, 3),
+                Long.MIN_VALUE);
+
+        final CheckpointControlResultV1 decoded = CheckpointControlResultV1.decode(result.canonicalBytes());
+        assertEquals(Long.MIN_VALUE, decoded.catalogGeneration());
+        assertEquals(result, decoded);
+    }
+
+    @Test
     void rejectsInvalidIdentityAndFieldOrder() {
         assertThrows(IllegalArgumentException.class, () -> new CheckpointControlResultV1(
                 new ShardSubjectV1(new RouteIncarnation(bytes(16, 1)), 7), new byte[16], bytes(32, 3), 4));

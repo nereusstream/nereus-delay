@@ -87,6 +87,12 @@ same-batch revision coupling remain local signed/runtime and external
 authority gates respectively. `LaneQuotaUsageMapV1Test` covers the high-bit
 entry round trip.
 
+Checkpoint summary/catalog/control-result projections now preserve nonzero
+`uint64 catalog_generation` values as raw bit patterns and sort catalog
+summaries with unsigned generation ordering. This closes the public checkpoint
+projection codec boundary; Recovery Floor/upload authority and local
+generation increment arithmetic remain separate recovery gates.
+
 Registry class-3 `meta_cf/QUOTA` now has a local per-Lane compatibility projection.
 `LaneQuotaUsageProjection` fences the message, reservation, per-Lane slot and
 per-Claim/per-attempt `inflight_messages`/`inflight_bytes` dimensions with Lane

@@ -20,8 +20,8 @@ public final class CheckpointSummaryV1 {
         this.checkpointId = nonZeroFixed(checkpointId, CHECKPOINT_ID_LENGTH, "checkpointId");
         this.manifestSha256 = fixed(manifestSha256, HASH_LENGTH, "manifestSha256");
         this.appliedSourcePosition = Objects.requireNonNull(appliedSourcePosition, "appliedSourcePosition");
-        if (catalogGeneration <= 0) {
-            throw new IllegalArgumentException("catalogGeneration must be positive");
+        if (catalogGeneration == 0) {
+            throw new IllegalArgumentException("catalogGeneration must be nonzero");
         }
         this.catalogGeneration = catalogGeneration;
         this.recoveryFloor = recoveryFloor;
@@ -52,7 +52,7 @@ public final class CheckpointSummaryV1 {
             CanonicalProtobuf.bytes(output, 1, checkpointId);
             CanonicalProtobuf.bytes(output, 2, manifestSha256);
             CanonicalProtobuf.bytes(output, 3, QueryCodecSupport.encodeSourcePosition(appliedSourcePosition));
-            CanonicalProtobuf.uint64(output, 4, catalogGeneration);
+            CanonicalProtobuf.uint64Bits(output, 4, catalogGeneration);
             CanonicalProtobuf.uint32(output, 5, recoveryFloor ? 1 : 0);
         });
     }
@@ -64,7 +64,7 @@ public final class CheckpointSummaryV1 {
                 QueryCodecSupport.fixed(fields.get(0), 1, CHECKPOINT_ID_LENGTH),
                 QueryCodecSupport.fixed(fields.get(1), 2, HASH_LENGTH),
                 QueryCodecSupport.decodeSourcePosition(QueryCodecSupport.nested(fields.get(2), 3)),
-                QueryCodecSupport.uint(fields.get(3), 4), QueryCodecSupport.bool(fields.get(4), 5));
+                QueryCodecSupport.uint64Bits(fields.get(3), 4), QueryCodecSupport.bool(fields.get(4), 5));
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "CheckpointSummaryV1");
         return result;
     }

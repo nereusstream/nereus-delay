@@ -24,8 +24,8 @@ public final class CheckpointCatalogResultV1 {
         this.recoveryLineageId = nonZeroFixed(recoveryLineageId, ID_LENGTH, "recoveryLineageId");
         this.floorCheckpointId = nonZeroFixed(floorCheckpointId, ID_LENGTH, "floorCheckpointId");
         this.floorManifestSha256 = fixed(floorManifestSha256, HASH_LENGTH, "floorManifestSha256");
-        if (catalogGeneration <= 0) {
-            throw new IllegalArgumentException("catalogGeneration must be positive");
+        if (catalogGeneration == 0) {
+            throw new IllegalArgumentException("catalogGeneration must be nonzero");
         }
         this.catalogGeneration = catalogGeneration;
         this.summaries = sortedUnique(summaries, shard);
@@ -68,7 +68,7 @@ public final class CheckpointCatalogResultV1 {
             CanonicalProtobuf.bytes(output, 2, recoveryLineageId);
             CanonicalProtobuf.bytes(output, 3, floorCheckpointId);
             CanonicalProtobuf.bytes(output, 4, floorManifestSha256);
-            CanonicalProtobuf.uint64(output, 5, catalogGeneration);
+            CanonicalProtobuf.uint64Bits(output, 5, catalogGeneration);
             for (CheckpointSummaryV1 summary : summaries) {
                 CanonicalProtobuf.bytes(output, 6, summary.canonicalBytes());
             }
@@ -101,7 +101,7 @@ public final class CheckpointCatalogResultV1 {
                 QueryCodecSupport.fixed(fields.get(1), 2, ID_LENGTH),
                 QueryCodecSupport.fixed(fields.get(2), 3, ID_LENGTH),
                 QueryCodecSupport.fixed(fields.get(3), 4, HASH_LENGTH),
-                QueryCodecSupport.uint(fields.get(4), 5), summaries);
+                QueryCodecSupport.uint64Bits(fields.get(4), 5), summaries);
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "CheckpointCatalogResultV1");
         return result;
     }
@@ -117,8 +117,8 @@ public final class CheckpointCatalogResultV1 {
             }
             if (!result.isEmpty()) {
                 final CheckpointSummaryV1 previous = result.get(result.size() - 1);
-                final int order = Long.compare(previous.catalogGeneration(), value.catalogGeneration()) != 0
-                        ? Long.compare(previous.catalogGeneration(), value.catalogGeneration())
+                final int order = Long.compareUnsigned(previous.catalogGeneration(), value.catalogGeneration()) != 0
+                        ? Long.compareUnsigned(previous.catalogGeneration(), value.catalogGeneration())
                         : Arrays.compareUnsigned(previous.checkpointId(), value.checkpointId());
                 if (order >= 0) {
                     throw new IllegalArgumentException("checkpoint summaries must be sorted and unique");

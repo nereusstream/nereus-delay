@@ -18,8 +18,8 @@ public final class CheckpointControlResultV1 {
         this.shard = Objects.requireNonNull(shard, "shard");
         this.checkpointId = nonZeroFixed(checkpointId, ID_LENGTH, "checkpointId");
         this.manifestSha256 = fixed(manifestSha256, HASH_LENGTH, "manifestSha256");
-        if (catalogGeneration <= 0) {
-            throw new IllegalArgumentException("catalogGeneration must be positive");
+        if (catalogGeneration == 0) {
+            throw new IllegalArgumentException("catalogGeneration must be nonzero");
         }
         this.catalogGeneration = catalogGeneration;
     }
@@ -45,7 +45,7 @@ public final class CheckpointControlResultV1 {
             CanonicalProtobuf.bytes(output, 1, shard.canonicalBytes());
             CanonicalProtobuf.bytes(output, 2, checkpointId);
             CanonicalProtobuf.bytes(output, 3, manifestSha256);
-            CanonicalProtobuf.uint64(output, 4, catalogGeneration);
+            CanonicalProtobuf.uint64Bits(output, 4, catalogGeneration);
         });
     }
 
@@ -56,7 +56,7 @@ public final class CheckpointControlResultV1 {
                 ShardSubjectV1.decode(QueryCodecSupport.nested(fields.get(0), 1)),
                 QueryCodecSupport.fixed(fields.get(1), 2, ID_LENGTH),
                 QueryCodecSupport.fixed(fields.get(2), 3, HASH_LENGTH),
-                QueryCodecSupport.uint(fields.get(3), 4));
+                QueryCodecSupport.uint64Bits(fields.get(3), 4));
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "CheckpointControlResultV1");
         return result;
     }

@@ -23,6 +23,23 @@ class CheckpointCatalogResultV1Test {
     }
 
     @Test
+    void catalogVersionsPreserveCompleteUnsigned64BitPatterns() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 2);
+        final UUID topic = UUID.randomUUID();
+        final CheckpointSummaryV1 first = summary(shard, topic, 2, 1, false, 1);
+        final CheckpointSummaryV1 floor = summary(shard, topic, 3, Long.MIN_VALUE, true, 2);
+        final CheckpointCatalogResultV1 result = new CheckpointCatalogResultV1(new ShardSubjectV1(shard),
+                bytes(16, 3), floor.checkpointId(), floor.manifestSha256(), Long.MIN_VALUE,
+                List.of(first, floor));
+
+        final CheckpointCatalogResultV1 decoded = CheckpointCatalogResultV1.decode(result.canonicalBytes());
+        assertEquals(Long.MIN_VALUE, decoded.catalogGeneration());
+        assertEquals(1, decoded.summaries().get(0).catalogGeneration());
+        assertEquals(Long.MIN_VALUE, decoded.summaries().get(1).catalogGeneration());
+        assertEquals(result, decoded);
+    }
+
+    @Test
     void rejectsDuplicateFloorAndCrossShardOrTamperedValues() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 2);
         final UUID topic = UUID.randomUUID();
