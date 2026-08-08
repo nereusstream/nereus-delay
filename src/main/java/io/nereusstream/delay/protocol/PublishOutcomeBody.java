@@ -338,6 +338,11 @@ public final class PublishOutcomeBody {
             if (fields.size() != 8 && fields.size() != 9) {
                 throw new IllegalArgumentException("RetryDecision has unexpected field count");
             }
+            final boolean hasNext = fields.stream().anyMatch(field -> field.number() == 6);
+            QueryCodecSupport.requireNumbers(fields,
+                    hasNext ? new int[]{1, 2, 3, 4, 5, 6, 7, 8, 9}
+                            : new int[]{1, 2, 3, 4, 5, 7, 8, 9},
+                    "RetryDecision");
             final int kind = intValue(field(fields, 1), 1);
             if (kind < 1 || kind > 5) {
                 throw new IllegalArgumentException("invalid RetryDecision kind");
@@ -347,7 +352,9 @@ public final class PublishOutcomeBody {
             final long completed = unsigned(field(fields, 3), 3);
             final long first = unsigned(field(fields, 4), 4);
             final long deadline = unsigned(field(fields, 5), 5);
-            final boolean hasNext = fields.stream().anyMatch(field -> field.number() == 6);
+            if (deadline < first) {
+                throw new IllegalArgumentException("RetryDecision deadline precedes first attempt");
+            }
             final Long next = hasNext ? unsigned(field(fields, 6), 6) : null;
             if ((kind == 2 || kind == 4) != hasNext || next != null && next < first) {
                 throw new IllegalArgumentException("RetryDecision next retry presence/timing mismatch");

@@ -81,6 +81,28 @@ class PublishOutcomeBodyTest {
     }
 
     @Test
+    void rejectsRetryDecisionUnknownFieldAndOutOfWindowNextAt() {
+        final ShardId shard = shard();
+        final byte[] attempt = Bytes.sha256(Bytes.utf8("retry-shape-attempt"));
+        final byte[] evidence = evidence(attempt, false);
+        final byte[] outOfWindow = retryDecision(2, StableCode.DESTINATION_DEFINITIVE_RETRIABLE,
+                6_000L, 1, 2_000, 5_000);
+        assertThrows(IllegalArgumentException.class, () -> PublishOutcomeBody.encodeInitial(shard, 9_000, attempt,
+                2, 1, StableCode.DESTINATION_DEFINITIVE_RETRIABLE, evidence, charge().canonicalBytes(),
+                observedAt(), outOfWindow));
+        final byte[] reversedWindow = retryDecision(1, StableCode.OK, null, 1, 5_000, 2_000);
+        assertThrows(IllegalArgumentException.class, () -> PublishOutcomeBody.encodeInitial(shard, 9_000, attempt,
+                1, 0, StableCode.OK, evidence(attempt, true), charge().canonicalBytes(), observedAt(),
+                reversedWindow));
+
+        final byte[] withUnknownField = appendUnknownRetryField(retryDecision(1, StableCode.OK, null), 10);
+        final byte[] publishedEvidence = evidence(attempt, true);
+        assertThrows(IllegalArgumentException.class, () -> PublishOutcomeBody.encodeInitial(shard, 9_000, attempt,
+                1, 0, StableCode.OK, publishedEvidence, charge().canonicalBytes(), observedAt(),
+                withUnknownField));
+    }
+
+    @Test
     void encoderRejectsWrongInitialCombinationAndNonCanonicalCharge() {
         final ShardId shard = shard();
         final byte[] attempt = Bytes.sha256(Bytes.utf8("invalid-attempt"));
@@ -111,6 +133,12 @@ class PublishOutcomeBodyTest {
 
     private static byte[] retryDecision(final int kind, final StableCode stableCode, final Long nextRetryAt,
                                         final long policyVersion) {
+        return retryDecision(kind, stableCode, nextRetryAt, policyVersion, 2_000, 5_000);
+    }
+
+    private static byte[] retryDecision(final int kind, final StableCode stableCode, final Long nextRetryAt,
+                                        final long policyVersion, final long firstAttemptAt,
+                                        final long retryDeadline) {
         final byte[] policy = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, Bytes.utf8("policy"));
             CanonicalProtobuf.uint64Bits(output, 2, policyVersion);
@@ -120,14 +148,29 @@ class PublishOutcomeBodyTest {
             CanonicalProtobuf.uint32(output, 1, kind);
             CanonicalProtobuf.bytes(output, 2, policy);
             CanonicalProtobuf.uint32(output, 3, 1);
-            CanonicalProtobuf.int64(output, 4, 2_000);
-            CanonicalProtobuf.int64(output, 5, 5_000);
+            CanonicalProtobuf.int64(output, 4, firstAttemptAt);
+            CanonicalProtobuf.int64(output, 5, retryDeadline);
             if (nextRetryAt != null) {
                 CanonicalProtobuf.int64(output, 6, nextRetryAt);
             }
             CanonicalProtobuf.uint32(output, 7, 1);
             CanonicalProtobuf.uint32(output, 8, stableCode.wireValue());
             CanonicalProtobuf.uint32(output, 9, 1);
+        });
+    }
+
+    private static byte[] appendUnknownRetryField(final byte[] encoded, final int fieldNumber) {
+        return CanonicalProtobuf.message(output -> {
+            final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(encoded);
+            while (reader.hasRemaining()) {
+                final CanonicalProtobuf.Reader.Field field = reader.next();
+                if (field.wireType() == 0) {
+                    CanonicalProtobuf.uint64Bits(output, field.number(), field.unsignedValue());
+                } else {
+                    CanonicalProtobuf.bytes(output, field.number(), field.rawValue());
+                }
+            }
+            CanonicalProtobuf.uint32(output, fieldNumber, 1);
         });
     }
 

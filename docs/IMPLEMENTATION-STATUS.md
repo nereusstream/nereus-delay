@@ -134,6 +134,12 @@ an Object Store descriptor with the wrong Profile kind. Existing Admission
 cross-object and profile/timing tests remain green; authenticated catalog and
 Object Store authority are still external gates.
 
+The business `PublishOutcomeBody` retry decoder now shares the DLQ retry
+boundary: it requires the exact `RetryDecisionV1` field sequence and rejects a
+deadline before first-attempt or an optional `next_retry_at` outside the
+first/deadline interval. Unknown nested fields can no longer be smuggled in by
+the fixed-count parser; `PublishOutcomeBodyTest` covers both rejection paths.
+
 DLQ `terminalRevision` now preserves complete nonzero `uint64` bits through
 `DlqExportRecord` identity/bytes and `DlqExportResultBody` parsing; zero remains
 invalid. `DlqExportRecordTest` and `DlqExportResultBodyTest` cover the high-bit

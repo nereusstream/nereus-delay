@@ -994,6 +994,12 @@ valid retry cannot schedule outside its own decision window. Negative vectors
 are in `DlqExportResultBodyTest`; policy publication and source-ordered
 authority remain external evidence.
 
+The business `PublishOutcomeBody` retry decoder applies the same exact
+`RetryDecisionV1` field sequence and first-attempt/deadline interval fence as
+the DLQ parser. Unknown nested fields and an out-of-window `next_retry_at`
+therefore fail closed on both outcome paths; `PublishOutcomeBodyTest` covers
+the two rejection vectors.
+
 `PublishEvidenceV1`/`ExternalDeliveryIdentityV1` 进一步把 Registry 的
 `PublishEvidenceV1` 公共字段、kind 对应 oneof 分支、verification-status 语义、
 owner identity 和 domain-separated `evidence_id` 固定在一个共享 codec 中；
