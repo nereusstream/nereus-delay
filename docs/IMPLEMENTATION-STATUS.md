@@ -60,6 +60,13 @@ covers the wire round trip and local fail-closed projection. The separate
 `CapacityVectorV1` grant representation remains the certified signed local
 capacity envelope.
 
+Profile and Retry Policy semantic versions and their reference wrappers now
+also preserve the complete nonzero `uint64` bit pattern through semantic-hash
+preimages and canonical decode. Equality remains byte/version based; catalog
+publication and source-ordered activation authority are still external.
+`ProfileSemanticEnvelopeV1Test` and `RetryPolicySemanticV1Test` cover the
+high-bit references.
+
 Registry class-3 `meta_cf/QUOTA` now has a local per-Lane compatibility projection.
 `LaneQuotaUsageProjection` fences the message, reservation, per-Lane slot and
 per-Claim/per-attempt `inflight_messages`/`inflight_bytes` dimensions with Lane

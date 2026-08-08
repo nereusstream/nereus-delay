@@ -37,6 +37,20 @@ class RetryPolicySemanticV1Test {
         assertThrows(IllegalArgumentException.class, () -> RetryPolicySemanticV1.decode(tampered));
     }
 
+    @Test
+    void preservesCompleteUnsignedRetryPolicyVersionBits() {
+        final RetryPolicySemanticV1 policy = new RetryPolicySemanticV1(Bytes.utf8("unsigned-policy"), Long.MIN_VALUE,
+                1, 2, 2, 10, UncertainPolicyV1.HOLD_FOR_EVIDENCE, 0,
+                DlqExportModeV1.NOT_CONFIGURED, 0, 0, 0, 0, false, bytes(32, 13));
+
+        final RetryPolicySemanticV1 decoded = RetryPolicySemanticV1.decode(policy.canonicalBytes());
+
+        assertEquals(Long.MIN_VALUE, decoded.version());
+        assertEquals(Long.MIN_VALUE, decoded.ref().version());
+        assertEquals(policy, decoded);
+        assertEquals(decoded.ref(), RetryPolicyRefV1.decode(decoded.ref().canonicalBytes()));
+    }
+
     private static byte[] bytes(final int length, final int seed) {
         final byte[] value = new byte[length];
         for (int index = 0; index < length; index++) {

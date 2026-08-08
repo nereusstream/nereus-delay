@@ -19,8 +19,8 @@ public final class ProfileRefV1 {
         if (profileId.length == 0) {
             throw new IllegalArgumentException("profileId must not be empty");
         }
-        if (version <= 0) {
-            throw new IllegalArgumentException("profile version must be positive");
+        if (version == 0) {
+            throw new IllegalArgumentException("profile version must be nonzero");
         }
         Bytes.requireLength(semanticHash, SEMANTIC_HASH_LENGTH, "profileSemanticHash");
         this.profileId = Bytes.copy(profileId);
@@ -48,7 +48,7 @@ public final class ProfileRefV1 {
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, profileId);
-            CanonicalProtobuf.uint64(output, 2, version);
+            CanonicalProtobuf.uint64Bits(output, 2, version);
             CanonicalProtobuf.bytes(output, 3, semanticHash);
             CanonicalProtobuf.uint32(output, 4, profileKind.wireValue());
         });
@@ -59,7 +59,7 @@ public final class ProfileRefV1 {
         QueryCodecSupport.requireNumbers(fields, new int[]{1, 2, 3, 4}, "ProfileRefV1");
         final ProfileRefV1 result = new ProfileRefV1(
                 QueryCodecSupport.bytes(fields.get(0), 1),
-                QueryCodecSupport.uint(fields.get(1), 2),
+                QueryCodecSupport.uint64Bits(fields.get(1), 2),
                 QueryCodecSupport.fixed(fields.get(2), 3, SEMANTIC_HASH_LENGTH),
                 ProfileKindV1.fromWire(QueryCodecSupport.uint(fields.get(3), 4)));
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "ProfileRefV1");

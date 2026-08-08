@@ -40,8 +40,8 @@ public final class RetryPolicySemanticV1 {
                                  final int dlqMaxAttempts, final long dlqMaxRetryDurationMs,
                                  final boolean dlqAllowPossibleDuplicate, final byte[] terminalPolicyDigest) {
         this.policyId = nonEmpty(policyId, "policyId");
-        if (version <= 0) {
-            throw new IllegalArgumentException("retry policy version must be positive");
+        if (version == 0) {
+            throw new IllegalArgumentException("retry policy version must be nonzero");
         }
         if (initialBackoffMs < 0 || maxBackoffMs < initialBackoffMs) {
             throw new IllegalArgumentException("invalid retry backoff range");
@@ -156,7 +156,7 @@ public final class RetryPolicySemanticV1 {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, ENVELOPE_VERSION);
             CanonicalProtobuf.bytes(output, 2, policyId);
-            CanonicalProtobuf.uint64(output, 3, version);
+            CanonicalProtobuf.uint64Bits(output, 3, version);
             CanonicalProtobuf.uint64(output, 4, initialBackoffMs);
             CanonicalProtobuf.uint64(output, 5, maxBackoffMs);
             CanonicalProtobuf.uint32(output, 6, maxPublishAdmissions);
@@ -184,7 +184,7 @@ public final class RetryPolicySemanticV1 {
             throw new IllegalArgumentException("unsupported RetryPolicySemanticV1 version");
         }
         final RetryPolicySemanticV1 result = new RetryPolicySemanticV1(
-                QueryCodecSupport.bytes(fields.get(1), 2), QueryCodecSupport.uint(fields.get(2), 3),
+                QueryCodecSupport.bytes(fields.get(1), 2), QueryCodecSupport.uint64Bits(fields.get(2), 3),
                 QueryCodecSupport.uint(fields.get(3), 4), QueryCodecSupport.uint(fields.get(4), 5),
                 QueryCodecSupport.uint32(fields.get(5), 6), QueryCodecSupport.uint(fields.get(6), 7),
                 UncertainPolicyV1.fromWire(QueryCodecSupport.uint(fields.get(7), 8)),
@@ -218,7 +218,7 @@ public final class RetryPolicySemanticV1 {
             CanonicalProtobuf.uint32(output, 16, JITTER_ALGORITHM_VERSION);
             CanonicalProtobuf.bytes(output, 17, terminalPolicyDigest);
         });
-        return Bytes.sha256(Bytes.utf8(HASH_DOMAIN), Bytes.lp32(policyId), Bytes.u64be(version), semanticFields);
+        return Bytes.sha256(Bytes.utf8(HASH_DOMAIN), Bytes.lp32(policyId), Bytes.u64beBits(version), semanticFields);
     }
 
     private static void validateDlq(final DlqExportModeV1 mode, final long initialBackoff,

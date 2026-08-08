@@ -16,8 +16,8 @@ public final class RetryPolicyRefV1 {
         if (policyId.length == 0) {
             throw new IllegalArgumentException("policyId must not be empty");
         }
-        if (version <= 0) {
-            throw new IllegalArgumentException("retry policy version must be positive");
+        if (version == 0) {
+            throw new IllegalArgumentException("retry policy version must be nonzero");
         }
         Bytes.requireLength(semanticHash, HASH_LENGTH, "retryPolicySemanticHash");
         this.policyId = Bytes.copy(policyId);
@@ -47,7 +47,7 @@ public final class RetryPolicyRefV1 {
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, policyId);
-            CanonicalProtobuf.uint64(output, 2, version);
+            CanonicalProtobuf.uint64Bits(output, 2, version);
             CanonicalProtobuf.bytes(output, 3, semanticHash);
         });
     }
@@ -57,7 +57,7 @@ public final class RetryPolicyRefV1 {
         QueryCodecSupport.requireNumbers(fields, new int[]{1, 2, 3}, "RetryPolicyRefV1");
         final RetryPolicyRefV1 result = new RetryPolicyRefV1(
                 QueryCodecSupport.bytes(fields.get(0), 1),
-                QueryCodecSupport.uint(fields.get(1), 2),
+                QueryCodecSupport.uint64Bits(fields.get(1), 2),
                 QueryCodecSupport.fixed(fields.get(2), 3, HASH_LENGTH));
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "RetryPolicyRefV1");
         return result;

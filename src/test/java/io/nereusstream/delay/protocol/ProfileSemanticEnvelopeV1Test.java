@@ -64,6 +64,22 @@ class ProfileSemanticEnvelopeV1Test {
     }
 
     @Test
+    void preservesCompleteUnsignedProfileVersionBits() {
+        final DeliveryCapabilitySemanticV1 capability = new DeliveryCapabilitySemanticV1(
+                AdapterKindV1.KAFKA, OutcomeCapabilityV1.AT_LEAST_ONCE, TimingCapabilityV1.ORDINARY_MANAGED,
+                null, 0, 0, 0, 0, bytes(32, 23), bytes(32, 24), 0, 0);
+        final ProfileSemanticEnvelopeV1 envelope = new ProfileSemanticEnvelopeV1(
+                ProfileKindV1.DELIVERY_CAPABILITY, Bytes.utf8("unsigned-profile"), Long.MIN_VALUE, capability);
+
+        final ProfileSemanticEnvelopeV1 decoded = ProfileSemanticEnvelopeV1.decode(envelope.canonicalBytes());
+
+        assertEquals(Long.MIN_VALUE, decoded.version());
+        assertEquals(Long.MIN_VALUE, decoded.ref().version());
+        assertEquals(envelope, decoded);
+        assertEquals(decoded.ref(), ProfileRefV1.decode(decoded.ref().canonicalBytes()));
+    }
+
+    @Test
     void rejectsProfileBodyAndPartitionSafetyViolations() {
         final ProfileRefV1 capabilityRef = new ProfileRefV1(Bytes.utf8("capability"), 1,
                 bytes(32, 1), ProfileKindV1.DELIVERY_CAPABILITY);

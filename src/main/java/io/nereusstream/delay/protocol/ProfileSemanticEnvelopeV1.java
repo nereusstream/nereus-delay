@@ -28,8 +28,8 @@ public final class ProfileSemanticEnvelopeV1 {
                                      final ProfileSemanticBodyV1 body) {
         this.profileKind = Objects.requireNonNull(profileKind, "profileKind");
         this.profileId = boundedId(profileId);
-        if (version <= 0) {
-            throw new IllegalArgumentException("Profile version must be positive");
+        if (version == 0) {
+            throw new IllegalArgumentException("Profile version must be nonzero");
         }
         this.version = version;
         this.body = Objects.requireNonNull(body, "body");
@@ -77,7 +77,7 @@ public final class ProfileSemanticEnvelopeV1 {
             CanonicalProtobuf.uint32(output, 1, ENVELOPE_VERSION);
             CanonicalProtobuf.uint32(output, 2, profileKind.wireValue());
             CanonicalProtobuf.bytes(output, 3, profileId);
-            CanonicalProtobuf.uint64(output, 4, version);
+            CanonicalProtobuf.uint64Bits(output, 4, version);
             CanonicalProtobuf.uint32(output, 5, BODY_SCHEMA_VERSION);
             CanonicalProtobuf.bytes(output, branchNumber(profileKind), body.canonicalBytes());
             CanonicalProtobuf.bytes(output, 20, semanticHash);
@@ -109,7 +109,7 @@ public final class ProfileSemanticEnvelopeV1 {
         }
         final ProfileSemanticBodyV1 body = decodeBody(kind, QueryCodecSupport.nested(fields.get(5), branch));
         final ProfileSemanticEnvelopeV1 result = new ProfileSemanticEnvelopeV1(kind,
-                QueryCodecSupport.bytes(fields.get(2), 3), QueryCodecSupport.uint(fields.get(3), 4), body,
+                QueryCodecSupport.bytes(fields.get(2), 3), QueryCodecSupport.uint64Bits(fields.get(3), 4), body,
                 QueryCodecSupport.fixed(fields.get(6), 20, HASH_LENGTH));
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "ProfileSemanticEnvelopeV1");
         return result;
@@ -130,7 +130,7 @@ public final class ProfileSemanticEnvelopeV1 {
 
     private byte[] computeSemanticHash() {
         return Bytes.sha256(Bytes.utf8(HASH_DOMAIN), Bytes.u16be(profileKind.wireValue()), Bytes.lp32(profileId),
-                Bytes.u64be(version), Bytes.u32be(BODY_SCHEMA_VERSION), Bytes.lp32(body.canonicalBytes()));
+                Bytes.u64beBits(version), Bytes.u32be(BODY_SCHEMA_VERSION), Bytes.lp32(body.canonicalBytes()));
     }
 
     private static ProfileSemanticBodyV1 decodeBody(final ProfileKindV1 kind, final byte[] encoded) {
