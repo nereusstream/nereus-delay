@@ -965,6 +965,13 @@ preserved. `DlqExportRecordTest` and `DlqExportResultBodyTest` cover the
 high-bit vectors. Local terminal-state arithmetic remains bounded separately;
 external DLQ policy and provider authority remain release evidence.
 
+The same `DLQ_EXPORT_RESULT_V1` parser now closes the nested retry boundary:
+`RetryDecisionV1` must use the exact canonical field sequence and its nested
+`RetryPolicyRefV1` is decoded (not merely accepted as nonempty bytes), including
+the complete raw nonzero policy version and 32-byte semantic hash. The negative
+vector is in `DlqExportResultBodyTest`; policy publication and source-ordered
+authority remain external evidence.
+
 `PublishEvidenceV1`/`ExternalDeliveryIdentityV1` 进一步把 Registry 的
 `PublishEvidenceV1` 公共字段、kind 对应 oneof 分支、verification-status 语义、
 owner identity 和 domain-separated `evidence_id` 固定在一个共享 codec 中；

@@ -46,7 +46,7 @@ class DlqExportResultBodyTest {
         final byte[] envelope = nonZero(32, 24);
         final byte[] retry = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, 1);
-            CanonicalProtobuf.bytes(output, 2, nestedMarker());
+            CanonicalProtobuf.bytes(output, 2, retryPolicyRef());
             CanonicalProtobuf.uint64Bits(output, 3, Long.MIN_VALUE);
             CanonicalProtobuf.uint64(output, 4, 1_000);
             CanonicalProtobuf.uint64(output, 5, 2_000);
@@ -56,6 +56,32 @@ class DlqExportResultBodyTest {
         });
         final byte[] body = body(shard, exportId, messageId, envelope, 1, 1, 0, StableCode.OK.wireValue(),
                 evidence(exportId), retry, 3, 1);
+
+        assertThrows(IllegalArgumentException.class, () -> DlqExportResultBody.decode(body));
+    }
+
+    @Test
+    void rejectsNonCanonicalRetryPolicyReferenceInsideDecision() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 5);
+        final byte[] exportId = nonZero(32, 25);
+        final byte[] messageId = DelayMessageId.random(shard).bytes();
+        final byte[] envelope = nonZero(32, 26);
+        final byte[] malformedRetry = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint32(output, 1, 1);
+            CanonicalProtobuf.bytes(output, 2, CanonicalProtobuf.message(policy -> {
+                CanonicalProtobuf.bytes(policy, 1, Bytes.utf8("policy"));
+                CanonicalProtobuf.uint32(policy, 2, 1);
+                CanonicalProtobuf.bytes(policy, 3, nonZero(31, 27));
+            }));
+            CanonicalProtobuf.uint32(output, 3, 1);
+            CanonicalProtobuf.uint64(output, 4, 1_000);
+            CanonicalProtobuf.uint64(output, 5, 2_000);
+            CanonicalProtobuf.uint32(output, 7, 1);
+            CanonicalProtobuf.uint32(output, 8, StableCode.OK.wireValue());
+            CanonicalProtobuf.uint32(output, 9, 2);
+        });
+        final byte[] body = body(shard, exportId, messageId, envelope, 1, 1, 0, StableCode.OK.wireValue(),
+                evidence(exportId), malformedRetry, 3, 1);
 
         assertThrows(IllegalArgumentException.class, () -> DlqExportResultBody.decode(body));
     }
@@ -126,7 +152,7 @@ class DlqExportResultBodyTest {
     private static byte[] retry(final int kind, final int cause, final int domain, final int ignored) {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, kind);
-            CanonicalProtobuf.bytes(output, 2, nestedMarker());
+            CanonicalProtobuf.bytes(output, 2, retryPolicyRef());
             CanonicalProtobuf.uint32(output, 3, 1);
             CanonicalProtobuf.uint64(output, 4, 1_000);
             CanonicalProtobuf.uint64(output, 5, 2_000);
@@ -156,8 +182,12 @@ class DlqExportResultBodyTest {
                 java.util.UUID.nameUUIDFromBytes(Bytes.utf8("topic")))).canonicalBytes();
     }
 
-    private static byte[] nestedMarker() {
-        return CanonicalProtobuf.message(output -> CanonicalProtobuf.uint32(output, 1, 1));
+    private static byte[] retryPolicyRef() {
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, Bytes.utf8("policy"));
+            CanonicalProtobuf.uint64Bits(output, 2, 1);
+            CanonicalProtobuf.bytes(output, 3, nonZero(32, 28));
+        });
     }
 
     private static byte[] chargeVector() {

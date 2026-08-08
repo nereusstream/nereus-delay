@@ -114,6 +114,14 @@ invalid. `DlqExportRecordTest` and `DlqExportResultBodyTest` cover the high-bit
 vectors. Local terminal-state arithmetic remains bounded separately, while
 external DLQ policy/provider authority remains a release blocker.
 
+`DLQ_EXPORT_RESULT_V1` now also validates the nested `RetryDecisionV1` field
+order/presence and decodes its exact `RetryPolicyRefV1` (including canonical
+bytes, nonzero raw version and semantic-hash length) before accepting the
+result. A malformed nested policy reference cannot be reduced to an opaque
+nonempty byte string. `DlqExportResultBodyTest` covers the rejection path;
+policy publication, source ordering and external DLQ authority remain
+release blockers.
+
 Payload-proof trust-set semantic/ref versions now follow the same full-width
 rule, and source-ordered activation compares them with unsigned ordering;
 historical key-version ordering remains unsigned as well. The semantic and

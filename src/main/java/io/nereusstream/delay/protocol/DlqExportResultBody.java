@@ -218,15 +218,18 @@ public final class DlqExportResultBody {
         if (fields.size() != 8 && fields.size() != 9) {
             throw new IllegalArgumentException("RetryDecision has unexpected field count");
         }
+        final boolean hasNext = fields.stream().anyMatch(value -> value.number() == 6);
+        QueryCodecSupport.requireNumbers(fields,
+                hasNext ? new int[]{1, 2, 3, 4, 5, 6, 7, 8, 9} : new int[]{1, 2, 3, 4, 5, 7, 8, 9},
+                "RetryDecision");
         final int kind = boundedInt(unsigned(field(fields, 1), 1), "retry kind");
         if (kind < 1 || kind > 5) {
             throw new IllegalArgumentException("invalid retry decision kind");
         }
-        nested(field(fields, 2), 2);
+        RetryPolicyRefV1.decode(nested(field(fields, 2), 2));
         unsigned(field(fields, 3), 3);
         unsigned(field(fields, 4), 4);
         unsigned(field(fields, 5), 5);
-        final boolean hasNext = fields.stream().anyMatch(value -> value.number() == 6);
         if ((kind == 2 || kind == 4) != hasNext) {
             throw new IllegalArgumentException("retry next-at presence does not match retry kind");
         }

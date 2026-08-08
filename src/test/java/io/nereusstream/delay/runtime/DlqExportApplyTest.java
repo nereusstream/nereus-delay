@@ -199,7 +199,7 @@ class DlqExportApplyTest {
         });
         final byte[] retry = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, 5);
-            CanonicalProtobuf.bytes(output, 2, nestedMarker());
+            CanonicalProtobuf.bytes(output, 2, retryPolicyRef());
             CanonicalProtobuf.uint32(output, 3, 1);
             CanonicalProtobuf.uint64(output, 4, 2_000);
             CanonicalProtobuf.uint64(output, 5, 3_000);
@@ -252,7 +252,7 @@ class DlqExportApplyTest {
     private static byte[] retryDecision() {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, 1);
-            CanonicalProtobuf.bytes(output, 2, nestedMarker());
+            CanonicalProtobuf.bytes(output, 2, retryPolicyRef());
             CanonicalProtobuf.uint32(output, 3, 1);
             CanonicalProtobuf.uint64(output, 4, 2_000);
             CanonicalProtobuf.uint64(output, 5, 3_000);
@@ -279,7 +279,11 @@ class DlqExportApplyTest {
         });
     }
 
-    private static byte[] nestedMarker() {
-        return CanonicalProtobuf.message(output -> CanonicalProtobuf.uint32(output, 1, 1));
+    private static byte[] retryPolicyRef() {
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, Bytes.utf8("policy"));
+            CanonicalProtobuf.uint64Bits(output, 2, 1);
+            CanonicalProtobuf.bytes(output, 3, Bytes.sha256(Bytes.utf8("policy-hash")));
+        });
     }
 }
