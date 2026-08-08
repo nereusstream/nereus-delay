@@ -1287,9 +1287,12 @@ round-trip instead of being rejected by a signed parser. The boundary vector is
 covered by `CheckpointManifestTest.manifestRoundTripsUnsignedSourceAndEvidencePositions`.
 comparators and the strict Kafka successor use unsigned order. Boundary vectors
 cover high-bit position fields, receipt/evidence round-trips and manifest
-round-trips. The three `TrustedUtcIntervalEvidenceV1` uint64 counters also
-preserve their raw bit patterns through the canonical codec and checkpoint
-`createdAt` JSON. Registry Pulsar `physicalTopicCreationTimestamp:u64be`
+round-trips. The three `TrustedUtcIntervalEvidenceV1` uint64 counters and its
+`sourceKeyVersion:uint32` also preserve their raw bit patterns through the
+canonical codec and checkpoint `createdAt` JSON; high-bit signed-time evidence
+is covered by `ProtocolCodecTest.trustedUtcEvidencePreservesUnsignedSourceKeyVersionBits`
+and `CheckpointManifestTest.manifestRoundTripsUnsignedSourceAndEvidencePositions`.
+Registry Pulsar `physicalTopicCreationTimestamp:u64be`
 also preserves its raw bits through broker identity, queued ACK, evidence
 cursor, managed/native adapter and checkpoint-manifest projections, with
 high-bit vectors in the protocol, adapter and manifest suites. Other

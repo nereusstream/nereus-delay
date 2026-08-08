@@ -128,7 +128,7 @@ final class CheckpointManifestJson {
                 unsignedDecimal(fields.get("sampleSequence"), "sampleSequence"),
                 unsignedDecimal(fields.get("monotonicAnchorNs"), "monotonicAnchorNs"),
                 hex(fields.get("sourceEvidenceSha256"), "sourceEvidenceSha256"),
-                number(fields.get("sourceKeyVersion"), "sourceKeyVersion"),
+                uint32Number(fields.get("sourceKeyVersion"), "sourceKeyVersion"),
                 signature == null ? null : base64(signature, "sourceSignature"));
     }
 

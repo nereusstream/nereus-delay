@@ -52,7 +52,7 @@ public final class TrustedUtcIntervalEvidence {
                                        final long sampleSequence, final long monotonicAnchorNs,
                                        final byte[] sourceEvidenceSha256, final int sourceKeyVersion,
                                        final byte[] sourceSignature) {
-        if (earliestEpochMs < 0 || latestEpochMs < earliestEpochMs || sourceKeyVersion < 0) {
+        if (earliestEpochMs < 0 || latestEpochMs < earliestEpochMs) {
             throw new IllegalArgumentException("invalid trusted UTC interval");
         }
         this.earliestEpochMs = earliestEpochMs;
@@ -66,7 +66,7 @@ public final class TrustedUtcIntervalEvidence {
         this.sourceKeyVersion = sourceKeyVersion;
         this.sourceSignature = sourceSignature == null ? new byte[0] : Bytes.copy(sourceSignature);
         if (source == Source.SIGNED_TIME_SERVICE) {
-            if (sourceKeyVersion <= 0) {
+            if (sourceKeyVersion == 0) {
                 throw new IllegalArgumentException("signed time service requires a source key version");
             }
             Bytes.requireLength(this.sourceSignature, SIGNATURE_LENGTH, "sourceSignature");
@@ -139,7 +139,7 @@ public final class TrustedUtcIntervalEvidence {
             CanonicalProtobuf.uint64Bits(output, 6, sampleSequence);
             CanonicalProtobuf.uint64Bits(output, 7, monotonicAnchorNs);
             CanonicalProtobuf.bytes(output, 8, sourceEvidenceSha256);
-            CanonicalProtobuf.uint32(output, 9, sourceKeyVersion);
+            CanonicalProtobuf.uint32Bits(output, 9, sourceKeyVersion);
             if (sourceSignature.length != 0) {
                 CanonicalProtobuf.bytes(output, 10, sourceSignature);
             }
@@ -157,7 +157,7 @@ public final class TrustedUtcIntervalEvidence {
                 Source.fromWire(unsigned(fields.get(2), 3)), bytes(fields.get(3), 4),
                 rawUint64(fields.get(4), 5), rawUint64(fields.get(5), 6), rawUint64(fields.get(6), 7),
                 fixed(bytes(fields.get(7), 8), HASH_LENGTH, "sourceEvidenceSha256"),
-                unsignedInt(fields.get(8), 9), fields.size() == 10
+                uint32Bits(fields.get(8), 9), fields.size() == 10
                 ? fixed(bytes(fields.get(9), 10), SIGNATURE_LENGTH, "sourceSignature") : new byte[0]);
         if (!Arrays.equals(encoded, result.canonicalBytes())) {
             throw new IllegalArgumentException("non-canonical trusted UTC evidence");
@@ -173,10 +173,10 @@ public final class TrustedUtcIntervalEvidence {
         return value;
     }
 
-    private static int unsignedInt(final CanonicalProtobuf.Reader.Field field, final int number) {
+    private static int uint32Bits(final CanonicalProtobuf.Reader.Field field, final int number) {
         final long value = unsigned(field, number);
-        if (value > Integer.MAX_VALUE) {
-            throw new IllegalArgumentException("trusted UTC field exceeds Java int range: " + number);
+        if (value > 0xffff_ffffL) {
+            throw new IllegalArgumentException("trusted UTC field exceeds uint32 range: " + number);
         }
         return (int) value;
     }

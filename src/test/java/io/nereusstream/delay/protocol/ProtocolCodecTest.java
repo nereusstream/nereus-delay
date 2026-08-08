@@ -960,6 +960,17 @@ class ProtocolCodecTest {
         assertArrayEquals(evidence.canonicalBytes(), decoded.canonicalBytes());
     }
 
+    @Test
+    void trustedUtcEvidencePreservesUnsignedSourceKeyVersionBits() {
+        final TrustedUtcIntervalEvidence evidence = new TrustedUtcIntervalEvidence(1_000, 1_005,
+                TrustedUtcIntervalEvidence.Source.SIGNED_TIME_SERVICE, Bytes.utf8("signed-time-service"),
+                3, 7, 9, Bytes.sha256(Bytes.utf8("signed-time-evidence")), Integer.MIN_VALUE,
+                new byte[64]);
+        final TrustedUtcIntervalEvidence decoded = TrustedUtcIntervalEvidence.decode(evidence.canonicalBytes());
+        assertEquals(Integer.MIN_VALUE, decoded.sourceKeyVersion());
+        assertArrayEquals(evidence.canonicalBytes(), decoded.canonicalBytes());
+    }
+
     private static byte[] systemBody(final ShardId shard, final SystemMutationType type, final long retryUntil) {
         final byte[] subject = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());

@@ -421,8 +421,7 @@ public record CheckpointManifest(
                             long sourceConfigGeneration, long sampleSequence, long monotonicAnchorNs,
                             byte[] sourceEvidenceSha256, int sourceKeyVersion, byte[] sourceSignature) {
         public CreatedAt {
-            if (earliestEpochMs < 0 || latestEpochMs < earliestEpochMs || source == null || source.isBlank()
-                    || sourceKeyVersion < 0) {
+            if (earliestEpochMs < 0 || latestEpochMs < earliestEpochMs || source == null || source.isBlank()) {
                 throw new IllegalArgumentException("invalid checkpoint time evidence");
             }
             final TrustedUtcIntervalEvidence.Source sourceKind = parseSource(source);
@@ -432,7 +431,7 @@ public record CheckpointManifest(
                 throw new IllegalArgumentException("source signature must be 64 bytes");
             }
             if (sourceKind == TrustedUtcIntervalEvidence.Source.SIGNED_TIME_SERVICE) {
-                if (sourceKeyVersion <= 0 || sourceSignature == null) {
+                if (sourceKeyVersion == 0 || sourceSignature == null) {
                     throw new IllegalArgumentException("signed time evidence requires key and signature");
                 }
             } else if (sourceKeyVersion != 0 || sourceSignature != null) {
@@ -465,7 +464,8 @@ public record CheckpointManifest(
                     + ",\"sampleSequence\":" + quote(u64Bits(sampleSequence)) + ",\"source\":" + quote(source)
                     + ",\"sourceConfigGeneration\":" + quote(u64Bits(sourceConfigGeneration))
                     + ",\"sourceEvidenceSha256\":" + quote(hex(sourceEvidenceSha256))
-                    + ",\"sourceId\":" + quote(b64(sourceId)) + ",\"sourceKeyVersion\":" + sourceKeyVersion
+                    + ",\"sourceId\":" + quote(b64(sourceId)) + ",\"sourceKeyVersion\":"
+                    + Integer.toUnsignedString(sourceKeyVersion)
                     + ",\"sourceSignature\":" + (sourceSignature == null ? "null" : quote(b64(sourceSignature)))
                     + "}";
         }

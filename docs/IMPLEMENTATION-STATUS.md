@@ -340,9 +340,12 @@ including the `0x7fff... -> 0x8000...` boundary; high-bit position,
 receipt/evidence/manifest round-trips are covered by `ProtocolCodecTest`,
 `ActivationBarrierV1Test`, `EvidenceCursorV1Test`, `SourceReplaySuccessorTest`
 and `CheckpointManifestTest`. The three Registry
-`TrustedUtcIntervalEvidenceV1` uint64 counters now also preserve raw bits
-through the canonical codec and checkpoint `createdAt` JSON. The Registry
-Pulsar `physicalTopicCreationTimestamp:u64be` identity likewise preserves its
+`TrustedUtcIntervalEvidenceV1` uint64 counters and its `sourceKeyVersion:uint32`
+now also preserve raw bits through the canonical codec and checkpoint
+`createdAt` JSON; high-bit signed-time evidence is covered by
+`ProtocolCodecTest.trustedUtcEvidencePreservesUnsignedSourceKeyVersionBits` and
+`CheckpointManifestTest.manifestRoundTripsUnsignedSourceAndEvidencePositions`.
+The Registry Pulsar `physicalTopicCreationTimestamp:u64be` identity likewise preserves its
 raw bits through broker identities, queued ACKs, evidence cursors, managed and
 native adapter request/result values, and checkpoint-manifest JSON; the high-bit
 boundary is covered by `ProtocolCodecTest`, `EvidenceCursorV1Test`,
