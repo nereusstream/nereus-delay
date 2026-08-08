@@ -116,6 +116,30 @@ class LaneSchedulerTest {
     }
 
     @Test
+    void terminalLaneUnregisterRequiresExactIncarnationAndEmptyQueue() {
+        final DestinationLaneId lane = lane(34);
+        final LaneScheduler scheduler = LaneScheduler.defaults();
+        final LaneRecord active = recordWithIncarnation(lane, 1);
+        scheduler.register(active);
+        scheduler.offer(item(lane, 1));
+        final LaneRecord closed = active.closeForNewAdmission();
+        scheduler.register(closed);
+
+        assertThrows(IllegalStateException.class,
+                () -> scheduler.unregister(lane, closed.laneIncarnation()));
+        scheduler.replacePending(List.of());
+        final byte[] staleIncarnation = closed.laneIncarnation();
+        staleIncarnation[0] = 2;
+        assertThrows(IllegalArgumentException.class,
+                () -> scheduler.unregister(lane, staleIncarnation));
+
+        scheduler.unregister(lane, closed.laneIncarnation());
+        assertEquals(List.of(), scheduler.snapshot().lanes());
+        assertEquals(List.of(), scheduler.ringOrder());
+        assertThrows(IllegalArgumentException.class, () -> scheduler.pendingItems(lane));
+    }
+
+    @Test
     void ringVisitLimitUsesWideArithmetic() {
         assertEquals(0, LaneScheduler.boundedRingVisitLimit(0));
         assertEquals(4_294_967_292L,
@@ -289,6 +313,57 @@ class LaneSchedulerTest {
                     KeyCodec.metaScheduler(2), 5).payload());
             SchedulerProjectionsV1.Round.decode(store.getValue(ColumnFamily.META,
                     KeyCodec.metaScheduler(4), 5).payload());
+        }
+    }
+
+    @Test
+    void persistentTerminalLaneUnregisterRemovesFairnessProjection() {
+        final DestinationLaneId lane = lane(35);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 35);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("scheduler-lane-unregister"));
+        final LaneRecord closed = recordWithIncarnation(lane, 1).closeForNewAdmission();
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
+            scheduler.register(closed);
+            scheduler.unregister(lane, closed.laneIncarnation());
+            assertEquals(List.of(), scheduler.snapshot().lanes());
+            assertEquals(List.of(), SchedulerProjectionsV1.ActiveRing.decode(store.getValue(
+                    ColumnFamily.META, KeyCodec.metaScheduler(2), 5).payload()).entries());
+            assertEquals(List.of(), SchedulerProjectionsV1.DeficitMap.decode(store.getValue(
+                    ColumnFamily.META, KeyCodec.metaScheduler(3), 5).payload()).entries());
+            assertEquals(List.of(), SchedulerProjectionsV1.LastServedMap.decode(store.getValue(
+                    ColumnFamily.META, KeyCodec.metaScheduler(5), 5).payload()).entries());
+        }
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final PersistentLaneScheduler recovered = PersistentLaneScheduler.defaults(store);
+            recovered.restorePersistedState();
+            assertEquals(List.of(), recovered.snapshot().lanes());
+        }
+    }
+
+    @Test
+    void failedPersistentLaneUnregisterRestoresInMemoryRegistration() {
+        final DestinationLaneId lane = lane(36);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 36);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("scheduler-lane-unregister-failure"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+            final ShardStore store = ShardStore.open(config, shardId, resources);
+            try {
+                final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
+                final LaneRecord closed = recordWithIncarnation(lane, 1).closeForNewAdmission();
+                scheduler.register(closed);
+                final LaneScheduler.SchedulerSnapshot before = scheduler.snapshot();
+
+                store.close();
+                assertThrows(IllegalStateException.class,
+                        () -> scheduler.unregister(lane, closed.laneIncarnation()));
+                assertEquals(before, scheduler.snapshot());
+            } finally {
+                store.close();
+            }
         }
     }
 

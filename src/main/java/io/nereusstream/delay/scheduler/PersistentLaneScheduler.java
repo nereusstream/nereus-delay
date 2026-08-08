@@ -308,6 +308,54 @@ public final class PersistentLaneScheduler {
         persist();
     }
 
+    /**
+     * Removes a source-ordered terminal Lane from memory and its persisted
+     * fairness projections.  The exact-incarnation and terminal/empty-queue
+     * checks are owned by the shard-local scheduler; this wrapper only
+     * removes the corresponding registry and discovery entries after that
+     * check succeeds.
+     */
+    public synchronized void unregister(final DestinationLaneId laneId,
+                                        final byte[] laneIncarnation) {
+        Objects.requireNonNull(laneId, "laneId");
+        Bytes.requireLength(laneIncarnation, 16, "laneIncarnation");
+        final LaneRecord lane = registered.get(laneId);
+        if (lane == null) {
+            throw new IllegalArgumentException("lane is not registered: " + laneId);
+        }
+        if (!Arrays.equals(lane.laneIncarnation(), laneIncarnation)) {
+            throw new IllegalArgumentException("lane incarnation mismatch");
+        }
+        final LaneScheduler.SchedulerSnapshot before = delegate.snapshot();
+        final List<DestinationLaneId> beforeRing = delegate.ringOrder();
+        final Set<DestinationLaneId> beforeRecoveryServed = new HashSet<>(recoveryServed);
+        final DiscoveredHead beforeHead = discoveredHeads.get(laneId);
+        try {
+            delegate.unregister(laneId, laneIncarnation);
+            registered.remove(laneId);
+            recoveryServed.remove(laneId);
+            discoveredHeads.remove(laneId);
+            persist();
+        } catch (RuntimeException failure) {
+            // A failed WriteBatch must not leave this in-memory registry
+            // ahead of the durable scheduler projection.  The terminal Lane
+            // has no pending queue by contract, so its registration and
+            // fairness snapshot can be restored without losing work.
+            registered.put(laneId, lane);
+            delegate.register(lane);
+            delegate.restore(before);
+            delegate.restoreRing(beforeRing);
+            recoveryServed.clear();
+            recoveryServed.addAll(beforeRecoveryServed);
+            if (beforeHead == null) {
+                discoveredHeads.remove(laneId);
+            } else {
+                discoveredHeads.put(laneId, beforeHead);
+            }
+            throw failure;
+        }
+    }
+
     public synchronized void requeueFirst(final ScheduleWorkItem item) {
         delegate.requeueFirst(item);
     }

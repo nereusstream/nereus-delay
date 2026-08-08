@@ -753,6 +753,13 @@ teardown 或 Broker evidence journal，因此不能宣称 production admission �
 source-ordered retirement、Oxia grant、terminal guard、Recovery Floor 或真实
 channel teardown authority。
 
+Scheduler registry 也已补齐同一生命周期证据：terminal gate、empty queue 和
+exact Lane incarnation 通过后才允许移除；`PersistentLaneScheduler` 在同一个
+projection WriteBatch 清理 ring/fairness/discovery 状态，写失败会恢复内存
+registration。`LaneSchedulerTest` 覆盖 stale identity、pending work 和 restart
+后的空 projection。该证据只证明 bounded local index 回收，不替代 terminal
+guard、Oxia 或 source-ordered retirement authority。
+
 `PublishOutcomeBody.encodeInitial` 和
 `PublishOutcomeBody.encodeEvidenceResolution` 现在复用 Registry 的 common fields
 1–3，并在返回前执行本地 decode round-trip；初始 Outcome 的

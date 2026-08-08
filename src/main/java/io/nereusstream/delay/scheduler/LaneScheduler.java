@@ -1,5 +1,6 @@
 package io.nereusstream.delay.scheduler;
 
+import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.runtime.LaneRecord;
 import io.nereusstream.delay.runtime.RuntimeReadiness;
@@ -264,6 +265,33 @@ public final class LaneScheduler {
         } else {
             cursor %= ring.size();
         }
+    }
+
+    /**
+     * Removes a terminal Lane from the local scheduler registry.
+     *
+     * <p>The source-ordered terminal guard and any Adapter teardown authority
+     * remain outside this in-memory scheduler.  This method only accepts a
+     * Lane whose exact incarnation is fenced, whose gate is terminal, and
+     * whose queue is empty; an old callback cannot remove a replacement
+     * registration.</p>
+     */
+    public synchronized void unregister(final DestinationLaneId laneId,
+                                        final byte[] laneIncarnation) {
+        final LaneQueue lane = requireLane(laneId);
+        Bytes.requireLength(laneIncarnation, 16, "laneIncarnation");
+        if (!Arrays.equals(lane.laneIncarnation, laneIncarnation)) {
+            throw new IllegalArgumentException("lane incarnation mismatch");
+        }
+        if (lane.gate != io.nereusstream.delay.runtime.AdmissionGate.CLOSED
+                && lane.gate != io.nereusstream.delay.runtime.AdmissionGate.RETIRED) {
+            throw new IllegalStateException("only a terminal Lane can be unregistered");
+        }
+        if (!lane.queue.isEmpty()) {
+            throw new IllegalStateException("cannot unregister a Lane with pending work");
+        }
+        deactivateLane(laneId);
+        lanes.remove(laneId);
     }
 
     /** Replaces all in-memory work with the exact READY projection recovered from storage. */

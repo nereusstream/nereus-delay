@@ -1746,6 +1746,15 @@ registration. This only reclaims process-local, rebuildable registry state; it
 does not claim source-ordered retirement, Oxia grant release, terminal-guard,
 Recovery-Floor or production channel-teardown authority.
 
+The shard-local scheduler now has the matching terminal lifecycle: an exact
+incarnation, terminal gate and empty queue are required before unregistering a
+Lane; `PersistentLaneScheduler` removes the active ring, deficit, last-served
+and discovery entries in the same projection WriteBatch, and restores the
+in-memory registration if that write fails. `LaneSchedulerTest` covers the
+terminal/identity/queue fence and persistent projection removal after reopen.
+This bounds the rebuildable scheduler index; it does not replace the durable
+terminal guard or external retirement authority.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
