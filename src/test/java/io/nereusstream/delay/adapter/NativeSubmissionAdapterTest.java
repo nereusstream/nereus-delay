@@ -85,6 +85,23 @@ class NativeSubmissionAdapterTest {
     }
 
     @Test
+    void mismatchedDefinitiveCodeCannotBecomeNativeGuardProof() throws Exception {
+        final Fixture fixture = fixture(4_000, 3_000);
+        final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport transport = request ->
+                CompletableFuture.completedFuture(PulsarSendResult.definitelyNotPersisted(
+                        StableCode.BROKER_RESOURCE_UNCERTIFIED.wireValue(), Bytes.utf8("not-a-guard-rejection")));
+        try (PinnedPulsarNativeSubmissionAdapter adapter = fixture.adapter(transport)) {
+            final SubmissionOutcomeMessageV1 outcome = adapter.submit(fixture.prepared, attempt(21))
+                    .toCompletableFuture().join();
+            assertEquals(io.nereusstream.delay.protocol.SubmissionOutcomeKindV1.NATIVE_ENQUEUE_UNCERTAIN,
+                    outcome.kind());
+            assertEquals(StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN, outcome.nativeUncertain().error().code());
+            assertEquals(StableCode.BROKER_RESOURCE_UNCERTIFIED.wireValue(),
+                    outcome.nativeUncertain().error().diagnosticCode());
+        }
+    }
+
+    @Test
     void transportFailureRemainsExactByteUncertain() throws Exception {
         final Fixture fixture = fixture(4_000, 3_000);
         final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport transport = request -> {

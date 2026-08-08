@@ -132,7 +132,12 @@ public final class PinnedPulsarCommandIngress implements WireCommandIngressAdapt
         final StableCode code = WireIngressOutcomeSupport.managedCode(
                 WireIngressOutcomeSupport.stableCode(result.stableCode(), StableCode.INTEGRITY_ERROR));
         return switch (result.disposition()) {
-            case DEFINITIVELY_NOT_PERSISTED -> EnqueueOutcome.definitelyNotQueued(command, code.wireValue());
+            case DEFINITIVELY_NOT_PERSISTED -> {
+                final StableCode definitive = WireIngressOutcomeSupport.definitiveManagedCode(result.stableCode());
+                yield definitive == null
+                        ? EnqueueOutcome.uncertain(command, StableCode.INTEGRITY_ERROR.wireValue())
+                        : EnqueueOutcome.definitelyNotQueued(command, definitive.wireValue());
+            }
             case UNKNOWN -> EnqueueOutcome.uncertain(command, code.wireValue());
             case PERSISTED -> persisted(command, result);
         };
@@ -165,11 +170,17 @@ public final class PinnedPulsarCommandIngress implements WireCommandIngressAdapt
         final StableCode code = WireIngressOutcomeSupport.managedCode(
                 WireIngressOutcomeSupport.stableCode(result.stableCode(), StableCode.INTEGRITY_ERROR));
         return switch (result.disposition()) {
-            case DEFINITIVELY_NOT_PERSISTED -> WireIngressOutcomeSupport.brokerDefinite(command, physicalAttemptId,
-                    code, NonPersistenceProofKindV1.PULSAR_GUARD_REJECTION,
-                    BrokerResourceIdentityV1.pulsar(new PulsarBrokerResourceIdentityV1(
-                            resource.authenticatedClusterId(), resource.resourceIncarnation(), resource.physicalTopic(),
-                            resource.physicalTopicCreationTimestamp())), request.frame(), result.evidence());
+            case DEFINITIVELY_NOT_PERSISTED -> {
+                final StableCode definitive = WireIngressOutcomeSupport.definitiveManagedCode(result.stableCode());
+                yield definitive == null
+                        ? WireIngressOutcomeSupport.uncertain(command, physicalAttemptId,
+                        StableCode.INTEGRITY_ERROR, result.stableCode())
+                        : WireIngressOutcomeSupport.brokerDefinite(command, physicalAttemptId, definitive,
+                        NonPersistenceProofKindV1.PULSAR_GUARD_REJECTION,
+                        BrokerResourceIdentityV1.pulsar(new PulsarBrokerResourceIdentityV1(
+                                resource.authenticatedClusterId(), resource.resourceIncarnation(), resource.physicalTopic(),
+                                resource.physicalTopicCreationTimestamp())), request.frame(), result.evidence());
+            }
             case UNKNOWN -> WireIngressOutcomeSupport.uncertain(command, physicalAttemptId,
                     code, code == StableCode.INTEGRITY_ERROR ? result.stableCode() : null);
             case PERSISTED -> persistedWire(command, result, receiptQueryUntilEpochMs, physicalAttemptId);

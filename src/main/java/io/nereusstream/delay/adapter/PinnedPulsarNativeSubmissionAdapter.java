@@ -155,6 +155,9 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
     private SubmissionOutcomeMessageV1 definite(final NativePreparedDeliveryV1 prepared,
                                                 final PulsarNativeSendRequest request, final byte[] attempt,
                                                 final PulsarSendResult result) {
+        if (!isNativeDefinitiveCode(result.stableCode())) {
+            return uncertain(prepared, attempt, StableCode.INTEGRITY_ERROR, result.stableCode());
+        }
         if (result.evidence() == null) {
             return uncertain(prepared, attempt, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN, null);
         }
@@ -167,6 +170,17 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
                 StableCode.NATIVE_GUARD_DEFINITIVE_NOT_PERSISTED, null, null, ref, null);
         return SubmissionOutcomeMessageV1.nativeDefinitelyNotQueued(
                 new NativeDefinitelyNotQueuedV1(ref, proof, error));
+    }
+
+    private static boolean isNativeDefinitiveCode(final int wireValue) {
+        try {
+            return switch (StableCode.fromWire(wireValue)) {
+                case BROKER_DEFINITIVE_NOT_PERSISTED, NATIVE_GUARD_DEFINITIVE_NOT_PERSISTED -> true;
+                default -> false;
+            };
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
     }
 
     private SubmissionOutcomeMessageV1 localDefinite(final NativePreparedDeliveryV1 prepared,

@@ -1019,7 +1019,13 @@ before Producer ownership, then maps persisted, guard-rejected, uncertain and
 pre-ownership failures to the closed native submission union. This is an
 adapter contract and deterministic test seam only; it does not claim a real
 Pulsar Broker transport, durable guard/credential protection, or production
-response attestation.
+response attestation. A `DEFINITIVELY_NOT_PERSISTED` transport disposition is
+now proof-bearing only with the registered Broker/guard rejection stable code;
+an unknown or mismatched code is downgraded to `NATIVE_ENQUEUE_UNCERTAIN` with
+an integrity diagnostic. The same disposition/code binding is enforced for
+managed Kafka/Pulsar wire projections, so a malformed shared transport result
+cannot become a non-persistence proof. `AdapterIngressTest` and
+`NativeSubmissionAdapterTest` cover these downgrade vectors.
 
 The current source-ordered control increment is deliberately bounded: the
 `RESOLVE_UNCERTAIN_V1(RETRY_ALLOW_POSSIBLE_DUPLICATE)` branch now validates a

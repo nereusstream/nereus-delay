@@ -74,6 +74,24 @@ final class WireIngressOutcomeSupport {
         };
     }
 
+    /**
+     * A definitive managed ingress result is only proof-bearing for the two
+     * guard/rejection codes that the shared transport SPI is allowed to emit.
+     * A disposition without one of these codes is a malformed adapter result,
+     * not evidence that the Broker did not persist the request.
+     */
+    static StableCode definitiveManagedCode(final int wireValue) {
+        try {
+            return switch (StableCode.fromWire(wireValue)) {
+                case BROKER_DEFINITIVE_NOT_PERSISTED, NATIVE_GUARD_DEFINITIVE_NOT_PERSISTED
+                        -> StableCode.BROKER_DEFINITIVE_NOT_PERSISTED;
+                default -> null;
+            };
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
     static byte[] requireAttempt(final byte[] physicalAttemptId) {
         Bytes.requireLength(physicalAttemptId, NonPersistenceProofV1.ATTEMPT_ID_LENGTH,
                 "physicalEnqueueAttemptId");

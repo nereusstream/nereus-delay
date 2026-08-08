@@ -468,12 +468,17 @@ malformed receipt projection 现在统一映射为 Registry 的
 `PinnedPulsarNativeSubmissionAdapter` 使用 `NATIVE_ENQUEUE_RESULT_UNCERTAIN`。
 `KafkaProduceResult`/`PulsarSendResult` 还在入口关闭
 `PERSISTED`/non-persisted 的 stable-code、position 和 canonical identity 组合，
+并要求 `DEFINITIVELY_NOT_PERSISTED` disposition 与已登记的
+`BROKER_DEFINITIVE_NOT_PERSISTED`/`NATIVE_GUARD_DEFINITIVE_NOT_PERSISTED`
+stable code 配对；未知或错配 code 只产生 `ENQUEUE_UNCERTAIN`/
+`NATIVE_ENQUEUE_UNCERTAIN`，绝不构造 proof，
 避免把开放 result 变成 queued/proof。该分支映射由 `AdapterIngressTest` 覆盖，
 包括 query-boundary projection failure、canonical identity/physical-attempt
 rejection、managed
 null-result 和 native-code 泄漏，避免把 managed Command 的 retry contract 误标成
 native submission；malformed result 只作为 bounded `INTEGRITY_ERROR` diagnostic，
-不是 non-persistence proof。
+不是 non-persistence proof。错配 definitive-code 的 Kafka、Pulsar 和 native
+回归向量也已覆盖。
 
 V1 managed submission 现在还在 Producer ownership 前强制执行
 `CommandCodec.encodeFrameV1/decodeFrameV1`：`PinnedKafkaCommandIngress`、
