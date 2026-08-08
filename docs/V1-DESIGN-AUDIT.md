@@ -697,6 +697,9 @@ native submission；malformed result 只作为 bounded `INTEGRITY_ERROR` diagnos
 managed callback 内部若在已返回的 `PERSISTED` result 上发现 malformed
 position/identity，也会收敛为 `ENQUEUE_UNCERTAIN`，不会把异常泄漏成
 exceptional Future；该保护与 wire projection 的 malformed-result 降级保持一致。
+Native submission 的 `CompletionStage` callback registration 失败也已收敛为
+`NATIVE_ENQUEUE_RESULT_UNCERTAIN`，保留原始 physical attempt；这类异常不能证明
+Broker 在 Producer ownership 后没有持久化。
 
 V1 managed submission 现在还在 Producer ownership 前强制执行
 `CommandCodec.encodeFrameV1/decodeFrameV1`：`PinnedKafkaCommandIngress`、

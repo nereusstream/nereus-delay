@@ -1386,7 +1386,10 @@ Pulsar Broker transport, durable guard/credential protection, or production
 response attestation. A `DEFINITIVELY_NOT_PERSISTED` transport disposition is
 now proof-bearing only with the registered Broker/guard rejection stable code;
 an unknown or mismatched code is downgraded to `NATIVE_ENQUEUE_UNCERTAIN` with
-an integrity diagnostic. The same disposition/code binding is enforced for
+an integrity diagnostic. A transport `CompletionStage` that rejects callback
+registration is treated as the same post-ownership uncertainty and returns
+`NATIVE_ENQUEUE_RESULT_UNCERTAIN` with the original physical attempt id rather
+than leaking an exceptional Future. The same disposition/code binding is enforced for
 managed Kafka/Pulsar wire projections, so a malformed shared transport result
 cannot become a non-persistence proof. `AdapterIngressTest` and
 `NativeSubmissionAdapterTest` cover these downgrade vectors.

@@ -99,18 +99,24 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
         if (result == null) {
             return completed(uncertain(prepared, attempt, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN, null));
         }
-        return result.handle((value, error) -> {
-            if (error != null) {
-                return uncertain(prepared, attempt, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN, null);
-            }
-            try {
-                return project(prepared, request, attempt, value);
-            } catch (RuntimeException ignored) {
-                // A malformed adapter result is not evidence of non-persistence.
-                return uncertain(prepared, attempt, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN,
-                        StableCode.INTEGRITY_ERROR.wireValue());
-            }
-        });
+        try {
+            return result.handle((value, error) -> {
+                if (error != null) {
+                    return uncertain(prepared, attempt, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN, null);
+                }
+                try {
+                    return project(prepared, request, attempt, value);
+                } catch (RuntimeException ignored) {
+                    // A malformed adapter result is not evidence of non-persistence.
+                    return uncertain(prepared, attempt, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN,
+                            StableCode.INTEGRITY_ERROR.wireValue());
+                }
+            });
+        } catch (RuntimeException registrationFailure) {
+            // A broken CompletionStage implementation is not evidence that
+            // the Broker rejected a request after Producer ownership.
+            return completed(uncertain(prepared, attempt, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN, null));
+        }
     }
 
     @Override

@@ -118,6 +118,21 @@ class NativeSubmissionAdapterTest {
     }
 
     @Test
+    void callbackRegistrationFailureRemainsExactByteUncertain() throws Exception {
+        final Fixture fixture = fixture(4_000, 3_000);
+        final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport transport = request ->
+                new HandleRegistrationFailureFuture<>();
+        try (PinnedPulsarNativeSubmissionAdapter adapter = fixture.adapter(transport)) {
+            final SubmissionOutcomeMessageV1 outcome = adapter.submit(fixture.prepared, attempt(31))
+                    .toCompletableFuture().join();
+            assertEquals(io.nereusstream.delay.protocol.SubmissionOutcomeKindV1.NATIVE_ENQUEUE_UNCERTAIN,
+                    outcome.kind());
+            assertEquals(StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN, outcome.nativeUncertain().error().code());
+            assertArrayEquals(attempt(31), outcome.nativeUncertain().physicalEnqueueAttemptId());
+        }
+    }
+
+    @Test
     void invalidSignatureAndExpiryAreLocalDefiniteBeforeTransport() throws Exception {
         final Fixture fixture = fixture(4_000, 3_000);
         final AtomicBoolean called = new AtomicBoolean();
@@ -250,6 +265,14 @@ class NativeSubmissionAdapterTest {
         final byte[] value = new byte[length];
         value[0] = (byte) firstByte;
         return value;
+    }
+
+    private static final class HandleRegistrationFailureFuture<T> extends CompletableFuture<T> {
+        @Override
+        public <U> CompletableFuture<U> handle(
+                final java.util.function.BiFunction<? super T, Throwable, ? extends U> function) {
+            throw new IllegalStateException("completion callback registration failed");
+        }
     }
 
     private record Fixture(KeyPair keyPair, PulsarTargetResource resource, NativePreparedDeliveryV1 prepared,
