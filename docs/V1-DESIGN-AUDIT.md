@@ -77,6 +77,9 @@ Profile and Retry Policy semantic versions and their reference values likewise
 retain complete nonzero `uint64` bits in canonical bytes and semantic-hash
 preimages. This closes their local immutable-value codec boundary; catalog
 publication, activation history and source authority remain release evidence.
+`PublishOutcomeBody` and `DlqExportResultBody` now share the strict
+`RetryPolicyRefV1` decoder, so the high-bit version boundary is preserved on
+both outcome paths; `PublishOutcomeBodyTest` covers the cross-path regression.
 The Admission target-partition hash now uses the same raw `uint64` Profile
 version bits (`PublishAdmissionBody.requireHashedPartition`), so a high-bit
 Destination Profile reference is not rejected while recomputing the Registry

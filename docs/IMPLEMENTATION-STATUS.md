@@ -101,7 +101,10 @@ also preserve the complete nonzero `uint64` bit pattern through semantic-hash
 preimages and canonical decode. Equality remains byte/version based; catalog
 publication and source-ordered activation authority are still external.
 `ProfileSemanticEnvelopeV1Test` and `RetryPolicySemanticV1Test` cover the
-high-bit references.
+high-bit references. `PublishOutcomeBody` and `DlqExportResultBody` reuse the
+same strict `RetryPolicyRefV1` decoder, so a high-bit policy reference cannot
+be accepted by the catalog and rejected by an outcome parser; the regression
+is covered by `PublishOutcomeBodyTest`.
 Admission target-partition hashing now feeds the exact raw Destination Profile
 version bits into the Registry digest instead of the signed `u64` helper;
 `PublishAdmissionBodyTest.hashedPartitionValidationPreservesHighBitDestinationProfileVersion`

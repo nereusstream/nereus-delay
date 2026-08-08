@@ -68,6 +68,19 @@ class PublishOutcomeBodyTest {
     }
 
     @Test
+    void acceptsCompleteUnsignedRetryPolicyVersionInOutcome() {
+        final ShardId shard = shard();
+        final byte[] attempt = Bytes.sha256(Bytes.utf8("high-bit-policy-attempt"));
+        final byte[] evidence = evidence(attempt, true);
+        final byte[] body = PublishOutcomeBody.encodeInitial(shard, 9_000, attempt, 1, 0, StableCode.OK,
+                evidence, charge().canonicalBytes(), observedAt(),
+                retryDecision(1, StableCode.OK, null, Long.MIN_VALUE));
+
+        assertArrayEquals(retryDecision(1, StableCode.OK, null, Long.MIN_VALUE),
+                PublishOutcomeBody.decode(body).retryDecision().canonicalBytes());
+    }
+
+    @Test
     void encoderRejectsWrongInitialCombinationAndNonCanonicalCharge() {
         final ShardId shard = shard();
         final byte[] attempt = Bytes.sha256(Bytes.utf8("invalid-attempt"));
@@ -93,9 +106,14 @@ class PublishOutcomeBodyTest {
     }
 
     private static byte[] retryDecision(final int kind, final StableCode stableCode, final Long nextRetryAt) {
+        return retryDecision(kind, stableCode, nextRetryAt, 1);
+    }
+
+    private static byte[] retryDecision(final int kind, final StableCode stableCode, final Long nextRetryAt,
+                                        final long policyVersion) {
         final byte[] policy = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, Bytes.utf8("policy"));
-            CanonicalProtobuf.uint32(output, 2, 1);
+            CanonicalProtobuf.uint64Bits(output, 2, policyVersion);
             CanonicalProtobuf.bytes(output, 3, Bytes.sha256(Bytes.utf8("policy-hash")));
         });
         return CanonicalProtobuf.message(output -> {

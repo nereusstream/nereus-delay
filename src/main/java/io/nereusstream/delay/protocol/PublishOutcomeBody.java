@@ -381,14 +381,7 @@ public final class PublishOutcomeBody {
         }
 
         private static void validateRetryPolicyRef(final byte[] encoded) {
-            final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "RetryPolicyRef");
-            if (fields.size() != 3) {
-                throw new IllegalArgumentException("RetryPolicyRef has unexpected field count");
-            }
-            if (bytes(field(fields, 1), 1).length == 0 || unsigned(field(fields, 2), 2) == 0) {
-                throw new IllegalArgumentException("RetryPolicyRef identity is invalid");
-            }
-            Bytes.requireLength(bytes(field(fields, 3), 3), HASH_LENGTH, "retry policy semantic hash");
+            RetryPolicyRefV1.decode(encoded);
         }
 
         private void requireFor(final int disposition) {
