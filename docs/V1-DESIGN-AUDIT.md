@@ -810,6 +810,11 @@ work；`DelayShardTest.laneRetirementRejectsInflightKeyValueMismatchBeforeRetiri
 消息的 self-routing Shard 与 `scheduleSourcePosition` Shard，避免 scheduler-only
 recovery 把跨 Shard 的 READY head 放入本地公平 ring；证据为
 `LaneSchedulerTest.fencedRecoveryRejectsReadyMessageFromAnotherShard`。
+稳态 `discoverReady` 还会把物理的、带 laneVersion 的 READY key 与 work item
+一起记入进程内 discovered-head fence；因此相同 message/generation 只有在
+work identity 和 READY key 都未改变时才会被抑制，合法的 Claim/READY
+transition 即使保留相同 work item 也会重新进入发现队列，证据为
+`LaneSchedulerTest.readyTransitionWithSameWorkUsesNewReadyKey`。
 内部 `dedupe_cf/COMMAND` replay lookup 也检查 command key 的 Shard 与结果的
 Source Position；Claim lookup/scan 则检查其 `DelayMessageId` 的 self-routing
 Shard，避免跨 Shard 的旧去重结果或 Claim 进入 source replay、owner drain 或

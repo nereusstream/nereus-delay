@@ -43,7 +43,7 @@ public final class PersistentLaneScheduler {
     private final PersistedState persisted;
     private final Set<DestinationLaneId> recoveryServed = new HashSet<>();
     /** Exact READY head last admitted to this process, including a polled head awaiting Claim. */
-    private final Map<DestinationLaneId, ScheduleWorkItem> discoveredHeads = new HashMap<>();
+    private final Map<DestinationLaneId, DiscoveredHead> discoveredHeads = new HashMap<>();
     private long ringGeneration;
     private byte[] lastScannedReadyKey;
     private long wrapGeneration;
@@ -151,18 +151,21 @@ public final class PersistentLaneScheduler {
             throw new IllegalStateException("READY index exceeds scheduler recovery bound");
         }
         final Map<DestinationLaneId, ScheduleWorkItem> byLane = new HashMap<>();
+        final Map<DestinationLaneId, DiscoveredHead> discovered = new HashMap<>();
         final List<DestinationLaneId> activeOrder = new ArrayList<>();
         for (ShardStore.KeyValue entry : entries) {
             final ReadyProjection projection = decodeReadyProjection(entry);
             if (byLane.put(projection.lane().laneId(), projection.item()) != null) {
                 throw new IllegalStateException("multiple READY heads for Lane: " + projection.lane().laneId());
             }
+            discovered.put(projection.lane().laneId(),
+                    new DiscoveredHead(projection.item(), projection.readyKey()));
             activeOrder.add(projection.lane().laneId());
         }
         delegate.replacePending(new ArrayList<>(byLane.values()));
         delegate.rebuildActiveRing(activeOrder);
         discoveredHeads.clear();
-        discoveredHeads.putAll(byLane);
+        discoveredHeads.putAll(discovered);
         recoveryFirstPass = true;
         recoveryServed.clear();
         if (entries.isEmpty()) {
@@ -213,25 +216,29 @@ public final class PersistentLaneScheduler {
         }
 
         final List<ScheduleWorkItem> toOffer = new ArrayList<>();
-        final Map<DestinationLaneId, ScheduleWorkItem> nextHeads = new HashMap<>();
+        final Map<DestinationLaneId, DiscoveredHead> nextHeads = new HashMap<>();
         for (ReadyProjection projection : projections) {
             final DestinationLaneId laneId = projection.lane().laneId();
             final ScheduleWorkItem item = projection.item();
             final ScheduleWorkItem queued = delegate.pendingHead(laneId);
-            final ScheduleWorkItem known = discoveredHeads.get(laneId);
+            final DiscoveredHead known = discoveredHeads.get(laneId);
             if (queued != null) {
                 if (!sameWork(queued, item)) {
                     throw new IllegalStateException("in-memory READY head differs from authoritative READY: "
                             + laneId);
                 }
-                nextHeads.put(laneId, queued);
+                if (known != null && !sameHead(known, projection)) {
+                    throw new IllegalStateException("in-memory READY key differs from authoritative READY: "
+                            + laneId);
+                }
+                nextHeads.put(laneId, new DiscoveredHead(queued, projection.readyKey()));
                 continue;
             }
-            if (known != null && sameWork(known, item)) {
+            if (known != null && sameHead(known, projection)) {
                 nextHeads.put(laneId, known);
                 continue;
             }
-            nextHeads.put(laneId, item);
+            nextHeads.put(laneId, new DiscoveredHead(item, projection.readyKey()));
             toOffer.add(item);
         }
         for (ScheduleWorkItem item : toOffer) {
@@ -239,7 +246,7 @@ public final class PersistentLaneScheduler {
             delegate.offer(item);
         }
         for (ReadyProjection projection : projections) {
-            lastScannedReadyKey = projectionKey(projection);
+            lastScannedReadyKey = projection.readyKey();
         }
         discoveredHeads.putAll(nextHeads);
         if (!projections.isEmpty()) {
@@ -450,7 +457,7 @@ public final class PersistentLaneScheduler {
         }
         final long accountedBytes = Math.max(1, message.payloadLength());
         return new ReadyProjection(lane, new ScheduleWorkItem(key.laneId(), value.messageId(), value.generation(),
-                key.nextEligibleAtEpochMs(), accountedBytes));
+                key.nextEligibleAtEpochMs(), accountedBytes), entry.key());
     }
 
     private static boolean sameWork(final ScheduleWorkItem left, final ScheduleWorkItem right) {
@@ -459,9 +466,9 @@ public final class PersistentLaneScheduler {
                 && left.accountedBytes() == right.accountedBytes();
     }
 
-    private static byte[] projectionKey(final ReadyProjection projection) {
-        return KeyCodec.timelineReady(projection.item().eligibleAtEpochMs(), projection.lane().laneId(),
-                projection.lane().laneVersion());
+    private static boolean sameHead(final DiscoveredHead known, final ReadyProjection projection) {
+        return sameWork(known.item(), projection.item())
+                && Arrays.equals(known.readyKey(), projection.readyKey());
     }
 
     private void validateStoredLane(final LaneRecord expected) {
@@ -613,6 +620,25 @@ public final class PersistentLaneScheduler {
     private record ReadyKey(DestinationLaneId laneId, long nextEligibleAtEpochMs, long laneVersion) {
     }
 
-    private record ReadyProjection(LaneRecord lane, ScheduleWorkItem item) {
+    private record ReadyProjection(LaneRecord lane, ScheduleWorkItem item, byte[] readyKey) {
+        private ReadyProjection {
+            readyKey = Bytes.copy(readyKey);
+        }
+
+        @Override
+        public byte[] readyKey() {
+            return Bytes.copy(readyKey);
+        }
+    }
+
+    private record DiscoveredHead(ScheduleWorkItem item, byte[] readyKey) {
+        private DiscoveredHead {
+            readyKey = Bytes.copy(readyKey);
+        }
+
+        @Override
+        public byte[] readyKey() {
+            return Bytes.copy(readyKey);
+        }
     }
 }

@@ -500,6 +500,50 @@ class LaneSchedulerTest {
         }
     }
 
+    @Test
+    void readyTransitionWithSameWorkUsesNewReadyKey() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 31);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("ready-discovery-lane-version"));
+        final DestinationLaneId lane = lane(42);
+        final LaneRecord initialLane = new LaneRecord(lane, new byte[16], 1, 1,
+                AdmissionGate.OPEN, RuntimeReadiness.READY, 1, 1_000);
+        final SourcePosition source = new KafkaSourcePosition(shardId, "cluster", UUID.randomUUID(),
+                0, null, 1_000);
+        final DelayMessageId messageId = DelayMessageId.random(shardId);
+        final MessageRecord message = new MessageRecord(MessageStatus.SCHEDULED, 1, 1,
+                1_000, 9_000, lane, OrderingMode.BEST_EFFORT, new byte[]{1}, source.canonicalBytes());
+        final ReadyFixture initial = readyFixture(initialLane, messageId, source, message);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> putReady(batch, initial));
+            final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
+            scheduler.register(initialLane);
+            assertEquals(1, scheduler.rebuildFromAuthoritativeReady(1));
+            assertEquals(messageId, scheduler.poll(new SchedulerBudget(1, 1024, 1_000_000_000))
+                    .get(0).messageId());
+            assertEquals(List.of(), scheduler.discoverReady(
+                    new SchedulerBudget(1, 1024, 1_000_000_000)));
+
+            // The Claim/READY transition changes only the Lane version and
+            // physical READY key.  Message identity and generation remain
+            // unchanged, so work-item equality alone must not suppress it.
+            final LaneRecord transitionedLane = new LaneRecord(lane, new byte[16], 1, 2,
+                    AdmissionGate.OPEN, RuntimeReadiness.READY, 1, 1_000);
+            final ReadyFixture transitioned = readyFixture(transitionedLane, messageId, source, message);
+            store.write(batch -> {
+                batch.delete(ColumnFamily.TIMELINE, initial.readyKey());
+                putReady(batch, transitioned);
+            });
+            scheduler.register(transitionedLane);
+
+            final List<ScheduleWorkItem> discovered = scheduler.discoverReady(
+                    new SchedulerBudget(1, 1024, 1_000_000_000));
+            assertEquals(1, discovered.size());
+            assertEquals(messageId, discovered.get(0).messageId());
+        }
+    }
+
     private static LaneRecord record(final DestinationLaneId lane, final int weight) {
         return new LaneRecord(lane, new byte[16], 1, 0, AdmissionGate.OPEN, RuntimeReadiness.READY, weight, 0);
     }
