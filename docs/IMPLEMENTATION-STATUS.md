@@ -1199,7 +1199,10 @@ an empty canonical Source Position payload. Its value type 3 is now the closed
 command/system audit union (`commandId[41]` or `systemMutationId[32]`); the
 System Mutation path writes and validates its branch so a later duplicate can
 be replayed after restart without confusing it with another record at the same
-physical position.
+physical position. The same-hash Client Command path likewise validates its
+`commandId[41]` locator after restart before reusing the first logical result at
+a later physical position; `DelayShardTest.laterDuplicateCommandReplayAfterRestartUsesPositionAudit`
+covers that boundary.
 `ShardStore.open` now validates the remaining fixed-key activation boundary as
 well: key 3's persisted Source Position must belong to this Shard, keys 5 and
 11 must be non-negative fixed-width sequences, and keys 12/13 must carry their
@@ -1363,7 +1366,9 @@ version and Trusted-UTC lower bound, monotonically persists
 without overwriting an existing command identity/result. The POSITION audit now
 also makes an exact replay of a fence rejection or command-ID conflict
 idempotent after a successful RocksDB batch with a lost source ACK; it returns
-the same position-level result without creating a logical Command Result.
+the same position-level result without creating a logical Command Result. The
+same-hash duplicate path also validates that locator after restart before
+reusing the first logical result at a later physical position.
 `DelayShardTest` covers both replay paths. Reservation-expiry
 watermark overlay now makes still-RESERVED payload reservations immediately
 appear `EXPIRED` to Commit/Cancel/Query, while the bounded

@@ -1164,6 +1164,33 @@ class DelayShardTest {
     }
 
     @Test
+    void laterDuplicateCommandReplayAfterRestartUsesPositionAudit() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("later-command-duplicate"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 35);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("later-command-duplicate-lane"));
+        final PreparedCommand command = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("later-command-duplicate")), 9_000);
+        final KafkaSourcePosition firstPosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition duplicatePosition = position(shardId, 1, 1_001);
+        final CommandResult original;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            original = shard.apply(command, firstPosition);
+            assertEquals(original, shard.apply(command, duplicatePosition));
+            assertEquals(duplicatePosition, shard.lastAppliedSourcePosition());
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(original, reopened.apply(command, duplicatePosition));
+            assertEquals(duplicatePosition, reopened.lastAppliedSourcePosition());
+            assertEquals(original, reopened.getCommandResult(command.commandId()));
+        }
+    }
+
+    @Test
     void boundedQueryProjectionSeparatesActiveAndTerminalState() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("query-projection"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 28);

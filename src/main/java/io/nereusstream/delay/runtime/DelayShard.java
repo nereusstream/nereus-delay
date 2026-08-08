@@ -370,7 +370,16 @@ public final class DelayShard {
                 if (prior != null && Bytes.constantTimeEquals(prior.commandHash(), command.commandHash())) {
                     if (!Bytes.constantTimeEquals(prior.result().appliedSourcePosition(),
                             sourcePosition.canonicalBytes())) {
-                        throw new IllegalStateException("duplicate command position has conflicting source identity");
+                        if (!Bytes.constantTimeEquals(lastAppliedSourcePosition.canonicalBytes(),
+                                sourcePosition.canonicalBytes())) {
+                            throw new IllegalStateException("duplicate command position has conflicting source identity");
+                        }
+                        final PositionAudit audit = readPositionAudit(sourcePosition);
+                        if (audit == null || audit.commandId() == null
+                                || !audit.commandId().equals(command.commandId())) {
+                            throw new IllegalStateException(
+                                    "duplicate command source position has conflicting evidence");
+                        }
                     }
                     return prior.result();
                 }

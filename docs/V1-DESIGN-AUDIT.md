@@ -377,9 +377,11 @@ The Client Command position audit now also closes the replay boundary for
 position-level outcomes: its exact `commandId[41]` value is read when the same
 Source Position is delivered again, allowing a previously persisted fence
 rejection or `COMMAND_ID_CONFLICT` to return the same result without creating a
-logical Command Result or appending another audit. A missing or cross-shard
-POSITION value remains fail-closed. `DelayShardTest` covers both exact replay
-paths.
+logical Command Result or appending another audit. The same-hash duplicate
+Command path validates that locator after restart before reusing the first
+logical result at a later physical position; a missing or cross-shard POSITION
+value remains fail-closed. `DelayShardTest` covers both exact replay paths,
+including `laterDuplicateCommandReplayAfterRestartUsesPositionAudit`.
 The System Mutation dedupe path applies the complementary rule: an exact
 already-verified mutation at a later Source Position advances only the durable
 applied position, and replay of that same later position returns the stored
