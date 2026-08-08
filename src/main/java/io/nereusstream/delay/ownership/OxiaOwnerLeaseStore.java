@@ -150,8 +150,8 @@ public final class OxiaOwnerLeaseStore implements OwnerLeaseStore {
         }
         final OwnerLease lease = result.get();
         if (!shardId.equals(lease.shardId()) || !ownerId.equals(lease.ownerId())
-                || !lease.validAt(nowEpochMs)) {
-            throw new IllegalStateException("Oxia acquire result is not bound to the requested lease");
+                || !lease.validAt(nowEpochMs) || lease.state() != ShardLifecycleState.ACQUIRING) {
+            throw new IllegalStateException("Oxia acquire result is not a valid ACQUIRING lease for the request");
         }
         return Optional.of(lease);
     }

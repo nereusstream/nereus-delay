@@ -966,6 +966,11 @@ assignment/session CAS can therefore not allocate an unbound live lease (or
 leave one behind before the adapter notices the missing context); the local
 regressions are `OwnerLeaseTest.shardOnlyOwnerLeaseStoreCannotFallbackForContextBoundAssignment`
 and `OxiaOwnerLeaseStoreTest.backendWithoutContextBoundAcquireCannotAllocateAShardOnlyLease`.
+The Oxia adapter also requires every successful acquire response to remain in
+`ACQUIRING`; a backend cannot skip the lifecycle CAS into `RESTORING` or
+`ACTIVE_FOR_COMMANDS` while the Worker has not yet established the next
+authority boundary. `OxiaOwnerLeaseStoreTest.rejectsBackendAcquireResultThatSkipsAcquiringState`
+covers this response fence.
 The V1 assignment gate also rejects a non-null legacy lease context whose
 assignment epoch is zero; it cannot silently authorize a positive-epoch
 assignment. `OwnerLeaseTest.legacyZeroEpochLeaseContextCannotAuthorizeV1Assignment`

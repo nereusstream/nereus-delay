@@ -1038,6 +1038,9 @@ Assignment/session-bound acquisition 的 interface default 现在也 fail closed
 上下文丢失前先占用一个无法用于 V1 activation 的租约。本地证据为
 `OwnerLeaseTest.shardOnlyOwnerLeaseStoreCannotFallbackForContextBoundAssignment`
 和 `OxiaOwnerLeaseStoreTest.backendWithoutContextBoundAcquireCannotAllocateAShardOnlyLease`。
+Oxia adapter 还要求 acquire 成功值保持 `ACQUIRING`；后端若直接返回
+`RESTORING`/`ACTIVE_FOR_COMMANDS` 会被拒绝，避免跳过 Worker 可验证的 lifecycle
+CAS，证据为 `OxiaOwnerLeaseStoreTest.rejectsBackendAcquireResultThatSkipsAcquiringState`。
 V1 assignment acceptance also rejects a non-null compatibility lease context
 with assignment epoch `0`; only a positive exact assignment epoch may bind the
 catch-up window。证据为 `OwnerLeaseTest.legacyZeroEpochLeaseContextCannotAuthorizeV1Assignment`。

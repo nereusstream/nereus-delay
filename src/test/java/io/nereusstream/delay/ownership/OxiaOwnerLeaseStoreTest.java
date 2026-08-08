@@ -124,6 +124,37 @@ class OxiaOwnerLeaseStoreTest {
     }
 
     @Test
+    void rejectsBackendAcquireResultThatSkipsAcquiringState() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 19);
+        final OxiaOwnerLeaseStore.LeaseCasBackend backend = new OxiaOwnerLeaseStore.LeaseCasBackend() {
+            @Override
+            public Optional<OwnerLease> acquire(final ShardId ignored, final String ownerId, final long now,
+                                                 final long duration) {
+                return Optional.of(new OwnerLease(shard, ownerId, 1, nonZero(32, 12), now + duration,
+                        null, ShardLifecycleState.RESTORING));
+            }
+
+            @Override
+            public Optional<OwnerLease> renew(final OwnerLease ignored, final long now, final long duration) {
+                return Optional.empty();
+            }
+
+            @Override
+            public boolean release(final OwnerLease ignored) {
+                return false;
+            }
+
+            @Override
+            public Optional<OwnerLease> current(final ShardId ignored) {
+                return Optional.empty();
+            }
+        };
+
+        assertThrows(IllegalStateException.class,
+                () -> new OxiaOwnerLeaseStore(backend).acquire(shard, "worker-a", 100, 20));
+    }
+
+    @Test
     void rejectsRenewalThatChangesEpochOrToken() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
         final OwnerLease expected = new OwnerLease(shard, "worker-a", 4, nonZero(32, 2), 200);
