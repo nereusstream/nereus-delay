@@ -1093,6 +1093,11 @@ runtime failure, aggregating later failures as suppressed exceptions. A
 failed native shutdown therefore cannot strand `maxOpenShardDbs` or
 `maxOwnedShards` capacity; the store remains closed and the shared-resource
 boundary is still observable for a safe retry.
+`SharedRocksDbResources.close()` applies the same all-resources rule to the
+process-level rate limiter, shared write-buffer manager and block cache. A
+failure in one shared native close is retained while the remaining resources
+are still attempted, so a Worker shutdown cannot silently leak the later
+process-wide handles.
 The same process-level resource envelope now exposes
 `maxConcurrentDrainsPerWorker` and a shared drain slot. It is bounded
 independently from DB and checkpoint slots and prevents
