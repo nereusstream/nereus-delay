@@ -142,6 +142,13 @@ public final class CheckpointUploadIntentStore {
                 expected.sourceStoreIncarnation(), expected.uploadToken(), expected.baseCatalogGeneration(),
                 expected.parentCheckpointId(), expected.parentManifestSha256(), expected.objectStoreProfile(),
                 expected.checkpointCreatedAt(), expected.uploadDeadlineEpochMs(), state,
-                Math.addExact(expected.stateRevision(), 1), resource, evidence);
+                incrementRevision(expected.stateRevision()), resource, evidence);
+    }
+
+    private static long incrementRevision(final long revision) {
+        if (revision == -1L) {
+            throw new IllegalStateException("checkpoint upload intent state revision exhausted");
+        }
+        return revision + 1;
     }
 }

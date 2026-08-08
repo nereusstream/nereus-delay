@@ -50,8 +50,8 @@ public final class CheckpointUploadIntentV1 {
         this.owner = Objects.requireNonNull(owner, "owner");
         this.sourceStoreIncarnation = nonZeroFixed(sourceStoreIncarnation, ID_LENGTH, "sourceStoreIncarnation");
         this.uploadToken = nonZeroFixed(uploadToken, HASH_LENGTH, "uploadToken");
-        if (baseCatalogGeneration <= 0) {
-            throw new IllegalArgumentException("baseCatalogGeneration must be positive");
+        if (baseCatalogGeneration == 0) {
+            throw new IllegalArgumentException("baseCatalogGeneration must be nonzero");
         }
         this.baseCatalogGeneration = baseCatalogGeneration;
         if ((parentCheckpointId == null) != (parentManifestSha256 == null)) {
@@ -68,8 +68,8 @@ public final class CheckpointUploadIntentV1 {
         }
         this.uploadDeadlineEpochMs = uploadDeadlineEpochMs;
         this.state = Objects.requireNonNull(state, "state");
-        if (stateRevision <= 0) {
-            throw new IllegalArgumentException("stateRevision must be positive");
+        if (stateRevision == 0) {
+            throw new IllegalArgumentException("stateRevision must be nonzero");
         }
         this.stateRevision = stateRevision;
         if (publishedManifest != null
@@ -192,7 +192,7 @@ public final class CheckpointUploadIntentV1 {
         final OwnerIdentityV1 owner = OwnerIdentityV1.decode(QueryCodecSupport.nested(fields.get(index++), 5));
         final byte[] store = QueryCodecSupport.fixed(fields.get(index++), 6, ID_LENGTH);
         final byte[] token = QueryCodecSupport.fixed(fields.get(index++), 7, HASH_LENGTH);
-        final long baseGeneration = QueryCodecSupport.uint(fields.get(index++), 8);
+        final long baseGeneration = QueryCodecSupport.uint64Bits(fields.get(index++), 8);
         byte[] parentCheckpoint = null;
         byte[] parentManifest = null;
         if (fields.get(index).number() == 9) {
@@ -206,7 +206,7 @@ public final class CheckpointUploadIntentV1 {
         final long deadline = QueryCodecSupport.uint(fields.get(index++), 13);
         final CheckpointUploadStateV1 state = CheckpointUploadStateV1.fromWire(
                 QueryCodecSupport.uint(fields.get(index++), 14));
-        final long revision = QueryCodecSupport.uint(fields.get(index++), 15);
+        final long revision = QueryCodecSupport.uint64Bits(fields.get(index++), 15);
         CheckpointResourceV1 resource = null;
         if (fields.get(index).number() == 16) {
             resource = CheckpointResourceV1.decode(QueryCodecSupport.nested(fields.get(index++), 16));
@@ -238,7 +238,7 @@ public final class CheckpointUploadIntentV1 {
             CanonicalProtobuf.bytes(output, 5, owner.canonicalBytes());
             CanonicalProtobuf.bytes(output, 6, sourceStoreIncarnation);
             CanonicalProtobuf.bytes(output, 7, uploadToken);
-            CanonicalProtobuf.uint64(output, 8, baseCatalogGeneration);
+            CanonicalProtobuf.uint64Bits(output, 8, baseCatalogGeneration);
             if (parentCheckpointId != null) {
                 CanonicalProtobuf.bytes(output, 9, parentCheckpointId);
                 CanonicalProtobuf.bytes(output, 10, parentManifestSha256);
@@ -247,7 +247,7 @@ public final class CheckpointUploadIntentV1 {
             CanonicalProtobuf.bytes(output, 12, checkpointCreatedAt.canonicalBytes());
             CanonicalProtobuf.int64(output, 13, uploadDeadlineEpochMs);
             CanonicalProtobuf.uint32(output, 14, state.wireValue());
-            CanonicalProtobuf.uint64(output, 15, stateRevision);
+            CanonicalProtobuf.uint64Bits(output, 15, stateRevision);
             if (publishedManifest != null) {
                 CanonicalProtobuf.bytes(output, 16, publishedManifest.canonicalBytes());
             }

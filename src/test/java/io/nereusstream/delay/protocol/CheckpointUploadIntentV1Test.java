@@ -20,6 +20,17 @@ class CheckpointUploadIntentV1Test {
     }
 
     @Test
+    void preservesCompleteUnsignedCatalogAndStateRevisionBits() {
+        final CheckpointUploadIntentV1 intent = intent(CheckpointUploadStateV1.PENDING_UPLOAD, null, null,
+                Long.MIN_VALUE, Long.MIN_VALUE);
+
+        final CheckpointUploadIntentV1 decoded = CheckpointUploadIntentV1.decode(intent.canonicalBytes());
+        assertEquals(Long.MIN_VALUE, decoded.baseCatalogGeneration());
+        assertEquals(Long.MIN_VALUE, decoded.stateRevision());
+        assertEquals(intent, decoded);
+    }
+
+    @Test
     void enforcesStateBranchAndDigestRules() {
         final CheckpointResourceV1 resource = resource();
         assertThrows(IllegalArgumentException.class,
@@ -35,13 +46,20 @@ class CheckpointUploadIntentV1Test {
     private static CheckpointUploadIntentV1 intent(final CheckpointUploadStateV1 state,
                                                    final CheckpointResourceV1 resource,
                                                    final TrustedUtcIntervalEvidence reaping) {
+        return intent(state, resource, reaping, 11, 2);
+    }
+
+    private static CheckpointUploadIntentV1 intent(final CheckpointUploadStateV1 state,
+                                                   final CheckpointResourceV1 resource,
+                                                   final TrustedUtcIntervalEvidence reaping,
+                                                   final long baseGeneration, final long stateRevision) {
         return new CheckpointUploadIntentV1(
                 new ShardSubjectV1(new RouteIncarnation(bytes(16, 1)), 3),
                 bytes(16, 2), bytes(16, 3),
                 new OwnerIdentityV1(bytes(8, 4), bytes(8, 5), 9, bytes(32, 6)),
-                bytes(16, 7), bytes(32, 8), 11,
+                bytes(16, 7), bytes(32, 8), baseGeneration,
                 bytes(16, 9), bytes(32, 10), objectStoreProfile(), evidence(1_000), 5_000,
-                state, 2, resource, reaping);
+                state, stateRevision, resource, reaping);
     }
 
     private static CheckpointResourceV1 resource() {

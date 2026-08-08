@@ -93,6 +93,13 @@ summaries with unsigned generation ordering. This closes the public checkpoint
 projection codec boundary; Recovery Floor/upload authority and local
 generation increment arithmetic remain separate recovery gates.
 
+`CheckpointUploadIntentV1` now preserves the nonzero `base_catalog_generation`
+and checked `state_revision` raw `uint64` patterns through its canonical digest
+and state branches. The local intent CAS advances `state_revision` with an
+unsigned-bit successor and fails only at the all-ones pattern; Object Store and
+Oxia catalog authority remain external. Protocol and intent-store tests cover
+the high-bit boundary.
+
 Registry class-3 `meta_cf/QUOTA` now has a local per-Lane compatibility projection.
 `LaneQuotaUsageProjection` fences the message, reservation, per-Lane slot and
 per-Claim/per-attempt `inflight_messages`/`inflight_bytes` dimensions with Lane

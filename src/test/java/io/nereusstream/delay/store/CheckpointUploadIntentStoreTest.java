@@ -47,6 +47,17 @@ class CheckpointUploadIntentStoreTest {
     }
 
     @Test
+    void incrementsUnsignedStateRevisionAcrossSignedHighBitBoundary() {
+        final CheckpointUploadIntentStore store = new CheckpointUploadIntentStore();
+        final CheckpointUploadIntentV1 pending = intent(CheckpointUploadStateV1.PENDING_UPLOAD,
+                Long.MIN_VALUE, null, null);
+        store.create(pending);
+
+        final CheckpointUploadIntentV1 published = store.publish(pending, resource());
+        assertEquals(Long.MIN_VALUE + 1, published.stateRevision());
+    }
+
+    @Test
     void reapingCompetesWithPublicationAndRetainsTrustedEvidence() {
         final CheckpointUploadIntentStore store = new CheckpointUploadIntentStore();
         final CheckpointUploadIntentV1 pending = intent(CheckpointUploadStateV1.PENDING_UPLOAD, 2, null, null);
