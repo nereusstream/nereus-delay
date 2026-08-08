@@ -568,7 +568,7 @@ public final class PublishAdmissionBody {
             nonEmpty(bytes(field(fields, 1), 1), 1);
             fixed(bytes(field(fields, 2), 2), HASH_LENGTH, 2);
             nonEmpty(bytes(field(fields, 3), 3), 3);
-            unsigned(field(fields, 4), 4);
+            rawUnsigned(field(fields, 4), 4);
         }
     }
 

@@ -1477,6 +1477,13 @@ full-width rule through nested canonical bytes and the `gc_cf/PROTECTION` key;
 high-bit protection references are covered by `ResourceRetireIntentBodyTest`
 and `KeyCodecTest`. External protection authority and guarded GC release
 remain outside this local key/value boundary.
+The closed `ExactResourceIdentityV1` parser now keeps immutable `ProfileRefV1`
+versions and Kafka receipt-slot/Pulsar journal external generations as raw
+nonzero `uint64` values; its nested Pulsar Broker identity validator likewise
+does not reject a high-bit physical-topic creation timestamp. These values are
+identity inputs, not local counters, and high-bit coverage is included in
+`ResourceRetireIntentBodyTest`; payload/checkpoint byte lengths remain bounded
+by the local object/manifest admission envelope.
 
 The bounded `RESOURCE_DELETE_CONFIRMED_V1` increment now validates the exact
 Retire Intent reference, delete outcome, provider evidence and Trusted-UTC

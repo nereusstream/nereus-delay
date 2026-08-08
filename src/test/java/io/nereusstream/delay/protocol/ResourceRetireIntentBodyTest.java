@@ -56,6 +56,50 @@ class ResourceRetireIntentBodyTest {
     }
 
     @Test
+    void preservesUnsignedResourceIdentityProfileAndExternalGenerationBits() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 27);
+        final byte[] payload = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, profileRef(Long.MIN_VALUE));
+            CanonicalProtobuf.bytes(output, 2, Bytes.utf8("container"));
+            CanonicalProtobuf.bytes(output, 3, Bytes.utf8("object-key"));
+            CanonicalProtobuf.bytes(output, 4, Bytes.utf8("version-1"));
+            CanonicalProtobuf.uint64Bits(output, 6, 12);
+            CanonicalProtobuf.bytes(output, 7, Bytes.sha256(Bytes.utf8("payload")));
+        });
+        final ResourceRetireIntentBody payloadBody = ResourceRetireIntentBody.decode(resourceBody(shard,
+                ResourceKind.PAYLOAD_OBJECT, branch(ResourceKind.PAYLOAD_OBJECT, payload), 1,
+                protectionSet()));
+        assertArrayEquals(payload, branch(payloadBody.resource()));
+
+        final byte[] kafka = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, Bytes.utf8("cluster"));
+            CanonicalProtobuf.bytes(output, 2, new byte[16]);
+            CanonicalProtobuf.bytes(output, 3, new byte[16]);
+            CanonicalProtobuf.uint32(output, 4, 3);
+            CanonicalProtobuf.uint32(output, 5, 4);
+            CanonicalProtobuf.uint64Bits(output, 6, Long.MIN_VALUE);
+        });
+        final ResourceRetireIntentBody kafkaBody = ResourceRetireIntentBody.decode(resourceBody(shard,
+                ResourceKind.KAFKA_RECEIPT_SLOT, branch(ResourceKind.KAFKA_RECEIPT_SLOT, kafka), 1,
+                protectionSet()));
+        assertArrayEquals(kafka, branch(kafkaBody.resource()));
+
+        final PulsarBrokerResourceIdentityV1 broker = new PulsarBrokerResourceIdentityV1(
+                "cluster", new byte[32], "persistent://tenant/topic", Long.MIN_VALUE);
+        final byte[] pulsar = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, broker.canonicalBytes());
+            CanonicalProtobuf.uint32(output, 2, 5);
+            CanonicalProtobuf.uint64Bits(output, 3, -1L);
+        });
+        final ResourceRetireIntentBody pulsarBody = ResourceRetireIntentBody.decode(resourceBody(shard,
+                ResourceKind.PULSAR_JOURNAL_GENERATION,
+                branch(ResourceKind.PULSAR_JOURNAL_GENERATION, pulsar), 1, protectionSet()));
+        assertArrayEquals(pulsar, branch(pulsarBody.resource()));
+
+        PublishAdmissionBody.validateBrokerResourceIdentity(broker.canonicalBytes());
+    }
+
+    @Test
     void payloadObjectWithoutOptionalEtagUsesLengthAndHashFieldsSixAndSeven() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 18);
         final byte[] payload = CanonicalProtobuf.message(output -> {
@@ -115,9 +159,13 @@ class ResourceRetireIntentBodyTest {
     }
 
     private static byte[] profileRef() {
+        return profileRef(1);
+    }
+
+    private static byte[] profileRef(final long version) {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, Bytes.utf8("object-store"));
-            CanonicalProtobuf.uint32(output, 2, 1);
+            CanonicalProtobuf.uint64Bits(output, 2, version);
             CanonicalProtobuf.bytes(output, 3, Bytes.sha256(Bytes.utf8("profile")));
             CanonicalProtobuf.uint32(output, 4, 1);
         });

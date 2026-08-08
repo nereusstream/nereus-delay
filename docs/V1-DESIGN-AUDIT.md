@@ -386,6 +386,13 @@ field; local mutation/claim sequences remain bounded non-negative counters.
 The nested `ProtectionRefV1.protection_generation` and its `gc_cf/PROTECTION`
 locator likewise retain the complete raw `uint64` pattern; external
 protection authority and guarded release remain release evidence.
+The same retire-identity parser now preserves complete nonzero raw `uint64`
+bits for nested `ProfileRefV1` versions and Kafka receipt-slot/Pulsar journal
+external generations. Its nested Pulsar Broker resource validation also keeps
+the physical-topic creation timestamp byte-exact instead of applying a signed
+host-range check. Object/manifest lengths remain subject to the separate
+bounded local admission envelopes rather than being widened into unbounded
+runtime arithmetic.
 The local evidence is `ResourceRetireIntentBodyTest.preservesUnsignedResourceStateVersionBits`,
 `ResourceDeleteConfirmedBodyTest.intentPreservesFullUnsignedResourceStateVersion`,
 `KeyCodecTest.gcRetireIntentKeyPreservesUnsignedResourceStateVersionBits`,

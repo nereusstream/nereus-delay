@@ -185,13 +185,13 @@ public final class ResourceRetireIntentBody {
                     fixed(bytes(field(fields, 3), 3), INCARNATION_LENGTH, 3);
                     nonNegative(unsigned(field(fields, 4), 4), 4);
                     nonNegative(unsigned(field(fields, 5), 5), 5);
-                    positive(unsigned(field(fields, 6), 6), 6);
+                    nonZeroRaw(rawUnsigned(field(fields, 6), 6), 6);
                 }
                 case PULSAR_JOURNAL_GENERATION -> {
                     requireExact(fields, 3, kind);
                     PublishAdmissionBody.validateBrokerResourceIdentity(nested(field(fields, 1), 1));
                     nonNegative(unsigned(field(fields, 2), 2), 2);
-                    positive(unsigned(field(fields, 3), 3), 3);
+                    nonZeroRaw(rawUnsigned(field(fields, 3), 3), 3);
                 }
                 case LANE_CHANNEL -> {
                     requireExact(fields, 1, kind);
@@ -381,7 +381,7 @@ public final class ResourceRetireIntentBody {
         final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "ProfileRef");
         requireExact(fields, 4, "ProfileRef");
         nonEmpty(bytes(field(fields, 1), 1), 1);
-        positive(unsigned(field(fields, 2), 2), 2);
+        nonZeroRaw(rawUnsigned(field(fields, 2), 2), 2);
         fixed(bytes(field(fields, 3), 3), HASH_LENGTH, 3);
         final long kind = unsigned(field(fields, 4), 4);
         if (kind < 1 || kind > 4) {
@@ -499,6 +499,13 @@ public final class ResourceRetireIntentBody {
     private static long positive(final long value, final int number) {
         if (value <= 0) {
             throw new IllegalArgumentException("nested field " + number + " must be positive");
+        }
+        return value;
+    }
+
+    private static long nonZeroRaw(final long value, final int number) {
+        if (value == 0) {
+            throw new IllegalArgumentException("nested field " + number + " must be non-zero");
         }
         return value;
     }
