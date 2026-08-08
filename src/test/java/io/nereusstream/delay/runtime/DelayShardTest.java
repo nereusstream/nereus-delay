@@ -55,6 +55,7 @@ import io.nereusstream.delay.protocol.QuotaGrantRefV1;
 import io.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
 import io.nereusstream.delay.protocol.ResourceKind;
 import io.nereusstream.delay.protocol.ResourceRetireIntentBody;
+import io.nereusstream.delay.protocol.RetryJitterV1;
 import io.nereusstream.delay.protocol.RetryPolicySemanticV1;
 import io.nereusstream.delay.protocol.UncertainPolicyV1;
 import io.nereusstream.delay.protocol.DlqExportModeV1;
@@ -1058,6 +1059,99 @@ class DelayShardTest {
             assertEquals(StableCode.RETRY_POLICY_NOT_ACTIVE_AT_SOURCE_POSITION,
                     shard.apply(PreparedCommand.scheduleV1(shardId, intent, 9_000), source).stableCode());
             assertNull(shard.getMessage(schedule.delayMessageId()));
+        }
+    }
+
+    @Test
+    void sourceOrderedOutcomeRejectsRetryDecisionThatDoesNotMatchPinnedJitter() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("retry-decision-binding"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 36);
+        final ProfileRefV1 profile = new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 41),
+                ProfileKindV1.DESTINATION);
+        final RetryPolicySemanticV1 policy = new RetryPolicySemanticV1(Bytes.utf8("retry-decision"), 1,
+                100, 1_000, 5, 4_000, UncertainPolicyV1.HOLD_FOR_EVIDENCE, 0,
+                DlqExportModeV1.NOT_CONFIGURED, 0, 0, 0, 0, false, bytes(32, 42));
+        final ScheduleIntentV1 intent = ScheduleIntentV1.create(profile, policy.ref(), 2_000, 5_000,
+                io.nereusstream.delay.protocol.DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT,
+                Bytes.utf8("retry-decision-ordering"), Bytes.utf8("retry-decision-payload"), null,
+                io.nereusstream.delay.protocol.AdapterMetadataV1.kafka(
+                        new io.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())), null, null);
+        final PreparedCommand schedule = PreparedCommand.scheduleV1(shardId, intent, 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 2_001);
+        final KafkaSourcePosition rejectedOutcomePosition = position(shardId, 2, 2_002);
+        final KafkaSourcePosition acceptedOutcomePosition = position(shardId, 3, 2_003);
+        final byte[] tuple = Bytes.utf8("retry-decision-lane-tuple");
+        final DestinationLaneId lane = DestinationLaneId.derive(tuple);
+        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+            @Override
+            public ResolvedSchedule resolveSchedule(final ShardId shard, final DelayMessageId messageId,
+                                                     final ScheduleIntentV1 scheduleIntent,
+                                                     final SourcePosition source) {
+                return new ResolvedSchedule(lane, tuple, scheduleIntent.inlinePayload(), null);
+            }
+
+            @Override
+            public ResolvedPrepare resolvePrepare(final ShardId shard, final DelayMessageId messageId,
+                                                  final PrepareLargeScheduleBodyV1 body,
+                                                  final SourcePosition source) {
+                return new ResolvedPrepare(lane, tuple);
+            }
+        };
+        final byte[] outcomeObservedAt = new TrustedUtcIntervalEvidence(2_002, 2_002,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("retry-decision-clock"),
+                1, 1, 1, Bytes.sha256(Bytes.utf8("retry-decision-proof")), 0, null).canonicalBytes();
+        final long expectedNext = Math.addExact(2_002,
+                RetryJitterV1.delayMs(RetryJitterV1.MESSAGE_PUBLISH, schedule.delayMessageId(), 0, 1,
+                        policy.retryBackoffCap(1)));
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final InMemoryRetryPolicyCatalog catalog = new InMemoryRetryPolicyCatalog();
+            catalog.publish(policy, schedulePosition);
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver, null,
+                    catalog);
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
+            final KeyPair keyPair = keyPairGenerator.generateKeyPair();
+            final byte[] attemptId = Bytes.sha256(Bytes.utf8("retry-decision-attempt"));
+            final byte[] owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 7,
+                    Bytes.sha256(Bytes.utf8("lease"))).canonicalBytes();
+            final PublishAttemptLedger admission = PublishAttemptLedger.publishing(schedule.delayMessageId(), 0,
+                    attemptId, Bytes.sha256(Bytes.utf8("retry-decision-claim")), 7, 1, lane,
+                    shard.getLane(lane).laneIncarnation(), owner, store.metadata().storeIncarnation(),
+                    Bytes.sha256(Bytes.utf8("retry-decision-prepared")), Bytes.utf8("admission"),
+                    admissionPosition.canonicalBytes());
+            shard.admitPublishAttempt(admission, admissionPosition);
+
+            final byte[] wrongRetry = retryDecisionForPolicy(policy, 2,
+                    StableCode.DESTINATION_DEFINITIVE_RETRIABLE, 1, 2_001, 5_000, expectedNext + 1);
+            final byte[] wrongOutcomeBody = publishOutcomeBody(shardId, attemptId, 2, 1,
+                    StableCode.DESTINATION_DEFINITIVE_RETRIABLE, new byte[0], outcomeObservedAt, wrongRetry,
+                    chargeVector());
+            final SystemMutation wrongOutcome = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME,
+                    9_000, publishOutcomeLogicalIdentity(wrongOutcomeBody), wrongOutcomeBody, owner, 1,
+                    keyPair.getPrivate());
+            final SystemMutationResult rejected = shard.applySystemMutation(wrongOutcome,
+                    rejectedOutcomePosition, keyPair.getPublic());
+            assertEquals(StableCode.STALE_SYSTEM_MUTATION, rejected.stableCode());
+            assertEquals(MessageStatus.PUBLISHING, shard.getMessage(schedule.delayMessageId()).status());
+            assertEquals(AttemptLedgerState.PUBLISHING,
+                    shard.findOpenPublishAttempt(attemptId).state());
+
+            final byte[] validRetry = retryDecisionForPolicy(policy, 2,
+                    StableCode.DESTINATION_DEFINITIVE_RETRIABLE, 1, 2_001, 5_000, expectedNext);
+            final byte[] validOutcomeBody = publishOutcomeBody(shardId, attemptId, 2, 1,
+                    StableCode.DESTINATION_DEFINITIVE_RETRIABLE, new byte[0], outcomeObservedAt, validRetry,
+                    chargeVector());
+            final SystemMutation validOutcome = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME,
+                    9_000, publishOutcomeLogicalIdentity(validOutcomeBody), validOutcomeBody, owner, 1,
+                    keyPair.getPrivate());
+            assertEquals(StableCode.DESTINATION_DEFINITIVE_RETRIABLE,
+                    shard.applySystemMutation(validOutcome, acceptedOutcomePosition, keyPair.getPublic()).stableCode());
+            assertEquals(MessageStatus.SCHEDULED, shard.getMessage(schedule.delayMessageId()).status());
+            assertEquals(expectedNext, shard.getMessage(schedule.delayMessageId()).retryEligibilityAtEpochMs());
         }
     }
 
@@ -5451,6 +5545,25 @@ class DelayShardTest {
             CanonicalProtobuf.uint32(output, 7, 1);
             CanonicalProtobuf.uint32(output, 8, cause.wireValue());
             CanonicalProtobuf.uint32(output, 9, 1);
+        });
+    }
+
+    private static byte[] retryDecisionForPolicy(final RetryPolicySemanticV1 policy, final int kind,
+                                                 final StableCode cause, final long completedAttemptNo,
+                                                 final long firstAttemptAt, final long retryDeadline,
+                                                 final Long nextRetryAt) {
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint32(output, 1, kind);
+            CanonicalProtobuf.bytes(output, 2, policy.ref().canonicalBytes());
+            CanonicalProtobuf.uint64(output, 3, completedAttemptNo);
+            CanonicalProtobuf.int64(output, 4, firstAttemptAt);
+            CanonicalProtobuf.int64(output, 5, retryDeadline);
+            if (nextRetryAt != null) {
+                CanonicalProtobuf.int64(output, 6, nextRetryAt);
+            }
+            CanonicalProtobuf.uint32(output, 7, RetryPolicySemanticV1.JITTER_ALGORITHM_VERSION);
+            CanonicalProtobuf.uint32(output, 8, cause.wireValue());
+            CanonicalProtobuf.uint32(output, 9, RetryJitterV1.MESSAGE_PUBLISH);
         });
     }
 

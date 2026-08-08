@@ -322,15 +322,22 @@ public final class PublishOutcomeBody {
         private final long firstAttemptAt;
         private final long retryDeadline;
         private final Long nextRetryAt;
+        private final RetryPolicyRefV1 policy;
+        private final StableCode cause;
+        private final int retryDomain;
 
         private RetryDecision(final byte[] canonicalBytes, final int kind, final long completedAttemptNo,
-                              final long firstAttemptAt, final long retryDeadline, final Long nextRetryAt) {
+                              final long firstAttemptAt, final long retryDeadline, final Long nextRetryAt,
+                              final RetryPolicyRefV1 policy, final StableCode cause, final int retryDomain) {
             this.canonicalBytes = copy(canonicalBytes);
             this.kind = kind;
             this.completedAttemptNo = completedAttemptNo;
             this.firstAttemptAt = firstAttemptAt;
             this.retryDeadline = retryDeadline;
             this.nextRetryAt = nextRetryAt;
+            this.policy = policy;
+            this.cause = cause;
+            this.retryDomain = retryDomain;
         }
 
         private static RetryDecision decode(final byte[] encoded) {
@@ -347,8 +354,9 @@ public final class PublishOutcomeBody {
             if (kind < 1 || kind > 5) {
                 throw new IllegalArgumentException("invalid RetryDecision kind");
             }
-            final byte[] policy = nested(field(fields, 2), 2);
-            validateRetryPolicyRef(policy);
+            final byte[] policyBytes = nested(field(fields, 2), 2);
+            validateRetryPolicyRef(policyBytes);
+            final RetryPolicyRefV1 policy = RetryPolicyRefV1.decode(policyBytes);
             final long completed = unsigned(field(fields, 3), 3);
             final long first = unsigned(field(fields, 4), 4);
             final long deadline = unsigned(field(fields, 5), 5);
@@ -365,15 +373,16 @@ public final class PublishOutcomeBody {
             if (intValue(field(fields, 7), 7) != 1) {
                 throw new IllegalArgumentException("unsupported retry jitter algorithm");
             }
-            StableCode.fromWire(intValue(field(fields, 8), 8));
-            if (intValue(field(fields, 9), 9) != 1) {
+            final StableCode cause = StableCode.fromWire(intValue(field(fields, 8), 8));
+            final int retryDomain = intValue(field(fields, 9), 9);
+            if (retryDomain != 1) {
                 throw new IllegalArgumentException("unsupported retry domain");
             }
-            return new RetryDecision(encoded, kind, completed, first, deadline, next);
+            return new RetryDecision(encoded, kind, completed, first, deadline, next, policy, cause, retryDomain);
         }
 
         private static RetryDecision unchecked(final byte[] encoded) {
-            return new RetryDecision(encoded, 1, 0, 0, Long.MAX_VALUE, null);
+            return new RetryDecision(encoded, 1, 0, 0, Long.MAX_VALUE, null, null, null, 0);
         }
 
         private static RetryDecision decodeUnknown(final byte[] encoded) {
@@ -434,18 +443,46 @@ public final class PublishOutcomeBody {
             return nextRetryAt != null;
         }
 
+        /** Returns whether this is a fully decoded RetryDecision rather than the legacy UNKNOWN placeholder. */
+        public boolean hasFullShape() {
+            return policy != null;
+        }
+
+        public RetryPolicyRefV1 policy() {
+            if (policy == null) {
+                throw new IllegalStateException("opaque UNKNOWN retry decision has no policy reference");
+            }
+            return policy;
+        }
+
+        public StableCode cause() {
+            if (cause == null) {
+                throw new IllegalStateException("opaque UNKNOWN retry decision has no cause");
+            }
+            return cause;
+        }
+
+        public int retryDomain() {
+            if (policy == null) {
+                throw new IllegalStateException("opaque UNKNOWN retry decision has no retry domain");
+            }
+            return retryDomain;
+        }
+
         @Override
         public boolean equals(final Object other) {
             return other instanceof RetryDecision that && kind == that.kind
                     && completedAttemptNo == that.completedAttemptNo && firstAttemptAt == that.firstAttemptAt
                     && retryDeadline == that.retryDeadline && Objects.equals(nextRetryAt, that.nextRetryAt)
+                    && Objects.equals(policy, that.policy) && cause == that.cause
+                    && retryDomain == that.retryDomain
                     && Arrays.equals(canonicalBytes, that.canonicalBytes);
         }
 
         @Override
         public int hashCode() {
             return Objects.hash(kind, completedAttemptNo, firstAttemptAt, retryDeadline, nextRetryAt,
-                    Arrays.hashCode(canonicalBytes));
+                    policy, cause, retryDomain, Arrays.hashCode(canonicalBytes));
         }
     }
 }

@@ -755,6 +755,15 @@ Profile/Adapter 运行时绑定和真实 ingress 迁移仍是 release blocker。
 本地 source-history catalog 在同一 order token 时还要求完整 canonical
 position bytes 一致，避免同一 offset/ledger-entry-batch 的 metadata 变体提前
 获得 policy visibility。
+业务 `PublishOutcomeBody` 与 evidence-resolution 现在还会在 catalog 可用时
+保留 full-shape `RetryDecisionV1` 的 policy/cause/domain，并在 source-ordered
+状态变更前重算 exact policy ref、checked retry deadline 和
+`RETRY_JITTER_V1(MESSAGE_PUBLISH)`；错误 jitter 被拒绝，正确值才进入本地
+timeline/state transition。旧的 opaque `UNKNOWN` placeholder 仍保留兼容路径。
+由于当前 attempt ledger 尚未把第一次 Admission 的 `firstAttemptAt`/
+`retryDeadline` 作为独立事实持久化，这一增量不是 full historical retry
+binding；DLQ domain、外部 policy publication/activation 和历史 retention
+仍是 release blocker。
 Payload proof trust-set 也已补齐 canonical verifier-key list、semantic
 hash/ref、Ed25519 raw-key projection 和本地 source-time validity-window
 校验；`PayloadProofTrustSetControlState` 现在保留严格 source-ordered

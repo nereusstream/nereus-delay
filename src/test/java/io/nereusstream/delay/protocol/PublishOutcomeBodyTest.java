@@ -4,7 +4,9 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PublishOutcomeBodyTest {
     @Test
@@ -24,6 +26,9 @@ class PublishOutcomeBodyTest {
         assertEquals(StableCode.OK, parsed.stableCode());
         assertArrayEquals(evidence, parsed.evidence());
         assertArrayEquals(retry, parsed.retryDecision().canonicalBytes());
+        assertTrue(parsed.retryDecision().hasFullShape());
+        assertEquals(StableCode.OK, parsed.retryDecision().cause());
+        assertEquals(1, parsed.retryDecision().retryDomain());
         assertArrayEquals(body, PublishOutcomeBody.encodeInitial(shard, 9_000, attempt, 1, 0, StableCode.OK,
                 evidence, charge().canonicalBytes(), observedAt(), retry));
     }
@@ -47,6 +52,7 @@ class PublishOutcomeBodyTest {
         assertEquals(4, parsedUnknown.disposition());
         assertEquals(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, parsedUnknown.stableCode());
         assertEquals(0, parsedUnknown.evidence().length);
+        assertFalse(parsedUnknown.retryDecision().hasFullShape());
     }
 
     @Test

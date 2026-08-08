@@ -45,6 +45,7 @@ import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.PreparedControlOperationV1;
 import io.nereusstream.delay.protocol.ReplayDeadLetterBody;
 import io.nereusstream.delay.protocol.ResolveUncertainBody;
+import io.nereusstream.delay.protocol.RetryJitterV1;
 import io.nereusstream.delay.protocol.RetryPolicyRefV1;
 import io.nereusstream.delay.protocol.RetryPolicySemanticV1;
 import io.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
@@ -2202,6 +2203,10 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
+        final MessageRecord outcomeCurrent = getMessage(ledger.delayMessageId());
+        if (outcomeCurrent != null && outcomeCurrent.generation() == ledger.generation()) {
+            validateRetryDecisionBinding(outcome, ledger, outcomeCurrent, sourcePosition);
+        }
         if (sideEffect == 2) {
             if (ledger == null || ledger.state() != AttemptLedgerState.PUBLISHING) {
                 return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
@@ -2284,6 +2289,44 @@ public final class DelayShard {
         return ledger.ownerEpoch() == author.generation();
     }
 
+    /**
+     * Recomputes the local Retry Policy projection before a source-ordered
+     * outcome changes durable timeline state. Compatibility shards without a
+     * source-pinned catalog retain their legacy structural-only behavior; a
+     * catalogued V1 binding must match the immutable ref, deadline and
+     * deterministic full-jitter timestamp exactly.
+     */
+    private void validateRetryDecisionBinding(final PublishOutcomeBody outcome,
+                                              final PublishAttemptLedger ledger,
+                                              final MessageRecord current,
+                                              final SourcePosition sourcePosition) {
+        final PublishOutcomeBody.RetryDecision decision = outcome.retryDecision();
+        if (retryPolicyCatalog == null || !decision.hasFullShape()) {
+            return;
+        }
+        final RetryPolicySemanticV1 policy = retryPolicyFor(ledger.delayMessageId(), current, sourcePosition);
+        if (policy == null || !decision.policy().matches(policy)
+                || decision.retryDomain() != RetryJitterV1.MESSAGE_PUBLISH
+                || decision.completedAttemptNo() != ledger.attemptNo()
+                || decision.firstAttemptAt() >= current.expireAtEpochMs()) {
+            throw new IllegalArgumentException("RetryDecision does not match the pinned Retry Policy");
+        }
+        final long expectedDeadline = Math.min(current.expireAtEpochMs(),
+                Math.addExact(decision.firstAttemptAt(), policy.maxRetryDurationMs()));
+        if (decision.retryDeadline() != expectedDeadline) {
+            throw new IllegalArgumentException("RetryDecision deadline does not match the pinned Retry Policy");
+        }
+        if (decision.hasNextRetryAt()) {
+            final long backoffCap = policy.retryBackoffCap(decision.completedAttemptNo());
+            final long jitter = RetryJitterV1.delayMs(RetryJitterV1.MESSAGE_PUBLISH, ledger.delayMessageId(),
+                    ledger.generation(), decision.completedAttemptNo(), backoffCap);
+            final long expectedNext = Math.addExact(outcome.observedAt().latestEpochMs(), jitter);
+            if (decision.nextRetryAt() != expectedNext || expectedNext > decision.retryDeadline()) {
+                throw new IllegalArgumentException("RetryDecision next retry does not match deterministic jitter");
+            }
+        }
+    }
+
     private SystemMutationResult applyEvidenceResolutionMutation(final SystemMutation mutation,
                                                                   final SourcePosition sourcePosition) {
         final PublishOutcomeBody resolution =
@@ -2297,6 +2340,10 @@ public final class DelayShard {
         if (ledger == null || ledger.state() != AttemptLedgerState.UNCERTAIN) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
+        }
+        final MessageRecord resolutionCurrent = getMessage(ledger.delayMessageId());
+        if (resolutionCurrent != null && resolutionCurrent.generation() == ledger.generation()) {
+            validateRetryDecisionBinding(resolution, ledger, resolutionCurrent, sourcePosition);
         }
         if (!matchesRetainedOutcomeCharge(ledger, resolution.transfer())) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,

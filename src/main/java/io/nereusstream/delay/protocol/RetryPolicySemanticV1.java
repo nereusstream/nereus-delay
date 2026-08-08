@@ -91,6 +91,32 @@ public final class RetryPolicySemanticV1 {
         return maxBackoffMs;
     }
 
+    /**
+     * Returns the checked exponential cap for the completed attempt number.
+     * The cap is {@code min(maxBackoff, initialBackoff * 2^(attempt-1))}; once
+     * the configured maximum is reached the loop stops, so a hostile large
+     * uint32 attempt cannot create an unbounded local operation.
+     */
+    public long retryBackoffCap(final long completedAttemptNo) {
+        if (completedAttemptNo <= 0 || completedAttemptNo > 0xffff_ffffL) {
+            throw new IllegalArgumentException("completed attempt number is outside uint32 range");
+        }
+        if (initialBackoffMs == 0 || maxBackoffMs == 0) {
+            return 0;
+        }
+        long cap = initialBackoffMs;
+        long remaining = completedAttemptNo - 1;
+        while (remaining > 0 && cap < maxBackoffMs) {
+            if (cap > maxBackoffMs / 2) {
+                cap = maxBackoffMs;
+            } else {
+                cap *= 2;
+            }
+            remaining--;
+        }
+        return cap;
+    }
+
     public int maxPublishAdmissions() {
         return maxPublishAdmissions;
     }
