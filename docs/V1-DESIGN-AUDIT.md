@@ -702,11 +702,15 @@ Native submission 的 `CompletionStage` callback registration 失败也已收敛
 Broker 在 Producer ownership 后没有持久化。
 
 Kafka/Pulsar destination adapter 的 `CompletionStage.handle(...)` 注册失败也
-已收敛为 `UNKNOWN / DESTINATION_OUTCOME_UNKNOWN`；它发生在目标 Producer 可能
-已经取得 ownership 之后，不能泄漏为 exceptional Future，更不能伪造
-`DEFINITIVELY_NOT_PUBLISHED`。`DestinationAdapterTest` 的 Kafka/Pulsar
-callback-registration 回归覆盖这条边界。这仍只是 adapter transport-SPI
-证据，真实 Broker side-effect evidence 与 absence classifier 仍是发布门禁。
+已收敛为 `UNKNOWN / DESTINATION_OUTCOME_UNKNOWN`；若 `toCompletableFuture()`
+fallback 也无法注册，则结果带有“physical completion 未观察”标记。它发生在目标
+Producer 可能已经取得 ownership 之后，不能泄漏为 exceptional Future，更不能伪造
+`DEFINITIVELY_NOT_PUBLISHED`；外层 `BoundedDestinationPublishAdapter` 会因此保留
+对应的 zombie/in-flight charge，直到 `PublishCall` 获得物理释放证明。
+`DestinationAdapterTest` 的 Kafka/Pulsar callback-registration 回归和
+`BoundedDestinationPublishAdapterTest.pinnedAdapterRegistrationFailureRetainsPhysicalCharge`
+覆盖这条组合边界。这仍只是 adapter transport-SPI 证据，真实 Broker side-effect
+evidence 与 absence classifier 仍是发布门禁。
 
 `PreparedSubmissionAdapter` 也在 managed wrapper 层保留该 fail-closed 语义：
 managed adapter 返回 null、同步抛出，或其 `CompletionStage.thenApply(...)`
@@ -780,8 +784,14 @@ READY minimum 现在只计入一次，`openingLaneCountsItsReadyMinimumExactlyOn
 不再在 adapter monitor 内同步调用 delegate，而是把调用提交到注入的
 Lane/Adapter executor（默认构造器使用 Java 21 virtual-thread executor）；因此同一
 adapter 上一个永久阻塞的同步 metadata/send 调用不会阻塞另一个健康 Lane，且
-`blockingDelegateCallDoesNotBlockHealthyLane` 覆盖了该隔离边界；executor 拒绝或
-异常 CompletionStage 注册也会归一化为 `UNKNOWN` 并释放 reservation。该组件只是进程内可重建的资源闸门，尚未接入持久
+`blockingDelegateCallDoesNotBlockHealthyLane` 覆盖了该隔离边界；executor 拒绝会在
+delegate 尚未取得 ownership 前归一化为 `UNKNOWN` 并释放 reservation。Pinned
+destination adapter 对同步 transport exception 或空 stage 也不假定 ownership
+已结束，而是返回带“physical completion 未观察”标记的逻辑 `UNKNOWN`。若底层
+`CompletionStage` 的 callback registration（包括其 `toCompletableFuture()` fallback）
+都失败，则只归一化逻辑结果为 `UNKNOWN`，同时把 reservation 保留为
+`ZOMBIE`（zombie cap 已耗尽时保留为 in-flight），直到 `PublishCall` 的物理释放
+证明或 fenced teardown；不能把 registration failure 当成 physical completion。该组件只是进程内可重建的资源闸门，尚未接入持久
 `ActiveLaneState`/`ReadyCertificate`、Owner/Lease/Oxia authority、真实 channel
 teardown 或 Broker evidence journal，因此不能宣称 production admission 已闭合。
 

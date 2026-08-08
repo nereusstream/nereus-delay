@@ -36,19 +36,33 @@ public final class PinnedKafkaDestinationAdapter implements DestinationPublishAd
         try {
             result = transport.publish(transportRequest);
         } catch (RuntimeException exception) {
-            return completed(DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
+            // A synchronous transport exception does not prove that the
+            // request stopped before Producer ownership. Mark the logical
+            // UNKNOWN so the physical-admission wrapper retains its charge.
+            return UnobservedDestinationPublishStage.unknown();
         }
         if (result == null) {
-            return completed(DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
+            // A missing stage provides no physical completion observation.
+            return UnobservedDestinationPublishStage.unknown();
         }
         try {
             return result.handle((value, error) -> error == null && value != null ? validate(value)
                     : DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
         } catch (RuntimeException registrationFailure) {
-            // Callback registration itself is not evidence that the Broker
-            // did not publish after Producer ownership.  Keep the outcome
-            // unknown instead of leaking an exceptional CompletionStage.
-            return completed(DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
+            try {
+                final CompletableFuture<DestinationPublishResult> future = result.toCompletableFuture();
+                if (future == null) {
+                    throw new IllegalStateException("CompletionStage returned a null CompletableFuture view");
+                }
+                return future.handle((value, error) -> error == null && value != null ? validate(value)
+                        : DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
+            } catch (RuntimeException fallbackFailure) {
+                // Callback registration itself is not evidence that the
+                // Broker did not publish after Producer ownership.  Return a
+                // marked logical UNKNOWN so a physical-admission wrapper can
+                // retain the charge for certified teardown/release.
+                return UnobservedDestinationPublishStage.unknown();
+            }
         }
     }
 

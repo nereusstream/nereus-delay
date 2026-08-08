@@ -16,6 +16,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiConsumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -103,6 +104,67 @@ class BoundedDestinationPublishAdapterTest {
                 new BoundedDestinationPublishAdapter(nullStage, admission, Runnable::run);
         final DestinationPublishResult missing = nullAdapter.publish(request(lane, 10)).toCompletableFuture().join();
         assertEquals(DestinationPublishResult.Disposition.UNKNOWN, missing.disposition());
+        assertEquals(0, admission.workerSnapshot().activeRequests());
+    }
+
+    @Test
+    void callbackRegistrationFailureRetainsPhysicalChargeUntilExplicitRelease() {
+        final DestinationLaneId lane = lane("registration-failure");
+        final DestinationPhysicalAdmission admission = admission(lane, 2, 40, 1, 20);
+        admission.openReady(lane);
+        final DestinationPublishAdapter delegate = request -> new RegistrationFailureFuture<>();
+        final BoundedDestinationPublishAdapter adapter = new BoundedDestinationPublishAdapter(
+                delegate, admission, Runnable::run);
+
+        final BoundedDestinationPublishAdapter.PublishCall call = adapter.submit(request(lane, 20));
+        assertEquals(DestinationPublishResult.Disposition.UNKNOWN,
+                call.outcome().toCompletableFuture().join().disposition());
+        assertEquals(DestinationPhysicalAdmission.ReservationState.ZOMBIE, call.reservation().state());
+        assertEquals(1, admission.workerSnapshot().activeRequests());
+        assertTrue(call.releasePhysicalCharge());
+        assertEquals(DestinationPhysicalAdmission.ReservationState.RELEASED, call.reservation().state());
+        assertEquals(0, admission.workerSnapshot().activeRequests());
+    }
+
+    @Test
+    void pinnedAdapterRegistrationFailureRetainsPhysicalCharge() {
+        final DestinationLaneId lane = lane("pinned-registration-failure");
+        final DestinationPhysicalAdmission admission = admission(lane, 2, 40, 1, 20);
+        admission.openReady(lane);
+        final KafkaTargetResource resource = new KafkaTargetResource("cluster", UUID.randomUUID(), 0);
+        final DestinationPublishAdapter delegate = new PinnedKafkaDestinationAdapter(resource,
+                request -> new PinnedRegistrationFailureFuture<>());
+        final BoundedDestinationPublishAdapter adapter = new BoundedDestinationPublishAdapter(
+                delegate, admission, Runnable::run);
+
+        final BoundedDestinationPublishAdapter.PublishCall call = adapter.submit(request(lane, 20));
+        assertEquals(DestinationPublishResult.Disposition.UNKNOWN,
+                call.outcome().toCompletableFuture().join().disposition());
+        assertEquals(DestinationPhysicalAdmission.ReservationState.ZOMBIE, call.reservation().state());
+        assertEquals(1, admission.workerSnapshot().activeRequests());
+        assertTrue(call.releasePhysicalCharge());
+        assertEquals(0, admission.workerSnapshot().activeRequests());
+    }
+
+    @Test
+    void pinnedAdapterTransportExceptionRetainsPhysicalCharge() {
+        final DestinationLaneId lane = lane("pinned-transport-failure");
+        final DestinationPhysicalAdmission admission = admission(lane, 2, 40, 1, 20);
+        admission.openReady(lane);
+        final KafkaTargetResource resource = new KafkaTargetResource("cluster", UUID.randomUUID(), 0);
+        final DestinationPublishAdapter delegate = new PinnedKafkaDestinationAdapter(resource,
+                request -> {
+                    throw new IllegalStateException("transport ownership is unknown");
+                });
+        final BoundedDestinationPublishAdapter adapter = new BoundedDestinationPublishAdapter(
+                delegate, admission, Runnable::run);
+
+        final BoundedDestinationPublishAdapter.PublishCall call = adapter.submit(request(lane, 20));
+        assertEquals(DestinationPublishResult.Disposition.UNKNOWN,
+                call.outcome().toCompletableFuture().join().disposition());
+        assertEquals(DestinationPhysicalAdmission.ReservationState.ZOMBIE, call.reservation().state());
+        assertEquals(1, admission.workerSnapshot().activeRequests());
+        assertTrue(call.releasePhysicalCharge());
         assertEquals(0, admission.workerSnapshot().activeRequests());
     }
 
@@ -210,5 +272,31 @@ class BoundedDestinationPublishAdapterTest {
 
     private static DestinationLaneId lane(final String seed) {
         return DestinationLaneId.derive(Bytes.utf8(seed));
+    }
+
+    private static final class RegistrationFailureFuture<T> extends CompletableFuture<T> {
+        @Override
+        public CompletableFuture<T> toCompletableFuture() {
+            throw new IllegalStateException("CompletableFuture view unavailable");
+        }
+
+        @Override
+        public CompletableFuture<T> whenComplete(
+                final BiConsumer<? super T, ? super Throwable> action) {
+            throw new IllegalStateException("completion callback registration failed");
+        }
+    }
+
+    private static final class PinnedRegistrationFailureFuture<T> extends CompletableFuture<T> {
+        @Override
+        public CompletableFuture<T> toCompletableFuture() {
+            throw new IllegalStateException("CompletableFuture view unavailable");
+        }
+
+        @Override
+        public <U> CompletableFuture<U> handle(
+                final java.util.function.BiFunction<? super T, Throwable, ? extends U> function) {
+            throw new IllegalStateException("completion callback registration failed");
+        }
     }
 }

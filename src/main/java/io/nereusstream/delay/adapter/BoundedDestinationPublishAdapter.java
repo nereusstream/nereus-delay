@@ -10,6 +10,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BiConsumer;
 
 /**
  * Adds the local physical request/byte gate to a target adapter.
@@ -17,10 +18,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>The wrapper never turns a transport result into authoritative shard
  * state.  A rejected admission is a local pre-send result; a completed
  * delegate stage releases the physical charge even when its side-effect
- * result is {@code UNKNOWN}.  A caller that times out its logical callback
- * must retain the returned {@link PublishCall}'s reservation as a zombie
- * until the delegate stage completes or a separately certified teardown
- * releases it.</p>
+ * result is {@code UNKNOWN}.  A caller that times out its logical callback,
+ * or a wrapper that cannot register a completion callback, must retain the
+ * returned {@link PublishCall}'s reservation as a zombie until the delegate
+ * stage completes or a separately certified teardown releases it.</p>
  */
 public final class BoundedDestinationPublishAdapter implements DestinationPublishAdapter {
     private final DestinationPublishAdapter delegate;
@@ -79,13 +80,16 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
             return PublishCall.completed(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
         }
         final CompletableFuture<DestinationPublishResult> outcome = new CompletableFuture<>();
+        final AtomicBoolean retainPhysicalCharge = new AtomicBoolean();
+        final AtomicBoolean completionObserved = new AtomicBoolean();
         try {
-            executor.execute(() -> invokeDelegate(request, outcome));
+            executor.execute(() -> invokeDelegate(request, outcome, reservation, retainPhysicalCharge,
+                    completionObserved));
         } catch (RuntimeException exception) {
             reservation.release();
             return PublishCall.completed(completedUnknownValue());
         }
-        return withRelease(reservation, outcome);
+        return withRelease(reservation, outcome, retainPhysicalCharge);
     }
 
     @Override
@@ -116,7 +120,10 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
     }
 
     private void invokeDelegate(final DestinationPublishRequest request,
-                                final CompletableFuture<DestinationPublishResult> outcome) {
+                                final CompletableFuture<DestinationPublishResult> outcome,
+                                final DestinationPhysicalAdmission.Reservation reservation,
+                                final AtomicBoolean retainPhysicalCharge,
+                                final AtomicBoolean completionObserved) {
         if (closed.get()) {
             outcome.complete(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
             return;
@@ -132,18 +139,78 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
             outcome.complete(completedUnknownValue());
             return;
         }
-        try {
-            raw.whenComplete((value, error) -> outcome.complete(
-                    error == null && value != null ? value : completedUnknownValue()));
-        } catch (RuntimeException exception) {
+        if (raw instanceof UnobservedDestinationPublishStage) {
+            // The pinned adapter completed the logical branch only after it
+            // failed to observe the transport stage. This is not a physical
+            // release proof; retain the charge for explicit teardown/release.
+            retainPhysicalCharge.set(true);
+            reservation.markZombie();
             outcome.complete(completedUnknownValue());
+            return;
+        }
+        try {
+            registerCompletion(raw, (value, error) -> {
+                completionObserved.set(true);
+                outcome.complete(error == null && value != null ? value : completedUnknownValue());
+                if (retainPhysicalCharge.get()) {
+                    // Registration may have thrown after installing the
+                    // callback. In that race the outcome callback was
+                    // already completed while release was intentionally
+                    // suppressed; the observed delegate completion now
+                    // makes the physical charge releasable.
+                    reservation.release();
+                }
+            });
+        } catch (RuntimeException registrationFailure) {
+            // A custom CompletionStage may reject both callback-registration
+            // paths after the delegate has already acquired Producer
+            // ownership.  UNKNOWN is useful for the logical caller, but it
+            // is not physical completion. Keep the reservation as a zombie
+            // (or in-flight if the zombie cap is already exhausted) until a
+            // caller proves completion or a fenced teardown releases it.
+            if (!completionObserved.get()) {
+                retainPhysicalCharge.set(true);
+                reservation.markZombie();
+            }
+            outcome.complete(completedUnknownValue());
+            if (completionObserved.get()) {
+                reservation.release();
+            }
+        }
+    }
+
+    private static void registerCompletion(final CompletionStage<DestinationPublishResult> raw,
+                                           final BiConsumer<? super DestinationPublishResult,
+                                                   ? super Throwable> callback) {
+        try {
+            raw.whenComplete(callback);
+            return;
+        } catch (RuntimeException firstFailure) {
+            try {
+                // Some adapters expose a custom CompletionStage wrapper but
+                // still provide a standard CompletableFuture view.
+                final CompletableFuture<DestinationPublishResult> future = raw.toCompletableFuture();
+                if (future == null) {
+                    throw new IllegalStateException("CompletionStage returned a null CompletableFuture view");
+                }
+                future.whenComplete(callback);
+                return;
+            } catch (RuntimeException fallbackFailure) {
+                firstFailure.addSuppressed(fallbackFailure);
+                throw firstFailure;
+            }
         }
     }
 
     private static PublishCall withRelease(final DestinationPhysicalAdmission.Reservation reservation,
-                                           final CompletionStage<DestinationPublishResult> outcome) {
+                                           final CompletionStage<DestinationPublishResult> outcome,
+                                           final AtomicBoolean retainPhysicalCharge) {
         final PublishCall call = PublishCall.from(reservation, outcome);
-        outcome.whenComplete((value, error) -> reservation.release());
+        outcome.whenComplete((value, error) -> {
+            if (!retainPhysicalCharge.get()) {
+                reservation.release();
+            }
+        });
         return call;
     }
 
