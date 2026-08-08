@@ -85,7 +85,10 @@ version bits (`PublishAdmissionBody.requireHashedPartition`), so a high-bit
 Destination Profile reference is not rejected while recomputing the Registry
 `TARGET_PARTITION_HASH_V1` digest. `PublishAdmissionBodyTest` covers the
 high-bit hash vector; target catalog/publication and external partition
-authority remain release evidence.
+authority remain release evidence. Admission descriptor/materialization Profile
+references now also reuse `ProfileRefV1.decode`, so malformed semantic-hash
+lengths cannot pass the projection validator; the negative vector is covered by
+`PublishAdmissionBodyTest`.
 
 Payload-proof trust-set semantic/reference versions now also preserve complete
 raw bits, while the source-ordered activation projection compares versions as

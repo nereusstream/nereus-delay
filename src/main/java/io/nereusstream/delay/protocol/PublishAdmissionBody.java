@@ -532,23 +532,11 @@ public final class PublishAdmissionBody {
     }
 
     private static void validateProfileRef(final byte[] encoded) {
-        final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "ProfileRef");
-        requireExactFields(fields, 4, "ProfileRef");
-        nonEmpty(bytes(field(fields, 1), 1), 1);
-        if (rawUnsigned(field(fields, 2), 2) == 0) {
-            throw new IllegalArgumentException("ProfileRef version must be non-zero");
-        }
-        bytes(field(fields, 3), 3);
-        final long kind = unsigned(field(fields, 4), 4);
-        if (kind < 1 || kind > 4) {
-            throw new IllegalArgumentException("invalid ProfileRef kind");
-        }
+        ProfileRefV1.decode(encoded);
     }
 
     private static void validateProfileRef(final byte[] encoded, final ProfileKindV1 expectedKind) {
-        validateProfileRef(encoded);
-        final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "ProfileRef");
-        if (unsigned(field(fields, 4), 4) != expectedKind.wireValue()) {
+        if (ProfileRefV1.decode(encoded).profileKind() != expectedKind) {
             throw new IllegalArgumentException("ProfileRef kind does not match its descriptor field");
         }
     }

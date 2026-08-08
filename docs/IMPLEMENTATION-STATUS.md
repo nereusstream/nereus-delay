@@ -108,7 +108,9 @@ is covered by `PublishOutcomeBodyTest`.
 Admission target-partition hashing now feeds the exact raw Destination Profile
 version bits into the Registry digest instead of the signed `u64` helper;
 `PublishAdmissionBodyTest.hashedPartitionValidationPreservesHighBitDestinationProfileVersion`
-covers the boundary. This is local hash/codec evidence only; Profile catalog,
+covers the boundary, and the Admission projection now reuses the strict
+`ProfileRefV1` decoder, including its fixed 32-byte semantic-hash check. This
+is local hash/codec evidence only; Profile catalog,
 partition assignment and external Broker authority remain release blockers.
 
 DLQ `terminalRevision` now preserves complete nonzero `uint64` bits through

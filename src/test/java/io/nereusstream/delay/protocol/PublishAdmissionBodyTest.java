@@ -60,6 +60,23 @@ public class PublishAdmissionBodyTest {
     }
 
     @Test
+    void rejectsMalformedProfileReferenceHashInAdmissionProjection() {
+        final byte[] malformedDestination = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, Bytes.utf8("malformed-destination"));
+            CanonicalProtobuf.uint64Bits(output, 2, Long.MIN_VALUE);
+            CanonicalProtobuf.bytes(output, 3, bytes(31, 75));
+            CanonicalProtobuf.uint32(output, 4, ProfileKindV1.DESTINATION.wireValue());
+        });
+        final BrokerResourceIdentityV1 target = BrokerResourceIdentityV1.kafka(
+                new KafkaBrokerResourceIdentityV1("cluster", java.util.UUID.nameUUIDFromBytes(
+                        Bytes.utf8("malformed-profile-target"))));
+
+        assertThrows(IllegalArgumentException.class, () -> PublishAdmissionBody.decode(
+                Fixture.createWithProfiles(new ShardId(RouteIncarnation.random(), 15), malformedDestination,
+                        Fixture.profileRef("capability", 2), target, AdapterKindV1.KAFKA, 2_000).body()));
+    }
+
+    @Test
     void hashedPartitionValidationPreservesHighBitDestinationProfileVersion() {
         final BrokerResourceIdentityV1 target = BrokerResourceIdentityV1.kafka(
                 new KafkaBrokerResourceIdentityV1("cluster", java.util.UUID.nameUUIDFromBytes(
