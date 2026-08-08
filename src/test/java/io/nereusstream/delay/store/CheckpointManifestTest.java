@@ -78,12 +78,12 @@ class CheckpointManifestTest {
                 "persistent://tenant/ns/topic", Long.MIN_VALUE, Long.MIN_VALUE, -1L,
                 Integer.MIN_VALUE, -1);
         final CheckpointManifest manifest = new CheckpointManifest(
-                bytes(1), bytes(2), 4, null, null,
+                bytes(1), bytes(2), Long.MIN_VALUE, null, null,
                 new CheckpointManifest.CreatedBy(bytes(3), bytes(4), Long.MIN_VALUE),
                 new CheckpointManifest.CreatedAt(1000, 1001, "SIGNED_TIME_SERVICE", bytes(5),
                         Long.MIN_VALUE, -1L, Long.MIN_VALUE,
                         Bytes.sha256(Bytes.utf8("evidence")), Integer.MIN_VALUE, filled(64, 7)),
-                shardId, Bytes.sha256(Bytes.utf8("db")), UUID.randomUUID(), 1, 7, position,
+                shardId, Bytes.sha256(Bytes.utf8("db")), UUID.randomUUID(), 1, -1L, position,
                 new byte[32], new byte[32], List.of(pulsarCursor, kafkaCursor), List.of(file("a.sst", 1)));
 
         final String json = manifest.canonicalJson();
@@ -96,6 +96,8 @@ class CheckpointManifestTest {
         assertTrue(json.contains("\"sampleSequence\":\"18446744073709551615\""));
         assertTrue(json.contains("\"monotonicAnchorNs\":\"9223372036854775808\""));
         assertTrue(json.contains("\"ownerEpoch\":\"9223372036854775808\""));
+        assertTrue(json.contains("\"lineageGeneration\":\"9223372036854775808\""));
+        assertTrue(json.contains("\"shardMutationSequence\":\"18446744073709551615\""));
         assertTrue(json.contains("\"ledgerId\":\"9223372036854775808\""));
         assertTrue(json.contains("\"entryId\":\"18446744073709551615\""));
         assertTrue(json.contains("\"physicalTopicCreationTimestamp\":\"9223372036854775808\""));
@@ -106,6 +108,8 @@ class CheckpointManifestTest {
         assertEquals(json, decoded.canonicalJson());
         assertEquals(Integer.MIN_VALUE, decoded.createdAt().sourceKeyVersion());
         assertEquals(Long.MIN_VALUE, decoded.createdBy().ownerEpoch());
+        assertEquals(Long.MIN_VALUE, decoded.lineageGeneration());
+        assertEquals(-1L, decoded.shardMutationSequence());
         assertEquals(Long.MIN_VALUE, ((KafkaSourcePosition) decoded.appliedShardLogPosition()).offset());
         assertTrue(decoded.evidenceCursors().stream().anyMatch(cursor ->
                 cursor.evidenceKind().name().equals("KAFKA_RECEIPT_CONTIGUOUS")

@@ -98,7 +98,7 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
                 throw new IllegalArgumentException("floor lineage differs from candidate");
             }
             if (candidate.appliedShardLogPosition().compareTo(floor.appliedSourcePosition()) < 0
-                    || candidate.shardMutationSequence() < floor.includedMutationSequence()) {
+                    || Long.compareUnsigned(candidate.shardMutationSequence(), floor.includedMutationSequence()) < 0) {
                 throw new IllegalArgumentException("recovery floor cannot regress");
             }
         }
@@ -149,7 +149,7 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
             recoverySet(checkpointId);
             if (!Bytes.constantTimeEquals(floor.recoveryLineageId(), candidate.recoveryLineageId())
                     || candidate.appliedShardLogPosition().compareTo(floor.appliedSourcePosition()) < 0
-                    || candidate.shardMutationSequence() < floor.includedMutationSequence()) {
+                    || Long.compareUnsigned(candidate.shardMutationSequence(), floor.includedMutationSequence()) < 0) {
                 throw new IllegalArgumentException("recovery floor cannot regress");
             }
         }
@@ -325,9 +325,6 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
                                                                      final long requiredMutationSequence,
                                                                      final SourcePosition... requiredPositions) {
         Objects.requireNonNull(candidateCheckpointId, "candidateCheckpointId");
-        if (requiredMutationSequence < 0) {
-            throw new IllegalArgumentException("required mutation sequence must be non-negative");
-        }
         Objects.requireNonNull(requiredPositions, "requiredPositions");
         for (SourcePosition position : requiredPositions) {
             Objects.requireNonNull(position, "required source position");
@@ -351,7 +348,7 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
                 currentFloor.manifestSha256())) {
             return Optional.empty();
         }
-        if (currentFloor.includedMutationSequence() < requiredMutationSequence) {
+        if (Long.compareUnsigned(currentFloor.includedMutationSequence(), requiredMutationSequence) < 0) {
             return Optional.empty();
         }
         for (SourcePosition requiredPosition : requiredPositions) {
@@ -449,7 +446,7 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
             throw new IllegalArgumentException("checkpoint parent is not published or hash mismatches");
         }
         if (!Bytes.constantTimeEquals(parent.recoveryLineageId(), manifest.recoveryLineageId())
-                || manifest.lineageGeneration() != Math.addExact(parent.lineageGeneration(), 1)) {
+                || manifest.lineageGeneration() != nextLineageGeneration(parent.lineageGeneration())) {
             throw new IllegalArgumentException("checkpoint lineage does not extend parent");
         }
         for (EvidenceCursorV1 parentCursor : parent.evidenceCursors()) {
@@ -461,7 +458,7 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
         }
         final SourcePosition position = manifest.appliedShardLogPosition();
         if (position.compareTo(parent.appliedShardLogPosition()) <= 0
-                || manifest.shardMutationSequence() <= parent.shardMutationSequence()) {
+                || Long.compareUnsigned(manifest.shardMutationSequence(), parent.shardMutationSequence()) <= 0) {
             throw new IllegalArgumentException("checkpoint source position does not advance parent");
         }
     }
@@ -517,6 +514,13 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
 
     private static boolean hasNextCatalogGeneration(final long generation) {
         return generation != -1L;
+    }
+
+    static long nextLineageGeneration(final long generation) {
+        if (generation == -1L) {
+            throw new IllegalArgumentException("checkpoint lineage generation exhausted");
+        }
+        return generation + 1;
     }
 
     private static long nextCatalogGeneration(final long generation) {

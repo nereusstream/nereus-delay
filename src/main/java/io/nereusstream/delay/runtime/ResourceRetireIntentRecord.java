@@ -34,9 +34,6 @@ public record ResourceRetireIntentRecord(
                 Bytes.sha256(Bytes.utf8("nereus-delay-resource-identity-v1\0"), resourceIdentity))) {
             throw new IllegalArgumentException("resource identity hash does not match canonical identity");
         }
-        if (appliedMutationSequence < 0) {
-            throw new IllegalArgumentException("applied mutation sequence must be non-negative");
-        }
         requireNonEmpty(protections, "protections");
         requireNonEmpty(appliedSourcePosition, "appliedSourcePosition");
         SourcePositionCodec.decode(appliedSourcePosition);
@@ -81,7 +78,7 @@ public record ResourceRetireIntentRecord(
     public byte[] encode() {
         return Bytes.concat(Bytes.u32be(2), mutationId, mutationHash, Bytes.u8(resourceKind.wireValue()),
                 Bytes.lp32(resourceIdentity), resourceIdentityHash, Bytes.u64beBits(expectedResourceStateVersion),
-                Bytes.u64be(appliedMutationSequence), Bytes.lp32(protections), Bytes.lp32(appliedSourcePosition));
+                Bytes.u64beBits(appliedMutationSequence), Bytes.lp32(protections), Bytes.lp32(appliedSourcePosition));
     }
 
     public static ResourceRetireIntentRecord decode(final byte[] encoded) {
@@ -127,9 +124,6 @@ public record ResourceRetireIntentRecord(
     private static long readU64(final ByteBuffer input, final String name) {
         requireRemaining(input, Long.BYTES);
         final long value = input.getLong();
-        if (value < 0) {
-            throw new IllegalArgumentException(name + " exceeds the supported unsigned range");
-        }
         return value;
     }
 

@@ -28,10 +28,11 @@ class RecoveryFloorRefV1Test {
     @Test
     void catalogGenerationPreservesCompleteUnsigned64BitPattern() {
         final RecoveryFloorRefV1 floor = new RecoveryFloorRefV1(bytes(16, 3), bytes(16, 4), bytes(32, 5),
-                Long.MIN_VALUE, source(UUID.randomUUID()), 42, List.of());
+                Long.MIN_VALUE, source(UUID.randomUUID()), -1L, List.of());
 
         final RecoveryFloorRefV1 decoded = RecoveryFloorRefV1.decode(floor.canonicalBytes());
         assertEquals(Long.MIN_VALUE, decoded.catalogGeneration());
+        assertEquals(-1L, decoded.includedMutationSequence());
         assertEquals(floor, decoded);
     }
 

@@ -31,9 +31,6 @@ public record ResourceDeleteConfirmedRecord(
         Bytes.requireLength(confirmationMutationHash, HASH_LENGTH, "confirmationMutationHash");
         Objects.requireNonNull(retireIntent, "retireIntent");
         Objects.requireNonNull(outcome, "outcome");
-        if (appliedMutationSequence < 0) {
-            throw new IllegalArgumentException("applied mutation sequence must be non-negative");
-        }
         Bytes.requireLength(providerRequestIdHash, HASH_LENGTH, "providerRequestIdHash");
         Objects.requireNonNull(observedImmutableVersion, "observedImmutableVersion");
         Objects.requireNonNull(observedEtag, "observedEtag");
@@ -108,7 +105,7 @@ public record ResourceDeleteConfirmedRecord(
     public byte[] encode() {
         return Bytes.concat(Bytes.u32be(2), confirmationMutationId, confirmationMutationHash,
                 Bytes.lp32(retireIntent.encode()), Bytes.u8(outcome.wireValue()), providerRequestIdHash,
-                Bytes.u64be(appliedMutationSequence),
+                Bytes.u64beBits(appliedMutationSequence),
                 Bytes.lp32(observedImmutableVersion), Bytes.lp32(observedEtag), responseHash,
                 Bytes.lp32(observedAt), Bytes.lp32(confirmedAt), Bytes.lp32(appliedSourcePosition));
     }
@@ -172,9 +169,6 @@ public record ResourceDeleteConfirmedRecord(
     private static long readU64(final ByteBuffer input, final String name) {
         requireRemaining(input, Long.BYTES);
         final long value = input.getLong();
-        if (value < 0) {
-            throw new IllegalArgumentException(name + " exceeds the supported unsigned range");
-        }
         return value;
     }
 

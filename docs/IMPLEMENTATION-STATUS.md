@@ -800,22 +800,27 @@ startup path does not strand the DB lock or native resource slots. This is still
 an embedded startup guarantee; production owner acquisition and source
 assignment authority remain external.
 
-`DelayShard` now rejects negative persisted mutation and Claim sequence values
-on reopen. These counters are encoded as checked non-negative u64 values;
-accepting a high-bit-set value would turn corrupt metadata into a wrapped local
-sequence and could poison resource-retirement or Claim identity derivation.
-`DelayShardTest.rejectsNegativePersistedShardSequences` covers both sequence
-metadata keys and verifies the shard fails closed before activation.
-The next mutation sequence is computed through one checked helper before every
-source-position WriteBatch; resource-retirement and delete-confirmed records use
-the same helper. The successful post-write update assigns that checked successor
-back to the in-memory projection rather than using an unchecked `++`, so a batch
-that reaches `Long.MAX_VALUE` cannot leave the process counter wrapped while the
-persisted metadata still holds the maximum. At `Long.MAX_VALUE`, the next batch
-is rejected before any command, result, or source-position state is written, so
-the in-memory and persisted sequence cannot diverge or wrap.
+`DelayShard` now preserves the complete raw `uint64` domain for persisted
+mutation and Claim sequences on reopen, through checkpoint barriers and Claim
+identity derivation. `DelayShardTest.acceptsCompleteUnsignedPersistedShardSequences`
+covers the high-bit/all-ones reopen boundary. The next mutation sequence is
+computed through one checked unsigned helper before every source-position
+WriteBatch; resource-retirement and delete-confirmed records use the same helper.
+The successful post-write update assigns that checked successor back to the
+in-memory projection, so `0x7fff... -> 0x8000...` is valid and only the all-ones
+pattern is exhausted. At exhaustion, the next batch is rejected before any
+command, result, or source-position state is written.
 `DelayShardTest.mutationSequenceExhaustionFailsClosedBeforeCommandMutation`
-covers both the near-maximum commit and the exhausted boundary.
+covers both boundaries.
+
+Checkpoint manifest `lineageGeneration`/`shardMutationSequence` and scalar/typed
+Recovery Floor projections now preserve full-width unsigned values in their
+canonical JSON, Protobuf and digest bytes. Local catalog ancestry uses checked
+unsigned lineage successors, and Floor coverage compares mutation sequences
+unsigned. `CheckpointManifestTest`, `RecoveryFloorRefV1Test` and
+`RecoveryCatalogTest.catalogComparesManifestMutationSequenceAsUnsigned` cover
+the boundary; Oxia CAS, object-store publication and source replay remain
+release gates.
 
 Durable `CommandResult` and `SystemMutationResult` values now validate their
 embedded Source Position through the canonical decoder at construction and
@@ -842,8 +847,8 @@ silently encoding a wider value through the `uint32` helper. The Registry's
 resource-state version is a raw unsigned `uint64` across the retire body,
 delete-confirmation reference, logical identity hash, GC key and durable
 intent record; only this registered System Mutation field bypasses the normal
-non-negative scalar guard. Local mutation/Claim sequences remain bounded
-non-negative counters. High-bit coverage is provided by
+non-negative scalar guard. Local mutation/Claim sequences now use the complete
+raw `uint64` domain and checked all-ones exhaustion. High-bit coverage is provided by
 `ResourceRetireIntentBodyTest.preservesUnsignedResourceStateVersionBits`,
 `ResourceDeleteConfirmedBodyTest.intentPreservesFullUnsignedResourceStateVersion`,
 `KeyCodecTest.gcRetireIntentKeyPreservesUnsignedResourceStateVersionBits`,

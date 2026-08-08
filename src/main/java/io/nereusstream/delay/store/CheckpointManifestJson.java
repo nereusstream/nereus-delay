@@ -71,7 +71,7 @@ final class CheckpointManifestJson {
         final CheckpointManifest manifest = new CheckpointManifest(
                 base64(root.get("checkpointId"), "checkpointId"),
                 base64(root.get("recoveryLineageId"), "recoveryLineageId"),
-                decimal(root.get("lineageGeneration"), "lineageGeneration"),
+                unsignedDecimal(root.get("lineageGeneration"), "lineageGeneration"),
                 decodeParent(root.get("parentCheckpoint")),
                 nullableBase64(root.get("restoredFromCheckpointId"), "restoredFromCheckpointId"),
                 decodeCreatedBy(root.get("createdBy")),
@@ -80,7 +80,7 @@ final class CheckpointManifestJson {
                 base64(root.get("dbIdentity"), "dbIdentity"),
                 uuid(string(root.get("sourceStoreIncarnation"), "sourceStoreIncarnation")),
                 number(root.get("storeFormatVersion"), "storeFormatVersion"),
-                decimal(root.get("shardMutationSequence"), "shardMutationSequence"),
+                unsignedDecimal(root.get("shardMutationSequence"), "shardMutationSequence"),
                 decodeSourcePosition(root.get("appliedShardLogPosition")),
                 hex(root.get("controlStateDigest"), "controlStateDigest"),
                 hex(root.get("referencedSemanticVersionsDigest"), "referencedSemanticVersionsDigest"),

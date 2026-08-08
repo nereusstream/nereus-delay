@@ -44,9 +44,6 @@ public record CheckpointManifest(
     public CheckpointManifest {
         requireNonZeroLength(checkpointId, ID_LENGTH, "checkpointId");
         requireNonZeroLength(recoveryLineageId, ID_LENGTH, "recoveryLineageId");
-        if (lineageGeneration < 0 || shardMutationSequence < 0) {
-            throw new IllegalArgumentException("manifest counters must be non-negative");
-        }
         if (restoredFromCheckpointId != null) {
             requireNonZeroLength(restoredFromCheckpointId, ID_LENGTH, "restoredFromCheckpointId");
         }
@@ -177,7 +174,7 @@ public record CheckpointManifest(
             json.append(files.get(index).toJson());
         }
         json.append(']');
-        field(json, "lineageGeneration", quote(u64(lineageGeneration)));
+        field(json, "lineageGeneration", quote(u64Bits(lineageGeneration)));
         field(json, "manifestVersion", "1");
         field(json, "parentCheckpoint", parentCheckpoint == null ? "null" : parentCheckpoint.toJson());
         field(json, "recoveryLineageId", quote(b64(recoveryLineageId)));
@@ -185,7 +182,7 @@ public record CheckpointManifest(
         field(json, "restoredFromCheckpointId", restoredFromCheckpointId == null
                 ? "null" : quote(b64(restoredFromCheckpointId)));
         field(json, "shardId", shardIdJson());
-        field(json, "shardMutationSequence", quote(u64(shardMutationSequence)));
+        field(json, "shardMutationSequence", quote(u64Bits(shardMutationSequence)));
         field(json, "sourceStoreIncarnation", quote(sourceStoreIncarnation.toString()));
         field(json, "storeFormatVersion", "1");
         json.append('}');

@@ -248,9 +248,9 @@ public final class DelayShard {
         closedIngressDeadlineThrough = closedDeadline == null
                 ? IngressFenceState.OPEN : IngressFenceState.decode(closedDeadline.payload()).closedThroughEpochMs();
         final var sequence = store.getValue(ColumnFamily.META, KeyCodec.metaFixed(META_MUTATION_SEQUENCE), 1);
-        mutationSequence = sequence == null ? 0 : readSequence(sequence.payload());
+        mutationSequence = sequence == null ? 0 : readUnsignedSequence(sequence.payload());
         final var claimSequenceValue = store.getValue(ColumnFamily.META, KeyCodec.metaFixed(META_CLAIM_SEQUENCE), 1);
-        claimSequence = claimSequenceValue == null ? 0 : readSequence(claimSequenceValue.payload());
+        claimSequence = claimSequenceValue == null ? 0 : readUnsignedSequence(claimSequenceValue.payload());
         final var payloadProofControlValue = store.getValue(ColumnFamily.META,
                 KeyCodec.metaFixed(META_PAYLOAD_PROOF_CONTROL_STATE), PAYLOAD_PROOF_CONTROL_VALUE_TYPE);
         payloadProofTrustSetControlState = payloadProofControlValue == null
@@ -847,9 +847,10 @@ public final class DelayShard {
             throw new IllegalStateException("Claim requires a schedulable lane");
         }
         final byte[] timelineKey = timelineKey(messageId, current);
-        final long nextClaimSequence = Math.addExact(claimSequence, 1);
+        final long nextClaimSequence = nextUnsignedSequence(claimSequence, "Claim sequence");
         final byte[] claimId = Bytes.sha256(Bytes.utf8("nereus-delay-claim-id-v1\0"),
-                store.metadata().storeIncarnation(), Bytes.u64beBits(owner.generation()), Bytes.u64be(nextClaimSequence),
+                store.metadata().storeIncarnation(), Bytes.u64beBits(owner.generation()),
+                Bytes.u64beBits(nextClaimSequence),
                 messageId.bytes(), Bytes.u32be(current.generation()), Bytes.u64be(lane.laneVersion()));
         final TimelineWorkRef currentTimeline = current.runtimeIndex().timeline();
         final int workKind = currentTimeline != null
@@ -880,7 +881,7 @@ public final class DelayShard {
             batch.putValue(ColumnFamily.INFLIGHT, ClaimRecord.VALUE_TYPE, claim.encodedKey(), claim.encode());
             batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(messageId), claimedNext.encode());
             batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(META_CLAIM_SEQUENCE),
-                    Bytes.u64be(nextClaimSequence));
+                    Bytes.u64beBits(nextClaimSequence));
             for (LaneProjection projection : projections.values()) {
                 deleteReadyKey(batch, projection.previousLane());
                 putReadyProjection(batch, projection);
@@ -7283,28 +7284,31 @@ public final class DelayShard {
         batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(META_APPLIED_SOURCE_POSITION),
                 position.canonicalBytes());
         batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(META_MUTATION_SEQUENCE),
-                Bytes.u64be(nextMutationSequence()));
+                Bytes.u64beBits(nextMutationSequence()));
     }
 
     /**
-     * Computes the next persisted shard mutation sequence without permitting a
-     * signed-long wrap. Every source-ordered WriteBatch calls this helper before
-     * it can publish a new position; the in-memory counter is advanced only after
-     * RocksDB acknowledges that batch.
+     * Computes the next persisted shard mutation sequence without permitting an
+     * unsigned-domain wrap. Every source-ordered WriteBatch calls this helper
+     * before it can publish a new position; the in-memory counter is advanced
+     * only after RocksDB acknowledges that batch.
      */
     private long nextMutationSequence() {
-        return Math.addExact(mutationSequence, 1);
+        return nextUnsignedSequence(mutationSequence, "shard mutation sequence");
     }
 
-    private static long readSequence(final byte[] bytes) {
+    private static long nextUnsignedSequence(final long sequence, final String name) {
+        if (sequence == -1L) {
+            throw new ArithmeticException(name + " exhausted");
+        }
+        return sequence + 1;
+    }
+
+    private static long readUnsignedSequence(final byte[] bytes) {
         if (bytes.length != 8) {
             throw new IllegalStateException("invalid shard mutation sequence");
         }
-        final long value = ByteBuffer.wrap(bytes).getLong();
-        if (value < 0) {
-            throw new IllegalStateException("negative persisted shard sequence");
-        }
-        return value;
+        return ByteBuffer.wrap(bytes).getLong();
     }
 
     private static long readNonNegativeSequence(final byte[] bytes) {

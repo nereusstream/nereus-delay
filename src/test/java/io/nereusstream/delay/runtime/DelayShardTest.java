@@ -99,24 +99,26 @@ class DelayShardTest {
     Path tempDir;
 
     @Test
-    void rejectsNegativePersistedShardSequences() {
+    void acceptsCompleteUnsignedPersistedShardSequences() {
         for (final int metadataKey : List.of(5, 11)) {
             final ShardStoreConfig config = ShardStoreConfig.defaults(
-                    tempDir.resolve("negative-sequence-" + metadataKey));
+                    tempDir.resolve("unsigned-sequence-" + metadataKey));
             final ShardId shardId = new ShardId(RouteIncarnation.random(), 40 + metadataKey);
             try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                  ShardStore store = ShardStore.open(config, shardId, resources)) {
-                final byte[] negativeSequence = ByteBuffer.allocate(Long.BYTES).putLong(-1).array();
+                final byte[] highBitSequence = ByteBuffer.allocate(Long.BYTES).putLong(-1).array();
                 store.write(batch -> batch.putValue(ColumnFamily.META, 1,
-                        KeyCodec.metaFixed(metadataKey), negativeSequence));
+                        KeyCodec.metaFixed(metadataKey), highBitSequence));
             }
             try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
-                final IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
-                        () -> ShardStore.open(config, shardId, resources));
-                assertEquals(metadataKey == 5
-                                ? "persisted shard mutation sequence is invalid"
-                                : "persisted Claim sequence is invalid",
-                        exception.getMessage());
+                try (ShardStore reopened = ShardStore.open(config, shardId, resources)) {
+                    final DelayShard shard = new DelayShard(reopened, DelayShardConfig.defaults());
+                    if (metadataKey == 5) {
+                        assertEquals(-1L, shard.mutationSequence());
+                    } else {
+                        assertEquals(-1L, shard.claimSequence());
+                    }
+                }
             }
         }
     }
@@ -134,12 +136,12 @@ class DelayShardTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             store.write(batch -> batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(5),
-                    Bytes.u64be(Long.MAX_VALUE - 1)));
+                    Bytes.u64beBits(-2L)));
             final DelayShard nearExhausted = new DelayShard(store, DelayShardConfig.defaults());
 
             assertEquals(StableCode.SCHEDULED, nearExhausted.apply(command, sourcePosition).stableCode());
-            assertEquals(Long.MAX_VALUE, nearExhausted.mutationSequence());
-            assertEquals(Long.MAX_VALUE, ByteBuffer.wrap(store.getValue(ColumnFamily.META,
+            assertEquals(-1L, nearExhausted.mutationSequence());
+            assertEquals(-1L, ByteBuffer.wrap(store.getValue(ColumnFamily.META,
                     KeyCodec.metaFixed(5), 1).payload()).getLong());
 
             final DestinationLaneId blockedLane = DestinationLaneId.derive(
@@ -151,8 +153,8 @@ class DelayShardTest {
             assertThrows(ArithmeticException.class, () -> nearExhausted.apply(blocked, blockedPosition));
             assertNull(nearExhausted.getMessage(blocked.delayMessageId()));
             assertEquals(sourcePosition, nearExhausted.lastAppliedSourcePosition());
-            assertEquals(Long.MAX_VALUE, nearExhausted.mutationSequence());
-            assertEquals(Long.MAX_VALUE, ByteBuffer.wrap(store.getValue(ColumnFamily.META,
+            assertEquals(-1L, nearExhausted.mutationSequence());
+            assertEquals(-1L, ByteBuffer.wrap(store.getValue(ColumnFamily.META,
                     KeyCodec.metaFixed(5), 1).payload()).getLong());
         }
     }

@@ -875,9 +875,9 @@ public final class ShardStore implements AutoCloseable {
                 throw new IllegalStateException("persisted source position belongs to another shard");
             }
         }
-        validateNonNegativeSequence(optionalFixedValue(db, metaHandle, META_MUTATION_SEQUENCE),
+        validateUnsignedSequence(optionalFixedValue(db, metaHandle, META_MUTATION_SEQUENCE),
                 "persisted shard mutation sequence");
-        validateNonNegativeSequence(optionalFixedValue(db, metaHandle, META_CLAIM_SEQUENCE),
+        validateUnsignedSequence(optionalFixedValue(db, metaHandle, META_CLAIM_SEQUENCE),
                 "persisted Claim sequence");
         validateOptionalFixedEnvelope(db, metaHandle, META_PAYLOAD_PROOF_CONTROL_STATE,
                 META_PAYLOAD_PROOF_VALUE_TYPE);
@@ -896,11 +896,11 @@ public final class ShardStore implements AutoCloseable {
         }
     }
 
-    private static void validateNonNegativeSequence(final byte[] payload, final String name) {
+    private static void validateUnsignedSequence(final byte[] payload, final String name) {
         if (payload == null) {
             return;
         }
-        if (payload.length != Long.BYTES || Bytes.readU64be(payload, 0) < 0) {
+        if (payload.length != Long.BYTES) {
             throw new IllegalArgumentException(name + " is invalid");
         }
     }
@@ -1174,11 +1174,7 @@ public final class ShardStore implements AutoCloseable {
         if (payload.length != Long.BYTES) {
             throw new IllegalStateException("invalid persisted shard mutation sequence");
         }
-        final long sequence = java.nio.ByteBuffer.wrap(payload).getLong();
-        if (sequence < 0) {
-            throw new IllegalStateException("negative persisted shard mutation sequence");
-        }
-        return sequence;
+        return java.nio.ByteBuffer.wrap(payload).getLong();
     }
 
     /** Persists the latest authenticated ingress fence proof identity. */

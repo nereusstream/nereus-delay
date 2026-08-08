@@ -46,7 +46,7 @@ public final class ResourceGcGuard {
         if (!sameIntent(intent, confirmation.retireIntent())) {
             return Decision.INTENT_REFERENCE_MISMATCH;
         }
-        if (intent.appliedMutationSequence() <= 0 || confirmation.appliedMutationSequence() <= 0) {
+        if (intent.appliedMutationSequence() == 0 || confirmation.appliedMutationSequence() == 0) {
             return Decision.LEGACY_MUTATION_SEQUENCE_UNAVAILABLE;
         }
         if (floor == null) {
@@ -64,9 +64,9 @@ public final class ResourceGcGuard {
         } catch (IllegalArgumentException exception) {
             return Decision.FLOOR_SOURCE_OR_SEQUENCE_NOT_COVERING;
         }
-        final long requiredSequence = Math.max(intent.appliedMutationSequence(),
+        final long requiredSequence = maxUnsigned(intent.appliedMutationSequence(),
                 confirmation.appliedMutationSequence());
-        return floor.includedMutationSequence() >= requiredSequence
+        return Long.compareUnsigned(floor.includedMutationSequence(), requiredSequence) >= 0
                 ? Decision.SOURCE_AND_SEQUENCE_COVERED
                 : Decision.FLOOR_SOURCE_OR_SEQUENCE_NOT_COVERING;
     }
@@ -104,7 +104,7 @@ public final class ResourceGcGuard {
         } catch (IllegalArgumentException exception) {
             return Decision.FLOOR_SOURCE_OR_SEQUENCE_NOT_COVERING;
         }
-        final long requiredSequence = Math.max(intent.appliedMutationSequence(),
+        final long requiredSequence = maxUnsigned(intent.appliedMutationSequence(),
                 confirmation.appliedMutationSequence());
         try {
             return Objects.requireNonNull(catalog.proveFloorCoverage(candidateCheckpointId, requiredSequence,
@@ -189,6 +189,10 @@ public final class ResourceGcGuard {
         } catch (IllegalArgumentException exception) {
             return false;
         }
+    }
+
+    private static long maxUnsigned(final long left, final long right) {
+        return Long.compareUnsigned(left, right) >= 0 ? left : right;
     }
 
     private static boolean sameIntent(final ResourceRetireIntentRecord left,

@@ -375,19 +375,27 @@ keeps a failed post-exhaustion enqueue from mutating source state;
 `EmbeddedDelayServiceTest.embeddedSourceAcceptsUnsignedMaximumOffsetThenExhausts`
 and `EmbeddedDelayServiceTest.embeddedSourceOffsetExhaustionFailsBeforeMutatingOffset`
 prove both boundaries.
-Persisted Delay Shard mutation and Claim sequence metadata applies the same
-non-negative u64 boundary on activation; a high-bit-set value is treated as
-corrupt and cannot become a wrapped local sequence. The local evidence is
-`DelayShardTest.rejectsNegativePersistedShardSequences`.
+Persisted Delay Shard mutation and Claim sequence metadata now preserves the
+Registry's complete raw `uint64` domain through activation, checkpoint barriers
+and Claim identity derivation. The local evidence is
+`DelayShardTest.acceptsCompleteUnsignedPersistedShardSequences`.
 Every source-position WriteBatch computes its successor through one checked
-mutation-sequence helper, including the applied sequence captured by resource
+unsigned helper, including the applied sequence captured by resource
 retire/delete records. The successful post-write update stores that checked
-successor in the in-memory projection instead of using an unchecked `++`, so a
-batch that reaches `Long.MAX_VALUE` cannot leave memory wrapped while RocksDB
-still holds the maximum. At `Long.MAX_VALUE` the next WriteBatch fails before
-any authoritative command or position state is committed; the local evidence is
-`DelayShardTest.mutationSequenceExhaustionFailsClosedBeforeCommandMutation`,
-which covers both the near-maximum commit and the exhausted boundary.
+successor in the in-memory projection; `0x7fff... -> 0x8000...` is valid and
+the all-ones pattern is the only exhausted value. At exhaustion the next
+WriteBatch fails before any authoritative command or position state is committed;
+`DelayShardTest.mutationSequenceExhaustionFailsClosedBeforeCommandMutation`
+covers the near-maximum and exhausted boundaries.
+
+Checkpoint manifest `lineageGeneration`/`shardMutationSequence` and both scalar
+and typed Recovery Floor projections now use the same full-width unsigned
+representation. Canonical JSON/Protobuf/floor-digest bytes retain high-bit
+patterns, catalog ancestry uses checked unsigned lineage successors, and Floor
+coverage compares mutation sequences unsigned. `CheckpointManifestTest`,
+`RecoveryFloorRefV1Test` and `RecoveryCatalogTest.catalogComparesManifestMutationSequenceAsUnsigned`
+cover the local boundary; Oxia CAS, object-store publication and source replay
+remain release evidence.
 The durable Command/System Mutation result values apply the same source-anchor
 boundary independently: their constructors and decoders require canonical
 Source Position bytes, so an empty, truncated or non-canonical result cannot

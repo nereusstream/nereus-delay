@@ -158,9 +158,6 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
         Bytes.requireLength(candidateCheckpointId, 16, "candidateCheckpointId");
         final byte[] requestedCandidateCheckpointId = Bytes.copy(candidateCheckpointId);
         final byte[] backendCandidateCheckpointId = Bytes.copy(requestedCandidateCheckpointId);
-        if (requiredMutationSequence < 0) {
-            throw new IllegalArgumentException("required mutation sequence must be non-negative");
-        }
         final SourcePosition[] requestedPositions = Arrays.copyOf(
                 Objects.requireNonNull(requiredPositions, "requiredPositions"), requiredPositions.length);
         final SourcePosition[] backendPositions = Arrays.copyOf(requestedPositions, requestedPositions.length);
@@ -180,7 +177,7 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
             final CheckpointManifest floorManifest = publishedManifest(coverage.floor().checkpointId());
             validateScalarFloorIdentity(coverage.floor(), floorManifest);
             if (!candidate.shardId().equals(floorManifest.shardId())
-                    || coverage.floor().includedMutationSequence() < requiredMutationSequence) {
+                    || Long.compareUnsigned(coverage.floor().includedMutationSequence(), requiredMutationSequence) < 0) {
                 throw new IllegalStateException("Oxia floor coverage does not cover the requested boundary");
             }
             for (SourcePosition requiredPosition : requestedPositions) {
@@ -351,11 +348,11 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
             throw new IllegalStateException("Oxia floor coverage ancestry has a broken parent link");
         }
         try {
-            if (child.lineageGeneration() != Math.addExact(parent.lineageGeneration(), 1)) {
+            if (child.lineageGeneration() != RecoveryCatalog.nextLineageGeneration(parent.lineageGeneration())) {
                 throw new IllegalStateException("Oxia floor coverage ancestry has a broken lineage link");
             }
             if (child.appliedShardLogPosition().compareTo(parent.appliedShardLogPosition()) <= 0
-                    || child.shardMutationSequence() <= parent.shardMutationSequence()) {
+                    || Long.compareUnsigned(child.shardMutationSequence(), parent.shardMutationSequence()) <= 0) {
                 throw new IllegalStateException("Oxia floor coverage ancestry does not advance its boundary");
             }
         } catch (IllegalArgumentException | ArithmeticException exception) {

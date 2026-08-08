@@ -1189,7 +1189,7 @@ GC:
 
 Shard event loop 是唯一 writer。Scheduler 用 bounded RocksDB snapshot 读索引，Claim 前在 event loop 重新验证 exact ID locator、generation/runtime revision、Owner Lease 和 permits。
 
-每个 WAL-enabled authoritative WriteBatch 在 `meta_cf` 里 checked increment `shardMutationSequence`；同一 batch 的 mutation 共用该值。它只用于 checkpoint/GC barrier，不用作 Command 顺序或外部 ID。
+每个 WAL-enabled authoritative WriteBatch 在 `meta_cf` 里 checked unsigned increment `shardMutationSequence`；同一 batch 的 mutation 共用该值。它只用于 checkpoint/GC barrier，不用作 Command 顺序或外部 ID。`0xffffffffffffffff` 是耗尽值，不能继续递增或 wrap；`0x7fff... -> 0x8000...` 仍是合法 successor。
 
 当前-attempt callback 比较 generation/runtime/owner/store；保留的 prior-`UNKNOWN` callback 比较 immutable attempt-ledger token 与 owner/store，再对当前 generation 做 reconciliation。两者都不能用一个旧 aggregate revision 直接覆盖当前状态。
 
@@ -2172,7 +2172,7 @@ Manifest/meta/Floor 将 cursor 按 `(evidenceKind, destinationLaneId, laneIncarn
 }
 ```
 
-`sourceStoreIncarnation` 只标识创建 checkpoint 的旧本地安装，用于审计和防 manifest 拼接；restore 绝不复用它作为当前 Store token。`recoveryLineageId + parentCheckpoint/manifest hash` 定义可验证 ancestry；`shardMutationSequence` 只允许在该 ancestry 内比较，另一个 branch 上更大的数字没有包含关系。
+`sourceStoreIncarnation` 只标识创建 checkpoint 的旧本地安装，用于审计和防 manifest 拼接；restore 绝不复用它作为当前 Store token。`lineageGeneration` 与 `shardMutationSequence` 都是 Registry 的完整 `u64Text` 域，manifest/Floor 必须保留原始 64 位模式；parent successor、ancestry 和 Floor coverage 使用 unsigned order，只有全 1 lineage generation 没有 successor。`recoveryLineageId + parentCheckpoint/manifest hash` 定义可验证 ancestry；`shardMutationSequence` 只允许在该 ancestry 内比较，另一个 branch 上更大的数字没有包含关系。
 
 路径必须 relative、normalized、无 traversal。总文件数/bytes 有 manifest limits。
 
@@ -2200,7 +2200,7 @@ attempt 当成当前 attempt 完成。scheduler 重启或状态丢失不改变�
 
 ### 16.3 Recovery Set / Floor
 
-Catalog 保存有界 checkpoint count/age、lineage parent-hash chain 和 monotonic Recovery Floor。Floor 固定 exact `(recoveryLineageId, checkpointId, manifestHash, catalogGeneration, appliedShardLogPosition, includedMutationSequence, evidenceCursors)`。恢复从 newest 开始，只可 fallback 到 parent chain 能到达该 exact Floor 的 candidate；scalar position/sequence 大小不能替代 ancestry。
+Catalog 保存有界 checkpoint count/age、lineage parent-hash chain 和 monotonic Recovery Floor。Floor 固定 exact `(recoveryLineageId, checkpointId, manifestHash, catalogGeneration, appliedShardLogPosition, includedMutationSequence, evidenceCursors)`；`includedMutationSequence` 是完整 `u64`，Floor coverage 以 unsigned order 比较。恢复从 newest 开始，只可 fallback 到 parent chain 能到达该 exact Floor 的 candidate；scalar position/sequence 大小不能替代 ancestry。
 在判断 Floor 是否覆盖某个 mutation 的 Source Position 时，若 covered 与 required 的 order token 相等，还必须比较完整 canonical bytes；同一 Kafka offset 或 Pulsar ledger/entry/batch 携不同 metadata 不是覆盖证明。order token 严格更晚时才可按单调顺序覆盖。
 
 资源 retirement mutation sequence 为 `r`，只有：

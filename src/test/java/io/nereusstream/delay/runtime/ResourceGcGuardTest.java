@@ -119,15 +119,15 @@ class ResourceGcGuardTest {
                 resourceIdentity);
         final ResourceRetireIntentRecord intent = new ResourceRetireIntentRecord(
                 id32(3), id32(4), ResourceKind.CHECKPOINT, resourceIdentity, resourceIdentityHash,
-                Long.MIN_VALUE, 1, Bytes.utf8("floor-protection"), intentPosition.canonicalBytes());
+                Long.MIN_VALUE, Long.MIN_VALUE, Bytes.utf8("floor-protection"), intentPosition.canonicalBytes());
         final TrustedUtcIntervalEvidence evidence = evidence();
         final ResourceDeleteConfirmedRecord confirmation = new ResourceDeleteConfirmedRecord(
                 id32(5), id32(6), intent,
                 io.nereusstream.delay.protocol.ResourceDeleteConfirmedBody.DeleteOutcome.ALREADY_ABSENT,
-                2, id32(7), new byte[0], new byte[0], id32(8), evidence.canonicalBytes(),
+                -1L, id32(7), new byte[0], new byte[0], id32(8), evidence.canonicalBytes(),
                 evidence.canonicalBytes(), confirmationPosition.canonicalBytes());
         final RecoveryFloor floor = RecoveryFloor.create(id16(9), checkpointId, manifestHash, 4,
-                confirmationPosition, 2, id32(10));
+                confirmationPosition, -1L, id32(10));
         return new Fixture(shard, intent, confirmation, floor);
     }
 

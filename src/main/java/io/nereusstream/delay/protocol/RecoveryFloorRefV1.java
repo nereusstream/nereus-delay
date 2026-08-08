@@ -40,9 +40,6 @@ public final class RecoveryFloorRefV1 {
         }
         this.catalogGeneration = catalogGeneration;
         this.appliedSourcePosition = Objects.requireNonNull(appliedSourcePosition, "appliedSourcePosition");
-        if (includedMutationSequence < 0) {
-            throw new IllegalArgumentException("includedMutationSequence must be non-negative");
-        }
         this.includedMutationSequence = includedMutationSequence;
         this.evidenceCursors = sortedUnique(evidenceCursors);
         this.floorDigest = Bytes.sha256(DIGEST_DOMAIN, fieldsOneToSeven());
@@ -134,7 +131,7 @@ public final class RecoveryFloorRefV1 {
             CanonicalProtobuf.bytes(output, 3, manifestSha256);
             CanonicalProtobuf.uint64Bits(output, 4, catalogGeneration);
             CanonicalProtobuf.bytes(output, 5, QueryCodecSupport.encodeSourcePosition(appliedSourcePosition));
-            CanonicalProtobuf.uint64(output, 6, includedMutationSequence);
+            CanonicalProtobuf.uint64Bits(output, 6, includedMutationSequence);
             for (EvidenceCursorV1 cursor : evidenceCursors) {
                 CanonicalProtobuf.bytes(output, 7, cursor.canonicalBytes());
             }

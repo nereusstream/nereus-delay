@@ -107,6 +107,27 @@ class RecoveryCatalogTest {
     }
 
     @Test
+    void catalogComparesManifestMutationSequenceAsUnsigned() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 29);
+        final UUID topic = UUID.randomUUID();
+        final byte[] lineage = id16(290);
+        final CheckpointManifest genesis = manifest(shard, topic, lineage, id16(291), 0, 1,
+                Long.MAX_VALUE, null);
+        final RecoveryCatalog catalog = new RecoveryCatalog();
+        catalog.publish(genesis, 0);
+
+        final CheckpointManifest child = manifest(shard, topic, lineage, id16(292), 1, 2,
+                Long.MIN_VALUE, new CheckpointManifest.ParentCheckpoint(genesis.checkpointId(),
+                        Bytes.hex(genesis.manifestSha256())));
+        catalog.publish(child, 1);
+        final RecoveryFloor floor = catalog.advanceFloor(child.checkpointId(), 2, id32(293));
+
+        assertEquals(Long.MIN_VALUE, floor.includedMutationSequence());
+        assertTrue(catalog.proveFloorCoverage(child.checkpointId(), Long.MAX_VALUE,
+                child.appliedShardLogPosition()).isPresent());
+    }
+
+    @Test
     void localRecoveryPinBindsCurrentFloorCandidateAndCatalogGeneration() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
         final UUID topic = UUID.randomUUID();
