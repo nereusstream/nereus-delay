@@ -118,7 +118,7 @@ public final class PayloadProofTrustSetControlState {
      */
     public boolean firstSeenIssuanceOpen(final PayloadProofTrustSetRefV1 trustSet, final int proofKeyVersion,
                                          final SourcePosition sourcePosition) {
-        if (proofKeyVersion <= 0 || !activatedAt(trustSet, sourcePosition)) {
+        if (proofKeyVersion == 0 || !activatedAt(trustSet, sourcePosition)) {
             return false;
         }
         final IssuanceClosure closure = closureFor(trustSet, proofKeyVersion);
@@ -129,7 +129,7 @@ public final class PayloadProofTrustSetControlState {
     public boolean historicalVerificationAllowed(final PayloadProofTrustSetRefV1 trustSet,
                                                   final int proofKeyVersion,
                                                   final SourcePosition sourcePosition) {
-        return proofKeyVersion > 0 && activatedAt(trustSet, sourcePosition);
+        return proofKeyVersion != 0 && activatedAt(trustSet, sourcePosition);
     }
 
     public Optional<IssuanceClosure> closure(final PayloadProofTrustSetRefV1 trustSet,
@@ -247,7 +247,8 @@ public final class PayloadProofTrustSetControlState {
     private static Comparator<IssuanceClosure> closureComparator() {
         return Comparator.comparing((IssuanceClosure value) -> value.trustSet().canonicalBytes(),
                         PayloadProofTrustSetControlState::compareBytes)
-                .thenComparingInt(IssuanceClosure::proofKeyVersion);
+                .thenComparing((left, right) -> Integer.compareUnsigned(left.proofKeyVersion(),
+                        right.proofKeyVersion()));
     }
 
     private static int compare(final SourcePosition left, final SourcePosition right) {
@@ -305,8 +306,8 @@ public final class PayloadProofTrustSetControlState {
                                   SourcePosition sourcePosition, ControlReasonV1 reason) {
         public IssuanceClosure {
             Objects.requireNonNull(trustSet, "trustSet");
-            if (proofKeyVersion <= 0) {
-                throw new IllegalArgumentException("proofKeyVersion must be positive");
+            if (proofKeyVersion == 0) {
+                throw new IllegalArgumentException("proofKeyVersion must be a non-zero uint32");
             }
             Objects.requireNonNull(sourcePosition, "sourcePosition");
             Objects.requireNonNull(reason, "reason");
@@ -315,7 +316,7 @@ public final class PayloadProofTrustSetControlState {
         public byte[] canonicalBytes() {
             return CanonicalProtobuf.message(output -> {
                 CanonicalProtobuf.bytes(output, 1, trustSet.canonicalBytes());
-                CanonicalProtobuf.uint32(output, 2, proofKeyVersion);
+                CanonicalProtobuf.uint32Bits(output, 2, proofKeyVersion);
                 CanonicalProtobuf.bytes(output, 3, sourcePosition.canonicalBytes());
                 CanonicalProtobuf.bytes(output, 4, reason.canonicalBytes());
             });
@@ -328,7 +329,7 @@ public final class PayloadProofTrustSetControlState {
                     "PayloadProofTrustSetIssuanceClosure");
             final IssuanceClosure result = new IssuanceClosure(
                     PayloadProofTrustSetRefV1.decode(QueryCodecSupport.nested(fields.get(0), 1)),
-                    QueryCodecSupport.uint32(fields.get(1), 2), decodePosition(fields.get(2)),
+                    QueryCodecSupport.uint32Bits(fields.get(1), 2), decodePosition(fields.get(2)),
                     ControlReasonV1.decode(QueryCodecSupport.nested(fields.get(3), 4)));
             QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(),
                     "PayloadProofTrustSetIssuanceClosure");

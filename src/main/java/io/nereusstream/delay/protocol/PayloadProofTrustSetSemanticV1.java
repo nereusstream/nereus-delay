@@ -102,7 +102,7 @@ public final class PayloadProofTrustSetSemanticV1 {
         PayloadProofVerifierKeyV1 previous = null;
         for (PayloadProofVerifierKeyV1 value : values) {
             Objects.requireNonNull(value, "verifier key");
-            if (previous != null && previous.keyVersion() >= value.keyVersion()) {
+            if (previous != null && Integer.compareUnsigned(previous.keyVersion(), value.keyVersion()) >= 0) {
                 throw new IllegalArgumentException("trust-set verifier keys must be sorted and unique");
             }
             result.add(value);

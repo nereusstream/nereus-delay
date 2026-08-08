@@ -55,8 +55,8 @@ public final class CredentialEquivalenceAttestationV1 {
         this.authorizationScopeDigest = fixed(authorizationScopeDigest, "authorizationScopeDigest");
         this.resolvedCredentialFingerprintDigest = fixed(resolvedCredentialFingerprintDigest,
                 "resolvedCredentialFingerprintDigest");
-        if (verifierVersion <= 0) {
-            throw new IllegalArgumentException("verifierVersion must be positive");
+        if (verifierVersion == 0) {
+            throw new IllegalArgumentException("verifierVersion must be a non-zero uint32");
         }
         this.verifierVersion = verifierVersion;
         this.verifierId = boundedNonEmpty(verifierId, MAX_VERIFIER_ID_BYTES, "verifierId");
@@ -68,8 +68,8 @@ public final class CredentialEquivalenceAttestationV1 {
         this.verificationEvidenceSha256 = fixed(verificationEvidenceSha256,
                 "verificationEvidenceSha256");
         this.attestationDigest = fixed(attestationDigest, "attestationDigest");
-        if (signingKeyVersion <= 0) {
-            throw new IllegalArgumentException("signingKeyVersion must be positive");
+        if (signingKeyVersion == 0) {
+            throw new IllegalArgumentException("signingKeyVersion must be a non-zero uint32");
         }
         this.signingKeyVersion = signingKeyVersion;
         Bytes.requireLength(signature, SIGNATURE_LENGTH, "signature");
@@ -113,14 +113,16 @@ public final class CredentialEquivalenceAttestationV1 {
         final byte[] referenceHash = QueryCodecSupport.fixed(fields.get(2), 3, HASH_LENGTH);
         final byte[] scope = QueryCodecSupport.fixed(fields.get(3), 4, HASH_LENGTH);
         final byte[] fingerprint = QueryCodecSupport.fixed(fields.get(4), 5, HASH_LENGTH);
-        final int verifierVersion = positiveInt(QueryCodecSupport.uint32(fields.get(5), 6), "verifierVersion");
+        final int verifierVersion = nonZeroUint32(QueryCodecSupport.uint32Bits(fields.get(5), 6),
+                "verifierVersion");
         final byte[] verifierId = QueryCodecSupport.bytes(fields.get(6), 7);
         final TrustedUtcIntervalEvidence verifiedAt = TrustedUtcIntervalEvidence.decode(
                 QueryCodecSupport.nested(fields.get(7), 8));
         final long notAfter = QueryCodecSupport.uint(fields.get(8), 9);
         final byte[] evidence = QueryCodecSupport.fixed(fields.get(9), 10, HASH_LENGTH);
         final byte[] digest = QueryCodecSupport.fixed(fields.get(10), 11, HASH_LENGTH);
-        final int keyVersion = positiveInt(QueryCodecSupport.uint32(fields.get(11), 12), "signingKeyVersion");
+        final int keyVersion = nonZeroUint32(QueryCodecSupport.uint32Bits(fields.get(11), 12),
+                "signingKeyVersion");
         final byte[] signature = QueryCodecSupport.fixed(fields.get(12), 13, SIGNATURE_LENGTH);
         final CredentialEquivalenceAttestationV1 result = new CredentialEquivalenceAttestationV1(profile,
                 generation, referenceHash, scope, fingerprint, verifierVersion, verifierId, verifiedAt,
@@ -265,13 +267,13 @@ public final class CredentialEquivalenceAttestationV1 {
         CanonicalProtobuf.bytes(output, 3, secretReferenceSha256);
         CanonicalProtobuf.bytes(output, 4, authorizationScopeDigest);
         CanonicalProtobuf.bytes(output, 5, resolvedCredentialFingerprintDigest);
-        CanonicalProtobuf.uint32(output, 6, verifierVersion);
+        CanonicalProtobuf.uint32Bits(output, 6, verifierVersion);
         CanonicalProtobuf.bytes(output, 7, verifierId);
         CanonicalProtobuf.bytes(output, 8, verifiedAt.canonicalBytes());
         CanonicalProtobuf.int64(output, 9, notAfterEpochMs);
         CanonicalProtobuf.bytes(output, 10, verificationEvidenceSha256);
         CanonicalProtobuf.bytes(output, 11, attestationDigest);
-        CanonicalProtobuf.uint32(output, 12, signingKeyVersion);
+        CanonicalProtobuf.uint32Bits(output, 12, signingKeyVersion);
         CanonicalProtobuf.bytes(output, 13, signature);
     }
 
@@ -295,7 +297,7 @@ public final class CredentialEquivalenceAttestationV1 {
             CanonicalProtobuf.bytes(output, 3, secretReferenceSha256);
             CanonicalProtobuf.bytes(output, 4, authorizationScopeDigest);
             CanonicalProtobuf.bytes(output, 5, resolvedCredentialFingerprintDigest);
-            CanonicalProtobuf.uint32(output, 6, verifierVersion);
+            CanonicalProtobuf.uint32Bits(output, 6, verifierVersion);
             CanonicalProtobuf.bytes(output, 7, verifierId);
             CanonicalProtobuf.bytes(output, 8, verifiedAt.canonicalBytes());
             CanonicalProtobuf.int64(output, 9, notAfterEpochMs);
@@ -305,7 +307,7 @@ public final class CredentialEquivalenceAttestationV1 {
     }
 
     private static byte[] signatureDigest(final byte[] attestationDigest, final int signingKeyVersion) {
-        return Bytes.sha256(SIGNATURE_DOMAIN, attestationDigest, Bytes.u32be(signingKeyVersion));
+        return Bytes.sha256(SIGNATURE_DOMAIN, attestationDigest, Bytes.u32beBits(signingKeyVersion));
     }
 
     private static byte[] sign(final byte[] digest, final PrivateKey signingKey) {
@@ -348,9 +350,9 @@ public final class CredentialEquivalenceAttestationV1 {
         return value;
     }
 
-    private static int positiveInt(final int value, final String name) {
-        if (value <= 0) {
-            throw new IllegalArgumentException(name + " must be positive");
+    private static int nonZeroUint32(final int value, final String name) {
+        if (value == 0) {
+            throw new IllegalArgumentException(name + " must be a non-zero uint32");
         }
         return value;
     }

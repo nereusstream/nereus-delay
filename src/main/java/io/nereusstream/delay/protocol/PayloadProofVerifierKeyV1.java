@@ -20,7 +20,7 @@ public final class PayloadProofVerifierKeyV1 {
 
     public PayloadProofVerifierKeyV1(final int keyVersion, final byte[] publicKey,
                                      final long verifyNotBeforeEpochMs, final long verifyNotAfterEpochMs) {
-        if (keyVersion <= 0 || verifyNotBeforeEpochMs < 0
+        if (keyVersion == 0 || verifyNotBeforeEpochMs < 0
                 || verifyNotAfterEpochMs <= verifyNotBeforeEpochMs) {
             throw new IllegalArgumentException("invalid payload proof verifier key bounds");
         }
@@ -73,7 +73,7 @@ public final class PayloadProofVerifierKeyV1 {
 
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.uint32(output, 1, keyVersion);
+            CanonicalProtobuf.uint32Bits(output, 1, keyVersion);
             CanonicalProtobuf.bytes(output, 2, publicKey);
             CanonicalProtobuf.int64(output, 3, verifyNotBeforeEpochMs);
             CanonicalProtobuf.int64(output, 4, verifyNotAfterEpochMs);
@@ -85,7 +85,7 @@ public final class PayloadProofVerifierKeyV1 {
                 "PayloadProofVerifierKeyV1");
         QueryCodecSupport.requireNumbers(fields, new int[]{1, 2, 3, 4}, "PayloadProofVerifierKeyV1");
         final PayloadProofVerifierKeyV1 result = new PayloadProofVerifierKeyV1(
-                QueryCodecSupport.uint32(fields.get(0), 1), QueryCodecSupport.fixed(fields.get(1), 2,
+                QueryCodecSupport.uint32Bits(fields.get(0), 1), QueryCodecSupport.fixed(fields.get(1), 2,
                         PUBLIC_KEY_LENGTH), QueryCodecSupport.uint(fields.get(2), 3),
                 QueryCodecSupport.uint(fields.get(3), 4));
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "PayloadProofVerifierKeyV1");

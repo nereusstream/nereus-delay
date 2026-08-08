@@ -35,7 +35,7 @@ public record PayloadCommitProof(
 
     public PayloadCommitProof {
         Bytes.requireLength(routeIncarnationUuid, 16, "routeIncarnationUuid");
-        if (trustSetVersion <= 0 || proofKeyVersion <= 0 || length < 0 || notAfterEpochMs < 0) {
+        if (trustSetVersion <= 0 || proofKeyVersion == 0 || length < 0 || notAfterEpochMs < 0) {
             throw new IllegalArgumentException("invalid payload commit proof");
         }
         Objects.requireNonNull(delayMessageId, "delayMessageId");
@@ -144,7 +144,7 @@ public record PayloadCommitProof(
 
     /** Encodes all fields in a strict versioned binary projection. */
     public byte[] canonicalBytes() {
-        return Bytes.concat(Bytes.u32be(1), Bytes.u64be(trustSetVersion), Bytes.u32be(proofKeyVersion),
+        return Bytes.concat(Bytes.u32be(1), Bytes.u64be(trustSetVersion), Bytes.u32beBits(proofKeyVersion),
                 routeIncarnationUuid, Bytes.u32beBits(partition), delayMessageId.bytes(), reservationId,
                 objectStoreProfileHash, Bytes.lp32(container), Bytes.lp32(objectKey),
                 Bytes.lp32(immutableObjectVersion), Bytes.lp32(etag), Bytes.u64be(length), payloadSha256,
@@ -250,7 +250,7 @@ public record PayloadCommitProof(
                                            final long length, final byte[] sha, final long notAfter,
                                            final byte[] proofId) {
         return Bytes.sha256(Bytes.utf8("nereus-delay-payload-proof-signature-v1\0"), Bytes.u32be(1),
-                Bytes.u64be(trustSetVersion), Bytes.u32be(proofKeyVersion), route, Bytes.u32beBits(partition),
+                Bytes.u64be(trustSetVersion), Bytes.u32beBits(proofKeyVersion), route, Bytes.u32beBits(partition),
                 messageId.bytes(), reservation, profile, Bytes.lp32(container), Bytes.lp32(objectKey),
                 Bytes.lp32(objectVersion), Bytes.lp32(etag), Bytes.u64be(length), sha, Bytes.i64be(notAfter),
                 proofId);

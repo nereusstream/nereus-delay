@@ -2080,7 +2080,7 @@ public final class DelayShard {
         final List<io.nereusstream.delay.protocol.CanonicalProtobuf.Reader.Field> fields =
                 SystemMutationBodyCodec.fields(SystemMutationType.TIME_FENCE, mutation.canonicalBody());
         final long closeThrough = bodyNonNegative(field(fields, 10), 10);
-        final int fenceKeyVersion = bodyInt(field(fields, 11), 11);
+        final int fenceKeyVersion = bodyUint32Bits(field(fields, 11), 11);
         final byte[] proofId = fixedBodyBytes(field(fields, 12), 12, SystemMutation.HASH_LENGTH);
         final TrustedUtcIntervalEvidence proof = TrustedUtcIntervalEvidence.decode(
                 bytesBody(field(fields, 13), 13));
@@ -2090,7 +2090,7 @@ public final class DelayShard {
         }
         final byte[] expectedProofId = Bytes.sha256(Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
                 store.shardId().routeIncarnation().bytes(), Bytes.u32beBits(store.shardId().partition()),
-                Bytes.i64be(closeThrough), Bytes.u32be(fenceKeyVersion), Bytes.lp32(proof.canonicalBytes()));
+                Bytes.i64be(closeThrough), Bytes.u32beBits(fenceKeyVersion), Bytes.lp32(proof.canonicalBytes()));
         if (!Bytes.constantTimeEquals(proofId, expectedProofId)
                 || !Bytes.constantTimeEquals(mutation.logicalOperationIdentity(), proofId)) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
@@ -3942,6 +3942,15 @@ public final class DelayShard {
         final long value = bodyNonNegative(field, number);
         if (value > Integer.MAX_VALUE) {
             throw new IllegalArgumentException("System Mutation field exceeds Java int range: " + number);
+        }
+        return (int) value;
+    }
+
+    private static int bodyUint32Bits(
+            final io.nereusstream.delay.protocol.CanonicalProtobuf.Reader.Field field, final int number) {
+        final long value = bodyNonNegative(field, number);
+        if (value > 0xffff_ffffL) {
+            throw new IllegalArgumentException("System Mutation field exceeds uint32 range: " + number);
         }
         return (int) value;
     }

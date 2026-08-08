@@ -52,8 +52,8 @@ public final class SystemMutation {
         final AuthorIdentity decodedAuthor = AuthorIdentity.decode(authorIdentity);
         decodedAuthor.requireFor(type);
         this.authorIdentity = decodedAuthor.canonicalBytes();
-        if (signingKeyVersion <= 0) {
-            throw new IllegalArgumentException("signingKeyVersion must be positive");
+        if (signingKeyVersion == 0) {
+            throw new IllegalArgumentException("signingKeyVersion must be a non-zero uint32");
         }
         this.signingKeyVersion = signingKeyVersion;
         this.systemMutationId = fixed(systemMutationId, HASH_LENGTH, "systemMutationId");
@@ -141,7 +141,7 @@ public final class SystemMutation {
             CanonicalProtobuf.bytes(output, 7, mutationHash);
             CanonicalProtobuf.uint32(output, 8, BODY_VERSION);
             CanonicalProtobuf.bytes(output, 9, authorIdentity);
-            CanonicalProtobuf.uint32(output, 10, signingKeyVersion);
+            CanonicalProtobuf.uint32Bits(output, 10, signingKeyVersion);
             CanonicalProtobuf.bytes(output, 11, signature);
         });
         return CanonicalProtobuf.message(output -> {
@@ -190,8 +190,8 @@ public final class SystemMutation {
         requireVarint(fields.get(7), 8, BODY_VERSION);
         final byte[] author = requireBytes(fields.get(8), 9);
         final long keyVersion = requireVarint(fields.get(9), 10);
-        if (keyVersion > Integer.MAX_VALUE) {
-            throw new IllegalArgumentException("signingKeyVersion exceeds Java int range");
+        if (keyVersion > 0xffff_ffffL) {
+            throw new IllegalArgumentException("signingKeyVersion exceeds uint32 range");
         }
         final byte[] signature = requireFixed(fields.get(10), 11, SIGNATURE_LENGTH);
         final SystemMutation decoded = new SystemMutation(shard, type, retryUntil, logicalOperationIdentity, body,
@@ -335,7 +335,7 @@ public final class SystemMutation {
                 new ShardSubjectV1(Objects.requireNonNull(shardId, "shardId")).canonicalHashBytes(),
                 Bytes.i64be(retryUntilEpochMs),
                 Bytes.lp32(canonicalBody), Bytes.lp32(fixed(mutationHash, HASH_LENGTH, "mutationHash")),
-                Bytes.lp32(authorIdentity), Bytes.u32be(signingKeyVersion));
+                Bytes.lp32(authorIdentity), Bytes.u32beBits(signingKeyVersion));
     }
 
     private static byte[] sign(final byte[] digest, final PrivateKey privateKey) {

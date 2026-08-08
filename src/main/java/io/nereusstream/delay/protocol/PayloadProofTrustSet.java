@@ -20,7 +20,7 @@ public final class PayloadProofTrustSet {
             throw new IllegalArgumentException("trust set must contain a verifier key");
         }
         for (Map.Entry<Integer, PublicKey> entry : keys.entrySet()) {
-            if (entry.getKey() == null || entry.getKey() <= 0 || entry.getValue() == null) {
+            if (entry.getKey() == null || entry.getKey() == 0 || entry.getValue() == null) {
                 throw new IllegalArgumentException("invalid payload proof verifier key");
             }
         }

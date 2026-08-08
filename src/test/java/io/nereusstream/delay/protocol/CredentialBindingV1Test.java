@@ -20,10 +20,13 @@ class CredentialBindingV1Test {
         final long generation = Long.MIN_VALUE;
         final byte[] secretReference = Bytes.utf8("provider://credential/v7");
         final CredentialEquivalenceAttestationV1 attestation = CredentialEquivalenceAttestationV1.signed(
-                profile, generation, Bytes.sha256(secretReference), bytes(32, 2), bytes(32, 3), 4,
-                Bytes.utf8("verifier-a"), verifiedAt, 1_500, bytes(32, 4), 9, keyPair.getPrivate());
+                profile, generation, Bytes.sha256(secretReference), bytes(32, 2), bytes(32, 3), Integer.MIN_VALUE,
+                Bytes.utf8("verifier-a"), verifiedAt, 1_500, bytes(32, 4), Integer.MIN_VALUE,
+                keyPair.getPrivate());
 
         assertTrue(attestation.verifySignature(keyPair.getPublic()));
+        assertEquals(Integer.MIN_VALUE, attestation.verifierVersion());
+        assertEquals(Integer.MIN_VALUE, attestation.signingKeyVersion());
         attestation.requireAuthorizationScopeDigest(bytes(32, 2));
         attestation.requireCandidate(profile, generation, Bytes.sha256(secretReference));
         attestation.requireNotAfterAtMost(500);

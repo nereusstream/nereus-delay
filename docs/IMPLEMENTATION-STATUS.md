@@ -7,6 +7,19 @@ normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20�
 the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
+The latest protocol pass also preserves the complete raw `uint32` bit pattern
+for every currently implemented V1 signing/verifier/proof key version and
+verifier version: System Mutation envelopes, Native Capability snapshots,
+credential-equivalence attestations, Evidence Verifier/Profile values,
+Payload Commit proofs and payload-proof trust-set controls. Java `int` accessors
+remain source-compatible, but zero is the only invalid value and canonical
+encoding/decoding uses unsigned-bit helpers; trust-set ordering compares these
+versions as unsigned values. TIME_FENCE apply uses the same full-range decode
+and proof-id preimage. `ProtocolCodecTest`, `CredentialBindingV1Test` and
+`PayloadProofTrustSetSemanticV1Test` cover high-bit round trips. This closes the
+local codec boundary only; activated key-set membership, rotation and writer
+trust remain external release gates.
+
 Registry class-3 `meta_cf/QUOTA` now has a local per-Lane compatibility projection.
 `LaneQuotaUsageProjection` fences the message, reservation, per-Lane slot and
 per-Claim/per-attempt `inflight_messages`/`inflight_bytes` dimensions with Lane

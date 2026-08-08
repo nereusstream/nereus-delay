@@ -16,7 +16,6 @@ public final class NativeCapabilitySnapshotV1 {
     public static final int SNAPSHOT_VERSION = 1;
     public static final int HASH_LENGTH = 32;
     public static final int SIGNATURE_LENGTH = 64;
-    private static final int SIGNING_KEY_VERSION_MIN = 1;
 
     private final ProfileRefV1 destination;
     private final ProfileRefV1 capability;
@@ -54,7 +53,7 @@ public final class NativeCapabilitySnapshotV1 {
         this.target = Objects.requireNonNull(target, "target");
         if (resourceGuardConfigGeneration <= 0 || credentialBindingGeneration == 0 || notAfterEpochMs < 0
                 || notAfterEpochMs <= issuedAt(issuedAt).latestEpochMs()
-                || issuerSigningKeyVersion < SIGNING_KEY_VERSION_MIN) {
+                || issuerSigningKeyVersion == 0) {
             throw new IllegalArgumentException("invalid native capability snapshot numbers");
         }
         this.physicalPartition = physicalPartition;
@@ -123,7 +122,7 @@ public final class NativeCapabilitySnapshotV1 {
         final TrustedUtcIntervalEvidence issuedAt = TrustedUtcIntervalEvidence.decode(
                 QueryCodecSupport.nested(fields.get(11), 12));
         final long notAfter = QueryCodecSupport.uint(fields.get(12), 13);
-        final int keyVersion = QueryCodecSupport.uint32(fields.get(13), 14);
+        final int keyVersion = QueryCodecSupport.uint32Bits(fields.get(13), 14);
         final byte[] digest = QueryCodecSupport.fixed(fields.get(14), 15, HASH_LENGTH);
         final byte[] signature = QueryCodecSupport.fixed(fields.get(15), 16, SIGNATURE_LENGTH);
         final byte[] expectedDigest = Bytes.sha256(Bytes.utf8("nereus-delay-native-capability-snapshot-v1\0"),
@@ -264,7 +263,7 @@ public final class NativeCapabilitySnapshotV1 {
         CanonicalProtobuf.bytes(output, 11, sdkPrincipalScopeDigest);
         CanonicalProtobuf.bytes(output, 12, issuedAt.canonicalBytes());
         CanonicalProtobuf.int64(output, 13, notAfterEpochMs);
-        CanonicalProtobuf.uint32(output, 14, issuerSigningKeyVersion);
+        CanonicalProtobuf.uint32Bits(output, 14, issuerSigningKeyVersion);
     }
 
     private static byte[] canonicalFields(final ProfileRefV1 destination, final ProfileRefV1 capability,
@@ -286,7 +285,7 @@ public final class NativeCapabilitySnapshotV1 {
 
     private static byte[] signatureDigest(final byte[] snapshotDigest, final int signingKeyVersion) {
         return Bytes.sha256(Bytes.utf8("nereus-delay-native-capability-snapshot-signature-v1\0"), snapshotDigest,
-                Bytes.u32be(signingKeyVersion));
+                Bytes.u32beBits(signingKeyVersion));
     }
 
     private static byte[] sign(final byte[] digest, final PrivateKey issuerKey) {

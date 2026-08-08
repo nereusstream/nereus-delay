@@ -12,8 +12,8 @@ public final class PayloadProofIssuanceClosePayloadV1 {
     public PayloadProofIssuanceClosePayloadV1(final PayloadProofTrustSetRefV1 trustSet,
                                               final int proofKeyVersion, final ControlReasonV1 reason) {
         this.trustSet = Objects.requireNonNull(trustSet, "trustSet");
-        if (proofKeyVersion <= 0) {
-            throw new IllegalArgumentException("proofKeyVersion must be positive");
+        if (proofKeyVersion == 0) {
+            throw new IllegalArgumentException("proofKeyVersion must be a non-zero uint32");
         }
         this.proofKeyVersion = proofKeyVersion;
         this.reason = Objects.requireNonNull(reason, "reason");
@@ -34,7 +34,7 @@ public final class PayloadProofIssuanceClosePayloadV1 {
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, trustSet.canonicalBytes());
-            CanonicalProtobuf.uint32(output, 2, proofKeyVersion);
+            CanonicalProtobuf.uint32Bits(output, 2, proofKeyVersion);
             CanonicalProtobuf.bytes(output, 3, reason.canonicalBytes());
         });
     }
@@ -46,7 +46,7 @@ public final class PayloadProofIssuanceClosePayloadV1 {
                 "PayloadProofIssuanceClosePayloadV1");
         final PayloadProofIssuanceClosePayloadV1 result = new PayloadProofIssuanceClosePayloadV1(
                 PayloadProofTrustSetRefV1.decode(QueryCodecSupport.nested(fields.get(0), 1)),
-                QueryCodecSupport.uint32(fields.get(1), 2),
+                QueryCodecSupport.uint32Bits(fields.get(1), 2),
                 ControlReasonV1.decode(QueryCodecSupport.nested(fields.get(2), 3)));
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(),
                 "PayloadProofIssuanceClosePayloadV1");

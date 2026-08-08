@@ -351,11 +351,13 @@ class ProtocolCodecTest {
         final NativeCapabilitySnapshotV1 snapshot = NativeCapabilitySnapshotV1.create(destination, capability, target,
                 -1, Bytes.sha256(Bytes.utf8("guard-attestation")), 11, Long.MIN_VALUE,
                 Bytes.sha256(Bytes.utf8("binding")), Bytes.sha256(Bytes.utf8("credential-fingerprint")),
-                Bytes.sha256(Bytes.utf8("principal-scope")), issuedAt, 3_000, 13, keyPair.getPrivate());
+                Bytes.sha256(Bytes.utf8("principal-scope")), issuedAt, 3_000, Integer.MIN_VALUE,
+                keyPair.getPrivate());
         final NativeCapabilitySnapshotV1 decoded = NativeCapabilitySnapshotV1.decode(snapshot.canonicalBytes());
 
         assertEquals(snapshot, decoded);
         assertEquals(Long.MIN_VALUE, decoded.credentialBindingGeneration());
+        assertEquals(Integer.MIN_VALUE, decoded.issuerSigningKeyVersion());
         assertTrue(decoded.verifySignature(keyPair.getPublic()));
         assertFalse(decoded.verifySignature(keyPairGenerator.generateKeyPair().getPublic()));
 
@@ -587,7 +589,7 @@ class ProtocolCodecTest {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 2);
         final DelayMessageId messageId = DelayMessageId.random(shard);
         final PayloadCommitProofV1 proof = PayloadCommitProofV1.signed(nonZero(32, 22), nonZero(32, 23),
-                shard.routeIncarnation().bytes(), shard.partition(), messageId, objectStore, 1, 1,
+                shard.routeIncarnation().bytes(), shard.partition(), messageId, objectStore, 1, Integer.MIN_VALUE,
                 Bytes.utf8("bucket"), Bytes.utf8("key"), Bytes.utf8("version"), new byte[0], 3,
                 Bytes.sha256(Bytes.utf8("payload")), 7_000, keyPair.getPrivate());
         final PayloadAttestationResponseV1 attested = PayloadAttestationResponseV1.attested(proof);
@@ -839,7 +841,7 @@ class ProtocolCodecTest {
         final KeyPair keyPair = keyPairGenerator.generateKeyPair();
         final DelayMessageId messageId = prepare.delayMessageId();
         final byte[] reservationId = Bytes.sha256(Bytes.utf8("reservation"));
-        final PayloadCommitProof proof = PayloadCommitProof.signed(3, 7, shard.routeIncarnation().bytes(),
+        final PayloadCommitProof proof = PayloadCommitProof.signed(3, Integer.MIN_VALUE, shard.routeIncarnation().bytes(),
                 shard.partition(), messageId, reservationId, Bytes.sha256(Bytes.utf8("profile")),
                 Bytes.utf8("bucket"), Bytes.utf8("object-key"), Bytes.utf8("version-1"), new byte[0],
                 intent.expectedPayloadLength(), intent.payloadSha256(), 12_000, keyPair.getPrivate());
@@ -863,7 +865,7 @@ class ProtocolCodecTest {
                 Bytes.sha256(Bytes.utf8("lease-fence"))).canonicalBytes();
         final byte[] body = systemBody(shard, SystemMutationType.PUBLISH_ADMISSION, 25_000);
         final SystemMutation mutation = SystemMutation.signed(shard, SystemMutationType.PUBLISH_ADMISSION, 25_000,
-                logicalIdentity, body, author, 3, keyPair.getPrivate());
+                logicalIdentity, body, author, Integer.MIN_VALUE, keyPair.getPrivate());
 
         final SystemMutation decoded = SystemMutation.decodeFrame(mutation.encodeFrame(), logicalIdentity);
 

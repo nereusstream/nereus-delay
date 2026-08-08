@@ -22,7 +22,7 @@ public final class EvidenceVerifierProfileSemanticV1 implements ProfileSemanticB
                                              final byte[] publicKey, final byte[] authenticatedScopeHash,
                                              final long notBeforeEpochMs, final long notAfterEpochMs,
                                              final byte[] verifierPolicyDigest) {
-        if (verifierKind != ED25519_VERIFIER_KIND || keyVersion <= 0) {
+        if (verifierKind != ED25519_VERIFIER_KIND || keyVersion == 0) {
             throw new IllegalArgumentException("unsupported Evidence Verifier kind/version");
         }
         this.verifierKind = verifierKind;
@@ -79,7 +79,7 @@ public final class EvidenceVerifierProfileSemanticV1 implements ProfileSemanticB
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, verifierKind);
-            CanonicalProtobuf.uint32(output, 2, keyVersion);
+            CanonicalProtobuf.uint32Bits(output, 2, keyVersion);
             CanonicalProtobuf.bytes(output, 3, publicKey);
             CanonicalProtobuf.bytes(output, 4, authenticatedScopeHash);
             CanonicalProtobuf.int64(output, 5, notBeforeEpochMs);
@@ -94,7 +94,7 @@ public final class EvidenceVerifierProfileSemanticV1 implements ProfileSemanticB
         QueryCodecSupport.requireNumbers(fields, new int[]{1, 2, 3, 4, 5, 6, 7},
                 "EvidenceVerifierProfileSemanticV1");
         final EvidenceVerifierProfileSemanticV1 result = new EvidenceVerifierProfileSemanticV1(
-                QueryCodecSupport.uint32(fields.get(0), 1), QueryCodecSupport.uint32(fields.get(1), 2),
+                QueryCodecSupport.uint32(fields.get(0), 1), QueryCodecSupport.uint32Bits(fields.get(1), 2),
                 QueryCodecSupport.fixed(fields.get(2), 3, HASH_LENGTH),
                 QueryCodecSupport.fixed(fields.get(3), 4, HASH_LENGTH), QueryCodecSupport.uint(fields.get(4), 5),
                 QueryCodecSupport.uint(fields.get(5), 6), QueryCodecSupport.fixed(fields.get(6), 7, HASH_LENGTH));

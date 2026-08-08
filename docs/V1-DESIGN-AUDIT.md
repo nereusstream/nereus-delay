@@ -11,6 +11,16 @@ V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障
 
 **Open semantic questions: none.**
 
+The local codec audit additionally verified that implemented V1 key-version
+fields honor the Registry's full unsigned `uint32` domain rather than silently
+narrowing to positive Java `int`: signed System Mutation, Native Capability,
+credential attestation, Evidence Verifier, Payload Commit and payload-proof
+trust-set/control paths preserve raw high-bit values, compare trust-set keys
+unsigned, and use the same bits in signature/proof preimages. Focused protocol
+tests cover the high-bit round trips. This is byte-level evidence only; the
+activated trust set, key rotation and authenticated writer authority remain
+release gates.
+
 尚未填写的数值不是开放设计问题：它们必须由 §23 的 benchmark、capacity proof、real-service conformance 和 chaos evidence 产生，并装入已经冻结的 required config/schema。任何实现若要改变字段、状态、时序、不变量或停止条件，必须发布新的 spec/protocol revision，不能把 benchmark 输出当作协议修订。
 
 ## 权威材料
