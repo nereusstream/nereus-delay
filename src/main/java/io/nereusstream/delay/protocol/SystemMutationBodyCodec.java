@@ -107,7 +107,7 @@ public final class SystemMutationBodyCodec {
             final boolean rawUint64 = (type == SystemMutationType.RESOURCE_RETIRE_INTENT
                     && field.number() == 12)
                     || (type == SystemMutationType.APPLY_SHARD_CONTROL && field.number() == 12);
-            if ((value < 0 && !rawUint64) || (spec.bool() && value > 1)) {
+            if ((value < 0 && !rawUint64) || (spec.bool() && (value < 0 || value > 1))) {
                 throw new IllegalArgumentException("invalid System Mutation body scalar field " + spec.number());
             }
             return;

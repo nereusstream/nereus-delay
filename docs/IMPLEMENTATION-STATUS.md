@@ -42,7 +42,9 @@ the sign bit set; it no longer truncates such input into a valid-looking
 partition, key version or target index. Queued receipt decoding applies the
 same signed-range check to epoch/timing fields while keeping Pulsar physical
 topic creation identity on the raw `uint64` path. `ProtocolCodecTest` covers
-both overflow and high-bit timing rejection.
+both overflow and high-bit timing rejection; the closed Control and Scheduler
+projection validators use the same negative-value fence for local `uint32` and
+boolean fields.
 
 The five persisted `meta/SCHEDULER` projection codecs now preserve the
 Registry's complete raw `uint64` generation/version/deficit bit patterns and

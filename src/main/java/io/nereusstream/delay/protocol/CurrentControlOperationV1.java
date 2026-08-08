@@ -132,7 +132,7 @@ public final class CurrentControlOperationV1 {
 
     private static int uint32(final CanonicalProtobuf.Reader.Field field, final int number) {
         final long value = uint(field, number);
-        if (value > Integer.MAX_VALUE) {
+        if (value < 0 || value > Integer.MAX_VALUE) {
             throw new IllegalArgumentException("control uint32 exceeds local range");
         }
         return (int) value;

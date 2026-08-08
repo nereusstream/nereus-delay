@@ -118,7 +118,8 @@ public final class ApplyShardControlBody {
         } else {
             if (fields.get(2).number() != 3 || fields.get(2).wireType() != 0
                     || fields.get(2).unsignedValue() != 1 || fields.get(3).number() != 4
-                    || fields.get(3).wireType() != 0 || fields.get(3).unsignedValue() > 1
+                    || fields.get(3).wireType() != 0 || fields.get(3).unsignedValue() < 0
+                    || fields.get(3).unsignedValue() > 1
                     || fields.get(4).number() != 5 || fields.get(4).wireType() != 2) {
                 throw new IllegalArgumentException("invalid CloseDestinationLane payload");
             }

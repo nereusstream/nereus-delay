@@ -67,7 +67,7 @@ final class QueryCodecSupport {
 
     static int uint32(final CanonicalProtobuf.Reader.Field field, final int number) {
         final long value = uint(field, number);
-        if (value > Integer.MAX_VALUE) {
+        if (value < 0 || value > Integer.MAX_VALUE) {
             throw new IllegalArgumentException("protobuf uint32 field exceeds local range " + number);
         }
         return (int) value;
@@ -91,7 +91,7 @@ final class QueryCodecSupport {
 
     static boolean bool(final CanonicalProtobuf.Reader.Field field, final int number) {
         final long value = uint(field, number);
-        if (value > 1) {
+        if (value < 0 || value > 1) {
             throw new IllegalArgumentException("protobuf bool field is not 0 or 1: " + number);
         }
         return value == 1;

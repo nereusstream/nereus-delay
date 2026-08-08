@@ -37,8 +37,9 @@ release gates.
 The shared `uint32` decode boundary also rejects a varint outside the unsigned
 32-bit domain instead of narrowing a high-bit `uint64` into a `uint32`; the
 queued receipt path rejects high-bit signed timing values while retaining raw
-Pulsar physical-topic creation identity. `ProtocolCodecTest` covers these
-malformed-input fences.
+Pulsar physical-topic creation identity. The closed Control and Scheduler
+projection validators apply the same fence to local `uint32` and boolean
+fields. `ProtocolCodecTest` covers these malformed-input fences.
 
 The five `meta/SCHEDULER` projection codecs likewise retain complete raw
 `uint64` generation/version/deficit bits and keep only the bounded `next_index`

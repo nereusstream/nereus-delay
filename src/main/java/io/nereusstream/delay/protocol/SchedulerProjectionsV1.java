@@ -594,7 +594,7 @@ public final class SchedulerProjectionsV1 {
 
     private static int uint32(final CanonicalProtobuf.Reader.Field field, final int number) {
         final long value = uint(field, number);
-        if (value > Integer.MAX_VALUE) {
+        if (value < 0 || value > Integer.MAX_VALUE) {
             throw new IllegalArgumentException("scheduler uint32 exceeds local range");
         }
         return (int) value;
@@ -602,7 +602,7 @@ public final class SchedulerProjectionsV1 {
 
     private static boolean bool(final CanonicalProtobuf.Reader.Field field, final int number) {
         final long value = uint(field, number);
-        if (value > 1) {
+        if (value < 0 || value > 1) {
             throw new IllegalArgumentException("scheduler bool must be 0 or 1");
         }
         return value == 1;
