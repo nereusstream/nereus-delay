@@ -297,6 +297,10 @@ close 还会在 DB close 失败后继续尝试释放共享 RocksDB 资源，并�
 suppressed exception 聚合；成功 drain 后服务立即进入 closed 状态，避免部分关闭
 时继续触碰已关闭的 Store。该清理顺序仍只属于 embedded seam，不等于真实
 Producer close-drain 或 Broker response drain。
+构造阶段如果 DB 已打开但 source identity/metadata 校验失败，也会按同一
+fail-closed 生命周期执行 Store 与共享 native resource 清理；
+`EmbeddedDelayServiceTest.failedEmbeddedConstructionClosesStoreAfterSourceIdentityMismatch`
+随后重新打开同一 DB，证明失败的接管尝试不会遗留 DB lock 或资源 slot。
 关闭后的 embedded service 也不再暴露底层 `DelayShard` 或 pending-buffer
 诊断读取；`EmbeddedDelayServiceTest.closedEmbeddedServiceDoesNotExposeShardOrBufferState`
 覆盖该 facade 生命周期 fence。

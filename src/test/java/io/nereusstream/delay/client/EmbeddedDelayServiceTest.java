@@ -43,12 +43,16 @@ import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.runtime.ApplyStatus;
+import io.nereusstream.delay.runtime.DelayShard;
+import io.nereusstream.delay.runtime.DelayShardConfig;
 import io.nereusstream.delay.runtime.GenerationAggregateState;
 import io.nereusstream.delay.runtime.MessageQuerySnapshot;
 import io.nereusstream.delay.runtime.MessageStatus;
 import io.nereusstream.delay.runtime.PayloadAvailability;
 import io.nereusstream.delay.runtime.CommandResult;
+import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.ShardStoreConfig;
+import io.nereusstream.delay.store.SharedRocksDbResources;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -152,6 +156,31 @@ class EmbeddedDelayServiceTest {
             final CommandResult result = reopened.awaitApplied(receipt).toCompletableFuture().join();
             assertEquals(ApplyStatus.APPLIED, result.applyStatus());
             assertEquals(0, reopened.pendingCommandCount());
+        }
+    }
+
+    @Test
+    void failedEmbeddedConstructionClosesStoreAfterSourceIdentityMismatch() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 33);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("constructor-failure-cleanup"));
+        final PreparedCommand command = PreparedCommand.cancel(shard, DelayMessageId.random(shard), -1, 10_000);
+        final KafkaSourcePosition foreignPosition = new KafkaSourcePosition(shard, "foreign-cluster",
+                UUID.randomUUID(), 0, null, 1_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shard, resources)) {
+            new DelayShard(store, DelayShardConfig.defaults()).apply(command, foreignPosition);
+        }
+
+        assertThrows(IllegalStateException.class, () -> new EmbeddedDelayService(config, shard,
+                Clock.fixed(Instant.ofEpochMilli(1_001), ZoneOffset.UTC)));
+
+        // The failed constructor must not leave its internally-created DB
+        // handle or resource envelope holding the shard path. A raw reopen
+        // proves that the next owner can retry the fail-closed inspection.
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore reopened = ShardStore.open(config, shard, resources)) {
+            assertEquals(foreignPosition, new DelayShard(reopened, DelayShardConfig.defaults())
+                    .lastAppliedSourcePosition());
         }
     }
 

@@ -96,24 +96,66 @@ public final class EmbeddedDelayService implements DelayClient {
         this.shardId = Objects.requireNonNull(shardId, "shardId");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.clientConfig = Objects.requireNonNull(clientConfig, "clientConfig");
-        resources = new SharedRocksDbResources(storeConfig);
-        store = ShardStore.open(storeConfig, shardId, resources);
-        controlOperationAuthority = new InMemoryControlOperationAuthority();
-        controlTargetRegistrationAuthority = new InMemoryControlTargetRegistrationAuthority();
-        shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, null, null, null,
-                controlTargetRegistrationAuthority);
-        final SourcePosition last = shard.lastAppliedSourcePosition();
-        if (last != null) {
-            if (!(last instanceof KafkaSourcePosition kafka)
-                    || !EMBEDDED_CLUSTER_ID.equals(kafka.authenticatedClusterId())
-                    || !kafka.nativeTopicUuid().equals(EMBEDDED_TOPIC_UUID)) {
-                throw new IllegalStateException("embedded service cannot reopen a shard with another source identity");
+        final SharedRocksDbResources openedResources = new SharedRocksDbResources(storeConfig);
+        final ShardStore openedStore;
+        try {
+            openedStore = ShardStore.open(storeConfig, shardId, openedResources);
+        } catch (RuntimeException failure) {
+            closeAfterConstructionFailure(failure, null, openedResources);
+            throw failure;
+        }
+        try {
+            final ControlOperationAuthority openedControlOperationAuthority =
+                    new InMemoryControlOperationAuthority();
+            final ControlTargetRegistrationAuthority openedControlTargetRegistrationAuthority =
+                    new InMemoryControlTargetRegistrationAuthority();
+            final DelayShard openedShard = new DelayShard(openedStore, DelayShardConfig.defaults(), null, null, null,
+                    null, null, openedControlTargetRegistrationAuthority);
+            final SourcePosition last = openedShard.lastAppliedSourcePosition();
+            if (last != null) {
+                if (!(last instanceof KafkaSourcePosition kafka)
+                        || !EMBEDDED_CLUSTER_ID.equals(kafka.authenticatedClusterId())
+                        || !kafka.nativeTopicUuid().equals(EMBEDDED_TOPIC_UUID)) {
+                    throw new IllegalStateException(
+                            "embedded service cannot reopen a shard with another source identity");
+                }
+                if (kafka.offset() == -1L) {
+                    offsetExhausted = true;
+                } else {
+                    nextOffset = kafka.offset() + 1;
+                }
             }
-            if (kafka.offset() == -1L) {
-                offsetExhausted = true;
-            } else {
-                nextOffset = kafka.offset() + 1;
+            resources = openedResources;
+            store = openedStore;
+            controlOperationAuthority = openedControlOperationAuthority;
+            controlTargetRegistrationAuthority = openedControlTargetRegistrationAuthority;
+            shard = openedShard;
+        } catch (RuntimeException failure) {
+            closeAfterConstructionFailure(failure, openedStore, openedResources);
+            throw failure;
+        }
+    }
+
+    /**
+     * Releases every resource acquired before a constructor can publish a
+     * usable service. A source-identity or metadata mismatch is a normal
+     * fail-closed startup outcome; it must not strand the RocksDB handle,
+     * ownership slot, or shared native resources needed by the next retry.
+     */
+    private static void closeAfterConstructionFailure(final RuntimeException failure,
+                                                      final ShardStore openedStore,
+                                                      final SharedRocksDbResources openedResources) {
+        try {
+            if (openedStore != null) {
+                openedStore.close();
             }
+        } catch (RuntimeException closeFailure) {
+            failure.addSuppressed(closeFailure);
+        }
+        try {
+            openedResources.close();
+        } catch (RuntimeException closeFailure) {
+            failure.addSuppressed(closeFailure);
         }
     }
 

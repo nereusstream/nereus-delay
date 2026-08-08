@@ -779,6 +779,14 @@ than production Producer/Broker close-drain evidence. The facade also fences
 post-close `shard()` and pending-buffer access, covered by
 `EmbeddedDelayServiceTest.closedEmbeddedServiceDoesNotExposeShardOrBufferState`,
 so callers cannot bypass the client lifecycle and mutate a closed Store.
+The constructor now treats a post-open source-identity/metadata mismatch as a
+failed acquisition: it closes the just-opened `ShardStore` and its private
+shared RocksDB resource envelope, aggregating cleanup failures as suppressed
+exceptions. `EmbeddedDelayServiceTest.failedEmbeddedConstructionClosesStoreAfterSourceIdentityMismatch`
+reopens the same DB after the rejected construction to prove that a fail-closed
+startup path does not strand the DB lock or native resource slots. This is still
+an embedded startup guarantee; production owner acquisition and source
+assignment authority remain external.
 
 `DelayShard` now rejects negative persisted mutation and Claim sequence values
 on reopen. These counters are encoded as checked non-negative u64 values;
