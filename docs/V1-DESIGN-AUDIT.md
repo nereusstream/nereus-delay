@@ -796,6 +796,16 @@ reservation，绑定 `NON_OUTCOME_CONTROL` grant identity；class 6 只接受维
 Route Broker/source-writer 的远端 quota authority、跨 shard placement 或
 实际 operation charge。
 
+当前 `DelayShard` 还把 Registry class-3 `meta_cf/QUOTA` 接入为一个本地兼容投影：
+`LaneQuotaUsageProjection` 按 Lane incarnation/usage revision 记录可精确重建的
+message、reservation 和 Lane-slot 维度；命令及 source-ordered system mutation
+与 `ShardQuota` 在同一 WriteBatch 更新，打开/恢复时从 `id_cf`/`meta_cf` 重建并
+逐字节校验。`LaneQuotaUsageProjectionTest` 与 `DelayShardTest` 覆盖 checked
+arithmetic、close/terminal/replay/retirement 路径和 reopen fence。execution、
+retained、evidence 与外部 adapter 维度仍未接入，因此这是 map 的 local
+compatibility subset，不是完整 ActiveLaneState、grant revision coupling、Route
+Broker authority 或多 shard placement proof。
+
 Owner Lease 的本地 CAS 投影现在还按 V1 lifecycle graph 拒绝回退状态和
 `FENCED -> ACTIVE_FOR_COMMANDS` 复活；允许的前向 acquisition/activation
 跳转、fence 和 fenced recycle 都保留。续租响应若改变期望的 lifecycle

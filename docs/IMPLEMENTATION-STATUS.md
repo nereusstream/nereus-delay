@@ -7,6 +7,15 @@ normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20�
 the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
+Registry class-3 `meta_cf/QUOTA` now has a local per-Lane compatibility projection.
+`LaneQuotaUsageProjection` fences the message, reservation and Lane-slot dimensions
+with Lane incarnation and usage revision; command and source-ordered system-mutation
+paths persist it beside aggregate `ShardQuota` in the same RocksDB WriteBatch, while
+open/recovery rebuilds the projection from `id_cf`/`meta_cf` and compares canonical
+bytes. Execution, retained, evidence and external-adapter dimensions remain zero in
+this subset, so full ActiveLaneState/grant authority and Route Broker placement are
+still release blockers.
+
 The typed `ActivationBarrierV1` codec now enforces the Registry rule that an
 empty Pulsar barrier must carry the guarded source-connection generation and
 resource-guard attestation digest together; an unguarded empty Pulsar barrier

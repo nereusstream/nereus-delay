@@ -1659,6 +1659,12 @@ class DelayShardTest {
             final DelayShard shard = new DelayShard(store, shardConfig);
             assertEquals(StableCode.SCHEDULED, shard.apply(schedule, source).stableCode());
             assertEquals(1, shard.quota().laneCount());
+            // Complete the local cancellation accounting before simulating the
+            // floor-protected GC phase.  The lane slot remains charged until
+            // the terminal guard replaces the active Lane value.
+            final PreparedCommand cancel = PreparedCommand.cancel(shardId, schedule.delayMessageId(), 0, 9_000);
+            assertEquals(StableCode.CANCELED,
+                    shard.apply(cancel, position(shardId, 1, 1_001)).stableCode());
             // Simulate the floor-protected GC phase: no current message or
             // timeline work remains, but the lane metadata is retained.
             store.write(batch -> {
@@ -1673,7 +1679,7 @@ class DelayShardTest {
                     closed.laneControlVersion(), source, destination, capability, tuple, retirementId, 1);
             final LaneRetirementProgressV1 progress = new LaneRetirementProgressV1(retirementId, 1, source);
             final KafkaSourcePosition conflictingSource = new KafkaSourcePosition(shardId, "cluster-a",
-                    UUID.nameUUIDFromBytes(Bytes.utf8("topic")), source.offset(), 7,
+                    UUID.nameUUIDFromBytes(Bytes.utf8("topic")), source.offset() + 2, 7,
                     source.brokerLogAppendTimeEpochMs() + 1);
             final LaneTerminalGuardV1 conflictingGuard = new LaneTerminalGuardV1(closed.laneIncarnation(),
                     closed.laneControlVersion(), conflictingSource, destination, capability, tuple, retirementId, 1);
@@ -1700,13 +1706,13 @@ class DelayShardTest {
                     new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_100, 5_100,
                             OrderingMode.BEST_EFFORT, Bytes.utf8("must-not-reopen")), 9_000);
             assertEquals(StableCode.LANE_TERMINALLY_CLOSED,
-                    reopened.apply(replacement, position(shardId, 1, 1_001)).stableCode());
+                    reopened.apply(replacement, position(shardId, 2, 1_002)).stableCode());
             final DestinationLaneId replacementLane = DestinationLaneId.derive(Bytes.utf8("replacement-lane"));
             final PreparedCommand replacementSchedule = PreparedCommand.schedule(shardId,
                     new io.nereusstream.delay.protocol.ScheduleIntent(replacementLane, 2_100, 5_100,
                             OrderingMode.BEST_EFFORT, Bytes.utf8("replacement")), 9_000);
             assertEquals(StableCode.SCHEDULED,
-                    reopened.apply(replacementSchedule, position(shardId, 2, 1_002)).stableCode());
+                    reopened.apply(replacementSchedule, position(shardId, 3, 1_003)).stableCode());
             assertEquals(1, reopened.quota().laneCount());
         }
     }
