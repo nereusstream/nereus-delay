@@ -609,6 +609,12 @@ the Lane later becomes READY after restart;
 `LaneSchedulerTest.fairnessCountersSurviveRestartForLaneOutsideActiveRing`
 covers this recovery boundary.
 
+Scheduler projection loading also verifies the cross-value generation fence:
+the discovery cursor's active-ring generation must equal the ActiveRing
+generation, and ActiveRing/round generations must agree before any scheduler
+state is exposed. `LaneSchedulerTest.schedulerRestoreRejectsCrossProjectionGenerationDrift`
+covers a digest-valid but cross-projection-inconsistent value.
+
 `ProfileBindingActivatePayloadV1` and `ProfileNewBindingClosePayloadV1` now
 close the Registry control branches for Profile first-binding lifecycle.
 `ProfileBindingControlState` persists strictly source-ordered activation and

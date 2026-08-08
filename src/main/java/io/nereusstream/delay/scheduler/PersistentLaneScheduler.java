@@ -450,10 +450,19 @@ public final class PersistentLaneScheduler {
         if (discovery == null || activeRing == null || deficits == null || round == null || lastServed == null) {
             throw new IllegalStateException("scheduler projections are incomplete");
         }
-        return new PersistedState(SchedulerProjectionsV1.ReadyDiscoveryCursor.decode(discovery.payload()),
-                SchedulerProjectionsV1.ActiveRing.decode(activeRing.payload()),
+        final SchedulerProjectionsV1.ReadyDiscoveryCursor decodedDiscovery =
+                SchedulerProjectionsV1.ReadyDiscoveryCursor.decode(discovery.payload());
+        final SchedulerProjectionsV1.ActiveRing decodedActiveRing =
+                SchedulerProjectionsV1.ActiveRing.decode(activeRing.payload());
+        final SchedulerProjectionsV1.Round decodedRound =
+                SchedulerProjectionsV1.Round.decode(round.payload());
+        if (decodedDiscovery.activeRingGeneration() != decodedActiveRing.ringGeneration()
+                || decodedActiveRing.roundGeneration() != decodedRound.roundGeneration()) {
+            throw new IllegalStateException("scheduler projection generations disagree");
+        }
+        return new PersistedState(decodedDiscovery, decodedActiveRing,
                 SchedulerProjectionsV1.DeficitMap.decode(deficits.payload()),
-                SchedulerProjectionsV1.Round.decode(round.payload()),
+                decodedRound,
                 SchedulerProjectionsV1.LastServedMap.decode(lastServed.payload()));
     }
 

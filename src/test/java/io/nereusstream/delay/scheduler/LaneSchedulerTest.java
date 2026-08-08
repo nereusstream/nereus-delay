@@ -292,6 +292,32 @@ class LaneSchedulerTest {
     }
 
     @Test
+    void schedulerRestoreRejectsCrossProjectionGenerationDrift() {
+        final DestinationLaneId lane = lane(28);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 28);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("scheduler-generation-drift"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
+            scheduler.register(record(lane, 1));
+            scheduler.offer(item(lane, 1));
+            scheduler.poll(new SchedulerBudget(1, 1024, 1_000_000_000));
+
+            final SchedulerProjectionsV1.ReadyDiscoveryCursor discovery =
+                    SchedulerProjectionsV1.ReadyDiscoveryCursor.decode(store.getValue(ColumnFamily.META,
+                            KeyCodec.metaScheduler(1), 5).payload());
+            final SchedulerProjectionsV1.ReadyDiscoveryCursor drifted =
+                    new SchedulerProjectionsV1.ReadyDiscoveryCursor(discovery.lastScannedReadyKey(),
+                            discovery.wrapGeneration(), discovery.activeRingGeneration() + 1);
+            store.write(batch -> batch.putValue(ColumnFamily.META, 5, KeyCodec.metaScheduler(1),
+                    drifted.canonicalBytes()));
+
+            assertThrows(IllegalStateException.class,
+                    () -> new PersistentLaneScheduler(store, LaneScheduler.defaults()));
+        }
+    }
+
+    @Test
     void fencedRecoveryRebuildsReadyQueueFromLaneAndMessageIndexes() {
         final DestinationLaneId lane = lane(7);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 7);
