@@ -50,9 +50,10 @@ public final class WorkerScheduler {
         if (weight <= 0) {
             throw new IllegalArgumentException("shard weight must be positive");
         }
-        maxDeficitBytes = Math.max(maxDeficitBytes, checkedWeightIncrement(weight));
+        final long weightIncrement = checkedWeightIncrement(weight);
         final ShardQueue existing = shards.get(shardId);
         if (existing == null) {
+            maxDeficitBytes = Math.max(maxDeficitBytes, weightIncrement);
             shards.put(shardId, new ShardQueue(shardId, weight, laneScheduler));
             ring.add(shardId);
             recoveryFirstPass = true;

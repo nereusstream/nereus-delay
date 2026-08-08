@@ -596,6 +596,12 @@ covers the local fence. This protects the scheduler's identity boundary only;
 source-ordered Lane lifecycle and terminal-guard authority remain in
 `DelayShard`/the external Registry.
 
+Worker shard registration now performs the complete weight arithmetic check
+before changing the outer deficit cap or accepting a duplicate Shard identity.
+A conflicting scheduler/weight registration therefore cannot leave a larger
+cap behind for later visits; `WorkerSchedulerTest.conflictingShardRegistrationDoesNotMutateOuterDeficitCap`
+covers the failed-registration path.
+
 `ProfileBindingActivatePayloadV1` and `ProfileNewBindingClosePayloadV1` now
 close the Registry control branches for Profile first-binding lifecycle.
 `ProfileBindingControlState` persists strictly source-ordered activation and

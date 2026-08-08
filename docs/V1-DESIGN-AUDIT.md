@@ -326,6 +326,11 @@ regression is
 `LaneSchedulerTest.rejectsLaneIncarnationChangeWithoutMutatingSchedulerState`;
 this does not replace source-ordered Lane lifecycle or terminal-guard
 authority.
+Worker shard registration applies the same no-partial-update rule: weight
+arithmetic is checked before the outer deficit cap can change, so a conflicting
+duplicate Shard registration cannot influence subsequent service gaps. The
+local regression is
+`WorkerSchedulerTest.conflictingShardRegistrationDoesNotMutateOuterDeficitCap`.
 
 当前代码已把 Lane 的 same-key ACTIVE/TERMINAL 分支和保守本地退休证明接入
 `DelayShard`；并已补齐 Registry-shaped `ActiveLaneStateV1`、

@@ -152,6 +152,24 @@ class WorkerSchedulerTest {
     }
 
     @Test
+    void conflictingShardRegistrationDoesNotMutateOuterDeficitCap() {
+        final ShardId shard = shard(25);
+        final DestinationLaneId lane = lane(25);
+        final WorkerScheduler worker = new WorkerScheduler(10, 1);
+        worker.registerShard(shard, 1, new LaneScheduler(1, 1));
+        worker.registerLane(shard, laneRecord(lane));
+        worker.offer(new ScheduleWorkItem(lane, DelayMessageId.random(shard), 1, 1, 100));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> worker.registerShard(shard, 8, LaneScheduler.defaults()));
+
+        for (int index = 0; index < 8; index++) {
+            worker.poll(new SchedulerBudget(1, 100, 1_000_000_000));
+        }
+        assertEquals(40, worker.snapshot().shards().get(0).deficit());
+    }
+
+    @Test
     void outerVisitLimitUsesWideArithmetic() {
         assertEquals(0, WorkerScheduler.boundedVisitLimit(64, 0));
         assertEquals(64, WorkerScheduler.boundedVisitLimit(64, Integer.MAX_VALUE));
