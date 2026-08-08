@@ -60,6 +60,13 @@ class KeyCodecTest {
     }
 
     @Test
+    void gcProtectionKeyPreservesUnsignedGenerationBits() {
+        final byte[] resourceId = Bytes.sha256(Bytes.utf8("high-bit-protected-resource"));
+        assertArrayEquals(Bytes.concat(new byte[]{2, 1, 3}, Bytes.lp32(resourceId), Bytes.u64beBits(Long.MIN_VALUE)),
+                KeyCodec.gcProtection(3, resourceId, Long.MIN_VALUE));
+    }
+
+    @Test
     void gcRetireIntentKeyPreservesUnsignedResourceStateVersionBits() {
         final byte[] resourceId = Bytes.sha256(Bytes.utf8("resource-state-version"));
         assertArrayEquals(Bytes.concat(new byte[]{1, 1}, Bytes.u64be(0), new byte[]{1}, Bytes.lp32(resourceId),
@@ -77,7 +84,6 @@ class KeyCodecTest {
         assertThrows(IllegalArgumentException.class, () -> KeyCodec.gcProtection(0, resourceId, 1));
         assertThrows(IllegalArgumentException.class, () -> KeyCodec.gcProtection(7, resourceId, 1));
         assertThrows(IllegalArgumentException.class, () -> KeyCodec.gcProtection(1, new byte[0], 1));
-        assertThrows(IllegalArgumentException.class, () -> KeyCodec.gcProtection(1, resourceId, -1));
         assertThrows(IllegalArgumentException.class, () -> KeyCodec.metaProducer(lane, -1, 0));
         assertThrows(IllegalArgumentException.class, () -> KeyCodec.metaProducer(lane, 0x1_0000_0000L, 0));
         assertThrows(IllegalArgumentException.class, () -> KeyCodec.metaProducer(lane, 0, 0x1_0000_0000L));

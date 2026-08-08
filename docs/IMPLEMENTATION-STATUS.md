@@ -1458,6 +1458,11 @@ mutation-sequence counter. It deliberately does not perform an external
 delete, apply
 `RESOURCE_DELETE_CONFIRMED_V1`, replace a Lane with its terminal guard, or
 infer Recovery Floor release; those remain release blockers.
+Protection-set `ProtectionRefV1.protection_generation` now follows the same
+full-width rule through nested canonical bytes and the `gc_cf/PROTECTION` key;
+high-bit protection references are covered by `ResourceRetireIntentBodyTest`
+and `KeyCodecTest`. External protection authority and guarded GC release
+remain outside this local key/value boundary.
 
 The bounded `RESOURCE_DELETE_CONFIRMED_V1` increment now validates the exact
 Retire Intent reference, delete outcome, provider evidence and Trusted-UTC

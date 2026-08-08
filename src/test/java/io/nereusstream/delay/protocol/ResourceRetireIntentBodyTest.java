@@ -44,6 +44,18 @@ class ResourceRetireIntentBodyTest {
     }
 
     @Test
+    void preservesUnsignedProtectionGenerationBits() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 26);
+        final long protectionGeneration = Long.MIN_VALUE;
+        final byte[] protection = protectionRef(3, Bytes.sha256(Bytes.utf8("high-bit-protection")),
+                protectionGeneration);
+        final ResourceRetireIntentBody decoded = ResourceRetireIntentBody.decode(resourceBody(shard,
+                ResourceKind.LOCAL_STORE, localStoreIdentity(shard), 1, protectionSet(protection)));
+
+        assertEquals(protectionGeneration, decoded.protections().references().get(0).protectionGeneration());
+    }
+
+    @Test
     void payloadObjectWithoutOptionalEtagUsesLengthAndHashFieldsSixAndSeven() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 18);
         final byte[] payload = CanonicalProtobuf.message(output -> {
@@ -130,7 +142,7 @@ class ResourceRetireIntentBodyTest {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, kind);
             CanonicalProtobuf.bytes(output, 2, resourceId);
-            CanonicalProtobuf.uint32(output, 3, generation);
+            CanonicalProtobuf.uint64Bits(output, 3, generation);
         });
     }
 

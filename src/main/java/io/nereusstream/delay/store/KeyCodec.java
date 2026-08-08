@@ -170,12 +170,11 @@ public final class KeyCodec {
     public static byte[] gcProtection(final int protectionKind, final byte[] resourceId,
                                       final long protectionGeneration) {
         Objects.requireNonNull(resourceId, "resourceId");
-        if (protectionKind <= 0 || protectionKind > 6 || resourceId.length == 0
-                || protectionGeneration < 0) {
+        if (protectionKind <= 0 || protectionKind > 6 || resourceId.length == 0) {
             throw new IllegalArgumentException("invalid GC protection key values");
         }
         return Bytes.concat(new byte[]{2, 1, (byte) protectionKind}, Bytes.lp32(resourceId),
-                Bytes.u64be(protectionGeneration));
+                Bytes.u64beBits(protectionGeneration));
     }
 
     public static byte[] metaFixed(final int fixedKeyKind) {

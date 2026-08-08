@@ -284,9 +284,6 @@ public final class ResourceRetireIntentBody {
                 throw new IllegalArgumentException("unknown protection kind");
             }
             Bytes.requireLength(protectedResourceId, HASH_LENGTH, "protected resource id");
-            if (protectionGeneration < 0) {
-                throw new IllegalArgumentException("protection generation must be non-negative");
-            }
             Objects.requireNonNull(minimumSourcePosition, "minimumSourcePosition");
             Objects.requireNonNull(recoveryLineageId, "recoveryLineageId");
             Objects.requireNonNull(checkpointId, "checkpointId");
@@ -337,7 +334,7 @@ public final class ResourceRetireIntentBody {
             }
             final int kind = Math.toIntExact(unsigned(field(fields, 1), 1));
             final byte[] resourceId = fixed(bytes(field(fields, 2), 2), HASH_LENGTH, 2);
-            final long generation = unsigned(field(fields, 3), 3);
+            final long generation = rawUnsigned(field(fields, 3), 3);
             final byte[] source = optionalBytes(fields, 4);
             final byte[] lineage = optionalBytes(fields, 5);
             final byte[] checkpoint = optionalBytes(fields, 6);
@@ -359,7 +356,7 @@ public final class ResourceRetireIntentBody {
             final byte[] canonical = CanonicalProtobuf.message(output -> {
                 CanonicalProtobuf.uint32(output, 1, kind);
                 CanonicalProtobuf.bytes(output, 2, resourceId);
-                CanonicalProtobuf.uint32(output, 3, generation);
+                CanonicalProtobuf.uint64Bits(output, 3, generation);
                 if (source.length != 0) {
                     CanonicalProtobuf.bytes(output, 4, source);
                 }

@@ -375,6 +375,9 @@ unsigned `uint64` across the retire body, delete-confirmation reference,
 logical identity hash, GC key and durable intent record. The System Mutation
 body validator has an explicit raw-`uint64` exception only for that registered
 field; local mutation/claim sequences remain bounded non-negative counters.
+The nested `ProtectionRefV1.protection_generation` and its `gc_cf/PROTECTION`
+locator likewise retain the complete raw `uint64` pattern; external
+protection authority and guarded release remain release evidence.
 The local evidence is `ResourceRetireIntentBodyTest.preservesUnsignedResourceStateVersionBits`,
 `ResourceDeleteConfirmedBodyTest.intentPreservesFullUnsignedResourceStateVersion`,
 `KeyCodecTest.gcRetireIntentKeyPreservesUnsignedResourceStateVersionBits`,
