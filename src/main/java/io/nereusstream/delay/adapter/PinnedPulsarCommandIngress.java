@@ -54,8 +54,14 @@ public final class PinnedPulsarCommandIngress implements WireCommandIngressAdapt
         if (result == null) {
             return completed(EnqueueOutcome.uncertain(command, StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue()));
         }
-        return result.handle((send, error) -> error == null ? map(command, send)
-                : EnqueueOutcome.uncertain(command, StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue()));
+        try {
+            return result.handle((send, error) -> error == null ? map(command, send)
+                    : EnqueueOutcome.uncertain(command, StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue()));
+        } catch (RuntimeException registrationFailure) {
+            // A broken CompletionStage implementation is not evidence that
+            // the Broker rejected a request after Producer ownership.
+            return completed(EnqueueOutcome.uncertain(command, StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue()));
+        }
     }
 
     @Override
@@ -103,19 +109,24 @@ public final class PinnedPulsarCommandIngress implements WireCommandIngressAdapt
             return completedWire(WireIngressOutcomeSupport.uncertain(command, attempt,
                     StableCode.ENQUEUE_RESULT_UNCERTAIN, null));
         }
-        return result.handle((send, error) -> {
-            if (error != null) {
-                return WireIngressOutcomeSupport.uncertain(command, attempt,
-                        StableCode.ENQUEUE_RESULT_UNCERTAIN, null);
-            }
-            try {
-                return projectWire(command, request, send, receiptQueryUntilEpochMs, attempt);
-            } catch (RuntimeException malformedResult) {
-                // A malformed adapter result is not evidence of non-persistence.
-                return WireIngressOutcomeSupport.uncertain(command, attempt,
-                        StableCode.INTEGRITY_ERROR, StableCode.INTEGRITY_ERROR.wireValue());
-            }
-        });
+        try {
+            return result.handle((send, error) -> {
+                if (error != null) {
+                    return WireIngressOutcomeSupport.uncertain(command, attempt,
+                            StableCode.ENQUEUE_RESULT_UNCERTAIN, null);
+                }
+                try {
+                    return projectWire(command, request, send, receiptQueryUntilEpochMs, attempt);
+                } catch (RuntimeException malformedResult) {
+                    // A malformed adapter result is not evidence of non-persistence.
+                    return WireIngressOutcomeSupport.uncertain(command, attempt,
+                            StableCode.INTEGRITY_ERROR, StableCode.INTEGRITY_ERROR.wireValue());
+                }
+            });
+        } catch (RuntimeException registrationFailure) {
+            return completedWire(WireIngressOutcomeSupport.uncertain(command, attempt,
+                    StableCode.ENQUEUE_RESULT_UNCERTAIN, null));
+        }
     }
 
     @Override

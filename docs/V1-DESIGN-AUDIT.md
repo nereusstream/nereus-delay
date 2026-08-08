@@ -498,8 +498,8 @@ local projection 自行推断。
 Oxia control authority。
 
 Managed Kafka/Pulsar ingress 在 Producer ownership 前拒绝无效 physical attempt；
-transport exception、空结果、failed stage 或
-malformed receipt projection 现在统一映射为 Registry 的
+transport exception、空结果、failed stage、CompletionStage callback
+registration 失败或 malformed receipt projection 现在统一映射为 Registry 的
 `ENQUEUE_RESULT_UNCERTAIN`；共享 transport 若误传
 `NATIVE_GUARD_DEFINITIVE_NOT_PERSISTED` 或 `NATIVE_ENQUEUE_RESULT_UNCERTAIN`，
 也会在 managed projection 边界归一化为 managed stable-code family。只有
@@ -516,7 +516,7 @@ rejection、managed
 null-result 和 native-code 泄漏，避免把 managed Command 的 retry contract 误标成
 native submission；malformed result 只作为 bounded `INTEGRITY_ERROR` diagnostic，
 不是 non-persistence proof。错配 definitive-code 的 Kafka、Pulsar 和 native
-回归向量也已覆盖。
+回归向量以及 Kafka/Pulsar callback-registration failure 的 uncertain 回归也已覆盖。
 
 V1 managed submission 现在还在 Producer ownership 前强制执行
 `CommandCodec.encodeFrameV1/decodeFrameV1`：`PinnedKafkaCommandIngress`、
