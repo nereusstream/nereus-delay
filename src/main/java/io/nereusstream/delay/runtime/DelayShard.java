@@ -1231,6 +1231,9 @@ public final class DelayShard {
                         throw new IllegalStateException(
                                 "duplicate System Mutation source position has conflicting evidence");
                     }
+                    if (systemMutationRetryWindowExpired(mutation, sourcePosition)) {
+                        return expiredSystemMutationResult(mutation, sourcePosition);
+                    }
                     // The exact mutation identity/hash plus the physical
                     // POSITION audit proves that this is a replay of the
                     // already-applied record (including a later duplicate
@@ -1239,6 +1242,12 @@ public final class DelayShard {
                     // not execute the mutation again.
                     return prior;
                 }
+            }
+            if (systemMutationRetryWindowExpired(mutation, sourcePosition)) {
+                // Keep the first logical result immutable. A duplicate outside
+                // its signed/fenced retry window has only a position-level
+                // outcome and must not overwrite dedupe/SYSTEM_MUTATION.
+                return persistExpiredSystemPositionOnly(mutation, sourcePosition);
             }
             if (!Arrays.equals(prior.appliedSourcePosition(), sourcePosition.canonicalBytes())) {
                 store.write(batch -> {
@@ -1256,7 +1265,7 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
-        if (sourcePosition.brokerPersistenceTimeEpochMs() > mutation.retryUntilEpochMs()) {
+        if (systemMutationRetryWindowExpired(mutation, sourcePosition)) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED);
         }
@@ -4120,6 +4129,32 @@ public final class DelayShard {
             throw new IllegalStateException("invalid gc task value envelope");
         }
         return raw[2] & 0xff;
+    }
+
+    private boolean systemMutationRetryWindowExpired(final SystemMutation mutation,
+                                                      final SourcePosition sourcePosition) {
+        return sourcePosition.brokerPersistenceTimeEpochMs() > mutation.retryUntilEpochMs()
+                || (closedIngressDeadlineThrough >= 0
+                && mutation.retryUntilEpochMs() <= closedIngressDeadlineThrough);
+    }
+
+    private SystemMutationResult persistExpiredSystemPositionOnly(final SystemMutation mutation,
+                                                                   final SourcePosition sourcePosition) {
+        final SystemMutationResult result = expiredSystemMutationResult(mutation, sourcePosition);
+        store.write(batch -> {
+            batch.putValue(ColumnFamily.DEDUPE, DEDUPE_POSITION_VALUE_TYPE,
+                    KeyCodec.dedupePosition(sourcePosition.canonicalBytes()), mutation.systemMutationId());
+            writePosition(batch, sourcePosition);
+        });
+        lastAppliedSourcePosition = sourcePosition;
+        mutationSequence = nextMutationSequence();
+        return result;
+    }
+
+    private static SystemMutationResult expiredSystemMutationResult(final SystemMutation mutation,
+                                                                    final SourcePosition sourcePosition) {
+        return SystemMutationResult.from(mutation, ApplyStatus.REJECTED,
+                StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED, sourcePosition.canonicalBytes());
     }
 
     private record RetireIntentLookup(ResourceKind resourceKind, ResourceRetireIntentRecord intent) {

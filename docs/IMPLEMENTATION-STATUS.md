@@ -1742,8 +1742,14 @@ boundary: `dedupe_cf/POSITION` value type 3 accepts only the registered
 `commandId[41]` or `systemMutationId[32]` branch, and every durable System
 Mutation WriteBatch records its mutation identity there. A verified duplicate
 at a later physical position records the new locator while retaining the first
-logical Source Position; replay at that already-advanced position requires the
-matching audit and rejects a command/system or different-mutation collision.
+logical Source Position; an in-window duplicate reuses the first logical
+result, while a duplicate outside its signed retry deadline or after a
+`TIME_FENCE` produces only position-level
+`SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED` and never overwrites the first
+`dedupe/SYSTEM_MUTATION` value. Replay at that already-advanced position
+requires the matching audit and returns the same position-level result;
+command/system or different-mutation collisions remain fail-closed.
+`DelayShardTest.systemMutationDuplicateOutsideRetryWindowKeepsFirstResultAndUsesPositionAuditOnly`,
 `DelayShardTest.timeFenceMonotonicallyClosesIngressWithoutOverwritingCommandIdentity`
 and the source-ordered System Mutation dedupe tests cover the boundary.
 Equal-severity Finals now select the newest observation revision's evidence as

@@ -2513,6 +2513,104 @@ class DelayShardTest {
     }
 
     @Test
+    void systemMutationDuplicateOutsideRetryWindowKeepsFirstResultAndUsesPositionAuditOnly() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-mutation-window"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 14);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("system-mutation-window-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("system-mutation-window")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition firstPosition = position(shardId, 1, 1_001);
+        final KafkaSourcePosition expiredDuplicatePosition = position(shardId, 2, 1_002);
+        final TrustedUtcIntervalEvidence proof = new TrustedUtcIntervalEvidence(5_000, 5_000,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("window-clock"), 1, 1, 1,
+                Bytes.sha256(Bytes.utf8("window-proof")), 0, null);
+        final long retryUntil = 1_001;
+        final byte[] body = expiryBody(shardId, schedule.delayMessageId(), 0, 5_000, retryUntil,
+                proof.canonicalBytes());
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final AuthorIdentity owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("window-worker"), 1,
+                Bytes.sha256(Bytes.utf8("window-lease")));
+        final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.EXPIRE_GENERATION,
+                retryUntil, SystemMutation.computeExpiryLogicalIdentity(schedule.delayMessageId(), 0, 5_000), body,
+                owner.canonicalBytes(), 1, keyPair.getPrivate());
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            assertEquals(StableCode.OK,
+                    shard.applySystemMutation(mutation, firstPosition, keyPair.getPublic()).stableCode());
+            assertEquals(MessageStatus.EXPIRED, shard.getMessage(schedule.delayMessageId()).status());
+
+            final SystemMutationResult expired = shard.applySystemMutation(mutation, expiredDuplicatePosition,
+                    keyPair.getPublic());
+            assertEquals(ApplyStatus.REJECTED, expired.applyStatus());
+            assertEquals(StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED, expired.stableCode());
+            assertEquals(expired, shard.applySystemMutation(mutation, expiredDuplicatePosition,
+                    keyPair.getPublic()));
+            final SystemMutationResult firstResult = shard.getSystemMutationResult(mutation.systemMutationId());
+            assertEquals(StableCode.OK, firstResult.stableCode());
+            assertArrayEquals(firstPosition.canonicalBytes(), firstResult.appliedSourcePosition());
+            assertEquals(expiredDuplicatePosition, shard.lastAppliedSourcePosition());
+        }
+    }
+
+    @Test
+    void firstSeenSystemMutationAfterTimeFenceIsPositionLevelExpired() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-mutation-fenced-window"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 15);
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final int keyVersion = 1;
+        final AuthorIdentity fence = AuthorIdentity.fence(Bytes.utf8("window-fence"), keyVersion);
+        final TrustedUtcIntervalEvidence firstProof = new TrustedUtcIntervalEvidence(3_000, 3_000,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("first-fence-clock"), 1, 1, 1,
+                Bytes.sha256(Bytes.utf8("first-fence-proof")), 0, null);
+        final long firstCloseThrough = 3_000;
+        final byte[] firstProofId = Bytes.sha256(Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                shardId.routeIncarnation().bytes(), Bytes.u32be(shardId.partition()),
+                Bytes.i64be(firstCloseThrough), Bytes.u32be(keyVersion), Bytes.lp32(firstProof.canonicalBytes()));
+        final byte[] firstBody = timeFenceBody(shardId, firstCloseThrough, keyVersion, firstProofId,
+                firstProof.canonicalBytes());
+        final SystemMutation firstFence = SystemMutation.signed(shardId, SystemMutationType.TIME_FENCE, 9_000,
+                firstProofId, firstBody, fence.canonicalBytes(), keyVersion, keyPair.getPrivate());
+
+        final TrustedUtcIntervalEvidence secondProof = new TrustedUtcIntervalEvidence(4_000, 4_000,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("second-fence-clock"), 1, 2, 2,
+                Bytes.sha256(Bytes.utf8("second-fence-proof")), 0, null);
+        final long secondCloseThrough = 4_000;
+        final byte[] secondProofId = Bytes.sha256(Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                shardId.routeIncarnation().bytes(), Bytes.u32be(shardId.partition()),
+                Bytes.i64be(secondCloseThrough), Bytes.u32be(keyVersion), Bytes.lp32(secondProof.canonicalBytes()));
+        final long secondRetryUntil = 2_000;
+        final byte[] secondBodyWithRetry = timeFenceBody(shardId, secondCloseThrough, keyVersion, secondProofId,
+                secondRetryUntil, secondProof.canonicalBytes());
+        final SystemMutation secondFence = SystemMutation.signed(shardId, SystemMutationType.TIME_FENCE,
+                secondRetryUntil, secondProofId, secondBodyWithRetry, fence.canonicalBytes(), keyVersion,
+                keyPair.getPrivate());
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.OK,
+                    shard.applySystemMutation(firstFence, position(shardId, 0, 1_000), keyPair.getPublic())
+                            .stableCode());
+            final SystemMutationResult expired = shard.applySystemMutation(secondFence,
+                    position(shardId, 1, 2_000), keyPair.getPublic());
+            assertEquals(ApplyStatus.REJECTED, expired.applyStatus());
+            assertEquals(StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED, expired.stableCode());
+            assertEquals(expired, shard.applySystemMutation(secondFence, position(shardId, 1, 2_000),
+                    keyPair.getPublic()));
+            assertEquals(StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED,
+                    shard.getSystemMutationResult(secondFence.systemMutationId()).stableCode());
+            assertEquals(position(shardId, 1, 2_000), shard.lastAppliedSourcePosition());
+        }
+    }
+
+    @Test
     void sourceOrderedPublishOutcomeAtomicallyMovesAttemptToUncertainAndRetainsDedupe() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-outcome-unknown"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 13);
@@ -5375,6 +5473,12 @@ class DelayShardTest {
 
     private static byte[] expiryBody(final ShardId shard, final io.nereusstream.delay.protocol.DelayMessageId messageId,
                                      final int generation, final long expireAt, final byte[] proof) {
+        return expiryBody(shard, messageId, generation, expireAt, 9_000, proof);
+    }
+
+    private static byte[] expiryBody(final ShardId shard, final io.nereusstream.delay.protocol.DelayMessageId messageId,
+                                     final int generation, final long expireAt, final long retryUntil,
+                                     final byte[] proof) {
         final byte[] subject = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());
             CanonicalProtobuf.uint32(output, 2, shard.partition());
@@ -5382,7 +5486,7 @@ class DelayShardTest {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, subject);
             CanonicalProtobuf.uint32(output, 2, SystemMutationType.EXPIRE_GENERATION.wireValue());
-            CanonicalProtobuf.int64(output, 3, 9_000);
+            CanonicalProtobuf.int64(output, 3, retryUntil);
             CanonicalProtobuf.bytes(output, 10, messageId.bytes());
             CanonicalProtobuf.uint32(output, 11, generation);
             CanonicalProtobuf.int64(output, 12, expireAt);
@@ -5392,6 +5496,11 @@ class DelayShardTest {
 
     private static byte[] timeFenceBody(final ShardId shard, final long closeThrough, final int keyVersion,
                                         final byte[] proofId, final byte[] proof) {
+        return timeFenceBody(shard, closeThrough, keyVersion, proofId, 9_000, proof);
+    }
+
+    private static byte[] timeFenceBody(final ShardId shard, final long closeThrough, final int keyVersion,
+                                        final byte[] proofId, final long retryUntil, final byte[] proof) {
         final byte[] subject = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());
             CanonicalProtobuf.uint32(output, 2, shard.partition());
@@ -5399,7 +5508,7 @@ class DelayShardTest {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, subject);
             CanonicalProtobuf.uint32(output, 2, SystemMutationType.TIME_FENCE.wireValue());
-            CanonicalProtobuf.int64(output, 3, 9_000);
+            CanonicalProtobuf.int64(output, 3, retryUntil);
             CanonicalProtobuf.int64(output, 10, closeThrough);
             CanonicalProtobuf.uint32(output, 11, keyVersion);
             CanonicalProtobuf.bytes(output, 12, proofId);
