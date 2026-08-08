@@ -38,7 +38,7 @@ public final class DlqExportResultBody {
                                 final DlqExportStateV1 resultingState, final int physicalAttemptNo) {
         this.dlqExportId = fixed(dlqExportId, "dlqExportId");
         this.messageId = fixed(messageId, DelayMessageId.LENGTH, "messageId");
-        if (generation < 0 || terminalRevision <= 0) {
+        if (generation < 0 || terminalRevision == 0) {
             throw new IllegalArgumentException("invalid DLQ export generation/revision");
         }
         this.generation = generation;
@@ -72,8 +72,8 @@ public final class DlqExportResultBody {
         final byte[] messageId = fixed(field(fields, 11), 11, DelayMessageId.LENGTH);
         final int generation = boundedInt(unsigned(field(fields, 12), 12), "generation");
         final long terminalRevision = unsigned(field(fields, 13), 13);
-        if (terminalRevision <= 0) {
-            throw new IllegalArgumentException("terminal revision must be positive");
+        if (terminalRevision == 0) {
+            throw new IllegalArgumentException("terminal revision must be non-zero");
         }
         final byte[] envelopeHash = fixed(field(fields, 14), 14, HASH_LENGTH);
         final int eventKind = boundedInt(unsigned(field(fields, 15), 15), "eventKind");
@@ -271,7 +271,7 @@ public final class DlqExportResultBody {
     }
 
     private static long unsigned(final CanonicalProtobuf.Reader.Field field, final int number) {
-        if (field.number() != number || field.wireType() != 0 || field.unsignedValue() < 0) {
+        if (field.number() != number || field.wireType() != 0) {
             throw new IllegalArgumentException("invalid DLQ export scalar field " + number);
         }
         return field.unsignedValue();

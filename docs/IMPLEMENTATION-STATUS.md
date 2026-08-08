@@ -108,6 +108,12 @@ version bits into the Registry digest instead of the signed `u64` helper;
 covers the boundary. This is local hash/codec evidence only; Profile catalog,
 partition assignment and external Broker authority remain release blockers.
 
+DLQ `terminalRevision` now preserves complete nonzero `uint64` bits through
+`DlqExportRecord` identity/bytes and `DlqExportResultBody` parsing; zero remains
+invalid. `DlqExportRecordTest` and `DlqExportResultBodyTest` cover the high-bit
+vectors. Local terminal-state arithmetic remains bounded separately, while
+external DLQ policy/provider authority remains a release blocker.
+
 Payload-proof trust-set semantic/ref versions now follow the same full-width
 rule, and source-ordered activation compares them with unsigned ordering;
 historical key-version ordering remains unsigned as well. The semantic and

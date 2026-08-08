@@ -27,6 +27,18 @@ class DlqExportResultBodyTest {
     }
 
     @Test
+    void acceptsCompleteUnsignedTerminalRevisionBits() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
+        final byte[] exportId = nonZero(32, 21);
+        final byte[] messageId = DelayMessageId.random(shard).bytes();
+        final byte[] envelope = nonZero(32, 22);
+        final byte[] body = body(shard, exportId, messageId, envelope, 1, 1, 0, StableCode.OK.wireValue(),
+                evidence(exportId), retry(1, StableCode.OK.wireValue(), 2), 3, 1, Long.MIN_VALUE);
+
+        assertEquals(Long.MIN_VALUE, DlqExportResultBody.decode(body).terminalRevision());
+    }
+
+    @Test
     void rejectsUnknownAttemptWithDefinitiveEvidenceOrMessageRetryDomain() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
         final byte[] exportId = nonZero(32, 5);
@@ -50,6 +62,14 @@ class DlqExportResultBodyTest {
     private static byte[] body(final ShardId shard, final byte[] exportId, final byte[] messageId, final byte[] envelope,
                                final int eventKind, final int sideEffect, final int disposition, final int code,
                                final byte[] evidence, final byte[] retry, final int state, final int attempt) {
+        return body(shard, exportId, messageId, envelope, eventKind, sideEffect, disposition, code, evidence, retry,
+                state, attempt, 9);
+    }
+
+    private static byte[] body(final ShardId shard, final byte[] exportId, final byte[] messageId,
+                               final byte[] envelope, final int eventKind, final int sideEffect,
+                               final int disposition, final int code, final byte[] evidence, final byte[] retry,
+                               final int state, final int attempt, final long terminalRevision) {
         final TrustedUtcIntervalEvidence observed = new TrustedUtcIntervalEvidence(1_000, 1_001,
                 TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, nonZero(16, 10), 1, 1, 1,
                 nonZero(32, 11), 0, new byte[0]);
@@ -60,7 +80,7 @@ class DlqExportResultBodyTest {
             CanonicalProtobuf.bytes(output, 10, exportId);
             CanonicalProtobuf.bytes(output, 11, messageId);
             CanonicalProtobuf.uint32(output, 12, 0);
-            CanonicalProtobuf.uint64(output, 13, 9);
+            CanonicalProtobuf.uint64Bits(output, 13, terminalRevision);
             CanonicalProtobuf.bytes(output, 14, envelope);
             CanonicalProtobuf.uint32(output, 15, eventKind);
             CanonicalProtobuf.uint32(output, 16, sideEffect);

@@ -958,6 +958,13 @@ ownership 仍是 release blocker。成功应用还保留 body 的 `stable_code` 
 `SystemMutationResult`；`DLQ_EXPORT_OUTCOME_UNKNOWN` 的 source-ordered 回归
 覆盖该结果可见性。
 
+DLQ `terminalRevision` now follows the Registry's complete nonzero `uint64`
+identity boundary through `DlqExportRecord` IDs/bytes and
+`DlqExportResultBody` parsing; zero remains invalid while high-bit patterns are
+preserved. `DlqExportRecordTest` and `DlqExportResultBodyTest` cover the
+high-bit vectors. Local terminal-state arithmetic remains bounded separately;
+external DLQ policy and provider authority remain release evidence.
+
 `PublishEvidenceV1`/`ExternalDeliveryIdentityV1` 进一步把 Registry 的
 `PublishEvidenceV1` 公共字段、kind 对应 oneof 分支、verification-status 语义、
 owner identity 和 domain-separated `evidence_id` 固定在一个共享 codec 中；

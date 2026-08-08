@@ -40,7 +40,7 @@ public record DlqExportRecord(
     public DlqExportRecord {
         requireNonZero(dlqExportId, "dlqExportId");
         Objects.requireNonNull(messageId, "messageId");
-        if (generation < 0 || terminalRevision <= 0) {
+        if (generation < 0 || terminalRevision == 0) {
             throw new IllegalArgumentException("invalid DLQ export generation/revision");
         }
         Bytes.requireLength(exportEnvelopeHash, HASH_LENGTH, "exportEnvelopeHash");
@@ -80,7 +80,7 @@ public record DlqExportRecord(
         final byte[] id = deriveId(messageId, generation, terminalRevision);
         return new DlqExportRecord(id, messageId, generation, terminalRevision,
                 Bytes.sha256(ENVELOPE_DOMAIN, id, messageId.bytes(), Bytes.u32be(generation),
-                        Bytes.u64be(terminalRevision)), emptyChargeCanonical(), DlqExportStateV1.NOT_CONFIGURED, 0,
+                        Bytes.u64beBits(terminalRevision)), emptyChargeCanonical(), DlqExportStateV1.NOT_CONFIGURED, 0,
                 appliedSourcePosition);
     }
 
@@ -104,10 +104,11 @@ public record DlqExportRecord(
     public static byte[] deriveId(final DelayMessageId messageId, final int generation,
                                   final long terminalRevision) {
         Objects.requireNonNull(messageId, "messageId");
-        if (generation < 0 || terminalRevision <= 0) {
+        if (generation < 0 || terminalRevision == 0) {
             throw new IllegalArgumentException("invalid DLQ export identity values");
         }
-        return Bytes.sha256(ID_DOMAIN, messageId.bytes(), Bytes.u32be(generation), Bytes.u64be(terminalRevision));
+        return Bytes.sha256(ID_DOMAIN, messageId.bytes(), Bytes.u32be(generation),
+                Bytes.u64beBits(terminalRevision));
     }
 
     @Override
@@ -131,7 +132,7 @@ public record DlqExportRecord(
 
     public byte[] encode() {
         return Bytes.concat(Bytes.u32be(VERSION), dlqExportId, messageId.bytes(), Bytes.u32be(generation),
-                Bytes.u64be(terminalRevision), exportEnvelopeHash, Bytes.lp32(retainedCharge),
+                Bytes.u64beBits(terminalRevision), exportEnvelopeHash, Bytes.lp32(retainedCharge),
                 Bytes.u8(state.wireValue()),
                 Bytes.u32be(physicalAttemptNo), Bytes.lp32(appliedSourcePosition));
     }
@@ -188,7 +189,7 @@ public record DlqExportRecord(
 
     private byte[] encodeLegacy() {
         return Bytes.concat(Bytes.u32be(LEGACY_VERSION), dlqExportId, messageId.bytes(), Bytes.u32be(generation),
-                Bytes.u64be(terminalRevision), exportEnvelopeHash, Bytes.u8(state.wireValue()),
+                Bytes.u64beBits(terminalRevision), exportEnvelopeHash, Bytes.u8(state.wireValue()),
                 Bytes.u32be(physicalAttemptNo), Bytes.lp32(appliedSourcePosition));
     }
 
@@ -209,9 +210,6 @@ public record DlqExportRecord(
     private static long readU64(final ByteBuffer input, final String name) {
         requireRemaining(input, 8);
         final long value = input.getLong();
-        if (value < 0) {
-            throw new IllegalArgumentException(name + " exceeds supported range");
-        }
         return value;
     }
 

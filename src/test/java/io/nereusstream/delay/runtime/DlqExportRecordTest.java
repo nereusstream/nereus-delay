@@ -32,6 +32,19 @@ class DlqExportRecordTest {
     }
 
     @Test
+    void preservesUnsignedTerminalRevisionBitsAcrossIdentityAndRecordRoundTrip() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
+        final DelayMessageId messageId = DelayMessageId.random(shard);
+        final byte[] source = new KafkaSourcePosition(shard, "cluster", UUID.randomUUID(), 9, null, 1_000)
+                .canonicalBytes();
+
+        final DlqExportRecord record = DlqExportRecord.notConfigured(messageId, 2, Long.MIN_VALUE, source);
+
+        assertEquals(Long.MIN_VALUE, DlqExportRecord.decode(record.encode()).terminalRevision());
+        assertArrayEquals(record.dlqExportId(), DlqExportRecord.deriveId(messageId, 2, Long.MIN_VALUE));
+    }
+
+    @Test
     void rejectsIdentityAndStateDrift() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
         final DelayMessageId messageId = DelayMessageId.random(shard);

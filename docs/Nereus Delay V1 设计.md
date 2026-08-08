@@ -2002,6 +2002,9 @@ dlqExportId = SHA-256(
 )
 ```
 
+`terminalRevision` 是非零完整 `uint64`；高位 bit pattern 必须原样进入
+`dlqExportId`、terminal outbox 和 `DLQ_EXPORT_RESULT_V1`，只有零值非法。
+
 并在独立 system Lane 运行。状态：
 
 ```text
