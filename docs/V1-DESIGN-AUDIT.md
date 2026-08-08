@@ -1413,6 +1413,9 @@ generation is likewise preserved as a raw uint64 through the canonical
 activation barrier, runtime barrier, replay-entry validation and
 `OwnedDelayShard`; high-bit fence vectors cover both the wire and catch-up
 paths.
+`NativeCapabilitySnapshotV1` likewise preserves the complete nonzero raw
+`resource_guard_config_generation` in its signed digest and canonical bytes;
+the guarded Broker rollout attestation remains external evidence.
 
 ## Source locks
 

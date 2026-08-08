@@ -490,6 +490,11 @@ uint64 through `ActivationBarrierV1`, the runtime Pulsar barrier, replay-entry
 validation and `OwnedDelayShard`; `ActivationBarrierV1Test`,
 `SourceActivationBarrierTest` and `OwnerLeaseTest` cover its high-bit fence
 path.
+`NativeCapabilitySnapshotV1` now preserves the complete nonzero raw
+`resource_guard_config_generation` in its signed digest and canonical decode,
+matching the already raw credential-binding generation. The snapshot test
+covers both high-bit fields; guarded Broker rollout attestation remains an
+external authority gate.
 
 `TrustedUtcClock` now provides the local Worker timing guard that was missing
 behind the evidence codec: it advances an approved interval from an injected

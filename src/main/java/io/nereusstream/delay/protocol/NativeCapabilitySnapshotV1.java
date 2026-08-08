@@ -51,7 +51,7 @@ public final class NativeCapabilitySnapshotV1 {
             throw new IllegalArgumentException("native snapshot capability must be a DELIVERY_CAPABILITY profile");
         }
         this.target = Objects.requireNonNull(target, "target");
-        if (resourceGuardConfigGeneration <= 0 || credentialBindingGeneration == 0 || notAfterEpochMs < 0
+        if (resourceGuardConfigGeneration == 0 || credentialBindingGeneration == 0 || notAfterEpochMs < 0
                 || notAfterEpochMs <= issuedAt(issuedAt).latestEpochMs()
                 || issuerSigningKeyVersion == 0) {
             throw new IllegalArgumentException("invalid native capability snapshot numbers");
@@ -114,7 +114,7 @@ public final class NativeCapabilitySnapshotV1 {
                 QueryCodecSupport.nested(fields.get(3), 4));
         final int partition = QueryCodecSupport.uint32Bits(fields.get(4), 5);
         final byte[] guardAttestation = QueryCodecSupport.fixed(fields.get(5), 6, HASH_LENGTH);
-        final long guardGeneration = QueryCodecSupport.uint(fields.get(6), 7);
+        final long guardGeneration = QueryCodecSupport.uint64Bits(fields.get(6), 7);
         final long bindingGeneration = QueryCodecSupport.uint(fields.get(7), 8);
         final byte[] bindingDigest = QueryCodecSupport.fixed(fields.get(8), 9, HASH_LENGTH);
         final byte[] fingerprint = QueryCodecSupport.fixed(fields.get(9), 10, HASH_LENGTH);
@@ -256,7 +256,7 @@ public final class NativeCapabilitySnapshotV1 {
         CanonicalProtobuf.bytes(output, 4, target.canonicalBytes());
         CanonicalProtobuf.uint32Bits(output, 5, physicalPartition);
         CanonicalProtobuf.bytes(output, 6, resourceGuardAttestationSha256);
-        CanonicalProtobuf.uint64(output, 7, resourceGuardConfigGeneration);
+        CanonicalProtobuf.uint64Bits(output, 7, resourceGuardConfigGeneration);
         CanonicalProtobuf.uint64Bits(output, 8, credentialBindingGeneration);
         CanonicalProtobuf.bytes(output, 9, credentialBindingDigest);
         CanonicalProtobuf.bytes(output, 10, resolvedCredentialFingerprintDigest);
