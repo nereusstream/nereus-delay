@@ -784,6 +784,13 @@ than production Producer/Broker close-drain evidence. The facade also fences
 post-close `shard()` and pending-buffer access, covered by
 `EmbeddedDelayServiceTest.closedEmbeddedServiceDoesNotExposeShardOrBufferState`,
 so callers cannot bypass the client lifecycle and mutate a closed Store.
+Every explicit `drain()` retains the applied physical result in a bounded local
+window of `EmbeddedDelayServiceConfig.maxPendingCommandCount`, allowing a later
+legacy await to return an exact position-level conflict/fence result. If that
+evidence is evicted and the only durable result is anchored at another source
+position, `awaitApplied` fails closed rather than returning the wrong logical
+dedupe result or `null`; this is local conformance evidence and does not change
+the durable `dedupe_cf/POSITION` value schema.
 The constructor now treats a post-open source-identity/metadata mismatch as a
 failed acquisition: it closes the just-opened `ShardStore` and its private
 shared RocksDB resource envelope, aggregating cleanup failures as suppressed

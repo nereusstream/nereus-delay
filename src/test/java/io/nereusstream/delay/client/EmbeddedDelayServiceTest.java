@@ -169,6 +169,35 @@ class EmbeddedDelayServiceTest {
     }
 
     @Test
+    void awaitAppliedReturnsTheExactPhysicalConflictAfterAnExplicitDrain() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 39);
+        final ScheduleIntent firstIntent = new ScheduleIntent(
+                DestinationLaneId.derive(Bytes.utf8("await-drained-conflict-first")), 2_000, 5_000,
+                OrderingMode.BEST_EFFORT, Bytes.utf8("first"));
+        final ScheduleIntent conflictingIntent = new ScheduleIntent(
+                DestinationLaneId.derive(Bytes.utf8("await-drained-conflict-second")), 2_000, 5_000,
+                OrderingMode.BEST_EFFORT, Bytes.utf8("second"));
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("await-drained-physical-conflict")), shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final PreparedCommand first = service.prepareSchedule(firstIntent, 10_000);
+            service.enqueue(first).toCompletableFuture().join();
+            final PreparedCommand conflicting = PreparedCommand.create(shard, first.commandId(),
+                    first.delayMessageId(), first.type(), first.retryUntilEpochMs(),
+                    CommandBodies.schedule(conflictingIntent));
+            final EnqueueOutcome conflictingOutcome = service.enqueue(conflicting).toCompletableFuture().join();
+
+            service.drain();
+
+            final CommandResult physical = service.awaitApplied(conflictingOutcome.receipt())
+                    .toCompletableFuture().join();
+            assertEquals(ApplyStatus.REJECTED, physical.applyStatus());
+            assertEquals(StableCode.COMMAND_ID_CONFLICT, physical.stableCode());
+            assertEquals(StableCode.SCHEDULED, service.shard().getCommandResult(first.commandId()).stableCode());
+        }
+    }
+
+    @Test
     void queuedReceiptRejectsMessageIdFromAnotherShard() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 35);
         final ShardId foreignShard = new ShardId(RouteIncarnation.random(), 36);

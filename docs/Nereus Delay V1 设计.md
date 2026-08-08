@@ -438,6 +438,13 @@ POSITION 审计，不能以 `commandId` 单独暴露逻辑结果。若该 exact 
 验证 durable POSITION，再读取可用的逻辑结果；V1 wire query 的 command-hash 与
 POSITION 审计校验边界不因此放宽。
 
+Embedded conformance service 若由测试或本地驱动先显式调用 `drain()`，会在
+`EmbeddedDelayServiceConfig.maxPendingCommandCount` 规定的有界窗口内保留已完成
+physical apply result，供之后的 legacy `awaitApplied` 按 exact Source Position
+返回；窗口淘汰后若 POSITION 只能定位到一个不同 Source Position 的逻辑结果，
+必须 fail closed，而不能把该逻辑结果冒充为本次物理结果，也不能返回 `null`。
+这只是本地 seam 的结果保留，不改变 V1 wire receipt 或 durable POSITION schema。
+
 `CommandAppliedReceipt` 只在 shard 已 durable `APPLIED` 或 `REJECTED` 后存在，包含 stable outcome、reason、applied Source Position，以及该 outcome 适用的 generation/Message Control Version (`stateVersion`)/`PublicDestinationBindingViewV1`；拒绝或 `NOT_FOUND` 不伪造不存在的 message fields，也永不序列化内部 Binding/secret/evidence/object descriptor。
 
 `NativeDeliveryReceipt` 使用独立 `nativeDeliveryId`，不伪装为 managed Delay Message。

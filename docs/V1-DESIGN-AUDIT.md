@@ -530,6 +530,12 @@ and `EmbeddedDelayServiceTest.queuedReceiptRejectsMessageIdFromAnotherShard` cov
 the exact pending result and legacy constructor identity fences. This is a local
 API/conformance guard; gateway authorization, production routing and durable
 receipt-retention authority remain release blockers.
+An explicit embedded `drain()` also retains physical apply outcomes within the
+bounded `EmbeddedDelayServiceConfig.maxPendingCommandCount` window, so a later
+legacy await can still return a position-level conflict or fence result. If
+that local evidence is evicted and the durable logical result is anchored at a
+different position, the seam fails closed instead of returning the wrong
+logical result or `null`; this does not add outcome bytes to `dedupe/POSITION`.
 
 §12.4 的本地时钟 guard 现在由 `TrustedUtcClock` 提供：它只从批准的
 `TrustedUtcIntervalEvidence` 和注入的 monotonic reading 推导保守 interval，

@@ -74,6 +74,13 @@ public final class EmbeddedDelayService implements DelayClient {
     private final ControlTargetRegistrationAuthority controlTargetRegistrationAuthority;
     private final EmbeddedDelayServiceConfig clientConfig;
     private final Deque<QueuedRecord> pending = new ArrayDeque<>();
+    /**
+     * Bounded local evidence for records applied by an explicit drain call.
+     * POSITION is only a locator and does not carry a physical outcome, so a
+     * later legacy await must not fall back to the first logical result when
+     * the physical record was a conflict or fence rejection.
+     */
+    private final Deque<RetainedPhysicalResult> retainedPhysicalResults = new ArrayDeque<>();
     private long nextOffset;
     /**
      * Kafka offsets are an unsigned 64-bit sequence.  Do not use {@code -1}
@@ -232,7 +239,8 @@ public final class EmbeddedDelayService implements DelayClient {
             // otherwise fatal local apply must not make close/drain silently
             // forget the command that was already reported as QUEUED.
             final QueuedRecord record = pending.peekFirst();
-            shard.apply(record.command(), record.position());
+            final CommandResult result = shard.apply(record.command(), record.position());
+            retainPhysicalResult(record.position(), result);
             pending.removeFirst();
             pendingBytes -= record.frameBytes();
         }
@@ -265,6 +273,7 @@ public final class EmbeddedDelayService implements DelayClient {
             while (!pending.isEmpty()) {
                 final QueuedRecord record = pending.peekFirst();
                 final CommandResult result = shard.apply(record.command(), record.position());
+                retainPhysicalResult(record.position(), result);
                 pending.removeFirst();
                 pendingBytes -= record.frameBytes();
                 if (record == pendingRecord) {
@@ -275,9 +284,38 @@ public final class EmbeddedDelayService implements DelayClient {
         if (!shard.matchesCommandPosition(receipt.commandId(), receipt.sourcePosition())) {
             throw new IllegalArgumentException("queued receipt source position does not identify the command");
         }
-        final CommandResult result = physicalResult == null
-                ? shard.getCommandResult(receipt.commandId()) : physicalResult;
+        final CommandResult retained = physicalResult == null
+                ? findRetainedPhysicalResult(receipt.sourcePosition()) : physicalResult;
+        final CommandResult result = retained == null ? shard.getCommandResult(receipt.commandId()) : retained;
+        if (result == null) {
+            throw new IllegalStateException("physical command result is no longer locally retained");
+        }
+        if (retained == null
+                && !Bytes.constantTimeEquals(result.appliedSourcePosition(),
+                receipt.sourcePosition().canonicalBytes())) {
+            // A logical dedupe result anchored at another position may be a
+            // same-hash duplicate or a position-level conflict. The legacy
+            // receipt has no command hash, so returning it without the exact
+            // physical result would be an unsafe ambiguity.
+            throw new IllegalStateException("physical command result is no longer locally retained");
+        }
         return CompletableFuture.completedFuture(result);
+    }
+
+    private void retainPhysicalResult(final SourcePosition position, final CommandResult result) {
+        if (retainedPhysicalResults.size() >= clientConfig.maxPendingCommandCount()) {
+            retainedPhysicalResults.removeFirst();
+        }
+        retainedPhysicalResults.addLast(new RetainedPhysicalResult(position.canonicalBytes(), result));
+    }
+
+    private CommandResult findRetainedPhysicalResult(final SourcePosition position) {
+        for (RetainedPhysicalResult retained : retainedPhysicalResults) {
+            if (Bytes.constantTimeEquals(retained.sourcePosition(), position.canonicalBytes())) {
+                return retained.result();
+            }
+        }
+        return null;
     }
 
     /**
@@ -665,5 +703,17 @@ public final class EmbeddedDelayService implements DelayClient {
     }
 
     private record QueuedRecord(PreparedCommand command, SourcePosition position, int frameBytes) {
+    }
+
+    private record RetainedPhysicalResult(byte[] sourcePosition, CommandResult result) {
+        private RetainedPhysicalResult {
+            sourcePosition = Bytes.copy(sourcePosition);
+            Objects.requireNonNull(result, "result");
+        }
+
+        @Override
+        public byte[] sourcePosition() {
+            return Bytes.copy(sourcePosition);
+        }
     }
 }
