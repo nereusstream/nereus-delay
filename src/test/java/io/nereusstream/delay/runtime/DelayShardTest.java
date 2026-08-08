@@ -1191,6 +1191,25 @@ class DelayShardTest {
     }
 
     @Test
+    void exactCommandReplayFailsClosedWhenPositionAuditIsMissing() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("missing-command-audit"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 36);
+        final PreparedCommand command = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(
+                        DestinationLaneId.derive(Bytes.utf8("missing-command-audit-lane")), 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("missing-command-audit")), 9_000);
+        final KafkaSourcePosition sourcePosition = position(shardId, 0, 1_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(command, sourcePosition).stableCode());
+            store.write(batch -> batch.delete(ColumnFamily.DEDUPE,
+                    KeyCodec.dedupePosition(sourcePosition.canonicalBytes())));
+            assertThrows(IllegalStateException.class, () -> shard.apply(command, sourcePosition));
+        }
+    }
+
+    @Test
     void boundedQueryProjectionSeparatesActiveAndTerminalState() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("query-projection"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 28);
@@ -4892,6 +4911,12 @@ class DelayShardTest {
                     shard.applySystemMutation(fenceMutation, fencePosition, keyPair.getPublic()).stableCode());
             assertEquals(closeThrough, shard.closedIngressDeadlineThrough());
             assertArrayEquals(proofId, store.runtimeMetadata().lastIngressFenceProofId());
+            assertEquals(StableCode.OK,
+                    shard.applySystemMutation(fenceMutation, fencePosition, keyPair.getPublic()).stableCode());
+            store.write(batch -> batch.delete(ColumnFamily.DEDUPE,
+                    KeyCodec.dedupePosition(fencePosition.canonicalBytes())));
+            assertThrows(IllegalStateException.class,
+                    () -> shard.applySystemMutation(fenceMutation, fencePosition, keyPair.getPublic()));
 
             final PreparedCommand closed = PreparedCommand.schedule(shardId,
                     new io.nereusstream.delay.protocol.ScheduleIntent(lane, 4_000, 7_000,

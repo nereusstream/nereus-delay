@@ -368,17 +368,16 @@ public final class DelayShard {
             if (order == 0) {
                 final CommandDedupeRecord prior = readCommandDedupe(command.commandId());
                 if (prior != null && Bytes.constantTimeEquals(prior.commandHash(), command.commandHash())) {
+                    final PositionAudit audit = readPositionAudit(sourcePosition);
+                    if (audit == null || audit.commandId() == null
+                            || !audit.commandId().equals(command.commandId())) {
+                        throw new IllegalStateException("duplicate command source position has conflicting evidence");
+                    }
                     if (!Bytes.constantTimeEquals(prior.result().appliedSourcePosition(),
                             sourcePosition.canonicalBytes())) {
                         if (!Bytes.constantTimeEquals(lastAppliedSourcePosition.canonicalBytes(),
                                 sourcePosition.canonicalBytes())) {
                             throw new IllegalStateException("duplicate command position has conflicting source identity");
-                        }
-                        final PositionAudit audit = readPositionAudit(sourcePosition);
-                        if (audit == null || audit.commandId() == null
-                                || !audit.commandId().equals(command.commandId())) {
-                            throw new IllegalStateException(
-                                    "duplicate command source position has conflicting evidence");
                         }
                     }
                     return prior.result();
@@ -1204,6 +1203,8 @@ public final class DelayShard {
                     if (!Arrays.equals(lastAppliedSourcePosition.canonicalBytes(), sourcePosition.canonicalBytes())) {
                         throw new IllegalStateException("duplicate source position has conflicting System Mutation");
                     }
+                }
+                if (order == 0) {
                     final PositionAudit audit = readPositionAudit(sourcePosition);
                     if (audit == null || audit.systemMutationId() == null
                             || !Bytes.constantTimeEquals(audit.systemMutationId(), prior.mutationId())) {
@@ -1212,9 +1213,10 @@ public final class DelayShard {
                     }
                     // The exact mutation identity/hash plus the physical
                     // POSITION audit proves that this is a replay of the
-                    // later duplicate whose WriteBatch already advanced the
-                    // shard cursor. Keep the first Source Position in the
-                    // logical result, but do not execute the mutation again.
+                    // already-applied record (including a later duplicate
+                    // whose WriteBatch advanced the shard cursor). Keep the
+                    // first Source Position in the logical result, but do
+                    // not execute the mutation again.
                     return prior;
                 }
             }
