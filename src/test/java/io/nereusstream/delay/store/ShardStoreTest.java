@@ -787,6 +787,25 @@ class ShardStoreTest {
     }
 
     @Test
+    void physicalUsageProbeAndGuardObserveOneShardDb() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("physical-usage"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 53);
+        final RocksDbUsageLimits limits = new RocksDbUsageLimits(
+                Long.MAX_VALUE, Long.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE,
+                Long.MAX_VALUE, Long.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE,
+                Long.MAX_VALUE, Long.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE,
+                Long.MAX_VALUE, 1, Long.MAX_VALUE, Long.MAX_VALUE, Integer.MAX_VALUE);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final RocksDbUsageSnapshot usage = store.physicalUsage();
+            org.junit.jupiter.api.Assertions.assertEquals(shardId, usage.shardId());
+            org.junit.jupiter.api.Assertions.assertTrue(usage.localBytes() > 0);
+            org.junit.jupiter.api.Assertions.assertTrue(usage.localFiles() > 0);
+            store.requirePhysicalUsageWithin(limits);
+        }
+    }
+
+    @Test
     void checkpointDownloadSlotIsWorkerBoundedAndReleased() {
         final ShardStoreConfig config = new ShardStoreConfig(tempDir.resolve("restore-slot"), 1, 2, 32, 64,
                 1, 1024 * 1024, 1024 * 1024, 1, 1, 1, 1024);

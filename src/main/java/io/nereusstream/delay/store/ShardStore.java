@@ -1141,6 +1141,18 @@ public final class ShardStore implements AutoCloseable {
         return resources;
     }
 
+    /** Returns a checked point-in-time physical usage observation for this DB. */
+    public synchronized RocksDbUsageSnapshot physicalUsage() {
+        ensureOpen();
+        return RocksDbUsageSnapshot.collect(shardId, db, dbPath);
+    }
+
+    /** Applies a per-DB usage guard against the filesystem containing this store. */
+    public synchronized void requirePhysicalUsageWithin(final RocksDbUsageLimits limits) {
+        ensureOpen();
+        Objects.requireNonNull(limits, "limits").validate(List.of(physicalUsage()), config.rootPath());
+    }
+
     /** Returns whether Store close has fenced operations and may need a retry. */
     public synchronized boolean isCloseStarted() {
         return closeStarted;

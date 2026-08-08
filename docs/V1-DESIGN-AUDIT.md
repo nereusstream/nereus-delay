@@ -1240,6 +1240,17 @@ background pool；每个 DB 另外绑定 `maxBackgroundJobsPerDb` 以及非零
 每个 DB 的 job split 误报成聚合 WAL/SST/temp 运行时记账；work-class reserve、
 真实 JVM/cgroup/rlimit 和 Oxia placement authority 仍是外部资源证据。
 
+资源审计现在还有一个可复用的本地物理观测边界：`RocksDbUsageSnapshot`
+从打开的单 shard DB 读取 live SST、WAL、MANIFEST、L0、compaction-pending
+以及不跟随符号链接的实际 DB 文件总量；`RocksDbUsageLimits` 按 shard identity
+拒绝重复观测，逐 DB 校验上限，再用 checked addition 校验 Worker 聚合上限和
+`FileStore` 对应卷的最小可用空间。`ShardStore.physicalUsage()`/
+`requirePhysicalUsageWithin` 与 `RocksDbUsageLimitsTest`、
+`ShardStoreTest.physicalUsageProbeAndGuardObserveOneShardDb` 证明了这个本地
+guard。它仍是显式 snapshot/guard，不是每次 WriteBatch 的动态 admission，也不
+替代真实 JVM/cgroup/rlimit probe、work-class reserve、checkpoint/compaction
+调度和 Oxia placement authority；这些继续保持 release blocker。
+
 Control Reserve 的本地投影也已覆盖 Registry 的 class 6：
 `meta_cf/CONTROL_RESERVE` 以 `CapacityVectorV1` 持久化 Broker system-writer
 reservation，绑定 `NON_OUTCOME_CONTROL` grant identity；class 6 只接受维度
