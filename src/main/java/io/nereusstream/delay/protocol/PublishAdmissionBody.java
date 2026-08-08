@@ -535,8 +535,8 @@ public final class PublishAdmissionBody {
         final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "ProfileRef");
         requireExactFields(fields, 4, "ProfileRef");
         nonEmpty(bytes(field(fields, 1), 1), 1);
-        if (unsigned(field(fields, 2), 2) == 0) {
-            throw new IllegalArgumentException("ProfileRef version must be positive");
+        if (rawUnsigned(field(fields, 2), 2) == 0) {
+            throw new IllegalArgumentException("ProfileRef version must be non-zero");
         }
         bytes(field(fields, 3), 3);
         final long kind = unsigned(field(fields, 4), 4);

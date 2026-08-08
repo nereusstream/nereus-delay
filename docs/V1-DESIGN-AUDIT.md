@@ -393,6 +393,11 @@ the physical-topic creation timestamp byte-exact instead of applying a signed
 host-range check. Object/manifest lengths remain subject to the separate
 bounded local admission envelopes rather than being widened into unbounded
 runtime arithmetic.
+The Admission body’s duplicated nested ProfileRef/Broker-resource validators
+now use that same boundary, keeping a high-bit Profile version accepted in the
+descriptor and ClaimMaterialization projections instead of rejecting it in a
+shallow parser. The local evidence is
+`PublishAdmissionBodyTest.preservesUnsignedProfileReferenceVersionsAcrossAdmissionMaterialization`.
 The local evidence is `ResourceRetireIntentBodyTest.preservesUnsignedResourceStateVersionBits`,
 `ResourceDeleteConfirmedBodyTest.intentPreservesFullUnsignedResourceStateVersion`,
 `KeyCodecTest.gcRetireIntentKeyPreservesUnsignedResourceStateVersionBits`,

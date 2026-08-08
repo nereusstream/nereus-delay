@@ -40,6 +40,25 @@ public class PublishAdmissionBodyTest {
     }
 
     @Test
+    void preservesUnsignedProfileReferenceVersionsAcrossAdmissionMaterialization() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 13);
+        final byte[] destination = new ProfileRefV1(Bytes.utf8("destination-high-bit"), Long.MIN_VALUE,
+                Bytes.sha256(Bytes.utf8("destination-high-bit-hash")), ProfileKindV1.DESTINATION).canonicalBytes();
+        final byte[] capability = new ProfileRefV1(Bytes.utf8("capability-high-bit"), -1L,
+                Bytes.sha256(Bytes.utf8("capability-high-bit-hash")), ProfileKindV1.DELIVERY_CAPABILITY)
+                .canonicalBytes();
+
+        final BrokerResourceIdentityV1 target = BrokerResourceIdentityV1.kafka(
+                new KafkaBrokerResourceIdentityV1("cluster", java.util.UUID.nameUUIDFromBytes(
+                        Bytes.utf8("profile-high-bit-target"))));
+        final PublishAdmissionBody admission = PublishAdmissionBody.decode(Fixture.createWithProfiles(shard,
+                destination, capability, target, AdapterKindV1.KAFKA, 2_000).body());
+
+        assertArrayEquals(destination, admission.descriptor().destinationProfile());
+        assertArrayEquals(capability, admission.descriptor().capabilityProfile());
+    }
+
+    @Test
     void validatesBrokerPersistenceTimeAgainstDecisionAndExpiryBounds() {
         final PublishAdmissionBody admission = PublishAdmissionBody.decode(
                 Fixture.create(new ShardId(RouteIncarnation.random(), 10)).body());

@@ -1484,6 +1484,11 @@ does not reject a high-bit physical-topic creation timestamp. These values are
 identity inputs, not local counters, and high-bit coverage is included in
 `ResourceRetireIntentBodyTest`; payload/checkpoint byte lengths remain bounded
 by the local object/manifest admission envelope.
+`PublishAdmissionBody`'s nested ProfileRef and Broker-resource validators now
+apply the same raw-version/physical-identity rule, so a canonical Admission
+cannot reject a Profile version that the standalone Registry codec accepts.
+`PublishAdmissionBodyTest.preservesUnsignedProfileReferenceVersionsAcrossAdmissionMaterialization`
+covers both descriptor and ClaimMaterialization projections.
 
 The bounded `RESOURCE_DELETE_CONFIRMED_V1` increment now validates the exact
 Retire Intent reference, delete outcome, provider evidence and Trusted-UTC
