@@ -89,6 +89,9 @@ authority remain release evidence. Admission descriptor/materialization Profile
 references now also reuse `ProfileRefV1.decode`, so malformed semantic-hash
 lengths cannot pass the projection validator; the negative vector is covered by
 `PublishAdmissionBodyTest`.
+The replay-stable Claim Result materialization uses the same decoder, so its
+high-bit Destination/Delivery-Capability Profile versions are not rejected by
+the Claim path; `ClaimResultBodyTest` covers that boundary.
 
 Payload-proof trust-set semantic/reference versions now also preserve complete
 raw bits, while the source-ordered activation projection compares versions as

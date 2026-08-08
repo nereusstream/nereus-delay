@@ -113,6 +113,12 @@ covers the boundary, and the Admission projection now reuses the strict
 is local hash/codec evidence only; Profile catalog,
 partition assignment and external Broker authority remain release blockers.
 
+The Claim Result replay-stable `ClaimPrecondition` projection now reuses the
+same `ProfileRefV1` decoder, preserving complete raw Profile versions instead
+of applying a signed nonnegative fence. `ClaimResultBodyTest` covers high-bit
+Destination and Delivery-Capability versions; Claim source authority and
+external placement remain release blockers.
+
 DLQ `terminalRevision` now preserves complete nonzero `uint64` bits through
 `DlqExportRecord` identity/bytes and `DlqExportResultBody` parsing; zero remains
 invalid. `DlqExportRecordTest` and `DlqExportResultBodyTest` cover the high-bit

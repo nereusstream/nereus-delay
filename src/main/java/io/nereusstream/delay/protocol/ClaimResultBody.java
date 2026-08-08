@@ -194,16 +194,7 @@ public final class ClaimResultBody {
     }
 
     private static void validateProfileRef(final byte[] encoded) {
-        final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "ProfileRef");
-        requireExact(fields, 4, "ProfileRef");
-        if (bytes(field(fields, 1), 1).length == 0 || bodyUnsigned(field(fields, 2), 2) == 0) {
-            throw new IllegalArgumentException("invalid ProfileRef identity/version");
-        }
-        fixed(field(fields, 3), 3, HASH_LENGTH);
-        final int kind = intValue(field(fields, 4), 4);
-        if (kind < 1 || kind > 4 || !Arrays.equals(encoded, canonical(fields))) {
-            throw new IllegalArgumentException("invalid ProfileRef");
-        }
+        ProfileRefV1.decode(encoded);
     }
 
     private static void validateBrokerResource(final byte[] encoded) {
