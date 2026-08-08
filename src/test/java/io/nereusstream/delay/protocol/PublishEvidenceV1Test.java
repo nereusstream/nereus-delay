@@ -100,6 +100,38 @@ class PublishEvidenceV1Test {
                 EvidenceVerificationStatusV1.VERIFIED_PUBLISHED, branch));
     }
 
+    @Test
+    void operatorAttestationRequiresEvidenceVerifierProfile() {
+        final byte[] attemptId = hash("operator-attempt");
+        final byte[] validBranch = operatorBranch(attemptId, ProfileKindV1.EVIDENCE_VERIFIER);
+        assertEquals(PublishEvidenceKindV1.OPERATOR_ATTESTATION,
+                PublishEvidenceV1.create(PublishEvidenceKindV1.OPERATOR_ATTESTATION,
+                        EvidenceVerificationStatusV1.VERIFIED_PUBLISHED, validBranch).evidenceKind());
+
+        final byte[] wrongBranch = operatorBranch(attemptId, ProfileKindV1.OBJECT_STORE);
+        assertThrows(IllegalArgumentException.class, () -> PublishEvidenceV1.create(
+                PublishEvidenceKindV1.OPERATOR_ATTESTATION,
+                EvidenceVerificationStatusV1.VERIFIED_PUBLISHED, wrongBranch));
+    }
+
+    private static byte[] operatorBranch(final byte[] attemptId, final ProfileKindV1 profileKind) {
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, new ProfileRefV1(Bytes.utf8("operator-profile"), 1,
+                    hash("operator-profile-hash"), profileKind).canonicalBytes());
+            CanonicalProtobuf.bytes(output, 2, ExternalDeliveryIdentityV1.publishAttempt(attemptId)
+                    .canonicalBytes());
+            CanonicalProtobuf.bytes(output, 3, hash("prepared"));
+            CanonicalProtobuf.bytes(output, 4, kafkaResource());
+            CanonicalProtobuf.uint32(output, 5, 0);
+            CanonicalProtobuf.uint32(output, 6, EvidenceVerificationStatusV1.VERIFIED_PUBLISHED.wireValue());
+            CanonicalProtobuf.int64(output, 7, 100);
+            CanonicalProtobuf.int64(output, 8, 200);
+            CanonicalProtobuf.bytes(output, 9, hash("payload"));
+            CanonicalProtobuf.uint32(output, 10, 1);
+            CanonicalProtobuf.bytes(output, 11, new byte[64]);
+        });
+    }
+
     private static byte[] kafkaResource() {
         return BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
                 "cluster-a", UUID.nameUUIDFromBytes(Bytes.utf8("topic")))).canonicalBytes();

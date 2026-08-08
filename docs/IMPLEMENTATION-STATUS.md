@@ -500,6 +500,10 @@ and non-submission branches. `ChannelResourceIdentityV1Test`,
 provider ownership, authenticated Broker proofs, signing, Shard Log routing,
 lease protection CAS/TTL configuration and evidence retention remain outside
 this codec boundary.
+The `OperatorAttestationEvidenceV1` branch now also requires its verifier slot
+to use `ProfileKindV1.EVIDENCE_VERIFIER`; `PublishEvidenceV1Test` covers the
+wrong-kind rejection. This closes the local Profile union only; verifier
+registration, key activation and signature authority remain external gates.
 Physical channel/evidence generations and the credential binding generation in
 `ChannelResourceIdentityV1` now preserve raw unsigned `uint64` bit patterns
 (zero is still rejected), matching the typed `EvidenceCursorV1` generation.

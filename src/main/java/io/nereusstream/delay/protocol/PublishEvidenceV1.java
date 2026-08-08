@@ -280,7 +280,8 @@ public final class PublishEvidenceV1 {
     private static void validateOperator(final List<CanonicalProtobuf.Reader.Field> fields,
                                          final EvidenceVerificationStatusV1 status) {
         requireNumbers(fields, new int[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11});
-        ProfileRefV1.decode(nested(fields, 1));
+        requireProfileKind(ProfileRefV1.decode(nested(fields, 1)), ProfileKindV1.EVIDENCE_VERIFIER,
+                "Operator attestation verifier");
         ExternalDeliveryIdentityV1.decode(nested(fields, 2));
         fixed(fields, 3);
         BrokerResourceIdentityV1.decode(nested(fields, 4));
@@ -392,6 +393,13 @@ public final class PublishEvidenceV1 {
                                           final BrokerResourceIdentityV1.Kind expected, final String branch) {
         if (resource.kind() != expected) {
             throw new IllegalArgumentException(branch + " Broker resource branch mismatch");
+        }
+    }
+
+    private static void requireProfileKind(final ProfileRefV1 profile, final ProfileKindV1 expected,
+                                           final String branch) {
+        if (profile.profileKind() != expected) {
+            throw new IllegalArgumentException(branch + " Profile kind mismatch");
         }
     }
 

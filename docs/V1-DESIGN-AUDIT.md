@@ -1032,6 +1032,10 @@ Ready Certificate 和 Evidence codec 复用该边界，且 Admission/Ready Certi
 nested identity 和 owner 匹配，但
 真实 adapter 的 authenticated response、lease protection CAS/TTL authority、
 retention barrier、external proof ownership 仍是 release blocker。
+其中 `OperatorAttestationEvidenceV1` 的 verifier 槽位也已强制为
+`ProfileKindV1.EVIDENCE_VERIFIER`，并由 `PublishEvidenceV1Test` 覆盖错误
+Profile kind 的负向回归；Profile 注册、key activation 与签名 authority
+仍属于外部 release gate。
 
 `ChannelResourceIdentityV1` now preserves the complete raw unsigned patterns for
 its physical `channel_generation`, optional `evidence_generation`, and
