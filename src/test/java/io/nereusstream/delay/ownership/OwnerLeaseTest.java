@@ -34,6 +34,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -456,7 +457,11 @@ class OwnerLeaseTest {
                 null, 1_000);
         final KafkaSourcePosition mutationPosition = new KafkaSourcePosition(shardId, "cluster", topic, 1,
                 null, 1_001);
-        final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 2);
+        final KafkaSourcePosition duplicateCommandPosition = new KafkaSourcePosition(shardId, "cluster", topic, 2,
+                null, 1_002);
+        final KafkaSourcePosition duplicateMutationPosition = new KafkaSourcePosition(shardId, "cluster", topic, 3,
+                null, 1_003);
+        final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 4);
         final PreparedCommand command = PreparedCommand.schedule(shardId,
                 new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("mixed-replay-lane")), 2_000, 5_000,
                         OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
@@ -479,13 +484,22 @@ class OwnerLeaseTest {
                     1, barrier));
             final List<SourceReplayOutcome> outcomes = owned.replay(List.of(
                     new SourceReplayRecord(command, commandPosition, null, null),
-                    new SourceReplayMutation(mutation, mutationPosition, null, null)), keyPair.getPublic(), 101);
-            assertEquals(2, outcomes.size());
+                    new SourceReplayMutation(mutation, mutationPosition, null, null),
+                    new SourceReplayRecord(command, duplicateCommandPosition, null, null),
+                    new SourceReplayMutation(mutation, duplicateMutationPosition, null, null)),
+                    keyPair.getPublic(), 101);
+            assertEquals(4, outcomes.size());
             assertTrue(outcomes.get(0).isCommand());
             assertEquals(StableCode.SCHEDULED, outcomes.get(0).commandResult().stableCode());
             assertFalse(outcomes.get(1).isCommand());
             assertEquals(StableCode.OK, outcomes.get(1).systemMutationResult().stableCode());
-            assertEquals(mutationPosition, owned.lastCatchupPosition());
+            assertEquals(duplicateCommandPosition, outcomes.get(2).position());
+            assertArrayEquals(duplicateCommandPosition.canonicalBytes(), outcomes.get(2).commandResult()
+                    .appliedSourcePosition());
+            assertEquals(duplicateMutationPosition, outcomes.get(3).position());
+            assertArrayEquals(duplicateMutationPosition.canonicalBytes(), outcomes.get(3).systemMutationResult()
+                    .appliedSourcePosition());
+            assertEquals(duplicateMutationPosition, owned.lastCatchupPosition());
             owned.activateForCommands(101);
             assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, owned.state());
         }

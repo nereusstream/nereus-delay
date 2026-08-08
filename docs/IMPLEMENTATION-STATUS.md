@@ -739,7 +739,10 @@ cursor only after the shard WriteBatch returns successfully, so validation,
 fencing or storage failure leaves the exact physical record available for
 retry. `OwnerLeaseTest` covers cursor continuation, fail-closed single-record
 byte overflow, and retention of the exact look-ahead record after a source-gap
-failure.
+failure. Mixed `SourceReplayOutcome` results additionally project a logical
+duplicate's result to the current physical Source Position while leaving the
+durable first-result anchor unchanged; `OwnerLeaseTest` covers command and
+System Mutation duplicates plus canonical-metadata mismatch rejection.
 
 `CheckpointScheduler` now provides a bounded process-local schedule for each
 owned shard: interval and deterministic per-shard jitter are validated, due

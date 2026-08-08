@@ -421,12 +421,12 @@ public final class OwnedDelayShard {
             if (record instanceof SourceReplayRecord commandRecord) {
                 final CommandResult result = delegate.apply(commandRecord.command(), position);
                 lastCatchupPosition = position;
-                results.add(SourceReplayOutcome.command(position, result));
+                results.add(SourceReplayOutcome.command(position, replayCommandResultAt(position, result)));
             } else if (record instanceof SourceReplayMutation mutationRecord) {
                 final SystemMutationResult result = delegate.applySystemMutation(mutationRecord.mutation(), position,
                         verificationKey);
                 lastCatchupPosition = position;
-                results.add(SourceReplayOutcome.systemMutation(position, result));
+                results.add(SourceReplayOutcome.systemMutation(position, replaySystemMutationResultAt(position, result)));
             } else {
                 throw new IllegalArgumentException("unsupported source replay entry: " + record.getClass());
             }
@@ -457,6 +457,32 @@ public final class OwnedDelayShard {
             throw new IllegalArgumentException("unsupported source replay entry: " + record.getClass());
         }
         return Math.addExact(positionBytes, frameBytes);
+    }
+
+    /**
+     * A logical duplicate keeps its durable result anchored at the first
+     * Source Position.  Mixed replay outcomes describe the current physical
+     * record, so project that result's anchor only in the returned value.
+     */
+    private static CommandResult replayCommandResultAt(final SourcePosition position,
+                                                        final CommandResult result) {
+        final byte[] sourceBytes = position.canonicalBytes();
+        if (Bytes.constantTimeEquals(sourceBytes, result.appliedSourcePosition())) {
+            return result;
+        }
+        return new CommandResult(result.applyStatus(), result.stableCode(), result.generation(),
+                result.stateVersion(), result.messageStatus(), sourceBytes);
+    }
+
+    private static SystemMutationResult replaySystemMutationResultAt(final SourcePosition position,
+                                                                      final SystemMutationResult result) {
+        final byte[] sourceBytes = position.canonicalBytes();
+        if (Bytes.constantTimeEquals(sourceBytes, result.appliedSourcePosition())) {
+            return result;
+        }
+        return new SystemMutationResult(result.mutationId(), result.mutationHash(), result.mutationType(),
+                result.retryUntilEpochMs(), result.authorIdentity(), result.applyStatus(), result.stableCode(),
+                sourceBytes);
     }
 
     private void ensureReplayWindow(final long nowEpochMs) {

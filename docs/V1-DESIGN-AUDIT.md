@@ -657,7 +657,10 @@ ownership remain separate release gates.
 统一 `replay` seam，以及兼容性的 `replayCatchup`/`replaySystemMutations`：
 Command 和 signed System Mutation 通过 `SourceReplayEntry` 在同一个
 source-order stream 中选择分支，每条记录先走同一 shard WriteBatch，成功后才
-推进 catch-up cursor，并返回带分支类型的 `SourceReplayOutcome`。它仍不等同于
+推进 catch-up cursor，并返回带分支类型的 `SourceReplayOutcome`。对于同一
+Command/Mutation 在后续 Source Position 的合法 logical duplicate，outcome 只把
+首次 durable result 投影到当前 physical position；RocksDB 中的首次结果锚点不被
+改写，canonical position metadata 不一致仍 fail closed。它仍不等同于
 真实 Kafka/Pulsar consumer、Oxia session/ephemeral authority、broker assignment/
 guard 或 production activation transaction。
 
