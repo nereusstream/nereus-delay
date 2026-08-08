@@ -752,6 +752,10 @@ local projection 自行推断。
 对应的 `ControlReasonV1`、trust-set activate/issuance-close payload branches
 也已按 Registry 严格解码；这些本地 marker apply 仍没有被误报成已经接入
 Oxia control authority。
+Lane PAUSE/RESUME/BREAK/CLOSE 的 ApplyShardControl projection 现在也复用
+canonical `ControlReasonV1` 与 `AcknowledgementSetV1` decoder，不再用只检查
+字段长度/哈希长度的浅层校验接受未知 reason kind 或 malformed optional
+entries；`PayloadProofControlPayloadV1Test` 覆盖该 fail-closed 路径。
 
 Managed Kafka/Pulsar ingress 在 Producer ownership 前拒绝无效 physical attempt；
 transport exception、空结果、failed stage、CompletionStage callback

@@ -72,6 +72,27 @@ class PayloadProofControlPayloadV1Test {
         assertEquals(Long.MIN_VALUE, ApplyShardControlBody.decode(body).semanticVersion());
     }
 
+    @Test
+    void laneControlUsesTypedReasonAndAcknowledgementCodecs() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
+        final ControlRef controlRef = new ControlRef(Bytes.sha256(Bytes.utf8("lane-operation")),
+                Bytes.sha256(Bytes.utf8("lane-request")), 1);
+        final byte[] laneTarget = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, Bytes.sha256(Bytes.utf8("lane")));
+            CanonicalProtobuf.bytes(output, 2, new byte[16]);
+            CanonicalProtobuf.uint32(output, 3, 1);
+        });
+        final byte[] malformedReason = CanonicalProtobuf.message(output -> CanonicalProtobuf.uint32(output, 1, 99));
+        final byte[] branch = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, laneTarget);
+            CanonicalProtobuf.bytes(output, 2, malformedReason);
+        });
+        final ApplyShardControlBody body = ApplyShardControlBody.decode(controlBody(shard, controlRef, 8,
+                branch, Bytes.sha256(Bytes.utf8("lane-semantic"))));
+
+        assertThrows(IllegalArgumentException.class, body::laneTarget);
+    }
+
     private static byte[] controlBody(final ShardId shard, final ControlRef controlRef, final int controlKind,
                                       final byte[] branch, final byte[] semanticHash) {
         return controlBody(shard, controlRef, controlKind, branch, semanticHash, 1);

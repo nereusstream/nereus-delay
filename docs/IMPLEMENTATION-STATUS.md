@@ -1056,6 +1056,11 @@ source position in one WriteBatch; reopen restores the same activation and
 issuance-close projection. The catalog itself, authenticated control
 authority, and Recovery-Floor historical verifier retention remain external
 blockers, so the local marker apply does not claim production trust authority.
+Lane PAUSE/RESUME/BREAK/CLOSE projection now also delegates its nested
+`ControlReasonV1` and `AcknowledgementSetV1` values to the canonical codecs;
+unknown reason kinds, malformed optional hashes and non-canonical acknowledgement
+entries cannot pass the manual lane-target projection. The negative coverage is
+in `PayloadProofControlPayloadV1Test`.
 
 The local Owner Lease adapters now enforce the closed lifecycle transition
 matrix, including fail-closed backward transitions and fenced-lease

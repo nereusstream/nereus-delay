@@ -163,46 +163,11 @@ public final class ApplyShardControlBody {
     }
 
     private static void validateControlReason(final byte[] encoded) {
-        final List<CanonicalProtobuf.Reader.Field> fields = readAll(new CanonicalProtobuf.Reader(encoded));
-        if (fields.size() < 1 || fields.size() > 3 || fields.get(0).number() != 1
-                || fields.get(0).wireType() != 0 || fields.get(0).unsignedValue() <= 0) {
-            throw new IllegalArgumentException("invalid ControlReason");
-        }
-        for (int index = 1; index < fields.size(); index++) {
-            final CanonicalProtobuf.Reader.Field field = fields.get(index);
-            if ((field.number() != 2 && field.number() != 3) || field.wireType() != 2) {
-                throw new IllegalArgumentException("invalid ControlReason field");
-            }
-            Bytes.requireLength(field.rawValue(), ControlRef.HASH_LENGTH, "ControlReason hash");
-        }
+        ControlReasonV1.decode(encoded);
     }
 
     private static void validateAcknowledgementSet(final byte[] encoded) {
-        final List<CanonicalProtobuf.Reader.Field> entries =
-                readAll(new CanonicalProtobuf.Reader(encoded, true));
-        int previousKind = 0;
-        for (CanonicalProtobuf.Reader.Field entry : entries) {
-            if (entry.number() != 1 || entry.wireType() != 2) {
-                throw new IllegalArgumentException("invalid AcknowledgementSet field");
-            }
-            final List<CanonicalProtobuf.Reader.Field> ack = readAll(
-                    new CanonicalProtobuf.Reader(entry.rawValue()));
-            if (ack.size() != 3 || ack.get(0).number() != 1 || ack.get(0).wireType() != 0
-                    || ack.get(0).unsignedValue() < 1 || ack.get(0).unsignedValue() > 3
-                    || ack.get(1).number() != 2 || ack.get(1).wireType() != 2
-                    || ack.get(2).number() != 3 || ack.get(2).wireType() != 2) {
-                throw new IllegalArgumentException("invalid Acknowledgement");
-            }
-            Bytes.requireLength(ack.get(1).rawValue(), ControlRef.HASH_LENGTH,
-                    "Acknowledgement hash");
-            Bytes.requireLength(ack.get(2).rawValue(), ControlRef.HASH_LENGTH,
-                    "Acknowledgement scope hash");
-            final int kind = Math.toIntExact(ack.get(0).unsignedValue());
-            if (kind <= previousKind) {
-                throw new IllegalArgumentException("Acknowledgements are not sorted and unique");
-            }
-            previousKind = kind;
-        }
+        AcknowledgementSetV1.decode(encoded);
     }
 
     private void validatePayloadBranch() {
