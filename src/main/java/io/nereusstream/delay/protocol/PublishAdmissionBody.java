@@ -542,22 +542,7 @@ public final class PublishAdmissionBody {
     }
 
     private static void validateBrokerResource(final byte[] encoded) {
-        final List<CanonicalProtobuf.Reader.Field> outer = read(encoded, "BrokerResourceIdentity");
-        if (outer.size() != 1 || (outer.get(0).number() != 1 && outer.get(0).number() != 2)) {
-            throw new IllegalArgumentException("invalid BrokerResourceIdentity branch");
-        }
-        final List<CanonicalProtobuf.Reader.Field> fields = read(outer.get(0).rawValue(), "BrokerResource");
-        if (outer.get(0).number() == 1) {
-            requireExactFields(fields, 2, "KafkaResourceIdentity");
-            nonEmpty(bytes(field(fields, 1), 1), 1);
-            fixed(bytes(field(fields, 2), 2), 16, 2);
-        } else {
-            requireExactFields(fields, 4, "PulsarResourceIdentity");
-            nonEmpty(bytes(field(fields, 1), 1), 1);
-            fixed(bytes(field(fields, 2), 2), HASH_LENGTH, 2);
-            nonEmpty(bytes(field(fields, 3), 3), 3);
-            rawUnsigned(field(fields, 4), 4);
-        }
+        BrokerResourceIdentityV1.decode(encoded);
     }
 
     private static void validatePayload(final byte[] encoded) {
@@ -576,29 +561,16 @@ public final class PublishAdmissionBody {
                 throw new IllegalArgumentException("inline payload length/hash mismatch");
             }
         } else {
-            final List<CanonicalProtobuf.Reader.Field> object = read(nested(field(fields, 4), 4),
-                    "CommittedPayloadDescriptor");
-            requireExactFields(fieldsForObject(object), 9, "CommittedPayloadDescriptor");
-            nested(field(object, 1), 1);
-            nonEmpty(bytes(field(object, 2), 2), 2);
-            nonEmpty(bytes(field(object, 3), 3), 3);
-            nonEmpty(bytes(field(object, 4), 4), 4);
-            unsigned(field(object, 6), 6);
-            fixed(bytes(field(object, 7), 7), HASH_LENGTH, 7);
-            fixed(bytes(field(object, 8), 8), HASH_LENGTH, 8);
-            fixed(bytes(field(object, 9), 9), HASH_LENGTH, 9);
-            if (length != unsigned(field(object, 6), 6) || !Arrays.equals(hash, bytes(field(object, 7), 7))) {
+            final CommittedPayloadDescriptorV1 object = CommittedPayloadDescriptorV1.decode(
+                    nested(field(fields, 4), 4));
+            if (length != object.length() || !Arrays.equals(hash, object.payloadSha256())) {
                 throw new IllegalArgumentException("object payload length/hash mismatch");
             }
         }
     }
 
     private static void validateAdapterMetadata(final byte[] encoded) {
-        final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "AdapterMetadata");
-        if (fields.size() != 1 || (fields.get(0).number() != 1 && fields.get(0).number() != 2)) {
-            throw new IllegalArgumentException("invalid AdapterMetadata branch");
-        }
-        nested(fields.get(0), fields.get(0).number());
+        AdapterMetadataV1.decode(encoded);
     }
 
     private static void validateReservedMetadata(final byte[] encoded) {
@@ -780,11 +752,6 @@ public final class PublishAdmissionBody {
         while (reader.hasRemaining()) {
             fields.add(reader.next());
         }
-        return fields;
-    }
-
-    private static List<CanonicalProtobuf.Reader.Field> fieldsForObject(
-            final List<CanonicalProtobuf.Reader.Field> fields) {
         return fields;
     }
 

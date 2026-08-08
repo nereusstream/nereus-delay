@@ -478,6 +478,10 @@ The local evidence is `ResourceRetireIntentBodyTest.preservesUnsignedResourceSta
 `KeyCodecTest.gcRetireIntentKeyPreservesUnsignedResourceStateVersionBits`,
 `ResourceGcGuardTest.durableGcRecordsPreserveUnsignedResourceStateVersionBits`
 and the high-bit `DelayShardTest.resourceRetireIntentIsSourceOrderedDurableAndVersionFenced`.
+The descriptor and ClaimMaterialization branches now also reuse the typed
+Broker-resource, committed Object Store descriptor and adapter-metadata codecs,
+keeping Admission and Claim Result on one strict NFC/branch/Profile-kind
+boundary rather than maintaining divergent shallow validators.
 The canonical-protobuf reader also rejects field numbers outside the Registry's
 `1..0x1fff` range before closed-union dispatch; the local regression is
 `CanonicalProtobufTest.readerRejectsFieldNumbersOutsideRegistryRange`.

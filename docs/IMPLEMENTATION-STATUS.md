@@ -127,6 +127,13 @@ could bypass. `ClaimResultBodyTest` covers non-canonical Broker identity and a
 committed payload carrying the wrong Profile kind; full Claim materialization
 and external Object Store authority remain release blockers.
 
+`PublishAdmissionBody` now applies the same typed nested codecs to both its
+Prepared Publish descriptor and Claim materialization projections, so Admission
+cannot accept a Broker or metadata branch that Claim Result would reject, nor
+an Object Store descriptor with the wrong Profile kind. Existing Admission
+cross-object and profile/timing tests remain green; authenticated catalog and
+Object Store authority are still external gates.
+
 DLQ `terminalRevision` now preserves complete nonzero `uint64` bits through
 `DlqExportRecord` identity/bytes and `DlqExportResultBody` parsing; zero remains
 invalid. `DlqExportRecordTest` and `DlqExportResultBodyTest` cover the high-bit
