@@ -587,7 +587,9 @@ apply 只接受 canonical all-zero transfer；任何 non-zero callback transfer 
 `REJECTED(STALE_SYSTEM_MUTATION)`，保留 outbox state 和 source-ordered position
 前后的可重放边界。要开放真实 DLQ charge transfer，必须先把 exact retained charge
 加入 outbox，并在同一 source-ordered state machine 中校验和释放；
-`DlqExportApplyTest` 覆盖当前 fail-closed seam。
+`DlqExportApplyTest` 覆盖当前 fail-closed seam。成功应用还保留 body 的
+`stable_code` 到 `SystemMutationResult`；`DLQ_EXPORT_OUTCOME_UNKNOWN` 的
+source-ordered 回归覆盖该结果可见性。
 
 `PublishEvidenceV1`/`ExternalDeliveryIdentityV1` 进一步把 Registry 的
 `PublishEvidenceV1` 公共字段、kind 对应 oneof 分支、verification-status 语义、

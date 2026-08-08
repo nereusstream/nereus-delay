@@ -3500,7 +3500,7 @@ public final class DelayShard {
                     current.generation(), current.terminalRevision(), current.exportEnvelopeHash(),
                     body.resultingState(), nextAttempt, sourcePosition.canonicalBytes());
             final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED,
-                    StableCode.OK, sourcePosition.canonicalBytes());
+                    body.stableCode(), sourcePosition.canonicalBytes());
             store.write(batch -> {
                 batch.putValue(ColumnFamily.TERMINAL, DlqExportRecord.VALUE_TYPE,
                         KeyCodec.terminalDlqExport(next.dlqExportId()), next.encode());
