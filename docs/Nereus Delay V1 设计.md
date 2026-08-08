@@ -1581,6 +1581,13 @@ stableCode / evidenceDescriptor / diagnostic
 - `UNKNOWN` 无论同时发现 Lane/Owner/Adapter 故障，都必须先持久化 `UNCERTAIN`，故障作用域只决定 circuit/safety 动作，不能把 side effect 改成 failure；
 - `OWNER_FENCED`/`ADAPTER_BUG` 触发 shard safety path；若当前 Owner 已不能写，callback 只 audit，由新 Owner 从 durable `PUBLISHING` 与 evidence 恢复。
 
+对 `PUBLISHED`/`NOT_PUBLISHED` 这类 definitive Outcome，以及
+`EVIDENCE_RESOLUTION_V1` 的 verified result，body 中的 `ChargeVectorV1 transfer`
+必须与该 attempt 的 Admission ledger 所保留 charge 做 canonical byte-equality。
+不相等时 apply 只写 `REJECTED(STALE_SYSTEM_MUTATION)` 和 source position，不得改变
+attempt、message、timeline 或 quota；`UNKNOWN` 的 transfer 仍是 opaque placeholder，不能
+触发 definitive charge release。
+
 timeout/connection loss after submission 默认 `UNKNOWN`。收到 Kafka pinned UUID 的 `UNKNOWN_TOPIC_ID` 或 Pulsar exact guard rejection 是 `NOT_PUBLISHED + LANE_UNAVAILABLE`；对应 response 丢失仍是 `UNKNOWN + LANE_UNAVAILABLE`。
 
 Adapter Channel 是 Lane-scoped 的本地提交/缓冲隔离单元：

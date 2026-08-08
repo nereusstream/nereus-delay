@@ -568,8 +568,12 @@ teardown 或 Broker evidence journal，因此不能宣称 production admission �
 `PUBLISHED`/`NOT_PUBLISHED`/`UNKNOWN` side-effect/disposition/stable-code/retry
 组合因此不会由调用方随意拼出，definitive transfer 必须是 canonical
 `ChargeVectorV1`，Evidence Resolution 的 cursor 必须是 typed canonical
-`EvidenceCursorV1`。`PublishOutcomeBodyTest` 与 `DelayShardTest` 覆盖编码器、非规范
-ChargeVector、typed cursor 以及 source-ordered close/requeue；这仍只是 canonical
+`EvidenceCursorV1`。Apply 现在还要求 definitive Outcome/Resolution 的 transfer 与
+对应 Admission ledger 保留的 charge 做 canonical byte-equality；不一致写入
+`REJECTED(STALE_SYSTEM_MUTATION)`，不改变 attempt、message、timeline 或 quota，
+而 `UNKNOWN` transfer 仍不参与 release。`PublishOutcomeBodyTest` 与 `DelayShardTest`
+覆盖编码器、非规范 ChargeVector、typed cursor、transfer mismatch 以及
+source-ordered close/requeue；这仍只是 canonical
 body codec 和本地 transition seam；当前 local transition 还验证了已 admitted
 generation 在 Close marker 后收到 definitive `NOT_PUBLISHED` 时固定写入
 `LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED` 并停止 retry。它不等于签名服务、真实

@@ -2014,6 +2014,10 @@ public final class DelayShard {
                 return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                         StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
             }
+            if (!matchesRetainedOutcomeCharge(ledger, outcome.transfer())) {
+                return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                        StableCode.STALE_SYSTEM_MUTATION);
+            }
             final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, code,
                     sourcePosition.canonicalBytes());
             return applyNotPublishedPublishOutcome(ledger, outcome, sourcePosition, result,
@@ -2028,6 +2032,10 @@ public final class DelayShard {
             final PublishOutcomeBody outcome = PublishOutcomeBody.decode(mutation.canonicalBody());
             if (!Arrays.equals(outcome.publishAttemptId(), attemptId)) {
                 throw new IllegalArgumentException("Publish Outcome attempt identity mismatch");
+            }
+            if (!matchesRetainedOutcomeCharge(ledger, outcome.transfer())) {
+                return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                        StableCode.STALE_SYSTEM_MUTATION);
             }
             final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, code,
                     sourcePosition.canonicalBytes());
@@ -2061,6 +2069,10 @@ public final class DelayShard {
         final PublishAttemptLedger ledger = findOpenPublishAttempt(resolution.publishAttemptId());
         if (ledger == null || ledger.state() != AttemptLedgerState.UNCERTAIN) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
+        if (!matchesRetainedOutcomeCharge(ledger, resolution.transfer())) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }
         final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED,
@@ -3936,6 +3948,26 @@ public final class DelayShard {
             // intentionally usable with synthetic test bytes. Such ledgers did
             // not consume this reserve and therefore release zero.
             return OutcomeReserveUsage.empty();
+        }
+    }
+
+    /**
+     * A definitive outcome may release only the exact charge vector retained by
+     * its Admission.  Synthetic direct ledgers used by the embedded compatibility
+     * seam carry no canonical Admission body and therefore retain the all-zero
+    * vector; they must not accept an arbitrary transfer from the callback.
+     */
+    private boolean matchesRetainedOutcomeCharge(final PublishAttemptLedger ledger, final byte[] transfer) {
+        final byte[] retained = retainedOutcomeCharge(ledger);
+        return Bytes.constantTimeEquals(retained, transfer);
+    }
+
+    private byte[] retainedOutcomeCharge(final PublishAttemptLedger ledger) {
+        try {
+            return PublishAdmissionBody.decode(ledger.admissionBytes()).chargeVector().canonicalBytes();
+        } catch (RuntimeException legacyOrMalformedDirectLedger) {
+            return new PublishAdmissionBody.ChargeVector(
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0).canonicalBytes();
         }
     }
 

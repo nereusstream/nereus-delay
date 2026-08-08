@@ -2993,7 +2993,6 @@ class DelayShardTest {
         final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
         final KafkaSourcePosition admissionPosition = position(shardId, 1, 1_001);
         final KafkaSourcePosition unknownPosition = position(shardId, 2, 1_002);
-        final KafkaSourcePosition resolutionPosition = position(shardId, 3, 1_003);
         final byte[] attemptId = Bytes.sha256(Bytes.utf8("system-resolution-attempt"));
         final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
         final KeyPair keyPair = generator.generateKeyPair();
@@ -3013,9 +3012,20 @@ class DelayShardTest {
                         Bytes.sha256(Bytes.utf8("resolution-proof")), 0, null).canonicalBytes());
         final byte[] service = AuthorIdentity.service(Bytes.utf8("evidence-service"), Bytes.utf8("run"), 1)
                 .canonicalBytes();
+        final byte[] mismatchedResolutionBody = evidenceResolutionBody(shardId, attemptId, StableCode.OK, 1, 0,
+                new TrustedUtcIntervalEvidence(1_003, 1_003,
+                        TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("clock"), 1, 3, 3,
+                        Bytes.sha256(Bytes.utf8("resolution-proof-mismatch")), 0, null).canonicalBytes(),
+                chargeVectorWithActiveMessages(1));
+        final SystemMutation mismatchedResolution = SystemMutation.signed(shardId,
+                SystemMutationType.EVIDENCE_RESOLUTION, 9_000,
+                Bytes.sha256(Bytes.utf8("resolution-transfer-mismatch")), mismatchedResolutionBody, service, 1,
+                keyPair.getPrivate());
         final SystemMutation resolution = SystemMutation.signed(shardId, SystemMutationType.EVIDENCE_RESOLUTION,
                 9_000, Bytes.sha256(Bytes.utf8("resolution-operation")), resolutionBody, service, 1,
                 keyPair.getPrivate());
+        final KafkaSourcePosition mismatchedResolutionPosition = position(shardId, 3, 1_003);
+        final KafkaSourcePosition resolutionPositionAfterMismatch = position(shardId, 4, 1_004);
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
@@ -3030,8 +3040,15 @@ class DelayShardTest {
                     shard.applySystemMutation(unknown, unknownPosition, keyPair.getPublic()).stableCode());
             assertEquals(MessageStatus.UNCERTAIN, shard.getMessage(schedule.delayMessageId()).status());
 
-            final SystemMutationResult result = shard.applySystemMutation(resolution, resolutionPosition,
-                    keyPair.getPublic());
+            final SystemMutationResult mismatched = shard.applySystemMutation(mismatchedResolution,
+                    mismatchedResolutionPosition, keyPair.getPublic());
+            assertEquals(ApplyStatus.REJECTED, mismatched.applyStatus());
+            assertEquals(StableCode.STALE_SYSTEM_MUTATION, mismatched.stableCode());
+            assertEquals(MessageStatus.UNCERTAIN, shard.getMessage(schedule.delayMessageId()).status());
+            assertNotNull(shard.findOpenPublishAttempt(attemptId));
+
+            final SystemMutationResult result = shard.applySystemMutation(resolution,
+                    resolutionPositionAfterMismatch, keyPair.getPublic());
 
             assertEquals(StableCode.OK, result.stableCode());
             assertEquals(MessageStatus.PUBLISHED, shard.getMessage(schedule.delayMessageId()).status());
@@ -3638,14 +3655,23 @@ class DelayShardTest {
                 Bytes.sha256(Bytes.utf8("admission-outcome-release")), chargedBody, fixture.owner(), 1,
                 keyPair.getPrivate());
         final KafkaSourcePosition admissionPosition = position(shardId, 1, 2_001);
+        final TrustedUtcIntervalEvidence outcomeObservedAt = new TrustedUtcIntervalEvidence(2_002, 2_002,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("outcome-clock"),
+                1, 1, 1, Bytes.sha256(Bytes.utf8("outcome-proof")), 0, null);
+        final byte[] mismatchedOutcomeBody = publishOutcomeBody(shardId, parsed.publishAttemptId(), 1, 0,
+                StableCode.OK, nestedPlaceholder(), outcomeObservedAt.canonicalBytes(),
+                verifiedRetryDecision(StableCode.OK), chargeVectorWithActiveMessages(1));
+        final SystemMutation mismatchedOutcome = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME,
+                9_000, Bytes.sha256(Bytes.utf8("outcome-transfer-mismatch")), mismatchedOutcomeBody, fixture.owner(),
+                1, keyPair.getPrivate());
         final byte[] outcomeBody = publishOutcomeBody(shardId, parsed.publishAttemptId(), 1, 0, StableCode.OK,
-                nestedPlaceholder(), new TrustedUtcIntervalEvidence(2_002, 2_002,
-                        TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("outcome-clock"),
-                        1, 1, 1, Bytes.sha256(Bytes.utf8("outcome-proof")), 0, null).canonicalBytes());
+                nestedPlaceholder(), outcomeObservedAt.canonicalBytes(), verifiedRetryDecision(StableCode.OK),
+                parsed.chargeVector().canonicalBytes());
         final SystemMutation outcome = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
                 Bytes.sha256(Bytes.utf8("outcome-outcome-release")), outcomeBody, fixture.owner(), 1,
                 keyPair.getPrivate());
-        final KafkaSourcePosition outcomePosition = position(shardId, 2, 2_002);
+        final KafkaSourcePosition mismatchedOutcomePosition = position(shardId, 2, 2_002);
+        final KafkaSourcePosition outcomePosition = position(shardId, 3, 2_003);
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
@@ -3657,6 +3683,15 @@ class DelayShardTest {
             assertEquals(new OutcomeReserveUsage(2, 2), shard.outcomeReserve());
             assertEquals(MessageStatus.PUBLISHING, shard.getMessage(messageId).status());
             assertNotNull(shard.findOpenPublishAttempt(parsed.publishAttemptId()));
+
+            final SystemMutationResult mismatched = shard.applySystemMutation(mismatchedOutcome,
+                    mismatchedOutcomePosition, keyPair.getPublic());
+            assertEquals(ApplyStatus.REJECTED, mismatched.applyStatus());
+            assertEquals(StableCode.STALE_SYSTEM_MUTATION, mismatched.stableCode());
+            assertEquals(new OutcomeReserveUsage(2, 2), shard.outcomeReserve());
+            assertEquals(MessageStatus.PUBLISHING, shard.getMessage(messageId).status());
+            assertNotNull(shard.findOpenPublishAttempt(parsed.publishAttemptId()));
+
             assertEquals(StableCode.OK,
                     shard.applySystemMutation(outcome, outcomePosition, keyPair.getPublic()).stableCode());
             assertEquals(OutcomeReserveUsage.empty(), shard.outcomeReserve());
@@ -4961,12 +4996,20 @@ class DelayShardTest {
                                               final byte[] evidence, final byte[] observedAt) {
         final byte[] retry = sideEffect == 3 ? nestedPlaceholder() : verifiedRetryDecision(stableCode);
         return publishOutcomeBody(shard, attemptId, sideEffect, disposition, stableCode, evidence, observedAt,
-                retry);
+                retry, sideEffect == 3 ? nestedPlaceholder() : chargeVector());
     }
 
     private static byte[] publishOutcomeBody(final ShardId shard, final byte[] attemptId, final int sideEffect,
                                               final int disposition, final StableCode stableCode,
                                               final byte[] evidence, final byte[] observedAt, final byte[] retry) {
+        return publishOutcomeBody(shard, attemptId, sideEffect, disposition, stableCode, evidence, observedAt, retry,
+                sideEffect == 3 ? nestedPlaceholder() : chargeVector());
+    }
+
+    private static byte[] publishOutcomeBody(final ShardId shard, final byte[] attemptId, final int sideEffect,
+                                              final int disposition, final StableCode stableCode,
+                                              final byte[] evidence, final byte[] observedAt, final byte[] retry,
+                                              final byte[] transfer) {
         final byte[] subject = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());
             CanonicalProtobuf.uint32(output, 2, shard.partition());
@@ -4982,7 +5025,7 @@ class DelayShardTest {
             if (sideEffect != 3) {
                 CanonicalProtobuf.bytes(output, 14, publishEvidence(attemptId, sideEffect == 1, stableCode));
             }
-            CanonicalProtobuf.bytes(output, 15, sideEffect == 3 ? nestedPlaceholder() : chargeVector());
+            CanonicalProtobuf.bytes(output, 15, transfer);
             CanonicalProtobuf.bytes(output, 16, observedAt);
             CanonicalProtobuf.bytes(output, 17, retry);
         });
@@ -5076,6 +5119,14 @@ class DelayShardTest {
     private static byte[] evidenceResolutionBody(final ShardId shard, final byte[] attemptId,
                                                  final StableCode stableCode, final int sideEffect,
                                                  final int disposition, final byte[] observedAt) {
+        return evidenceResolutionBody(shard, attemptId, stableCode, sideEffect, disposition, observedAt,
+                chargeVector());
+    }
+
+    private static byte[] evidenceResolutionBody(final ShardId shard, final byte[] attemptId,
+                                                 final StableCode stableCode, final int sideEffect,
+                                                 final int disposition, final byte[] observedAt,
+                                                 final byte[] transfer) {
         final byte[] subject = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());
             CanonicalProtobuf.uint32(output, 2, shard.partition());
@@ -5109,7 +5160,7 @@ class DelayShardTest {
             CanonicalProtobuf.uint32(output, 13, stableCode.wireValue());
             CanonicalProtobuf.uint32(output, 14, sideEffect);
             CanonicalProtobuf.uint32(output, 15, disposition);
-            CanonicalProtobuf.bytes(output, 16, chargeVector());
+            CanonicalProtobuf.bytes(output, 16, transfer);
             CanonicalProtobuf.bytes(output, 17, observedAt);
             CanonicalProtobuf.bytes(output, 18, retry);
         });
