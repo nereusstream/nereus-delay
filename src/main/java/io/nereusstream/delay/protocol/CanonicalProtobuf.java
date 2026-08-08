@@ -133,7 +133,12 @@ public final class CanonicalProtobuf {
             }
             if (wireType == 2) {
                 final long length = readVarint();
-                if (length > Integer.MAX_VALUE || offset > bytes.length - (int) length) {
+                // Length prefixes are bounded local sizes, not arbitrary raw
+                // uint64 fields.  A high-bit varint is negative in Java's
+                // signed view; rejecting it before the int cast prevents a
+                // malicious 2^63+ length from being narrowed to zero (or a
+                // small positive value) and accepted as an empty payload.
+                if (length < 0 || length > Integer.MAX_VALUE || offset > bytes.length - (int) length) {
                     throw new IllegalArgumentException("protobuf length outside payload");
                 }
                 final byte[] value = Arrays.copyOfRange(bytes, offset, offset + (int) length);

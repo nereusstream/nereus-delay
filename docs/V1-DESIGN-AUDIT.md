@@ -41,6 +41,14 @@ Pulsar physical-topic creation identity. The closed Control and Scheduler
 projection validators apply the same fence to local `uint32` and boolean
 fields. `ProtocolCodecTest` covers these malformed-input fences.
 
+The canonical Protobuf length-delimited reader rejects high-bit `uint64`
+length prefixes and lengths above the bounded Java `int` payload limit before
+the value is narrowed for slicing. This closes the local malformed-input path
+where a `2^63`-class length could otherwise become zero after a cast;
+`ProtocolCodecTest.canonicalReaderRejectsHighBitLengthPrefixes` is the focused
+regression evidence. It is parser-safety evidence only and does not claim an
+external transport or object-store size limit.
+
 The five `meta/SCHEDULER` projection codecs likewise retain complete raw
 `uint64` generation/version/deficit bits and keep only the bounded `next_index`
 `uint32` in local range. The focused projection vector covers discovery cursor,

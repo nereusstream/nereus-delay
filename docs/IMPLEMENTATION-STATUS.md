@@ -51,6 +51,14 @@ both overflow and high-bit timing rejection; the closed Control and Scheduler
 projection validators use the same negative-value fence for local `uint32` and
 boolean fields.
 
+The canonical Protobuf reader also rejects a length-delimited prefix whose
+unsigned `uint64` value has the sign bit set, as well as any length above the
+bounded Java `int` payload limit, before narrowing it to an array offset. This
+prevents a malformed `2^63`-class length from being truncated to zero and
+accepted as an empty payload. `ProtocolCodecTest.canonicalReaderRejectsHighBitLengthPrefixes`
+covers this local parser boundary; it does not change the Registry's bounded
+length-field semantics or establish an external transport limit.
+
 The five persisted `meta/SCHEDULER` projection codecs now preserve the
 Registry's complete raw `uint64` generation/version/deficit bit patterns and
 use zero-only checks for nonzero fields; `next_index` remains a bounded local

@@ -987,6 +987,17 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void canonicalReaderRejectsHighBitLengthPrefixes() {
+        final byte[] malformed = new byte[]{
+                0x0a,
+                (byte) 0x80, (byte) 0x80, (byte) 0x80, (byte) 0x80, (byte) 0x80,
+                (byte) 0x80, (byte) 0x80, (byte) 0x80, (byte) 0x80, 0x01
+        };
+        assertThrows(IllegalArgumentException.class,
+                () -> new CanonicalProtobuf.Reader(malformed).next());
+    }
+
+    @Test
     void queuedReceiptRejectsHighBitInt64TimingFields() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
         final PreparedCommand command = scheduleV1(shard, "queued-timing", 2_000, 8_000, 9_000);
