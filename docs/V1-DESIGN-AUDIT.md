@@ -1367,7 +1367,9 @@ objective branch 校验 Final 的 unit 与 merge direction，错误语义不会�
 outbox；`SloObservationOutboxV1Test.rejectsFinalUnitAndMergeDirectionThatDisagreeWithObjective`
 覆盖该边界；同一 severity 的重复 Final 还按较新 `observationRevision` 选择
 evidence，避免 revision 与 evidence 混配。`SloObservationOutboxV1Test.mergeUsesNewestEvidenceWhenOutcomeSeverityIsEqual`
-覆盖该边界。这只补足 shard-local 持久化完整性，不能
+覆盖该边界；两个重复 Final 若携带不同的 non-null due exclusion reason
+则 fail closed，而不是静默保留旧 reason，`SloObservationOutboxV1Test.mergeRejectsConflictingDueExclusionReasons`
+覆盖 mutually-exclusive reason 的完整性边界。这只补足 shard-local 持久化完整性，不能
 替代 SLO Start 重建、collector merge/export 或生产观测 authority。
 
 Large-payload reservation 的本地读取也采用同一条组合身份边界：`id_cf/RESERVATION`

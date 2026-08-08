@@ -139,6 +139,10 @@ public final class SloSampleFinalV1 {
                 && !Arrays.equals(current.canonicalBytes(), incoming.canonicalBytes())) {
             throw new IllegalArgumentException("same SLO observation revision has different bytes");
         }
+        if (current.exclusionReason != null && incoming.exclusionReason != null
+                && current.exclusionReason != incoming.exclusionReason) {
+            throw new IllegalArgumentException("SLO Finals carry conflicting exclusion reasons");
+        }
         final SloSampleFinalV1 evidenceSource = compareEvidence(current, incoming) >= 0 ? current : incoming;
         final long lower = direction == SloThresholdDirectionV1.AT_MOST
                 ? Math.max(current.measuredLower, incoming.measuredLower)

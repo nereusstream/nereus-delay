@@ -1281,7 +1281,10 @@ covers the semantic fence.
 Equal-severity Finals now select the newest observation revision's evidence as
 well as the conservative measurement; `SloObservationOutboxV1Test.mergeUsesNewestEvidenceWhenOutcomeSeverityIsEqual`
 covers that replay boundary. This is
-still local evidence only; multi-shard placement/Oxia authority,
+still local evidence only. Repeated due Finals with two different non-null
+mutually-exclusive exclusion reasons now fail closed instead of silently keeping
+the older reason; `SloObservationOutboxV1Test.mergeRejectsConflictingDueExclusionReasons`
+covers that integrity boundary. Multi-shard placement/Oxia authority,
 production non-outcome/recovery/emergency/source-writer reserve authority,
 transfer protocol, SLO
 identity-specific reconstruction/collector export and full GC accounting

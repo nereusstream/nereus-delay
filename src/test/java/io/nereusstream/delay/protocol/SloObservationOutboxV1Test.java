@@ -64,6 +64,24 @@ class SloObservationOutboxV1Test {
     }
 
     @Test
+    void mergeRejectsConflictingDueExclusionReasons() {
+        final SloSampleStartV1 start = dueAcceptedStart();
+        final SloSampleFinalV1 capacity = new SloSampleFinalV1(start.sampleId(), start.startDigest(),
+                SloFinalOutcomeV1.BAD_EVIDENCE_GAP, SloThresholdUnitV1.MILLISECONDS, 1, 2,
+                DueExclusionReasonV1.CAPACITY_GATED, endpoint(200), bytes(32, 12), 1);
+        final SloSampleFinalV1 paused = new SloSampleFinalV1(start.sampleId(), start.startDigest(),
+                SloFinalOutcomeV1.BAD_EVIDENCE_GAP, SloThresholdUnitV1.MILLISECONDS, 1, 2,
+                DueExclusionReasonV1.ADMIN_PAUSED, endpoint(201), bytes(32, 13), 2);
+
+        final SloObservationOutboxV1 outbox = SloObservationOutboxV1.open(start)
+                .mergeFinal(capacity, SloThresholdDirectionV1.AT_MOST);
+        assertThrows(IllegalArgumentException.class,
+                () -> outbox.mergeFinal(paused, SloThresholdDirectionV1.AT_MOST));
+        assertThrows(IllegalArgumentException.class,
+                () -> SloSampleFinalV1.merge(capacity, paused, SloThresholdDirectionV1.AT_MOST));
+    }
+
+    @Test
     void rejectsIdentityDriftAndTampering() {
         final SloSampleStartV1 start = start();
         final SloSampleFinalV1 finalObservation = new SloSampleFinalV1(start.sampleId(), start.startDigest(),
@@ -117,6 +135,19 @@ class SloObservationOutboxV1Test {
                 SloObjectiveNameV1.COMMAND_QUEUED_LATENCY, completeBranchPayload);
         return new SloSampleStartV1(bytes(32, 1), SloObjectiveNameV1.COMMAND_QUEUED_LATENCY,
                 SloPopulationV1.ALL_ACCEPTED, SloPathV1.NOT_APPLICABLE, identity, endpoint(100), 200L);
+    }
+
+    private static SloSampleStartV1 dueAcceptedStart() {
+        final SloSampleEventIdentityV1 identity = new SloSampleEventIdentityV1(
+                SloObjectiveNameV1.DUE_ADMISSION_LAG, CanonicalProtobuf.message(output ->
+                {
+                    CanonicalProtobuf.bytes(output, 1, bytes(41, 14));
+                    CanonicalProtobuf.uint32(output, 2, 1);
+                    CanonicalProtobuf.uint64(output, 3, 100);
+                    CanonicalProtobuf.uint32(output, 4, SloPathV1.ORDINARY_MANAGED.wireValue());
+                }));
+        return new SloSampleStartV1(bytes(32, 15), SloObjectiveNameV1.DUE_ADMISSION_LAG,
+                SloPopulationV1.ALL_ACCEPTED, SloPathV1.ORDINARY_MANAGED, identity, endpoint(100), 200L);
     }
 
     private static SloTimeEndpointV1 endpoint(final long epochMs) {
