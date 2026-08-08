@@ -206,10 +206,42 @@ class EmbeddedDelayServiceTest {
                     OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
             final var nextOffset = EmbeddedDelayService.class.getDeclaredField("nextOffset");
             nextOffset.setAccessible(true);
-            nextOffset.setLong(service, -1L);
+            final var offsetExhausted = EmbeddedDelayService.class.getDeclaredField("offsetExhausted");
+            offsetExhausted.setAccessible(true);
+            offsetExhausted.setBoolean(service, true);
 
             assertThrows(IllegalStateException.class, () -> service.enqueue(command));
-            assertEquals(-1L, nextOffset.getLong(service));
+            assertEquals(0L, nextOffset.getLong(service));
+            assertTrue(offsetExhausted.getBoolean(service));
+        }
+    }
+
+    @Test
+    void embeddedSourceAcceptsUnsignedMaximumOffsetThenExhausts() throws ReflectiveOperationException {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 21);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("offset-maximum")), shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final PreparedCommand command = service.prepareSchedule(new ScheduleIntent(
+                    DestinationLaneId.derive(Bytes.utf8("offset-maximum-lane")), 2_000, 5_000,
+                    OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+            final var nextOffset = EmbeddedDelayService.class.getDeclaredField("nextOffset");
+            nextOffset.setAccessible(true);
+            nextOffset.setLong(service, Long.MAX_VALUE);
+
+            final EnqueueOutcome outcome = service.enqueue(command).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.QUEUED, outcome.status());
+            assertEquals(Long.MAX_VALUE, ((KafkaSourcePosition) outcome.receipt().sourcePosition()).offset());
+
+            // The all-ones offset is also a valid unsigned Kafka offset; it
+            // must be accepted once before the sequence is exhausted.
+            nextOffset.setLong(service, -1L);
+            final PreparedCommand maximum = service.prepareCancel(DelayMessageId.random(shard), -1, 10_000);
+            final EnqueueOutcome maximumOutcome = service.enqueue(maximum).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.QUEUED, maximumOutcome.status());
+            assertEquals(-1L, ((KafkaSourcePosition) maximumOutcome.receipt().sourcePosition()).offset());
+            assertThrows(IllegalStateException.class, () -> service.enqueue(
+                    service.prepareCancel(DelayMessageId.random(shard), -1, 10_000)));
         }
     }
 

@@ -75,6 +75,11 @@ public final class EmbeddedDelayService implements DelayClient {
     private final EmbeddedDelayServiceConfig clientConfig;
     private final Deque<QueuedRecord> pending = new ArrayDeque<>();
     private long nextOffset;
+    /**
+     * Kafka offsets are an unsigned 64-bit sequence.  Do not use {@code -1}
+     * as an exhaustion sentinel: the all-ones offset is a valid final offset.
+     */
+    private boolean offsetExhausted;
     private long pendingBytes;
     private boolean closed;
 
@@ -104,7 +109,11 @@ public final class EmbeddedDelayService implements DelayClient {
                     || !kafka.nativeTopicUuid().equals(EMBEDDED_TOPIC_UUID)) {
                 throw new IllegalStateException("embedded service cannot reopen a shard with another source identity");
             }
-            nextOffset = kafka.offset() == -1L ? -1L : kafka.offset() + 1;
+            if (kafka.offset() == -1L) {
+                offsetExhausted = true;
+            } else {
+                nextOffset = kafka.offset() + 1;
+            }
         }
     }
 
@@ -150,16 +159,20 @@ public final class EmbeddedDelayService implements DelayClient {
                     StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED.wireValue()));
         }
         final long now = clock.millis();
-        if (nextOffset == -1L) {
+        if (offsetExhausted) {
             throw new IllegalStateException("embedded Kafka source offset exhausted");
         }
         final long offset = nextOffset;
         final SourcePosition position = new KafkaSourcePosition(shardId, EMBEDDED_CLUSTER_ID, EMBEDDED_TOPIC_UUID,
                 offset, null, now);
         // Advance only after the position has been validated.  A failed
-        // position construction must not poison the next enqueue with a
-        // wrapped negative offset.
-        nextOffset = offset == -1L ? -1L : offset + 1;
+        // position construction must not poison the next enqueue.  The
+        // all-ones offset is valid, but there is no representable successor.
+        if (offset == -1L) {
+            offsetExhausted = true;
+        } else {
+            nextOffset = offset + 1;
+        }
         final CommandQueuedReceipt receipt = new CommandQueuedReceipt(command.commandId(), command.delayMessageId(),
                 shardId, position);
         pending.addLast(new QueuedRecord(command, position, frameBytes));

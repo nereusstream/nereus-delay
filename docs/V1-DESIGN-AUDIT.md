@@ -225,10 +225,14 @@ covers the misplaced-value fence before a query or runtime summary can use it.
 System Mutation result reads apply the same mutationId/key check, so a
 misplaced `dedupe_cf/SYSTEM_MUTATION` result cannot be returned as another
 mutation's outcome.
-The embedded Kafka source counter fails closed at the unsigned-64 maximum
-(the raw Java `-1L` bit pattern) before mutating its next-offset state;
-`EmbeddedDelayServiceTest` proves that an exhausted source cannot wrap to zero
-after a failed enqueue.
+The embedded Kafka source counter treats offsets as an unsigned 64-bit
+sequence: the raw Java `-1L` bit pattern is accepted as the final valid
+offset, then a separate exhaustion flag prevents a successor from being
+allocated.  This avoids using a valid offset as a pre-enqueue sentinel and
+keeps a failed post-exhaustion enqueue from mutating source state;
+`EmbeddedDelayServiceTest.embeddedSourceAcceptsUnsignedMaximumOffsetThenExhausts`
+and `EmbeddedDelayServiceTest.embeddedSourceOffsetExhaustionFailsBeforeMutatingOffset`
+prove both boundaries.
 Persisted Delay Shard mutation and Claim sequence metadata applies the same
 non-negative u64 boundary on activation; a high-bit-set value is treated as
 corrupt and cannot become a wrapped local sequence. The local evidence is

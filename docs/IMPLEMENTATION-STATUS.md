@@ -535,11 +535,14 @@ bound and fail closed on overflow instead of silently dropping a Lane's later
 timeline heads; `DelayShardTest.readyRebuildRejectsTimelineCandidateScanOverflow`
 covers the bounded recovery case.
 
-The embedded Kafka ingress now checks source-offset exhaustion before creating
-the next queued position and advances the counter only after the position has
-validated successfully. It uses the raw Java `-1L` bit pattern for the
-unsigned-64 maximum, so a failed enqueue cannot wrap the in-memory offset to
-zero. `EmbeddedDelayServiceTest` covers this boundary.
+The embedded Kafka ingress now treats Source Position offsets as an unsigned
+64-bit sequence. It validates the next position before advancing state, accepts
+the raw Java `-1L` bit pattern as the final valid offset, and records exhaustion
+in a separate flag so that a valid all-ones offset is not rejected as a sentinel
+or incremented into an invalid successor. The failed-enqueue and final-offset
+boundaries are covered by
+`EmbeddedDelayServiceTest.embeddedSourceOffsetExhaustionFailsBeforeMutatingOffset`
+and `EmbeddedDelayServiceTest.embeddedSourceAcceptsUnsignedMaximumOffsetThenExhausts`.
 
 `EmbeddedDelayService` now applies an explicit bounded client buffer through
 `EmbeddedDelayServiceConfig`: pending command count and canonical frame bytes
