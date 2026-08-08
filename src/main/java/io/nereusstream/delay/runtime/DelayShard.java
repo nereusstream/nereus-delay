@@ -1136,7 +1136,7 @@ public final class DelayShard {
         } catch (V1CommandResolutionException exception) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     exception.stableCode());
-        } catch (IllegalArgumentException exception) {
+        } catch (ArithmeticException | IllegalArgumentException exception) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }

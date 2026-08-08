@@ -674,6 +674,13 @@ Shard 状态、quota 和 timeline 不被改变。该项只是本地 replay-stabl
 不能冒充完整的 grant policy、external charge authority 或 materialization/recovery
 accounting。
 
+System Mutation 统一入口现在也把 handler 的 checked-arithmetic overflow
+转换为 `STALE_SYSTEM_MUTATION`，持久化该 mutation 的拒绝结果和 Source
+Position，而不是让异常逸出并留下可重复应用的 source gap；
+`DelayShardTest.systemMutationStateVersionOverflowPersistsStaleResult` 用
+`Message.stateVersion=Long.MAX_VALUE` 覆盖这一边界。该路径仍只保护本地
+source-ordered state machine，不能替代外部 writer/lease authority。
+
 Evidence branch validation also checks the adapter-specific target resource
 and cursor/channel branch, so a Kafka evidence envelope cannot carry a Pulsar
 resource (or vice versa); authenticated Broker response and external proof

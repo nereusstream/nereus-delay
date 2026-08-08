@@ -680,6 +680,48 @@ class DelayShardTest {
     }
 
     @Test
+    void systemMutationStateVersionOverflowPersistsStaleResult() throws Exception {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 43);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("system-state-version-overflow"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("system-state-version-overflow")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition expiryPosition = position(shardId, 1, 1_001);
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final TrustedUtcIntervalEvidence proof = new TrustedUtcIntervalEvidence(5_000, 5_000,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("overflow-clock"), 1, 1, 1,
+                Bytes.sha256(Bytes.utf8("overflow-proof")), 0, null);
+        final byte[] body = expiryBody(shardId, schedule.delayMessageId(), 0, 5_000, proof.canonicalBytes());
+        final byte[] owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1,
+                Bytes.sha256(Bytes.utf8("lease"))).canonicalBytes();
+        final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.EXPIRE_GENERATION, 9_000,
+                Bytes.sha256(Bytes.utf8("system-state-version-overflow-operation")), body, owner, 1,
+                keyPair.getPrivate());
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-state-version-overflow"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            final MessageRecord exhausted = new MessageRecord(MessageStatus.SCHEDULED, 0, Long.MAX_VALUE,
+                    2_000, 5_000, lane, OrderingMode.BEST_EFFORT, Bytes.utf8("system-state-version-overflow"),
+                    schedulePosition.canonicalBytes());
+            store.write(batch -> batch.putValue(ColumnFamily.ID, 1,
+                    KeyCodec.idMessage(schedule.delayMessageId()), exhausted.encode()));
+
+            final SystemMutationResult result = shard.applySystemMutation(mutation, expiryPosition,
+                    keyPair.getPublic());
+
+            assertEquals(ApplyStatus.REJECTED, result.applyStatus());
+            assertEquals(StableCode.STALE_SYSTEM_MUTATION, result.stableCode());
+            assertEquals(exhausted, shard.getMessage(schedule.delayMessageId()));
+            assertEquals(expiryPosition, shard.lastAppliedSourcePosition());
+            assertEquals(result, shard.getSystemMutationResult(mutation.systemMutationId()));
+        }
+    }
+
+    @Test
     void sameKafkaOffsetWithDifferentCanonicalMetadataCannotReplayAsAnotherPosition() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("same-kafka-offset"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 32);
