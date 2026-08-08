@@ -4266,6 +4266,7 @@ class DelayShardTest {
                     store.metadata().storeIncarnation(), Bytes.sha256(Bytes.utf8("terminal-summary-prepared")),
                     Bytes.utf8("terminal-summary-first-admission"), firstAdmissionPosition.canonicalBytes());
             shard.admitPublishAttempt(first, firstAdmissionPosition);
+            assertEquals(1, shard.laneQuotaUsage().entries().get(0).usage().inflightMessages());
 
             final MessageRecord current = shard.getMessage(schedule.delayMessageId());
             final PublishAttemptLedger second = PublishAttemptLedger.publishing(schedule.delayMessageId(), 0,
@@ -4304,6 +4305,7 @@ class DelayShardTest {
             assertEquals(List.of(), latePublished.runtimeIndex().attemptObligations());
             assertEquals(List.of(), shard.getTerminalGeneration(schedule.delayMessageId(), 0).openObligations());
             assertNull(shard.getPublishAttempt(secondAttemptId, 43));
+            assertEquals(0, shard.laneQuotaUsage().entries().get(0).usage().inflightMessages());
             assertEquals(List.of(second.obligationRef()), retained.openObligations());
             summary = shard.getTerminalGeneration(schedule.delayMessageId(), 0);
         }

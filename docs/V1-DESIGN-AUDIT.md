@@ -798,13 +798,18 @@ Route Broker/source-writer 的远端 quota authority、跨 shard placement 或
 
 当前 `DelayShard` 还把 Registry class-3 `meta_cf/QUOTA` 接入为一个本地兼容投影：
 `LaneQuotaUsageProjection` 按 Lane incarnation/usage revision 记录可精确重建的
-message、reservation 和 Lane-slot 维度；命令及 source-ordered system mutation
-与 `ShardQuota` 在同一 WriteBatch 更新，打开/恢复时从 `id_cf`/`meta_cf` 重建并
-逐字节校验。`LaneQuotaUsageProjectionTest` 与 `DelayShardTest` 覆盖 checked
-arithmetic、close/terminal/replay/retirement 路径和 reopen fence。execution、
-retained、evidence 与外部 adapter 维度仍未接入，因此这是 map 的 local
-compatibility subset，不是完整 ActiveLaneState、grant revision coupling、Route
-Broker authority 或多 shard placement proof。
+message、reservation、Lane-slot 以及每个 Claim/attempt obligation 的
+`inflight_messages`/`inflight_bytes` 维度；命令及 source-ordered system mutation
+与 `ShardQuota` 在同一 WriteBatch 更新，打开/恢复时从 `id_cf`/`meta_cf` 和
+`inflight_cf` 的 durable Claim/attempt ledger 重建并逐字节校验。零 field-7
+charge 的 legacy/synthetic ledger 按一个 durable record 计数，canonical admission
+中的 field-8 attempt bytes 则保留；若运行时发现旧 map 缺失对应 ledger，释放路径
+会先从 durable ledger 重建再在同一批次修复。`LaneQuotaUsageProjectionTest` 与
+`DelayShardTest` 覆盖 checked arithmetic、Claim/admission、close/terminal/replay/
+retirement 路径和 reopen fence。execution beyond local attempt bytes、retained、
+evidence 与外部 adapter 维度仍未接入，因此这是 map 的 local compatibility subset，
+不是完整 ActiveLaneState、grant revision coupling、Route Broker authority 或多
+shard placement proof。
 
 Owner Lease 的本地 CAS 投影现在还按 V1 lifecycle graph 拒绝回退状态和
 `FENCED -> ACTIVE_FOR_COMMANDS` 复活；允许的前向 acquisition/activation

@@ -15,10 +15,10 @@ import java.util.Objects;
  * Immutable local projection for the Registry {@code meta/QUOTA} per-Lane map.
  *
  * <p>The projection deliberately uses the same checked arithmetic boundary as
- * the shard aggregate.  It currently owns the message, reservation and Lane
- * dimensions that the compatibility runtime can account exactly; execution,
- * retained and external-adapter dimensions remain zero until their respective
- * durable ledgers are wired into the runtime.</p>
+ * the shard aggregate.  It currently owns the message, reservation, Lane and
+ * durable Claim/attempt inflight dimensions that the compatibility runtime can
+ * account exactly; retained and external-adapter dimensions remain zero until
+ * their respective durable ledgers are wired into the runtime.</p>
  */
 public final class LaneQuotaUsageProjection {
     private static final int INCARNATION_LENGTH = 16;
@@ -113,6 +113,28 @@ public final class LaneQuotaUsageProjection {
                 false);
     }
 
+    /** Adds the persisted execution charge for one Claim or attempt obligation. */
+    public LaneQuotaUsageProjection addInflight(final DestinationLaneId laneId,
+                                                final byte[] laneIncarnation, final long messages,
+                                                final long bytes, final long usageRevision) {
+        requireRevision(usageRevision);
+        requireCount(messages, "inflightMessages");
+        requireBytes(bytes);
+        return update(laneId, laneIncarnation, usageRevision, false,
+                new long[]{0, 0, 0, 0, 0, 0, messages, bytes, 0, 0, 0, 0, 0, 0, 0, 0, 0}, false);
+    }
+
+    /** Releases the persisted execution charge for one Claim or attempt obligation. */
+    public LaneQuotaUsageProjection removeInflight(final DestinationLaneId laneId,
+                                                   final byte[] laneIncarnation, final long messages,
+                                                   final long bytes, final long usageRevision) {
+        requireRevision(usageRevision);
+        requireCount(messages, "inflightMessages");
+        requireBytes(bytes);
+        return update(laneId, laneIncarnation, usageRevision, false,
+                new long[]{0, 0, 0, 0, 0, 0, -messages, -bytes, 0, 0, 0, 0, 0, 0, 0, 0, 0}, false);
+    }
+
     /**
      * Transfers unadmitted Lane work to the close materializer.  The Lane
      * remains active until its terminal guard is installed, so its Lane slot
@@ -182,7 +204,11 @@ public final class LaneQuotaUsageProjection {
         if (!removeIfEmpty || hasUsage(replacement.usage())) {
             entries.add(replacement);
         }
-        return new LaneQuotaUsageProjection(new LaneQuotaUsageMapV1(entries.stream().sorted(
+        final List<LaneQuotaUsageEntryV1> normalized = entries.stream().map(entry ->
+                entry.usageRevision() == replacement.usageRevision() ? entry
+                        : new LaneQuotaUsageEntryV1(entry.laneId(), entry.laneIncarnation(), entry.usage(),
+                        replacement.usageRevision())).toList();
+        return new LaneQuotaUsageProjection(new LaneQuotaUsageMapV1(normalized.stream().sorted(
                 (left, right) -> {
                     int result = Arrays.compareUnsigned(left.laneId().bytes(), right.laneId().bytes());
                     return result != 0 ? result

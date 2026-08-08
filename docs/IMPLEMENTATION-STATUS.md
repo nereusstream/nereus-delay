@@ -8,11 +8,15 @@ the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
 Registry class-3 `meta_cf/QUOTA` now has a local per-Lane compatibility projection.
-`LaneQuotaUsageProjection` fences the message, reservation and Lane-slot dimensions
-with Lane incarnation and usage revision; command and source-ordered system-mutation
-paths persist it beside aggregate `ShardQuota` in the same RocksDB WriteBatch, while
-open/recovery rebuilds the projection from `id_cf`/`meta_cf` and compares canonical
-bytes. Execution, retained, evidence and external-adapter dimensions remain zero in
+`LaneQuotaUsageProjection` fences the message, reservation, per-Lane slot and
+per-Claim/per-attempt `inflight_messages`/`inflight_bytes` dimensions with Lane
+incarnation and usage revision; command and source-ordered system-mutation paths
+persist it beside aggregate `ShardQuota` in the same RocksDB WriteBatch. Open/recovery
+rebuilds the projection from `id_cf`/`meta_cf` and the durable `inflight_cf` Claim and
+attempt ledgers, then compares canonical bytes. Legacy or synthetic ledgers with a
+zero field-7 charge are conservatively counted as one durable inflight record, while
+canonical field-8 attempt bytes are retained when available. Execution beyond those
+local attempt bytes, retained, evidence and external-adapter dimensions remain zero in
 this subset, so full ActiveLaneState/grant authority and Route Broker placement are
 still release blockers.
 

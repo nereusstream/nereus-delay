@@ -56,6 +56,26 @@ class LaneQuotaUsageProjectionTest {
                 () -> projection.addSchedule(lane, incarnation, 1, false, 0));
     }
 
+    @Test
+    void tracksClaimAndAttemptExecutionChargeWithCheckedArithmetic() {
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("lane-quota-inflight"));
+        final byte[] incarnation = bytes(16, 6);
+        LaneQuotaUsageProjection projection = LaneQuotaUsageProjection.empty()
+                .addSchedule(lane, incarnation, 8, true, 1)
+                .addInflight(lane, incarnation, 1, 13, 1);
+
+        var entry = projection.map().entries().get(0);
+        assertEquals(1, entry.usage().inflightMessages());
+        assertEquals(13, entry.usage().inflightBytes());
+
+        projection = projection.removeInflight(lane, incarnation, 1, 13, 2);
+        assertEquals(0, projection.map().entries().get(0).usage().inflightMessages());
+        assertEquals(0, projection.map().entries().get(0).usage().inflightBytes());
+        final LaneQuotaUsageProjection afterRelease = projection;
+        assertThrows(IllegalStateException.class,
+                () -> afterRelease.removeInflight(lane, incarnation, 1, 1, 3));
+    }
+
     private static byte[] bytes(final int length, final int seed) {
         final byte[] value = new byte[length];
         for (int index = 0; index < value.length; index++) {
