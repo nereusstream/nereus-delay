@@ -578,6 +578,13 @@ body codec 和本地 transition seam；当前 local transition 还验证了已 a
 generation 在 Close marker 后收到 definitive `NOT_PUBLISHED` 时固定写入
 `LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED` 并停止 retry。它不等于签名服务、真实
 Broker evidence、strong-capability retirement 或 production outcome authority 已完成。
+Apply 同时验证 operation-specific logical identity：initial Publish Outcome 必须使用
+body 中的 `PublishAttemptId`，Evidence Resolution 必须使用
+`SHA-256("nereus-delay-evidence-resolution-logical-id-v1\0" || PublishAttemptId || evidenceId)`；
+身份不匹配写入 `REJECTED(UNAUTHORIZED_SYSTEM_MUTATION)`，并在 source-ordered
+路径中保持 attempt、message、timeline 与 quota 不变。`DelayShardTest` 覆盖 Publish
+Outcome 与 Evidence Resolution 的错误 identity fence 以及后续正确 identity 的
+source-ordered apply。
 同一关闭边界下的 `UNKNOWN` 结果保留 `UNCERTAIN` obligation 且不创建新的
 `UNCERTAIN_RETRY` timeline；后续 Resolve retry 仍由 closed-Lane gate 拒绝。
 

@@ -173,6 +173,13 @@ definitive Outcome/Resolution apply path now also requires transfer to be
 canonical byte-identical to the retained Admission charge; a mismatch persists
 `REJECTED(STALE_SYSTEM_MUTATION)` and advances source position without changing
 the attempt, message, timeline, or quota, while `UNKNOWN` transfer remains opaque.
+Initial Publish Outcome apply also requires the body-derived `PublishAttemptId` as
+the logical operation identity. Evidence Resolution apply requires the domain-separated
+identity `SHA-256("nereus-delay-evidence-resolution-logical-id-v1\0" ||
+PublishAttemptId || evidenceId)`. A mismatch persists
+`REJECTED(UNAUTHORIZED_SYSTEM_MUTATION)` without changing the attempt, message,
+timeline or quota; source-ordered regressions cover both wrong-identity fences and
+subsequent valid application.
 `ChannelKindV1`, `CredentialUseKindV1`, `CredentialUseLeaseV1` and
 `ChannelResourceIdentityV1` now provide the shared canonical channel/lease
 identity checks: adapter/target branch, strong-capability evidence resource

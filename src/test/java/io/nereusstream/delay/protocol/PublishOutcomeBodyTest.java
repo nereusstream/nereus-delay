@@ -18,6 +18,7 @@ class PublishOutcomeBodyTest {
         final PublishOutcomeBody parsed = PublishOutcomeBody.decode(body);
 
         assertArrayEquals(attempt, parsed.publishAttemptId());
+        assertArrayEquals(attempt, parsed.initialLogicalOperationIdentity());
         assertEquals(1, parsed.sideEffect());
         assertEquals(0, parsed.disposition());
         assertEquals(StableCode.OK, parsed.stableCode());
@@ -59,6 +60,9 @@ class PublishOutcomeBodyTest {
                 retryDecision(1, StableCode.OK, null));
         final PublishOutcomeBody parsed = PublishOutcomeBody.decodeEvidenceResolution(body);
         assertArrayEquals(attempt, parsed.publishAttemptId());
+        assertArrayEquals(Bytes.sha256(Bytes.utf8("nereus-delay-evidence-resolution-logical-id-v1\0"),
+                attempt, PublishEvidenceV1.decode(parsed.evidence()).evidenceId()),
+                parsed.evidenceResolutionLogicalOperationIdentity());
         assertEquals(1, parsed.sideEffect());
         assertEquals(StableCode.OK, parsed.stableCode());
     }

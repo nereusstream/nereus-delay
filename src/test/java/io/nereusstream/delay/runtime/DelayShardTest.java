@@ -2165,7 +2165,7 @@ class DelayShardTest {
         final byte[] body = publishOutcomeBody(shardId, attemptId, 3, 4,
                 StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, new byte[0], observedAt.canonicalBytes());
         final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
-                Bytes.sha256(Bytes.utf8("system-outcome-operation")), body, owner, 1, keyPair.getPrivate());
+                publishOutcomeLogicalIdentity(body), body, owner, 1, keyPair.getPrivate());
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
@@ -2214,7 +2214,7 @@ class DelayShardTest {
         assertEquals(2, parsed.retryDecision().kind());
         assertEquals(3_000, parsed.retryDecision().nextRetryAt());
         final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
-                Bytes.sha256(Bytes.utf8("policy-uncertain-retry-operation")), body, owner, 1,
+                publishOutcomeLogicalIdentity(body), body, owner, 1,
                 keyPair.getPrivate());
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
@@ -2288,7 +2288,7 @@ class DelayShardTest {
                 StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, new byte[0], observedAt.canonicalBytes(),
                 unknownRetryDecision(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, 3_000));
         final SystemMutation unknown = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
-                Bytes.sha256(Bytes.utf8("published-evidence-retry-unknown")), unknownBody,
+                publishOutcomeLogicalIdentity(unknownBody), unknownBody,
                 owner.canonicalBytes(), 1, keyPair.getPrivate());
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
@@ -2365,7 +2365,7 @@ class DelayShardTest {
         final byte[] unknownBody = publishOutcomeBody(shardId, attemptId, 3, 4,
                 StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, new byte[0], observedAt.canonicalBytes());
         final SystemMutation unknown = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
-                Bytes.sha256(Bytes.utf8("not-published-evidence-unknown")), unknownBody,
+                publishOutcomeLogicalIdentity(unknownBody), unknownBody,
                 owner.canonicalBytes(), 1, keyPair.getPrivate());
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
@@ -2447,7 +2447,7 @@ class DelayShardTest {
         final byte[] unknownBody = publishOutcomeBody(shardId, attemptId, 3, 4,
                 StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, new byte[0], observedAt.canonicalBytes());
         final SystemMutation unknown = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
-                Bytes.sha256(Bytes.utf8("control-uncertain-retry-unknown")), unknownBody, owner, 1,
+                publishOutcomeLogicalIdentity(unknownBody), unknownBody, owner, 1,
                 keyPair.getPrivate());
         final ControlRef controlRef = new ControlRef(Bytes.sha256(Bytes.utf8("resolve-operation")),
                 Bytes.sha256(Bytes.utf8("resolve-request")), 4);
@@ -2535,7 +2535,7 @@ class DelayShardTest {
         final byte[] unknownBody = publishOutcomeBody(shardId, attemptId, 3, 4,
                 StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, new byte[0], observedAt.canonicalBytes());
         final SystemMutation unknown = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
-                Bytes.sha256(Bytes.utf8("not-published-evidence-claimed-unknown")), unknownBody,
+                publishOutcomeLogicalIdentity(unknownBody), unknownBody,
                 owner.canonicalBytes(), 1, keyPair.getPrivate());
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
@@ -2644,10 +2644,10 @@ class DelayShardTest {
         final byte[] secondUnknownBody = publishOutcomeBody(shardId, secondAttemptId, 3, 4,
                 StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, new byte[0], secondObservedAt.canonicalBytes());
         final SystemMutation firstUnknown = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME,
-                9_000, Bytes.sha256(Bytes.utf8("remaining-first-unknown")), firstUnknownBody,
+                9_000, publishOutcomeLogicalIdentity(firstUnknownBody), firstUnknownBody,
                 owner.canonicalBytes(), 1, keyPair.getPrivate());
         final SystemMutation secondUnknown = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME,
-                9_000, Bytes.sha256(Bytes.utf8("remaining-second-unknown")), secondUnknownBody,
+                9_000, publishOutcomeLogicalIdentity(secondUnknownBody), secondUnknownBody,
                 owner.canonicalBytes(), 1, keyPair.getPrivate());
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
@@ -2777,7 +2777,7 @@ class DelayShardTest {
         final byte[] unknownBody = publishOutcomeBody(shardId, attemptId, 3, 4,
                 StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, new byte[0], observedAt.canonicalBytes());
         final SystemMutation unknown = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
-                Bytes.sha256(Bytes.utf8("published-evidence-unknown")), unknownBody, owner, 1,
+                publishOutcomeLogicalIdentity(unknownBody), unknownBody, owner, 1,
                 keyPair.getPrivate());
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
@@ -2847,7 +2847,7 @@ class DelayShardTest {
         final byte[] unknownBody = publishOutcomeBody(shardId, attemptId, 3, 4,
                 StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, new byte[0], observedAt.canonicalBytes());
         final SystemMutation unknown = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
-                Bytes.sha256(Bytes.utf8("control-terminal-unknown")), unknownBody, owner, 1,
+                publishOutcomeLogicalIdentity(unknownBody), unknownBody, owner, 1,
                 keyPair.getPrivate());
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
@@ -2924,7 +2924,7 @@ class DelayShardTest {
                 StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, new byte[0], observedAt.canonicalBytes(),
                 unknownRetryDecision(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, 3_000));
         final SystemMutation unknown = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
-                Bytes.sha256(Bytes.utf8("uncertain-admission-unknown")), outcomeBody, owner, 1,
+                publishOutcomeLogicalIdentity(outcomeBody), outcomeBody, owner, 1,
                 keyPair.getPrivate());
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
@@ -3004,7 +3004,7 @@ class DelayShardTest {
         final byte[] unknownBody = publishOutcomeBody(shardId, attemptId, 3, 4,
                 StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, new byte[0], unknownObserved.canonicalBytes());
         final SystemMutation unknown = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
-                Bytes.sha256(Bytes.utf8("resolution-unknown-operation")), unknownBody, owner, 1,
+                publishOutcomeLogicalIdentity(unknownBody), unknownBody, owner, 1,
                 keyPair.getPrivate());
         final byte[] resolutionBody = evidenceResolutionBody(shardId, attemptId, StableCode.OK, 1, 0,
                 new TrustedUtcIntervalEvidence(1_003, 1_003,
@@ -3019,13 +3019,18 @@ class DelayShardTest {
                 chargeVectorWithActiveMessages(1));
         final SystemMutation mismatchedResolution = SystemMutation.signed(shardId,
                 SystemMutationType.EVIDENCE_RESOLUTION, 9_000,
-                Bytes.sha256(Bytes.utf8("resolution-transfer-mismatch")), mismatchedResolutionBody, service, 1,
+                evidenceResolutionLogicalIdentity(mismatchedResolutionBody), mismatchedResolutionBody, service, 1,
                 keyPair.getPrivate());
         final SystemMutation resolution = SystemMutation.signed(shardId, SystemMutationType.EVIDENCE_RESOLUTION,
-                9_000, Bytes.sha256(Bytes.utf8("resolution-operation")), resolutionBody, service, 1,
+                9_000, evidenceResolutionLogicalIdentity(resolutionBody), resolutionBody, service, 1,
                 keyPair.getPrivate());
-        final KafkaSourcePosition mismatchedResolutionPosition = position(shardId, 3, 1_003);
-        final KafkaSourcePosition resolutionPositionAfterMismatch = position(shardId, 4, 1_004);
+        final SystemMutation wrongIdentityResolution = SystemMutation.signed(shardId,
+                SystemMutationType.EVIDENCE_RESOLUTION, 9_000,
+                Bytes.sha256(Bytes.utf8("wrong-evidence-resolution-identity")), resolutionBody, service, 1,
+                keyPair.getPrivate());
+        final KafkaSourcePosition wrongIdentityResolutionPosition = position(shardId, 3, 1_003);
+        final KafkaSourcePosition mismatchedResolutionPosition = position(shardId, 4, 1_004);
+        final KafkaSourcePosition resolutionPositionAfterMismatch = position(shardId, 5, 1_005);
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
@@ -3039,6 +3044,13 @@ class DelayShardTest {
             assertEquals(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN,
                     shard.applySystemMutation(unknown, unknownPosition, keyPair.getPublic()).stableCode());
             assertEquals(MessageStatus.UNCERTAIN, shard.getMessage(schedule.delayMessageId()).status());
+
+            final SystemMutationResult wrongIdentity = shard.applySystemMutation(wrongIdentityResolution,
+                    wrongIdentityResolutionPosition, keyPair.getPublic());
+            assertEquals(ApplyStatus.REJECTED, wrongIdentity.applyStatus());
+            assertEquals(StableCode.UNAUTHORIZED_SYSTEM_MUTATION, wrongIdentity.stableCode());
+            assertEquals(MessageStatus.UNCERTAIN, shard.getMessage(schedule.delayMessageId()).status());
+            assertNotNull(shard.findOpenPublishAttempt(attemptId));
 
             final SystemMutationResult mismatched = shard.applySystemMutation(mismatchedResolution,
                     mismatchedResolutionPosition, keyPair.getPublic());
@@ -3082,7 +3094,7 @@ class DelayShardTest {
         final byte[] unknownBody = publishOutcomeBody(shardId, attemptId, 3, 4,
                 StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, new byte[0], unknownObserved.canonicalBytes());
         final SystemMutation unknown = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
-                Bytes.sha256(Bytes.utf8("resolution-retry-unknown-operation")), unknownBody, owner, 1,
+                publishOutcomeLogicalIdentity(unknownBody), unknownBody, owner, 1,
                 keyPair.getPrivate());
         final byte[] resolutionBody = evidenceResolutionBody(shardId, attemptId,
                 StableCode.DESTINATION_DEFINITIVE_RETRIABLE, 2, 1,
@@ -3092,7 +3104,7 @@ class DelayShardTest {
         final byte[] service = AuthorIdentity.service(Bytes.utf8("evidence-service"), Bytes.utf8("run"), 1)
                 .canonicalBytes();
         final SystemMutation resolution = SystemMutation.signed(shardId, SystemMutationType.EVIDENCE_RESOLUTION,
-                9_000, Bytes.sha256(Bytes.utf8("resolution-retry-operation")), resolutionBody, service, 1,
+                9_000, evidenceResolutionLogicalIdentity(resolutionBody), resolutionBody, service, 1,
                 keyPair.getPrivate());
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
@@ -3129,6 +3141,7 @@ class DelayShardTest {
         final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
         final KafkaSourcePosition admissionPosition = position(shardId, 1, 1_001);
         final KafkaSourcePosition outcomePosition = position(shardId, 2, 1_002);
+        final KafkaSourcePosition validOutcomePosition = position(shardId, 3, 1_003);
         final byte[] attemptId = Bytes.sha256(Bytes.utf8("system-published-attempt"));
         final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
         final KeyPair keyPair = generator.generateKeyPair();
@@ -3143,7 +3156,10 @@ class DelayShardTest {
         assertEquals(1, parsedOutcome.retryDecision().kind());
         assertEquals(1, parsedOutcome.retryDecision().completedAttemptNo());
         final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
-                Bytes.sha256(Bytes.utf8("system-published-operation")), body, owner, 1, keyPair.getPrivate());
+                publishOutcomeLogicalIdentity(body), body, owner, 1, keyPair.getPrivate());
+        final SystemMutation wrongIdentity = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
+                Bytes.sha256(Bytes.utf8("wrong-publish-outcome-identity")), body, owner, 1,
+                keyPair.getPrivate());
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
@@ -3155,8 +3171,15 @@ class DelayShardTest {
                     Bytes.sha256(Bytes.utf8("prepared")), Bytes.utf8("admission"), admissionPosition.canonicalBytes());
             shard.admitPublishAttempt(admission, admissionPosition);
 
+            final SystemMutationResult rejected = shard.applySystemMutation(wrongIdentity, outcomePosition,
+                    keyPair.getPublic());
+            assertEquals(ApplyStatus.REJECTED, rejected.applyStatus());
+            assertEquals(StableCode.UNAUTHORIZED_SYSTEM_MUTATION, rejected.stableCode());
+            assertEquals(MessageStatus.PUBLISHING, shard.getMessage(schedule.delayMessageId()).status());
+            assertEquals(AttemptLedgerState.PUBLISHING, shard.findOpenPublishAttempt(attemptId).state());
+
             assertEquals(StableCode.OK,
-                    shard.applySystemMutation(mutation, outcomePosition, keyPair.getPublic()).stableCode());
+                    shard.applySystemMutation(mutation, validOutcomePosition, keyPair.getPublic()).stableCode());
             assertEquals(MessageStatus.PUBLISHED, shard.getMessage(schedule.delayMessageId()).status());
             assertNull(shard.findOpenPublishAttempt(attemptId));
         }
@@ -3181,7 +3204,7 @@ class DelayShardTest {
         final byte[] body = publishNotPublishedBody(shardId, attemptId, 1,
                 StableCode.DESTINATION_DEFINITIVE_RETRIABLE, 2_002);
         final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
-                Bytes.sha256(Bytes.utf8("system-retry-operation")), body, owner, 1, keyPair.getPrivate());
+                publishOutcomeLogicalIdentity(body), body, owner, 1, keyPair.getPrivate());
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
@@ -3230,7 +3253,7 @@ class DelayShardTest {
         final byte[] outcomeBody = publishNotPublishedBody(shardId, attemptId, 1,
                 StableCode.DESTINATION_DEFINITIVE_RETRIABLE, 2_002);
         final SystemMutation outcome = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
-                Bytes.sha256(Bytes.utf8("closed-outcome-operation")), outcomeBody, owner, 1,
+                publishOutcomeLogicalIdentity(outcomeBody), outcomeBody, owner, 1,
                 keyPair.getPrivate());
         final AuthorIdentity control = AuthorIdentity.control(Bytes.sha256(Bytes.utf8("closed-actor")),
                 Bytes.sha256(Bytes.utf8("closed-roles")), Bytes.sha256(Bytes.utf8("closed-scope")));
@@ -3291,7 +3314,7 @@ class DelayShardTest {
         final byte[] unknownBody = publishOutcomeBody(shardId, attemptId, 3, 4,
                 StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, new byte[0], observedAt.canonicalBytes());
         final SystemMutation unknown = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
-                Bytes.sha256(Bytes.utf8("closed-unknown-operation")), unknownBody, owner, 1,
+                publishOutcomeLogicalIdentity(unknownBody), unknownBody, owner, 1,
                 keyPair.getPrivate());
         final AuthorIdentity control = AuthorIdentity.control(Bytes.sha256(Bytes.utf8("unknown-closed-actor")),
                 Bytes.sha256(Bytes.utf8("unknown-closed-roles")), Bytes.sha256(Bytes.utf8("unknown-closed-scope")));
@@ -3352,7 +3375,7 @@ class DelayShardTest {
         assertEquals(5_000, parsed.retryDecision().retryDeadline());
         assertFalse(parsed.retryDecision().hasNextRetryAt());
         final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
-                Bytes.sha256(Bytes.utf8("system-permanent-operation")), body, owner, 1, keyPair.getPrivate());
+                publishOutcomeLogicalIdentity(body), body, owner, 1, keyPair.getPrivate());
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
@@ -3396,7 +3419,7 @@ class DelayShardTest {
         final byte[] body = publishNotPublishedBody(shardId, attemptId, 3,
                 StableCode.CAPABILITY_UNAVAILABLE, 2_002);
         final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
-                Bytes.sha256(Bytes.utf8("system-lane-operation")), body, owner, 1, keyPair.getPrivate());
+                publishOutcomeLogicalIdentity(body), body, owner, 1, keyPair.getPrivate());
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
@@ -3662,13 +3685,13 @@ class DelayShardTest {
                 StableCode.OK, nestedPlaceholder(), outcomeObservedAt.canonicalBytes(),
                 verifiedRetryDecision(StableCode.OK), chargeVectorWithActiveMessages(1));
         final SystemMutation mismatchedOutcome = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME,
-                9_000, Bytes.sha256(Bytes.utf8("outcome-transfer-mismatch")), mismatchedOutcomeBody, fixture.owner(),
+                9_000, publishOutcomeLogicalIdentity(mismatchedOutcomeBody), mismatchedOutcomeBody, fixture.owner(),
                 1, keyPair.getPrivate());
         final byte[] outcomeBody = publishOutcomeBody(shardId, parsed.publishAttemptId(), 1, 0, StableCode.OK,
                 nestedPlaceholder(), outcomeObservedAt.canonicalBytes(), verifiedRetryDecision(StableCode.OK),
                 parsed.chargeVector().canonicalBytes());
         final SystemMutation outcome = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
-                Bytes.sha256(Bytes.utf8("outcome-outcome-release")), outcomeBody, fixture.owner(), 1,
+                publishOutcomeLogicalIdentity(outcomeBody), outcomeBody, fixture.owner(), 1,
                 keyPair.getPrivate());
         final KafkaSourcePosition mismatchedOutcomePosition = position(shardId, 2, 2_002);
         final KafkaSourcePosition outcomePosition = position(shardId, 3, 2_003);
@@ -3871,7 +3894,7 @@ class DelayShardTest {
         final byte[] outcomeBody = publishNotPublishedBody(shardId, firstBody.publishAttemptId(), 1,
                 StableCode.DESTINATION_DEFINITIVE_RETRIABLE, 2_002);
         final SystemMutation outcome = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
-                Bytes.sha256(Bytes.utf8("admission-budget-outcome")), outcomeBody, firstFixture.owner(), 7,
+                publishOutcomeLogicalIdentity(outcomeBody), outcomeBody, firstFixture.owner(), 7,
                 keyPair.getPrivate());
         final KafkaSourcePosition outcomePosition = position(shardId, 2, 2_002);
 
@@ -4323,7 +4346,7 @@ class DelayShardTest {
             final byte[] outcomeBody = publishNotPublishedBody(shardId, attemptId, 1,
                     StableCode.DESTINATION_DEFINITIVE_RETRIABLE, 3_000);
             final SystemMutation outcome = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
-                    Bytes.sha256(Bytes.utf8("historical-outcome-operation")), outcomeBody,
+                    publishOutcomeLogicalIdentity(outcomeBody), outcomeBody,
                     owner.canonicalBytes(), 1, keyPair.getPrivate());
 
             final SystemMutationResult result = shard.applySystemMutation(outcome, outcomePosition,
@@ -4357,7 +4380,7 @@ class DelayShardTest {
                     nestedPlaceholder(), observedAt.canonicalBytes());
             final SystemMutation secondOutcome = SystemMutation.signed(shardId,
                     SystemMutationType.PUBLISH_OUTCOME, 9_000,
-                    Bytes.sha256(Bytes.utf8("historical-second-outcome-operation")), secondOutcomeBody,
+                    publishOutcomeLogicalIdentity(secondOutcomeBody), secondOutcomeBody,
                     secondOwner.canonicalBytes(), 1, keyPair.getPrivate());
             final SystemMutationResult secondResult = shard.applySystemMutation(secondOutcome,
                     secondOutcomePosition, keyPair.getPublic());
@@ -4386,7 +4409,7 @@ class DelayShardTest {
             final byte[] unknownBody = publishOutcomeBody(shardId, thirdAttemptId, 3, 4,
                     StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, new byte[0], observedAt.canonicalBytes());
             final SystemMutation unknown = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
-                    Bytes.sha256(Bytes.utf8("historical-third-unknown-operation")), unknownBody,
+                    publishOutcomeLogicalIdentity(unknownBody), unknownBody,
                     thirdOwner.canonicalBytes(), 1, keyPair.getPrivate());
             final SystemMutationResult unknownResult = shard.applySystemMutation(unknown, thirdOutcomePosition,
                     keyPair.getPublic());
@@ -4404,7 +4427,7 @@ class DelayShardTest {
                     Bytes.utf8("historical-run"), 2);
             final SystemMutation resolution = SystemMutation.signed(shardId,
                     SystemMutationType.EVIDENCE_RESOLUTION, 9_000,
-                    Bytes.sha256(Bytes.utf8("historical-resolution-operation")), resolutionBody,
+                    evidenceResolutionLogicalIdentity(resolutionBody), resolutionBody,
                     service.canonicalBytes(), 1, keyPair.getPrivate());
             final SystemMutationResult resolutionResult = shard.applySystemMutation(resolution, resolutionPosition,
                     keyPair.getPublic());
@@ -4464,7 +4487,7 @@ class DelayShardTest {
             final byte[] unknownBody = publishOutcomeBody(shardId, attemptId, 3, 4,
                     StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, new byte[0], observedAt.canonicalBytes());
             final SystemMutation unknown = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
-                    Bytes.sha256(Bytes.utf8("historical-resolve-published-unknown")), unknownBody,
+                    publishOutcomeLogicalIdentity(unknownBody), unknownBody,
                     owner.canonicalBytes(), 1, keyPair.getPrivate());
             assertEquals(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN,
                     shard.applySystemMutation(unknown, unknownPosition, keyPair.getPublic()).stableCode());
@@ -5552,6 +5575,14 @@ class DelayShardTest {
 
     private static byte[] nestedPlaceholder() {
         return CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1, new byte[]{1}));
+    }
+
+    private static byte[] publishOutcomeLogicalIdentity(final byte[] body) {
+        return PublishOutcomeBody.decode(body).initialLogicalOperationIdentity();
+    }
+
+    private static byte[] evidenceResolutionLogicalIdentity(final byte[] body) {
+        return PublishOutcomeBody.decodeEvidenceResolution(body).evidenceResolutionLogicalOperationIdentity();
     }
 
     private static byte[] evidenceCursor() {

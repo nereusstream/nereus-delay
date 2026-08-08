@@ -154,6 +154,17 @@ public final class PublishOutcomeBody {
         return copy(publishAttemptId);
     }
 
+    /** Returns the registered logical identity for an initial Publish Outcome. */
+    public byte[] initialLogicalOperationIdentity() {
+        return copy(publishAttemptId);
+    }
+
+    /** Returns the registered logical identity for an Evidence Resolution. */
+    public byte[] evidenceResolutionLogicalOperationIdentity() {
+        return Bytes.sha256(Bytes.utf8("nereus-delay-evidence-resolution-logical-id-v1\0"),
+                publishAttemptId, PublishEvidenceV1.decode(evidence).evidenceId());
+    }
+
     public int sideEffect() {
         return sideEffect;
     }

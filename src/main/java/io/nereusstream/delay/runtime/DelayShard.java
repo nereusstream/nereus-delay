@@ -2005,6 +2005,11 @@ public final class DelayShard {
             if (!Arrays.equals(outcome.publishAttemptId(), attemptId)) {
                 throw new IllegalArgumentException("Publish Outcome attempt identity mismatch");
             }
+            if (!Bytes.constantTimeEquals(mutation.logicalOperationIdentity(),
+                    outcome.initialLogicalOperationIdentity())) {
+                return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                        StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+            }
             final PublishAttemptLedger ledger = getPublishAttempt(attemptId, author.generation());
             if (ledger == null || ledger.state() != AttemptLedgerState.PUBLISHING) {
                 return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
@@ -2023,16 +2028,26 @@ public final class DelayShard {
             return applyNotPublishedPublishOutcome(ledger, outcome, sourcePosition, result,
                     AttemptLedgerState.PUBLISHING, MessageStatus.PUBLISHING);
         }
-        final PublishAttemptLedger ledger = getPublishAttempt(attemptId, author.generation());
-        if (ledger == null || ledger.state() != AttemptLedgerState.PUBLISHING) {
-            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
-                    StableCode.STALE_SYSTEM_MUTATION);
-        }
-        if (sideEffect == 1) {
-            final PublishOutcomeBody outcome = PublishOutcomeBody.decode(mutation.canonicalBody());
+        final PublishOutcomeBody outcome;
+        if (sideEffect == 1 || sideEffect == 3) {
+            outcome = PublishOutcomeBody.decode(mutation.canonicalBody());
             if (!Arrays.equals(outcome.publishAttemptId(), attemptId)) {
                 throw new IllegalArgumentException("Publish Outcome attempt identity mismatch");
             }
+            if (!Bytes.constantTimeEquals(mutation.logicalOperationIdentity(),
+                    outcome.initialLogicalOperationIdentity())) {
+                return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                        StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+            }
+        } else {
+            outcome = null;
+        }
+        final PublishAttemptLedger ledger = getPublishAttempt(attemptId, author.generation());
+        if (ledger == null || ledger.state() != AttemptLedgerState.PUBLISHING) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                        StableCode.STALE_SYSTEM_MUTATION);
+        }
+        if (sideEffect == 1) {
             if (!matchesRetainedOutcomeCharge(ledger, outcome.transfer())) {
                 return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                         StableCode.STALE_SYSTEM_MUTATION);
@@ -2051,7 +2066,6 @@ public final class DelayShard {
                 return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                         StableCode.STALE_SYSTEM_MUTATION);
             }
-            final PublishOutcomeBody outcome = PublishOutcomeBody.decode(mutation.canonicalBody());
             final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, code,
                     sourcePosition.canonicalBytes());
             applyUnknownPublishOutcome(attemptId, author.generation(), mutation.canonicalBody(), evidence,
@@ -2066,6 +2080,11 @@ public final class DelayShard {
                                                                   final SourcePosition sourcePosition) {
         final PublishOutcomeBody resolution =
                 PublishOutcomeBody.decodeEvidenceResolution(mutation.canonicalBody());
+        if (!Bytes.constantTimeEquals(mutation.logicalOperationIdentity(),
+                resolution.evidenceResolutionLogicalOperationIdentity())) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
         final PublishAttemptLedger ledger = findOpenPublishAttempt(resolution.publishAttemptId());
         if (ledger == null || ledger.state() != AttemptLedgerState.UNCERTAIN) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
