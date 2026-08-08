@@ -667,6 +667,10 @@ exact same-identity `ACTIVE_FOR_COMMANDS` successor after a lost transition
 response, and that reread rejects a successor whose lease expiry moved
 backwards. `OxiaOwnerLeaseStoreTest.transitionOrReadRejectsAResponseLossSuccessorWithShorterExpiry`
 covers the monotonic-expiry fence.
+Authority-gated activation now keeps the local shard in `CATCHING_UP` until
+the exact `ACTIVE_FOR_COMMANDS` lease CAS (or its validated response-loss
+reread) succeeds; `OwnerLeaseTest.authorityGatedActivationKeepsLocalGateClosedDuringLeaseCas`
+covers the state observed inside the authority callback.
 The authority-gated `OwnedDelayShard.beginDrain(OxiaOwnerLeaseStore, nowEpochMs)`
 now uses the same exact-successor CAS boundary for
 `ACTIVE_FOR_COMMANDS -> DRAINING`; response loss is accepted only for a same

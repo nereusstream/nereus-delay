@@ -717,6 +717,10 @@ fencing/assignment/session identity 的 exact `ACTIVE_FOR_COMMANDS` 重读；
 非法 transition 不会被 coincidental current state 掩盖。
 Response-loss reread 还拒绝同 identity 但 expiry 变短的 successor；本地证据为
 `OxiaOwnerLeaseStoreTest.transitionOrReadRejectsAResponseLossSuccessorWithShorterExpiry`。
+Activation of `OwnedDelayShard` now leaves the local lifecycle in
+`CATCHING_UP` while the authority performs the `ACTIVE_FOR_COMMANDS` CAS; the
+local gate opens only after the exact successor is validated. The regression is
+`OwnerLeaseTest.authorityGatedActivationKeepsLocalGateClosedDuringLeaseCas`。
 `OwnedDelayShard.beginDrain(OxiaOwnerLeaseStore, nowEpochMs)` 现在对
 `ACTIVE_FOR_COMMANDS -> DRAINING` 使用同一 exact-successor CAS 规则；response
 loss 只有在 owner/epoch/token/assignment/session 完全一致且在观测时刻仍有效的

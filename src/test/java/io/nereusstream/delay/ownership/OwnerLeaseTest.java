@@ -29,8 +29,10 @@ import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -154,6 +156,32 @@ class OwnerLeaseTest {
             assertEquals(ShardLifecycleState.DRAINING, authority.current(shardId).orElseThrow().state());
             assertEquals(acquired.ownerEpoch(), owned.lease().ownerEpoch());
             assertThrows(IllegalStateException.class, () -> owned.beginDrain(authority, 101));
+        }
+    }
+
+    @Test
+    void authorityGatedActivationKeepsLocalGateClosedDuringLeaseCas() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 20);
+        final ObservingLeaseStore backend = new ObservingLeaseStore();
+        final OwnerLease acquired = backend.acquire(shardId, "worker-activation", 100, 100).orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("activation-cas-state"));
+        final UUID topic = UUID.randomUUID();
+        final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster", topic, 0,
+                null, 1_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()),
+                    acquired);
+            backend.observedShard.set(owned);
+            owned.markCatchingUp(new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("activation-cas")), 1,
+                    new KafkaActivationBarrier(shardId, "cluster", topic, 0)));
+            owned.recordCatchup(position);
+
+            owned.activateForCommands(authority, 101);
+
+            assertEquals(ShardLifecycleState.CATCHING_UP, backend.stateAtTransition.get());
+            assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, owned.state());
         }
     }
 
@@ -640,5 +668,39 @@ class OwnerLeaseTest {
             CanonicalProtobuf.bytes(output, 12, proofId);
             CanonicalProtobuf.bytes(output, 13, proof);
         });
+    }
+
+    private static final class ObservingLeaseStore implements OwnerLeaseStore {
+        private final InMemoryOwnerLeaseStore delegate = new InMemoryOwnerLeaseStore();
+        private final AtomicReference<OwnedDelayShard> observedShard = new AtomicReference<>();
+        private final AtomicReference<ShardLifecycleState> stateAtTransition = new AtomicReference<>();
+
+        @Override
+        public Optional<OwnerLease> acquire(final ShardId shardId, final String ownerId,
+                                             final long nowEpochMs, final long leaseDurationMs) {
+            return delegate.acquire(shardId, ownerId, nowEpochMs, leaseDurationMs);
+        }
+
+        @Override
+        public Optional<OwnerLease> renew(final OwnerLease expected, final long nowEpochMs,
+                                          final long leaseDurationMs) {
+            return delegate.renew(expected, nowEpochMs, leaseDurationMs);
+        }
+
+        @Override
+        public boolean release(final OwnerLease expected) {
+            return delegate.release(expected);
+        }
+
+        @Override
+        public Optional<OwnerLease> transition(final OwnerLease expected, final ShardLifecycleState nextState) {
+            stateAtTransition.set(observedShard.get().state());
+            return delegate.transition(expected, nextState);
+        }
+
+        @Override
+        public Optional<OwnerLease> current(final ShardId shardId) {
+            return delegate.current(shardId);
+        }
     }
 }

@@ -547,7 +547,6 @@ public final class OwnedDelayShard {
             state = ShardLifecycleState.FENCED;
             throw new IllegalStateException("owner lease expired before activation");
         }
-        state = ShardLifecycleState.ACTIVE_FOR_COMMANDS;
     }
 
     public synchronized void beginDrain() {
