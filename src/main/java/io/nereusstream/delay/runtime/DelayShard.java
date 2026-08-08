@@ -4217,9 +4217,13 @@ public final class DelayShard {
         try {
             return OutcomeReserveUsage.from(PublishAdmissionBody.decode(ledger.admissionBytes()).chargeVector());
         } catch (RuntimeException legacyOrMalformedDirectLedger) {
+            failClosedForMalformedCanonicalAdmission(ledger.admissionBytes(), legacyOrMalformedDirectLedger);
             // The public embedded admission helper predates ChargeVector and is
             // intentionally usable with synthetic test bytes. Such ledgers did
-            // not consume this reserve and therefore release zero.
+            // not consume this reserve and therefore release zero. A body with
+            // the canonical System Mutation common-field prefix is never a
+            // legacy adapter value: a malformed such body is an integrity
+            // failure and must not be downgraded to zero charge.
             return OutcomeReserveUsage.empty();
         }
     }
@@ -4239,6 +4243,7 @@ public final class DelayShard {
         try {
             return PublishAdmissionBody.decode(ledger.admissionBytes()).chargeVector().canonicalBytes();
         } catch (RuntimeException legacyOrMalformedDirectLedger) {
+            failClosedForMalformedCanonicalAdmission(ledger.admissionBytes(), legacyOrMalformedDirectLedger);
             return emptyChargeVectorCanonical();
         }
     }
@@ -4256,8 +4261,25 @@ public final class DelayShard {
         try {
             return PublishAdmissionBody.decode(ledger.admissionBytes()).chargeVector().toCapacityVector();
         } catch (RuntimeException legacyOrMalformedDirectLedger) {
+            failClosedForMalformedCanonicalAdmission(ledger.admissionBytes(), legacyOrMalformedDirectLedger);
             // Synthetic direct ledgers do not carry a canonical ChargeVector.
             return CapacityVectorV1.empty();
+        }
+    }
+
+    /**
+     * Keeps the embedded pre-V1 ledger adapter bounded without allowing a
+     * malformed canonical PUBLISH_ADMISSION body to masquerade as a zero-charge
+     * legacy record. Canonical System Mutation bodies begin with field 1, a
+     * length-delimited nested common-field block (protobuf tag {@code 0x0a});
+     * arbitrary legacy fixture bytes do not claim that shape.
+     */
+    private static void failClosedForMalformedCanonicalAdmission(final byte[] admissionBytes,
+                                                                  final RuntimeException failure) {
+        if (admissionBytes != null && admissionBytes.length > 0
+                && (admissionBytes[0] & 0xff) == 0x0a) {
+            throw new IllegalStateException("malformed canonical PUBLISH_ADMISSION body in attempt ledger",
+                    failure);
         }
     }
 
@@ -6113,6 +6135,7 @@ public final class DelayShard {
         try {
             return PublishAdmissionBody.decode(ledger.admissionBytes()).chargeVector();
         } catch (RuntimeException legacyOrMalformedDirectLedger) {
+            failClosedForMalformedCanonicalAdmission(ledger.admissionBytes(), legacyOrMalformedDirectLedger);
             return zeroChargeVector();
         }
     }

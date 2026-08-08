@@ -2223,6 +2223,36 @@ class DelayShardTest {
     }
 
     @Test
+    void malformedCanonicalAdmissionLedgerDoesNotDowngradeToZeroCharge() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("malformed-canonical-admission"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 91);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("malformed-canonical-admission-lane"));
+        final PreparedCommand command = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("malformed-canonical-admission")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 1_001);
+        final byte[] attemptId = Bytes.sha256(Bytes.utf8("malformed-canonical-attempt"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(command, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final PublishAttemptLedger malformed = PublishAttemptLedger.publishing(command.delayMessageId(), 0,
+                    attemptId, Bytes.sha256(Bytes.utf8("malformed-canonical-claim")), 42, 1, lane,
+                    shard.getLane(lane).laneIncarnation(), Bytes.sha256(Bytes.utf8("malformed-canonical-owner")),
+                    store.metadata().storeIncarnation(), Bytes.sha256(Bytes.utf8("malformed-canonical-prepared")),
+                    new byte[]{0x0a}, admissionPosition.canonicalBytes());
+
+            final IllegalStateException failure = assertThrows(IllegalStateException.class,
+                    () -> shard.admitPublishAttempt(malformed, admissionPosition));
+            assertEquals("malformed canonical PUBLISH_ADMISSION body in attempt ledger", failure.getMessage());
+            assertEquals(MessageStatus.SCHEDULED, shard.getMessage(command.delayMessageId()).status());
+            assertNull(shard.findOpenPublishAttempt(attemptId));
+        }
+    }
+
+    @Test
     void verifiedPublishSuccessClosesPublishingLedgerAndRetainsTerminalHistory() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("attempt-success"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 10);

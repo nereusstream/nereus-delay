@@ -185,6 +185,16 @@ including dimensions that this compatibility adapter does not yet populate, so a
 future projection cannot silently retire a Lane with retained or control usage still
 attached.
 
+Attempt-ledger charge projection now distinguishes canonical-looking bytes from
+the pre-V1 synthetic adapter seam: if `admissionBytes` begins with the Registry
+common-body field-1 tag (`0x0a`) and `PublishAdmissionBody.decode` fails,
+`DelayShard` fails closed instead of treating the ledger as zero-charge; arbitrary
+legacy fixture bytes remain the explicitly bounded compatibility case.
+`DelayShardTest.malformedCanonicalAdmissionLedgerDoesNotDowngradeToZeroCharge`
+proves that no `PUBLISHING` message or attempt ledger is written. This is local
+integrity evidence only; it does not replace authenticated source-ordered Admission
+authority or external charge/grant evidence.
+
 Registry class-2 `meta_cf/QUOTA` is now the canonical aggregate
 `CapacityVectorV1` for the dimensions this compatibility runtime can rebuild
 exactly: the per-Lane map contributes dimensions 1--17 and open

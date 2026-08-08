@@ -779,6 +779,15 @@ source-ordered apply。
 同一关闭边界下的 `UNKNOWN` 结果保留 `UNCERTAIN` obligation 且不创建新的
 `UNCERTAIN_RETRY` timeline；后续 Resolve retry 仍由 closed-Lane gate 拒绝。
 
+Durable attempt-ledger charge projection now has a canonical-shape fence: when
+retained `admissionBytes` starts with the Registry common-body field-1 tag
+(`0x0a`) but `PublishAdmissionBody.decode` fails, `DelayShard` fails closed;
+only arbitrary pre-V1 synthetic adapter bytes use the bounded zero-charge
+compatibility projection. `DelayShardTest.malformedCanonicalAdmissionLedgerDoesNotDowngradeToZeroCharge`
+proves that the malformed canonical-looking ledger does not create `PUBLISHING`
+state or an open attempt. This is local integrity evidence, not authenticated
+source-ordered Admission authority or external grant evidence.
+
 同一 logical-identity fence 现在也覆盖三个此前容易被签名 envelope 掩盖的入口：
 `PUBLISH_ADMISSION_V1` 必须使用 body 的 `PublishAttemptId`，
 `CLAIM_RESULT_V1` 必须使用 body 的 `ClaimId`，而 `EXPIRE_GENERATION_V1`
