@@ -145,6 +145,27 @@ class DelayShardTest {
     }
 
     @Test
+    void activationRejectsPersistedAggregateQuotaDrift() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("quota-aggregate-drift"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 54);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("quota-aggregate-drift-lane"));
+        final PreparedCommand command = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("quota-aggregate-drift")), 9_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(command, position(shardId, 0, 1_000)).stableCode());
+            final ShardQuota corrupt = new ShardQuota(0, 0, 0, 0, 1, shard.quota().usageRevision());
+            store.write(batch -> batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(1), corrupt.encode()));
+
+            final IllegalStateException exception = assertThrows(IllegalStateException.class,
+                    () -> new DelayShard(store, DelayShardConfig.defaults()));
+            assertEquals("persisted shard quota disagrees with runtime state", exception.getMessage());
+        }
+    }
+
+    @Test
     void terminalGenerationLookupRejectsKeyValueIdentityMismatch() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("terminal-key-mismatch"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 53);

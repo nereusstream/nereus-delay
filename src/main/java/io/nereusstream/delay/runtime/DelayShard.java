@@ -258,10 +258,22 @@ public final class DelayShard {
                 : ProfileBindingControlState.decode(profileControlValue.payload());
         validateControlStateSourcePositions();
         final var quotaValue = store.getValue(ColumnFamily.META, KeyCodec.metaQuota(META_QUOTA_USAGE), 7);
-        quota = quotaValue == null ? ShardQuota.empty() : ShardQuota.decode(quotaValue.payload());
+        final ShardQuota persistedQuota = quotaValue == null
+                ? null : ShardQuota.decode(quotaValue.payload());
+        quota = persistedQuota == null ? ShardQuota.empty() : persistedQuota;
         final var laneQuotaValue = store.getValue(ColumnFamily.META,
                 KeyCodec.metaQuota(META_LANE_QUOTA_USAGE), 7);
         final LaneQuotaUsageProjection rebuiltLaneQuota = rebuildLaneQuotaUsage();
+        final ShardQuota rebuiltQuota = rebuildShardQuota(rebuiltLaneQuota,
+                persistedQuota == null ? 0 : persistedQuota.usageRevision());
+        if (persistedQuota == null) {
+            // Legacy stores may have the durable records but no aggregate
+            // projection yet.  Reuse the rebuilt counts in memory; the next
+            // source-ordered mutation persists the canonical value.
+            quota = rebuiltQuota;
+        } else if (!sameQuotaUsage(persistedQuota, rebuiltQuota)) {
+            throw new IllegalStateException("persisted shard quota disagrees with runtime state");
+        }
         laneQuotaUsage = laneQuotaValue == null
                 ? rebuiltLaneQuota : LaneQuotaUsageProjection.decode(laneQuotaValue.payload());
         if (!Arrays.equals(laneQuotaUsage.canonicalBytes(), rebuiltLaneQuota.canonicalBytes())) {
@@ -6328,6 +6340,41 @@ public final class DelayShard {
      * are deliberately left at zero until their durable ledgers are wired into
      * this runtime.
      */
+    private static ShardQuota rebuildShardQuota(final LaneQuotaUsageProjection projection,
+                                                final long usageRevision) {
+        Objects.requireNonNull(projection, "projection");
+        if (usageRevision < 0) {
+            throw new IllegalArgumentException("usageRevision must be non-negative");
+        }
+        long pendingMessages = 0;
+        long pendingBytes = 0;
+        long reservationMessages = 0;
+        long reservationBytes = 0;
+        long laneCount = 0;
+        for (final var entry : projection.map().entries()) {
+            final PublishAdmissionBody.ChargeVector usage = entry.usage();
+            try {
+                pendingMessages = Math.addExact(pendingMessages, usage.activeMessages());
+                pendingBytes = Math.addExact(pendingBytes, usage.pendingPayloadBytes());
+                reservationMessages = Math.addExact(reservationMessages, usage.reservationMessages());
+                reservationBytes = Math.addExact(reservationBytes, usage.reservationPayloadBytes());
+                laneCount = Math.addExact(laneCount, usage.laneCount());
+            } catch (ArithmeticException exception) {
+                throw new IllegalStateException("shard quota rebuild overflow", exception);
+            }
+        }
+        return new ShardQuota(pendingMessages, pendingBytes, reservationMessages, reservationBytes,
+                laneCount, usageRevision);
+    }
+
+    private static boolean sameQuotaUsage(final ShardQuota left, final ShardQuota right) {
+        return left.pendingMessages() == right.pendingMessages()
+                && left.pendingBytes() == right.pendingBytes()
+                && left.reservationMessages() == right.reservationMessages()
+                && left.reservationBytes() == right.reservationBytes()
+                && left.laneCount() == right.laneCount();
+    }
+
     private LaneQuotaUsageProjection rebuildLaneQuotaUsage() {
         final long revision = Math.max(1, quota.usageRevision());
         final long configuredLimit = Math.max(config.maxPendingMessages(), config.maxLanes());

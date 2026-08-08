@@ -801,7 +801,10 @@ Route Broker/source-writer 的远端 quota authority、跨 shard placement 或
 message、reservation、Lane-slot 以及每个 Claim/attempt obligation 的
 `inflight_messages`/`inflight_bytes` 维度；命令及 source-ordered system mutation
 与 `ShardQuota` 在同一 WriteBatch 更新，打开/恢复时从 `id_cf`/`meta_cf` 和
-`inflight_cf` 的 durable Claim/attempt ledger 重建并逐字节校验。零 field-7
+`inflight_cf` 的 durable Claim/attempt ledger 重建并逐字节校验，同时复算 aggregate
+的 pending/reservation/Lane-cardinality counts；已存在但数值漂移的 aggregate 会
+fail closed，缺失的 legacy aggregate 只在内存回填并等待下一次 source-ordered mutation
+持久化。零 field-7
 charge 的 legacy/synthetic ledger 按一个 durable record 计数，canonical admission
 中的 field-8 attempt bytes 则保留；若运行时发现旧 map 缺失对应 ledger，释放路径
 会先从 durable ledger 重建再在同一批次修复。`LaneQuotaUsageProjectionTest` 与

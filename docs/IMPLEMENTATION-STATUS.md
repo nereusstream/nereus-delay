@@ -13,7 +13,10 @@ per-Claim/per-attempt `inflight_messages`/`inflight_bytes` dimensions with Lane
 incarnation and usage revision; command and source-ordered system-mutation paths
 persist it beside aggregate `ShardQuota` in the same RocksDB WriteBatch. Open/recovery
 rebuilds the projection from `id_cf`/`meta_cf` and the durable `inflight_cf` Claim and
-attempt ledgers, then compares canonical bytes. Legacy or synthetic ledgers with a
+attempt ledgers, then compares canonical bytes and recomputes the aggregate pending,
+reservation and Lane-cardinality counts. A present aggregate that disagrees with
+durable state fails activation; a legacy store with no aggregate is backfilled in
+memory until its next source-ordered mutation. Legacy or synthetic ledgers with a
 zero field-7 charge are conservatively counted as one durable inflight record, while
 canonical field-8 attempt bytes are retained when available. Execution beyond those
 local attempt bytes, retained, evidence and external-adapter dimensions remain zero in
