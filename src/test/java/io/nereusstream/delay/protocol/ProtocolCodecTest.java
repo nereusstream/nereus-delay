@@ -981,7 +981,9 @@ class ProtocolCodecTest {
                 CanonicalProtobuf.uint64Bits(output, 1, Long.MIN_VALUE));
         final CanonicalProtobuf.Reader.Field field = new CanonicalProtobuf.Reader(encoded).next();
 
+        assertThrows(IllegalArgumentException.class, () -> QueryCodecSupport.uint32(field, 1));
         assertThrows(IllegalArgumentException.class, () -> QueryCodecSupport.uint32Bits(field, 1));
+        assertThrows(IllegalArgumentException.class, () -> QueryCodecSupport.bool(field, 1));
     }
 
     @Test
