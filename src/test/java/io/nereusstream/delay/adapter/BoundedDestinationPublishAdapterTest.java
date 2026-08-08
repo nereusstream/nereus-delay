@@ -12,9 +12,12 @@ import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -30,7 +33,8 @@ class BoundedDestinationPublishAdapterTest {
             calls.incrementAndGet();
             return pending;
         };
-        final BoundedDestinationPublishAdapter adapter = new BoundedDestinationPublishAdapter(delegate, admission);
+        final BoundedDestinationPublishAdapter adapter = new BoundedDestinationPublishAdapter(
+                delegate, admission, Runnable::run);
 
         final BoundedDestinationPublishAdapter.PublishCall call = adapter.submit(request(lane, 20));
         assertNotNull(call.reservation());
@@ -59,7 +63,8 @@ class BoundedDestinationPublishAdapterTest {
             calls.incrementAndGet();
             return CompletableFuture.completedFuture(published());
         };
-        final BoundedDestinationPublishAdapter adapter = new BoundedDestinationPublishAdapter(delegate, admission);
+        final BoundedDestinationPublishAdapter adapter = new BoundedDestinationPublishAdapter(
+                delegate, admission, Runnable::run);
 
         final DestinationPublishResult notReady = adapter.publish(request(lane, 20)).toCompletableFuture().join();
         assertEquals(DestinationPublishResult.Disposition.DEFINITIVELY_NOT_PUBLISHED, notReady.disposition());
@@ -86,7 +91,7 @@ class BoundedDestinationPublishAdapterTest {
             throw new IllegalStateException("transport failed before a result");
         };
         final BoundedDestinationPublishAdapter failingAdapter =
-                new BoundedDestinationPublishAdapter(failing, admission);
+                new BoundedDestinationPublishAdapter(failing, admission, Runnable::run);
         final DestinationPublishResult failed = failingAdapter.publish(request(lane, 10)).toCompletableFuture().join();
         assertEquals(DestinationPublishResult.Disposition.UNKNOWN, failed.disposition());
         assertEquals(StableCode.DESTINATION_OUTCOME_UNKNOWN, failed.stableCode());
@@ -94,7 +99,7 @@ class BoundedDestinationPublishAdapterTest {
 
         final DestinationPublishAdapter nullStage = request -> null;
         final BoundedDestinationPublishAdapter nullAdapter =
-                new BoundedDestinationPublishAdapter(nullStage, admission);
+                new BoundedDestinationPublishAdapter(nullStage, admission, Runnable::run);
         final DestinationPublishResult missing = nullAdapter.publish(request(lane, 10)).toCompletableFuture().join();
         assertEquals(DestinationPublishResult.Disposition.UNKNOWN, missing.disposition());
         assertEquals(0, admission.workerSnapshot().activeRequests());
@@ -107,7 +112,8 @@ class BoundedDestinationPublishAdapterTest {
         admission.openReady(lane);
         final CompletableFuture<DestinationPublishResult> pending = new CompletableFuture<>();
         final DestinationPublishAdapter delegate = request -> pending;
-        final BoundedDestinationPublishAdapter adapter = new BoundedDestinationPublishAdapter(delegate, admission);
+        final BoundedDestinationPublishAdapter adapter = new BoundedDestinationPublishAdapter(
+                delegate, admission, Runnable::run);
         final var call = adapter.submit(request(lane, 10));
         adapter.close();
         final DestinationPublishResult closed = adapter.publish(request(lane, 10)).toCompletableFuture().join();
@@ -118,6 +124,38 @@ class BoundedDestinationPublishAdapterTest {
         assertEquals(0, admission.workerSnapshot().activeRequests());
     }
 
+    @Test
+    void blockingDelegateCallDoesNotBlockHealthyLane() throws Exception {
+        final DestinationLaneId blockedLane = lane("blocked");
+        final DestinationLaneId healthyLane = lane("healthy");
+        final DestinationPhysicalAdmission admission = multiLaneAdmission(blockedLane, healthyLane);
+        admission.openReady(blockedLane);
+        admission.openReady(healthyLane);
+        final CompletableFuture<Void> unblock = new CompletableFuture<>();
+        final CountDownLatch entered = new CountDownLatch(1);
+        final DestinationPublishAdapter delegate = request -> {
+            if (request.laneId().equals(blockedLane)) {
+                entered.countDown();
+                unblock.join();
+            }
+            return CompletableFuture.completedFuture(published());
+        };
+        final BoundedDestinationPublishAdapter adapter = new BoundedDestinationPublishAdapter(delegate, admission);
+
+        final BoundedDestinationPublishAdapter.PublishCall blocked = adapter.submit(request(blockedLane, 10));
+        assertTrue(entered.await(1, TimeUnit.SECONDS));
+        final BoundedDestinationPublishAdapter.PublishCall healthy = adapter.submit(request(healthyLane, 10));
+        assertEquals(DestinationPublishResult.Disposition.PUBLISHED,
+                healthy.outcome().toCompletableFuture().get(1, TimeUnit.SECONDS).disposition());
+        assertFalse(blocked.outcome().toCompletableFuture().isDone());
+
+        unblock.complete(null);
+        assertEquals(DestinationPublishResult.Disposition.PUBLISHED,
+                blocked.outcome().toCompletableFuture().get(1, TimeUnit.SECONDS).disposition());
+        assertEquals(0, admission.workerSnapshot().activeRequests());
+        adapter.close();
+    }
+
     private static DestinationPhysicalAdmission admission(final DestinationLaneId lane,
                                                           final long maxRequests, final long maxBytes,
                                                           final long maxZombieRequests, final long maxZombieBytes) {
@@ -125,6 +163,17 @@ class BoundedDestinationPublishAdapterTest {
         result.registerTargetCluster("cluster-a", maxRequests, maxBytes);
         result.registerLane(new DestinationPhysicalAdmission.LaneSpec(lane, new byte[16], "cluster-a", 0, 0,
                 maxRequests, maxBytes, maxZombieRequests, maxZombieBytes));
+        return result;
+    }
+
+    private static DestinationPhysicalAdmission multiLaneAdmission(final DestinationLaneId first,
+                                                                   final DestinationLaneId second) {
+        final DestinationPhysicalAdmission result = new DestinationPhysicalAdmission(2, 40);
+        result.registerTargetCluster("cluster-a", 2, 40);
+        result.registerLane(new DestinationPhysicalAdmission.LaneSpec(
+                first, new byte[16], "cluster-a", 0, 0, 2, 40, 1, 20));
+        result.registerLane(new DestinationPhysicalAdmission.LaneSpec(
+                second, new byte[16], "cluster-a", 0, 0, 2, 40, 1, 20));
         return result;
     }
 

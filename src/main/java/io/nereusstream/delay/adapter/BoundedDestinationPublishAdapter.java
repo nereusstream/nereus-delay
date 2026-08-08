@@ -6,6 +6,11 @@ import io.nereusstream.delay.protocol.StableCode;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Adds the local physical request/byte gate to a target adapter.
@@ -21,21 +26,44 @@ import java.util.concurrent.CompletionStage;
 public final class BoundedDestinationPublishAdapter implements DestinationPublishAdapter {
     private final DestinationPublishAdapter delegate;
     private final DestinationPhysicalAdmission admission;
-    private boolean closed;
+    private final Executor executor;
+    private final ExecutorService ownedExecutor;
+    private final AtomicBoolean closed = new AtomicBoolean();
 
     public BoundedDestinationPublishAdapter(final DestinationPublishAdapter delegate,
                                             final DestinationPhysicalAdmission admission) {
+        this(delegate, admission, Executors.newVirtualThreadPerTaskExecutor(), true);
+    }
+
+    /**
+     * Creates a wrapper with a caller-owned executor.  The executor must be a
+     * bounded Lane/Adapter executor in production; this overload lets tests
+     * use a deterministic direct executor without changing the admission
+     * semantics.
+     */
+    public BoundedDestinationPublishAdapter(final DestinationPublishAdapter delegate,
+                                            final DestinationPhysicalAdmission admission,
+                                            final Executor executor) {
+        this(delegate, admission, executor, false);
+    }
+
+    private BoundedDestinationPublishAdapter(final DestinationPublishAdapter delegate,
+                                             final DestinationPhysicalAdmission admission,
+                                             final Executor executor,
+                                             final boolean ownsExecutor) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
         this.admission = Objects.requireNonNull(admission, "admission");
+        this.executor = Objects.requireNonNull(executor, "executor");
+        this.ownedExecutor = ownsExecutor ? (ExecutorService) executor : null;
     }
 
     /**
      * Submits a request and exposes its reservation so a callback deadline can
      * mark the physical operation zombie without releasing it early.
      */
-    public synchronized PublishCall submit(final DestinationPublishRequest request) {
+    public PublishCall submit(final DestinationPublishRequest request) {
         Objects.requireNonNull(request, "request");
-        if (closed) {
+        if (closed.get()) {
             return PublishCall.completed(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
         }
         final long physicalBytes = requestPhysicalBytes(request);
@@ -47,16 +75,18 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                     StableCode.CAPABILITY_UNAVAILABLE, evidence));
         }
         final DestinationPhysicalAdmission.Reservation reservation = decision.reservation();
-        final CompletionStage<DestinationPublishResult> raw;
-        try {
-            raw = delegate.publish(request);
-        } catch (RuntimeException exception) {
-            return withRelease(reservation, completedUnknown());
+        if (closed.get()) {
+            reservation.release();
+            return PublishCall.completed(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
         }
-        final CompletionStage<DestinationPublishResult> normalized = raw == null
-                ? completedUnknown()
-                : raw.handle((value, error) -> error == null && value != null ? value : completedUnknownValue());
-        return withRelease(reservation, normalized);
+        final CompletableFuture<DestinationPublishResult> outcome = new CompletableFuture<>();
+        try {
+            executor.execute(() -> invokeDelegate(request, outcome));
+        } catch (RejectedExecutionException exception) {
+            reservation.release();
+            return PublishCall.completed(completedUnknownValue());
+        }
+        return withRelease(reservation, outcome);
     }
 
     @Override
@@ -65,10 +95,15 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
     }
 
     @Override
-    public synchronized void close() {
-        if (!closed) {
-            closed = true;
-            delegate.close();
+    public void close() {
+        if (closed.compareAndSet(false, true)) {
+            try {
+                delegate.close();
+            } finally {
+                if (ownedExecutor != null) {
+                    ownedExecutor.shutdown();
+                }
+            }
         }
     }
 
@@ -83,6 +118,27 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
 
     private static DestinationPublishResult completedUnknownValue() {
         return DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null);
+    }
+
+    private void invokeDelegate(final DestinationPublishRequest request,
+                                final CompletableFuture<DestinationPublishResult> outcome) {
+        if (closed.get()) {
+            outcome.complete(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
+            return;
+        }
+        final CompletionStage<DestinationPublishResult> raw;
+        try {
+            raw = delegate.publish(request);
+        } catch (RuntimeException exception) {
+            outcome.complete(completedUnknownValue());
+            return;
+        }
+        if (raw == null) {
+            outcome.complete(completedUnknownValue());
+            return;
+        }
+        raw.whenComplete((value, error) -> outcome.complete(
+                error == null && value != null ? value : completedUnknownValue()));
     }
 
     private static PublishCall withRelease(final DestinationPhysicalAdmission.Reservation reservation,

@@ -563,7 +563,11 @@ block。delegate stage 完成（包括 `UNKNOWN`）才释放 request/byte charge
 `BoundedDestinationPublishAdapterTest` 覆盖 READY minimum、跨层 cap、identity、
 zombie 和 response completion；开启一个尚未 READY 的 Lane 时，其候选
 READY minimum 现在只计入一次，`openingLaneCountsItsReadyMinimumExactlyOnce`
-覆盖恰好填满 Worker/target-cluster 最小保护容量的边界。该组件只是进程内可重建的资源闸门，尚未接入持久
+覆盖恰好填满 Worker/target-cluster 最小保护容量的边界。`BoundedDestinationPublishAdapter`
+不再在 adapter monitor 内同步调用 delegate，而是把调用提交到注入的
+Lane/Adapter executor（默认构造器使用 Java 21 virtual-thread executor）；因此同一
+adapter 上一个永久阻塞的同步 metadata/send 调用不会阻塞另一个健康 Lane，且
+`blockingDelegateCallDoesNotBlockHealthyLane` 覆盖了该隔离边界。该组件只是进程内可重建的资源闸门，尚未接入持久
 `ActiveLaneState`/`ReadyCertificate`、Owner/Lease/Oxia authority、真实 channel
 teardown 或 Broker evidence journal，因此不能宣称 production admission 已闭合。
 
