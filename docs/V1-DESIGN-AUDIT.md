@@ -30,8 +30,9 @@ and merge vectors; the due-admission identity also preserves its raw `uint32`
 generation bits. This remains shard-local protocol evidence, not proof of
 production catalog publication, but the local pair validator now requires a
 HEALTHY due objective and matching ALL_ACCEPTED policy before an exclusion can
-be merged. Start reconstruction, collector merge/export, and production SLO
-evidence remain release gates.
+be merged; a different payload cannot regress observation revision. Start
+reconstruction, collector merge/export, and production SLO evidence remain
+release gates.
 
 尚未填写的数值不是开放设计问题：它们必须由 §23 的 benchmark、capacity proof、real-service conformance 和 chaos evidence 产生，并装入已经冻结的 required config/schema。任何实现若要改变字段、状态、时序、不变量或停止条件，必须发布新的 spec/protocol revision，不能把 benchmark 输出当作协议修订。
 

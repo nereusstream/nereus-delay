@@ -31,6 +31,8 @@ validation.
 cover the high-bit vectors. This closes only the local SLO wire/merge boundary;
 `SloObjectiveV1.validateDueCompanion` and the paired Final validation now also
 fence a due ALL_ACCEPTED exclusion to the closed HEALTHY companion set.
+Final merge rejects a different payload that regresses observation revision;
+exact-byte replay remains idempotent.
 Start reconstruction, collector merge/export and production evidence authority
 remain release blockers.
 

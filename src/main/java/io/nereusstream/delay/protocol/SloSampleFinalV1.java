@@ -159,6 +159,10 @@ public final class SloSampleFinalV1 {
                 && !Arrays.equals(current.canonicalBytes(), incoming.canonicalBytes())) {
             throw new IllegalArgumentException("same SLO observation revision has different bytes");
         }
+        if (Long.compareUnsigned(incoming.observationRevision, current.observationRevision) < 0
+                && !Arrays.equals(current.canonicalBytes(), incoming.canonicalBytes())) {
+            throw new IllegalArgumentException("SLO observation revision regressed with different bytes");
+        }
         if (current.exclusionReason != null && incoming.exclusionReason != null
                 && current.exclusionReason != incoming.exclusionReason) {
             throw new IllegalArgumentException("SLO Finals carry conflicting exclusion reasons");

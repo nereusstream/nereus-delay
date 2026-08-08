@@ -64,6 +64,20 @@ class SloObservationOutboxV1Test {
     }
 
     @Test
+    void mergeRejectsDifferentBytesFromAnOlderObservationRevision() {
+        final SloSampleStartV1 start = start();
+        final SloSampleFinalV1 newer = new SloSampleFinalV1(start.sampleId(), start.startDigest(),
+                SloFinalOutcomeV1.BAD_TIMEOUT, SloThresholdUnitV1.MILLISECONDS, 20, 25, null,
+                endpoint(300), bytes(32, 24), 2);
+        final SloSampleFinalV1 older = new SloSampleFinalV1(start.sampleId(), start.startDigest(),
+                SloFinalOutcomeV1.BAD_TIMEOUT, SloThresholdUnitV1.MILLISECONDS, 20, 25, null,
+                endpoint(301), bytes(32, 25), 1);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> SloSampleFinalV1.merge(newer, older, SloThresholdDirectionV1.AT_MOST));
+    }
+
+    @Test
     void finalRoundTripsAndMergesCompleteUnsigned64BitFields() {
         final SloSampleStartV1 start = start();
         final SloSampleFinalV1 first = new SloSampleFinalV1(start.sampleId(), start.startDigest(),
