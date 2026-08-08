@@ -139,8 +139,7 @@ public final class SloSampleFinalV1 {
                 && !Arrays.equals(current.canonicalBytes(), incoming.canonicalBytes())) {
             throw new IllegalArgumentException("same SLO observation revision has different bytes");
         }
-        final SloSampleFinalV1 evidenceSource = severity(current.outcome) >= severity(incoming.outcome)
-                ? current : incoming;
+        final SloSampleFinalV1 evidenceSource = compareEvidence(current, incoming) >= 0 ? current : incoming;
         final long lower = direction == SloThresholdDirectionV1.AT_MOST
                 ? Math.max(current.measuredLower, incoming.measuredLower)
                 : Math.min(current.measuredLower, incoming.measuredLower);
@@ -217,6 +216,11 @@ public final class SloSampleFinalV1 {
             case BAD_UNQUALIFIED_TIME -> 4;
             case BAD_EVIDENCE_GAP -> 5;
         };
+    }
+
+    private static int compareEvidence(final SloSampleFinalV1 left, final SloSampleFinalV1 right) {
+        final int severity = Integer.compare(severity(left.outcome), severity(right.outcome));
+        return severity != 0 ? severity : Long.compare(left.observationRevision, right.observationRevision);
     }
 
     private static byte[] fixed(final byte[] value, final String name) {

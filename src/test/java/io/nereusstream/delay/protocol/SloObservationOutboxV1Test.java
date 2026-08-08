@@ -45,6 +45,25 @@ class SloObservationOutboxV1Test {
     }
 
     @Test
+    void mergeUsesNewestEvidenceWhenOutcomeSeverityIsEqual() {
+        final SloSampleStartV1 start = start();
+        final SloSampleFinalV1 first = new SloSampleFinalV1(start.sampleId(), start.startDigest(),
+                SloFinalOutcomeV1.BAD_TIMEOUT, SloThresholdUnitV1.MILLISECONDS, 20, 25, null,
+                endpoint(300), bytes(32, 10), 1);
+        final SloSampleFinalV1 second = new SloSampleFinalV1(start.sampleId(), start.startDigest(),
+                SloFinalOutcomeV1.BAD_TIMEOUT, SloThresholdUnitV1.MILLISECONDS, 25, 30, null,
+                endpoint(400), bytes(32, 11), 2);
+
+        final SloSampleFinalV1 merged = SloSampleFinalV1.merge(first, second,
+                SloThresholdDirectionV1.AT_MOST);
+        assertEquals(second.finalObservation(), merged.finalObservation());
+        assertArrayEquals(second.sourceEventEvidenceSha256(), merged.sourceEventEvidenceSha256());
+        assertEquals(2, merged.observationRevision());
+        assertEquals(25, merged.measuredLower());
+        assertEquals(30, merged.measuredUpper());
+    }
+
+    @Test
     void rejectsIdentityDriftAndTampering() {
         final SloSampleStartV1 start = start();
         final SloSampleFinalV1 finalObservation = new SloSampleFinalV1(start.sampleId(), start.startDigest(),

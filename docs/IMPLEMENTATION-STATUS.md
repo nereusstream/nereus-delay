@@ -1274,7 +1274,10 @@ bytes without accepting a mis-keyed observation or deleting a newer one. The
 identity fence is covered by `SloObservationOutboxStoreTest`. Final merge now also
 revalidates the closed objective branch's required unit and direction before a
 durable replacement; `SloObservationOutboxV1Test.rejectsFinalUnitAndMergeDirectionThatDisagreeWithObjective`
-covers the semantic fence. This is
+covers the semantic fence.
+Equal-severity Finals now select the newest observation revision's evidence as
+well as the conservative measurement; `SloObservationOutboxV1Test.mergeUsesNewestEvidenceWhenOutcomeSeverityIsEqual`
+covers that replay boundary. This is
 still local evidence only; multi-shard placement/Oxia authority,
 production non-outcome/recovery/emergency/source-writer reserve authority,
 transfer protocol, SLO
