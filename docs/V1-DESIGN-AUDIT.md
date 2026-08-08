@@ -194,8 +194,10 @@ useful for recovery and tests, but it is not the Profile publication authority,
 does not create per-shard activation markers, and does not replace authenticated
 Oxia CAS or retained-generation policy.
 `ProfileCatalogV1ScheduleResolver` uses that seam only as a local exact-profile
-and Head prerequisite gate; it does not turn a catalog lookup into a source
-position activation receipt.
+and Head prerequisite gate, and now exact-resolves the referenced Delivery
+Capability semantic with the same Adapter before delegating Lane resolution;
+missing/wrong-kind/mismatched capability is fail-closed. It does not turn a
+catalog lookup into a source position activation receipt.
 The Control Operation request union now has local canonical codecs for all
 fifteen Registry branches, including the evidence/acknowledgement matrix. It
 remains a request-value boundary and does not authenticate an actor/resource,

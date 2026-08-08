@@ -2,6 +2,8 @@ package io.nereusstream.delay.runtime;
 
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.CredentialBindingHeadV1;
+import io.nereusstream.delay.protocol.DeliveryCapabilitySemanticV1;
+import io.nereusstream.delay.protocol.DestinationProfileSemanticV1;
 import io.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
@@ -57,6 +59,17 @@ public final class ProfileCatalogV1ScheduleResolver implements V1ScheduleResolve
         if (semantic == null || semantic.profileKind() != ProfileKindV1.DESTINATION
                 || !semantic.ref().equals(reference) || head == null || !head.profile().equals(reference)) {
             throw unavailable("Destination Profile semantic or credential Head is unavailable");
+        }
+        if (!(semantic.body() instanceof DestinationProfileSemanticV1 destination)) {
+            throw unavailable("Destination Profile body is unavailable");
+        }
+        final ProfileRefV1 capabilityReference = destination.deliveryCapability();
+        final ProfileSemanticEnvelopeV1 capability = profileCatalog.resolve(capabilityReference);
+        if (capability == null || capability.profileKind() != ProfileKindV1.DELIVERY_CAPABILITY
+                || !capability.ref().equals(capabilityReference)
+                || !(capability.body() instanceof DeliveryCapabilitySemanticV1 deliveryCapability)
+                || deliveryCapability.adapterKind() != destination.adapterKind()) {
+            throw unavailable("Delivery Capability semantic or adapter binding is unavailable");
         }
     }
 

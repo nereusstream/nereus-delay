@@ -1331,6 +1331,8 @@ DeliveryCapabilityProfile
 
 Destination Profile reference 必须是 `ProfileKindV1.DESTINATION`，Delivery Capability reference 必须是 `ProfileKindV1.DELIVERY_CAPABILITY` 且其 Adapter 与 Destination Adapter 相同。两者的 domain-separated semantic hash 已绑定 kind；V1 Lane tuple 不再重复编码 kind byte，任何错 kind ref 都在构造 tuple 前 fail closed。
 
+因此 source-position-pinned resolver 在把 Schedule/Prepare 交给 Lane projection 前，必须 exact-resolve Destination Profile、其 credential Head，以及该 Profile 引用的 Delivery Capability semantic；capability 缺失、ref/kind 不一致或 Adapter 不匹配都固定 `ROUTE_SNAPSHOT_UNAVAILABLE`，不得让下游 resolver 猜测或降级到 legacy body。
+
 Lane 是 quota、concurrency、retry、circuit、fairness、due lag 和 failure metric 单元，不是 ownership/recovery 单元。
 
 variable components 使用 unsigned-u32 big-endian length prefix，integers/enum 使用 registry 固定 width/value，不能用 display name、delimiter string 或语言默认序列化。`destinationLaneId` 是：

@@ -241,8 +241,11 @@ protection and deprecation intent; authenticated publication, source-ordered
 activation, retained-generation policy and Oxia authority remain external.
 `ProfileCatalogV1ScheduleResolver` can decorate the existing V1 resolver to
 fail closed with `ROUTE_SNAPSHOT_UNAVAILABLE` until the exact Destination
-semantic reference and matching credential Head are present; shard-local
-source activation/deprecation markers still run before this resolver gate.
+semantic reference, matching credential Head, and the referenced Delivery
+Capability semantic with the same Adapter are present; shard-local source
+activation/deprecation markers still run before this resolver gate. A missing,
+wrong-kind or adapter-mismatched capability is rejected before the delegated
+Lane projection (`ProfileCatalogV1ScheduleResolverTest.failsClosedWhenReferencedDeliveryCapabilityIsMissing`).
 
 Control Operation request values now close the Registry §6.3 operation-kind
 enum, all fifteen request branches and their canonical outer oneof dispatch,

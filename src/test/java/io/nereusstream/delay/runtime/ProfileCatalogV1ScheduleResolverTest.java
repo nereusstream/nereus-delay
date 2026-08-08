@@ -9,6 +9,7 @@ import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DeliveryMode;
 import io.nereusstream.delay.protocol.DestinationProfileSemanticV1;
 import io.nereusstream.delay.protocol.DestinationLaneId;
+import io.nereusstream.delay.protocol.DeliveryCapabilitySemanticV1;
 import io.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
 import io.nereusstream.delay.protocol.KafkaMetadataV1;
 import io.nereusstream.delay.protocol.OrderingMode;
@@ -87,6 +88,17 @@ class ProfileCatalogV1ScheduleResolverTest {
         assertFalse(delegate.prepareCalled);
     }
 
+    @Test
+    void failsClosedWhenReferencedDeliveryCapabilityIsMissing() {
+        final ProfileSemanticEnvelopeV1 semantic = semantic(4);
+        final ProfileCatalogV1ScheduleResolver resolver = new ProfileCatalogV1ScheduleResolver(
+                new RecordingResolver(), new StubProfileCatalog(semantic, true, false));
+        final V1CommandResolutionException exception = assertThrows(V1CommandResolutionException.class,
+                () -> resolver.resolveSchedule(null, null, intent(semantic.ref()), null));
+
+        assertEquals(StableCode.ROUTE_SNAPSHOT_UNAVAILABLE, exception.stableCode());
+    }
+
     private static ScheduleIntentV1 intent(final ProfileRefV1 profile) {
         return ScheduleIntentV1.create(profile, new RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 3)),
                 10, 100, DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, new byte[0], Bytes.utf8("payload"),
@@ -94,16 +106,24 @@ class ProfileCatalogV1ScheduleResolverTest {
     }
 
     private static ProfileSemanticEnvelopeV1 semantic(final int version) {
-        final ProfileRefV1 capability = new ProfileRefV1(Bytes.utf8("capability"), 1, bytes(32, 1),
-                ProfileKindV1.DELIVERY_CAPABILITY);
+        final ProfileSemanticEnvelopeV1 capability = capability(version);
         final DestinationProfileSemanticV1 body = new DestinationProfileSemanticV1(
                 AdapterKindV1.KAFKA,
                 BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1("cluster",
                         UUID.nameUUIDFromBytes(Bytes.utf8("profile-" + version)))),
                 2, TargetPartitionPolicyV1.EXPLICIT_OR_HASH, TargetPartitionHashInputV1.ORDERING_KEY,
-                List.of(0), capability, 1, 0, 0, bytes(32, version), 1_000, 128, 512, 1,
+                List.of(0), capability.ref(), 1, 0, 0, bytes(32, version), 1_000, 128, 512, 1,
                 Bytes.utf8("destination"), 0, 0, 1, bytes(32, version + 1));
         return new ProfileSemanticEnvelopeV1(ProfileKindV1.DESTINATION, Bytes.utf8("destination"), version, body);
+    }
+
+    private static ProfileSemanticEnvelopeV1 capability(final int version) {
+        final DeliveryCapabilitySemanticV1 body = new DeliveryCapabilitySemanticV1(
+                AdapterKindV1.KAFKA, io.nereusstream.delay.protocol.OutcomeCapabilityV1.AT_LEAST_ONCE,
+                io.nereusstream.delay.protocol.TimingCapabilityV1.ORDINARY_MANAGED,
+                null, 0, 0, 0, 0, bytes(32, version + 2), bytes(32, version + 3), 0, 0);
+        return new ProfileSemanticEnvelopeV1(ProfileKindV1.DELIVERY_CAPABILITY, Bytes.utf8("capability"), version,
+                body);
     }
 
     private static byte[] bytes(final int length, final int seed) {
@@ -139,15 +159,30 @@ class ProfileCatalogV1ScheduleResolverTest {
     private static final class StubProfileCatalog implements ProfileCatalog {
         private final ProfileSemanticEnvelopeV1 semantic;
         private final boolean available;
+        private final ProfileSemanticEnvelopeV1 capability;
+        private final boolean capabilityAvailable;
 
         private StubProfileCatalog(final ProfileSemanticEnvelopeV1 semantic, final boolean available) {
+            this(semantic, available, available);
+        }
+
+        private StubProfileCatalog(final ProfileSemanticEnvelopeV1 semantic, final boolean available,
+                                    final boolean capabilityAvailable) {
             this.semantic = semantic;
             this.available = available;
+            this.capability = capability(Math.toIntExact(semantic.version()));
+            this.capabilityAvailable = capabilityAvailable;
         }
 
         @Override
         public ProfileSemanticEnvelopeV1 resolve(final ProfileRefV1 reference) {
-            return available && semantic.ref().equals(reference) ? semantic : null;
+            if (!available) {
+                return null;
+            }
+            if (semantic.ref().equals(reference)) {
+                return semantic;
+            }
+            return capabilityAvailable && capability.ref().equals(reference) ? capability : null;
         }
 
         @Override
