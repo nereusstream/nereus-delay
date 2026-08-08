@@ -40,6 +40,12 @@ The five `meta/SCHEDULER` projection codecs likewise retain complete raw
 ring, deficit map, round and last-served map; runtime capacity/placement and
 Oxia scheduler authority remain separate release evidence.
 
+The Registry-shaped `ActiveLaneStateV1` projection also preserves raw unsigned
+`uint64` lane-control/lane-version/scheduler-weight/failure fields and keeps
+the separate epoch fields as nonnegative `int64`. This closes the local typed
+state codec only; Profile/Lane activation, quota coupling and Oxia authority
+remain release evidence.
+
 尚未填写的数值不是开放设计问题：它们必须由 §23 的 benchmark、capacity proof、real-service conformance 和 chaos evidence 产生，并装入已经冻结的 required config/schema。任何实现若要改变字段、状态、时序、不变量或停止条件，必须发布新的 spec/protocol revision，不能把 benchmark 输出当作协议修订。
 
 ## 权威材料

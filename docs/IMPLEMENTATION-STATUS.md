@@ -44,6 +44,13 @@ covers all five projection values. This is wire/reopen evidence only; the
 runtime scheduler still operates inside its certified signed Java capacity
 envelope.
 
+The Registry-shaped `ActiveLaneStateV1` codec now does the same for its raw
+`uint64` lane-control/lane-version/scheduler-weight/failure fields; only zero
+is invalid, while its epoch-time fields retain their nonnegative `int64`
+semantics. `ActiveLaneStateV1Test.preservesUnsignedLaneVersionWeightAndFailureBits`
+covers the high-bit projection. The typed state remains a local persistence
+codec until full Lane/Profile/Oxia activation is available.
+
 Registry class-3 `meta_cf/QUOTA` now has a local per-Lane compatibility projection.
 `LaneQuotaUsageProjection` fences the message, reservation, per-Lane slot and
 per-Claim/per-attempt `inflight_messages`/`inflight_bytes` dimensions with Lane

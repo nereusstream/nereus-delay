@@ -63,6 +63,25 @@ class ActiveLaneStateV1Test {
                 null, null, LaneCircuitStateV1.OPEN, 0, 0, 0, 0, null, null, null));
     }
 
+    @Test
+    void preservesUnsignedLaneVersionWeightAndFailureBits() {
+        final byte[] tuple = Bytes.utf8("unsigned-lane-tuple");
+        final ProfileRefV1 destination = profile(ProfileKindV1.DESTINATION, 7);
+        final ProfileRefV1 capability = profile(ProfileKindV1.DELIVERY_CAPABILITY, 8);
+        final ActiveLaneStateV1 state = new ActiveLaneStateV1(
+                DestinationLaneId.derive(tuple), bytes(16, 6), AdmissionGate.OPEN,
+                RuntimeReadiness.BLOCKED, LaneRuntimeBlockReasonV1.CAPABILITY,
+                Long.MIN_VALUE, -1L, destination, capability, tuple, Long.MIN_VALUE, charge(),
+                null, null, LaneCircuitStateV1.CLOSED, 0, -1L, 0, 0, null, null, null);
+
+        final ActiveLaneStateV1 decoded = ActiveLaneStateV1.decode(state.canonicalBytes());
+        assertEquals(Long.MIN_VALUE, decoded.laneControlVersion());
+        assertEquals(-1L, decoded.laneVersion());
+        assertEquals(Long.MIN_VALUE, decoded.schedulerWeight());
+        assertEquals(-1L, decoded.consecutiveFailures());
+        assertArrayEquals(state.canonicalBytes(), decoded.canonicalBytes());
+    }
+
     private static ProfileRefV1 profile(final ProfileKindV1 kind, final int seed) {
         return new ProfileRefV1(bytes(8, seed), 1, bytes(32, seed + 10), kind);
     }

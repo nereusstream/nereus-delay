@@ -71,7 +71,7 @@ public final class ActiveLaneStateV1 {
             throw new IllegalArgumentException("runtime block reason presence must match BLOCKED readiness");
         }
         this.runtimeBlockReason = runtimeBlockReason;
-        if (laneControlVersion <= 0 || laneVersion <= 0) {
+        if (laneControlVersion == 0 || laneVersion == 0) {
             throw new IllegalArgumentException("Lane versions must be positive");
         }
         this.laneControlVersion = laneControlVersion;
@@ -85,7 +85,7 @@ public final class ActiveLaneStateV1 {
             throw new IllegalArgumentException("Lane identity does not match canonical tuple");
         }
         this.canonicalLaneTupleSha256 = Bytes.sha256(this.canonicalLaneTuple);
-        this.schedulerWeight = positive(schedulerWeight, "schedulerWeight");
+        this.schedulerWeight = nonZero(schedulerWeight, "schedulerWeight");
         this.laneUsage = Objects.requireNonNull(laneUsage, "laneUsage");
         this.earliestActionAtEpochMs = nonNegativeOptional(earliestActionAtEpochMs, "earliestActionAtEpochMs");
         this.nextEligibleAtEpochMs = nonNegativeOptional(nextEligibleAtEpochMs, "nextEligibleAtEpochMs");
@@ -97,7 +97,7 @@ public final class ActiveLaneStateV1 {
             throw new IllegalArgumentException("CLOSED circuit must have circuitOpenUntil=0");
         }
         this.circuitOpenUntilEpochMs = nonNegative(circuitOpenUntilEpochMs, "circuitOpenUntilEpochMs");
-        this.consecutiveFailures = nonNegative(consecutiveFailures, "consecutiveFailures");
+        this.consecutiveFailures = consecutiveFailures;
         this.laneRetryBackoffUntilEpochMs = nonNegative(laneRetryBackoffUntilEpochMs,
                 "laneRetryBackoffUntilEpochMs");
         this.executorRetryAtEpochMs = nonNegative(executorRetryAtEpochMs, "executorRetryAtEpochMs");
@@ -241,13 +241,13 @@ public final class ActiveLaneStateV1 {
         if (fields.get(index).number() == 6) {
             blockReason = LaneRuntimeBlockReasonV1.fromWire(QueryCodecSupport.uint(fields.get(index++), 6));
         }
-        final long controlVersion = QueryCodecSupport.uint(fields.get(index++), 7);
-        final long laneVersion = QueryCodecSupport.uint(fields.get(index++), 8);
+        final long controlVersion = QueryCodecSupport.uint64Bits(fields.get(index++), 7);
+        final long laneVersion = QueryCodecSupport.uint64Bits(fields.get(index++), 8);
         final ProfileRefV1 destination = ProfileRefV1.decode(QueryCodecSupport.nested(fields.get(index++), 9));
         final ProfileRefV1 capability = ProfileRefV1.decode(QueryCodecSupport.nested(fields.get(index++), 10));
         final byte[] tuple = QueryCodecSupport.bytes(fields.get(index++), 11);
         final byte[] tupleDigest = QueryCodecSupport.fixed(fields.get(index++), 12, HASH_LENGTH);
-        final long weight = QueryCodecSupport.uint(fields.get(index++), 13);
+        final long weight = QueryCodecSupport.uint64Bits(fields.get(index++), 13);
         final PublishAdmissionBody.ChargeVector usage = PublishAdmissionBody.ChargeVector.decodeCanonical(
                 QueryCodecSupport.nested(fields.get(index++), 14));
         final Long earliest = optionalLong(fields, index, 15);
@@ -260,7 +260,7 @@ public final class ActiveLaneStateV1 {
         }
         final LaneCircuitStateV1 circuit = LaneCircuitStateV1.fromWire(QueryCodecSupport.uint(fields.get(index++), 17));
         final long circuitUntil = QueryCodecSupport.uint(fields.get(index++), 18);
-        final long failures = QueryCodecSupport.uint(fields.get(index++), 19);
+        final long failures = QueryCodecSupport.uint64Bits(fields.get(index++), 19);
         final long laneRetry = QueryCodecSupport.uint(fields.get(index++), 20);
         final long executorRetry = QueryCodecSupport.uint(fields.get(index++), 21);
         byte[] readyKey = null;
@@ -309,13 +309,13 @@ public final class ActiveLaneStateV1 {
             if (runtimeBlockReason != null) {
                 CanonicalProtobuf.uint32(output, 6, runtimeBlockReason.wireValue());
             }
-            CanonicalProtobuf.uint64(output, 7, laneControlVersion);
-            CanonicalProtobuf.uint64(output, 8, laneVersion);
+            CanonicalProtobuf.uint64Bits(output, 7, laneControlVersion);
+            CanonicalProtobuf.uint64Bits(output, 8, laneVersion);
             CanonicalProtobuf.bytes(output, 9, destinationProfile.canonicalBytes());
             CanonicalProtobuf.bytes(output, 10, capabilityProfile.canonicalBytes());
             CanonicalProtobuf.bytes(output, 11, canonicalLaneTuple);
             CanonicalProtobuf.bytes(output, 12, canonicalLaneTupleSha256);
-            CanonicalProtobuf.uint64(output, 13, schedulerWeight);
+            CanonicalProtobuf.uint64Bits(output, 13, schedulerWeight);
             CanonicalProtobuf.bytes(output, 14, laneUsage.canonicalBytes());
             if (earliestActionAtEpochMs != null) {
                 CanonicalProtobuf.int64(output, 15, earliestActionAtEpochMs);
@@ -325,7 +325,7 @@ public final class ActiveLaneStateV1 {
             }
             CanonicalProtobuf.uint32(output, 17, circuitState.wireValue());
             CanonicalProtobuf.int64(output, 18, circuitOpenUntilEpochMs);
-            CanonicalProtobuf.uint64(output, 19, consecutiveFailures);
+            CanonicalProtobuf.uint64Bits(output, 19, consecutiveFailures);
             CanonicalProtobuf.int64(output, 20, laneRetryBackoffUntilEpochMs);
             CanonicalProtobuf.int64(output, 21, executorRetryAtEpochMs);
             if (encodedReadyKey != null) {
@@ -371,9 +371,9 @@ public final class ActiveLaneStateV1 {
         return Bytes.copy(value);
     }
 
-    private static long positive(final long value, final String name) {
-        if (value <= 0) {
-            throw new IllegalArgumentException(name + " must be positive");
+    private static long nonZero(final long value, final String name) {
+        if (value == 0) {
+            throw new IllegalArgumentException(name + " must be nonzero");
         }
         return value;
     }
