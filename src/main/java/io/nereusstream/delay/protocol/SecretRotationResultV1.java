@@ -20,8 +20,8 @@ public final class SecretRotationResultV1 {
                 && profile.profileKind() != ProfileKindV1.OBJECT_STORE) {
             throw new IllegalArgumentException("secret rotation requires a destination or object-store Profile");
         }
-        if (secretGeneration == 0 || bindingHeadRevision <= 0) {
-            throw new IllegalArgumentException("secret generation must be non-zero and binding revision positive");
+        if (secretGeneration == 0 || bindingHeadRevision == 0) {
+            throw new IllegalArgumentException("secret generation and binding revision must be non-zero");
         }
         this.secretGeneration = secretGeneration;
         this.secretReferenceDigest = fixed(secretReferenceDigest, "secretReferenceDigest");
@@ -60,7 +60,7 @@ public final class SecretRotationResultV1 {
             CanonicalProtobuf.uint64Bits(output, 2, secretGeneration);
             CanonicalProtobuf.bytes(output, 3, secretReferenceDigest);
             CanonicalProtobuf.bytes(output, 4, credentialBindingDigest);
-            CanonicalProtobuf.uint64(output, 5, bindingHeadRevision);
+            CanonicalProtobuf.uint64Bits(output, 5, bindingHeadRevision);
             CanonicalProtobuf.bytes(output, 6, bindingHeadDigest);
         });
     }
@@ -71,7 +71,7 @@ public final class SecretRotationResultV1 {
         final SecretRotationResultV1 result = new SecretRotationResultV1(
                 ProfileRefV1.decode(QueryCodecSupport.nested(fields.get(0), 1)),
                 QueryCodecSupport.uint(fields.get(1), 2), QueryCodecSupport.fixed(fields.get(2), 3, 32),
-                QueryCodecSupport.fixed(fields.get(3), 4, 32), QueryCodecSupport.uint(fields.get(4), 5),
+                QueryCodecSupport.fixed(fields.get(3), 4, 32), QueryCodecSupport.uint64Bits(fields.get(4), 5),
                 QueryCodecSupport.fixed(fields.get(5), 6, 32));
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "SecretRotationResultV1");
         return result;

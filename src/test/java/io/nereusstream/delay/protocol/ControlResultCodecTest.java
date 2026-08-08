@@ -31,7 +31,7 @@ class ControlResultCodecTest {
         final RouteControlResultV1 route = new RouteControlResultV1(bytes(16, 10), RouteLifecycleV1.CONTROL_ONLY, 11);
         final SecretRotationResultV1 rotation = new SecretRotationResultV1(destination, Long.MIN_VALUE,
                 bytes(32, 11),
-                bytes(32, 12), 13, bytes(32, 13));
+                bytes(32, 12), Long.MIN_VALUE, bytes(32, 13));
 
         assertEquals(lane, LaneControlResultV1.decode(lane.canonicalBytes()));
         assertEquals(shardResult, ShardControlResultV1.decode(shardResult.canonicalBytes()));
@@ -41,6 +41,7 @@ class ControlResultCodecTest {
         assertEquals(message, MessageControlResultV1.decode(message.canonicalBytes()));
         assertEquals(route, RouteControlResultV1.decode(route.canonicalBytes()));
         assertEquals(rotation, SecretRotationResultV1.decode(rotation.canonicalBytes()));
+        assertEquals(Long.MIN_VALUE, SecretRotationResultV1.decode(rotation.canonicalBytes()).bindingHeadRevision());
     }
 
     @Test

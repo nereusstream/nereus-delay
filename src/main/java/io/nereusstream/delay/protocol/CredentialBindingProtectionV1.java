@@ -38,7 +38,7 @@ public final class CredentialBindingProtectionV1 {
                 "nativeCapabilityProtectionUntilEpochMs");
         this.uploadHandleProtectionUntilEpochMs = nonNegative(uploadHandleProtectionUntilEpochMs,
                 "uploadHandleProtectionUntilEpochMs");
-        this.protectionRevision = positive(protectionRevision, "protectionRevision");
+        this.protectionRevision = nonZero(protectionRevision, "protectionRevision");
         this.protectionDigest = fixed(protectionDigest, "protectionDigest");
         if (!Bytes.constantTimeEquals(this.protectionDigest, digestForFields())) {
             throw new IllegalArgumentException("CredentialBindingProtectionV1 digest mismatch");
@@ -86,7 +86,7 @@ public final class CredentialBindingProtectionV1 {
                 nonNegative(QueryCodecSupport.uint(fields.get(4), 5), "objectStoreLeaseProtectionUntilEpochMs"),
                 nonNegative(QueryCodecSupport.uint(fields.get(5), 6), "nativeCapabilityProtectionUntilEpochMs"),
                 nonNegative(QueryCodecSupport.uint(fields.get(6), 7), "uploadHandleProtectionUntilEpochMs"),
-                positive(QueryCodecSupport.uint(fields.get(7), 8), "protectionRevision"),
+                nonZero(QueryCodecSupport.uint64Bits(fields.get(7), 8), "protectionRevision"),
                 QueryCodecSupport.fixed(fields.get(8), 9, HASH_LENGTH));
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "CredentialBindingProtectionV1");
         return result;
@@ -137,7 +137,7 @@ public final class CredentialBindingProtectionV1 {
             CanonicalProtobuf.int64(output, 5, objectStoreLeaseProtectionUntilEpochMs);
             CanonicalProtobuf.int64(output, 6, nativeCapabilityProtectionUntilEpochMs);
             CanonicalProtobuf.int64(output, 7, uploadHandleProtectionUntilEpochMs);
-            CanonicalProtobuf.uint64(output, 8, protectionRevision);
+            CanonicalProtobuf.uint64Bits(output, 8, protectionRevision);
             CanonicalProtobuf.bytes(output, 9, protectionDigest);
         });
     }
@@ -185,7 +185,7 @@ public final class CredentialBindingProtectionV1 {
             CanonicalProtobuf.int64(output, 5, objectStoreLeaseProtectionUntilEpochMs);
             CanonicalProtobuf.int64(output, 6, nativeCapabilityProtectionUntilEpochMs);
             CanonicalProtobuf.int64(output, 7, uploadHandleProtectionUntilEpochMs);
-            CanonicalProtobuf.uint64(output, 8, protectionRevision);
+            CanonicalProtobuf.uint64Bits(output, 8, protectionRevision);
         });
         return Bytes.sha256(DIGEST_DOMAIN, fields);
     }
@@ -202,13 +202,6 @@ public final class CredentialBindingProtectionV1 {
     private static byte[] fixed(final byte[] value, final String name) {
         Bytes.requireLength(value, HASH_LENGTH, name);
         return Bytes.copy(value);
-    }
-
-    private static long positive(final long value, final String name) {
-        if (value <= 0) {
-            throw new IllegalArgumentException(name + " must be positive");
-        }
-        return value;
     }
 
     private static long nonZero(final long value, final String name) {

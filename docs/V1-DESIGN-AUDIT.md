@@ -188,6 +188,11 @@ construct source mutations or produce an Oxia registration receipt.
 The prepared envelope also retains the complete raw `control_query_policy_version`
 bits in its digest and signature preimage; this immutable policy reference is
 distinct from the bounded local operation-revision CAS counter.
+Credential binding Head/protection revisions now follow the same complete raw
+`uint64` rule across Head, protection, lease, rotation request/target and public
+result projections. Zero remains invalid, and the local catalog stops its
+unsigned checked successor at the all-ones pattern; this is codec/CAS-value
+evidence only, not an Oxia transaction or provider-authority proof.
 The Control target value layer closes the six branch shapes and field-22
 digest locally. `PreparedControlOperationV1` now additionally enforces the
 closed operation-specific target counts/kinds, mutation-identity presence and

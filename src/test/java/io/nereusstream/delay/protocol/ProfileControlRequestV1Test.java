@@ -33,8 +33,9 @@ class ProfileControlRequestV1Test {
         final byte[] nextSecret = Bytes.utf8("provider://credential/v2");
         final CredentialEquivalenceAttestationV1 nextAttestation = attestation(reference, 2, nextSecret, keyPair);
         final RotateEquivalentSecretRequestV1 rotate = new RotateEquivalentSecretRequestV1(reference, 1, 2,
-                nextSecret, Bytes.sha256(nextSecret), nextAttestation, firstBinding.bindingDigest(), 4);
+                nextSecret, Bytes.sha256(nextSecret), nextAttestation, firstBinding.bindingDigest(), Long.MIN_VALUE);
         assertEquals(rotate, RotateEquivalentSecretRequestV1.decode(rotate.canonicalBytes()));
+        assertEquals(Long.MIN_VALUE, rotate.expectedBindingHeadRevision());
         assertEquals(2, rotate.newBinding().secretGeneration());
     }
 

@@ -222,6 +222,17 @@ from the local bounded `operation_revision` CAS counter; catalog lookup and
 authenticated Oxia registration remain external. `PreparedControlOperationV1Test`
 covers the high-bit round trip.
 
+Credential binding Head/protection revisions and the corresponding rotation
+target, request, lease and public-result projections now preserve complete raw
+nonzero `uint64` bit patterns as well. Their local identity and equality checks
+use zero-only validation; the in-memory catalog advances a revision with an
+unsigned checked successor and stops at the all-ones pattern. This keeps a
+high-bit CAS value from being rejected by one nested projection while accepted
+by another; Oxia Head/protection CAS and provider authority remain external.
+`CredentialBindingV1Test`, `ProfileControlRequestV1Test`,
+`ControlTargetRefV1Test` and `ControlResultCodecTest` cover the high-bit
+round trips.
+
 The closed Control target value layer now also has canonical codecs for Shard,
 Lane, Message, Route, Profile and Quota Grant target branches, including the
 optional expected-mutation identity pair and a digest over fields 1--21. This

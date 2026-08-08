@@ -36,19 +36,23 @@ class CredentialBindingV1Test {
         assertArrayEquals(Bytes.sha256(secretReference), binding.secretReferenceSha256());
         assertEquals(binding, CredentialBindingV1.decode(binding.canonicalBytes()));
 
-        final CredentialBindingHeadV1 head = CredentialBindingHeadV1.forBinding(binding, 3);
+        final long bindingRevision = Long.MIN_VALUE;
+        final CredentialBindingHeadV1 head = CredentialBindingHeadV1.forBinding(binding, bindingRevision);
         assertEquals(head, CredentialBindingHeadV1.decode(head.canonicalBytes()));
+        assertEquals(bindingRevision, head.headRevision());
 
         final CredentialBindingProtectionV1 protection = CredentialBindingProtectionV1.forBinding(
-                binding, 1_600, 1_700, 1_800, 1_900, 4);
+                binding, 1_600, 1_700, 1_800, 1_900, bindingRevision);
         assertEquals(protection, CredentialBindingProtectionV1.decode(protection.canonicalBytes()));
+        assertEquals(bindingRevision, protection.protectionRevision());
 
         final CredentialUseLeaseV1 lease = new CredentialUseLeaseV1(profile,
                 CredentialUseKindV1.DESTINATION_CHANNEL, bytes(32, 9), generation, binding.bindingDigest(),
-                attestation.resolvedCredentialFingerprintDigest(), verifiedAt, 1_500, 4);
+                attestation.resolvedCredentialFingerprintDigest(), verifiedAt, 1_500, bindingRevision);
         lease.requireBinding(binding);
         lease.requireProtectedBy(protection);
         assertEquals(lease, CredentialUseLeaseV1.decode(lease.canonicalBytes()));
+        assertEquals(bindingRevision, lease.protectionRevision());
     }
 
     @Test

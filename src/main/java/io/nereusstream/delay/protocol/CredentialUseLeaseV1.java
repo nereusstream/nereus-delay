@@ -49,8 +49,8 @@ public final class CredentialUseLeaseV1 {
             throw new IllegalArgumentException("credential lease must outlive issuedAt.latest");
         }
         this.validUntilEpochMs = validUntilEpochMs;
-        if (protectionRevision <= 0) {
-            throw new IllegalArgumentException("protectionRevision must be positive");
+        if (protectionRevision == 0) {
+            throw new IllegalArgumentException("protectionRevision must be non-zero");
         }
         this.protectionRevision = protectionRevision;
     }
@@ -148,7 +148,7 @@ public final class CredentialUseLeaseV1 {
             CanonicalProtobuf.bytes(output, 7, resolvedCredentialFingerprintDigest);
             CanonicalProtobuf.bytes(output, 8, issuedAt.canonicalBytes());
             CanonicalProtobuf.int64(output, 9, validUntilEpochMs);
-            CanonicalProtobuf.uint64(output, 10, protectionRevision);
+            CanonicalProtobuf.uint64Bits(output, 10, protectionRevision);
             CanonicalProtobuf.bytes(output, 11, digest());
         });
     }
@@ -170,7 +170,7 @@ public final class CredentialUseLeaseV1 {
                 QueryCodecSupport.fixed(fields.get(6), 7, HASH_LENGTH),
                 TrustedUtcIntervalEvidence.decode(QueryCodecSupport.nested(fields.get(7), 8)),
                 nonNegative(QueryCodecSupport.uint(fields.get(8), 9), "validUntilEpochMs"),
-                positive(QueryCodecSupport.uint(fields.get(9), 10), "protectionRevision"));
+                nonZero(QueryCodecSupport.uint64Bits(fields.get(9), 10), "protectionRevision"));
         if (!Arrays.equals(fields.get(10).rawValue(), result.digest())) {
             throw new IllegalArgumentException("CredentialUseLeaseV1 digest mismatch");
         }
@@ -198,15 +198,8 @@ public final class CredentialUseLeaseV1 {
             CanonicalProtobuf.bytes(output, 7, resolvedCredentialFingerprintDigest);
             CanonicalProtobuf.bytes(output, 8, issuedAt.canonicalBytes());
             CanonicalProtobuf.int64(output, 9, validUntilEpochMs);
-            CanonicalProtobuf.uint64(output, 10, protectionRevision);
+            CanonicalProtobuf.uint64Bits(output, 10, protectionRevision);
         });
-    }
-
-    private static long positive(final long value, final String name) {
-        if (value <= 0) {
-            throw new IllegalArgumentException(name + " must be positive");
-        }
-        return value;
     }
 
     private static long nonZero(final long value, final String name) {

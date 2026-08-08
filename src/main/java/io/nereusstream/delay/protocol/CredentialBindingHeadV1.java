@@ -22,7 +22,7 @@ public final class CredentialBindingHeadV1 {
         this.profile = requireBindableProfile(profile);
         this.secretGeneration = nonZero(secretGeneration, "secretGeneration");
         this.bindingDigest = fixed(bindingDigest, "bindingDigest");
-        this.headRevision = positive(headRevision, "headRevision");
+        this.headRevision = nonZero(headRevision, "headRevision");
         this.headDigest = fixed(headDigest, "headDigest");
         if (!Bytes.constantTimeEquals(this.headDigest, digestForFields())) {
             throw new IllegalArgumentException("CredentialBindingHeadV1 digest mismatch");
@@ -49,7 +49,7 @@ public final class CredentialBindingHeadV1 {
                 ProfileRefV1.decode(QueryCodecSupport.nested(fields.get(0), 1)),
                 nonZero(QueryCodecSupport.uint(fields.get(1), 2), "secretGeneration"),
                 QueryCodecSupport.fixed(fields.get(2), 3, HASH_LENGTH),
-                positive(QueryCodecSupport.uint(fields.get(3), 4), "headRevision"),
+                nonZero(QueryCodecSupport.uint64Bits(fields.get(3), 4), "headRevision"),
                 QueryCodecSupport.fixed(fields.get(4), 5, HASH_LENGTH));
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "CredentialBindingHeadV1");
         return result;
@@ -80,7 +80,7 @@ public final class CredentialBindingHeadV1 {
             CanonicalProtobuf.bytes(output, 1, profile.canonicalBytes());
             CanonicalProtobuf.uint64Bits(output, 2, secretGeneration);
             CanonicalProtobuf.bytes(output, 3, bindingDigest);
-            CanonicalProtobuf.uint64(output, 4, headRevision);
+            CanonicalProtobuf.uint64Bits(output, 4, headRevision);
             CanonicalProtobuf.bytes(output, 5, headDigest);
         });
     }
@@ -111,7 +111,7 @@ public final class CredentialBindingHeadV1 {
             CanonicalProtobuf.bytes(output, 1, profile.canonicalBytes());
             CanonicalProtobuf.uint64Bits(output, 2, secretGeneration);
             CanonicalProtobuf.bytes(output, 3, bindingDigest);
-            CanonicalProtobuf.uint64(output, 4, headRevision);
+            CanonicalProtobuf.uint64Bits(output, 4, headRevision);
         });
         return Bytes.sha256(DIGEST_DOMAIN, fields);
     }
@@ -128,13 +128,6 @@ public final class CredentialBindingHeadV1 {
     private static byte[] fixed(final byte[] value, final String name) {
         Bytes.requireLength(value, HASH_LENGTH, name);
         return Bytes.copy(value);
-    }
-
-    private static long positive(final long value, final String name) {
-        if (value <= 0) {
-            throw new IllegalArgumentException(name + " must be positive");
-        }
-        return value;
     }
 
     private static long nonZero(final long value, final String name) {

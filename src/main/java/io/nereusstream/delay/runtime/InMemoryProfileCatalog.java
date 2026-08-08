@@ -235,11 +235,10 @@ public final class InMemoryProfileCatalog implements ProfileCatalog {
     }
 
     private static long checkedIncrement(final long value, final String name) {
-        try {
-            return Math.addExact(value, 1);
-        } catch (ArithmeticException overflow) {
-            throw new IllegalArgumentException(name + " overflow", overflow);
+        if (value == -1L) {
+            throw new IllegalArgumentException(name + " exhausted");
         }
+        return value + 1;
     }
 
     private static final class Entry {

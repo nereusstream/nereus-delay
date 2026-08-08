@@ -26,7 +26,7 @@ class ControlTargetRefV1Test {
                         new ControlMessageTargetV1(message, 1, 2, bytes(32, 5)), null, null),
                 new ControlTargetRefV1(3, ControlTargetKindV1.ROUTE, route.bytes(), null, null),
                 new ControlTargetRefV1(4, ControlTargetKindV1.PROFILE, new ProfileControlTargetV1(profile, 2,
-                        bytes(32, 6), 7), null, null),
+                        bytes(32, 6), Long.MIN_VALUE), null, null),
                 new ControlTargetRefV1(5, ControlTargetKindV1.QUOTA_GRANT, quota, null, null));
 
         for (ControlTargetRefV1 target : targets) {
@@ -34,6 +34,7 @@ class ControlTargetRefV1Test {
                     "target " + target.targetKind());
         }
         assertEquals(2L, ((ProfileControlTargetV1) targets.get(4).target()).expectedSecretGeneration());
+        assertEquals(Long.MIN_VALUE, ((ProfileControlTargetV1) targets.get(4).target()).expectedBindingHeadRevision());
         assertArrayEquals(route.bytes(), targets.get(3).routeUuid());
     }
 

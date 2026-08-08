@@ -45,7 +45,7 @@ public final class RotateEquivalentSecretRequestV1 implements ControlOperationRe
         this.equivalenceAttestation.requireCandidate(this.profile, this.newSecretGeneration,
                 this.newSecretReferenceSha256);
         this.expectedBindingDigest = fixed(expectedBindingDigest, "expectedBindingDigest");
-        this.expectedBindingHeadRevision = positive(expectedBindingHeadRevision, "expectedBindingHeadRevision");
+        this.expectedBindingHeadRevision = nonZero(expectedBindingHeadRevision, "expectedBindingHeadRevision");
     }
 
     public ProfileRefV1 profile() {
@@ -97,7 +97,7 @@ public final class RotateEquivalentSecretRequestV1 implements ControlOperationRe
             CanonicalProtobuf.bytes(output, 5, newSecretReferenceSha256);
             CanonicalProtobuf.bytes(output, 6, equivalenceAttestation.canonicalBytes());
             CanonicalProtobuf.bytes(output, 7, expectedBindingDigest);
-            CanonicalProtobuf.uint64(output, 8, expectedBindingHeadRevision);
+            CanonicalProtobuf.uint64Bits(output, 8, expectedBindingHeadRevision);
         });
     }
 
@@ -112,7 +112,7 @@ public final class RotateEquivalentSecretRequestV1 implements ControlOperationRe
                 QueryCodecSupport.bytes(fields.get(3), 4), QueryCodecSupport.fixed(fields.get(4), 5, HASH_LENGTH),
                 CredentialEquivalenceAttestationV1.decode(QueryCodecSupport.nested(fields.get(5), 6)),
                 QueryCodecSupport.fixed(fields.get(6), 7, HASH_LENGTH),
-                QueryCodecSupport.uint(fields.get(7), 8));
+                QueryCodecSupport.uint64Bits(fields.get(7), 8));
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "RotateEquivalentSecretRequestV1");
         return result;
     }
@@ -166,10 +166,4 @@ public final class RotateEquivalentSecretRequestV1 implements ControlOperationRe
         return value;
     }
 
-    private static long positive(final long value, final String name) {
-        if (value <= 0) {
-            throw new IllegalArgumentException(name + " must be positive");
-        }
-        return value;
-    }
 }
