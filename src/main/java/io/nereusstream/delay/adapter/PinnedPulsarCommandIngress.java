@@ -55,8 +55,19 @@ public final class PinnedPulsarCommandIngress implements WireCommandIngressAdapt
             return completed(EnqueueOutcome.uncertain(command, StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue()));
         }
         try {
-            return result.handle((send, error) -> error == null ? map(command, send)
-                    : EnqueueOutcome.uncertain(command, StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue()));
+            return result.handle((send, error) -> {
+                if (error != null) {
+                    return EnqueueOutcome.uncertain(command, StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue());
+                }
+                try {
+                    return map(command, send);
+                } catch (RuntimeException malformedResult) {
+                    // A malformed transport result is not proof that the
+                    // Broker rejected a request after Producer ownership.
+                    return EnqueueOutcome.uncertain(command,
+                            StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue());
+                }
+            });
         } catch (RuntimeException registrationFailure) {
             // A broken CompletionStage implementation is not evidence that
             // the Broker rejected a request after Producer ownership.

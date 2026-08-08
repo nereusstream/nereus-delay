@@ -517,6 +517,9 @@ null-result 和 native-code 泄漏，避免把 managed Command 的 retry contrac
 native submission；malformed result 只作为 bounded `INTEGRITY_ERROR` diagnostic，
 不是 non-persistence proof。错配 definitive-code 的 Kafka、Pulsar 和 native
 回归向量以及 Kafka/Pulsar callback-registration failure 的 uncertain 回归也已覆盖。
+managed callback 内部若在已返回的 `PERSISTED` result 上发现 malformed
+position/identity，也会收敛为 `ENQUEUE_UNCERTAIN`，不会把异常泄漏成
+exceptional Future；该保护与 wire projection 的 malformed-result 降级保持一致。
 
 V1 managed submission 现在还在 Producer ownership 前强制执行
 `CommandCodec.encodeFrameV1/decodeFrameV1`：`PinnedKafkaCommandIngress`、

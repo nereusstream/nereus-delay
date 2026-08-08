@@ -1427,7 +1427,11 @@ ownership that path is conservatively projected as `ENQUEUE_UNCERTAIN` for both
 the managed and NDR1 wire APIs. `AdapterIngressTest.kafkaCompletionStageRegistrationFailureIsUncertain`
 and `AdapterIngressTest.pulsarCompletionStageRegistrationFailureIsUncertain`
 cover this adapter-boundary failure. This remains transport-SPI evidence, not
-an authenticated Broker response classifier.
+an authenticated Broker response classifier. The managed callbacks also catch
+runtime failures while projecting a returned `PERSISTED` result, so a malformed
+result cannot escape as an exceptional Future or become a definitive rejection;
+it is projected as `ENQUEUE_UNCERTAIN`, matching the existing wire-projection
+downgrade for a malformed result.
 
 ## Verification command
 

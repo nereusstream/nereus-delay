@@ -59,8 +59,19 @@ public final class PinnedKafkaCommandIngress implements WireCommandIngressAdapte
             return completed(EnqueueOutcome.uncertain(command, StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue()));
         }
         try {
-            return result.handle((produce, error) -> error == null ? map(command, produce)
-                    : EnqueueOutcome.uncertain(command, StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue()));
+            return result.handle((produce, error) -> {
+                if (error != null) {
+                    return EnqueueOutcome.uncertain(command, StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue());
+                }
+                try {
+                    return map(command, produce);
+                } catch (RuntimeException malformedResult) {
+                    // A malformed transport result is not proof that the
+                    // Broker rejected a request after Producer ownership.
+                    return EnqueueOutcome.uncertain(command,
+                            StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue());
+                }
+            });
         } catch (RuntimeException registrationFailure) {
             // A broken CompletionStage implementation is not evidence that
             // the Broker rejected a request after Producer ownership.
