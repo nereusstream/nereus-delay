@@ -1382,20 +1382,26 @@ public final class ShardStore implements AutoCloseable {
                 closeFailure = appendCloseFailure(closeFailure, failure);
             }
         }
-        if (!dbSlotReleased) {
-            try {
-                resources.releaseDbSlot();
-                dbSlotReleased = true;
-            } catch (RuntimeException failure) {
-                closeFailure = appendCloseFailure(closeFailure, failure);
+        // A DB slot represents a live native DB, so do not release it while
+        // any handle/options teardown is still unfinished. Otherwise a
+        // shared-resource close could pass its in-flight check and destroy
+        // the cache/rate limiter while this Store still owns a native handle.
+        if (nativeTeardownComplete()) {
+            if (!dbSlotReleased) {
+                try {
+                    resources.releaseDbSlot();
+                    dbSlotReleased = true;
+                } catch (RuntimeException failure) {
+                    closeFailure = appendCloseFailure(closeFailure, failure);
+                }
             }
-        }
-        if (ownsShardSlot && !ownedShardSlotReleased) {
-            try {
-                resources.releaseOwnedShardSlot(shardId);
-                ownedShardSlotReleased = true;
-            } catch (RuntimeException failure) {
-                closeFailure = appendCloseFailure(closeFailure, failure);
+            if (dbSlotReleased && ownsShardSlot && !ownedShardSlotReleased) {
+                try {
+                    resources.releaseOwnedShardSlot(shardId);
+                    ownedShardSlotReleased = true;
+                } catch (RuntimeException failure) {
+                    closeFailure = appendCloseFailure(closeFailure, failure);
+                }
             }
         }
         if (closeFailure == null && defaultColumnFamilyClosed && dbClosed && dbOptionsClosed
@@ -1416,6 +1422,11 @@ public final class ShardStore implements AutoCloseable {
             }
         }
         return true;
+    }
+
+    private boolean nativeTeardownComplete() {
+        return defaultColumnFamilyClosed && dbClosed && dbOptionsClosed
+                && closedColumnFamilyHandles.size() == ColumnFamily.values().length && allOptionsClosed();
     }
 
     private static RuntimeException appendCloseFailure(final RuntimeException first,

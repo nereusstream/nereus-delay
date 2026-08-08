@@ -1274,12 +1274,15 @@ Shard；错挂的退休证明不会通过 `getLaneTerminalGuard` 暴露。
 `ShardStoreTest.flushAndSyncMakesTheShardBoundaryExplicit`；它不替代远端 callback
 quiescence 或 final checkpoint publication。
 Store close 会先持久化 clean-close marker，再 fence 所有 public Store 操作；随后
-关闭默认 Column Family、命名 handles、DB/options 并释放 Worker slots。每一项 teardown
-都独立记账，native close 失败不会把未完成项丢掉，后续 close 只重试未完成项；因此
-read、scan、write、flush 和 sequence-number API 全部 fail closed，同时不会把
-`maxOpenShardDbs`/`maxOwnedShards` slot 永久吞掉。`ShardStoreTest.closedShardStoreFailsClosedForAllRocksDbOperations`
-覆盖该本地生命周期边界；共享 rate limiter、WriteBufferManager 和 block cache
-采用同一 retryable teardown 规则。
+关闭默认 Column Family、命名 handles、DB/options，只有完整 native teardown 后才
+释放 Worker slots。每一项 teardown 都独立记账，native close 失败不会把未完成项丢掉，
+后续 close 只重试未完成项；因此 read、scan、write、flush 和 sequence-number API
+全部 fail closed，同时不会把 `maxOpenShardDbs`/`maxOwnedShards` slot 永久吞掉，
+也不会让 shared native resources 在仍有活跃 handle 时提前关闭。
+`ShardStoreTest.closedShardStoreFailsClosedForAllRocksDbOperations` 覆盖该本地生命周期
+边界；共享 rate limiter、WriteBufferManager 和 block cache 采用同一 retryable
+teardown 规则。`EmbeddedDelayService.close()` 在 final drain 后保持 fenced-but-retryable，
+不会因 Store/Worker 首次 teardown 失败而永久吞掉后续 close。
 `DelayShard.listOpenPublishAttempts` 还提供 bounded 的
 `PUBLISHING`/`UNCERTAIN` ledger view，供 drain 等待 admitted callback 的本地轮询
 使用；重复 attempt identity 或超 bound 都 fail closed，不能把未知 obligation

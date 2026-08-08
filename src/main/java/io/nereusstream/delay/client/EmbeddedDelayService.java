@@ -81,6 +81,8 @@ public final class EmbeddedDelayService implements DelayClient {
      */
     private boolean offsetExhausted;
     private long pendingBytes;
+    /** Fences new client work while Store/Worker teardown can be retried. */
+    private boolean closeStarted;
     private boolean closed;
 
     public EmbeddedDelayService(final ShardStoreConfig storeConfig, final ShardId shardId) {
@@ -542,37 +544,43 @@ public final class EmbeddedDelayService implements DelayClient {
 
     @Override
     public synchronized void close() {
-        if (!closed) {
+        if (closed) {
+            return;
+        }
+        if (!closeStarted) {
             // The embedded service has no asynchronous Broker producer to
             // await, so its close-drain deadline is represented by a
             // synchronous drain before the local DB is closed.  A failed
             // apply leaves the service open and the head record charged for
             // an explicit retry instead of acknowledging data loss.
             drain();
-            closed = true;
-            RuntimeException closeFailure = null;
-            try {
-                store.close();
-            } catch (RuntimeException exception) {
+            // Fence only after the final allowed drain operation. Any later
+            // Store/Worker close failure must leave this state retryable.
+            closeStarted = true;
+        }
+        RuntimeException closeFailure = null;
+        try {
+            store.close();
+        } catch (RuntimeException exception) {
+            closeFailure = exception;
+        }
+        try {
+            resources.close();
+        } catch (RuntimeException exception) {
+            if (closeFailure == null) {
                 closeFailure = exception;
-            }
-            try {
-                resources.close();
-            } catch (RuntimeException exception) {
-                if (closeFailure == null) {
-                    closeFailure = exception;
-                } else {
-                    closeFailure.addSuppressed(exception);
-                }
-            }
-            if (closeFailure != null) {
-                throw closeFailure;
+            } else {
+                closeFailure.addSuppressed(exception);
             }
         }
+        if (closeFailure != null) {
+            throw closeFailure;
+        }
+        closed = true;
     }
 
     private synchronized void ensureOpen() {
-        if (closed) {
+        if (closed || closeStarted) {
             throw new IllegalStateException("client is closed");
         }
     }

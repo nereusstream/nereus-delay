@@ -1127,18 +1127,24 @@ completes. `ShardStoreTest.completeCheckpointRestoresIntoFreshStoreIncarnation`
 also reacquires that slot immediately after a real restore returns, proving
 the slot is released before the caller closes the restored DB.
 `ShardStore.close()` now writes the clean-close marker before fencing public
-operations, closes the default Column Family as well as every named handle,
-DB/options and both long-lived Worker-slot releases, and records each item
-independently. An earlier JNI close failure is aggregated with later failures,
-but a successful item is not repeated or released twice; a later `close()`
-retries only unfinished teardown and marks the Store permanently closed only
-after every handle and slot is complete. A failed native shutdown therefore
-cannot strand `maxOpenShardDbs` or `maxOwnedShards` capacity.
+operations, closes the default Column Family as well as every named handle and
+DB/options, and records each item independently. DB/owned-shard slots are
+released only after the full native teardown is complete, so shared resources
+cannot pass their in-flight check while this Store still owns a native handle.
+An earlier JNI close failure is aggregated with later failures, but a
+successful item is not repeated or released twice; a later `close()` retries
+only unfinished teardown and marks the Store permanently closed only after
+every handle and slot is complete. A failed native shutdown therefore cannot
+strand capacity or cause premature shared-resource destruction.
 `SharedRocksDbResources.close()` applies the same retryable all-resources rule
 to the process-level rate limiter, shared write-buffer manager and block cache:
 a close failure fences new acquisitions without discarding the unfinished
 resource state, and a later close retries it while preserving the first
 failure/suppressed diagnostics.
+`EmbeddedDelayService.close()` now fences client operations only after its
+final synchronous drain and keeps the fenced service retryable until both the
+Store and shared Worker resources finish teardown; a first close failure cannot
+make a later close a no-op.
 The long-lived owned-shard slot is also bound to the exact `ShardId`, not only
 to a numeric semaphore count. A second `ShardStore.open` for the same Shard
 therefore fails before it can open or create another RocksDB incarnation; this

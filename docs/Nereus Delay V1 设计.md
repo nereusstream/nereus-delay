@@ -1052,7 +1052,7 @@ Store Incarnation 后再互相覆盖 active pointer。
 
 RocksDB 已经成功 `open` 后，任何 `meta_cf` 读取/解码、format/identity 校验或 install-mode 写入失败，都必须在释放 Worker 的 DB/owned-shard slot 前关闭 DB、默认 Column Family、所有命名 Column Family handle 及其 options；失败的 activation 不得遗留活跃 native handle 或文件锁。这个失败清理边界与 `restore-tmp` 的清理边界相同，保证下一次修复、重试或接管可以重新打开同一物理 DB，而不把一次本地校验异常变成永久资源泄漏。
 
-Store close 的顺序也是固定协议：先写 clean-close marker，随后立即 fence 所有公开 Store 操作，再逐项关闭默认/命名 Column Family handle、RocksDB、options 并释放 Worker slot。每一项关闭和 slot release 都必须独立记账；JNI/native 关闭失败时仍继续尝试其余项，但不得把 Store 或 shared resources 标成永久 closed，后续 close 必须只重试尚未成功的项，直到资源完全释放。共享 Worker 资源对 rate limiter、WriteBufferManager 和 block cache 使用相同的 retryable teardown 语义；关闭失败不能让容量 slot 或 native handle 永久丢失。
+Store close 的顺序也是固定协议：先写 clean-close marker，随后立即 fence 所有公开 Store 操作，再逐项关闭默认/命名 Column Family handle、RocksDB、options；只有全部 native DB teardown 成功后才能释放 DB/owned-shard Worker slot。每一项关闭和 slot release 都必须独立记账；JNI/native 关闭失败时仍继续尝试其余 native 项，但不得提前释放仍代表活跃 native handle 的容量 slot，也不得把 Store 或 shared resources 标成永久 closed，后续 close 必须只重试尚未成功的项，直到资源完全释放。共享 Worker 资源对 rate limiter、WriteBufferManager 和 block cache 使用相同的 retryable teardown 语义；关闭失败不能让容量 slot 或 native handle 永久丢失。Embedded client 也必须保持 fenced-but-retryable，不能在 Store/Worker teardown 首次失败时永久吞掉后续 close。
 
 `meta_cf` 必须验证：
 
