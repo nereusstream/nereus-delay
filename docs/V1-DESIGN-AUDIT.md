@@ -701,6 +701,13 @@ Native submission 的 `CompletionStage` callback registration 失败也已收敛
 `NATIVE_ENQUEUE_RESULT_UNCERTAIN`，保留原始 physical attempt；这类异常不能证明
 Broker 在 Producer ownership 后没有持久化。
 
+Kafka/Pulsar destination adapter 的 `CompletionStage.handle(...)` 注册失败也
+已收敛为 `UNKNOWN / DESTINATION_OUTCOME_UNKNOWN`；它发生在目标 Producer 可能
+已经取得 ownership 之后，不能泄漏为 exceptional Future，更不能伪造
+`DEFINITIVELY_NOT_PUBLISHED`。`DestinationAdapterTest` 的 Kafka/Pulsar
+callback-registration 回归覆盖这条边界。这仍只是 adapter transport-SPI
+证据，真实 Broker side-effect evidence 与 absence classifier 仍是发布门禁。
+
 V1 managed submission 现在还在 Producer ownership 前强制执行
 `CommandCodec.encodeFrameV1/decodeFrameV1`：`PinnedKafkaCommandIngress`、
 `PinnedPulsarCommandIngress` 的 `enqueueOutcomeV1` 和

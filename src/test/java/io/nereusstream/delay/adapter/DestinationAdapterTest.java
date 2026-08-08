@@ -102,6 +102,34 @@ class DestinationAdapterTest {
     }
 
     @Test
+    void kafkaCallbackRegistrationFailureRemainsUnknown() {
+        final KafkaTargetResource resource = new KafkaTargetResource("cluster", UUID.randomUUID(), 0);
+        final PinnedKafkaDestinationAdapter.KafkaDestinationTransport transport = actual ->
+                new HandleRegistrationFailureFuture<>();
+        try (PinnedKafkaDestinationAdapter adapter = new PinnedKafkaDestinationAdapter(resource, transport)) {
+            final DestinationPublishResult result = adapter.publish(request(100, 100))
+                    .toCompletableFuture().join();
+            assertEquals(DestinationPublishResult.Disposition.UNKNOWN, result.disposition());
+            assertEquals(StableCode.DESTINATION_OUTCOME_UNKNOWN, result.stableCode());
+        }
+    }
+
+    @Test
+    void pulsarCallbackRegistrationFailureRemainsUnknown() {
+        final PulsarTargetResource resource = new PulsarTargetResource("cluster",
+                Bytes.sha256(Bytes.utf8("callback-registration-resource")),
+                "persistent://tenant/ns/callback-registration", 8_200, 0);
+        final PinnedPulsarDestinationAdapter.PulsarDestinationTransport transport = actual ->
+                new HandleRegistrationFailureFuture<>();
+        try (PinnedPulsarDestinationAdapter adapter = new PinnedPulsarDestinationAdapter(resource, transport)) {
+            final DestinationPublishResult result = adapter.publish(request(100, 100))
+                    .toCompletableFuture().join();
+            assertEquals(DestinationPublishResult.Disposition.UNKNOWN, result.disposition());
+            assertEquals(StableCode.DESTINATION_OUTCOME_UNKNOWN, result.stableCode());
+        }
+    }
+
+    @Test
     void publishedResultRequiresIdentityAndEvidence() {
         assertThrows(IllegalArgumentException.class,
                 () -> DestinationPublishResult.published(null, 2_001, Bytes.utf8("evidence")));
@@ -132,5 +160,13 @@ class DestinationAdapterTest {
         return new DestinationPublishRequest(DestinationLaneId.derive(Bytes.utf8("target-lane")), new byte[16],
                 DelayMessageId.random(new ShardId(RouteIncarnation.random(), 0)), 0, new byte[32], actionAt,
                 deliverAt, Bytes.utf8("payload"), new byte[0]);
+    }
+
+    private static final class HandleRegistrationFailureFuture<T> extends CompletableFuture<T> {
+        @Override
+        public <U> CompletableFuture<U> handle(
+                final java.util.function.BiFunction<? super T, Throwable, ? extends U> function) {
+            throw new IllegalStateException("completion callback registration failed");
+        }
     }
 }

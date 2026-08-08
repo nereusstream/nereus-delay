@@ -1750,6 +1750,15 @@ result cannot escape as an exceptional Future or become a definitive rejection;
 it is projected as `ENQUEUE_UNCERTAIN`, matching the existing wire-projection
 downgrade for a malformed result.
 
+The pinned Kafka/Pulsar destination adapters now apply the same fail-closed rule
+to callback-registration failure: if `CompletionStage.handle(...)` itself throws
+after the target Producer may have taken ownership, the adapter returns
+`UNKNOWN / DESTINATION_OUTCOME_UNKNOWN` rather than an exceptional Future or a
+definitive non-publication result. `DestinationAdapterTest.kafkaCallbackRegistrationFailureRemainsUnknown`
+and `DestinationAdapterTest.pulsarCallbackRegistrationFailureRemainsUnknown`
+cover both target branches. This is local transport-SPI evidence only; it does
+not establish a Broker-side absence proof or durable destination evidence.
+
 The local physical-admission lifecycle now has an explicit Lane teardown
 boundary: after the channel/Producer generation is fenced, READY is closed and
 all physical/zombie reservations have quiesced, the caller may unregister with

@@ -41,8 +41,15 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
         if (result == null) {
             return completed(DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
         }
-        return result.handle((value, error) -> error == null && value != null ? validate(value)
-                : DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
+        try {
+            return result.handle((value, error) -> error == null && value != null ? validate(value)
+                    : DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
+        } catch (RuntimeException registrationFailure) {
+            // Callback registration itself is not evidence that the Broker
+            // did not publish after Producer ownership.  Keep the outcome
+            // unknown instead of leaking an exceptional CompletionStage.
+            return completed(DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
+        }
     }
 
     @Override
