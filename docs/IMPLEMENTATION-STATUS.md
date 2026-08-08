@@ -1210,10 +1210,14 @@ If Store close itself fails, the coordinator leaves the local shard in
 `DRAINING` and keeps the authoritative lease instead of releasing a lease
 whose DB shutdown was not confirmed. The next drain call detects the fenced
 Store and retries only native/slot teardown; it does not repeat Claim revoke,
-callback polling, flush or checkpoint decisions. Only confirmed Store close
-and exact lease release move the shard to `FENCED`. The deterministic
+callback polling, flush or checkpoint decisions. If Store close succeeds but
+exact lease release is not confirmed, the same `DRAINING` state is retained so
+the next call retries only the release; the close-success cleanup path does not
+fence the shard early and strand the lease. Only confirmed Store close and
+exact lease release move the shard to `FENCED`. The deterministic
 `OwnerDrainCoordinatorTest.storeCloseFailureLeavesDrainingStateForRetryableTeardown`
-regression covers this boundary.
+and `OwnerDrainCoordinatorTest.unconfirmedLeaseReleaseKeepsClosedDrainRetryable`
+regressions cover these boundaries.
 Callback quiescence and source hint commit remain caller/transport boundaries;
 timeout leaves the DB and lease in visible `DRAINING` for a safe retry rather
 than claiming completion. `OwnerDrainCoordinatorTest` covers success and

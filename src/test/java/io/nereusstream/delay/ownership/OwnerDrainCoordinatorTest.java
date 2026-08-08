@@ -127,6 +127,37 @@ class OwnerDrainCoordinatorTest {
     }
 
     @Test
+    void unconfirmedLeaseReleaseKeepsClosedDrainRetryable() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 54);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("drain-release-retry"));
+        final FlakyReleaseBackend backend = new FlakyReleaseBackend();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        final OwnerLease acquired = authority.acquire(shardId, "worker-release-retry", 100, 500).orElseThrow();
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = activeOwnedShard(store, acquired, authority, shardId);
+            final OwnerDrainCoordinator coordinator = new OwnerDrainCoordinator(owned, store, resources, authority);
+
+            // The first release response is unconfirmed while the exact lease
+            // remains present. Closing the DB must not fence the local state
+            // before this lease can be retried.
+            assertThrows(IllegalStateException.class, () -> coordinator.drain(
+                    new OwnerDrainCoordinator.DrainRequest(5_000, 0, null), () -> 101, () -> { }));
+            assertEquals(ShardLifecycleState.DRAINING, owned.state());
+            assertTrue(store.isClosed());
+            assertTrue(backend.current(shardId).isPresent());
+            assertEquals(1, backend.releaseCalls);
+
+            final OwnerDrainCoordinator.DrainResult result = coordinator.drain(
+                    new OwnerDrainCoordinator.DrainRequest(5_000, 0, null), () -> 101, () -> { });
+            assertEquals(0, result.revokedClaims());
+            assertEquals(ShardLifecycleState.FENCED, owned.state());
+            assertTrue(backend.current(shardId).isEmpty());
+            assertEquals(2, backend.releaseCalls);
+        }
+    }
+
+    @Test
     void drainReleasesTheCurrentLeaseAfterAQuiescenceRenewal() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 48);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("drain-renewal"));
@@ -288,6 +319,46 @@ class OwnerDrainCoordinatorTest {
             }
             releasedLease = expected;
             return delegate.release(expected);
+        }
+
+        @Override
+        public Optional<OwnerLease> transition(final OwnerLease expected, final ShardLifecycleState nextState) {
+            return delegate.transition(expected, nextState);
+        }
+
+        @Override
+        public Optional<OwnerLease> current(final ShardId shardId) {
+            return delegate.current(shardId);
+        }
+    }
+
+    private static final class FlakyReleaseBackend implements OxiaOwnerLeaseStore.LeaseCasBackend {
+        private final InMemoryOwnerLeaseStore delegate = new InMemoryOwnerLeaseStore();
+        private int releaseCalls;
+
+        @Override
+        public Optional<OwnerLease> acquire(final ShardId shardId, final String ownerId,
+                                            final long nowEpochMs, final long leaseDurationMs) {
+            return delegate.acquire(shardId, ownerId, nowEpochMs, leaseDurationMs);
+        }
+
+        @Override
+        public Optional<OwnerLease> acquire(final SourceAssignment assignment, final String ownerId,
+                                            final byte[] sessionIdentity, final long nowEpochMs,
+                                            final long leaseDurationMs) {
+            return delegate.acquire(assignment, ownerId, sessionIdentity, nowEpochMs, leaseDurationMs);
+        }
+
+        @Override
+        public Optional<OwnerLease> renew(final OwnerLease expected, final long nowEpochMs,
+                                          final long leaseDurationMs) {
+            return delegate.renew(expected, nowEpochMs, leaseDurationMs);
+        }
+
+        @Override
+        public boolean release(final OwnerLease expected) {
+            releaseCalls++;
+            return releaseCalls == 1 ? false : delegate.release(expected);
         }
 
         @Override

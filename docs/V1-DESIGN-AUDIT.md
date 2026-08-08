@@ -1316,9 +1316,12 @@ lease 丢失转换为本地 fence，而不会让旧 owner 继续操作新 owner 
 如果 Store close 本身失败，local shard 保持 `DRAINING` 并保留
 authoritative lease；后续 drain 只重试 Store native/slot teardown，不重复
 Claim revoke、callback poll、flush 或 checkpoint，也不会在 DB 未确认关闭时
-把 local state 置为 `FENCED` 而丢失重试入口。只有 Store 完整关闭并确认 exact
-lease release 后才进入 `FENCED`。`OwnerDrainCoordinatorTest`
-`storeCloseFailureLeavesDrainingStateForRetryableTeardown` 覆盖该边界。
+把 local state 置为 `FENCED` 而丢失重试入口。Store 已关闭但 exact lease release
+响应未确认时也必须保持同一可重试的 `DRAINING` 状态，不能由 close-success
+的 finally 路径提前改成 `FENCED`；后续 drain 只重试 lease release。只有 Store
+完整关闭并确认 exact lease release 后才进入 `FENCED`。`OwnerDrainCoordinatorTest`
+`storeCloseFailureLeavesDrainingStateForRetryableTeardown` 与
+`unconfirmedLeaseReleaseKeepsClosedDrainRetryable` 覆盖这两个边界。
 callback/source quiescence 仍由调用方和真实 transport 提供，超时保持
 `DRAINING` 而不伪造成功。`OwnerDrainCoordinatorTest` 覆盖成功与 deadline
 失败边界。

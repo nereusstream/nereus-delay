@@ -56,6 +56,7 @@ public final class OwnerDrainCoordinator {
         resources.acquireDrainSlot();
         boolean shardDrainAcquired = false;
         boolean storeClosed = false;
+        boolean leaseReleased = false;
         try {
             if (!ownedShard.tryAcquireDrainAttempt()) {
                 throw new IllegalStateException("owner drain is already in progress for this shard");
@@ -86,11 +87,8 @@ public final class OwnerDrainCoordinator {
                     throw closeFailure;
                 }
                 ensureLeaseStillDraining(expectedLease, request, clock);
-                try {
-                    releaseExactLease(ownedShard.lease());
-                } finally {
-                    ownedShard.fence();
-                }
+                releaseExactLease(ownedShard.lease());
+                leaseReleased = true;
                 return new DrainResult(pendingRevokedClaims, pendingCallbackPolls, pendingFinalCheckpoint);
             }
             if (ownedShard.state() == ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
@@ -150,18 +148,21 @@ public final class OwnerDrainCoordinator {
                 // new owner open the same shard while this DB is still live.
                 throw closeFailure;
             }
-            try {
-                // A drain callback may renew the same lease while it waits for
-                // an in-flight attempt.  Release the exact current lease
-                // value, not the acquisition-time snapshot, so a backend that
-                // includes expiry in its CAS cannot reject a valid renewal.
-                releaseExactLease(ownedShard.lease());
-            } finally {
-                ownedShard.fence();
-            }
+            // A drain callback may renew the same lease while it waits for
+            // an in-flight attempt.  Release the exact current lease
+            // value, not the acquisition-time snapshot, so a backend that
+            // includes expiry in its CAS cannot reject a valid renewal.
+            releaseExactLease(ownedShard.lease());
+            leaseReleased = true;
             return new DrainResult(revokedClaims, callbackPolls, finalCheckpoint);
         } finally {
-            if (storeClosed) {
+            // A successfully closed Store is not enough to make the local
+            // owner terminal: if lease release was not confirmed, the exact
+            // DRAINING state must remain retryable.  Fencing here would make
+            // the retry branch reject the still-held lease and leak it in
+            // Oxia.  A confirmed release (or an earlier lease-loss check)
+            // is what permits the terminal local fence.
+            if (storeClosed && leaseReleased) {
                 ownedShard.fence();
             }
             if (shardDrainAcquired) {

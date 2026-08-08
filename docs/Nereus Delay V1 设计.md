@@ -1058,7 +1058,7 @@ Fresh open 在写入 `ACTIVE` 之前也遵循同一规则：pointer 安装失败
 
 Store close 的顺序也是固定协议：先写 clean-close marker，随后立即 fence 所有公开 Store 操作，再逐项关闭默认/命名 Column Family handle、RocksDB、options；只有全部 native DB teardown 成功后才能释放 DB/owned-shard Worker slot。每一项关闭和 slot release 都必须独立记账；JNI/native 关闭失败时仍继续尝试其余 native 项，但不得提前释放仍代表活跃 native handle 的容量 slot，也不得把 Store 或 shared resources 标成永久 closed，后续 close 必须只重试尚未成功的项，直到资源完全释放。共享 Worker 资源对 rate limiter、WriteBufferManager 和 block cache 使用相同的 retryable teardown 语义；关闭失败不能让容量 slot 或 native handle 永久丢失。Embedded client 也必须保持 fenced-but-retryable，不能在 Store/Worker teardown 首次失败时永久吞掉后续 close。
 
-计划内 drain 若 Store close 报告可重试失败，OwnerDrainCoordinator 必须保持本地 shard 为 `DRAINING`、保留 authoritative lease，并在后续 drain 调用中只重试 Store teardown；不得重新执行 Claim revoke、callback poll、flush 或 checkpoint，也不得把未确认关闭的 DB 标为 `FENCED` 后丢失重试入口。只有 Store 完整关闭并确认 exact lease release 后才进入 `FENCED`。
+计划内 drain 若 Store close 报告可重试失败，或 Store 已关闭但 exact lease release 未得到确认，OwnerDrainCoordinator 必须保持本地 shard 为 `DRAINING`、保留 authoritative lease，并在后续 drain 调用中只重试尚未确认的 teardown/release；不得重新执行 Claim revoke、callback poll、flush 或 checkpoint，也不得把仍可重试的状态标为 `FENCED` 后丢失重试入口。只有 Store 完整关闭并确认 exact lease release 后才进入 `FENCED`。
 
 `meta_cf` 必须验证：
 
