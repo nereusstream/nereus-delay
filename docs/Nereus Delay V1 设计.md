@@ -1658,6 +1658,8 @@ Adapter Channel 是 Lane-scoped 的本地提交/缓冲隔离单元：
 - Kafka channel 必须把 pinned topic UUID 带到实际 ProduceRequest；Pulsar channel 必须把 expected incarnation 带入 Producer metadata 并由 Broker guard 在每次 SEND 前核对。单独的 `probe()` 成功不是 publication authority。
 - Adapter close 一旦被请求就立即 fence 新的 ingress、submission 和 publish；底层 channel/Producer teardown 若失败，必须保留该 fence 并把 close 视为未完成，允许后续生命周期重试，直到底层关闭成功。首次失败不能把后续 close 变成 no-op，也不能把未完成 teardown 当作 physical charge 已释放。
 
+  Close gate 必须把“是否接受一次同步 transport invocation”与 close 请求放在同一个线性化边界内；禁止先独立读取 closed 标志、再在 gate 外调用 transport 的 check-then-call 竞态。已经在线性化点前接受的 invocation 可以在 close 请求后完成并按 UNKNOWN/physical charge 规则收敛，但 close 线性化后不得再开始新的 transport invocation。该 gate 不得为了同步 transport 而长期持有 adapter monitor；阻塞调用仍必须运行在 Lane-bounded Adapter executor。
+
 Worker 和每个 target cluster 还分别限制 Adapter connections/producers/threads/requests 总量。新 channel 只有在其完整 Lane minimum envelope 可容纳且 `minOtherReadyLane*` reserve 仍成立时才可创建。允许临时借用空闲容量，但借用者必须在下一次 Admission 前可被抢占，不能把其它 READY Lane 降到认证最小值以下。
 
 每次 Admission 必须按 request 和 byte 两个维度同时预留“所有当前 physical request 同时变成 zombie”的最坏向量；并对 Worker 与 target-cluster 每个维度证明：

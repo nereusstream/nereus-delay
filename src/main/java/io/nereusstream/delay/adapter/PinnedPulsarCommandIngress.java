@@ -31,9 +31,11 @@ public final class PinnedPulsarCommandIngress implements WireCommandIngressAdapt
     @Override
     public CompletionStage<EnqueueOutcome> enqueue(final PreparedCommand command) {
         Objects.requireNonNull(command, "command");
-        if (closeGuard.isClosed()) {
-            return completed(EnqueueOutcome.definitelyNotQueued(command, StableCode.CLIENT_CLOSED.wireValue()));
-        }
+        return closeGuard.invokeIfOpen(() -> enqueueOpen(command),
+                () -> completed(EnqueueOutcome.definitelyNotQueued(command, StableCode.CLIENT_CLOSED.wireValue())));
+    }
+
+    private CompletionStage<EnqueueOutcome> enqueueOpen(final PreparedCommand command) {
         if (!resource.shardId().equals(command.shardId())) {
             return completed(EnqueueOutcome.definitelyNotQueued(command,
                     StableCode.INGRESS_ROUTE_MISMATCH.wireValue()));
@@ -87,9 +89,15 @@ public final class PinnedPulsarCommandIngress implements WireCommandIngressAdapt
             // fail before any local V1 outcome projection or transport call.
             return CompletableFuture.failedFuture(exception);
         }
-        if (closeGuard.isClosed()) {
-            return completedWire(WireIngressOutcomeSupport.localDefinite(command, StableCode.CLIENT_CLOSED));
-        }
+        return closeGuard.invokeIfOpen(
+                () -> enqueueOutcomeOpen(command, receiptQueryUntilEpochMs, physicalAttemptId, v1Frame),
+                () -> completedWire(WireIngressOutcomeSupport.localDefinite(command, StableCode.CLIENT_CLOSED)));
+    }
+
+    private CompletionStage<EnqueueOutcomeMessageV1> enqueueOutcomeOpen(final PreparedCommand command,
+                                                                          final long receiptQueryUntilEpochMs,
+                                                                          final byte[] physicalAttemptId,
+                                                                          final byte[] v1Frame) {
         if (!resource.shardId().equals(command.shardId())) {
             return completedWire(WireIngressOutcomeSupport.localDefinite(command,
                     StableCode.INGRESS_ROUTE_MISMATCH));

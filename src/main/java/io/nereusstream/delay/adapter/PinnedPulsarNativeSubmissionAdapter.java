@@ -58,9 +58,12 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
     public CompletionStage<SubmissionOutcomeMessageV1> submit(final NativePreparedDeliveryV1 prepared,
                                                               final byte[] physicalEnqueueAttemptId) {
         Objects.requireNonNull(prepared, "prepared");
-        if (closeGuard.isClosed()) {
-            return completed(localDefinite(prepared, StableCode.CLIENT_CLOSED));
-        }
+        return closeGuard.invokeIfOpen(() -> submitOpen(prepared, physicalEnqueueAttemptId),
+                () -> completed(localDefinite(prepared, StableCode.CLIENT_CLOSED)));
+    }
+
+    private CompletionStage<SubmissionOutcomeMessageV1> submitOpen(final NativePreparedDeliveryV1 prepared,
+                                                                    final byte[] physicalEnqueueAttemptId) {
         if (!matchesPinnedResource(prepared)) {
             return completed(localDefinite(prepared, StableCode.PREPARED_SUBMISSION_MISMATCH));
         }

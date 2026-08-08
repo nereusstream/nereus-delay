@@ -37,10 +37,20 @@ public final class PreparedSubmissionAdapter implements AutoCloseable {
         Objects.requireNonNull(submission, "submission");
         if (submission.isManaged()) {
             final PreparedCommand command = CommandCodec.decodeFrameV1(submission.managedFrame());
-            if (closeGuard.isClosed()) {
-                return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
-                        WireIngressOutcomeSupport.localDefinite(command, StableCode.CLIENT_CLOSED)));
-            }
+            return closeGuard.invokeIfOpen(() -> submitManaged(command, receiptQueryUntilEpochMs,
+                            physicalEnqueueAttemptId),
+                    () -> CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
+                            WireIngressOutcomeSupport.localDefinite(command, StableCode.CLIENT_CLOSED))));
+        }
+        // The native adapter has its own pinned close gate and therefore
+        // returns the exact native-branch local-definite outcome when this
+        // wrapper has already been fenced. Keep the prepared branch fixed.
+        return nativeSubmission.submit(submission.nativePrepared(), physicalEnqueueAttemptId);
+    }
+
+    private CompletionStage<SubmissionOutcomeMessageV1> submitManaged(final PreparedCommand command,
+                                                                        final long receiptQueryUntilEpochMs,
+                                                                        final byte[] physicalEnqueueAttemptId) {
             try {
                 final CompletionStage<EnqueueOutcomeMessageV1> managedOutcome =
                         managedIngress.enqueueOutcomeV1(command, receiptQueryUntilEpochMs, physicalEnqueueAttemptId);
@@ -60,11 +70,6 @@ public final class PreparedSubmissionAdapter implements AutoCloseable {
                 // throws while returning its CompletionStage.
                 return managedFailure(command, physicalEnqueueAttemptId);
             }
-        }
-        // The native adapter has its own pinned close gate and therefore
-        // returns the exact native-branch local-definite outcome when this
-        // wrapper has already been fenced. Keep the prepared branch fixed.
-        return nativeSubmission.submit(submission.nativePrepared(), physicalEnqueueAttemptId);
     }
 
     private static CompletionStage<SubmissionOutcomeMessageV1> managedFailure(final PreparedCommand command,

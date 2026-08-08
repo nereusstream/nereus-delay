@@ -137,17 +137,20 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                                 final DestinationPhysicalAdmission.Reservation reservation,
                                 final AtomicBoolean retainPhysicalCharge,
                                 final AtomicBoolean completionObserved) {
-        if (closeGuard.isClosed()) {
+        final DelegateInvocation invocation = closeGuard.invokeIfOpen(
+                () -> {
+                    try {
+                        return new DelegateInvocation(delegate.publish(request), false);
+                    } catch (RuntimeException exception) {
+                        return new DelegateInvocation(null, false);
+                    }
+                },
+                () -> new DelegateInvocation(null, true));
+        if (invocation.closed()) {
             outcome.complete(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
             return;
         }
-        final CompletionStage<DestinationPublishResult> raw;
-        try {
-            raw = delegate.publish(request);
-        } catch (RuntimeException exception) {
-            outcome.complete(completedUnknownValue());
-            return;
-        }
+        final CompletionStage<DestinationPublishResult> raw = invocation.stage();
         if (raw == null) {
             outcome.complete(completedUnknownValue());
             return;
@@ -225,6 +228,9 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
             }
         });
         return call;
+    }
+
+    private record DelegateInvocation(CompletionStage<DestinationPublishResult> stage, boolean closed) {
     }
 
     public static final class PublishCall {

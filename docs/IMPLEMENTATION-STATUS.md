@@ -1814,6 +1814,16 @@ cover the retry/fence boundary. This is local teardown evidence only: it does
 not prove Broker-side cancellation, physical-charge release, or production
 channel quiescence.
 
+The same gate now linearizes acceptance of each synchronous ingress, submission
+or publish transport invocation with the close request. The adapters no longer
+perform a standalone `isClosed()` check followed by a transport call outside
+that boundary: an invocation accepted before close may finish after close and
+remains subject to the UNKNOWN/physical-charge rules, while no new transport
+call can begin after the close linearization point. The gate itself is not held
+while transport code runs, so a blocking call cannot prevent close from fencing
+future work or retrying teardown; the bounded wrapper continues to dispatch
+such calls on its Lane/Adapter executor.
+
 `PreparedSubmissionAdapter` now preserves the same boundary at the managed
 submission wrapper: a null stage, adapter throw, or `thenApply` callback
 registration failure is projected as managed `ENQUEUE_UNCERTAIN` with the

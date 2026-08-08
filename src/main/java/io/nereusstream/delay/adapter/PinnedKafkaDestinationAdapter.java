@@ -22,9 +22,11 @@ public final class PinnedKafkaDestinationAdapter implements DestinationPublishAd
     @Override
     public CompletionStage<DestinationPublishResult> publish(final DestinationPublishRequest request) {
         Objects.requireNonNull(request, "request");
-        if (closeGuard.isClosed()) {
-            return completed(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
-        }
+        return closeGuard.invokeIfOpen(() -> publishOpen(request),
+                () -> completed(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null)));
+    }
+
+    private CompletionStage<DestinationPublishResult> publishOpen(final DestinationPublishRequest request) {
         final KafkaDestinationRequest transportRequest;
         try {
             transportRequest = KafkaDestinationRequest.from(resource, request);
