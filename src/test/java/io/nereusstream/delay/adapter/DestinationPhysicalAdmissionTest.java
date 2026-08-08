@@ -110,6 +110,38 @@ class DestinationPhysicalAdmissionTest {
     }
 
     @Test
+    void unregisterRequiresFencedIncarnationAndPhysicalQuiescence() {
+        final DestinationPhysicalAdmission admission = new DestinationPhysicalAdmission(2, 20);
+        admission.registerTargetCluster("cluster-a", 2, 20);
+        final DestinationLaneId lane = lane("unregister");
+        final byte[] firstIncarnation = new byte[16];
+        firstIncarnation[0] = 1;
+        admission.registerLane(spec(lane, firstIncarnation, "cluster-a", 0, 0, 2, 20, 1, 20));
+        admission.openReady(lane);
+        assertThrows(IllegalStateException.class, () -> admission.unregisterLane(lane, firstIncarnation));
+
+        final var reservation = admission.tryAcquire(lane, firstIncarnation, 5).reservation();
+        admission.closeReady(lane);
+        assertThrows(IllegalStateException.class, () -> admission.unregisterLane(lane, firstIncarnation));
+        reservation.release();
+        assertThrows(IllegalArgumentException.class,
+                () -> admission.unregisterLane(lane, new byte[16]));
+        admission.unregisterLane(lane, firstIncarnation);
+        assertEquals(DestinationPhysicalAdmission.Rejection.LANE_NOT_REGISTERED,
+                admission.tryAcquire(lane, firstIncarnation, 1).rejection());
+
+        final byte[] replacementIncarnation = new byte[16];
+        replacementIncarnation[0] = 2;
+        admission.registerLane(spec(lane, replacementIncarnation, "cluster-a", 0, 0, 2, 20, 1, 20));
+        assertThrows(IllegalArgumentException.class,
+                () -> admission.unregisterLane(lane, firstIncarnation));
+        admission.openReady(lane);
+        final var replacement = admission.tryAcquire(lane, replacementIncarnation, 5);
+        assertTrue(replacement.granted());
+        replacement.reservation().release();
+    }
+
+    @Test
     void targetClusterIdentityRejectsNonCanonicalText() {
         final DestinationPhysicalAdmission admission = new DestinationPhysicalAdmission(2, 20);
         final String nonCanonical = "cluster" + '\u0301';
@@ -127,7 +159,20 @@ class DestinationPhysicalAdmissionTest {
                                                                final long maxBytes,
                                                                final long maxZombieRequests,
                                                                final long maxZombieBytes) {
-        return new DestinationPhysicalAdmission.LaneSpec(lane, new byte[16], cluster, minimumRequests,
+        return spec(lane, new byte[16], cluster, minimumRequests, minimumBytes, maxRequests, maxBytes,
+                maxZombieRequests, maxZombieBytes);
+    }
+
+    private static DestinationPhysicalAdmission.LaneSpec spec(final DestinationLaneId lane,
+                                                               final byte[] incarnation,
+                                                               final String cluster,
+                                                               final long minimumRequests,
+                                                               final long minimumBytes,
+                                                               final long maxRequests,
+                                                               final long maxBytes,
+                                                               final long maxZombieRequests,
+                                                               final long maxZombieBytes) {
+        return new DestinationPhysicalAdmission.LaneSpec(lane, incarnation, cluster, minimumRequests,
                 minimumBytes, maxRequests, maxBytes, maxZombieRequests, maxZombieBytes);
     }
 

@@ -1624,6 +1624,8 @@ retainedPhysical
 
 Cluster-wide outage 可以使同 cluster 的多个 Lane 同时不可用，但单 topic、credential、buffer 或 Future 故障不能借共享 Adapter queue 消耗健康 Lane 的保留容量。隔离测试必须包含永久阻塞的同步 metadata call、忽略 cancellation 的 Future、callback 丢失和反复 channel churn；逻辑 timeout 必须最终停在故障 Lane 的 zombie cap，同时健康 Lane 在认证 service-gap 内继续 Admission。
 
+Physical admission registry 的注册生命周期不等于 Lane 的 ownership 或 retirement authority。Source-ordered terminal retirement 只有在对应 Adapter channel/Producer generation 已 fenced、所有 physical 与 zombie reservation 都已 quiesce、且 READY 已关闭后，才能调用带 exact `laneIncarnation` 的本地 `unregisterLane` 释放进程内登记和容量元数据；注销遇到 READY、残留 charge 或 incarnation mismatch 必须 fail closed。旧 channel 的迟到 teardown callback 不得删除新 incarnation 的登记。该操作只回收本地可重建资源，不替代 Oxia grant release、terminal guard、Recovery Floor 或 source-ordered retirement proof。
+
 ### 13.3 Opaque payload 与 metadata
 
 V1 payload 是 caller 已序列化 bytes。Command 使用 adapter-specific oneof：

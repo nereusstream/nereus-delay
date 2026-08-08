@@ -1737,6 +1737,15 @@ result cannot escape as an exceptional Future or become a definitive rejection;
 it is projected as `ENQUEUE_UNCERTAIN`, matching the existing wire-projection
 downgrade for a malformed result.
 
+The local physical-admission lifecycle now has an explicit Lane teardown
+boundary: after the channel/Producer generation is fenced, READY is closed and
+all physical/zombie reservations have quiesced, the caller may unregister with
+the exact Lane incarnation. READY registrations, residual charges and stale
+incarnations fail closed, so a late teardown callback cannot remove a newer
+registration. This only reclaims process-local, rebuildable registry state; it
+does not claim source-ordered retirement, Oxia grant release, terminal-guard,
+Recovery-Floor or production channel-teardown authority.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

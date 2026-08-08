@@ -76,6 +76,32 @@ public final class DestinationPhysicalAdmission {
     }
 
     /**
+     * Unregisters a Lane after its exact physical channel generation has been
+     * fenced and all physical reservations have quiesced.
+     *
+     * <p>This is only an in-process resource-registry operation.  It does not
+     * authorize a logical Lane retirement, release an Oxia grant, or replace
+     * the source-ordered terminal guard.  The incarnation check prevents a
+     * stale teardown callback from removing a newer registration.</p>
+     */
+    public synchronized void unregisterLane(final DestinationLaneId laneId,
+                                             final byte[] laneIncarnation) {
+        final LaneState lane = lane(laneId);
+        Bytes.requireLength(laneIncarnation, 16, "laneIncarnation");
+        if (!Arrays.equals(lane.laneIncarnation, laneIncarnation)) {
+            throw new IllegalArgumentException("Lane identity mismatch");
+        }
+        if (lane.ready) {
+            throw new IllegalStateException("cannot unregister a READY Lane");
+        }
+        if (lane.activeRequests != 0 || lane.activeBytes != 0
+                || lane.zombieRequests != 0 || lane.zombieBytes != 0) {
+            throw new IllegalStateException("cannot unregister a Lane with physical charges");
+        }
+        lanes.remove(laneId);
+    }
+
+    /**
      * Attempts to reserve one physical request and its exact adapter byte
      * charge.  Rejection is explicit so the caller can turn it into a Lane
      * runtime block rather than a business-level message failure.

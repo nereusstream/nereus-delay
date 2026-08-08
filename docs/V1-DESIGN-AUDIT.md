@@ -745,6 +745,14 @@ adapter 上一个永久阻塞的同步 metadata/send 调用不会阻塞另一个
 `ActiveLaneState`/`ReadyCertificate`、Owner/Lease/Oxia authority、真实 channel
 teardown 或 Broker evidence journal，因此不能宣称 production admission 已闭合。
 
+本地 physical-admission registry 另有明确的 Lane teardown 边界：只有 READY
+已关闭、所有 physical/zombie charge 已清零且 exact `laneIncarnation` 通过 fencing
+时才可 unregister；旧 channel 的迟到 callback 不能删除新 registration。
+`DestinationPhysicalAdmissionTest` 覆盖 READY/残留 charge/stale incarnation
+拒绝和 quiescent replacement。该证据只覆盖进程内可重建资源回收，不替代
+source-ordered retirement、Oxia grant、terminal guard、Recovery Floor 或真实
+channel teardown authority。
+
 `PublishOutcomeBody.encodeInitial` 和
 `PublishOutcomeBody.encodeEvidenceResolution` 现在复用 Registry 的 common fields
 1–3，并在返回前执行本地 decode round-trip；初始 Outcome 的
