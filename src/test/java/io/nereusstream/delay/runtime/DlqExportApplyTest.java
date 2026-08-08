@@ -52,6 +52,13 @@ class DlqExportApplyTest {
         final KeyPair keyPair = generator.generateKeyPair();
         final AuthorIdentity service = AuthorIdentity.service(Bytes.sha256(Bytes.utf8("dlq-service")),
                 Bytes.sha256(Bytes.utf8("dlq-run")), 1);
+        final byte[] mismatchedBody = resultBody(shardId, messageId, pending, envelopeHash,
+                chargeVectorWithActiveMessages(1));
+        final SystemMutation mismatchedMutation = SystemMutation.signed(shardId,
+                SystemMutationType.DLQ_EXPORT_RESULT, 10_000,
+                io.nereusstream.delay.protocol.DlqExportResultBody.decode(mismatchedBody)
+                        .logicalOperationIdentity(), mismatchedBody, service.canonicalBytes(), 1,
+                keyPair.getPrivate());
         final byte[] body = resultBody(shardId, messageId, pending, envelopeHash);
         final SystemMutation mutation = SystemMutation.signed(shardId,
                 SystemMutationType.DLQ_EXPORT_RESULT, 10_000,
@@ -68,12 +75,19 @@ class DlqExportApplyTest {
                         KeyCodec.terminalDlqExport(pending.dlqExportId()), pending.encode());
             });
             final DelayShard delayShard = new DelayShard(store, DelayShardConfig.defaults());
-            final SystemMutationResult result = delayShard.applySystemMutation(mutation, sourceAfter(source),
-                    keyPair.getPublic());
+            final SystemMutationResult mismatched = delayShard.applySystemMutation(mismatchedMutation,
+                    sourceAfter(source), keyPair.getPublic());
+            assertEquals(ApplyStatus.REJECTED, mismatched.applyStatus());
+            assertEquals(StableCode.STALE_SYSTEM_MUTATION, mismatched.stableCode());
+            assertEquals(DlqExportStateV1.PENDING, delayShard.getDlqExportRecord(messageId, 0).state());
+            assertEquals(1, delayShard.getDlqExportRecord(messageId, 0).physicalAttemptNo());
+
+            final SystemMutationResult result = delayShard.applySystemMutation(mutation,
+                    sourceAfterTwice(source), keyPair.getPublic());
             assertEquals(StableCode.OK, result.stableCode());
             assertEquals(DlqExportStateV1.PUBLISHED, delayShard.getDlqExportRecord(messageId, 0).state());
             assertEquals(1, delayShard.getDlqExportRecord(messageId, 0).physicalAttemptNo());
-            assertEquals(result, delayShard.applySystemMutation(mutation, sourceAfter(source),
+            assertEquals(result, delayShard.applySystemMutation(mutation, sourceAfterTwice(source),
                     keyPair.getPublic()));
         }
     }
@@ -83,8 +97,19 @@ class DlqExportApplyTest {
                 prior.offset() + 1, prior.leaderEpoch(), prior.brokerPersistenceTimeEpochMs() + 1);
     }
 
+    private static SourcePosition sourceAfterTwice(final KafkaSourcePosition prior) {
+        return new KafkaSourcePosition(prior.shardId(), prior.authenticatedClusterId(), prior.nativeTopicUuid(),
+                prior.offset() + 2, prior.leaderEpoch(), prior.brokerPersistenceTimeEpochMs() + 2);
+    }
+
     private static byte[] resultBody(final ShardId shardId, final DelayMessageId messageId,
                                      final DlqExportRecord pending, final byte[] envelopeHash) {
+        return resultBody(shardId, messageId, pending, envelopeHash, chargeVector());
+    }
+
+    private static byte[] resultBody(final ShardId shardId, final DelayMessageId messageId,
+                                     final DlqExportRecord pending, final byte[] envelopeHash,
+                                     final byte[] transfer) {
         final TrustedUtcIntervalEvidence observed = new TrustedUtcIntervalEvidence(2_001, 2_001,
                 TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("clock"), 1, 1, 1,
                 Bytes.sha256(Bytes.utf8("clock-proof")), 0, null);
@@ -106,7 +131,7 @@ class DlqExportApplyTest {
             CanonicalProtobuf.uint32(output, 17, 0);
             CanonicalProtobuf.uint32(output, 18, StableCode.OK.wireValue());
             CanonicalProtobuf.bytes(output, 19, evidence(pending.dlqExportId()));
-            CanonicalProtobuf.bytes(output, 20, chargeVector());
+            CanonicalProtobuf.bytes(output, 20, transfer);
             CanonicalProtobuf.bytes(output, 21, observed.canonicalBytes());
             CanonicalProtobuf.bytes(output, 22, retryDecision());
             CanonicalProtobuf.uint32(output, 23, DlqExportStateV1.PUBLISHED.wireValue());
@@ -151,6 +176,15 @@ class DlqExportApplyTest {
     private static byte[] chargeVector() {
         return CanonicalProtobuf.message(output -> {
             for (int field = 1; field <= 17; field++) {
+                CanonicalProtobuf.uint64(output, field, 0);
+            }
+        });
+    }
+
+    private static byte[] chargeVectorWithActiveMessages(final long activeMessages) {
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint64(output, 1, activeMessages);
+            for (int field = 2; field <= 17; field++) {
                 CanonicalProtobuf.uint64(output, field, 0);
             }
         });

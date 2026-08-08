@@ -3483,6 +3483,15 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }
+        // The embedded DLQ record currently has no policy-derived retained
+        // charge projection.  Its only authoritative local transfer is zero;
+        // reject a callback-supplied non-zero vector instead of letting it
+        // manufacture quota authority.  A configured outbox must persist its
+        // exact charge before this gate can be widened.
+        if (!Bytes.constantTimeEquals(emptyChargeVectorCanonical(), body.transfer())) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.STALE_SYSTEM_MUTATION);
+        }
         try {
             validateDlqExportAttempt(current, body);
             final int nextAttempt = body.resultingState() == DlqExportStateV1.PENDING
@@ -3966,9 +3975,13 @@ public final class DelayShard {
         try {
             return PublishAdmissionBody.decode(ledger.admissionBytes()).chargeVector().canonicalBytes();
         } catch (RuntimeException legacyOrMalformedDirectLedger) {
-            return new PublishAdmissionBody.ChargeVector(
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0).canonicalBytes();
+            return emptyChargeVectorCanonical();
         }
+    }
+
+    private static byte[] emptyChargeVectorCanonical() {
+        return new PublishAdmissionBody.ChargeVector(
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0).canonicalBytes();
     }
 
     private OutcomeReserveUsage releasedOutcomeReserve(final PublishAttemptLedger ledger) {
