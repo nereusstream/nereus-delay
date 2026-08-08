@@ -72,6 +72,14 @@ rule, and source-ordered activation compares them with unsigned ordering;
 historical key-version ordering remains unsigned as well. The semantic and
 control-state tests cover high-bit round trips and version regression fencing.
 
+CapacityGrant source versions, QuotaGrant reference versions and
+ShardCapacityEnvelope versions now preserve their complete nonzero `uint64`
+bit patterns in canonical bytes, nested decoding and quota semantic-hash
+preimages. The local `CapacityVectorV1` amount envelope remains intentionally
+bounded to signed Java capacity arithmetic; only the independent version
+identity fields use the full wire domain. Focused capacity-vector and envelope
+tests cover high-bit round trips.
+
 Registry class-3 `meta_cf/QUOTA` now has a local per-Lane compatibility projection.
 `LaneQuotaUsageProjection` fences the message, reservation, per-Lane slot and
 per-Claim/per-attempt `inflight_messages`/`inflight_bytes` dimensions with Lane

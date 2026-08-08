@@ -34,8 +34,8 @@ public final class ShardCapacityEnvelopeV1 {
                                    final CapacityGrantV1 emergencyHeadroom,
                                    final byte[] releaseCapacityArtifactDigest) {
         this.envelopeId = fixedNonZero(envelopeId, "envelopeId");
-        if (envelopeVersion <= 0) {
-            throw new IllegalArgumentException("envelopeVersion must be positive");
+        if (envelopeVersion == 0) {
+            throw new IllegalArgumentException("envelopeVersion must be nonzero");
         }
         this.envelopeVersion = envelopeVersion;
         this.logicalGrant = Objects.requireNonNull(logicalGrant, "logicalGrant");
@@ -156,9 +156,9 @@ public final class ShardCapacityEnvelopeV1 {
         if (isZero(envelopeId)) {
             throw new IllegalArgumentException("envelopeId must be non-zero");
         }
-        final long envelopeVersion = QueryCodecSupport.uint(fields.get(2), 3);
-        if (envelopeVersion <= 0) {
-            throw new IllegalArgumentException("envelopeVersion must be positive");
+        final long envelopeVersion = QueryCodecSupport.uint64Bits(fields.get(2), 3);
+        if (envelopeVersion == 0) {
+            throw new IllegalArgumentException("envelopeVersion must be nonzero");
         }
         final QuotaGrantRefV1 logicalGrant = QuotaGrantRefV1.decode(QueryCodecSupport.nested(fields.get(3), 4));
         final CapacityVectorV1 committed = CapacityVectorV1.decode(QueryCodecSupport.nested(fields.get(4), 5));
@@ -182,7 +182,7 @@ public final class ShardCapacityEnvelopeV1 {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, SCHEMA_VERSION);
             CanonicalProtobuf.bytes(output, 2, envelopeId);
-            CanonicalProtobuf.uint64(output, 3, envelopeVersion);
+            CanonicalProtobuf.uint64Bits(output, 3, envelopeVersion);
             CanonicalProtobuf.bytes(output, 4, logicalGrant.canonicalBytes());
             CanonicalProtobuf.bytes(output, 5, committed.canonicalBytes());
             CanonicalProtobuf.bytes(output, 6, outcomeReserve.canonicalBytes());

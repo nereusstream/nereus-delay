@@ -16,8 +16,8 @@ public final class QuotaGrantRefV1 {
     public QuotaGrantRefV1(final byte[] grantId, final long grantVersion,
                            final PublishAdmissionBody.ChargeVector limit) {
         this.grantId = fixedNonZero(grantId, "grantId");
-        if (grantVersion <= 0) {
-            throw new IllegalArgumentException("grantVersion must be positive");
+        if (grantVersion == 0) {
+            throw new IllegalArgumentException("grantVersion must be nonzero");
         }
         this.grantVersion = grantVersion;
         this.limit = Objects.requireNonNull(limit, "limit");
@@ -51,7 +51,7 @@ public final class QuotaGrantRefV1 {
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, grantId);
-            CanonicalProtobuf.uint64(output, 2, grantVersion);
+            CanonicalProtobuf.uint64Bits(output, 2, grantVersion);
             CanonicalProtobuf.bytes(output, 3, grantSemanticHash);
             CanonicalProtobuf.bytes(output, 4, limit.canonicalBytes());
         });
@@ -64,9 +64,9 @@ public final class QuotaGrantRefV1 {
         if (isZero(grantId)) {
             throw new IllegalArgumentException("QuotaGrantRefV1 grantId must be non-zero");
         }
-        final long grantVersion = QueryCodecSupport.uint(fields.get(1), 2);
-        if (grantVersion <= 0) {
-            throw new IllegalArgumentException("QuotaGrantRefV1 grantVersion must be positive");
+        final long grantVersion = QueryCodecSupport.uint64Bits(fields.get(1), 2);
+        if (grantVersion == 0) {
+            throw new IllegalArgumentException("QuotaGrantRefV1 grantVersion must be nonzero");
         }
         final byte[] semanticHash = QueryCodecSupport.fixed(fields.get(2), 3, HASH_LENGTH);
         final PublishAdmissionBody.ChargeVector limit = PublishAdmissionBody.ChargeVector.decodeCanonical(
@@ -81,7 +81,7 @@ public final class QuotaGrantRefV1 {
 
     private static byte[] semanticHash(final byte[] grantId, final long version,
                                        final PublishAdmissionBody.ChargeVector limit) {
-        return Bytes.sha256(SEMANTIC_DOMAIN, grantId, Bytes.u64be(version), limit.canonicalBytes());
+        return Bytes.sha256(SEMANTIC_DOMAIN, grantId, Bytes.u64beBits(version), limit.canonicalBytes());
     }
 
     private static byte[] fixedNonZero(final byte[] value, final String name) {

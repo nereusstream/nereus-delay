@@ -18,8 +18,8 @@ public final class CapacityGrantV1 {
                            final long reserveSourceVersion, final CapacityVectorV1 vector) {
         this.kind = Objects.requireNonNull(kind, "kind");
         this.grantId = fixed(grantId, "grantId");
-        if (reserveSourceVersion <= 0) {
-            throw new IllegalArgumentException("reserveSourceVersion must be positive");
+        if (reserveSourceVersion == 0) {
+            throw new IllegalArgumentException("reserveSourceVersion must be nonzero");
         }
         this.reserveSourceVersion = reserveSourceVersion;
         this.vector = Objects.requireNonNull(vector, "vector");
@@ -71,9 +71,9 @@ public final class CapacityGrantV1 {
         if (isZero(grantId)) {
             throw new IllegalArgumentException("CapacityGrantV1 grantId must be non-zero");
         }
-        final long sourceVersion = QueryCodecSupport.uint(fields.get(2), 3);
-        if (sourceVersion <= 0) {
-            throw new IllegalArgumentException("CapacityGrantV1 reserveSourceVersion must be positive");
+        final long sourceVersion = QueryCodecSupport.uint64Bits(fields.get(2), 3);
+        if (sourceVersion == 0) {
+            throw new IllegalArgumentException("CapacityGrantV1 reserveSourceVersion must be nonzero");
         }
         final CapacityVectorV1 vector = CapacityVectorV1.decode(QueryCodecSupport.nested(fields.get(3), 4));
         final byte[] digest = QueryCodecSupport.fixed(fields.get(4), 5, HASH_LENGTH);
@@ -89,7 +89,7 @@ public final class CapacityGrantV1 {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, kind.wireValue());
             CanonicalProtobuf.bytes(output, 2, grantId);
-            CanonicalProtobuf.uint64(output, 3, reserveSourceVersion);
+            CanonicalProtobuf.uint64Bits(output, 3, reserveSourceVersion);
             CanonicalProtobuf.bytes(output, 4, vector.canonicalBytes());
         });
     }

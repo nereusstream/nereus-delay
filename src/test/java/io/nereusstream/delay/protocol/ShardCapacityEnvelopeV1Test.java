@@ -25,6 +25,28 @@ class ShardCapacityEnvelopeV1Test {
     }
 
     @Test
+    void preservesCompleteUnsigned64BitGrantAndEnvelopeVersions() {
+        final PublishAdmissionBody.ChargeVector limit = new PublishAdmissionBody.ChargeVector(
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17);
+        final QuotaGrantRefV1 logical = new QuotaGrantRefV1(
+                Bytes.sha256(Bytes.utf8("high-bit-logical-grant")), Long.MIN_VALUE, limit);
+        final ShardCapacityEnvelopeV1 envelope = new ShardCapacityEnvelopeV1(
+                Bytes.sha256(Bytes.utf8("high-bit-envelope")), Long.MIN_VALUE, logical,
+                committed(limit, 100),
+                grant(CapacityGrantKindV1.OUTCOME_RESERVE, 0, 0, Long.MIN_VALUE),
+                grant(CapacityGrantKindV1.NON_OUTCOME_CONTROL, 0, 0, Long.MIN_VALUE),
+                grant(CapacityGrantKindV1.RECOVERY_WORKING, 0, 0, Long.MIN_VALUE),
+                grant(CapacityGrantKindV1.EMERGENCY_HEADROOM, 0, 0, Long.MIN_VALUE),
+                Bytes.sha256(Bytes.utf8("high-bit-capacity-artifact")));
+
+        final ShardCapacityEnvelopeV1 decoded = ShardCapacityEnvelopeV1.decode(envelope.canonicalBytes());
+        assertEquals(Long.MIN_VALUE, decoded.envelopeVersion());
+        assertEquals(Long.MIN_VALUE, decoded.logicalGrant().grantVersion());
+        decoded.componentGrants().forEach(grant -> assertEquals(Long.MIN_VALUE, grant.reserveSourceVersion()));
+        assertEquals(envelope, decoded);
+    }
+
+    @Test
     void rejectsWrongGrantKindOverflowAndLogicalProjectionDrift() {
         final PublishAdmissionBody.ChargeVector limit = new PublishAdmissionBody.ChargeVector(
                 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17);
@@ -84,10 +106,16 @@ class ShardCapacityEnvelopeV1Test {
 
     private static CapacityGrantV1 grant(final CapacityGrantKindV1 kind, final long controlBytes,
                                          final long controlRecords) {
+        return grant(kind, controlBytes, controlRecords, 1);
+    }
+
+    private static CapacityGrantV1 grant(final CapacityGrantKindV1 kind, final long controlBytes,
+                                         final long controlRecords, final long sourceVersion) {
         final long[] amounts = new long[CapacityDimensionV1.COUNT];
         amounts[CapacityDimensionV1.CONTROL_RESERVE_BYTES.wireValue() - 1] = controlBytes;
         amounts[CapacityDimensionV1.CONTROL_RESERVE_RECORDS.wireValue() - 1] = controlRecords;
-        return new CapacityGrantV1(kind, Bytes.sha256(Bytes.utf8(kind.name() + controlBytes + controlRecords)), 1,
+        return new CapacityGrantV1(kind, Bytes.sha256(Bytes.utf8(kind.name() + controlBytes + controlRecords
+                + sourceVersion)), sourceVersion,
                 new CapacityVectorV1(amounts));
     }
 }

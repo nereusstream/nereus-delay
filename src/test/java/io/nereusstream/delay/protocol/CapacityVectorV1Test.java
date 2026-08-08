@@ -91,6 +91,16 @@ class CapacityVectorV1Test {
                 })));
     }
 
+    @Test
+    void capacityGrantPreservesCompleteUnsigned64BitSourceVersion() {
+        final CapacityGrantV1 grant = new CapacityGrantV1(CapacityGrantKindV1.NON_OUTCOME_CONTROL,
+                Bytes.sha256(Bytes.utf8("high-bit-grant")), Long.MIN_VALUE, CapacityVectorV1.empty());
+
+        final CapacityGrantV1 decoded = CapacityGrantV1.decode(grant.canonicalBytes());
+        assertEquals(Long.MIN_VALUE, decoded.reserveSourceVersion());
+        assertEquals(grant, decoded);
+    }
+
     private static byte[] amount(final int dimension, final long value) {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, dimension);
