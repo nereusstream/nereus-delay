@@ -158,6 +158,11 @@ class ProtocolCodecTest {
                     CanonicalProtobuf.uint32(output, 1, StableCode.SHARD_TRANSITIONING.wireValue());
                 })));
         assertThrows(IllegalArgumentException.class,
+                () -> PublicQueryErrorV1.decode(CanonicalProtobuf.message(output -> {
+                    CanonicalProtobuf.uint32(output, 1, StableCode.SHARD_TRANSITIONING.wireValue());
+                    CanonicalProtobuf.bytes(output, 2, Bytes.utf8("not-a-varint"));
+                })));
+        assertThrows(IllegalArgumentException.class,
                 () -> CommandQueryResponseV1.error(StableCode.OK, null));
     }
 

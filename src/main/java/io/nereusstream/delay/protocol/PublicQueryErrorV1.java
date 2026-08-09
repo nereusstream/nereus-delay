@@ -36,7 +36,7 @@ public record PublicQueryErrorV1(StableCode code, Long retryAtEpochMs) implement
             throw new IllegalArgumentException("invalid PublicQueryErrorV1 fields");
         }
         final StableCode code = StableCode.fromWire(QueryCodecSupport.uint32(fields.get(0), 1));
-        final Long retryAt = fields.size() == 2 ? fields.get(1).unsignedValue() : null;
+        final Long retryAt = fields.size() == 2 ? QueryCodecSupport.uint(fields.get(1), 2) : null;
         final PublicQueryErrorV1 result = new PublicQueryErrorV1(code, retryAt);
         if (!java.util.Arrays.equals(encoded, result.canonicalBytes())) {
             throw new IllegalArgumentException("non-canonical PublicQueryErrorV1");

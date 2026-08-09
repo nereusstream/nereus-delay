@@ -34,6 +34,14 @@ and `BoundedDestinationPublishAdapterTest.pinnedAdapterNullHandledStageRetainsPh
 This remains local transport-SPI evidence, not Broker-side completion or
 non-persistence proof.
 
+The public query-error audit also rejects a malformed optional `retryAt` field
+before decoding its value: only the Registry varint wire type reaches the
+stable-code projection, while length-delimited and fixed-width variants fail
+closed with `IllegalArgumentException`. The focused regression is
+`ProtocolCodecTest.queryErrorResponsesKeepClosedResultTagsAndRetryPresence`;
+this remains local codec evidence and does not prove gateway or external query
+authority.
+
 The local codec audit additionally verified that implemented V1 key-version
 fields honor the Registry's full unsigned `uint32` domain rather than silently
 narrowing to positive Java `int`: signed System Mutation, Native Capability,

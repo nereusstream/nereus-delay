@@ -19,6 +19,13 @@ and `BoundedDestinationPublishAdapterTest.pinnedAdapterNullHandledStageRetainsPh
 This is local transport-SPI evidence only; it does not establish Broker-side
 completion or non-persistence proof.
 
+The public query-error codec now validates the optional `retryAt` field's
+varint wire type before reading its unsigned value. A length-delimited or
+fixed-width replacement is rejected as `IllegalArgumentException` before
+stable-code projection; `ProtocolCodecTest.queryErrorResponsesKeepClosedResultTagsAndRetryPresence`
+covers the malformed-field regression. This is local canonical-wire evidence
+only and does not establish gateway routing or external query authority.
+
 The local ownership seam now closes the reversible-Claim part of activation
 recovery: `DelayShard.requeueClaimsForRecovery()` performs a bounded complete
 `inflight_cf/CLAIMED` scan before a recovered `OwnedDelayShard` opens
