@@ -17,8 +17,10 @@ import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.SystemMutation;
 import io.nereusstream.delay.protocol.SystemMutationType;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
+import io.nereusstream.delay.runtime.ClaimRecord;
 import io.nereusstream.delay.runtime.DelayShard;
 import io.nereusstream.delay.runtime.DelayShardConfig;
+import io.nereusstream.delay.runtime.MessageStatus;
 import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.ShardStoreConfig;
 import io.nereusstream.delay.store.SharedRocksDbResources;
@@ -38,6 +40,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class OwnerLeaseTest {
@@ -164,6 +167,41 @@ class OwnerLeaseTest {
                     () -> owned.applyAuthoritatively(authority, second, secondPosition, 151));
             assertEquals(ShardLifecycleState.FENCED, owned.state());
             assertEquals(null, owned.shard().getMessage(second.delayMessageId()));
+        }
+    }
+
+    @Test
+    void activationRequeuesRestoredClaimBeforeOpeningCommandGate() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 19);
+        final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = authority.acquire(shardId, "worker-recovery", 100, 100).orElseThrow();
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("claim-recovery-activation"));
+        final UUID topic = UUID.randomUUID();
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("claim-recovery-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new ScheduleIntent(lane, 2_000, 5_000, OrderingMode.BEST_EFFORT,
+                        Bytes.utf8("claim-recovery")), 10_000);
+        final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster", topic, 0, null, 1_000);
+        final AuthorIdentity owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"),
+                lease.ownerEpoch(), Bytes.sha256(Bytes.utf8("lease")));
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard delegate = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, delegate.apply(schedule, position).stableCode());
+            delegate.updateLaneReadiness(lane, io.nereusstream.delay.runtime.RuntimeReadiness.READY);
+            final ClaimRecord claim = delegate.claimForPublish(schedule.delayMessageId(), owner, 3_000,
+                    new byte[0], chargeVector());
+
+            final OwnedDelayShard owned = new OwnedDelayShard(delegate, lease);
+            owned.markCatchingUp(new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("claim-recovery-assignment")),
+                    1, new KafkaActivationBarrier(shardId, "cluster", topic, 0)));
+            owned.activateForCommands(101);
+
+            assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, owned.state());
+            assertEquals(MessageStatus.SCHEDULED, delegate.getMessage(schedule.delayMessageId()).status());
+            assertNull(delegate.getClaim(claim.claimId(), lease.ownerEpoch()));
+            assertEquals(1, delegate.discoverReady(10_000, 10).size());
         }
     }
 
@@ -772,6 +810,14 @@ class OwnerLeaseTest {
             CanonicalProtobuf.uint32(output, 11, keyVersion);
             CanonicalProtobuf.bytes(output, 12, proofId);
             CanonicalProtobuf.bytes(output, 13, proof);
+        });
+    }
+
+    private static byte[] chargeVector() {
+        return CanonicalProtobuf.message(output -> {
+            for (int number = 1; number <= 17; number++) {
+                CanonicalProtobuf.uint32(output, number, 0);
+            }
         });
     }
 

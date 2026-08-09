@@ -542,6 +542,10 @@ public final class OwnedDelayShard {
 
     public synchronized void activateForCommands(final long nowEpochMs) {
         ensureActivationPreconditions(nowEpochMs);
+        // A restored CLAIMED record is only a reversible pre-Producer
+        // reservation.  Requeue it before opening the command gate so a new
+        // Owner cannot inherit an old Owner Epoch's local send authority.
+        delegate.requeueClaimsForRecovery();
         state = ShardLifecycleState.ACTIVE_FOR_COMMANDS;
     }
 
@@ -549,6 +553,10 @@ public final class OwnedDelayShard {
     public synchronized void activateForCommands(final OxiaOwnerLeaseStore authority, final long nowEpochMs) {
         Objects.requireNonNull(authority, "authority");
         ensureActivationPreconditions(nowEpochMs);
+        // Keep the local recovery boundary identical for the authoritative
+        // and embedded activation paths.  A failed lease CAS leaves the
+        // requeue durable and harmless; it never grants publish authority.
+        delegate.requeueClaimsForRecovery();
         final OwnerLease transitioned;
         try {
             transitioned = authority.transitionOrRead(lease, ShardLifecycleState.ACTIVE_FOR_COMMANDS)

@@ -37,6 +37,17 @@ ALL_ACCEPTED policy before an exclusion can be merged; a different payload
 cannot regress observation revision. Start reconstruction, production collector
 merge/export, and production SLO evidence remain release gates.
 
+The ownership/recovery audit now covers the local reversible-Claim activation
+boundary: before either embedded or authoritative `OwnedDelayShard` activation
+opens the command gate, `DelayShard.requeueClaimsForRecovery()` scans the full
+bounded `inflight_cf/CLAIMED` namespace and restores each Claim through one
+atomic timeline/Message/READY/quota WriteBatch. The restored timeline keeps
+the semantic work digest while using a new checked runtime instance; malformed
+or over-bound Claim state fails closed, and `PUBLISHING`/`UNCERTAIN` ledgers are
+not rewritten by this helper. This closes only the local Claim recovery seam;
+Source Log successor proof, Oxia lease/session CAS, adapter materialization and
+external Producer authority remain release evidence.
+
 The shared `uint32` decode boundary also rejects a varint outside the unsigned
 32-bit domain instead of narrowing a high-bit `uint64` into a `uint32`; the
 queued receipt path rejects high-bit signed timing values while retaining raw

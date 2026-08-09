@@ -1112,6 +1112,44 @@ public final class DelayShard {
         return revoked;
     }
 
+    /**
+     * Requeues every live reversible Claim before a recovered owner is
+     * activated.  A Claim is a pre-Producer reservation, so a checkpoint may
+     * legitimately reopen with {@code CLAIMED} work even though no Admission
+     * exists in the replayed source prefix.  Recovery must restore that work
+     * to its exact semantic timeline key/work kind while assigning a checked
+     * successor runtime revision; it must not treat the old Owner Epoch as a
+     * current publishing authority.
+     *
+     * <p>The scan is bounded by the configured pending-message envelope and
+     * fails closed on overflow.  Each rollback uses the same synchronous
+     * message/timeline/inflight/READY/quota WriteBatch as an owner drain, so a
+     * crash cannot expose a half-requeued Claim.  PUBLISHING/UNCERTAIN
+     * attempt obligations are deliberately outside this method and remain
+     * subject to source-ordered outcome recovery.</p>
+     *
+     * @return the number of Claims restored to timeline work
+     */
+    public synchronized int requeueClaimsForRecovery() {
+        final int limit = boundedLimitPlusOne(config.maxPendingMessages());
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries = store.scan(ColumnFamily.INFLIGHT,
+                new byte[]{INFLIGHT_CLAIMED_KIND, 1}, new byte[]{INFLIGHT_PUBLISHING_KIND, 1}, limit);
+        if (entries.size() >= limit && config.maxPendingMessages() < Integer.MAX_VALUE) {
+            throw new IllegalStateException("Claim scan exceeded configured bound during recovery");
+        }
+        final List<ClaimRecord> claims = new ArrayList<>(entries.size());
+        for (var entry : entries) {
+            claims.add(decodeClaim(entry));
+        }
+        int requeued = 0;
+        for (ClaimRecord claim : claims) {
+            if (revokeClaim(claim.claimId(), claim.ownerEpoch()) != null) {
+                requeued++;
+            }
+        }
+        return requeued;
+    }
+
     public synchronized PayloadReservation getReservation(final byte[] reservationId) {
         final PayloadReservation stored = readStoredReservation(reservationId);
         return stored == null ? null : effectiveReservation(stored);

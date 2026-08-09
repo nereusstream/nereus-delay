@@ -101,6 +101,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -4909,7 +4910,7 @@ class DelayShardTest {
     }
 
     @Test
-    void localClaimIsDurableAndRevokeRestoresTimelineAtomically() {
+    void localClaimIsDurableAndRecoveryRequeueRestoresSemanticTimelineAtomically() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("claim-lifecycle"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 20);
         final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("claim-lifecycle-lane"));
@@ -4950,14 +4951,28 @@ class DelayShardTest {
             assertEquals(1, reopened.claimSequence());
             assertEquals(MessageStatus.CLAIMED, reopened.getMessage(schedule.delayMessageId()).status());
             assertEquals(claim, reopened.getClaim(claim.claimId(), owner.generation()));
-            assertEquals(1, reopened.revokeClaimsForOwner(owner.generation()));
+            final TimelineWorkRef originalWork = TimelineWorkRef.decode(claim.sourceTimelineWork());
+            assertEquals(1, reopened.requeueClaimsForRecovery());
             final MessageRecord restored = reopened.getMessage(schedule.delayMessageId());
             assertEquals(MessageStatus.SCHEDULED, restored.status());
             assertEquals(CurrentSendWorkKind.TIMELINE, restored.runtimeIndex().currentWorkKind());
             assertNull(reopened.getClaim(claim.claimId(), owner.generation()));
-            assertEquals(0, reopened.revokeClaimsForOwner(owner.generation()));
+            final TimelineWorkRef recoveredWork = restored.runtimeIndex().timeline();
+            assertArrayEquals(originalWork.semanticWorkDigest(), recoveredWork.semanticWorkDigest());
+            assertNotEquals(originalWork.workInstanceDigest(), recoveredWork.workInstanceDigest());
+            assertTrue(recoveredWork.runtimeRevision() > originalWork.runtimeRevision());
             assertNotNull(reopenedStore.getValue(ColumnFamily.TIMELINE, timelineKey, 1));
             assertEquals(1, reopened.discoverReady(10_000, 10).size());
+
+            // The requeued work can be claimed again, while the ordinary owner
+            // drain path still fences and restores that new Claim by epoch.
+            final ClaimRecord retryClaim = reopened.claimForPublish(schedule.delayMessageId(), owner, 3_000,
+                    new byte[0], chargeVector());
+            assertEquals(2, reopened.claimSequence());
+            assertEquals(1, reopened.revokeClaimsForOwner(owner.generation()));
+            assertEquals(MessageStatus.SCHEDULED, reopened.getMessage(schedule.delayMessageId()).status());
+            assertNull(reopened.getClaim(retryClaim.claimId(), owner.generation()));
+            assertEquals(0, reopened.revokeClaimsForOwner(owner.generation()));
         }
     }
 
