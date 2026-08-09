@@ -320,6 +320,10 @@ public final class DestinationPhysicalAdmission {
                     || workerActiveRequests <= 0 || workerActiveBytes < reservation.physicalBytes) {
                 throw new IllegalStateException("physical admission accounting underflow");
             }
+            if (reservation.state == ReservationState.ZOMBIE
+                    && (lane.zombieRequests <= 0 || lane.zombieBytes < reservation.physicalBytes)) {
+                throw new IllegalStateException("zombie admission accounting underflow");
+            }
             lane.activeRequests--;
             lane.activeBytes -= reservation.physicalBytes;
             cluster.activeRequests--;
@@ -327,9 +331,6 @@ public final class DestinationPhysicalAdmission {
             workerActiveRequests--;
             workerActiveBytes -= reservation.physicalBytes;
             if (reservation.state == ReservationState.ZOMBIE) {
-                if (lane.zombieRequests <= 0 || lane.zombieBytes < reservation.physicalBytes) {
-                    throw new IllegalStateException("zombie admission accounting underflow");
-                }
                 lane.zombieRequests--;
                 lane.zombieBytes -= reservation.physicalBytes;
             }

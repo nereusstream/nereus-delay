@@ -4,6 +4,8 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -139,6 +141,35 @@ class DestinationPhysicalAdmissionTest {
         final var replacement = admission.tryAcquire(lane, replacementIncarnation, 5);
         assertTrue(replacement.granted());
         replacement.reservation().release();
+    }
+
+    @Test
+    void zombieReleaseUnderflowDoesNotPartiallyDecrementActiveCharge() throws Exception {
+        final DestinationPhysicalAdmission admission = new DestinationPhysicalAdmission(2, 20);
+        admission.registerTargetCluster("cluster-a", 2, 20);
+        final DestinationLaneId lane = lane("zombie-underflow");
+        admission.registerLane(spec(lane, "cluster-a", 0, 0, 2, 20, 1, 20));
+        admission.openReady(lane);
+        final DestinationPhysicalAdmission.Reservation reservation = admission.tryAcquire(
+                lane, new byte[16], 10).reservation();
+        assertTrue(reservation.markZombie());
+
+        final Field lanes = DestinationPhysicalAdmission.class.getDeclaredField("lanes");
+        lanes.setAccessible(true);
+        final Object laneState = ((java.util.Map<?, ?>) lanes.get(admission)).get(lane);
+        final Field zombieRequests = laneState.getClass().getDeclaredField("zombieRequests");
+        zombieRequests.setAccessible(true);
+        zombieRequests.setLong(laneState, 0);
+
+        assertThrows(IllegalStateException.class, reservation::release);
+        assertEquals(1, admission.laneSnapshot(lane).activeRequests());
+        assertEquals(0, admission.laneSnapshot(lane).zombieRequests());
+        assertEquals(DestinationPhysicalAdmission.ReservationState.ZOMBIE, reservation.state());
+
+        zombieRequests.setLong(laneState, 1);
+        assertTrue(reservation.release());
+        assertEquals(0, admission.laneSnapshot(lane).activeRequests());
+        assertEquals(DestinationPhysicalAdmission.ReservationState.RELEASED, reservation.state());
     }
 
     @Test

@@ -1731,6 +1731,7 @@ Adapter Channel 是 Lane-scoped 的本地提交/缓冲隔离单元：
 - 每 Lane、Worker 和 target cluster 的 submit tasks、buffered messages/bytes、connections/producers、同步调用线程、physical outstanding requests/bytes、zombie requests/bytes 和 call deadline 都有硬上限；
 - 目标库的同步 `send`/metadata/auth/buffer wait 必须在 Lane-bounded Adapter executor 中运行并受 `adapterSubmitDeadline` 约束，绝不占 shard correctness thread；
 - `callbackDeadline` 只释放 logical waiter。physical/zombie charge 必须保留到 exact completion、library-confirmed pre-ownership cancellation，或 exact Producer/channel generation 被 fenced teardown；丢弃 Future、timer timeout 或 thread interrupt 都不算物理释放；
+- physical reservation release 必须先同时校验 Lane、target-cluster、Worker 与 zombie bucket 的 successor 不会 underflow，再一次性扣减并标记 `RELEASED`；任何 accounting inconsistency 都保持 reservation active，不能留下部分扣减或不可重试的 charge；
 - Lane 达到 zombie cap 时只把该 Lane `runtimeReadiness=BLOCKED` 并停止新的 Admission；不能把其 charge 转嫁给其它 Lane；
 - 一个共享 Producer/transport 只有在能够证明 per-Lane reserve、物理 charge 归属、无跨 Lane head blocking、独立 outcome/circuit，以及 Worker/cluster 为其它 READY Lane 固定保留 connection/producer/thread/request/byte minima 时才可复用；
 - 否则 Kafka/Pulsar Adapter 为 Lane 建立独立 bounded producer channel；达到持久 shard channel/Lane grant 时确定性拒绝新建 Lane，而不在运行时无限打开资源。Worker 瞬时 connection cap 不改变 Command 结果，只使该 Lane `runtimeReadiness=BLOCKED(CAPACITY)` 并触发 placement/容量修复；绝不写管理员 `ADMIN_PAUSED`。

@@ -1168,7 +1168,10 @@ cluster hard cap、每 Lane cap 以及所有其它 READY Lane 的 committed mini
 同一 gate 中检查；logical callback 超时只能把 reservation 标为 `ZOMBIE`，达到
 Lane zombie cap 立即阻止该 Lane 的新 Admission，直到 physical release 后显式清除
 block。delegate stage 完成（包括 `UNKNOWN`）才释放 request/byte charge；capacity
-拒绝不会调用 delegate。`DestinationPhysicalAdmissionTest` 与
+拒绝不会调用 delegate。Release 现在先检查 Lane/cluster/Worker/zombie 四个 accounting
+bucket，再一次性扣减；underflow 会保留 reservation active，回归证据为
+`DestinationPhysicalAdmissionTest.zombieReleaseUnderflowDoesNotPartiallyDecrementActiveCharge`。
+`DestinationPhysicalAdmissionTest` 与
 `BoundedDestinationPublishAdapterTest` 覆盖 READY minimum、跨层 cap、identity、
 zombie 和 response completion；开启一个尚未 READY 的 Lane 时，其候选
 READY minimum 现在只计入一次，`openingLaneCountsItsReadyMinimumExactlyOnce`
