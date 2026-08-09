@@ -147,7 +147,7 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
             return completed(uncertain(prepared, attempt, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN, null));
         }
         try {
-            return result.handle((value, error) -> {
+            final CompletionStage<SubmissionOutcomeMessageV1> handled = result.handle((value, error) -> {
                 if (error != null) {
                     return uncertain(prepared, attempt, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN, null);
                 }
@@ -159,6 +159,9 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
                             StableCode.INTEGRITY_ERROR.wireValue());
                 }
             });
+            return handled == null
+                    ? completed(uncertain(prepared, attempt, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN, null))
+                    : handled;
         } catch (RuntimeException registrationFailure) {
             // A broken CompletionStage implementation is not evidence that
             // the Broker rejected a request after Producer ownership.

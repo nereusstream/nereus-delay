@@ -21,6 +21,19 @@ splice two physical Journals. `EvidenceCursorV1Test`
 regression; Broker resource-token issuance and retention proof remain external
 gates.
 
+The adapter outcome audit also closes the malformed-Stage return path: a
+transport `CompletionStage` whose `handle(...)` returns null is treated as an
+unobserved completion, not leaked as a null client result. Managed ingress and
+submission wrappers converge to their existing uncertain branches; pinned
+destination adapters preserve the unobserved marker so physical admission
+retains the zombie/in-flight charge. The focused regressions are
+`AdapterIngressTest.kafkaNullHandledStageIsUncertain`,
+`AdapterIngressTest.pulsarNullHandledStageIsUncertain`,
+`NativeSubmissionAdapterTest.preparedSubmissionWrapperNullHandledStageRemainsManagedUncertain`
+and `BoundedDestinationPublishAdapterTest.pinnedAdapterNullHandledStageRetainsPhysicalCharge`.
+This remains local transport-SPI evidence, not Broker-side completion or
+non-persistence proof.
+
 The local codec audit additionally verified that implemented V1 key-version
 fields honor the Registry's full unsigned `uint32` domain rather than silently
 narrowing to positive Java `int`: signed System Mutation, Native Capability,

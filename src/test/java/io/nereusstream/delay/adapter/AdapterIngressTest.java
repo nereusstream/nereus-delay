@@ -91,6 +91,25 @@ class AdapterIngressTest {
     }
 
     @Test
+    void kafkaNullHandledStageIsUncertain() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 36);
+        final UUID topic = UUID.randomUUID();
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-null-handle", topic, 36);
+        final PreparedCommand command = command(shard);
+        final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request ->
+                new NullHandledFuture<>();
+        try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
+            assertEquals(EnqueueStatus.ENQUEUE_UNCERTAIN,
+                    adapter.enqueue(command).toCompletableFuture().join().status());
+            final var wire = adapter.enqueueOutcomeV1(command, 5_000,
+                    java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("null-handle-attempt")), 16))
+                    .toCompletableFuture().join();
+            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(StableCode.ENQUEUE_RESULT_UNCERTAIN, wire.uncertain().error().code());
+        }
+    }
+
+    @Test
     void kafkaWireBridgeCarriesQueuedReceiptAndAckEvidence() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 5);
         final UUID topic = UUID.randomUUID();
@@ -387,6 +406,26 @@ class AdapterIngressTest {
     }
 
     @Test
+    void pulsarNullHandledStageIsUncertain() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 37);
+        final byte[] token = Bytes.sha256(Bytes.utf8("null-handle-pulsar-token"));
+        final PulsarIngressResource resource = new PulsarIngressResource(shard, "cluster-null-handle-pulsar", token,
+                "persistent://tenant/ns/topic-37", 9_037, 37);
+        final PreparedCommand command = command(shard);
+        final PinnedPulsarCommandIngress.PulsarSendTransport transport = request ->
+                new NullHandledFuture<>();
+        try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
+            assertEquals(EnqueueStatus.ENQUEUE_UNCERTAIN,
+                    adapter.enqueue(command).toCompletableFuture().join().status());
+            final var wire = adapter.enqueueOutcomeV1(command, 5_000,
+                    java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("null-handle-pulsar-attempt")), 16))
+                    .toCompletableFuture().join();
+            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(StableCode.ENQUEUE_RESULT_UNCERTAIN, wire.uncertain().error().code());
+        }
+    }
+
+    @Test
     void managedIngressDoesNotLeakNativeUncertainCode() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 22);
         final UUID topic = UUID.randomUUID();
@@ -559,6 +598,14 @@ class AdapterIngressTest {
         public <U> CompletableFuture<U> handle(
                 final java.util.function.BiFunction<? super T, Throwable, ? extends U> function) {
             throw new IllegalStateException("completion callback registration failed");
+        }
+    }
+
+    private static final class NullHandledFuture<T> extends CompletableFuture<T> {
+        @Override
+        public <U> CompletableFuture<U> handle(
+                final java.util.function.BiFunction<? super T, Throwable, ? extends U> function) {
+            return null;
         }
     }
 

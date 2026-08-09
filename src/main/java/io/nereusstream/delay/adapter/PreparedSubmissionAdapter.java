@@ -58,8 +58,9 @@ public final class PreparedSubmissionAdapter implements AutoCloseable {
                 return managedFailure(command, physicalEnqueueAttemptId);
             }
             try {
-                return managedOutcome.handle((outcome, error) -> managedOutcome(command,
+                final CompletionStage<SubmissionOutcomeMessageV1> handled = managedOutcome.handle((outcome, error) -> managedOutcome(command,
                         physicalEnqueueAttemptId, outcome, error));
+                return handled == null ? managedFailure(command, physicalEnqueueAttemptId) : handled;
             } catch (RuntimeException registrationFailure) {
                 // The managed transport may already have reached Producer
                 // ownership. A wrapper callback-registration failure is

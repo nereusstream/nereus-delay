@@ -56,7 +56,7 @@ public final class PinnedPulsarCommandIngress implements WireCommandIngressAdapt
             return completed(EnqueueOutcome.uncertain(command, StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue()));
         }
         try {
-            return result.handle((send, error) -> {
+            final CompletionStage<EnqueueOutcome> handled = result.handle((send, error) -> {
                 if (error != null) {
                     return EnqueueOutcome.uncertain(command, StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue());
                 }
@@ -69,6 +69,9 @@ public final class PinnedPulsarCommandIngress implements WireCommandIngressAdapt
                             StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue());
                 }
             });
+            return handled == null
+                    ? completed(EnqueueOutcome.uncertain(command, StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue()))
+                    : handled;
         } catch (RuntimeException registrationFailure) {
             // A broken CompletionStage implementation is not evidence that
             // the Broker rejected a request after Producer ownership.
@@ -128,7 +131,7 @@ public final class PinnedPulsarCommandIngress implements WireCommandIngressAdapt
                     StableCode.ENQUEUE_RESULT_UNCERTAIN, null));
         }
         try {
-            return result.handle((send, error) -> {
+            final CompletionStage<EnqueueOutcomeMessageV1> handled = result.handle((send, error) -> {
                 if (error != null) {
                     return WireIngressOutcomeSupport.uncertain(command, attempt,
                             StableCode.ENQUEUE_RESULT_UNCERTAIN, null);
@@ -141,6 +144,10 @@ public final class PinnedPulsarCommandIngress implements WireCommandIngressAdapt
                             StableCode.INTEGRITY_ERROR, StableCode.INTEGRITY_ERROR.wireValue());
                 }
             });
+            return handled == null
+                    ? completedWire(WireIngressOutcomeSupport.uncertain(command, attempt,
+                    StableCode.ENQUEUE_RESULT_UNCERTAIN, null))
+                    : handled;
         } catch (RuntimeException registrationFailure) {
             return completedWire(WireIngressOutcomeSupport.uncertain(command, attempt,
                     StableCode.ENQUEUE_RESULT_UNCERTAIN, null));

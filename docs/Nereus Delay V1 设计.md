@@ -414,6 +414,10 @@ result 无法构造成合法 receipt（包括 malformed projection、缺少 resp
 `CompletionStage` 或空 stage value：wrapper 必须使用同一 physical attempt
 收敛为 `ENQUEUE_UNCERTAIN`，不能把可能已经取得 Producer ownership 的调用泄漏为
 exceptional Future，也不能切换到 native branch。
+如果 transport 的 `handle(...)` 本身返回 null，也视为 callback 未建立；必须按同一
+规则返回 `ENQUEUE_UNCERTAIN`。Destination adapter 对这个分支必须保留
+“physical completion 未观察”的标记，不能让外层 physical admission 把它当成已完成
+而提前释放 zombie/in-flight charge。
 Embedded conformance bridge 也遵守同一规则：queued receipt 的 ACK/query-boundary
 projection 若在本地 admission 后失败，保留该 physical attempt 并返回
 `ENQUEUE_UNCERTAIN`；不能把已进入本地队列的命令伪造成

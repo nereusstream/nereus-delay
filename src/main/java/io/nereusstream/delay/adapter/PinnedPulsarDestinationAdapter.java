@@ -65,16 +65,18 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
             return UnobservedDestinationPublishStage.unknown();
         }
         try {
-            return result.handle((value, error) -> error == null && value != null ? validate(value)
+            final CompletionStage<DestinationPublishResult> handled = result.handle((value, error) -> error == null && value != null ? validate(value)
                     : DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
+            return handled == null ? UnobservedDestinationPublishStage.unknown() : handled;
         } catch (RuntimeException registrationFailure) {
             try {
                 final CompletableFuture<DestinationPublishResult> future = result.toCompletableFuture();
                 if (future == null) {
                     throw new IllegalStateException("CompletionStage returned a null CompletableFuture view");
                 }
-                return future.handle((value, error) -> error == null && value != null ? validate(value)
+                final CompletionStage<DestinationPublishResult> handled = future.handle((value, error) -> error == null && value != null ? validate(value)
                         : DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
+                return handled == null ? UnobservedDestinationPublishStage.unknown() : handled;
             } catch (RuntimeException fallbackFailure) {
                 // Callback registration itself is not evidence that the
                 // Broker did not publish after Producer ownership.  Return a

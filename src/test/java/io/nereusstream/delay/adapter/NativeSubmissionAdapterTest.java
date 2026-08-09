@@ -382,6 +382,40 @@ class NativeSubmissionAdapterTest {
     }
 
     @Test
+    void preparedSubmissionWrapperNullHandledStageRemainsManagedUncertain() throws Exception {
+        final Fixture fixture = fixture(4_000, 3_000);
+        final PreparedCommand command = managedCommand();
+        final WireCommandIngressAdapter managed = new WireCommandIngressAdapter() {
+            @Override
+            public java.util.concurrent.CompletionStage<io.nereusstream.delay.client.EnqueueOutcome> enqueue(
+                    final PreparedCommand ignored) {
+                return CompletableFuture.failedFuture(new AssertionError("legacy managed path was used"));
+            }
+
+            @Override
+            public java.util.concurrent.CompletionStage<io.nereusstream.delay.protocol.EnqueueOutcomeMessageV1>
+            enqueueOutcomeV1(final PreparedCommand actual, final long queryUntil, final byte[] attemptId) {
+                assertEquals(command, actual);
+                assertEquals(9_000, queryUntil);
+                assertArrayEquals(attempt(9), attemptId);
+                return new NullHandledFuture<>();
+            }
+        };
+        final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport transport = request ->
+                CompletableFuture.failedFuture(new AssertionError("native branch was selected"));
+        try (PinnedPulsarNativeSubmissionAdapter nativeAdapter = fixture.adapter(transport);
+             PreparedSubmissionAdapter adapter = new PreparedSubmissionAdapter(managed, nativeAdapter)) {
+            final SubmissionOutcomeMessageV1 outcome = adapter.submit(
+                    io.nereusstream.delay.protocol.PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(command)),
+                    9_000, attempt(9)).toCompletableFuture().join();
+            assertEquals(io.nereusstream.delay.protocol.SubmissionOutcomeKindV1.MANAGED, outcome.kind());
+            assertEquals(StableCode.ENQUEUE_RESULT_UNCERTAIN,
+                    outcome.managed().uncertain().error().code());
+            assertArrayEquals(attempt(9), outcome.managed().uncertain().physicalEnqueueAttemptId());
+        }
+    }
+
+    @Test
     void preparedSubmissionWrapperExceptionalStageRemainsManagedUncertain() throws Exception {
         final Fixture fixture = fixture(4_000, 3_000);
         final PreparedCommand command = managedCommand();
@@ -518,6 +552,14 @@ class NativeSubmissionAdapterTest {
         public <U> CompletableFuture<U> handle(
                 final java.util.function.BiFunction<? super T, Throwable, ? extends U> function) {
             throw new IllegalStateException("completion callback registration failed");
+        }
+    }
+
+    private static final class NullHandledFuture<T> extends CompletableFuture<T> {
+        @Override
+        public <U> CompletableFuture<U> handle(
+                final java.util.function.BiFunction<? super T, Throwable, ? extends U> function) {
+            return null;
         }
     }
 

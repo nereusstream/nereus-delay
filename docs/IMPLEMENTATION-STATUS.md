@@ -7,6 +7,18 @@ normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20�
 the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
+The adapter callback fence now also treats a malformed `CompletionStage` whose
+`handle(...)` returns null as unobserved transport completion: managed Kafka/Pulsar
+ingress and native/managed submission wrappers return the same uncertain branch,
+while pinned destination adapters return the internal unobserved marker so the
+bounded physical-admission layer retains the zombie/in-flight charge. Focused
+regressions are `AdapterIngressTest.kafkaNullHandledStageIsUncertain`,
+`AdapterIngressTest.pulsarNullHandledStageIsUncertain`,
+`NativeSubmissionAdapterTest.preparedSubmissionWrapperNullHandledStageRemainsManagedUncertain`
+and `BoundedDestinationPublishAdapterTest.pinnedAdapterNullHandledStageRetainsPhysicalCharge`.
+This is local transport-SPI evidence only; it does not establish Broker-side
+completion or non-persistence proof.
+
 The local ownership seam now closes the reversible-Claim part of activation
 recovery: `DelayShard.requeueClaimsForRecovery()` performs a bounded complete
 `inflight_cf/CLAIMED` scan before a recovered `OwnedDelayShard` opens

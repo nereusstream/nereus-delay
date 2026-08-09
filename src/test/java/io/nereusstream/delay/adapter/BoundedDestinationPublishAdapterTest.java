@@ -147,6 +147,26 @@ class BoundedDestinationPublishAdapterTest {
     }
 
     @Test
+    void pinnedAdapterNullHandledStageRetainsPhysicalCharge() {
+        final DestinationLaneId lane = lane("null-handled-stage");
+        final DestinationPhysicalAdmission admission = admission(lane, 2, 40, 1, 20);
+        admission.openReady(lane);
+        final KafkaTargetResource resource = new KafkaTargetResource("cluster", UUID.randomUUID(), 0);
+        final DestinationPublishAdapter delegate = new PinnedKafkaDestinationAdapter(resource,
+                request -> new NullHandledFuture<>());
+        final BoundedDestinationPublishAdapter adapter = new BoundedDestinationPublishAdapter(
+                delegate, admission, Runnable::run);
+
+        final BoundedDestinationPublishAdapter.PublishCall call = adapter.submit(request(lane, 20));
+        assertEquals(DestinationPublishResult.Disposition.UNKNOWN,
+                call.outcome().toCompletableFuture().join().disposition());
+        assertEquals(DestinationPhysicalAdmission.ReservationState.ZOMBIE, call.reservation().state());
+        assertEquals(1, admission.workerSnapshot().activeRequests());
+        assertTrue(call.releasePhysicalCharge());
+        assertEquals(0, admission.workerSnapshot().activeRequests());
+    }
+
+    @Test
     void pinnedAdapterTransportExceptionRetainsPhysicalCharge() {
         final DestinationLaneId lane = lane("pinned-transport-failure");
         final DestinationPhysicalAdmission admission = admission(lane, 2, 40, 1, 20);
@@ -284,6 +304,14 @@ class BoundedDestinationPublishAdapterTest {
         public CompletableFuture<T> whenComplete(
                 final BiConsumer<? super T, ? super Throwable> action) {
             throw new IllegalStateException("completion callback registration failed");
+        }
+    }
+
+    private static final class NullHandledFuture<T> extends CompletableFuture<T> {
+        @Override
+        public <U> CompletableFuture<U> handle(
+                final java.util.function.BiFunction<? super T, Throwable, ? extends U> ignored) {
+            return null;
         }
     }
 
