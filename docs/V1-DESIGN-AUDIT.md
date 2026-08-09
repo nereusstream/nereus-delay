@@ -2193,6 +2193,16 @@ metric publication。
 容量回滚。该 seam 仍不等于 source-ordered Start reconstruction、接管时的 authority
 认证或 evidence-gap `BAD_EVIDENCE_GAP` 记录；这些仍是 production release gate。
 
+`SloAuthoritativeStartFactory` 进一步把两条 Shard-derived reconstruction 输入固定为
+typed fields：`commandApplied(...)` 使用 Registry `SourcePositionV1` canonical bytes、
+Broker persistence time 和对应 SHA-256；`dueAdmission(...)` 强制完整 unsigned-32
+generation、managed path、ordinary `deliverAt`/handoff `actionAt` 及调用方提供的
+semantic evidence digest。两条路径都重新计算 sample ID、Start digest 和 checked
+timeout；`SloAuthoritativeStartFactoryTest` 覆盖 Source Position identity、high-bit
+generation、managed-path/time mismatch 与非法输入，store convenience test 覆盖幂等
+物化。此证据关闭的是本地 typed projection，不是生产 Message/Admission authority、
+source-ordered recovery 编排或 evidence-gap 计数。
+
 SLO 文档与 Registry 的 native 时间字段也已对齐：`native_handoff_ack_lag` 的起点是
 `NativePreparedDelivery` field 10 的未平移 business `deliverAt`，field 11 的 shifted
 Broker `deliverAt` 只用于 Broker visibility 语义；V1 native wire 没有独立的

@@ -2209,6 +2209,20 @@ reconstruction: production activation must still obtain and authenticate that ex
 set, and must record `BAD_EVIDENCE_GAP` rather than shrink the denominator when the
 authority or evidence is unavailable.
 
+`SloAuthoritativeStartFactory` now provides the typed local reconstruction projection for the
+two Shard-derived branches. `commandApplied(...)` uses the Registry `SourcePositionV1`
+canonical bytes, the Source Position Broker-persistence timestamp and its exact SHA-256;
+`dueAdmission(...)` requires the caller to provide the Delay Message ID, complete unsigned
+32-bit generation, managed path, exact ordinary `deliverAt`/handoff `actionAt`, and semantic
+evidence digest. Both branches recompute the sample identity and checked timeout, and the
+outbox exposes matching `ensureCommandAppliedStart(...)` and
+`ensureDueAdmissionStart(...)` convenience methods. `SloAuthoritativeStartFactoryTest` and
+`SloObservationOutboxStoreTest.typedAuthorityConvenienceUsesExactFactoryBranches` cover
+canonical round trips, high-bit generation preservation, path/time/evidence fencing and
+idempotent materialization. These are typed local seams only: they do not discover or
+authenticate Message/Admission authority, and they do not close the production source-order
+recovery or evidence-gap gates.
+
 `SloObservationCollector` now provides the local deterministic collector merge
 projection: it keys by canonical sample ID, rejects a different Start for that
 ID, delegates repeated Final observations to the direction-aware conservative

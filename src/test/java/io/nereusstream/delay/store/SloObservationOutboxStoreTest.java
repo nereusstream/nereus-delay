@@ -2,7 +2,9 @@ package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CanonicalProtobuf;
+import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DueExclusionReasonV1;
+import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.SloFinalOutcomeV1;
 import io.nereusstream.delay.protocol.SloObservationOutboxV1;
 import io.nereusstream.delay.protocol.SloObjectiveNameV1;
@@ -18,13 +20,15 @@ import io.nereusstream.delay.protocol.SloTimeEndpointKindV1;
 import io.nereusstream.delay.protocol.SloTimeEndpointV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -211,6 +215,33 @@ class SloObservationOutboxStoreTest {
             assertEquals(new SloObservationOutboxStore.Usage(0, 0), outbox.usage());
             assertNull(outbox.get(first.sampleId()));
             assertNull(outbox.get(second.sampleId()));
+        }
+    }
+
+    @Test
+    void typedAuthorityConvenienceUsesExactFactoryBranches() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("slo-outbox-authority-factory"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 8);
+        final KafkaSourcePosition source = new KafkaSourcePosition(shardId, "cluster-slo", UUID.randomUUID(), 9,
+                null, 700);
+        final SloObjectiveV1 commandApplied = new SloObjectiveV1(SloObjectiveNameV1.COMMAND_APPLIED_LATENCY,
+                SloPopulationV1.ALL_ACCEPTED, SloThresholdDirectionV1.AT_MOST,
+                SloThresholdUnitV1.MILLISECONDS, 100, 99, 100, 60_000, 10, List.of(), 7, bytes(32, 31));
+        final SloObjectiveV1 due = new SloObjectiveV1(SloObjectiveNameV1.DUE_ADMISSION_LAG,
+                SloPopulationV1.ALL_ACCEPTED, SloThresholdDirectionV1.AT_MOST,
+                SloThresholdUnitV1.MILLISECONDS, 100, 99, 100, 60_000, 10, List.of(), 7, bytes(32, 32));
+        final DelayMessageId messageId = DelayMessageId.random(shardId);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final SloObservationOutboxStore outbox = new SloObservationOutboxStore(store);
+            final SloObservationOutboxV1 applied = outbox.ensureCommandAppliedStart(commandApplied, source);
+            final SloObservationOutboxV1 dueStart = outbox.ensureDueAdmissionStart(due, messageId, 0,
+                    SloPathV1.ORDINARY_MANAGED, 800, bytes(32, 33));
+
+            assertEquals(applied, outbox.ensureCommandAppliedStart(commandApplied, source));
+            assertEquals(dueStart, outbox.ensureDueAdmissionStart(due, messageId, 0,
+                    SloPathV1.ORDINARY_MANAGED, 800, bytes(32, 33)));
+            assertEquals(2, outbox.usage().recordCount());
         }
     }
 

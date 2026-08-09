@@ -2948,6 +2948,19 @@ Message/Admission/Lane/Recovery authority 重建的 exact `SloSampleStartV1`。�
 生产 collector authority；真实的 Message/Admission/Recovery 重建、source-ordered
 接管编排和 evidence-gap `BAD_EVIDENCE_GAP` 记录仍是 production release gate。
 
+协议层提供 `SloAuthoritativeStartFactory` 作为同一重建边界的 typed helper：
+`commandApplied(objective, sourcePosition)` 把 Registry `SourcePositionV1` 的 canonical
+bytes 放入 `COMMAND_APPLIED_LATENCY` identity，并以该 Source Position 的
+`brokerPersistenceTimeEpochMs` 和 SHA-256 作为 `BROKER_PERSISTENCE` Start；
+`dueAdmission(objective, delayMessageId, generation, path, pathStartEpochMs,
+semanticEvidenceSha256)` 要求调用方明确提供完整 unsigned-32 generation、
+`ORDINARY_MANAGED`/`MANAGED_PULSAR_HANDOFF` path、ordinary `deliverAt` 或 handoff
+`actionAt`，以及已由 Message/eligibility authority 证明的 semantic evidence digest。
+两条路径都重新计算 sample ID、Start digest 和 checked timeout；非法 objective、path、
+时间、generation 或 evidence shape 直接 fail closed。`SloObservationOutboxStore` 的
+对应 convenience entry 只调用这个 helper，不替代 authority，也不从任意 Message
+字段推断证据。
+
 嵌入式/一致性实现可以使用 `PersistentSloObservationCollector(Path)` 保存 collector
 的 canonical sample projection：按 `sampleId` 排序写入完整 `SloObservationOutboxV1`
 bytes，重启或 response loss 只接受相同 Start digest 和 direction-aware conservative

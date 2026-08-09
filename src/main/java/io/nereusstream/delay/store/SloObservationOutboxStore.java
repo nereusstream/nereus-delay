@@ -1,11 +1,15 @@
 package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.DelayMessageId;
+import io.nereusstream.delay.protocol.SloAuthoritativeStartFactory;
 import io.nereusstream.delay.protocol.SloObservationOutboxV1;
 import io.nereusstream.delay.protocol.SloObjectiveV1;
+import io.nereusstream.delay.protocol.SloPathV1;
 import io.nereusstream.delay.protocol.SloSampleFinalV1;
 import io.nereusstream.delay.protocol.SloSampleStartV1;
 import io.nereusstream.delay.protocol.SloThresholdDirectionV1;
+import io.nereusstream.delay.protocol.SourcePosition;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -84,6 +88,38 @@ public final class SloObservationOutboxStore {
         requireCapacity(ValueEnvelope.encode(VALUE_TYPE, created.canonicalBytes()).length, 1);
         persist(key, created);
         return created;
+    }
+
+    /**
+     * Materializes a command-applied Start from the exact typed Source
+     * Position authority projection.
+     *
+     * <p>This is a convenience around {@link #ensureStart(SloSampleStartV1)};
+     * it does not discover a Source Position or infer a Broker timestamp from
+     * an arbitrary command payload.</p>
+     */
+    public synchronized SloObservationOutboxV1 ensureCommandAppliedStart(final SloObjectiveV1 objective,
+                                                                            final SourcePosition sourcePosition) {
+        return ensureStart(SloAuthoritativeStartFactory.commandApplied(objective, sourcePosition));
+    }
+
+    /**
+     * Materializes a due-admission Start from the exact typed Message/
+     * eligibility authority projection.
+     *
+     * <p>The caller supplies the generation, managed path, semantic start and
+     * evidence digest. In particular, this method never substitutes
+     * {@code deliverAt} for a managed handoff {@code actionAt}, and it cannot
+     * create a native-path due-admission sample.</p>
+     */
+    public synchronized SloObservationOutboxV1 ensureDueAdmissionStart(final SloObjectiveV1 objective,
+                                                                         final DelayMessageId delayMessageId,
+                                                                         final long generation,
+                                                                         final SloPathV1 path,
+                                                                         final long pathStartEpochMs,
+                                                                         final byte[] semanticEvidenceSha256) {
+        return ensureStart(SloAuthoritativeStartFactory.dueAdmission(objective, delayMessageId, generation, path,
+                pathStartEpochMs, semanticEvidenceSha256));
     }
 
     /**
