@@ -139,7 +139,7 @@ public final class KafkaReceiptJournal {
         return sendAfterMapped(mapping.record().mapping(), sender);
     }
 
-    /** Appends the local retirement marker required before a later sequence. */
+    /** Appends the durable retirement marker required before a later sequence. */
     public synchronized AppendResult retireNotPublished(final byte[] mappingId) {
         Bytes.requireLength(mappingId, HASH_LENGTH, "mappingId");
         final MappingState state = mappings.get(Bytes.hex(mappingId));
@@ -149,11 +149,13 @@ public final class KafkaReceiptJournal {
         if (state.retired) {
             return new AppendResult(state.retirementRecord, true);
         }
-        final JournalRecord record = new JournalRecord(RecordKind.RETIRED_NOT_PUBLISHED, state.mapping, null);
+        final ReceiptPosition position = append(RecordKind.RETIRED_NOT_PUBLISHED, state.mapping);
+        final JournalRecord record = new JournalRecord(RecordKind.RETIRED_NOT_PUBLISHED, state.mapping, position);
         state.retired = true;
         state.retirementRecord = record;
         state.producer.unresolvedMappingId = null;
         records.add(record);
+        lastPosition = position;
         return new AppendResult(record, false);
     }
 
@@ -181,13 +183,15 @@ public final class KafkaReceiptJournal {
                 }
                 throw conflict("Kafka receipt retirement replay conflict");
             }
+            validatePosition(record.position());
             current.retired = true;
             current.retirementRecord = record;
             current.producer.unresolvedMappingId = null;
             records.add(record);
+            lastPosition = record.position();
             return;
         }
-        if (record.kind() != RecordKind.MAPPED || record.position() == null) {
+        if (record.kind() != RecordKind.MAPPED) {
             throw conflict("receipt retirement record has no mapped predecessor");
         }
         validatePosition(record.position());
@@ -224,7 +228,7 @@ public final class KafkaReceiptJournal {
         JournalRecord latest = null;
         long maxBrokerPersistedAt = 0;
         for (JournalRecord record : records) {
-            if (record.kind() != RecordKind.MAPPED || !record.mapping().producer().equals(producer)) {
+            if (!record.mapping().producer().equals(producer)) {
                 continue;
             }
             latest = record;
@@ -453,13 +457,13 @@ public final class KafkaReceiptJournal {
         if (mapping.sequenceId() != expectedSequence) {
             throw conflict("mapping sequence is not the next transactional-channel sequence");
         }
-        final ReceiptPosition position = append(mapping);
+        final ReceiptPosition position = append(RecordKind.MAPPED, mapping);
         appendState(mapping, position);
         return new AppendResult(new JournalRecord(RecordKind.MAPPED, mapping, position), false);
     }
 
-    private ReceiptPosition append(final Mapping mapping) {
-        final ReceiptPosition position = appender.append(new AppendRequest(mapping));
+    private ReceiptPosition append(final RecordKind kind, final Mapping mapping) {
+        final ReceiptPosition position = appender.append(new AppendRequest(kind, mapping));
         if (position == null) {
             throw new JournalException(StableCode.INTEGRITY_ERROR,
                     "Kafka receipt appender returned no durable position");
@@ -566,9 +570,15 @@ public final class KafkaReceiptJournal {
         }
     }
 
-    public record AppendRequest(Mapping mapping) {
+    public record AppendRequest(RecordKind kind, Mapping mapping) {
         public AppendRequest {
+            Objects.requireNonNull(kind, "kind");
             Objects.requireNonNull(mapping, "mapping");
+        }
+
+        /** Compatibility constructor for callers that append a mapping record. */
+        public AppendRequest(final Mapping mapping) {
+            this(RecordKind.MAPPED, mapping);
         }
     }
 
@@ -610,14 +620,12 @@ public final class KafkaReceiptJournal {
         public JournalRecord {
             Objects.requireNonNull(kind, "kind");
             Objects.requireNonNull(mapping, "mapping");
-            if ((kind == RecordKind.MAPPED) != (position != null)) {
-                throw new IllegalArgumentException("Kafka receipt record kind/position mismatch");
-            }
+            Objects.requireNonNull(position, "position");
         }
 
         public byte[] canonicalBytes() {
             return Bytes.concat(RECORD_DOMAIN, Bytes.u8(kind.wireValue()), mapping.canonicalBytes(),
-                    position == null ? new byte[0] : position.canonicalBytes());
+                    position.canonicalBytes());
         }
     }
 

@@ -1790,6 +1790,12 @@ Baseline 只弱化重复/outcome 保证，不弱化资源身份：Kafka baseline
 
 同 generation 的任一 hash/attempt 匹配 receipt 证明 `PUBLISHED`；对 exact attempt，fence 后读到 LSO 仍无 receipt 才证明 `NOT_PUBLISHED`。同 key 不同 Prepared Publish hash 是 integrity violation。该能力不自动等于 end-to-end exactly-once；business consumer 必须 `read_committed`，否则可能看到 aborted record。
 
+实现中的本地 receipt-journal projection 若用于重建 transactional-channel sequence，`MAPPED` 与
+`RETIRED_NOT_PUBLISHED` 都必须是带 non-null journal position 的 durable record；retirement 的
+append/position 尚未确认时，unresolved lower sequence 继续阻塞，不能释放后续 sequence。该
+position 只用于本地 shard recovery cursor 与 replay projection，不替代同一 Kafka transaction、
+`read_committed` LSO/Fetch 或 retention proof，也不把本地 seam 伪装成 Broker authority。
+
 Strong Lane/receipt/channel slot 数受 shard 和 Worker hard limit；K 耗尽时的新 ordered/strong Schedule 被确定性拒绝。一个 Lane 的 unresolved transaction 最多推进/阻塞它自己的 receipt partition LSO，不能阻塞健康 Lane 的证据重放。
 
 Receipt slot 只有在旧 Lane 无 active/retained evidence、所有 transactional channels 已 fence/close、receipt/dedupe retention 与 Checkpoint Safety Barrier 都满足后才能释放；重新分配必须 checked increment `receiptSlotGeneration`。旧 generation 的 receipt/transactional ID 永不解释为新 Lane 证据。

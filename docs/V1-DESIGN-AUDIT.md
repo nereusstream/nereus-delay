@@ -476,7 +476,10 @@ transaction identity、prepared hash 和 receipt/barrier digest；
 `ReceiptObservation`/`Resolution` 还会对 receipt cursor identity、attempt/
 prepared/record hash 漂移 fail closed，并要求独立的 retirement、LSO barrier
 和 retention predicate 才能得到本地 `NOT_PUBLISHED`；
-`KafkaReceiptJournalTest` 覆盖这些本地顺序、回放、cursor、resolver 与 identity fence。
+`MAPPED` 和 `RETIRED_NOT_PUBLISHED` 现在都经过注入 appender 并取得 non-null
+journal position；retirement position 会推进本地 cursor/replay watermark，append
+失败则继续保留 lower sequence 的 unresolved fence。`KafkaReceiptJournalTest` 覆盖这些
+本地顺序、回放、cursor、resolver 与 identity fence。
 注入的 appender 和调用方提供的 fenced channel 仍只是 canonical value seam，不能
 证明真实 target+receipt Kafka transaction、`read_committed` Fetch/LSO contiguous
 replay、ExclusiveWithFencing、retention/Floor 或 slot authority，故这些仍是 release

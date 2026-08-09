@@ -25,6 +25,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -84,6 +85,64 @@ class KafkaReceiptJournalTest {
     }
 
     @Test
+    void retirementUsesDurablePositionAndAdvancesReceiptCursor() {
+        final ShardId shard = shard();
+        final AtomicLong offset = new AtomicLong(40);
+        final AtomicLong appendCalls = new AtomicLong();
+        final AtomicReference<KafkaReceiptJournal.RecordKind> lastKind = new AtomicReference<>();
+        final KafkaReceiptJournal journal = new KafkaReceiptJournal(shard, request -> {
+            appendCalls.incrementAndGet();
+            lastKind.set(request.kind());
+            return position(offset.getAndIncrement());
+        }, resource(shard));
+        final KafkaReceiptJournal.ProducerKey producer = producer();
+        final KafkaReceiptJournal.AppendResult mapped = journal.appendNext(producer, identity(shard, 23));
+
+        final KafkaReceiptJournal.AppendResult retired = journal.retireNotPublished(mapped.record().mapping().mappingId());
+
+        assertEquals(2, appendCalls.get());
+        assertEquals(KafkaReceiptJournal.RecordKind.RETIRED_NOT_PUBLISHED, lastKind.get());
+        assertEquals(41, retired.record().position().offset());
+        assertEquals(2, journal.records().size());
+        assertEquals(42, journal.evidenceCursor(producer, 1).orElseThrow().nextOffsetExclusive());
+    }
+
+    @Test
+    void retirementAppenderFailureKeepsLowerSequenceUnresolved() {
+        final ShardId shard = shard();
+        final KafkaReceiptJournal journal = new KafkaReceiptJournal(shard, request ->
+                request.kind() == KafkaReceiptJournal.RecordKind.MAPPED ? position(50) : null, resource(shard));
+        final KafkaReceiptJournal.ProducerKey producer = producer();
+        final KafkaReceiptJournal.AppendResult mapped = journal.appendNext(producer, identity(shard, 24));
+
+        assertThrows(KafkaReceiptJournal.JournalException.class,
+                () -> journal.retireNotPublished(mapped.record().mapping().mappingId()));
+        assertEquals(0, journal.unresolved(producer).orElseThrow().sequenceId());
+        assertEquals(1, journal.records().size());
+    }
+
+    @Test
+    void retirementReplayReconstructsCursorAndIsIdempotent() {
+        final ShardId shard = shard();
+        final AtomicLong offset = new AtomicLong(60);
+        final KafkaReceiptResource resource = resource(shard);
+        final KafkaReceiptJournal source = new KafkaReceiptJournal(shard,
+                request -> position(offset.getAndIncrement()), resource);
+        final KafkaReceiptJournal.ProducerKey producer = producer();
+        final KafkaReceiptJournal.AppendResult mapped = source.appendNext(producer, identity(shard, 25));
+        final KafkaReceiptJournal.AppendResult retired = source.retireNotPublished(mapped.record().mapping().mappingId());
+
+        final KafkaReceiptJournal recovered = new KafkaReceiptJournal(shard, request -> position(90), resource);
+        recovered.replay(mapped.record());
+        recovered.replay(retired.record());
+        recovered.replay(retired.record());
+
+        assertTrue(recovered.unresolved(producer).isEmpty());
+        assertEquals(2, recovered.records().size());
+        assertEquals(62, recovered.evidenceCursor(producer, 2).orElseThrow().nextOffsetExclusive());
+    }
+
+    @Test
     void replayProjectsTypedReceiptEvidenceAndBindsReceiptIdentity() {
         final ShardId shard = shard();
         final KafkaReceiptResource resource = resource(shard);
@@ -122,7 +181,9 @@ class KafkaReceiptJournalTest {
         final ShardId shard = shard();
         final KafkaReceiptResource resource = resource(shard);
         final KafkaReceiptJournal.ProducerKey producer = producer();
-        final KafkaReceiptJournal journal = new KafkaReceiptJournal(shard, request -> position(20), resource);
+        final AtomicLong offset = new AtomicLong(20);
+        final KafkaReceiptJournal journal = new KafkaReceiptJournal(shard,
+                request -> position(offset.getAndIncrement()), resource);
         final KafkaReceiptJournal.Mapping mapping = journal.appendNext(producer, identity(shard, 6))
                 .record().mapping();
         final KafkaReceiptJournal.ReceiptPosition position = journal.records().get(0).position();
@@ -156,7 +217,9 @@ class KafkaReceiptJournalTest {
     void retiredMappingProjectsStrictReceiptAbsenceEvidence() {
         final ShardId shard = shard();
         final KafkaReceiptResource resource = resource(shard);
-        final KafkaReceiptJournal journal = new KafkaReceiptJournal(shard, request -> position(30), resource);
+        final AtomicLong offset = new AtomicLong(30);
+        final KafkaReceiptJournal journal = new KafkaReceiptJournal(shard,
+                request -> position(offset.getAndIncrement()), resource);
         final KafkaReceiptJournal.ProducerKey producer = producer();
         final KafkaReceiptJournal.Mapping mapping = journal.appendNext(producer, identity(shard, 5))
                 .record().mapping();

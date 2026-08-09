@@ -1838,6 +1838,9 @@ generation, transaction identity, prepared hash and receipt/barrier digests.
 `ReceiptObservation`/`Resolution` now fail closed on receipt cursor identity,
 attempt/prepared/record-hash drift, and require independent retirement, LSO
 barrier and retention predicates for local `NOT_PUBLISHED` classification;
+both `MAPPED` and `RETIRED_NOT_PUBLISHED` records now pass through the injected
+appender with a non-null position, retirement advances the local cursor and
+replay watermark, and an append failure leaves the lower sequence unresolved;
 `KafkaReceiptJournalTest` covers the local ordering, replay, cursor, resolver
 and identity-fencing vectors. The injected appender and caller-supplied fenced
 channel remain only local canonical projections: real target-plus-receipt
