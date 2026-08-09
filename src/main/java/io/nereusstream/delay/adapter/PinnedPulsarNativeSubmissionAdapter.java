@@ -5,6 +5,7 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CommandQueuedReceiptV1;
 import io.nereusstream.delay.protocol.FailureStageV1;
 import io.nereusstream.delay.protocol.NativeDefinitelyNotQueuedV1;
+import io.nereusstream.delay.protocol.NativeCapabilitySnapshotV1;
 import io.nereusstream.delay.protocol.NativeDeliveryReceiptV1;
 import io.nereusstream.delay.protocol.NativeEnqueueUncertainV1;
 import io.nereusstream.delay.protocol.NativePreparedDeliveryV1;
@@ -33,21 +34,42 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
     private final PublicKey issuerKey;
     private final Clock clock;
     private final PulsarNativeSendTransport transport;
+    private final CredentialFingerprintProvider credentialFingerprintProvider;
     private final CloseGuard closeGuard = new CloseGuard();
 
     public PinnedPulsarNativeSubmissionAdapter(final PulsarTargetResource resource,
                                                final PublicKey issuerKey, final Clock clock,
                                                final PulsarNativeSendTransport transport) {
+        this(resource, issuerKey, clock, transport, null);
+    }
+
+    /**
+     * Creates a native adapter with an optional credential-binding resolver.
+     * When configured, the resolver is checked before Producer ownership and
+     * its result must equal the fingerprint bound into the signed snapshot.
+     */
+    public PinnedPulsarNativeSubmissionAdapter(final PulsarTargetResource resource,
+                                               final PublicKey issuerKey, final Clock clock,
+                                               final PulsarNativeSendTransport transport,
+                                               final CredentialFingerprintProvider credentialFingerprintProvider) {
         this.resource = Objects.requireNonNull(resource, "resource");
         this.issuerKey = Objects.requireNonNull(issuerKey, "issuerKey");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.transport = Objects.requireNonNull(transport, "transport");
+        this.credentialFingerprintProvider = credentialFingerprintProvider;
     }
 
     public PinnedPulsarNativeSubmissionAdapter(final PulsarTargetResource resource,
                                                final PublicKey issuerKey,
                                                final PulsarNativeSendTransport transport) {
         this(resource, issuerKey, Clock.systemUTC(), transport);
+    }
+
+    public PinnedPulsarNativeSubmissionAdapter(final PulsarTargetResource resource,
+                                               final PublicKey issuerKey,
+                                               final PulsarNativeSendTransport transport,
+                                               final CredentialFingerprintProvider credentialFingerprintProvider) {
+        this(resource, issuerKey, Clock.systemUTC(), transport, credentialFingerprintProvider);
     }
 
     /**
@@ -78,6 +100,20 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
         }
         if (clock.millis() >= prepared.capabilityExpiryEpochMs()) {
             return completed(localDefinite(prepared, StableCode.NATIVE_PREPARED_SUBMISSION_EXPIRED));
+        }
+        if (credentialFingerprintProvider != null) {
+            final byte[] resolvedFingerprint;
+            try {
+                resolvedFingerprint = credentialFingerprintProvider.resolve(prepared);
+                Bytes.requireLength(resolvedFingerprint, NativeCapabilitySnapshotV1.HASH_LENGTH,
+                        "resolvedCredentialFingerprintDigest");
+            } catch (RuntimeException unavailable) {
+                return completed(localDefinite(prepared, StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE));
+            }
+            if (!Bytes.constantTimeEquals(resolvedFingerprint,
+                    prepared.capabilitySnapshot().resolvedCredentialFingerprintDigest())) {
+                return completed(localDefinite(prepared, StableCode.CREDENTIAL_BINDING_DRIFT));
+            }
         }
         final byte[] attempt;
         try {
@@ -273,5 +309,11 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
         default void close() {
             // Implementations close their native Producer/connection here.
         }
+    }
+
+    @FunctionalInterface
+    public interface CredentialFingerprintProvider {
+        /** Resolves the immutable credential fingerprint for this exact prepared request. */
+        byte[] resolve(NativePreparedDeliveryV1 prepared);
     }
 }

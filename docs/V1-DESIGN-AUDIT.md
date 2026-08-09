@@ -363,7 +363,13 @@ native 不满足项都返回同一 strict managed frame；batch 逐项独立选�
 `AutoFastScheduleTest` 覆盖 eligible native、exact managed fallback、batch 和 no Source
 Position admission。Snapshot issuer、
 Oxia protection-before-rotation、Broker guard、Producer ownership 和 production
-response evidence 仍是外部 release gate。
+response evidence 仍是外部 release gate。Native adapter 若配置
+`CredentialFingerprintProvider`，会在 Producer ownership 前解析当前凭据指纹并
+与 signed capability snapshot 中的 immutable digest 做 constant-time 比较；漂移
+返回 `CREDENTIAL_BINDING_DRIFT`，解析不可用、null、长度错误或抛异常返回
+`AUTO_FAST_PREREQUISITE_UNAVAILABLE`，两者都不会调用 Pulsar transport。旧构造器
+故意不配置该 provider，仅作为兼容性 seam，不能被解释为生产 credential authority
+或 durable rotation protection。
 同步 prepare 入口的本地参数/strict-frame 校验现在统一投影为
 `PreparationFailure`，其 `StableErrorV1.stage` 固定为 `PREPARATION`，同时保持
 `IllegalArgumentException` 兼容性；`AutoFastScheduleTest` 覆盖稳定错误的 canonical

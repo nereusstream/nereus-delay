@@ -1698,6 +1698,15 @@ managed Kafka/Pulsar wire projections, so a malformed shared transport result
 cannot become a non-persistence proof. `AdapterIngressTest` and
 `NativeSubmissionAdapterTest` cover these downgrade vectors.
 
+When the native adapter is constructed with a `CredentialFingerprintProvider`,
+it resolves the immutable credential fingerprint before Producer ownership and
+compares it with the digest bound into the signed capability snapshot. A
+mismatch returns `CREDENTIAL_BINDING_DRIFT`; an unavailable, null, malformed or
+throwing resolver returns `AUTO_FAST_PREREQUISITE_UNAVAILABLE`, and neither
+branch calls the Pulsar transport. The legacy constructors intentionally leave
+the provider unset as compatibility seams; they do not claim a production
+credential authority or durable rotation protection.
+
 The current source-ordered control increment is deliberately bounded: the
 `RESOLVE_UNCERTAIN_V1(RETRY_ALLOW_POSSIBLE_DUPLICATE)` branch now validates a
 canonical `ControlRefV1`, its Resolve logical identity, lane incarnation,

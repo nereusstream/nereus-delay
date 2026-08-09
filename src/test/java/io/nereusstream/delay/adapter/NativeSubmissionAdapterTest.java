@@ -162,6 +162,46 @@ class NativeSubmissionAdapterTest {
     }
 
     @Test
+    void credentialFingerprintDriftIsRejectedBeforeProducerOwnership() throws Exception {
+        final Fixture fixture = fixture(4_000, 3_000);
+        final AtomicBoolean called = new AtomicBoolean();
+        final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport transport = request -> {
+            called.set(true);
+            return CompletableFuture.failedFuture(new AssertionError("transport must not be called"));
+        };
+        try (PinnedPulsarNativeSubmissionAdapter adapter = new PinnedPulsarNativeSubmissionAdapter(
+                fixture.resource, fixture.keyPair.getPublic(), fixture.clock, transport,
+                prepared -> Bytes.sha256(Bytes.utf8("rotated-credential")))) {
+            final SubmissionOutcomeMessageV1 outcome = adapter.submit(fixture.prepared, attempt(41))
+                    .toCompletableFuture().join();
+            assertEquals(StableCode.CREDENTIAL_BINDING_DRIFT,
+                    outcome.nativeDefinitelyNotQueued().error().code());
+            assertEquals(NonPersistenceProofKindV1.LOCAL_BEFORE_PRODUCER_OWNERSHIP,
+                    outcome.nativeDefinitelyNotQueued().proof().kind());
+        }
+        assertFalse(called.get());
+    }
+
+    @Test
+    void unavailableCredentialFingerprintIsTypedBeforeProducerOwnership() throws Exception {
+        final Fixture fixture = fixture(4_000, 3_000);
+        final AtomicBoolean called = new AtomicBoolean();
+        final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport transport = request -> {
+            called.set(true);
+            return CompletableFuture.failedFuture(new AssertionError("transport must not be called"));
+        };
+        try (PinnedPulsarNativeSubmissionAdapter adapter = new PinnedPulsarNativeSubmissionAdapter(
+                fixture.resource, fixture.keyPair.getPublic(), fixture.clock, transport,
+                prepared -> null)) {
+            final SubmissionOutcomeMessageV1 outcome = adapter.submit(fixture.prepared, attempt(42))
+                    .toCompletableFuture().join();
+            assertEquals(StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE,
+                    outcome.nativeDefinitelyNotQueued().error().code());
+        }
+        assertFalse(called.get());
+    }
+
+    @Test
     void mismatchedPinnedTargetIsRejectedBeforeTransport() throws Exception {
         final Fixture fixture = fixture(4_000, 3_000);
         final AtomicBoolean called = new AtomicBoolean();
