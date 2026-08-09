@@ -115,11 +115,13 @@ resource codecs. Payload-object and checkpoint lengths follow the Registry's
 rejected before the GC intent can be persisted. `ResourceRetireIntentBodyTest`
 covers both zero-length branches and rejects a payload identity carrying a
 Destination Profile.
-The Kafka receipt-slot and Pulsar Journal-generation branches are also exposed
-as typed protocol values (`KafkaReceiptSlotResourceV1` and
-`PulsarJournalGenerationResourceV1`), with canonical ExactResourceIdentity
-wrappers and raw unsigned partition/generation round-trip coverage in
-`ExternalResourceBranchTest`; `KafkaReceiptResource` projects the same slot
+The seven Registry retirement branches are now exposed as typed protocol values:
+`PayloadObjectResourceV1`, `CheckpointResourceV1`, `DlqExportResourceV1`,
+`KafkaReceiptSlotResourceV1`, `PulsarJournalGenerationResourceV1`,
+`LaneChannelResourceV1` and `LocalStoreResourceV1`. Each value owns its direct
+canonical codec and exact `ResourceKind` wrapper; `ExternalResourceBranchTest`
+covers the newly added payload/DLQ/lane/local-store values as well as raw
+unsigned Kafka/Pulsar fields. `KafkaReceiptResource` projects the same slot
 identity. This closes only the local resource-value boundary, not slot
 allocation, external retirement, Broker evidence or Oxia ownership.
 
