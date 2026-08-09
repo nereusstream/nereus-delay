@@ -1891,6 +1891,17 @@ evidence，避免 revision 与 evidence 混配。`SloObservationOutboxV1Test.mer
 Final，`SloObservationOutboxStoreTest.excludedFinalRequiresPairedHealthyObjectiveAtDurableBoundary`
 覆盖该 catalog-pair 边界。
 
+SLO outbox 还增加了显式的 `SloObservationOutboxLimits` 本地容量 envelope。带
+limits 的 store 在写入新 Start 或替换 Final 前，按严格 key/value 解码统计当前
+record 数和 `ValueEnvelope` 编码字节，使用 checked arithmetic 检查替换后的总占用，
+并以 `Usage` 暴露同一 bounded projection；超出 record/byte 上限的写入和过大的
+export scan 都 fail closed。回归证据为
+`SloObservationOutboxStoreTest.configuredCapacityBoundsRecordsAndEncodedBytesBeforeWrite`。
+这仍只是 shard-local capacity guard；超过 certified envelope 后如何 durable 记录
+`BAD_EVIDENCE_GAP`、从 Message/Admission authority 重建缺失 Start、collector merge/
+export 和生产观测 authority 仍是 release blocker。旧的无 limits 构造器只保留给嵌入式
+兼容调用，生产 wiring 必须提供 §21 的 required envelope。
+
 Large-payload reservation 的本地读取也采用同一条组合身份边界：`id_cf/RESERVATION`
 key 中的 reservationId 必须与 `PayloadReservation` 值一致，值中的 ShardId 必须与
 当前 Delay Shard 一致；按 messageId 的 bounded lookup 在超界或发现多个 reservation

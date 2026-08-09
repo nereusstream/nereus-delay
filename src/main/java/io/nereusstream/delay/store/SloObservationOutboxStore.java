@@ -23,9 +23,20 @@ public final class SloObservationOutboxStore {
     public static final int VALUE_TYPE = 9;
 
     private final ShardStore store;
+    private final SloObservationOutboxLimits limits;
 
+    /**
+     * Compatibility constructor for embedded callers that supply the
+     * capacity envelope at a higher layer. Production wiring must use the
+     * limit-aware constructor so a shard cannot grow an unbounded outbox.
+     */
     public SloObservationOutboxStore(final ShardStore store) {
+        this(store, null);
+    }
+
+    public SloObservationOutboxStore(final ShardStore store, final SloObservationOutboxLimits limits) {
         this.store = Objects.requireNonNull(store, "store");
+        this.limits = limits;
     }
 
     /** Returns the exact local projection, or {@code null} when no Start exists. */
@@ -55,9 +66,13 @@ public final class SloObservationOutboxStore {
             if (!existing.start().equals(start)) {
                 throw new IllegalStateException("SLO sample identity has different Start bytes");
             }
+            if (limits != null) {
+                usage();
+            }
             return existing;
         }
         final SloObservationOutboxV1 created = SloObservationOutboxV1.open(start);
+        requireCapacity(ValueEnvelope.encode(VALUE_TYPE, created.canonicalBytes()).length, 1);
         persist(key, created);
         return created;
     }
@@ -77,6 +92,7 @@ public final class SloObservationOutboxStore {
         }
         requireNoDueExclusion(finalObservation, existing);
         final SloObservationOutboxV1 merged = existing.mergeFinal(finalObservation, direction);
+        requireReplacementCapacity(existing, merged);
         persist(KeyCodec.metaSloOutbox(merged.sampleId()), merged);
         return merged;
     }
@@ -98,13 +114,14 @@ public final class SloObservationOutboxStore {
             throw new IllegalStateException("cannot persist SLO Final without a durable Start");
         }
         final SloObservationOutboxV1 merged = existing.mergeFinal(finalObservation, direction, healthyObjective);
+        requireReplacementCapacity(existing, merged);
         persist(KeyCodec.metaSloOutbox(merged.sampleId()), merged);
         return merged;
     }
 
     /** Returns a bounded key-order snapshot for at-least-once export retry. */
     public synchronized List<SloObservationOutboxV1> scan(final int limit) {
-        return scan(limit, Long.MAX_VALUE);
+        return scan(limit, limits == null ? Long.MAX_VALUE : limits.maxBytes());
     }
 
     /**
@@ -119,6 +136,12 @@ public final class SloObservationOutboxStore {
         if (maxBytes <= 0) {
             throw new IllegalArgumentException("SLO outbox scan byte limit must be positive");
         }
+        if (limits != null && limit > limits.maxRecords()) {
+            throw new IllegalArgumentException("SLO outbox scan exceeds the configured record budget");
+        }
+        if (limits != null && maxBytes > limits.maxBytes()) {
+            throw new IllegalArgumentException("SLO outbox scan exceeds the configured byte budget");
+        }
         final List<ShardStore.KeyValue> entries = store.scan(ColumnFamily.META,
                 new byte[]{8, 1}, new byte[]{8, 2}, limit);
         final List<SloObservationOutboxV1> result = new ArrayList<>(entries.size());
@@ -131,19 +154,42 @@ public final class SloObservationOutboxStore {
                 }
                 break;
             }
-            totalBytes += encodedBytes;
-            final byte[] key = entry.key();
-            if (key.length != 34 || key[0] != 8 || key[1] != 1) {
-                throw new IllegalStateException("invalid SLO_OUTBOX key shape");
+            try {
+                totalBytes = Math.addExact(totalBytes, encodedBytes);
+            } catch (ArithmeticException exception) {
+                throw new IllegalStateException("SLO outbox export byte usage overflow", exception);
             }
-            final SloObservationOutboxV1 outbox = SloObservationOutboxV1.decode(
-                    ValueEnvelope.decode(entry.value(), VALUE_TYPE).payload());
-            if (!Bytes.constantTimeEquals(Arrays.copyOfRange(key, 2, key.length), outbox.sampleId())) {
-                throw new IllegalStateException("SLO_OUTBOX key/value sample identity mismatch");
-            }
-            result.add(outbox);
+            result.add(decodeEntry(entry));
         }
         return List.copyOf(result);
+    }
+
+    /**
+     * Returns a strict usage snapshot for local metrics and admission checks.
+     * When limits are supplied, a corrupt or over-capacity existing projection
+     * fails closed.
+     */
+    public synchronized Usage usage() {
+        final int scanLimit = limits == null || limits.maxRecords() == Integer.MAX_VALUE
+                ? Integer.MAX_VALUE : limits.maxRecords() + 1;
+        final List<ShardStore.KeyValue> entries = store.scan(ColumnFamily.META,
+                new byte[]{8, 1}, new byte[]{8, 2}, scanLimit);
+        if (limits != null && entries.size() > limits.maxRecords()) {
+            throw new IllegalStateException("SLO outbox record capacity is already exceeded");
+        }
+        long totalBytes = 0;
+        for (ShardStore.KeyValue entry : entries) {
+            decodeEntry(entry);
+            try {
+                totalBytes = Math.addExact(totalBytes, entry.value().length);
+            } catch (ArithmeticException exception) {
+                throw new IllegalStateException("SLO outbox byte usage overflow", exception);
+            }
+        }
+        if (limits != null && totalBytes > limits.maxBytes()) {
+            throw new IllegalStateException("SLO outbox byte capacity is already exceeded");
+        }
+        return new Usage(entries.size(), totalBytes);
     }
 
     /**
@@ -165,6 +211,75 @@ public final class SloObservationOutboxStore {
 
     private void persist(final byte[] key, final SloObservationOutboxV1 outbox) {
         store.write(batch -> batch.putValue(ColumnFamily.META, VALUE_TYPE, key, outbox.canonicalBytes()));
+    }
+
+    private void requireReplacementCapacity(final SloObservationOutboxV1 existing,
+                                             final SloObservationOutboxV1 replacement) {
+        if (limits == null) {
+            return;
+        }
+        final Usage usage = usage();
+        if (existing.equals(replacement)) {
+            return;
+        }
+        final int oldBytes = ValueEnvelope.encode(VALUE_TYPE, existing.canonicalBytes()).length;
+        final int newBytes = ValueEnvelope.encode(VALUE_TYPE, replacement.canonicalBytes()).length;
+        if (usage.recordCount() <= 0 || usage.encodedBytes() < oldBytes) {
+            throw new IllegalStateException("SLO outbox replacement is missing its existing record");
+        }
+        try {
+            final long withoutExisting = Math.subtractExact(usage.encodedBytes(), oldBytes);
+            requireCapacity(newBytes, 0, usage.recordCount() - 1, withoutExisting);
+        } catch (ArithmeticException exception) {
+            throw new IllegalStateException("SLO outbox byte usage overflow", exception);
+        }
+    }
+
+    private void requireCapacity(final long addedBytes, final int addedRecords) {
+        if (limits == null) {
+            return;
+        }
+        final Usage usage = usage();
+        requireCapacity(addedBytes, addedRecords, usage.recordCount(), usage.encodedBytes());
+    }
+
+    private void requireCapacity(final long addedBytes, final int addedRecords,
+                                 final int currentRecords, final long currentBytes) {
+        if (addedBytes < 0 || addedRecords < 0) {
+            throw new IllegalArgumentException("SLO outbox capacity delta must be non-negative");
+        }
+        final long nextRecords;
+        final long nextBytes;
+        try {
+            nextRecords = Math.addExact((long) currentRecords, addedRecords);
+            nextBytes = Math.addExact(currentBytes, addedBytes);
+        } catch (ArithmeticException exception) {
+            throw new IllegalStateException("SLO outbox capacity arithmetic overflow", exception);
+        }
+        if (nextRecords > limits.maxRecords() || nextBytes > limits.maxBytes()) {
+            throw new IllegalStateException("SLO outbox capacity exceeded");
+        }
+    }
+
+    private static SloObservationOutboxV1 decodeEntry(final ShardStore.KeyValue entry) {
+        final byte[] key = entry.key();
+        if (key.length != 34 || key[0] != 8 || key[1] != 1) {
+            throw new IllegalStateException("invalid SLO_OUTBOX key shape");
+        }
+        final SloObservationOutboxV1 outbox = SloObservationOutboxV1.decode(
+                ValueEnvelope.decode(entry.value(), VALUE_TYPE).payload());
+        if (!Bytes.constantTimeEquals(Arrays.copyOfRange(key, 2, key.length), outbox.sampleId())) {
+            throw new IllegalStateException("SLO_OUTBOX key/value sample identity mismatch");
+        }
+        return outbox;
+    }
+
+    public record Usage(int recordCount, long encodedBytes) {
+        public Usage {
+            if (recordCount < 0 || encodedBytes < 0) {
+                throw new IllegalArgumentException("SLO outbox usage cannot be negative");
+            }
+        }
     }
 
     private static void requireNoDueExclusion(final SloSampleFinalV1 incoming,

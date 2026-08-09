@@ -25,7 +25,9 @@ import java.nio.file.Path;
 import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SloObservationOutboxStoreTest {
     @TempDir
@@ -88,17 +90,51 @@ class SloObservationOutboxStoreTest {
         }
     }
 
+    @Test
+    void configuredCapacityBoundsRecordsAndEncodedBytesBeforeWrite() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("slo-outbox-capacity"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 3);
+        final SloSampleStartV1 first = start();
+        final long firstBytes = ValueEnvelope.encode(SloObservationOutboxStore.VALUE_TYPE,
+                SloObservationOutboxV1.open(first).canonicalBytes()).length;
+        final SloObservationOutboxLimits limits = new SloObservationOutboxLimits(1, firstBytes);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final SloObservationOutboxStore outbox = new SloObservationOutboxStore(store, limits);
+            outbox.ensureStart(first);
+            assertEquals(new SloObservationOutboxStore.Usage(1, firstBytes), outbox.usage());
+
+            assertThrows(IllegalStateException.class, () -> outbox.ensureStart(startWith(4)));
+            final SloSampleFinalV1 finalObservation = new SloSampleFinalV1(first.sampleId(), first.startDigest(),
+                    SloFinalOutcomeV1.SUCCESS, SloThresholdUnitV1.MILLISECONDS, 1, 1, null,
+                    endpoint(200), bytes(32, 5), 1);
+            assertThrows(IllegalStateException.class,
+                    () -> outbox.mergeFinal(finalObservation, SloThresholdDirectionV1.AT_MOST));
+            assertNull(outbox.get(first.sampleId()).finalObservation());
+
+            assertTrue(outbox.deleteAfterCollectorAck(first.sampleId(), outbox.get(first.sampleId()).recordDigest()));
+            outbox.ensureStart(startWith(4));
+            assertEquals(new SloObservationOutboxStore.Usage(1,
+                    ValueEnvelope.encode(SloObservationOutboxStore.VALUE_TYPE,
+                            SloObservationOutboxV1.open(startWith(4)).canonicalBytes()).length), outbox.usage());
+        }
+    }
+
     private static SloSampleStartV1 start() {
-        final byte[] commandHash = bytes(32, 2);
-        final byte[] physicalAttemptId = bytes(16, 3);
+        return startWith(1);
+    }
+
+    private static SloSampleStartV1 startWith(final int seed) {
+        final byte[] commandHash = bytes(32, seed + 1);
+        final byte[] physicalAttemptId = bytes(16, seed + 2);
         final byte[] completeBranchPayload = CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.bytes(output, 1, bytes(41, 1));
+            CanonicalProtobuf.bytes(output, 1, bytes(41, seed));
             CanonicalProtobuf.bytes(output, 2, commandHash);
             CanonicalProtobuf.bytes(output, 3, physicalAttemptId);
         });
         final SloSampleEventIdentityV1 identity = new SloSampleEventIdentityV1(
                 SloObjectiveNameV1.COMMAND_QUEUED_LATENCY, completeBranchPayload);
-        return new SloSampleStartV1(bytes(32, 1), SloObjectiveNameV1.COMMAND_QUEUED_LATENCY,
+        return new SloSampleStartV1(bytes(32, seed), SloObjectiveNameV1.COMMAND_QUEUED_LATENCY,
                 SloPopulationV1.ALL_ACCEPTED, SloPathV1.NOT_APPLICABLE, identity,
                 endpoint(100), 200L);
     }
