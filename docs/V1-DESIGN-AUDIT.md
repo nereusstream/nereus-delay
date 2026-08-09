@@ -378,13 +378,21 @@ epoch millisecond 时返回 `AUTO_FAST_PREREQUISITE_UNAVAILABLE`，不把本地�
 key 固定在一个 Shard，sequence 严格递增，mapping append 必须先拿到 Journal position，
 精确重放幂等；replay 也会在首条和后续 mapping 安装前验证严格的 Producer sequence
 successor，首条或后续跳号都以 `INTEGRITY_ERROR` 拒绝而不留下部分 state；对某个
-Lane-scoped Producer，`evidenceCursor` 可将最新本地 Journal position 投影成带目标
-resource/creation/partition、batch cursor、generation 和最大本地 Broker 时间的 typed
-`EvidenceCursorV1`；`publishedEvidence` 进一步构造 Registry 的
+Lane-scoped Producer，`evidenceCursor` 可将最新本地 Journal position 投影成带显式
+Journal resource/creation/partition、batch cursor、generation 和最大本地 Broker 时间的
+typed `EvidenceCursorV1`（旧构造器未提供 Journal identity 时仅保留 target-derived
+compatibility seam）；`publishedEvidence` 进一步构造 Registry 的
 `PULSAR_ATTEMPT_JOURNAL` PUBLISHED branch，绑定 exact Attempt owner、prepared hash、
 producer-name hash、sequence、mapping-record hash 和可选 target-ack evidence。两者都
 仍只是本地 canonical value projection，不是 contiguous Broker reader、retention、
 authenticated Broker ACK/guard 或 publication 证明；
+durable `RETIRED_NOT_PUBLISHED` 之后，`notPublishedEvidence` 也构造 Registry 的
+`PULSAR_JOURNAL_ABSENCE` VERIFIED_NOT_PUBLISHED branch，严格绑定 fenced Pulsar
+dedup channel 的 Lane/target/evidence-resource/partition/generation、显式
+`PulsarJournalResource`、Attempt/prepared/
+producer identity、sequence、typed cursor 和 retirement-barrier digest。该 channel 与
+barrier 仍是调用方提供的 local seam 输入，不是已认证的 ExclusiveWithFencing、contiguous
+reader 或 retention proof，因此不能单独打开生产 absence capability；
 `appendOrReuse`/重载 `sendAfterMapped` 对同一 exact attempt
 重试复用原 mapping/sequence，且在 mapping append 失败时不进入 target sender；
 未 retirement 的 lower sequence 阻塞后续 Admission，

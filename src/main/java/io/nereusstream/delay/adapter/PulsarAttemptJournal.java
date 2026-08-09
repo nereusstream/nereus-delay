@@ -1,7 +1,11 @@
 package io.nereusstream.delay.adapter;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.AdapterKindV1;
+import io.nereusstream.delay.protocol.BrokerResourceIdentityV1;
 import io.nereusstream.delay.protocol.CanonicalProtobuf;
+import io.nereusstream.delay.protocol.ChannelKindV1;
+import io.nereusstream.delay.protocol.ChannelResourceIdentityV1;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.EvidenceVerificationStatusV1;
@@ -9,6 +13,7 @@ import io.nereusstream.delay.protocol.EvidenceCursorV1;
 import io.nereusstream.delay.protocol.ExternalDeliveryIdentityV1;
 import io.nereusstream.delay.protocol.PublishEvidenceKindV1;
 import io.nereusstream.delay.protocol.PublishEvidenceV1;
+import io.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.StableCode;
 
@@ -41,6 +46,7 @@ public final class PulsarAttemptJournal {
 
     private final ShardId shard;
     private final DurableAppender appender;
+    private final PulsarJournalResource journalResource;
     private final Map<String, MappingState> mappings = new HashMap<>();
     private final Map<ProducerKey, ProducerState> producers = new HashMap<>();
     private final List<JournalRecord> records = new ArrayList<>();
@@ -48,13 +54,23 @@ public final class PulsarAttemptJournal {
 
     /** Creates a deterministic in-memory appender for local tests only. */
     public PulsarAttemptJournal(final ShardId shard) {
-        this(shard, new LocalAppender());
+        this(shard, new LocalAppender(), null);
     }
 
     /** Creates a journal seam with an injected Broker-like durable append. */
     public PulsarAttemptJournal(final ShardId shard, final DurableAppender appender) {
+        this(shard, appender, null);
+    }
+
+    /** Creates a journal seam with its explicit physical Journal identity. */
+    public PulsarAttemptJournal(final ShardId shard, final DurableAppender appender,
+                                final PulsarJournalResource journalResource) {
         this.shard = Objects.requireNonNull(shard, "shard");
         this.appender = Objects.requireNonNull(appender, "appender");
+        if (journalResource != null && journalResource.partition() != shard.partition()) {
+            throw new IllegalArgumentException("Attempt Journal partition does not match Shard partition");
+        }
+        this.journalResource = journalResource;
     }
 
     /** Allocates and durably appends the next sequence mapping in one local turn. */
@@ -228,9 +244,16 @@ public final class PulsarAttemptJournal {
         }
         final JournalPosition position = latest.position();
         final PulsarTargetResource target = producer.target();
+        final String physicalTopic = journalResource == null
+                ? target.physicalTopic() : journalResource.physicalTopic();
+        final long physicalTopicCreationTimestamp = journalResource == null
+                ? target.physicalTopicCreationTimestamp() : journalResource.physicalTopicCreationTimestamp();
+        final byte[] resourceIncarnation = journalResource == null
+                ? target.resourceIncarnation() : journalResource.resourceIncarnation();
+        final int physicalPartition = journalResource == null ? target.partition() : journalResource.partition();
         return Optional.of(EvidenceCursorV1.pulsar(producer.laneId().bytes(), producer.laneIncarnation(),
-                target.resourceIncarnation(), target.partition(), evidenceGeneration, maxBrokerPersistedAt,
-                target.physicalTopic(), target.physicalTopicCreationTimestamp(), position.ledgerId(),
+                resourceIncarnation, physicalPartition, evidenceGeneration, maxBrokerPersistedAt,
+                physicalTopic, physicalTopicCreationTimestamp, position.ledgerId(),
                 position.entryId(), position.batchIndex(), position.batchSize()));
     }
 
@@ -275,6 +298,93 @@ public final class PulsarAttemptJournal {
         });
         return PublishEvidenceV1.create(PublishEvidenceKindV1.PULSAR_ATTEMPT_JOURNAL,
                 EvidenceVerificationStatusV1.VERIFIED_PUBLISHED, branch);
+    }
+
+    /**
+     * Builds the canonical local VERIFIED_NOT_PUBLISHED Journal-absence
+     * branch after an exact retirement record is durable.  The channel and
+     * barrier digest are caller-supplied proofs from the fenced adapter; this
+     * class validates their identity binding, but cannot authenticate a
+     * Pulsar fencing response or prove remote retention.
+     */
+    public synchronized PublishEvidenceV1 notPublishedEvidence(
+            final Mapping mapping, final long evidenceGeneration,
+            final ChannelResourceIdentityV1 fencedChannel,
+            final byte[] retirementBarrierEvidence) {
+        Objects.requireNonNull(mapping, "mapping");
+        requireShard(mapping);
+        Objects.requireNonNull(fencedChannel, "fencedChannel");
+        Bytes.requireLength(retirementBarrierEvidence, HASH_LENGTH, "retirementBarrierEvidence");
+        if (evidenceGeneration == 0) {
+            throw new IllegalArgumentException("evidenceGeneration must be non-zero");
+        }
+        final MappingState state = mappings.get(Bytes.hex(mapping.mappingId()));
+        if (state == null || !state.mapping.sameCanonical(mapping)) {
+            throw conflict("not-published evidence has no exact Journal mapping");
+        }
+        if (!state.retired || state.retirementRecord == null) {
+            throw conflict("not-published evidence requires a durable Journal retirement");
+        }
+        final EvidenceCursorV1 cursor = evidenceCursor(mapping.producer(), evidenceGeneration).orElseThrow(() ->
+                conflict("not-published evidence has no Journal cursor"));
+        validateFencedJournalChannel(mapping.producer(), fencedChannel, cursor, evidenceGeneration,
+                shard.partition());
+        final byte[] branch = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, cursor.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 2, fencedChannel.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 3, ExternalDeliveryIdentityV1.publishAttempt(mapping.publishAttemptId())
+                    .canonicalBytes());
+            CanonicalProtobuf.bytes(output, 4, mapping.preparedPublishHash());
+            CanonicalProtobuf.bytes(output, 5, mapping.producer().stableProducerNameHash());
+            CanonicalProtobuf.uint64(output, 6, mapping.sequenceId());
+            CanonicalProtobuf.bytes(output, 7, retirementBarrierEvidence);
+        });
+        return PublishEvidenceV1.create(PublishEvidenceKindV1.PULSAR_JOURNAL_ABSENCE,
+                EvidenceVerificationStatusV1.VERIFIED_NOT_PUBLISHED, branch);
+    }
+
+    private static void validateFencedJournalChannel(final ProducerKey producer,
+                                                      final ChannelResourceIdentityV1 channel,
+                                                      final EvidenceCursorV1 cursor,
+                                                      final long evidenceGeneration,
+                                                      final int journalPartition) {
+        if (channel.adapterKind() != AdapterKindV1.PULSAR
+                || channel.channelKind() != ChannelKindV1.PULSAR_DEDUP_PRODUCER) {
+            throw conflict("Journal absence requires a fenced Pulsar dedup channel");
+        }
+        if (!Arrays.equals(channel.destinationLaneId(), producer.laneId().bytes())
+                || !Arrays.equals(channel.laneIncarnation(), producer.laneIncarnation())
+                || !Arrays.equals(channel.producerOrTransactionalIdentitySha256(),
+                producer.stableProducerNameHash())) {
+            throw conflict("fenced Journal channel is bound to another Lane or Producer");
+        }
+        if (channel.physicalPartition() != producer.target().partition()
+                || channel.evidenceGeneration() == null
+                || channel.evidenceGeneration() != evidenceGeneration) {
+            throw conflict("fenced Journal channel partition/generation does not match evidence cursor");
+        }
+        final BrokerResourceIdentityV1 expectedTarget = BrokerResourceIdentityV1.pulsar(
+                new PulsarBrokerResourceIdentityV1(producer.target().authenticatedClusterId(),
+                        producer.target().resourceIncarnation(), producer.target().physicalTopic(),
+                        producer.target().physicalTopicCreationTimestamp()));
+        if (!expectedTarget.equals(channel.targetResource())) {
+            throw conflict("fenced Journal channel target identity differs from Producer target");
+        }
+        if (cursor.evidenceKind() != io.nereusstream.delay.protocol.EvidenceKindV1.PULSAR_ATTEMPT_JOURNAL_CONTIGUOUS
+                || cursor.evidenceGeneration() != evidenceGeneration
+                || cursor.physicalPartition() != journalPartition) {
+            throw conflict("Journal cursor identity does not match the fenced channel");
+        }
+        final BrokerResourceIdentityV1 evidenceResource = channel.evidenceResource();
+        if (evidenceResource == null || evidenceResource.kind() != BrokerResourceIdentityV1.Kind.PULSAR) {
+            throw conflict("fenced Journal channel has no Pulsar evidence resource");
+        }
+        final PulsarBrokerResourceIdentityV1 evidence = evidenceResource.pulsar();
+        if (!Arrays.equals(cursor.resourceToken(), evidence.resourceIncarnation())
+                || !cursor.physicalTopic().equals(evidence.physicalTopic())
+                || cursor.physicalTopicCreationTimestamp() != evidence.physicalTopicCreationTimestamp()) {
+            throw conflict("Journal cursor identity differs from the fenced evidence resource");
+        }
     }
 
     /**

@@ -1733,6 +1733,16 @@ test seam; the Nereus-owned Pulsar topic, ExclusiveWithFencing writer, guarded
 reader, retention/Floor proof and production Broker evidence remain release
 blockers.
 
+The same seam now projects the Registry `PULSAR_JOURNAL_ABSENCE` branch only
+after an exact mapping has a durable `RETIRED_NOT_PUBLISHED` record. It binds the
+explicit `PulsarJournalResource`-backed Journal cursor, a caller-supplied fenced Pulsar dedup channel, exact
+Attempt/prepared/producer identity, sequence and a fixed retirement-barrier
+digest; Lane, target, evidence-resource, partition and generation drift are
+rejected before the evidence value is returned. This is still a local canonical
+projection: the supplied channel/barrier are not an authenticated
+`ExclusiveWithFencing` response, contiguous reader result or remote retention
+proof, and the production absence capability remains blocked on those authorities.
+
 The current source-ordered control increment is deliberately bounded: the
 `RESOLVE_UNCERTAIN_V1(RETRY_ALLOW_POSSIBLE_DUPLICATE)` branch now validates a
 canonical `ControlRefV1`, its Resolve logical identity, lane incarnation,
