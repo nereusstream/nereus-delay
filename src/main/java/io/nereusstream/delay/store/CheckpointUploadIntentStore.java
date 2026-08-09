@@ -5,6 +5,17 @@ import io.nereusstream.delay.protocol.CheckpointUploadIntentV1;
 import io.nereusstream.delay.protocol.CheckpointUploadStateV1;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -18,7 +29,38 @@ import java.util.Optional;
  * publish, delete or attest an Object Store object.</p>
  */
 public final class CheckpointUploadIntentStore {
+    private static final int MAGIC = 0x4E435549; // N C U I
+    private static final int FORMAT_VERSION = 1;
+    private static final int HEADER_LENGTH = Integer.BYTES * 3;
+    private static final int DIGEST_LENGTH = 32;
+    private static final int MAX_INTENT_BYTES = 8 * 1024 * 1024;
+    private static final byte[] DIGEST_DOMAIN =
+            io.nereusstream.delay.protocol.Bytes.utf8("nereus-delay-checkpoint-upload-intent-state-v1\0");
+    private static final Object JVM_LOCK = new Object();
+
     private CheckpointUploadIntentV1 current;
+    private final Path stateFile;
+
+    /** Creates the process-local in-memory projection used by embedded tests. */
+    public CheckpointUploadIntentStore() {
+        this.stateFile = null;
+    }
+
+    /**
+     * Creates a crash-durable local projection backed by one state file.
+     *
+     * <p>The file is an implementation-local recovery seam.  It is not the
+     * production Oxia upload-intent authority or an Object Store publication
+     * record.  Callers must provide a path dedicated to this one intent.</p>
+     */
+    public CheckpointUploadIntentStore(final Path stateFile) {
+        this.stateFile = normalizeStateFile(stateFile);
+        try {
+            ensureParentDirectory();
+        } catch (IOException failure) {
+            throw new IllegalStateException("cannot initialize checkpoint upload intent state", failure);
+        }
+    }
 
     /**
      * Creates a PENDING_UPLOAD intent.  A retry with byte-identical intent is
@@ -27,14 +69,17 @@ public final class CheckpointUploadIntentStore {
     public synchronized CheckpointUploadIntentV1 create(final CheckpointUploadIntentV1 pending) {
         Objects.requireNonNull(pending, "pending");
         requireState(pending, CheckpointUploadStateV1.PENDING_UPLOAD);
-        if (current == null) {
-            current = pending;
-            return current;
-        }
-        if (current.equals(pending)) {
-            return current;
-        }
-        throw new IllegalStateException("checkpoint upload intent CAS conflict");
+        return withExclusiveLock(() -> {
+            final CheckpointUploadIntentV1 existing = readCurrent();
+            if (existing == null) {
+                writeCurrent(pending);
+                return pending;
+            }
+            if (existing.equals(pending)) {
+                return existing;
+            }
+            throw new IllegalStateException("checkpoint upload intent CAS conflict");
+        });
     }
 
     /**
@@ -44,10 +89,16 @@ public final class CheckpointUploadIntentStore {
      */
     public synchronized CheckpointUploadIntentV1 publish(final CheckpointUploadIntentV1 expectedPending,
                                                           final CheckpointResourceV1 resource) {
-        requireExpectedPending(expectedPending);
+        Objects.requireNonNull(expectedPending, "expectedPending");
+        requireState(expectedPending, CheckpointUploadStateV1.PENDING_UPLOAD);
         Objects.requireNonNull(resource, "resource");
-        current = next(expectedPending, CheckpointUploadStateV1.PUBLISHED, resource, null);
-        return current;
+        return withExclusiveLock(() -> {
+            requireExpectedPending(expectedPending, readCurrent());
+            final CheckpointUploadIntentV1 next = next(expectedPending, CheckpointUploadStateV1.PUBLISHED,
+                    resource, null);
+            writeCurrent(next);
+            return next;
+        });
     }
 
     /**
@@ -59,12 +110,15 @@ public final class CheckpointUploadIntentStore {
             final CheckpointUploadIntentV1 expectedPending) {
         Objects.requireNonNull(expectedPending, "expectedPending");
         requireState(expectedPending, CheckpointUploadStateV1.PENDING_UPLOAD);
-        if (current == null || current.state() != CheckpointUploadStateV1.PUBLISHED) {
-            return Optional.empty();
-        }
-        final CheckpointUploadIntentV1 expectedPublished = next(expectedPending,
-                CheckpointUploadStateV1.PUBLISHED, current.publishedManifest(), null);
-        return current.equals(expectedPublished) ? Optional.of(current) : Optional.empty();
+        return withExclusiveLock(() -> {
+            final CheckpointUploadIntentV1 existing = readCurrent();
+            if (existing == null || existing.state() != CheckpointUploadStateV1.PUBLISHED) {
+                return Optional.empty();
+            }
+            final CheckpointUploadIntentV1 expectedPublished = next(expectedPending,
+                    CheckpointUploadStateV1.PUBLISHED, existing.publishedManifest(), null);
+            return existing.equals(expectedPublished) ? Optional.of(existing) : Optional.empty();
+        });
     }
 
     /**
@@ -81,17 +135,22 @@ public final class CheckpointUploadIntentStore {
         requireState(expectedPending, CheckpointUploadStateV1.PENDING_UPLOAD);
         Objects.requireNonNull(evidence, "evidence");
         evidence.requireEarliestAtLeast(expectedPending.uploadDeadlineEpochMs());
-        if (current != null && current.state() == CheckpointUploadStateV1.REAPING) {
-            final CheckpointUploadIntentV1 expectedReaping = next(expectedPending,
-                    CheckpointUploadStateV1.REAPING, null, evidence);
-            if (current.equals(expectedReaping)) {
-                return current;
+        return withExclusiveLock(() -> {
+            final CheckpointUploadIntentV1 existing = readCurrent();
+            if (existing != null && existing.state() == CheckpointUploadStateV1.REAPING) {
+                final CheckpointUploadIntentV1 expectedReaping = next(expectedPending,
+                        CheckpointUploadStateV1.REAPING, null, evidence);
+                if (existing.equals(expectedReaping)) {
+                    return existing;
+                }
+                throw new IllegalStateException("checkpoint reaping successor does not match current state");
             }
-            throw new IllegalStateException("checkpoint reaping successor does not match current state");
-        }
-        requireExpectedPending(expectedPending);
-        current = next(expectedPending, CheckpointUploadStateV1.REAPING, null, evidence);
-        return current;
+            requireExpectedPending(expectedPending, existing);
+            final CheckpointUploadIntentV1 next = next(expectedPending, CheckpointUploadStateV1.REAPING,
+                    null, evidence);
+            writeCurrent(next);
+            return next;
+        });
     }
 
     /**
@@ -115,15 +174,165 @@ public final class CheckpointUploadIntentStore {
 
     /** Returns the current local projection, if an intent has been created. */
     public synchronized Optional<CheckpointUploadIntentV1> current() {
-        return Optional.ofNullable(current);
+        return withExclusiveLock(() -> Optional.ofNullable(readCurrent()));
     }
 
-    private void requireExpectedPending(final CheckpointUploadIntentV1 expectedPending) {
+    private void requireExpectedPending(final CheckpointUploadIntentV1 expectedPending,
+                                         final CheckpointUploadIntentV1 existing) {
         Objects.requireNonNull(expectedPending, "expectedPending");
         requireState(expectedPending, CheckpointUploadStateV1.PENDING_UPLOAD);
-        if (current == null || !current.equals(expectedPending)) {
+        if (existing == null || !existing.equals(expectedPending)) {
             throw new IllegalStateException("checkpoint upload intent expected value does not match current state");
         }
+    }
+
+    private CheckpointUploadIntentV1 readCurrent() throws IOException {
+        if (stateFile == null) {
+            return current;
+        }
+        ensureParentDirectory();
+        if (!Files.exists(stateFile, LinkOption.NOFOLLOW_LINKS)) {
+            return null;
+        }
+        rejectSymbolicLink(stateFile, "checkpoint upload intent state");
+        if (!Files.isRegularFile(stateFile, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("checkpoint upload intent state is not a regular file: " + stateFile);
+        }
+        final long fileLength = Files.size(stateFile);
+        if (fileLength > HEADER_LENGTH + MAX_INTENT_BYTES + DIGEST_LENGTH) {
+            throw new IOException("checkpoint upload intent state exceeds bounded size: " + stateFile);
+        }
+        return decode(Files.readAllBytes(stateFile));
+    }
+
+    private void writeCurrent(final CheckpointUploadIntentV1 next) throws IOException {
+        Objects.requireNonNull(next, "next");
+        if (stateFile == null) {
+            current = next;
+            return;
+        }
+        ensureParentDirectory();
+        rejectSymbolicLink(stateFile, "checkpoint upload intent state");
+        final byte[] payload = next.canonicalBytes();
+        if (payload.length == 0 || payload.length > MAX_INTENT_BYTES) {
+            throw new IOException("checkpoint upload intent exceeds bounded size");
+        }
+        final byte[] digest = io.nereusstream.delay.protocol.Bytes.sha256(DIGEST_DOMAIN, payload);
+        final ByteBuffer output = ByteBuffer.allocate(HEADER_LENGTH + payload.length + digest.length)
+                .order(ByteOrder.BIG_ENDIAN);
+        output.putInt(MAGIC).putInt(FORMAT_VERSION).putInt(payload.length).put(payload).put(digest);
+        final Path temporary = Files.createTempFile(stateFile.getParent(), ".checkpoint-upload-intent-", ".tmp");
+        try {
+            try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.WRITE,
+                    StandardOpenOption.TRUNCATE_EXISTING)) {
+                final ByteBuffer buffer = ByteBuffer.wrap(output.array());
+                while (buffer.hasRemaining()) {
+                    channel.write(buffer);
+                }
+                channel.force(true);
+            }
+            try {
+                Files.move(temporary, stateFile, StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException unsupported) {
+                throw new IOException("checkpoint upload intent state requires atomic rename", unsupported);
+            }
+            try (FileChannel directory = FileChannel.open(stateFile.getParent(), StandardOpenOption.READ)) {
+                directory.force(true);
+            }
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
+    }
+
+    private <T> T withExclusiveLock(final IoAction<T> action) {
+        if (stateFile == null) {
+            try {
+                return action.run();
+            } catch (IOException failure) {
+                throw new IllegalStateException("checkpoint upload intent state I/O failed", failure);
+            }
+        }
+        synchronized (JVM_LOCK) {
+            try {
+                ensureParentDirectory();
+                final Path lockFile = stateFile.resolveSibling(stateFile.getFileName() + ".lock");
+                rejectSymbolicLink(lockFile, "checkpoint upload intent lock");
+                try (FileChannel channel = FileChannel.open(lockFile, StandardOpenOption.CREATE,
+                        StandardOpenOption.WRITE); FileLock fileLock = channel.lock()) {
+                    if (!fileLock.isValid()) {
+                        throw new IOException("checkpoint upload intent lock is not valid");
+                    }
+                    return action.run();
+                }
+            } catch (IOException failure) {
+                throw new IllegalStateException("checkpoint upload intent state I/O failed", failure);
+            }
+        }
+    }
+
+    private void ensureParentDirectory() throws IOException {
+        if (stateFile == null) {
+            return;
+        }
+        final Path parent = stateFile.getParent();
+        if (parent == null) {
+            throw new IOException("checkpoint upload intent state must have a parent directory");
+        }
+        rejectSymbolicLink(parent, "checkpoint upload intent state parent");
+        if (!Files.exists(parent, LinkOption.NOFOLLOW_LINKS)) {
+            Files.createDirectories(parent);
+        }
+        if (!Files.isDirectory(parent, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("checkpoint upload intent state parent is not a directory: " + parent);
+        }
+    }
+
+    private static CheckpointUploadIntentV1 decode(final byte[] encoded) {
+        if (encoded.length < HEADER_LENGTH + DIGEST_LENGTH) {
+            throw new IllegalStateException("checkpoint upload intent state is truncated");
+        }
+        final ByteBuffer input = ByteBuffer.wrap(encoded).order(ByteOrder.BIG_ENDIAN);
+        if (input.getInt() != MAGIC || input.getInt() != FORMAT_VERSION) {
+            throw new IllegalStateException("checkpoint upload intent state has an unknown header");
+        }
+        final int payloadLength = input.getInt();
+        if (payloadLength <= 0 || payloadLength > MAX_INTENT_BYTES
+                || encoded.length != HEADER_LENGTH + payloadLength + DIGEST_LENGTH) {
+            throw new IllegalStateException("checkpoint upload intent state has an invalid length");
+        }
+        final byte[] payload = new byte[payloadLength];
+        input.get(payload);
+        final byte[] digest = new byte[DIGEST_LENGTH];
+        input.get(digest);
+        if (!io.nereusstream.delay.protocol.Bytes.constantTimeEquals(digest,
+                io.nereusstream.delay.protocol.Bytes.sha256(DIGEST_DOMAIN, payload))) {
+            throw new IllegalStateException("checkpoint upload intent state checksum mismatch");
+        }
+        try {
+            return CheckpointUploadIntentV1.decode(payload);
+        } catch (RuntimeException malformed) {
+            throw new IllegalStateException("checkpoint upload intent state is malformed", malformed);
+        }
+    }
+
+    private static Path normalizeStateFile(final Path value) {
+        final Path normalized = Objects.requireNonNull(value, "stateFile").toAbsolutePath().normalize();
+        if (normalized.getFileName() == null) {
+            throw new IllegalArgumentException("stateFile must name a file");
+        }
+        return normalized;
+    }
+
+    private static void rejectSymbolicLink(final Path path, final String name) throws IOException {
+        if (Files.isSymbolicLink(path)) {
+            throw new IOException(name + " must not be a symbolic link: " + path);
+        }
+    }
+
+    @FunctionalInterface
+    private interface IoAction<T> {
+        T run() throws IOException;
     }
 
     private static void requireState(final CheckpointUploadIntentV1 intent,

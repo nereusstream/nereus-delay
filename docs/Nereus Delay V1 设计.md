@@ -2215,6 +2215,14 @@ fail closed，不能重置较新的 checkpoint attempt 的 next-due 时间，也
 attempt 当成当前 attempt 完成。scheduler 重启或状态丢失不改变恢复正确性，必须
 回到 durable Upload Intent/Catalog 状态重新竞争。
 
+嵌入式/一致性测试实现可以把 `CheckpointUploadIntentStore` 绑定到一个专用本地
+state file，以保留完整 `CheckpointUploadIntentV1` canonical bytes。该文件使用
+checksum、临时文件、atomic rename、目录 fsync 和跨实例锁，重启或 response loss
+只接受 exact intent/revision successor；损坏、截断、身份漂移或非原子替换必须
+fail closed。无参实现仍是仅用于纯单进程测试的内存 projection；无论哪一种本地
+实现都不替代生产 Oxia 的 Owner Lease/session、lineage-head、catalog-generation
+CAS，或 Object Store 的上传、quiescence、attestation 和删除 authority。
+
 1. active DB 创建 unique local checkpoint；读取其 `meta_cf`，绑定 current lineage head/manifest hash并生成 canonical file inventory/checksum；成功创建物理 checkpoint 后立即取得一次 `TrustedUtcIntervalEvidenceV1 createdAt`，并把其 exact JSON projection 固定进 draft。此时只是 draft inventory，不是最终 manifest，但后续 retry 不得重采样或改善该时间区间。
 2. Oxia CAS 创建 Registry 的 exact `CheckpointUploadIntentV1(PENDING_UPLOAD)`，固定 checkpoint/lineage/parent、upload token、Owner/Store、base catalog、Object Store Profile、`createdAt` 与 bounded upload deadline；事务比较 exact active Owner Lease/session/Store 和 base catalog。
 3. 向 immutable unique prefix 上传每个 inventory file，取得 exact object key/version/etag，逐个 HEAD/read + SHA-256 校验。

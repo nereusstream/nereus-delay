@@ -11,6 +11,10 @@ import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardSubjectV1;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -18,6 +22,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CheckpointUploadIntentStoreTest {
+    @TempDir
+    Path tempDir;
+
     @Test
     void createsAndRetriesExactPendingIntentIdempotently() {
         final CheckpointUploadIntentStore store = new CheckpointUploadIntentStore();
@@ -94,6 +101,59 @@ class CheckpointUploadIntentStoreTest {
         assertThrows(IllegalStateException.class, () -> store.publish(pending, resource()));
         assertThrows(IllegalArgumentException.class,
                 () -> store.create(intent(CheckpointUploadStateV1.PUBLISHED, 3, bytes(32, 8), null)));
+    }
+
+    @Test
+    void durableStateSurvivesReopenAndPublicationResponseLossRetry() {
+        final Path stateFile = tempDir.resolve("checkpoint-upload.state");
+        final CheckpointUploadIntentV1 pending = intent(CheckpointUploadStateV1.PENDING_UPLOAD, 2, null, null);
+        final CheckpointUploadIntentV1 published;
+        final CheckpointUploadIntentStore first = new CheckpointUploadIntentStore(stateFile);
+        first.create(pending);
+        published = first.publish(pending, resource());
+
+        final CheckpointUploadIntentStore reopened = new CheckpointUploadIntentStore(stateFile);
+        assertEquals(published, reopened.current().orElseThrow());
+        assertEquals(published, reopened.currentPublishedFor(pending).orElseThrow());
+    }
+
+    @Test
+    void durableInstancesShareTheOnDiskCasBoundary() {
+        final Path stateFile = tempDir.resolve("checkpoint-upload.state");
+        final CheckpointUploadIntentV1 pending = intent(CheckpointUploadStateV1.PENDING_UPLOAD, 2, null, null);
+        final CheckpointUploadIntentStore first = new CheckpointUploadIntentStore(stateFile);
+        final CheckpointUploadIntentStore second = new CheckpointUploadIntentStore(stateFile);
+
+        first.create(pending);
+        final CheckpointUploadIntentV1 published = second.publish(pending, resource());
+        assertEquals(published, first.current().orElseThrow());
+    }
+
+    @Test
+    void durableReapingStateSurvivesReopenAndExactEvidenceRetry() {
+        final Path stateFile = tempDir.resolve("checkpoint-upload-reaping.state");
+        final CheckpointUploadIntentV1 pending = intent(CheckpointUploadStateV1.PENDING_UPLOAD, 2, null, null);
+        final TrustedUtcIntervalEvidence evidence = evidence(5_000);
+        final CheckpointUploadIntentStore first = new CheckpointUploadIntentStore(stateFile);
+        final CheckpointUploadIntentV1 reaping = first.beginReaping(first.create(pending), evidence);
+
+        final CheckpointUploadIntentStore reopened = new CheckpointUploadIntentStore(stateFile);
+        assertEquals(reaping, reopened.current().orElseThrow());
+        assertEquals(reaping, reopened.beginReaping(pending, evidence));
+        assertThrows(IllegalStateException.class, () -> reopened.beginReaping(pending, evidence(5_001)));
+    }
+
+    @Test
+    void durableStateChecksumCorruptionFailsClosedBeforeReturningCurrent() throws Exception {
+        final Path stateFile = tempDir.resolve("checkpoint-upload.state");
+        final CheckpointUploadIntentV1 pending = intent(CheckpointUploadStateV1.PENDING_UPLOAD, 2, null, null);
+        new CheckpointUploadIntentStore(stateFile).create(pending);
+        final byte[] encoded = Files.readAllBytes(stateFile);
+        encoded[encoded.length - 1]++;
+        Files.write(stateFile, encoded);
+
+        assertThrows(IllegalStateException.class,
+                () -> new CheckpointUploadIntentStore(stateFile).current());
     }
 
     private static CheckpointUploadIntentV1 intent(final CheckpointUploadStateV1 state, final long revision,

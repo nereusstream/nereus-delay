@@ -815,6 +815,10 @@ Owner Lease/session CAS；`CheckpointResourceV1` 与
 也已补齐 manifest-object identity 和 PENDING/PUBLISHED/REAPING 的 canonical
 state branches；`CheckpointUploadIntentStore` 还提供了 exact-value create
 idempotency 与本地 PENDING_UPLOAD -> PUBLISHED/REAPING revision CAS 投影。
+它的 `Path` 构造还把完整 canonical intent 持久化到 checksum/atomic-rename/
+directory-fsync 的 state file，并用 JVM/on-disk lock 保护跨实例 CAS；重启、
+exact PUBLISHED reread 和损坏状态 fail-closed 已由
+`CheckpointUploadIntentStoreTest` 覆盖。无参构造仍只是内存 projection。
 其中 REAPING 竞争在 response loss 后可用相同 pending identity 和
 `reapingStartedAt` evidence 精确重读同一 successor；不同 evidence 仍 fail
 closed，且 evidence 的 earliest trusted time 必须达到 upload deadline；
