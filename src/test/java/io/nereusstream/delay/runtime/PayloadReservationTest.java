@@ -6,6 +6,7 @@ import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.OrderingMode;
+import io.nereusstream.delay.protocol.PayloadReference;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
 import org.junit.jupiter.api.Test;
@@ -33,5 +34,21 @@ class PayloadReservationTest {
                     "truncated payload reservation length=" + length);
         }
         assertArrayEquals(encoded, PayloadReservation.decode(encoded).encode());
+    }
+
+    @Test
+    void committedPayloadMustMatchPrepareLengthAndDigest() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 0);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("payload-reservation-binding"));
+        final byte[] expectedPayload = Bytes.utf8("expected");
+        final LargeScheduleIntent intent = new LargeScheduleIntent(lane, 2_000, 5_000,
+                OrderingMode.BEST_EFFORT, expectedPayload.length, Bytes.sha256(expectedPayload), 1_000, 1);
+        final PayloadReference mismatched = new PayloadReference(Bytes.sha256(Bytes.utf8("profile")),
+                Bytes.utf8("container"), Bytes.utf8("object"), Bytes.utf8("version"), null,
+                expectedPayload.length + 1, Bytes.sha256(Bytes.utf8("different")));
+
+        assertThrows(IllegalArgumentException.class, () -> new PayloadReservation(shardId, new byte[32],
+                CommandId.random(shardId), DelayMessageId.random(shardId), Bytes.sha256(Bytes.utf8("command")),
+                intent, 4_000, PayloadReservationStatus.COMMITTED, 1, new byte[]{1}, mismatched));
     }
 }

@@ -871,6 +871,14 @@ truncated reservation values fail as validation errors before a missing
 committed-payload branch can be consumed. `PayloadReservationTest` covers
 every strict prefix.
 
+The same durable reservation codec now binds a `COMMITTED` payload reference's
+length and SHA-256 to the Prepare intent before the value can be constructed or
+decoded. A damaged or mis-bound committed reservation therefore fails closed
+instead of exposing an object identity whose bytes disagree with the frozen
+reservation. `PayloadReservationTest.committedPayloadMustMatchPrepareLengthAndDigest`
+covers the local mismatch fence; provider/Object Store authority remains a
+release blocker.
+
 Reservation reads now also fence the `id_cf/RESERVATION` key against the
 embedded reservation identity and the current shard identity. Message-based
 reservation lookup uses a bounded `maxPendingMessages + 1` scan, rejects a

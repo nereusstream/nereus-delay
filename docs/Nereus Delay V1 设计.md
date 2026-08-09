@@ -2005,6 +2005,8 @@ Cancel 可在 Commit 前 abandon；Cancel/Commit 由 Source Position 决胜。�
 
 同 reservation 的首个成功 Commit 决定 object identity。后续不同 Command 若引用相同 `proofId` 或经另一仍受信 key 重签但 semantic fields/object identity 完全相同，返回 `APPLIED(ALREADY_COMMITTED)` 且不重复计 quota；不同 object identity、length 或 checksum 为 `REJECTED(PAYLOAD_COMMIT_CONFLICT)`。Cancel 或 closing TIME_FENCE 已先线性化时，Commit 返回精确 `RESERVATION_ABANDONED` / `RESERVATION_EXPIRED`；结果不取决于 expiry cursor 是否已物化到该 record。
 
+`COMMITTED` reservation 的 durable value 还必须把对象引用的 `length` 与 `payloadSha256` 逐字节绑定到 Prepare 时冻结的 expected length/digest；只有“存在 object reference”而没有这两个一致性检查的 value 是损坏状态，打开、恢复和 query 都必须 fail closed，不能把它当作已提交 payload。
+
 到期 materialization 发生在 reversible Claim 阶段。Object Store outage 不消耗 Publish Attempt；在所有 retention/protection invariant 成立时仍 proven missing/corrupt 的 object 才形成 message-level terminal error，同时触发 storage-integrity 告警。
 
 ## 15. Retry、Circuit、DLQ 与 GC

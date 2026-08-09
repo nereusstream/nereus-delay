@@ -569,6 +569,12 @@ the actual minimum framing prefix, so short valid LP32 values remain readable;
 The large-payload reservation value applies the same guards to its post-intent
 numeric and presence fields; `PayloadReservationTest` covers strict-prefix
 rejection before payload-reference decoding.
+Its `COMMITTED` branch also rejects a payload reference whose length or
+SHA-256 differs from the Prepare intent, so a damaged durable value cannot
+cross the reservation-to-message boundary as a false object binding. The
+focused evidence is
+`PayloadReservationTest.committedPayloadMustMatchPrepareLengthAndDigest`;
+provider/Object Store authority remains a release gate.
 `DelayClient.prepareLargePayloadCommit` now closes the client-side preparation
 boundary as well: the embedded path refuses a proof whose reservation/message,
 shard, object identity, payload digest/length, trust-set version or expiry

@@ -47,6 +47,11 @@ public record PayloadReservation(
         if (status != PayloadReservationStatus.COMMITTED && committedPayload != null) {
             throw new IllegalArgumentException("uncommitted reservation cannot carry payload reference");
         }
+        if (committedPayload != null
+                && (committedPayload.length() != intent.expectedPayloadLength()
+                || !Bytes.constantTimeEquals(committedPayload.payloadSha256(), intent.payloadSha256()))) {
+            throw new IllegalArgumentException("committed payload does not match reservation intent");
+        }
         reservationId = Bytes.copy(reservationId);
         commandHash = Bytes.copy(commandHash);
         sourcePosition = Bytes.copy(sourcePosition);
