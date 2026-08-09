@@ -37,6 +37,12 @@ constructors. They remain zero-I/O and are covered by
 legacy preparation methods remain compatibility bridges and cannot be labeled
 as V1 managed submission by themselves.
 
+Strict `enqueueV1`/`enqueueBatchV1` now validate the V1 frame before charging
+pending bytes or allocating an embedded Source Position; legacy bodies return
+the closed `INVALID_PREPARED_COMMAND` definitive outcome. The batch form keeps
+the same independent input-order semantics as legacy batch enqueue, covered by
+`EmbeddedDelayServiceTest.strictV1IngressRejectsLegacyBodiesBeforeSourceAdmission`.
+
 The local in-memory Owner Lease authority advances the raw `uint64` epoch
 domain through the high-bit boundary and fails only when the all-ones value is
 exhausted (`OwnerLeaseTest.ownerEpochSuccessorUsesTheCompleteUnsignedDomain`).

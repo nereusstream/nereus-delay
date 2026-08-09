@@ -342,6 +342,9 @@ authorization-safe lookup。
 `DelayClient` 契约；它们只构造 Registry-shaped canonical bytes，不做网络 I/O，
 `EmbeddedDelayServiceTest.delayClientPreparesStrictV1CommandsWithoutIo` 覆盖其
 body round-trip。legacy prepare 仍是兼容桥，不能伪装成 V1 managed submission。
+对应的 `enqueueV1`/`enqueueBatchV1` 在 pending admission 前调用 strict V1 frame
+validator；legacy body 得到 `INVALID_PREPARED_COMMAND` definitive branch，不消耗
+Source Position 或 byte budget，且 batch 仍逐条保持输入顺序。
 close 还会在 DB close 失败后继续尝试释放共享 RocksDB 资源，并把后续失败作为
 suppressed exception 聚合；成功 drain 后服务立即进入 closed 状态，避免部分关闭
 时继续触碰已关闭的 Store。该清理顺序仍只属于 embedded seam，不等于真实

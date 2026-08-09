@@ -54,8 +54,14 @@ public interface DelayClient extends AutoCloseable {
 
     CompletionStage<EnqueueOutcome> enqueue(PreparedCommand command);
 
+    /** Strict V1 ingress; legacy command bodies are rejected before source admission. */
+    CompletionStage<EnqueueOutcome> enqueueV1(PreparedCommand command);
+
     /** Enqueues each prepared command independently and returns outcomes in input order. */
     CompletionStage<List<EnqueueOutcome>> enqueueBatch(List<PreparedCommand> commands);
+
+    /** Strict V1 batch ingress with independent ordered outcomes. */
+    CompletionStage<List<EnqueueOutcome>> enqueueBatchV1(List<PreparedCommand> commands);
 
     /** Queries the V1 command result using its queued receipt and source barrier. */
     CompletionStage<CommandQueryResponseV1> getCommandResult(CommandQueuedReceiptV1 receipt,

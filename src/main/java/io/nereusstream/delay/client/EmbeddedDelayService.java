@@ -270,7 +270,13 @@ public final class EmbeddedDelayService implements DelayClient {
     @Override
     public synchronized CompletionStage<EnqueueOutcome> enqueue(final PreparedCommand command) {
         ensureOpen();
-        return CompletableFuture.completedFuture(enqueueInternal(command));
+        return CompletableFuture.completedFuture(enqueueInternal(command, false));
+    }
+
+    @Override
+    public synchronized CompletionStage<EnqueueOutcome> enqueueV1(final PreparedCommand command) {
+        ensureOpen();
+        return CompletableFuture.completedFuture(enqueueInternal(command, true));
     }
 
     @Override
@@ -279,7 +285,19 @@ public final class EmbeddedDelayService implements DelayClient {
         Objects.requireNonNull(commands, "commands");
         final List<EnqueueOutcome> outcomes = new ArrayList<>(commands.size());
         for (PreparedCommand command : commands) {
-            outcomes.add(enqueueInternal(command));
+            outcomes.add(enqueueInternal(command, false));
+        }
+        return CompletableFuture.completedFuture(List.copyOf(outcomes));
+    }
+
+    @Override
+    public synchronized CompletionStage<List<EnqueueOutcome>> enqueueBatchV1(
+            final List<PreparedCommand> commands) {
+        ensureOpen();
+        Objects.requireNonNull(commands, "commands");
+        final List<EnqueueOutcome> outcomes = new ArrayList<>(commands.size());
+        for (PreparedCommand command : commands) {
+            outcomes.add(enqueueInternal(command, true));
         }
         return CompletableFuture.completedFuture(List.copyOf(outcomes));
     }
@@ -331,11 +349,16 @@ public final class EmbeddedDelayService implements DelayClient {
     }
 
     /** Enqueues one command without reacquiring the service monitor. */
-    private EnqueueOutcome enqueueInternal(final PreparedCommand command) {
+    private EnqueueOutcome enqueueInternal(final PreparedCommand command, final boolean strictV1) {
         if (!shardId.equals(command.shardId())) {
             return EnqueueOutcome.definitelyNotQueued(command, 0x110a);
         }
-        final int frameBytes = CommandCodec.encodeFrame(command).length;
+        final int frameBytes;
+        try {
+            frameBytes = (strictV1 ? CommandCodec.encodeFrameV1(command) : CommandCodec.encodeFrame(command)).length;
+        } catch (IllegalArgumentException invalidPreparedCommand) {
+            return EnqueueOutcome.definitelyNotQueued(command, StableCode.INVALID_PREPARED_COMMAND.wireValue());
+        }
         if (pending.size() >= clientConfig.maxPendingCommandCount()
                 || (long) frameBytes > clientConfig.maxPendingCommandBytes()
                 || pendingBytes > clientConfig.maxPendingCommandBytes() - frameBytes) {

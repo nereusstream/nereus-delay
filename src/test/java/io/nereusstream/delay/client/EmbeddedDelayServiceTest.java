@@ -116,6 +116,29 @@ class EmbeddedDelayServiceTest {
     }
 
     @Test
+    void strictV1IngressRejectsLegacyBodiesBeforeSourceAdmission() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 26);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("v1-ingress")), shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final DelayClient client = service;
+            final PreparedCommand v1 = client.prepareScheduleV1(
+                    scheduleIntentV1("v1-ingress-lane", 2_000, 5_000, "payload"), 10_000);
+            final PreparedCommand legacy = client.prepareSchedule(new ScheduleIntent(
+                    DestinationLaneId.derive(Bytes.utf8("legacy-ingress-lane")), 2_000, 5_000,
+                    OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+
+            final EnqueueOutcome queued = client.enqueueV1(v1).toCompletableFuture().join();
+            final EnqueueOutcome rejected = client.enqueueV1(legacy).toCompletableFuture().join();
+
+            assertEquals(EnqueueStatus.QUEUED, queued.status());
+            assertEquals(EnqueueStatus.DEFINITELY_NOT_QUEUED, rejected.status());
+            assertEquals(StableCode.INVALID_PREPARED_COMMAND.wireValue(), rejected.stableCode());
+            assertEquals(1, service.pendingCommandCount());
+        }
+    }
+
+    @Test
     void queuedReceiptIsNotAppliedReceipt() {
         final long now = 1_000;
         final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
