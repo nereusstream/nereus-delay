@@ -48,6 +48,27 @@ public final class PreparedSubmissionAdapter implements AutoCloseable {
         return nativeSubmission.submit(submission.nativePrepared(), physicalEnqueueAttemptId);
     }
 
+    /**
+     * Strict managed submission path. The policy is bound by the ingress
+     * adapter and checked again here so a caller cannot replace it with an
+     * absolute SDK timestamp or a different Route snapshot.
+     */
+    public CompletionStage<SubmissionOutcomeMessageV1> submit(final PreparedSubmissionV1 submission,
+                                                              final QueuedReceiptQueryPolicy routePolicy,
+                                                              final byte[] physicalEnqueueAttemptId) {
+        Objects.requireNonNull(submission, "submission");
+        Objects.requireNonNull(routePolicy, "routePolicy");
+        if (submission.isManaged()) {
+            final PreparedCommand command = CommandCodec.decodeFrameV1(submission.managedFrame());
+            return closeGuard.invokeIfOpen(() -> submitManaged(command, routePolicy, physicalEnqueueAttemptId),
+                    () -> CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
+                            WireIngressOutcomeSupport.localDefinite(command, StableCode.CLIENT_CLOSED))));
+        }
+        // Native receipts do not carry managed query authority; retain the
+        // already prepared native branch and ignore the managed policy.
+        return nativeSubmission.submit(submission.nativePrepared(), physicalEnqueueAttemptId);
+    }
+
     private CompletionStage<SubmissionOutcomeMessageV1> submitManaged(final PreparedCommand command,
                                                                         final long receiptQueryUntilEpochMs,
                                                                         final byte[] physicalEnqueueAttemptId) {
@@ -70,6 +91,31 @@ public final class PreparedSubmissionAdapter implements AutoCloseable {
         } catch (RuntimeException submissionFailure) {
             // Preserve the same conservative boundary if an adapter throws
             // while returning its CompletionStage.
+            return managedFailure(command, physicalEnqueueAttemptId);
+        }
+    }
+
+    private CompletionStage<SubmissionOutcomeMessageV1> submitManaged(final PreparedCommand command,
+                                                                       final QueuedReceiptQueryPolicy routePolicy,
+                                                                       final byte[] physicalEnqueueAttemptId) {
+        if (!(managedIngress instanceof PolicyBoundWireCommandIngressAdapter policyBoundIngress)) {
+            return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
+                    WireIngressOutcomeSupport.localDefinite(command, StableCode.ROUTE_SNAPSHOT_UNAVAILABLE)));
+        }
+        try {
+            final CompletionStage<EnqueueOutcomeMessageV1> managedOutcome =
+                    policyBoundIngress.enqueueOutcomeV1(command, routePolicy, physicalEnqueueAttemptId);
+            if (managedOutcome == null) {
+                return managedFailure(command, physicalEnqueueAttemptId);
+            }
+            try {
+                final CompletionStage<SubmissionOutcomeMessageV1> handled = managedOutcome.handle((outcome, error) ->
+                        managedOutcome(command, physicalEnqueueAttemptId, outcome, error));
+                return handled == null ? managedFailure(command, physicalEnqueueAttemptId) : handled;
+            } catch (RuntimeException registrationFailure) {
+                return managedFailure(command, physicalEnqueueAttemptId);
+            }
+        } catch (RuntimeException submissionFailure) {
             return managedFailure(command, physicalEnqueueAttemptId);
         }
     }

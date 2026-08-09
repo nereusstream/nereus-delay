@@ -7,6 +7,20 @@ normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20�
 the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
+The local queued-receipt adapter seam now has a strict Route-policy path:
+`QueuedReceiptQueryPolicy` derives `receipt_query_until` only as checked addition
+of the authenticated Broker persistence time and the immutable policy window.
+`PolicyBoundWireCommandIngressAdapter`, the pinned Kafka/Pulsar ingress adapters,
+`PreparedSubmissionAdapter` and the embedded facade reject an absent or mismatched
+policy before transport ownership; a post-persistence overflow or malformed
+projection remains `ENQUEUE_UNCERTAIN` with an integrity diagnostic. The older
+absolute-boundary overloads remain a compatibility seam for existing callers and
+are checked against a bound policy when one is present; they are not the strict
+V1 client contract. `AdapterIngressTest` and `NativeSubmissionAdapterTest`
+cover policy derivation, overflow and managed-branch binding. Route policy
+publication, source-time authority and production adapter wiring remain external
+release gates.
+
 The source-ordered `PUBLISH_OUTCOME(UNKNOWN)` projection now verifies the
 current Message Lane identity, durable Lane presence, and exact Lane
 incarnation against the `PUBLISHING` attempt ledger before constructing any
@@ -2366,6 +2380,7 @@ to the intended modules:
 
 | Area | Status | Evidence |
 |---|---|---|
+| Queued receipt Route-policy boundary | Implemented (local strict adapter seam; Route authority pending) | `QueuedReceiptQueryPolicy`, `PolicyBoundWireCommandIngressAdapter`, `PinnedKafkaCommandIngress`, `PinnedPulsarCommandIngress`, `PreparedSubmissionAdapter`, `EmbeddedDelayService`, `AdapterIngressTest`, `NativeSubmissionAdapterTest`; strict paths derive `receipt_query_until` from authenticated Broker persistence time with checked addition, reject missing/drifting policy snapshots before transport ownership, and retain post-persistence overflow as `ENQUEUE_UNCERTAIN`/integrity evidence; absolute-boundary overloads are compatibility-only and checked against a bound policy; Route policy publication, source-time authority and concrete production transports remain release blockers |
 | Strict typed Claim runtime binding | Implemented (local Message/payload binding; external authority pending) | `DelayShard.claimForPublishV1`, `ClaimMaterializationRuntimeTest`; strict Claim entrypoint binds message identity, generation, delivery window, timeline `actionAt` and inline/object payload reference before persistence, while the legacy byte-array entrypoint remains a compatibility bridge; Profile/catalog, Adapter serialization/size certification, Producer ownership and crash recovery remain release blockers |
 | Gradle Java 21 build | Implemented | `gradle compileJava`, `gradle test` |
 | Self-routing IDs and CRC32C | Implemented | `ProtocolCodecTest` |

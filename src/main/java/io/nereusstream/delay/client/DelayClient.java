@@ -1,5 +1,6 @@
 package io.nereusstream.delay.client;
 
+import io.nereusstream.delay.adapter.QueuedReceiptQueryPolicy;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.CommandQueryResponseV1;
 import io.nereusstream.delay.protocol.CommandQueuedReceiptV1;
@@ -75,6 +76,14 @@ public interface DelayClient extends AutoCloseable {
      */
     CompletionStage<SubmissionOutcomeMessageV1> submit(PreparedSubmissionV1 submission,
                                                         long receiptQueryUntilEpochMs,
+                                                        byte[] physicalEnqueueAttemptId);
+
+    /**
+     * Strict V1 managed submission using the immutable Route query-policy
+     * snapshot; callers cannot supply an absolute receipt boundary.
+     */
+    CompletionStage<SubmissionOutcomeMessageV1> submit(PreparedSubmissionV1 submission,
+                                                        QueuedReceiptQueryPolicy routePolicy,
                                                         byte[] physicalEnqueueAttemptId);
 
     CompletionStage<EnqueueOutcome> enqueue(PreparedCommand command);

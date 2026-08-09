@@ -11,6 +11,7 @@ import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.PulsarSourcePosition;
 import io.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
 import io.nereusstream.delay.protocol.NonPersistenceProofKindV1;
+import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.StableCode;
 
 import java.util.Objects;
@@ -18,14 +19,21 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
 /** Pulsar ingress adapter requiring a per-SEND resource guard at Broker ownership. */
-public final class PinnedPulsarCommandIngress implements WireCommandIngressAdapter {
+public final class PinnedPulsarCommandIngress implements PolicyBoundWireCommandIngressAdapter {
     private final PulsarIngressResource resource;
     private final PulsarSendTransport transport;
+    private final QueuedReceiptQueryPolicy queuedReceiptQueryPolicy;
     private final CloseGuard closeGuard = new CloseGuard();
 
     public PinnedPulsarCommandIngress(final PulsarIngressResource resource, final PulsarSendTransport transport) {
+        this(resource, transport, null);
+    }
+
+    public PinnedPulsarCommandIngress(final PulsarIngressResource resource, final PulsarSendTransport transport,
+                                      final QueuedReceiptQueryPolicy queuedReceiptQueryPolicy) {
         this.resource = Objects.requireNonNull(resource, "resource");
         this.transport = Objects.requireNonNull(transport, "transport");
+        this.queuedReceiptQueryPolicy = queuedReceiptQueryPolicy;
     }
 
     @Override
@@ -97,8 +105,28 @@ public final class PinnedPulsarCommandIngress implements WireCommandIngressAdapt
                 () -> completedWire(WireIngressOutcomeSupport.localDefinite(command, StableCode.CLIENT_CLOSED)));
     }
 
+    @Override
+    public CompletionStage<EnqueueOutcomeMessageV1> enqueueOutcomeV1(final PreparedCommand command,
+                                                                       final QueuedReceiptQueryPolicy routePolicy,
+                                                                       final byte[] physicalAttemptId) {
+        Objects.requireNonNull(command, "command");
+        if (queuedReceiptQueryPolicy == null || !queuedReceiptQueryPolicy.equals(routePolicy)) {
+            return completedWire(WireIngressOutcomeSupport.localDefinite(command,
+                    StableCode.ROUTE_SNAPSHOT_UNAVAILABLE));
+        }
+        final byte[] v1Frame;
+        try {
+            v1Frame = CommandCodec.encodeFrameV1(command);
+        } catch (RuntimeException exception) {
+            return CompletableFuture.failedFuture(exception);
+        }
+        return closeGuard.invokeIfOpen(
+                () -> enqueueOutcomeOpen(command, null, physicalAttemptId, v1Frame),
+                () -> completedWire(WireIngressOutcomeSupport.localDefinite(command, StableCode.CLIENT_CLOSED)));
+    }
+
     private CompletionStage<EnqueueOutcomeMessageV1> enqueueOutcomeOpen(final PreparedCommand command,
-                                                                          final long receiptQueryUntilEpochMs,
+                                                                          final Long receiptQueryUntilEpochMs,
                                                                           final byte[] physicalAttemptId,
                                                                           final byte[] v1Frame) {
         if (!resource.shardId().equals(command.shardId())) {
@@ -195,7 +223,7 @@ public final class PinnedPulsarCommandIngress implements WireCommandIngressAdapt
     }
 
     private EnqueueOutcomeMessageV1 projectWire(final PreparedCommand command, final PulsarSendRequest request,
-                                                final PulsarSendResult result, final long receiptQueryUntilEpochMs,
+                                                final PulsarSendResult result, final Long receiptQueryUntilEpochMs,
                                                 final byte[] physicalAttemptId) {
         if (result == null) {
             return WireIngressOutcomeSupport.uncertain(command, physicalAttemptId,
@@ -222,7 +250,7 @@ public final class PinnedPulsarCommandIngress implements WireCommandIngressAdapt
     }
 
     private EnqueueOutcomeMessageV1 persistedWire(final PreparedCommand command, final PulsarSendResult result,
-                                                  final long receiptQueryUntilEpochMs,
+                                                  final Long receiptQueryUntilEpochMs,
                                                   final byte[] physicalAttemptId) {
         if (!resource.authenticatedClusterId().equals(result.authenticatedClusterId())
                 || !java.util.Arrays.equals(resource.resourceIncarnation(), result.resourceIncarnation())
@@ -246,9 +274,24 @@ public final class PinnedPulsarCommandIngress implements WireCommandIngressAdapt
                 result.physicalTopicCreationTimestamp(), result.partition(), result.ledgerId(), result.entryId(),
                 result.batchIndex(), result.batchSize(), result.brokerEntryTimestampEpochMs(),
                 Bytes.sha256(result.evidence()));
+        final long queryUntil = receiptQueryUntil(source, receiptQueryUntilEpochMs);
         final CommandQueuedReceiptV1 receipt = CommandQueuedReceiptV1.create(command, source, ack,
-                receiptQueryUntilEpochMs, WireIngressOutcomeSupport.requireAttempt(physicalAttemptId));
+                queryUntil, WireIngressOutcomeSupport.requireAttempt(physicalAttemptId));
         return EnqueueOutcomeMessageV1.queued(receipt);
+    }
+
+    private long receiptQueryUntil(final SourcePosition source, final Long suppliedBoundary) {
+        if (queuedReceiptQueryPolicy != null) {
+            final long derivedBoundary = queuedReceiptQueryPolicy.queryUntil(source);
+            if (suppliedBoundary != null && suppliedBoundary.longValue() != derivedBoundary) {
+                throw new IllegalArgumentException("receipt query boundary does not match Route policy");
+            }
+            return derivedBoundary;
+        }
+        if (suppliedBoundary == null) {
+            throw new IllegalStateException("strict V1 ingress requires a bound Route query policy");
+        }
+        return suppliedBoundary;
     }
 
     private static CompletionStage<EnqueueOutcome> completed(final EnqueueOutcome outcome) {

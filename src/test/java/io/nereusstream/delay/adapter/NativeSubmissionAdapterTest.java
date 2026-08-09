@@ -307,6 +307,55 @@ class NativeSubmissionAdapterTest {
     }
 
     @Test
+    void preparedSubmissionAdapterBindsManagedBranchToRoutePolicy() throws Exception {
+        final Fixture fixture = fixture(4_000, 3_000);
+        final PreparedCommand command = managedCommand();
+        final QueuedReceiptQueryPolicy policy = new QueuedReceiptQueryPolicy(11, 4_000);
+        final AtomicBoolean strictInvoked = new AtomicBoolean();
+        final PolicyBoundWireCommandIngressAdapter managed = new PolicyBoundWireCommandIngressAdapter() {
+            @Override
+            public java.util.concurrent.CompletionStage<io.nereusstream.delay.client.EnqueueOutcome> enqueue(
+                    final PreparedCommand ignored) {
+                return CompletableFuture.failedFuture(new AssertionError("legacy managed path was used"));
+            }
+
+            @Override
+            public java.util.concurrent.CompletionStage<io.nereusstream.delay.protocol.EnqueueOutcomeMessageV1>
+            enqueueOutcomeV1(final PreparedCommand actual, final long queryUntil, final byte[] attemptId) {
+                return CompletableFuture.failedFuture(new AssertionError("absolute boundary path was used"));
+            }
+
+            @Override
+            public java.util.concurrent.CompletionStage<io.nereusstream.delay.protocol.EnqueueOutcomeMessageV1>
+            enqueueOutcomeV1(final PreparedCommand actual, final QueuedReceiptQueryPolicy actualPolicy,
+                              final byte[] attemptId) {
+                strictInvoked.set(true);
+                assertEquals(command, actual);
+                assertEquals(policy, actualPolicy);
+                assertArrayEquals(attempt(12), attemptId);
+                return CompletableFuture.completedFuture(WireIngressOutcomeSupport.localDefinite(actual,
+                        StableCode.CLIENT_CLOSED));
+            }
+
+            @Override
+            public void close() {
+                // no-op
+            }
+        };
+        final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport transport = request ->
+                CompletableFuture.failedFuture(new AssertionError("native branch was selected"));
+        try (PinnedPulsarNativeSubmissionAdapter nativeAdapter = fixture.adapter(transport);
+             PreparedSubmissionAdapter adapter = new PreparedSubmissionAdapter(managed, nativeAdapter)) {
+            final SubmissionOutcomeMessageV1 outcome = adapter.submit(
+                    io.nereusstream.delay.protocol.PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(command)),
+                    policy, attempt(12)).toCompletableFuture().join();
+            assertEquals(io.nereusstream.delay.protocol.SubmissionOutcomeKindV1.MANAGED, outcome.kind());
+            assertEquals(StableCode.CLIENT_CLOSED, outcome.managed().definitelyNotQueued().error().code());
+        }
+        assertTrue(strictInvoked.get());
+    }
+
+    @Test
     void preparedSubmissionAdapterFencesManagedSubmissionAfterClose() throws Exception {
         final Fixture fixture = fixture(4_000, 3_000);
         final PreparedCommand command = managedCommand();

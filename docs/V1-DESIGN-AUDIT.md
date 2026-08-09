@@ -11,6 +11,18 @@ V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障
 
 **Open semantic questions: none.**
 
+The queued-receipt audit now has an executable local binding for the existing
+Registry rule: `QueuedReceiptQueryPolicy` computes `receipt_query_until` from
+Broker persistence time with checked arithmetic, and policy-bound Kafka/Pulsar
+ingress plus managed submission paths reject missing or drifting Route snapshots
+before Producer ownership. A boundary overflow after a persisted Broker result
+is retained as `ENQUEUE_UNCERTAIN`/integrity evidence rather than a false
+non-persistence proof. The legacy absolute-boundary overloads remain only as a
+compatibility seam and are compared with the bound policy when configured;
+Route publication, source-time authority and concrete production transports are
+still release gates. Focused evidence is in `AdapterIngressTest` and
+`NativeSubmissionAdapterTest`.
+
 The UNKNOWN-outcome audit now closes a Store-integrity edge at the same
 ownership boundary: before `PUBLISH_OUTCOME_V1(UNKNOWN)` can materialize an
 uncertain retry or update READY, the current Message Lane, durable Lane record,

@@ -132,6 +132,43 @@ class AdapterIngressTest {
     }
 
     @Test
+    void policyBoundKafkaDerivesReceiptBoundaryFromBrokerPersistenceTime() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 38);
+        final UUID topic = UUID.randomUUID();
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-policy", topic, 38);
+        final PreparedCommand command = command(shard);
+        final QueuedReceiptQueryPolicy policy = new QueuedReceiptQueryPolicy(7, 4_000);
+        final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("policy-kafka-attempt")), 16);
+        final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request ->
+                CompletableFuture.completedFuture(KafkaProduceResult.persisted("cluster-policy", topic, 38, 12,
+                        3, 2_000, Bytes.utf8("policy-response")));
+        try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport, policy)) {
+            final var wire = adapter.enqueueOutcomeV1(command, policy, attempt).toCompletableFuture().join();
+            assertEquals(EnqueueOutcomeKindV1.QUEUED, wire.kind());
+            assertEquals(6_000, wire.queued().receiptQueryUntilEpochMs());
+        }
+    }
+
+    @Test
+    void policyBoundIngressFailsClosedWhenBoundaryAdditionOverflows() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 39);
+        final UUID topic = UUID.randomUUID();
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-overflow", topic, 39);
+        final PreparedCommand command = command(shard);
+        final QueuedReceiptQueryPolicy policy = new QueuedReceiptQueryPolicy(8, 1);
+        final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("policy-overflow-attempt")), 16);
+        final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request ->
+                CompletableFuture.completedFuture(KafkaProduceResult.persisted("cluster-overflow", topic, 39, 12,
+                        3, Long.MAX_VALUE, Bytes.utf8("overflow-response")));
+        try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport, policy)) {
+            final var wire = adapter.enqueueOutcomeV1(command, policy, attempt).toCompletableFuture().join();
+            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(StableCode.ENQUEUE_RESULT_UNCERTAIN, wire.uncertain().error().code());
+            assertEquals(StableCode.INTEGRITY_ERROR.wireValue(), wire.uncertain().error().diagnosticCode());
+        }
+    }
+
+    @Test
     void kafkaWireBridgeCarriesAuthenticatedDefinitiveProof() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
         final UUID topic = UUID.randomUUID();
@@ -485,6 +522,26 @@ class AdapterIngressTest {
             assertEquals(1, position.normalizedBatchIndex());
             assertEquals(PulsarSourcePosition.EntryKind.BATCH, position.entryKind());
             assertFalse(position.canonicalBytes().length == 0);
+        }
+    }
+
+    @Test
+    void policyBoundPulsarDerivesReceiptBoundaryFromBrokerPersistenceTime() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 40);
+        final byte[] token = Bytes.sha256(Bytes.utf8("policy-pulsar-token"));
+        final PulsarIngressResource resource = new PulsarIngressResource(shard, "cluster-policy-pulsar", token,
+                "persistent://tenant/ns/policy-40", 9_040, 40);
+        final PreparedCommand command = command(shard);
+        final QueuedReceiptQueryPolicy policy = new QueuedReceiptQueryPolicy(9, 3_000);
+        final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("policy-pulsar-attempt")), 16);
+        final PinnedPulsarCommandIngress.PulsarSendTransport transport = request ->
+                CompletableFuture.completedFuture(PulsarSendResult.persisted("cluster-policy-pulsar", token,
+                        resource.physicalTopic(), resource.physicalTopicCreationTimestamp(), 40, 12, 13, 0, 1,
+                        false, 2_500, Bytes.utf8("policy-pulsar-response")));
+        try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport, policy)) {
+            final var wire = adapter.enqueueOutcomeV1(command, policy, attempt).toCompletableFuture().join();
+            assertEquals(EnqueueOutcomeKindV1.QUEUED, wire.kind());
+            assertEquals(5_500, wire.queued().receiptQueryUntilEpochMs());
         }
     }
 

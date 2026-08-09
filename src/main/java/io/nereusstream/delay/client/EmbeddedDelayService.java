@@ -2,6 +2,7 @@ package io.nereusstream.delay.client;
 
 import io.nereusstream.delay.adapter.InMemoryPayloadObjectStore;
 import io.nereusstream.delay.adapter.PreparedSubmissionAdapter;
+import io.nereusstream.delay.adapter.QueuedReceiptQueryPolicy;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.AdapterKindV1;
 import io.nereusstream.delay.protocol.CommandAppliedReceiptV1;
@@ -524,6 +525,32 @@ public final class EmbeddedDelayService implements DelayClient {
         }
     }
 
+    /** Strict managed submission path bound to an immutable Route query policy. */
+    public CompletionStage<SubmissionOutcomeMessageV1> submit(
+            final PreparedSubmissionV1 submission, final QueuedReceiptQueryPolicy routePolicy,
+            final byte[] physicalEnqueueAttemptId) {
+        ensureOpen();
+        Objects.requireNonNull(submission, "submission");
+        Objects.requireNonNull(routePolicy, "routePolicy");
+        if (preparedSubmissionAdapter != null) {
+            return preparedSubmissionAdapter.submit(submission, routePolicy, physicalEnqueueAttemptId);
+        }
+        synchronized (this) {
+            ensureOpen();
+            if (!submission.isManaged()) {
+                return CompletableFuture.completedFuture(nativeSubmissionUnavailable(submission.nativePrepared()));
+            }
+            final PreparedCommand command = CommandCodec.decodeFrameV1(submission.managedFrame());
+            if (!validPhysicalAttempt(physicalEnqueueAttemptId)) {
+                return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(localDefiniteOutcome(command,
+                        StableCode.INVALID_PREPARED_COMMAND)));
+            }
+            final EnqueueOutcome outcome = enqueueInternal(command, true);
+            return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(enqueueOutcomeV1(outcome,
+                    routePolicy, physicalEnqueueAttemptId)));
+        }
+    }
+
     @Override
     public synchronized CompletionStage<EnqueueOutcome> enqueue(final PreparedCommand command) {
         ensureOpen();
@@ -909,6 +936,20 @@ public final class EmbeddedDelayService implements DelayClient {
         return outcome.receipt().toV1(outcome.preparedCommand(), ack, receiptQueryUntilEpochMs, physicalAttemptId);
     }
 
+    /** Converts an embedded queued outcome using the immutable Route policy. */
+    public synchronized CommandQueuedReceiptV1 queuedReceiptV1(final EnqueueOutcome outcome,
+                                                               final QueuedReceiptQueryPolicy routePolicy,
+                                                               final byte[] physicalAttemptId) {
+        Objects.requireNonNull(routePolicy, "routePolicy");
+        ensureOpen();
+        Objects.requireNonNull(outcome, "outcome");
+        if (outcome.status() != EnqueueStatus.QUEUED || outcome.receipt() == null) {
+            throw new IllegalArgumentException("only QUEUED outcomes have a queued receipt");
+        }
+        return queuedReceiptV1(outcome, routePolicy.queryUntil(outcome.receipt().sourcePosition()),
+                physicalAttemptId);
+    }
+
     /**
      * Maps the embedded three-state ingress result to the closed wire union.
      * This bridge only emits a local pre-ownership proof for deterministic
@@ -946,6 +987,31 @@ public final class EmbeddedDelayService implements DelayClient {
                         StableErrorV1.of(FailureStageV1.ENQUEUE, code, null, command, null, null)));
             }
         };
+    }
+
+    /**
+     * Maps an embedded outcome while deriving a queued receipt boundary from
+     * the immutable Route policy. A policy overflow is not proof of Broker
+     * rejection, so a queued result becomes an integrity-class uncertainty.
+     */
+    public synchronized EnqueueOutcomeMessageV1 enqueueOutcomeV1(final EnqueueOutcome outcome,
+                                                                  final QueuedReceiptQueryPolicy routePolicy,
+                                                                  final byte[] physicalAttemptId) {
+        ensureOpen();
+        Objects.requireNonNull(outcome, "outcome");
+        Objects.requireNonNull(routePolicy, "routePolicy");
+        long derivedBoundary = 0;
+        if (outcome.status() == EnqueueStatus.QUEUED) {
+            try {
+                derivedBoundary = routePolicy.queryUntil(outcome.receipt().sourcePosition());
+            } catch (RuntimeException policyFailure) {
+                return validPhysicalAttempt(physicalAttemptId)
+                        ? uncertainOutcome(outcome.preparedCommand(), physicalAttemptId,
+                        StableCode.INTEGRITY_ERROR.wireValue())
+                        : localDefiniteOutcome(outcome.preparedCommand(), StableCode.INVALID_PREPARED_COMMAND);
+            }
+        }
+        return enqueueOutcomeV1(outcome, derivedBoundary, physicalAttemptId);
     }
 
     private static EnqueueOutcomeMessageV1 localDefiniteOutcome(final PreparedCommand command,

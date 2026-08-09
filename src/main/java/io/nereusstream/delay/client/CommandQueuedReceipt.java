@@ -1,5 +1,6 @@
 package io.nereusstream.delay.client;
 
+import io.nereusstream.delay.adapter.QueuedReceiptQueryPolicy;
 import io.nereusstream.delay.protocol.CommandId;
 import io.nereusstream.delay.protocol.CommandQueuedReceiptV1;
 import io.nereusstream.delay.protocol.DelayMessageId;
@@ -43,5 +44,13 @@ public record CommandQueuedReceipt(
         }
         return CommandQueuedReceiptV1.create(preparedCommand, sourcePosition, brokerAck,
                 receiptQueryUntilEpochMs, physicalEnqueueAttemptId);
+    }
+
+    /** Projects using the immutable Route policy rather than a caller timestamp. */
+    public CommandQueuedReceiptV1 toV1(final PreparedCommand preparedCommand, final SafeBrokerAck brokerAck,
+                                       final QueuedReceiptQueryPolicy routePolicy,
+                                       final byte[] physicalEnqueueAttemptId) {
+        Objects.requireNonNull(routePolicy, "routePolicy");
+        return toV1(preparedCommand, brokerAck, routePolicy.queryUntil(sourcePosition), physicalEnqueueAttemptId);
     }
 }
