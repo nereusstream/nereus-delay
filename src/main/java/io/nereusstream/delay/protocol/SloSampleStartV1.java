@@ -52,13 +52,14 @@ public final class SloSampleStartV1 {
             throw new IllegalArgumentException("SLO event identity objective mismatch");
         }
         validatePath(objective, path);
+        this.start = Objects.requireNonNull(start, "start");
+        validateDueAdmissionStart(objective, path, eventIdentity, this.start);
         this.sampleId = fixed(sampleId, "sampleId");
         final byte[] expectedSampleId = Bytes.sha256(SAMPLE_ID_DOMAIN, this.objectiveDigest,
                 Bytes.lp32(eventIdentity.canonicalBytes()));
         if (!Arrays.equals(this.sampleId, expectedSampleId)) {
             throw new IllegalArgumentException("SLO sample ID mismatch");
         }
-        this.start = Objects.requireNonNull(start, "start");
         if (timeoutAtEpochMs != null && (timeoutAtEpochMs < 0 || timeoutAtEpochMs < start.earliestEpochMs())) {
             throw new IllegalArgumentException("SLO timeout must be after the start interval");
         }
@@ -194,6 +195,23 @@ public final class SloSampleStartV1 {
                 && objective != SloObjectiveNameV1.NATIVE_HANDOFF_ACK_LAG
                 && path != SloPathV1.NOT_APPLICABLE) {
             throw new IllegalArgumentException("this SLO objective cannot carry a path");
+        }
+    }
+
+    private static void validateDueAdmissionStart(final SloObjectiveNameV1 objective,
+                                                   final SloPathV1 path,
+                                                   final SloSampleEventIdentityV1 eventIdentity,
+                                                   final SloTimeEndpointV1 start) {
+        if (objective != SloObjectiveNameV1.DUE_ADMISSION_LAG) {
+            return;
+        }
+        if (eventIdentity.dueAdmissionPath() != path) {
+            throw new IllegalArgumentException("due-admission identity path does not match SLO Start path");
+        }
+        if (start.kind() != SloTimeEndpointKindV1.SEMANTIC_FIXED_EPOCH
+                || start.latestEpochMs() != start.earliestEpochMs()
+                || start.earliestEpochMs() != eventIdentity.dueAdmissionPathStartEpochMs()) {
+            throw new IllegalArgumentException("due-admission SLO Start does not match identity path start");
         }
     }
 

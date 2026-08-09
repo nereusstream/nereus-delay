@@ -54,6 +54,21 @@ public final class SloSampleEventIdentityV1 {
         return QueryCodecSupport.nested(fields.get(0), objective.wireValue());
     }
 
+    /** Returns the exact non-negative path start from a due-admission identity. */
+    public long dueAdmissionPathStartEpochMs() {
+        requireDueAdmissionIdentity();
+        final var fields = QueryCodecSupport.read(branchPayload(), "SloDueAdmissionIdentityV1");
+        return nonNegativeInt64(QueryCodecSupport.uint64Bits(fields.get(2), 3),
+                "path_start_epoch_ms");
+    }
+
+    /** Returns the managed path encoded in a due-admission identity. */
+    public SloPathV1 dueAdmissionPath() {
+        requireDueAdmissionIdentity();
+        final var fields = QueryCodecSupport.read(branchPayload(), "SloDueAdmissionIdentityV1");
+        return SloPathV1.fromWire(QueryCodecSupport.uint(fields.get(3), 4));
+    }
+
     public static SloSampleEventIdentityV1 decode(final byte[] encoded) {
         final var fields = QueryCodecSupport.read(encoded, "SloSampleEventIdentityV1");
         if (fields.size() != 1) {
@@ -86,7 +101,7 @@ public final class SloSampleEventIdentityV1 {
                 QueryCodecSupport.requireNumbers(fields, new int[]{1, 2, 3, 4}, "SloDueAdmissionIdentityV1");
                 fixed(fields.get(0), 1, DelayMessageId.LENGTH, "delayMessageId");
                 QueryCodecSupport.uint32Bits(fields.get(1), 2);
-                QueryCodecSupport.uint(fields.get(2), 3);
+                nonNegativeInt64(QueryCodecSupport.uint64Bits(fields.get(2), 3), "path_start_epoch_ms");
                 final SloPathV1 path = SloPathV1.fromWire(QueryCodecSupport.uint(fields.get(3), 4));
                 if (path == SloPathV1.NOT_APPLICABLE || path == SloPathV1.AUTO_FAST_NATIVE) {
                     throw new IllegalArgumentException("due-admission identity requires a managed path");
@@ -142,6 +157,19 @@ public final class SloSampleEventIdentityV1 {
                 QueryCodecSupport.uint(fields.get(4), 5);
             }
         }
+    }
+
+    private void requireDueAdmissionIdentity() {
+        if (objective != SloObjectiveNameV1.DUE_ADMISSION_LAG) {
+            throw new IllegalStateException("identity is not a due-admission branch");
+        }
+    }
+
+    private static long nonNegativeInt64(final long value, final String name) {
+        if (value < 0) {
+            throw new IllegalArgumentException(name + " exceeds the non-negative int64 range");
+        }
+        return value;
     }
 
     private static void validateLane(final java.util.List<CanonicalProtobuf.Reader.Field> fields,

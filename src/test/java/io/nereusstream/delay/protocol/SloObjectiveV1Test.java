@@ -67,7 +67,31 @@ class SloObjectiveV1Test {
         healthy.validateDueCompanion(allAccepted);
         assertThrows(IllegalArgumentException.class,
                 () -> healthy.validateDueCompanion(dueObjective(SloPopulationV1.ALL_ACCEPTED,
-                        List.of(DueExclusionReasonV1.CAPACITY_GATED))));
+                List.of(DueExclusionReasonV1.CAPACITY_GATED))));
+    }
+
+    @Test
+    void dueStartMustMatchIdentityPathAndSemanticStartEpoch() {
+        final SloObjectiveV1 objective = dueObjective(SloPopulationV1.ALL_ACCEPTED, List.of());
+        final SloSampleEventIdentityV1 identity = dueIdentity(100, SloPathV1.ORDINARY_MANAGED);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> new SloSampleStartV1(objective, SloPathV1.MANAGED_PULSAR_HANDOFF,
+                        identity, endpoint(100), 200L));
+        assertThrows(IllegalArgumentException.class,
+                () -> new SloSampleStartV1(objective, SloPathV1.ORDINARY_MANAGED,
+                        identity, endpoint(101), 201L));
+    }
+
+    @Test
+    void dueIdentityRejectsNegativePathStartEpoch() {
+        assertThrows(IllegalArgumentException.class, () -> new SloSampleEventIdentityV1(
+                SloObjectiveNameV1.DUE_ADMISSION_LAG, CanonicalProtobuf.message(output -> {
+                    CanonicalProtobuf.bytes(output, 1, bytes(41, 9));
+                    CanonicalProtobuf.uint32(output, 2, 1);
+                    CanonicalProtobuf.int64(output, 3, -1);
+                    CanonicalProtobuf.uint32(output, 4, SloPathV1.ORDINARY_MANAGED.wireValue());
+                })));
     }
 
     private static SloObjectiveV1 dueObjective(final SloPopulationV1 population,
@@ -79,6 +103,16 @@ class SloObjectiveV1Test {
 
     private static byte[] identityPayload() {
         return CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1, bytes(16, 7)));
+    }
+
+    private static SloSampleEventIdentityV1 dueIdentity(final long startEpoch, final SloPathV1 path) {
+        return new SloSampleEventIdentityV1(SloObjectiveNameV1.DUE_ADMISSION_LAG,
+                CanonicalProtobuf.message(output -> {
+                    CanonicalProtobuf.bytes(output, 1, bytes(41, 8));
+                    CanonicalProtobuf.uint32(output, 2, 1);
+                    CanonicalProtobuf.int64(output, 3, startEpoch);
+                    CanonicalProtobuf.uint32(output, 4, path.wireValue());
+                }));
     }
 
     private static SloTimeEndpointV1 endpoint(final long epochMs) {

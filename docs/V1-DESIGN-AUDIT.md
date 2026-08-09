@@ -27,12 +27,15 @@ measurement/revision fields. Canonical decode retains raw high-bit values;
 interval validation, evidence revision selection and `AT_MOST`/`AT_LEAST`
 conservative merges compare them unsigned. Focused SLO tests cover round-trip
 and merge vectors; the due-admission identity also preserves its raw `uint32`
-generation bits. This remains shard-local protocol evidence, not proof of
-production catalog publication, but the local pair validator now requires a
-HEALTHY due objective and matching ALL_ACCEPTED policy before an exclusion can
-be merged; a different payload cannot regress observation revision. Start
-reconstruction, production collector merge/export, and production SLO evidence remain
-release gates.
+generation bits. The due-admission identity now rejects a negative
+`path_start_epoch_ms`, exposes typed path/start fields, and `SloSampleStartV1`
+requires exact identity/path and semantic fixed-epoch agreement; the focused
+SLO tests cover path/time drift and the negative-time vector. This remains
+shard-local protocol evidence, not proof of production catalog publication, but
+the local pair validator now requires a HEALTHY due objective and matching
+ALL_ACCEPTED policy before an exclusion can be merged; a different payload
+cannot regress observation revision. Start reconstruction, production collector
+merge/export, and production SLO evidence remain release gates.
 
 The shared `uint32` decode boundary also rejects a varint outside the unsigned
 32-bit domain instead of narrowing a high-bit `uint64` into a `uint32`; the
