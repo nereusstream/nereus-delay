@@ -2284,7 +2284,7 @@ is the production Oxia routing/authorization/session boundary and source-ordered
 marker authority, not the embedded file recovery seam.
 | Real-service, chaos, benchmark, soak and upgrade evidence | Not started | release blocker |
 
-`ResourceRetireIntentBody` 的 outcome-aware delete-evidence seam 已对 `PAYLOAD_OBJECT` 和 `CHECKPOINT` 闭合了精确身份证明：`DELETED` 必须携带 retire intent 中的 immutable version，并在 payload identity 存在 pinned etag 时同时携带该 etag；`ALREADY_ABSENT` 仍禁止任何 identity 字段。这个本地回归不取代真实 provider delete attestation、Oxia CAS、Floor barrier 或 external GC orchestration。
+`ResourceRetireIntentBody` 的 outcome-aware delete-evidence seam 已对 `PAYLOAD_OBJECT` 和 `CHECKPOINT` 闭合了精确身份证明：`DELETED` 必须携带 retire intent 中的 immutable version，并在 payload identity 存在 pinned etag 时同时携带该 etag；`ALREADY_ABSENT` 仍禁止任何 identity 字段。同一校验也在 `ResourceDeleteConfirmedRecord` 构造/解码时执行，因此损坏的本地 tombstone 不会绕过 GC guard。这个本地回归不取代真实 provider delete attestation、Oxia CAS、Floor barrier 或 external GC orchestration。
 
 The shard-local SLO outbox now also has an explicit `SloObservationOutboxLimits`
 envelope. The limit-aware store checks the strict key/value projection before

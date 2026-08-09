@@ -2,6 +2,7 @@ package io.nereusstream.delay.runtime;
 
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
+import io.nereusstream.delay.protocol.ResourceRetireIntentBody;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 
@@ -42,6 +43,8 @@ public record ResourceDeleteConfirmedRecord(
                 && (observedImmutableVersion.length != 0 || observedEtag.length != 0)) {
             throw new IllegalArgumentException("ALREADY_ABSENT cannot carry observed identity fields");
         }
+        ResourceRetireIntentBody.validateExternalDeleteIdentity(retireIntent.resourceKind(),
+                retireIntent.resourceIdentity(), observedImmutableVersion, observedEtag, outcome);
         if (appliedSourcePosition.length == 0) {
             throw new IllegalArgumentException("appliedSourcePosition must not be empty");
         }

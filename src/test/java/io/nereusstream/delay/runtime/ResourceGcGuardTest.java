@@ -27,6 +27,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class ResourceGcGuardTest {
     @Test
@@ -49,6 +50,17 @@ class ResourceGcGuardTest {
         assertEquals(Long.MIN_VALUE,
                 ResourceDeleteConfirmedRecord.decode(fixture.confirmation().encode())
                         .retireIntent().expectedResourceStateVersion());
+    }
+
+    @Test
+    void durableDeletedCheckpointEvidenceCannotOmitPinnedVersion() {
+        final Fixture fixture = fixture();
+        assertThrows(IllegalArgumentException.class, () -> new ResourceDeleteConfirmedRecord(
+                fixture.confirmation().confirmationMutationId(), fixture.confirmation().confirmationMutationHash(),
+                fixture.intent(), io.nereusstream.delay.protocol.ResourceDeleteConfirmedBody.DeleteOutcome.DELETED,
+                fixture.confirmation().appliedMutationSequence(), fixture.confirmation().providerRequestIdHash(),
+                new byte[0], new byte[0], fixture.confirmation().responseHash(), fixture.confirmation().observedAt(),
+                fixture.confirmation().confirmedAt(), fixture.confirmation().appliedSourcePosition()));
     }
 
     @Test

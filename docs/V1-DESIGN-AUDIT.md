@@ -1917,7 +1917,7 @@ nested intent 也必须匹配同一 key。错挂的 GC value 会在 query/compac
 因此 protection set、applied mutation sequence 或 applied Source Position 的漂移
 也会返回 `INTENT_REFERENCE_MISMATCH`，不能仅凭 mutation/resource/version 子集
 获得 tombstone compaction 资格。
-对 `PAYLOAD_OBJECT` 和 `CHECKPOINT`，`DelayShard` 的删除确认路径还会把 `DELETED` outcome 与嵌入 retire intent 的完整不变版本绑定：缺失 immutable version，或 payload 在 pinned identity 存在 etag 时缺失该 etag，都不能证明是精确被 pin 的对象，因而 fail closed。`ALREADY_ABSENT` 的 identity 禁止保持不变；回归证据是 `ResourceDeleteConfirmedBodyTest.deletedObjectEvidenceMustCarryThePinnedImmutableIdentity`。这个本地合同仍不代替真实 provider delete attestation、Oxia CAS 或 external GC orchestration。
+对 `PAYLOAD_OBJECT` 和 `CHECKPOINT`，`DelayShard` 的删除确认路径还会把 `DELETED` outcome 与嵌入 retire intent 的完整不变版本绑定：缺失 immutable version，或 payload 在 pinned identity 存在 etag 时缺失该 etag，都不能证明是精确被 pin 的对象，因而 fail closed。同一校验也在恢复读取 `ResourceDeleteConfirmedRecord` 时执行，损坏 tombstone 不会绕过 GC guard；`ALREADY_ABSENT` 的 identity 禁止保持不变。回归证据是 `ResourceDeleteConfirmedBodyTest.deletedObjectEvidenceMustCarryThePinnedImmutableIdentity` 和 `ResourceGcGuardTest.durableDeletedCheckpointEvidenceCannotOmitPinnedVersion`。这个本地合同仍不代替真实 provider delete attestation、Oxia CAS 或 external GC orchestration。
 
 普通 local catalog publish 对已存在的 exact manifest 也先做 identity reread，
 因此 catalog generation 推进不会把一次已成功的 checkpoint insert 误报为冲突。
