@@ -96,6 +96,33 @@ class EmbeddedDelayServiceTest {
     }
 
     @Test
+    void enqueueBatchReturnsIndependentOutcomesInInputOrder() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 1);
+        final ShardId foreignShard = new ShardId(RouteIncarnation.random(), 2);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("batch-enqueue")), shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final PreparedCommand first = scheduleV1(shard, "batch-first", 2_000, 5_000, 10_000);
+            final PreparedCommand foreign = scheduleV1(foreignShard, "batch-foreign", 2_000, 5_000, 10_000);
+            final PreparedCommand last = scheduleV1(shard, "batch-last", 2_000, 5_000, 10_000);
+
+            final List<EnqueueOutcome> outcomes = service.enqueueBatch(List.of(first, foreign, last))
+                    .toCompletableFuture().join();
+
+            assertEquals(3, outcomes.size());
+            assertEquals(first, outcomes.get(0).preparedCommand());
+            assertEquals(EnqueueStatus.QUEUED, outcomes.get(0).status());
+            assertEquals(foreign, outcomes.get(1).preparedCommand());
+            assertEquals(EnqueueStatus.DEFINITELY_NOT_QUEUED, outcomes.get(1).status());
+            assertEquals(last, outcomes.get(2).preparedCommand());
+            assertEquals(EnqueueStatus.QUEUED, outcomes.get(2).status());
+            assertEquals(2, service.pendingCommandCount());
+            assertEquals(0L, ((KafkaSourcePosition) outcomes.get(0).receipt().sourcePosition()).offset());
+            assertEquals(1L, ((KafkaSourcePosition) outcomes.get(2).receipt().sourcePosition()).offset());
+        }
+    }
+
+    @Test
     void awaitAppliedRejectsForeignSourceBeforeDraining() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 34);
         final ScheduleIntent intent = new ScheduleIntent(

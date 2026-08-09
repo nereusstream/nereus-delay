@@ -50,7 +50,9 @@ import io.nereusstream.delay.store.SharedRocksDbResources;
 
 import java.time.Clock;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -199,15 +201,31 @@ public final class EmbeddedDelayService implements DelayClient {
     @Override
     public synchronized CompletionStage<EnqueueOutcome> enqueue(final PreparedCommand command) {
         ensureOpen();
+        return CompletableFuture.completedFuture(enqueueInternal(command));
+    }
+
+    @Override
+    public synchronized CompletionStage<List<EnqueueOutcome>> enqueueBatch(final List<PreparedCommand> commands) {
+        ensureOpen();
+        Objects.requireNonNull(commands, "commands");
+        final List<EnqueueOutcome> outcomes = new ArrayList<>(commands.size());
+        for (PreparedCommand command : commands) {
+            outcomes.add(enqueueInternal(command));
+        }
+        return CompletableFuture.completedFuture(List.copyOf(outcomes));
+    }
+
+    /** Enqueues one command without reacquiring the service monitor. */
+    private EnqueueOutcome enqueueInternal(final PreparedCommand command) {
         if (!shardId.equals(command.shardId())) {
-            return CompletableFuture.completedFuture(EnqueueOutcome.definitelyNotQueued(command, 0x110a));
+            return EnqueueOutcome.definitelyNotQueued(command, 0x110a);
         }
         final int frameBytes = CommandCodec.encodeFrame(command).length;
         if (pending.size() >= clientConfig.maxPendingCommandCount()
                 || (long) frameBytes > clientConfig.maxPendingCommandBytes()
                 || pendingBytes > clientConfig.maxPendingCommandBytes() - frameBytes) {
-            return CompletableFuture.completedFuture(EnqueueOutcome.definitelyNotQueued(command,
-                    StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED.wireValue()));
+            return EnqueueOutcome.definitelyNotQueued(command,
+                    StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED.wireValue());
         }
         final long now = clock.millis();
         if (offsetExhausted) {
@@ -228,7 +246,7 @@ public final class EmbeddedDelayService implements DelayClient {
                 shardId, position);
         pending.addLast(new QueuedRecord(command, position, frameBytes));
         pendingBytes = Math.addExact(pendingBytes, frameBytes);
-        return CompletableFuture.completedFuture(EnqueueOutcome.queued(command, receipt));
+        return EnqueueOutcome.queued(command, receipt);
     }
 
     /** Applies all queued records in Source Position order. */
