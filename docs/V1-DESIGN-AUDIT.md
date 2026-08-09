@@ -402,6 +402,20 @@ inactivity-horizon 与 producer-snapshot 两项证明，统一返回
 `PULSAR_EVIDENCE_DIVERGENCE`；`PulsarAttemptJournalTest` 覆盖这些分支。该类的 injected
 appender 只是本地协议测试，不替代 Nereus-owned topic、ExclusiveWithFencing、guarded
 reader/reconnect、Recovery-Floor retention 或真实 Broker evidence。
+`KafkaReceiptJournal` 现在补齐对应的本地 transactional-receipt seam：
+`KafkaReceiptResource` 显式绑定 receipt cluster/topic UUID、Route/Shard、slot
+generation 以及 `shardPartition * K + receiptLaneSlot`；journal 以一个
+transactional-channel key 为边界，在 target transaction sender 之前持久化 exact
+mapping，严格阻塞 unresolved lower sequence，支持 mapping/retirement replay 幂等，
+并投影 typed `KAFKA_RECEIPT_CONTIGUOUS` cursor。它还构造 Registry 的
+`KAFKA_TRANSACTIONAL_RECEIPT` PUBLISHED branch 以及 durable retirement 后的
+`KAFKA_RECEIPT_ABSENCE` branch，绑定 target/receipt UUID、partition、generation、
+transaction identity、prepared hash 和 receipt/barrier digest；
+`KafkaReceiptJournalTest` 覆盖这些本地顺序、回放、cursor 与 identity fence。
+注入的 appender 和调用方提供的 fenced channel 仍只是 canonical value seam，不能
+证明真实 target+receipt Kafka transaction、`read_committed` Fetch/LSO contiguous
+replay、ExclusiveWithFencing、retention/Floor 或 slot authority，故这些仍是 release
+blocker。
 `PublishAttemptLedger` 现在保留兼容的 V1/V2 bytes，并提供不改变线上
 `PublishAdmissionV1` 的可选 V3 local Journal projection：先记录 adapter 分配的
 sequence，再写入 exact acknowledged Journal position，definitive absence 期间设置
