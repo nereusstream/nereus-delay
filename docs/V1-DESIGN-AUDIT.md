@@ -121,6 +121,12 @@ payload branches and mismatch rejection. This is a local Message-binding
 proof only: Profile/catalog, Adapter serialization/size certification and
 Producer ownership/recovery remain release gates.
 
+`PublishAdmissionBody.Descriptor.value()` now projects the complete canonical
+`PreparedPublishDescriptorV1`, including its typed reserved metadata and
+prepared-publish hash. `PreparedPublishDescriptorV1Test` covers byte round-trip
+and fail-closed reserved-shard relabeling. This removes the local raw-descriptor
+projection gap without claiming external channel or Producer authority.
+
 Both Claim and Publish Admission materialization parsers also enforce the
 Registry slot kinds: field 1 is `DESTINATION` and field 2 is
 `DELIVERY_CAPABILITY`. This prevents a validly encoded but semantically wrong

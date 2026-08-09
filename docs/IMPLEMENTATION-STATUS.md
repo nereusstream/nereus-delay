@@ -35,6 +35,12 @@ timeline `actionAt` and inline/object payload identity to the current
 bridge and is not evidence of the typed V1 API; Profile/catalog, adapter and
 Producer authority remain external gates.
 
+`PublishAdmissionBody.Descriptor.value()` now exposes the exact typed
+`PreparedPublishDescriptorV1` projection, including `ReservedPublishMetadataV1`,
+with canonical round-trip and prepared-hash derivation. This is local descriptor
+identity evidence only; channel, Profile/catalog, Adapter and Producer authority
+remain external release gates.
+
 The local RecoveryCatalog now also validates a persisted `StoreRecoveryMetadata`
 reuse projection against the exact typed current Floor, published base-manifest
 identity, parent-hash ancestry and Store Incarnation/install-state identity.

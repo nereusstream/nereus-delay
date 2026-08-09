@@ -1019,6 +1019,11 @@ public final class PublishAdmissionBody {
         public ClaimMaterializationV1 materialization() {
             return ClaimMaterializationV1.decode(materializationBytes());
         }
+
+        /** Returns the exact typed Prepared Publish descriptor projection. */
+        public PreparedPublishDescriptorV1 value() {
+            return PreparedPublishDescriptorV1.decode(canonicalBytes);
+        }
     }
 
     public static final class ReadyCertificate {
