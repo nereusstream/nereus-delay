@@ -24,6 +24,7 @@ public final class SloObservationOutboxStore {
 
     private final ShardStore store;
     private final SloObservationOutboxLimits limits;
+    private final SloObservationOutboxExportRate exportRate;
 
     /**
      * Compatibility constructor for embedded callers that supply the
@@ -31,12 +32,20 @@ public final class SloObservationOutboxStore {
      * limit-aware constructor so a shard cannot grow an unbounded outbox.
      */
     public SloObservationOutboxStore(final ShardStore store) {
-        this(store, null);
+        this(store, null, null);
     }
 
     public SloObservationOutboxStore(final ShardStore store, final SloObservationOutboxLimits limits) {
+        this(store, limits, null);
+    }
+
+    /** Creates a store with explicit capacity and process-local export-rate bounds. */
+    public SloObservationOutboxStore(final ShardStore store,
+                                     final SloObservationOutboxLimits limits,
+                                     final SloObservationOutboxExportRate exportRate) {
         this.store = Objects.requireNonNull(store, "store");
         this.limits = limits;
+        this.exportRate = exportRate;
     }
 
     /** Returns the exact local projection, or {@code null} when no Start exists. */
@@ -160,6 +169,9 @@ public final class SloObservationOutboxStore {
                 throw new IllegalStateException("SLO outbox export byte usage overflow", exception);
             }
             result.add(decodeEntry(entry));
+        }
+        if (exportRate != null && !result.isEmpty() && !exportRate.tryAcquire(result.size(), totalBytes)) {
+            throw new IllegalStateException("SLO outbox export rate budget exceeded");
         }
         return List.copyOf(result);
     }

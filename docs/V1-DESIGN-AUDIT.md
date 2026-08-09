@@ -1915,6 +1915,13 @@ export scan 都 fail closed。回归证据为
 `BAD_EVIDENCE_GAP`、从 Message/Admission authority 重建缺失 Start、collector merge/
 export 和生产观测 authority 仍是 release blocker。旧的无 limits 构造器只保留给嵌入式
 兼容调用，生产 wiring 必须提供 §21 的 required envelope。
+`SloObservationOutboxExportRate` 现在再为每个 export turn 施加 process-local
+monotonic one-second record/encoded-byte budget；拒绝只停止本次 scan，不删除或
+修改 durable Start/Final。回归证据为
+`SloObservationOutboxStoreTest.exportRateBoundsEachScanWindowAndResetsAfterOneSecond`
+和 `SloObservationOutboxExportRateTest`。该 rate state 在进程重启后不伪装成持久
+collector authority，生产配额、merge/export 和 evidence-gap projection 仍须外部
+证据闭合。
 
 Large-payload reservation 的本地读取也采用同一条组合身份边界：`id_cf/RESERVATION`
 key 中的 reservationId 必须与 `PayloadReservation` 值一致，值中的 ShardId 必须与

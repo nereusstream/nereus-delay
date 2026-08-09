@@ -23,6 +23,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -117,6 +118,30 @@ class SloObservationOutboxStoreTest {
             assertEquals(new SloObservationOutboxStore.Usage(1,
                     ValueEnvelope.encode(SloObservationOutboxStore.VALUE_TYPE,
                             SloObservationOutboxV1.open(startWith(4)).canonicalBytes()).length), outbox.usage());
+        }
+    }
+
+    @Test
+    void exportRateBoundsEachScanWindowAndResetsAfterOneSecond() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("slo-outbox-rate"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 4);
+        final SloSampleStartV1 sample = start();
+        final long encodedBytes = ValueEnvelope.encode(SloObservationOutboxStore.VALUE_TYPE,
+                SloObservationOutboxV1.open(sample).canonicalBytes()).length;
+        final AtomicLong nowNanos = new AtomicLong();
+        final SloObservationOutboxExportRate rate = new SloObservationOutboxExportRate(
+                new SloObservationOutboxExportRate.Limits(1, encodedBytes), nowNanos::get);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final SloObservationOutboxStore outbox = new SloObservationOutboxStore(store,
+                    new SloObservationOutboxLimits(2, encodedBytes * 2), rate);
+            outbox.ensureStart(sample);
+
+            assertEquals(1, outbox.scan(2).size());
+            assertThrows(IllegalStateException.class, () -> outbox.scan(2));
+            nowNanos.set(1_000_000_000L);
+            assertEquals(1, outbox.scan(2).size());
+            assertEquals(new SloObservationOutboxExportRate.Usage(1, encodedBytes), rate.usage());
         }
     }
 
