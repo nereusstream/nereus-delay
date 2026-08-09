@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -57,6 +58,60 @@ class PublishAttemptLedgerTest {
         assertEquals(legacy, PublishAttemptLedger.decode(legacy.encode()));
         assertEquals(1, java.nio.ByteBuffer.wrap(legacy.encode()).getInt());
         assertThrows(IllegalStateException.class, legacy::firstAttemptAtEpochMs);
+    }
+
+    @Test
+    void v3LedgerPersistsJournalMappingAndRetirementLifecycle() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 0);
+        final PublishAttemptLedger base = PublishAttemptLedger.publishingWithRetryWindow(
+                DelayMessageId.random(shardId), 0, Bytes.sha256(Bytes.utf8("journal-attempt")),
+                Bytes.sha256(Bytes.utf8("journal-claim")), 1, 1,
+                DestinationLaneId.derive(Bytes.utf8("journal-lane")), new byte[16], new byte[]{1}, new byte[16],
+                Bytes.sha256(Bytes.utf8("journal-prepared")), canonicalAdmissionBytes(), 2_001, 5_000,
+                new byte[]{3});
+
+        final PublishAttemptLedger allocated = base.withAllocatedJournalSequence(0);
+        assertTrue(allocated.hasAllocatedJournalSequence());
+        assertEquals(0, allocated.journalSequenceId());
+        assertFalse(allocated.mappingDurable());
+        assertEquals(3, java.nio.ByteBuffer.wrap(allocated.encode()).getInt());
+
+        final byte[] mappedPosition = Bytes.sha256(Bytes.utf8("mapped-position"));
+        final PublishAttemptLedger mapped = allocated.withDurableJournalMapping(0, mappedPosition);
+        assertTrue(mapped.mappingDurable());
+        assertArrayEquals(mappedPosition, mapped.journalPosition());
+        assertEquals(mapped, mapped.withDurableJournalMapping(0, mappedPosition));
+
+        final PublishAttemptLedger pending = mapped.withRetirementPending();
+        assertTrue(pending.retirementPending());
+        assertThrows(IllegalStateException.class,
+                () -> pending.withUnknownOutcome(Bytes.utf8("unknown"), new byte[0], new byte[]{4}));
+
+        final byte[] retiredPosition = Bytes.sha256(Bytes.utf8("retired-position"));
+        final PublishAttemptLedger retired = pending.withDurableRetirement(retiredPosition);
+        assertFalse(retired.retirementPending());
+        assertArrayEquals(retiredPosition, retired.journalPosition());
+        assertEquals(retired, PublishAttemptLedger.decode(retired.encode()));
+    }
+
+    @Test
+    void journalLifecycleRejectsSequenceAndEvidenceDrift() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 0);
+        final PublishAttemptLedger base = PublishAttemptLedger.publishing(
+                DelayMessageId.random(shardId), 0, Bytes.sha256(Bytes.utf8("journal-drift-attempt")),
+                Bytes.sha256(Bytes.utf8("journal-drift-claim")), 1, 1,
+                DestinationLaneId.derive(Bytes.utf8("journal-drift-lane")), new byte[16], new byte[]{1}, new byte[16],
+                Bytes.sha256(Bytes.utf8("journal-drift-prepared")), canonicalAdmissionBytes(), new byte[]{3});
+        final PublishAttemptLedger allocated = base.withAllocatedJournalSequence(7);
+        assertThrows(IllegalStateException.class, () -> allocated.withAllocatedJournalSequence(8));
+        final byte[] position = Bytes.sha256(Bytes.utf8("journal-drift-position"));
+        final PublishAttemptLedger mapped = allocated.withDurableJournalMapping(7, position);
+        assertThrows(IllegalStateException.class,
+                () -> mapped.withDurableJournalMapping(7, Bytes.sha256(Bytes.utf8("other-position"))));
+        assertThrows(IllegalStateException.class, () -> base.withRetirementPending());
+        assertThrows(IllegalStateException.class, () -> mapped.withDurableRetirement(position));
+        assertThrows(IllegalArgumentException.class,
+                () -> allocated.withDurableJournalMapping(7, new byte[129]));
     }
 
     private static byte[] canonicalAdmissionBytes() {

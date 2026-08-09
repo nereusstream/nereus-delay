@@ -672,6 +672,56 @@ class DelayShardTest {
     }
 
     @Test
+    void attemptJournalProjectionIsDurableWithoutAdvancingShardSourcePosition() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("attempt-journal-projection"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 28);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("attempt-journal-projection-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("attempt-journal-projection")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 1_001);
+        final byte[] attemptId = Bytes.sha256(Bytes.utf8("attempt-journal-projection-attempt"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final PublishAttemptLedger admission = PublishAttemptLedger.publishing(schedule.delayMessageId(), 0,
+                    attemptId, Bytes.sha256(Bytes.utf8("attempt-journal-projection-claim")), 42, 1, lane,
+                    new byte[16], Bytes.sha256(Bytes.utf8("attempt-journal-projection-owner")),
+                    store.metadata().storeIncarnation(), Bytes.sha256(Bytes.utf8("attempt-journal-projection-prepared")),
+                    Bytes.utf8("admission"), admissionPosition.canonicalBytes());
+            shard.admitPublishAttempt(admission, admissionPosition);
+
+            final byte[] mappedPosition = Bytes.sha256(Bytes.utf8("attempt-journal-mapped"));
+            final PublishAttemptLedger mapped = shard.recordAttemptJournalMapping(attemptId, 42, 0, mappedPosition);
+            assertTrue(mapped.mappingDurable());
+            assertArrayEquals(mappedPosition, mapped.journalPosition());
+            final PublishAttemptLedger pending = shard.markAttemptJournalRetirementPending(attemptId, 42);
+            assertTrue(pending.retirementPending());
+            final byte[] retiredPosition = Bytes.sha256(Bytes.utf8("attempt-journal-retired"));
+            final PublishAttemptLedger retired = shard.recordAttemptJournalRetirement(attemptId, 42,
+                    retiredPosition);
+            assertFalse(retired.retirementPending());
+            assertArrayEquals(retiredPosition, retired.journalPosition());
+            assertEquals(admissionPosition, shard.lastAppliedSourcePosition());
+        }
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults());
+            final PublishAttemptLedger recovered = reopened.findOpenPublishAttempt(attemptId);
+            assertNotNull(recovered);
+            assertEquals(0, recovered.journalSequenceId());
+            assertTrue(recovered.mappingDurable());
+            assertFalse(recovered.retirementPending());
+            assertArrayEquals(Bytes.sha256(Bytes.utf8("attempt-journal-retired")), recovered.journalPosition());
+            assertEquals(admissionPosition, reopened.lastAppliedSourcePosition());
+        }
+    }
+
+    @Test
     void appliesScheduleCancelAndRescheduleAtomicallyAndReplaysIdempotently() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 0);

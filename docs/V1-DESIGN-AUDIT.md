@@ -385,6 +385,16 @@ inactivity-horizon 与 producer-snapshot 两项证明，统一返回
 `PULSAR_EVIDENCE_DIVERGENCE`；`PulsarAttemptJournalTest` 覆盖这些分支。该类的 injected
 appender 只是本地协议测试，不替代 Nereus-owned topic、ExclusiveWithFencing、guarded
 reader/reconnect、Recovery-Floor retention 或真实 Broker evidence。
+`PublishAttemptLedger` 现在保留兼容的 V1/V2 bytes，并提供不改变线上
+`PublishAdmissionV1` 的可选 V3 local Journal projection：先记录 adapter 分配的
+sequence，再写入 exact acknowledged Journal position，definitive absence 期间设置
+`retirementPending`，确认 `RETIRED_NOT_PUBLISHED` 后再清除该 fence。
+`DelayShard.recordAttemptJournalMapping`、`markAttemptJournalRetirementPending` 和
+`recordAttemptJournalRetirement` 只更新同一 `inflight_cf` value，不推进 Shard source
+cursor；因此它们必须由已持有 exact Producer/Attempt identity 的 fenced adapter event
+loop 调用，不能被解释为 source-ordered Outcome 或真实 Broker durability。
+`PublishAttemptLedgerTest` 与 `DelayShardTest.attemptJournalProjectionIsDurableWithoutAdvancingShardSourcePosition`
+覆盖 round-trip、identity/retirement 顺序、重启恢复和 source-position 不变性。
 同步 prepare 入口的本地参数/strict-frame 校验现在统一投影为
 `PreparationFailure`，其 `StableErrorV1.stage` 固定为 `PREPARATION`，同时保持
 `IllegalArgumentException` 兼容性；`AutoFastScheduleTest` 覆盖稳定错误的 canonical

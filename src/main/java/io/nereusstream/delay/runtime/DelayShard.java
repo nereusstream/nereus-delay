@@ -4337,6 +4337,62 @@ public final class DelayShard {
     }
 
     /**
+     * Persists the adapter-owned Attempt Journal mapping evidence for one
+     * already durable PUBLISHING attempt.  This local evidence update does not
+     * advance the Command/Shard source position; callers must invoke it from
+     * the fenced single-writer adapter event loop only after the exact Journal
+     * append has returned a durable position.
+     */
+    public synchronized PublishAttemptLedger recordAttemptJournalMapping(final byte[] publishAttemptId,
+                                                                           final long ownerEpoch,
+                                                                           final long sequenceId,
+                                                                           final byte[] journalPosition) {
+        final PublishAttemptLedger current = requirePublishingAttempt(publishAttemptId, ownerEpoch);
+        final PublishAttemptLedger next = current.withDurableJournalMapping(sequenceId, journalPosition);
+        persistAttemptJournalProjection(current, next);
+        return next;
+    }
+
+    /** Holds a mapped PUBLISHING attempt while a RETIRED_NOT_PUBLISHED append is in flight. */
+    public synchronized PublishAttemptLedger markAttemptJournalRetirementPending(final byte[] publishAttemptId,
+                                                                                    final long ownerEpoch) {
+        final PublishAttemptLedger current = requirePublishingAttempt(publishAttemptId, ownerEpoch);
+        final PublishAttemptLedger next = current.withRetirementPending();
+        persistAttemptJournalProjection(current, next);
+        return next;
+    }
+
+    /** Persists the acknowledged retirement position before source-ordered retry/terminalization. */
+    public synchronized PublishAttemptLedger recordAttemptJournalRetirement(final byte[] publishAttemptId,
+                                                                             final long ownerEpoch,
+                                                                             final byte[] journalPosition) {
+        final PublishAttemptLedger current = requirePublishingAttempt(publishAttemptId, ownerEpoch);
+        final PublishAttemptLedger next = current.withDurableRetirement(journalPosition);
+        persistAttemptJournalProjection(current, next);
+        return next;
+    }
+
+    private PublishAttemptLedger requirePublishingAttempt(final byte[] publishAttemptId, final long ownerEpoch) {
+        final PublishAttemptLedger ledger = getPublishAttempt(publishAttemptId, ownerEpoch);
+        if (ledger == null || ledger.state() != AttemptLedgerState.PUBLISHING) {
+            throw new IllegalStateException("Attempt Journal update requires an open PUBLISHING ledger");
+        }
+        return ledger;
+    }
+
+    private void persistAttemptJournalProjection(final PublishAttemptLedger current,
+                                                 final PublishAttemptLedger next) {
+        if (!Arrays.equals(current.encodedKey(), next.encodedKey())) {
+            throw new IllegalStateException("Attempt Journal update changed the inflight key");
+        }
+        if (current.equals(next)) {
+            return;
+        }
+        store.write(batch -> batch.putValue(ColumnFamily.INFLIGHT, PublishAttemptLedger.VALUE_TYPE,
+                next.encodedKey(), next.encode()));
+    }
+
+    /**
      * Applies the durable part of Publish Admission. The complete signed Registry body is retained verbatim in the
      * ledger, while nested Claim/Certificate/Channel validation is deliberately owned by the pending admission
      * body codec. The message, timeline, READY projection, attempt key and source position commit in one batch.
