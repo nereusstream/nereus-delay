@@ -78,6 +78,50 @@ public final class PulsarAttemptJournal {
         return appendMappedInternal(mapping);
     }
 
+    /**
+     * Reuses the exact non-retired mapping for a retransmission of one
+     * admitted attempt, or allocates the next sequence when this attempt has
+     * not reached the Journal yet.  The attempt ID is not a lookup hint: it
+     * is an immutable identity fence.  Reusing it with a different Producer
+     * or any different mapping field is an integrity failure.
+     */
+    public synchronized AppendResult appendOrReuse(final ProducerKey producer,
+                                                    final AttemptIdentity identity) {
+        Objects.requireNonNull(producer, "producer");
+        Objects.requireNonNull(identity, "identity");
+        MappingState matching = null;
+        for (MappingState candidate : mappings.values()) {
+            if (!Arrays.equals(candidate.mapping.publishAttemptId(), identity.publishAttemptId())) {
+                continue;
+            }
+            if (!candidate.mapping.producer().equals(producer)
+                    || !sameAttemptIdentity(candidate.mapping, identity)) {
+                throw conflict("publish attempt identity was reused with different Journal mapping bytes");
+            }
+            matching = candidate;
+            break;
+        }
+        if (matching != null) {
+            if (matching.retired) {
+                throw conflict("retired publish attempt cannot be sent again");
+            }
+            return new AppendResult(matching.mappedRecord, true);
+        }
+        return appendNext(producer, identity);
+    }
+
+    /**
+     * Durable mapping-before-send entry point for a prepared attempt.  A
+     * retransmission reuses the same sequence and mapping record; the target
+     * sender is never invoked until the Journal append/replay gate succeeds.
+     */
+    public <T> CompletionStage<T> sendAfterMapped(final ProducerKey producer,
+                                                   final AttemptIdentity identity,
+                                                   final TargetSender<T> sender) {
+        final AppendResult mapping = appendOrReuse(producer, identity);
+        return sendAfterMapped(mapping.record().mapping(), sender);
+    }
+
     /** Appends the durable retirement marker required before a later sequence. */
     public synchronized AppendResult retireNotPublished(final byte[] mappingId) {
         Bytes.requireLength(mappingId, HASH_LENGTH, "mappingId");
@@ -236,6 +280,15 @@ public final class PulsarAttemptJournal {
         state.unresolvedMappingId = state.lastMappingId;
         records.add(record);
         lastPosition = position;
+    }
+
+    private static boolean sameAttemptIdentity(final Mapping mapping, final AttemptIdentity identity) {
+        return mapping.delayMessageId().equals(identity.delayMessageId())
+                && mapping.generation() == identity.generation()
+                && Arrays.equals(mapping.publishAttemptId(), identity.publishAttemptId())
+                && Arrays.equals(mapping.preparedPublishHash(), identity.preparedPublishHash())
+                && mapping.guardedBrokerTimestampEpochMs() == identity.guardedBrokerTimestampEpochMs()
+                && Arrays.equals(mapping.sourcePosition(), identity.sourcePosition());
     }
 
     private JournalPosition append(final RecordKind kind, final Mapping mapping) {

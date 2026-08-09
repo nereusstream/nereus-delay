@@ -73,6 +73,77 @@ class PulsarAttemptJournalTest {
     }
 
     @Test
+    void retransmissionReusesTheExactMappingBeforeInvokingTarget() {
+        final ShardId shard = shard();
+        final AtomicLong appendCalls = new AtomicLong();
+        final AtomicLong targetCalls = new AtomicLong();
+        final PulsarAttemptJournal journal = new PulsarAttemptJournal(shard, request -> {
+            appendCalls.incrementAndGet();
+            return position(50);
+        });
+        final PulsarAttemptJournal.ProducerKey producer = producer();
+        final PulsarAttemptJournal.AttemptIdentity identity = identity(shard, 20);
+
+        assertEquals("first", journal.sendAfterMapped(producer, identity, ignored -> {
+            targetCalls.incrementAndGet();
+            return CompletableFuture.completedFuture("first");
+        }).toCompletableFuture().join());
+        assertEquals("retry", journal.sendAfterMapped(producer, identity, ignored -> {
+            targetCalls.incrementAndGet();
+            return CompletableFuture.completedFuture("retry");
+        }).toCompletableFuture().join());
+
+        assertEquals(1, appendCalls.get(), "an exact retry must not allocate a new Journal sequence");
+        assertEquals(2, targetCalls.get());
+        assertEquals(1, journal.records().size());
+        assertEquals(0, journal.records().get(0).mapping().sequenceId());
+    }
+
+    @Test
+    void attemptIdentityDriftAndRetiredRetryAreFencedBeforeTargetSend() {
+        final ShardId shard = shard();
+        final AtomicLong entry = new AtomicLong(60);
+        final PulsarAttemptJournal journal = new PulsarAttemptJournal(shard,
+                request -> position(entry.getAndIncrement()));
+        final PulsarAttemptJournal.ProducerKey producer = producer();
+        final PulsarAttemptJournal.AttemptIdentity identity = identity(shard, 21);
+        journal.appendOrReuse(producer, identity);
+
+        final PulsarAttemptJournal.AttemptIdentity drifted = new PulsarAttemptJournal.AttemptIdentity(
+                identity.delayMessageId(), identity.generation(), identity.publishAttemptId(),
+                Bytes.sha256(Bytes.utf8("different-prepared")), identity.guardedBrokerTimestampEpochMs(),
+                identity.sourcePosition());
+        final PulsarAttemptJournal.JournalException drift = assertThrows(
+                PulsarAttemptJournal.JournalException.class, () -> journal.appendOrReuse(producer, drifted));
+        assertEquals(StableCode.INTEGRITY_ERROR, drift.stableCode());
+
+        final byte[] mappingId = journal.records().get(0).mapping().mappingId();
+        journal.retireNotPublished(mappingId);
+        final PulsarAttemptJournal.JournalException retired = assertThrows(
+                PulsarAttemptJournal.JournalException.class, () -> journal.sendAfterMapped(producer, identity,
+                        ignored -> CompletableFuture.completedFuture("must-not-send")));
+        assertEquals(StableCode.INTEGRITY_ERROR, retired.stableCode());
+        assertEquals(2, journal.records().size());
+    }
+
+    @Test
+    void journalAppendFailureNeverInvokesTargetSender() {
+        final ShardId shard = shard();
+        final AtomicBoolean targetCalled = new AtomicBoolean();
+        final PulsarAttemptJournal journal = new PulsarAttemptJournal(shard, request -> null);
+
+        final PulsarAttemptJournal.JournalException failure = assertThrows(
+                PulsarAttemptJournal.JournalException.class,
+                () -> journal.sendAfterMapped(producer(), identity(shard, 22), ignored -> {
+                    targetCalled.set(true);
+                    return CompletableFuture.completedFuture("must-not-send");
+                }));
+        assertEquals(StableCode.PULSAR_EVIDENCE_DIVERGENCE, failure.stableCode());
+        assertFalse(targetCalled.get());
+        assertTrue(journal.records().isEmpty());
+    }
+
+    @Test
     void recoveryAndBrokerEvidenceFailClosedOnDivergence() {
         final ShardId shard = shard();
         final AtomicLong entry = new AtomicLong(7);
