@@ -11,6 +11,15 @@ V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障
 
 **Open semantic questions: none.**
 
+The inner Lane DRR now closes the weight-downgrade cap gap: registering an
+existing Lane with a lower scheduler weight recomputes the cap across all
+registered Lanes and immediately clamps historical deficit credit. The
+regression `LaneSchedulerTest.weightDowngradeRecomputesDeficitCapAndClampsExistingCredit`
+proves that a `10`-byte quantum cannot retain the former `8 * quantum` credit
+after a downgrade to weight `1`. This aligns the inner scheduler with the
+outer Worker cap rule and ADR-0032; certified capacity limits, placement and
+real service fairness evidence remain release gates.
+
 The Pulsar activation-barrier compatibility seam is now internally consistent:
 the deprecated constructor can represent a non-empty legacy barrier without a
 known batch size, while the identity, source-connection guard and inclusive

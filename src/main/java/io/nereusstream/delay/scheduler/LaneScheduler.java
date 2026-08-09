@@ -56,7 +56,12 @@ public final class LaneScheduler {
             ring.add(lane.laneId());
         } else {
             existing.update(lane);
-            maxDeficitBytes = Math.max(maxDeficitBytes, weightIncrement);
+            // A Lane control update can lower its scheduler weight.  Rebuild
+            // the process-wide cap so historical credit cannot remain above
+            // the largest currently configured Lane increment.  This mirrors
+            // the outer Worker scheduler and publishes the bounded projection
+            // before the next poll, even when the Lane is idle.
+            recomputeDeficitCap();
         }
     }
 
@@ -477,6 +482,16 @@ public final class LaneScheduler {
             return Math.multiplyExact((long) weight, quantumBytes);
         } catch (ArithmeticException e) {
             throw new IllegalArgumentException("lane weight and scheduler quantum overflow", e);
+        }
+    }
+
+    private void recomputeDeficitCap() {
+        maxDeficitBytes = checkedDeficitCap(quantumBytes);
+        for (LaneQueue lane : lanes.values()) {
+            maxDeficitBytes = Math.max(maxDeficitBytes, checkedWeightIncrement(lane.weight));
+        }
+        for (LaneQueue lane : lanes.values()) {
+            lane.deficit = Math.min(lane.deficit, maxDeficitBytes);
         }
     }
 

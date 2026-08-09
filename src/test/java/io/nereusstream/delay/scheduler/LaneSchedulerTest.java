@@ -139,6 +139,20 @@ class LaneSchedulerTest {
     }
 
     @Test
+    void weightDowngradeRecomputesDeficitCapAndClampsExistingCredit() {
+        final DestinationLaneId lane = lane(52);
+        final LaneScheduler scheduler = new LaneScheduler(10, 1);
+        scheduler.register(record(lane, 8));
+        scheduler.offer(item(lane, 1));
+        scheduler.poll(new SchedulerBudget(1, 100, 1_000_000_000));
+        assertEquals(79, scheduler.snapshot().lanes().get(0).deficit());
+
+        scheduler.register(record(lane, 1));
+
+        assertEquals(40, scheduler.snapshot().lanes().get(0).deficit());
+    }
+
+    @Test
     void rejectsQuantumAndWeightArithmeticOverflow() {
         assertThrows(IllegalArgumentException.class,
                 () -> new LaneScheduler(Long.MAX_VALUE, 1));

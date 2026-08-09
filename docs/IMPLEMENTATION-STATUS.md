@@ -7,6 +7,16 @@ normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20�
 the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
+`LaneScheduler.register(existingLane)` now recomputes the process-local
+deficit cap after an existing Lane's scheduler weight changes and clamps any
+historical credit to the largest currently registered Lane increment. This
+keeps a weight downgrade from leaving an idle Lane above the V1 capped-DRR
+bound. `LaneSchedulerTest.weightDowngradeRecomputesDeficitCapAndClampsExistingCredit`
+covers the deterministic `weight=8 -> weight=1` transition; the outer Worker
+scheduler already applies the same recomputation rule. This remains local
+scheduler evidence and does not replace the certified capacity artifact or
+production placement telemetry.
+
 The deprecated `PulsarActivationBarrier` compatibility constructor now actually
 supports its documented unknown-batch-shape form: a non-empty legacy barrier
 may carry `batchSize=0`, skips only the same-entry batch-shape check, and still
