@@ -1786,6 +1786,13 @@ attempt ledger 完全一致。Lane 记录缺失或 incarnation 漂移属于 Stor
 `LaneRecord.initial(...)` 偷创建一个新 Lane，不改变 Message、attempt、quota 或
 source position。该边界是恢复完整性校验，不是把 UNKNOWN 改成业务失败。
 
+同一完整性闸门适用于已有 publish obligation 的 definitive/retry
+`PUBLISH_OUTCOME_V1`、`EVIDENCE_RESOLUTION_V1`、`RESOLVE_UNCERTAIN`、
+`CLAIM_RESULT_V1` 和 Trusted-Time `EXPIRE_GENERATION_V1`。这些路径若发现
+durable Lane 缺失，必须在任何 stale-result、quota/READY projection 或 source-position
+写入前 fail closed；只能把 incarnation 不匹配作为已存在 Lane 上的 stale/precondition
+结果，不能把物理缺失伪装成业务过期、重试或“未发布”。
+
 对 `PUBLISHED`/`NOT_PUBLISHED` 这类 definitive Outcome，以及
 `EVIDENCE_RESOLUTION_V1` 的 verified result，body 中的 `ChargeVectorV1 transfer`
 必须与该 attempt 的 Admission ledger 所保留 charge 做 canonical byte-equality。

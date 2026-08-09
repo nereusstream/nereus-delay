@@ -29,6 +29,18 @@ and `DelayShardTest.largePayloadCommitFailsClosedWithoutRecreatingAMissingLanePr
 This closes a local Store-integrity boundary only; production ownership, replay
 and external authority evidence remain release gates.
 
+The same durable-Lane requirement now guards source-ordered existing-obligation
+transitions: definitive/retry `PUBLISH_OUTCOME`, `EVIDENCE_RESOLUTION`,
+`RESOLVE_UNCERTAIN`, `CLAIM_RESULT` and `EXPIRE_GENERATION` fail before a
+stale-result, quota/READY projection or source-position write can hide a missing
+Lane. Canonical V1 publish ledgers also require the exact Lane incarnation;
+legacy opaque ledgers retain only the historical incarnation compatibility seam.
+The representative regression is
+`DelayShardTest.notPublishedOutcomeFailsClosedWithoutRecreatingAMissingLaneProjection`;
+the existing UNKNOWN/Cancel/Reschedule/Commit regressions cover the adjacent
+branches. This remains local Store-integrity evidence, not external recovery or
+Broker authority evidence.
+
 The local Lane quota projection now scans the complete `(LaneId, LaneIncarnation)`
 identity tuple instead of stopping at the first foreign incarnation for a Lane ID.
 This preserves access to a replacement while an older terminal/retired incarnation

@@ -2704,6 +2704,50 @@ class DelayShardTest {
     }
 
     @Test
+    void notPublishedOutcomeFailsClosedWithoutRecreatingAMissingLaneProjection() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("not-published-outcome-missing-lane"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 96);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("not-published-missing-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("not-published-missing-lane")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 1_001);
+        final KafkaSourcePosition outcomePosition = position(shardId, 2, 2_002);
+        final byte[] attemptId = Bytes.sha256(Bytes.utf8("not-published-missing-lane-attempt"));
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final byte[] owner = AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"), 42,
+                Bytes.sha256(Bytes.utf8("not-published-missing-lane-lease"))).canonicalBytes();
+        final byte[] body = publishNotPublishedBody(shardId, attemptId, 1,
+                StableCode.DESTINATION_DEFINITIVE_RETRIABLE, 2_002);
+        final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
+                publishOutcomeLogicalIdentity(body), body, owner, 1, keyPair.getPrivate());
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final PublishAttemptLedger admission = PublishAttemptLedger.publishing(schedule.delayMessageId(), 0,
+                    attemptId, Bytes.sha256(Bytes.utf8("not-published-missing-lane-claim")), 42, 1, lane,
+                    shard.getLane(lane).laneIncarnation(), Bytes.sha256(Bytes.utf8("not-published-missing-lane-owner")),
+                    store.metadata().storeIncarnation(), Bytes.sha256(Bytes.utf8("not-published-missing-lane-prepared")),
+                    Bytes.utf8("admission"), admissionPosition.canonicalBytes());
+            shard.admitPublishAttempt(admission, admissionPosition);
+            store.write(batch -> batch.delete(ColumnFamily.META, KeyCodec.metaLane(lane)));
+
+            final IllegalStateException failure = assertThrows(IllegalStateException.class,
+                    () -> shard.applySystemMutation(mutation, outcomePosition, keyPair.getPublic()));
+            assertEquals("publish outcome references a missing Lane", failure.getMessage());
+            assertNull(shard.getLane(lane));
+            assertEquals(MessageStatus.PUBLISHING, shard.getMessage(schedule.delayMessageId()).status());
+            assertEquals(AttemptLedgerState.PUBLISHING, shard.getPublishAttempt(attemptId, 42).state());
+            assertEquals(admissionPosition, shard.lastAppliedSourcePosition());
+        }
+    }
+
+    @Test
     void malformedCanonicalAdmissionLedgerDoesNotDowngradeToZeroCharge() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("malformed-canonical-admission"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 91);

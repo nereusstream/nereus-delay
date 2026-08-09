@@ -34,6 +34,17 @@ and `DelayShardTest.largePayloadCommitFailsClosedWithoutRecreatingAMissingLanePr
 This is local Store-integrity evidence and does not close the external ownership,
 replay or production authority gates.
 
+The audit now applies the same fence to existing publish obligations: definitive
+or retry `PUBLISH_OUTCOME`, `EVIDENCE_RESOLUTION`, `RESOLVE_UNCERTAIN`,
+`CLAIM_RESULT` and `EXPIRE_GENERATION` require the durable Lane before any
+stale-result, quota/READY projection or source cursor can be persisted.
+Canonical V1 ledgers additionally bind the exact Lane incarnation; missing Lane
+state fails closed instead of being treated as a business retry/expiry result.
+`DelayShardTest.notPublishedOutcomeFailsClosedWithoutRecreatingAMissingLaneProjection`
+is the focused representative regression, alongside the existing UNKNOWN and
+message/reservation command tests. External ownership and Broker/evidence
+authority remain release gates.
+
 The self-routing identity audit now closes the logical locator shape: the
 fixed-width bytes between the Route/partition prefix and CRC must carry UUID
 version 7 and RFC variant `10`. `SelfRoutingId.decode` rejects a CRC-valid

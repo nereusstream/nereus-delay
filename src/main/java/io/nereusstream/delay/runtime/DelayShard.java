@@ -2440,6 +2440,7 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
+        requirePublishAttemptLane(ledger, "publish outcome");
         final MessageRecord outcomeCurrent = getMessage(ledger.delayMessageId());
         if (outcomeCurrent != null && outcomeCurrent.generation() == ledger.generation()) {
             validateRetryDecisionBinding(outcome, ledger, outcomeCurrent, sourcePosition);
@@ -2524,6 +2525,23 @@ public final class DelayShard {
                     && Arrays.equals(ledger.ownerIdentity(), author.canonicalBytes());
         }
         return ledger.ownerEpoch() == author.generation();
+    }
+
+    /**
+     * Existing publish obligations must never outlive their durable Lane
+     * projection.  Only canonical V1 ledgers carry an authoritative Lane
+     * incarnation; legacy embedded ledgers retain the historical opaque
+     * incarnation compatibility seam while still requiring Lane presence.
+     */
+    private LaneRecord requirePublishAttemptLane(final PublishAttemptLedger ledger, final String operation) {
+        final LaneRecord lane = readLane(ledger.laneId());
+        if (lane == null) {
+            throw new IllegalStateException(operation + " references a missing Lane");
+        }
+        if (ledger.hasRetryWindow() && !Arrays.equals(lane.laneIncarnation(), ledger.laneIncarnation())) {
+            throw new IllegalStateException(operation + " references a mismatched Lane incarnation");
+        }
+        return lane;
     }
 
     /**
@@ -2666,6 +2684,7 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }
+        requirePublishAttemptLane(ledger, "evidence resolution");
         final MessageRecord resolutionCurrent = getMessage(ledger.delayMessageId());
         if (resolutionCurrent != null && resolutionCurrent.generation() == ledger.generation()) {
             validateRetryDecisionBinding(resolution, ledger, resolutionCurrent, sourcePosition);
@@ -2733,7 +2752,10 @@ public final class DelayShard {
                             ? StableCode.ORDERING_DOMAIN_BROKEN : StableCode.TOO_LATE);
         }
         final LaneRecord lane = readLane(body.laneId());
-        if (lane == null || !Arrays.equals(lane.laneIncarnation(), body.laneIncarnation())) {
+        if (lane == null) {
+            throw new IllegalStateException("Resolve retry references a missing Lane");
+        }
+        if (!Arrays.equals(lane.laneIncarnation(), body.laneIncarnation())) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }
@@ -2831,6 +2853,7 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }
+        requirePublishAttemptLane(ledger, "published evidence");
         if (current.generation() == body.generation() && !current.laneId().equals(body.laneId())) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.TOO_LATE);
         }
@@ -2879,6 +2902,7 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }
+        requirePublishAttemptLane(ledger, "not-published evidence");
         if (current.generation() == body.generation() && !current.laneId().equals(body.laneId())) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.TOO_LATE);
         }
@@ -3283,7 +3307,10 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.TOO_LATE);
         }
         final LaneRecord lane = readLane(body.laneId());
-        if (lane == null || !Arrays.equals(lane.laneIncarnation(), body.laneIncarnation())) {
+        if (lane == null) {
+            throw new IllegalStateException("Resolve terminalization references a missing Lane");
+        }
+        if (!Arrays.equals(lane.laneIncarnation(), body.laneIncarnation())) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }
@@ -3517,7 +3544,10 @@ public final class DelayShard {
             sourceTimelineKey = timelineKey(messageId, current);
         }
         final LaneRecord lane = readLane(current.laneId());
-        if (lane == null || !lane.laneId().equals(current.laneId())
+        if (lane == null) {
+            throw new IllegalStateException("Claim Result references a missing Lane");
+        }
+        if (!lane.laneId().equals(current.laneId())
                 || !Arrays.equals(lane.laneIncarnation(), precondition.laneIncarnation())
                 || lane.laneControlVersion() != precondition.laneControlVersion()
                 || (current.status() == MessageStatus.CLAIMED
@@ -3864,6 +3894,7 @@ public final class DelayShard {
                                                                   final SystemMutationResult systemResult,
                                                                   final AttemptLedgerState expectedLedgerState,
                                                                   final MessageStatus expectedMessageStatus) {
+        requirePublishAttemptLane(ledger, "not-published outcome");
         final MessageRecord current = getMessage(ledger.delayMessageId());
         if (ledger.state() != expectedLedgerState || current == null
                 || current.generation() < ledger.generation()) {
@@ -4060,7 +4091,10 @@ public final class DelayShard {
                     StableCode.STALE_SYSTEM_MUTATION);
         }
         final LaneRecord lane = readLane(current.laneId());
-        if (lane != null && lane.admissionGate() == AdmissionGate.CLOSED
+        if (lane == null) {
+            throw new IllegalStateException("Expire Generation references a missing Lane");
+        }
+        if (lane.admissionGate() == AdmissionGate.CLOSED
                 && isUnadmittedGeneration(current)) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.LANE_CLOSED_BEFORE_ADMISSION);
@@ -5000,6 +5034,7 @@ public final class DelayShard {
                                                        final SourcePosition sourcePosition,
                                                        final SystemMutationResult systemResult,
                                                        final MessageStatus expectedMessageStatus) {
+        requirePublishAttemptLane(ledger, "published outcome");
         final MessageRecord current = getMessage(ledger.delayMessageId());
         if (current == null || current.generation() < ledger.generation()) {
             throw new IllegalStateException("published outcome is stale for the current message");
@@ -6710,7 +6745,10 @@ public final class DelayShard {
             final PublishAdmissionBody.ChargeVector charge, final boolean add, final long usageRevision) {
         Objects.requireNonNull(charge, "charge");
         final LaneRecord lane = readLane(laneId);
-        final byte[] effectiveIncarnation = lane == null ? laneIncarnation : lane.laneIncarnation();
+        if (lane == null) {
+            throw new IllegalStateException("inflight quota references a missing Lane");
+        }
+        final byte[] effectiveIncarnation = lane.laneIncarnation();
         final PublishAdmissionBody.ChargeVector normalized = normalizeInflightCharge(charge);
         if (add) {
             return current.addInflight(laneId, effectiveIncarnation, normalized.inflightMessages(),
