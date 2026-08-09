@@ -49,8 +49,8 @@ public final class CommandAppliedReceiptV1 {
                 && (generation != null || stateVersion != null || binding != null)) {
             throw new IllegalArgumentException("rejected result cannot fabricate Message fields");
         }
-        if (fullResultRetainUntilEpochMs < 0) {
-            throw new IllegalArgumentException("full result retention deadline must be non-negative");
+        if (fullResultRetainUntilEpochMs < appliedSourcePosition.brokerPersistenceTimeEpochMs()) {
+            throw new IllegalArgumentException("full result retention deadline precedes Broker persistence time");
         }
         Bytes.requireLength(receiptPayloadDigest, HASH_LENGTH, "receiptPayloadDigest");
         this.generation = generation;

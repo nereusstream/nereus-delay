@@ -33,8 +33,8 @@ public final class PublicCommandResultV1 implements QueryResponseBranchV1 {
         if (generation == null && (stateVersion != null || binding != null)) {
             throw new IllegalArgumentException("stateVersion/binding require a Message generation");
         }
-        if (fullResultRetainUntilEpochMs < 0) {
-            throw new IllegalArgumentException("full result retention deadline must be non-negative");
+        if (fullResultRetainUntilEpochMs < appliedSourcePosition.brokerPersistenceTimeEpochMs()) {
+            throw new IllegalArgumentException("full result retention deadline precedes Broker persistence time");
         }
         this.generation = generation;
         this.stateVersion = stateVersion;

@@ -17,8 +17,8 @@ public final class CompactCommandResultV1 implements QueryResponseBranchV1 {
         this.stableCode = Objects.requireNonNull(stableCode, "stableCode");
         this.firstAppliedSourcePosition = Objects.requireNonNull(firstAppliedSourcePosition,
                 "firstAppliedSourcePosition");
-        if (fullResultRetainUntilEpochMs < 0) {
-            throw new IllegalArgumentException("full result retention deadline must be non-negative");
+        if (fullResultRetainUntilEpochMs < firstAppliedSourcePosition.brokerPersistenceTimeEpochMs()) {
+            throw new IllegalArgumentException("full result retention deadline precedes Broker persistence time");
         }
         this.fullResultRetainUntilEpochMs = fullResultRetainUntilEpochMs;
     }

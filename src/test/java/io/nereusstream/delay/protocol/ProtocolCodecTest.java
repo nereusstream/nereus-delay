@@ -190,11 +190,15 @@ class ProtocolCodecTest {
                 CommandApplyStatusV1.REJECTED, StableCode.INVALID_COMMAND, awaited, 0, null, null, 3_000));
         assertThrows(IllegalArgumentException.class, () -> new PublicCommandResultV1(
                 CommandApplyStatusV1.APPLIED, StableCode.OK, awaited, null, 1L, null, 3_000));
+        assertThrows(IllegalArgumentException.class, () -> new PublicCommandResultV1(
+                CommandApplyStatusV1.REJECTED, StableCode.INVALID_COMMAND, awaited, null, null, null, 1_000));
 
         final CompactCommandResultV1 compact = new CompactCommandResultV1(CommandApplyStatusV1.REJECTED,
                 StableCode.INVALID_COMMAND, awaited, 3_000);
         assertEquals(CommandQueryResponseV1.resultExpired(compact),
                 CommandQueryResponseV1.decode(CommandQueryResponseV1.resultExpired(compact).canonicalBytes()));
+        assertThrows(IllegalArgumentException.class, () -> new CompactCommandResultV1(
+                CommandApplyStatusV1.REJECTED, StableCode.INVALID_COMMAND, awaited, 1_000));
         assertEquals(CommandQueryResponseV1.resultEvidenceExpired(),
                 CommandQueryResponseV1.decode(CommandQueryResponseV1.resultEvidenceExpired().canonicalBytes()));
 
@@ -266,6 +270,9 @@ class ProtocolCodecTest {
                 3_000));
         assertThrows(IllegalArgumentException.class, () -> CommandAppliedReceiptV1.create(queued,
                 CommandApplyStatusV1.APPLIED, StableCode.OK, appliedPosition, null, 1L, null, 3_000));
+        assertThrows(IllegalArgumentException.class, () -> CommandAppliedReceiptV1.create(queued,
+                CommandApplyStatusV1.REJECTED, StableCode.INVALID_COMMAND, appliedPosition, null, null, null,
+                1_000));
     }
 
     @Test

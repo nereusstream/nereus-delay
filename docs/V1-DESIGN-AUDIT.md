@@ -45,6 +45,16 @@ release gates. Focused evidence is
 `ControlOperationQueryPolicyTest` and
 `EmbeddedDelayServiceTest.strictPreparedControlRegistrationRejectsPolicyDriftAndOverflowBeforeRegistration`.
 
+The result-retention wire boundary now enforces both sides of the source-time
+contract: `fullResultRetainUntilEpochMs` in
+`CommandAppliedReceiptV1`, `PublicCommandResultV1` and
+`CompactCommandResultV1` must be at least the result Source Position's Broker
+persistence time. Direct construction and decoded values that place the
+deadline before persistence are rejected before any query projection can use
+them. `ProtocolCodecTest` covers all three malformed lower-bound cases; this
+closes a local wire-integrity gap while source-time authority and retention
+publication remain external release gates.
+
 The UNKNOWN-outcome audit now closes a Store-integrity edge at the same
 ownership boundary: before `PUBLISH_OUTCOME_V1(UNKNOWN)` can materialize an
 uncertain retry or update READY, the current Message Lane, durable Lane record,

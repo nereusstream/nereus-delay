@@ -43,6 +43,16 @@ production Oxia registration transaction remain external release gates. Focused
 evidence is `ControlOperationQueryPolicyTest` and
 `EmbeddedDelayServiceTest.strictPreparedControlRegistrationRejectsPolicyDriftAndOverflowBeforeRegistration`.
 
+The command-result wire constructors now enforce the lower retention bound as
+well: `fullResultRetainUntilEpochMs` must not precede the result Source
+Position's Broker persistence time. This guard applies to
+`CommandAppliedReceiptV1`, `PublicCommandResultV1` and
+`CompactCommandResultV1`, so direct construction and decoded malformed values
+fail closed instead of representing an impossible retained result. Focused
+coverage is in `ProtocolCodecTest`, alongside the existing policy-derived
+upper-bound checks; this is local wire-integrity evidence and does not replace
+external source-time authority or retention-policy publication gates.
+
 The source-ordered `PUBLISH_OUTCOME(UNKNOWN)` projection now verifies the
 current Message Lane identity, durable Lane presence, and exact Lane
 incarnation against the `PUBLISHING` attempt ledger before constructing any
