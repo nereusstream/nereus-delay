@@ -100,6 +100,10 @@ public final class SloObservationOutboxStore {
      */
     public synchronized SloObservationOutboxV1 ensureCommandAppliedStart(final SloObjectiveV1 objective,
                                                                             final SourcePosition sourcePosition) {
+        Objects.requireNonNull(sourcePosition, "sourcePosition");
+        if (!store.shardId().equals(sourcePosition.shardId())) {
+            throw new IllegalArgumentException("command-applied Source Position belongs to another shard");
+        }
         return ensureStart(SloAuthoritativeStartFactory.commandApplied(objective, sourcePosition));
     }
 
@@ -118,6 +122,10 @@ public final class SloObservationOutboxStore {
                                                                          final SloPathV1 path,
                                                                          final long pathStartEpochMs,
                                                                          final byte[] semanticEvidenceSha256) {
+        Objects.requireNonNull(delayMessageId, "delayMessageId");
+        if (!store.shardId().equals(delayMessageId.routingId().shardId())) {
+            throw new IllegalArgumentException("due-admission Message ID belongs to another shard");
+        }
         return ensureStart(SloAuthoritativeStartFactory.dueAdmission(objective, delayMessageId, generation, path,
                 pathStartEpochMs, semanticEvidenceSha256));
     }

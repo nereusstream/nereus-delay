@@ -2218,8 +2218,8 @@ evidence digest. Both branches recompute the sample identity and checked timeout
 outbox exposes matching `ensureCommandAppliedStart(...)` and
 `ensureDueAdmissionStart(...)` convenience methods. `SloAuthoritativeStartFactoryTest` and
 `SloObservationOutboxStoreTest.typedAuthorityConvenienceUsesExactFactoryBranches` cover
-canonical round trips, high-bit generation preservation, path/time/evidence fencing and
-idempotent materialization. These are typed local seams only: they do not discover or
+canonical round trips, high-bit generation preservation, current-Shard identity/path/time/
+evidence fencing and idempotent materialization. These are typed local seams only: they do not discover or
 authenticate Message/Admission authority, and they do not close the production source-order
 recovery or evidence-gap gates.
 

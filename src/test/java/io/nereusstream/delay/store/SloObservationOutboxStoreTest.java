@@ -242,6 +242,16 @@ class SloObservationOutboxStoreTest {
             assertEquals(dueStart, outbox.ensureDueAdmissionStart(due, messageId, 0,
                     SloPathV1.ORDINARY_MANAGED, 800, bytes(32, 33)));
             assertEquals(2, outbox.usage().recordCount());
+
+            final ShardId foreignShard = new ShardId(RouteIncarnation.random(), 9);
+            final KafkaSourcePosition foreignSource = new KafkaSourcePosition(foreignShard, "cluster-slo",
+                    UUID.randomUUID(), 10, null, 701);
+            assertThrows(IllegalArgumentException.class,
+                    () -> outbox.ensureCommandAppliedStart(commandApplied, foreignSource));
+            assertThrows(IllegalArgumentException.class,
+                    () -> outbox.ensureDueAdmissionStart(due, DelayMessageId.random(foreignShard), 0,
+                            SloPathV1.ORDINARY_MANAGED, 800, bytes(32, 33)));
+            assertEquals(2, outbox.usage().recordCount());
         }
     }
 

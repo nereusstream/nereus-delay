@@ -2958,8 +2958,8 @@ semanticEvidenceSha256)` 要求调用方明确提供完整 unsigned-32 generatio
 `actionAt`，以及已由 Message/eligibility authority 证明的 semantic evidence digest。
 两条路径都重新计算 sample ID、Start digest 和 checked timeout；非法 objective、path、
 时间、generation 或 evidence shape 直接 fail closed。`SloObservationOutboxStore` 的
-对应 convenience entry 只调用这个 helper，不替代 authority，也不从任意 Message
-字段推断证据。
+对应 convenience entry 先验证 Source Position/Delay Message ID 属于当前 Shard，再调用
+这个 helper；它不替代 authority，也不从任意 Message 字段推断证据。
 
 嵌入式/一致性实现可以使用 `PersistentSloObservationCollector(Path)` 保存 collector
 的 canonical sample projection：按 `sampleId` 排序写入完整 `SloObservationOutboxV1`
