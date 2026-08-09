@@ -1067,6 +1067,14 @@ Closed subtype bytes used below:
 
 Zero and all other subtype values are invalid in V1. A later feature cannot allocate an unregistered subtype without a new registry revision and compatible rollout.
 
+The V1 Registry currently names `meta/QUOTA` classes 4 (`retained/object usage`)
+and 5 (`grandfathered transfer state`) but does not yet freeze their value
+payload schemas or accounting transitions. A V1 implementation must therefore
+reject a non-empty class-4 or class-5 value during shard activation; it must
+not decode it as an empty projection or silently ignore it. A future Registry
+revision must define the canonical value, digest, accounting owner and replay
+rules before those classes can be persisted or restored.
+
 `meta/CONTROL_RESERVE` values use the canonical `CapacityVectorV1` payload inside
 the registered ValueEnvelope. Classes 3–5 and class 6 are keyed by their
 component grant ID, but are disjoint projections: classes 3–5 must have zero

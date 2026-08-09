@@ -251,6 +251,26 @@ class DelayShardTest {
     }
 
     @Test
+    void activationRejectsQuotaClassesWithoutFrozenValueSchemas() {
+        for (final int quotaClass : List.of(4, 5)) {
+            final ShardStoreConfig config = ShardStoreConfig.defaults(
+                    tempDir.resolve("unsupported-quota-class-" + quotaClass));
+            final ShardId shardId = new ShardId(RouteIncarnation.random(), 5_500 + quotaClass);
+            try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                 ShardStore store = ShardStore.open(config, shardId, resources)) {
+                store.write(batch -> batch.putValue(ColumnFamily.META, 7,
+                        KeyCodec.metaQuota(quotaClass), Bytes.utf8("unfrozen-projection")));
+
+                final IllegalStateException exception = assertThrows(IllegalStateException.class,
+                        () -> new DelayShard(store, DelayShardConfig.defaults()));
+                assertEquals("meta/QUOTA quotaClass=" + quotaClass
+                        + " value schema is not implemented; activation is fail-closed",
+                        exception.getMessage());
+            }
+        }
+    }
+
+    @Test
     void terminalGenerationLookupRejectsKeyValueIdentityMismatch() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("terminal-key-mismatch"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 53);

@@ -271,6 +271,7 @@ public final class DelayShard {
                 KeyCodec.metaQuota(META_LANE_QUOTA_USAGE), 7);
         final LaneQuotaUsageProjection persistedLaneQuota = laneQuotaValue == null
                 ? null : LaneQuotaUsageProjection.decode(laneQuotaValue.payload());
+        rejectUnsupportedQuotaProjections();
         final long rebuildRevision = persistedQuota == null
                 ? persistedLaneQuota == null ? 0 : maxLaneQuotaRevision(persistedLaneQuota)
                 : persistedQuota.usageRevision();
@@ -342,6 +343,21 @@ public final class DelayShard {
             throw new IllegalStateException("persisted outcome reserve projections disagree");
         }
         validateRuntimeObligationIndexes();
+    }
+
+    /**
+     * V1 registers quota classes 4 and 5, but their value schemas are not
+     * frozen yet. Do not silently treat a persisted retained/object or
+     * grandfathered-transfer projection as empty; activation must stop until
+     * a Registry revision supplies the decoder and accounting rules.
+     */
+    private void rejectUnsupportedQuotaProjections() {
+        for (int quotaClass = 4; quotaClass <= 5; quotaClass++) {
+            if (store.get(ColumnFamily.META, KeyCodec.metaQuota(quotaClass)) != null) {
+                throw new IllegalStateException("meta/QUOTA quotaClass=" + quotaClass
+                        + " value schema is not implemented; activation is fail-closed");
+            }
+        }
     }
 
     /** Returns the persisted source-ordered trust-set marker projection. */

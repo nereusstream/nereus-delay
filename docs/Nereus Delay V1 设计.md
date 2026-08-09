@@ -6,7 +6,7 @@
 
 本文是 Nereus Delay V1 的实现与验收基线。术语以仓库根目录的 [`CONTEXT.md`](../CONTEXT.md) 为准；关键取舍及其理由见 [`ADR index`](adr/README.md) 中编号 `0001` 至 `0042` 的 Accepted ADR；wire enum、canonical preimage、key tag/width 与 closed code 以 [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md) 为唯一数值注册表；交叉审计结果与 release-evidence checklist 见 [`V1 Design Audit`](V1-DESIGN-AUDIT.md)。若代码、配置示例或旧材料与本文冲突，以本文、Protocol Registry 和对应 ADR 的更具体约束为准；三者仍冲突时发布 gate 失败，不能由实现自行选择。
 
-本文没有待实现阶段再决定的语义空位。吞吐、内存、时间间隔等数值必须由发布基准给出，但相应的配置项、交叉约束和停止条件已经冻结。
+可执行的 V1 path 没有待实现阶段再决定的语义空位。吞吐、内存、时间间隔等数值必须由发布基准给出，但相应的配置项、交叉约束和停止条件已经冻结；Registry 中尚未冻结 value schema 的非空 subtype 必须保持不可写、不可恢复的 fail-closed 状态，不能由实现自行补语义。
 
 ## 1. 摘要
 
@@ -2532,6 +2532,8 @@ logicalStateBytes(record) =
 ```
 
 每个 reservation/message/retained/attempt record 在创建时持久化其 checked resource-charge vector；payload ownership 在同一 Message Identity 下只计一次，Reschedule 和 possible-duplicate attempt 不重复计 payload。`ACTIVE_MESSAGES`/Lane pending message 对每个非终态 generation 恰计一次，不因 aggregate `UNCERTAIN` 下同时存在 timeline/Claim/PUBLISHING work 与多个 attempt ledgers 而重复。`INFLIGHT_MESSAGES` 则独立计每个 reversible Claim 加每个 canonical attempt obligation；对应 bytes 是 versioned execution/attempt charge，不是第二份 payload ownership。Terminal 释放 active/pending，但未闭合 attempt 继续占 inflight/outcome/physical charge，历史/对象转入 retained 到 guarded GC。Duplicate/no-op 复用首次 charge。`QUOTA_ACCOUNTING_V1` 是 Route/Grant 兼容性的一部分；未知 version 停在当前 Source Position。RocksDB compression、memtable、WAL、SST block、compaction amplification 和 Object Store billing size 不影响 APPLIED/REJECTED，只进入 Worker 物理容量证明和 Shard Safety Backpressure。
+
+当前 Registry 只冻结了 `meta/QUOTA` class 2 的 aggregate vector 和 class 3 的 per-Lane map；class 4（retained/object usage）与 class 5（grandfathered transfer state）目前只有 subtype 名称，尚未冻结 value schema、digest 和 source-ordered accounting transition。V1 代码对这两个 class 的非空值 fail closed，不能把它们当作空 projection；在 Registry revision 定义完整编码和转移规则前，不得写入或恢复这两个 class。
 
 每个 active grant 同时固定：
 
