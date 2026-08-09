@@ -1302,6 +1302,12 @@ Producer 的真实 authority 仍必须在后续外部集成 gate 中证明。
 decoder；`Descriptor.value()` 暴露的 typed projection 与 Admission 校验使用同一份
 bytes、等值规则和 prepared-hash domain-separated 公式。它统一本地解析和等值校验，
 不能被解释为已经取得 Broker channel、Producer 或外部 Profile/catalog authority。
+Registry descriptor 的 generation/attemptNo 仍按完整 `uint32` 保留在 typed wire
+projection；现有兼容运行时的 `PublishAdmissionBody.Descriptor` 仍是有界 signed-
+`int` 视图，因此遇到高位值会以明确的 `IllegalArgumentException` fail closed，
+而不会把它误当作已经支持高位 runtime state。要开放该范围，必须连同
+Message/Claim/Admission ledger、key、查询和调度的 signed narrowing 一起完成，不能
+只放宽一个解析器。
 
 运行时现在另提供严格的 `DelayShard.claimForPublishV1` 入口：在构造 Claim
 WriteBatch 前，它把 typed materialization 的 message identity、generation、

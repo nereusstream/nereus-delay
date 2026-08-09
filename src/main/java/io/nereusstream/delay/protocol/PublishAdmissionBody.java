@@ -393,7 +393,8 @@ public final class PublishAdmissionBody {
         final PreparedPublishDescriptorV1 typed = PreparedPublishDescriptorV1.decode(encoded);
         return new Descriptor(encoded, typed.preparedPublishHash(), typed.destinationLaneId().bytes(),
                 typed.laneIncarnation(), typed.channel().canonicalBytes(), typed.messageId().bytes(),
-                Math.toIntExact(typed.generation()), typed.publishAttemptId(), Math.toIntExact(typed.attemptNo()),
+                runtimeUint32(typed.generation(), "descriptor generation"), typed.publishAttemptId(),
+                runtimeUint32(typed.attemptNo(), "descriptor attemptNo"),
                 typed.destinationProfile().canonicalBytes(), typed.capabilityProfile().canonicalBytes(),
                 typed.targetResource().canonicalBytes(), typed.payload().canonicalBytes(),
                 typed.businessMetadata().canonicalBytes(), typed.deliverAtEpochMs(), typed.expireAtEpochMs(),
@@ -698,8 +699,13 @@ public final class PublishAdmissionBody {
 
     private static int intValue(final CanonicalProtobuf.Reader.Field field, final int number) {
         final long value = unsigned(field, number);
-        if (value > Integer.MAX_VALUE) {
-            throw new IllegalArgumentException("nested uint32 exceeds runtime range");
+        return runtimeUint32(value, "nested uint32");
+    }
+
+    /** Narrows a Registry uint32 only at the legacy signed runtime boundary. */
+    private static int runtimeUint32(final long value, final String name) {
+        if (value < 0 || value > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException(name + " exceeds runtime range");
         }
         return (int) value;
     }

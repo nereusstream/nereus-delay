@@ -143,6 +143,13 @@ nonnegative timing constraints and domain-separated digest. `ClaimResultBody`,
 these types, while `ClaimRecord` exposes the typed projection only after its
 durable Claim precondition has passed. This is stronger local codec evidence,
 not proof of Profile/catalog, Object Store, Adapter or Producer authority.
+The canonical typed descriptor therefore keeps the full uint32 generation and
+attempt range, but the compatibility `PublishAdmissionBody.Descriptor` remains a
+signed-int runtime projection. High-bit values are rejected with a stable
+`IllegalArgumentException` before the narrowing
+(`PublishAdmissionBodyTest.rejectsDescriptorHighBitUint32AtTheSignedRuntimeProjection`);
+widening that projection requires the corresponding Message/ledger/key/runtime
+migration and is not inferred from the wire codec alone.
 
 The `ExactResourceIdentityV1` retirement projection now applies the same
 branch-specific Object Store Profile fence as the committed/checkpoint

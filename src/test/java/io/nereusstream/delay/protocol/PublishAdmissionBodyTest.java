@@ -41,6 +41,21 @@ public class PublishAdmissionBodyTest {
     }
 
     @Test
+    void rejectsDescriptorHighBitUint32AtTheSignedRuntimeProjection() {
+        final Fixture fixture = Fixture.create(new ShardId(RouteIncarnation.random(), 18));
+
+        final IllegalArgumentException generation = assertThrows(IllegalArgumentException.class,
+                () -> PublishAdmissionBody.decode(tamperDescriptorScalar(fixture.body(), 12,
+                        0x8000_0000L)));
+        assertEquals("descriptor generation exceeds runtime range", generation.getMessage());
+
+        final IllegalArgumentException attempt = assertThrows(IllegalArgumentException.class,
+                () -> PublishAdmissionBody.decode(tamperDescriptorScalar(fixture.body(), 14,
+                        0x8000_0000L)));
+        assertEquals("descriptor attemptNo exceeds runtime range", attempt.getMessage());
+    }
+
+    @Test
     void preservesUnsignedProfileReferenceVersionsAcrossAdmissionMaterialization() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 13);
         final byte[] destination = new ProfileRefV1(Bytes.utf8("destination-high-bit"), Long.MIN_VALUE,
@@ -378,6 +393,18 @@ public class PublishAdmissionBodyTest {
                 final CanonicalProtobuf.Reader.Field field = descriptorReader.next();
                 if (field.number() == descriptorField) {
                     CanonicalProtobuf.uint64(output, descriptorField, value);
+                } else if (descriptorField == 12 && field.number() == 17) {
+                    final byte[] reserved = field.rawValue();
+                    final byte[] changedReserved = CanonicalProtobuf.message(reservedOutput -> {
+                        for (CanonicalProtobuf.Reader.Field reservedField : readFields(reserved)) {
+                            if (reservedField.number() == 4) {
+                                CanonicalProtobuf.uint64(reservedOutput, 4, value);
+                            } else {
+                                writeField(reservedOutput, reservedField);
+                            }
+                        }
+                    });
+                    CanonicalProtobuf.bytes(output, 17, changedReserved);
                 } else if (field.wireType() == 0) {
                     CanonicalProtobuf.uint64(output, field.number(), field.unsignedValue());
                 } else {
