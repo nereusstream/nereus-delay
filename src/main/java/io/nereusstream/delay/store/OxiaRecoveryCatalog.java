@@ -7,6 +7,7 @@ import io.nereusstream.delay.protocol.CheckpointUploadStateV1;
 import io.nereusstream.delay.protocol.EvidenceCursorV1;
 import io.nereusstream.delay.protocol.RecoveryFloorRefV1;
 import io.nereusstream.delay.protocol.RecoveryPinV1;
+import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.SourcePosition;
 
 import java.nio.ByteBuffer;
@@ -196,6 +197,20 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
             validateFloorCoverageAncestry(ancestry, candidate, coverage.floor());
         });
         return result;
+    }
+
+    @Override
+    public void validateLocalStoreRecovery(final ShardId shardId,
+                                           final StoreRecoveryMetadata localMetadata) {
+        Objects.requireNonNull(shardId, "shardId");
+        final StoreRecoveryMetadata requested = Objects.requireNonNull(localMetadata, "localMetadata");
+        if (!requested.hasReusableProof()) {
+            throw new IllegalArgumentException("local Store lacks a complete recovery-reuse projection");
+        }
+        // The backend owns the current Floor/catalog/Owner-transaction view.
+        // Keep this call explicit instead of inferring authority from a local
+        // ACTIVE pointer or from the metadata's candidate identity.
+        backend.validateLocalStoreRecovery(shardId, requested);
     }
 
     @Override
@@ -441,6 +456,11 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
                                                                    long requiredMutationSequence,
                                                                    SourcePosition... requiredPositions);
 
+        default void validateLocalStoreRecovery(final ShardId shardId,
+                                                final StoreRecoveryMetadata localMetadata) {
+            throw new UnsupportedOperationException("local Store recovery validation is not implemented");
+        }
+
         default RecoveryPinV1 createRecoveryPin(final RecoveryPinV1 pin) {
             throw new UnsupportedOperationException("session-bound RecoveryPin CAS is not implemented");
         }
@@ -511,6 +531,12 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
                                                                            final long requiredMutationSequence,
                                                                            final SourcePosition... requiredPositions) {
             return delegate.proveFloorCoverage(candidateCheckpointId, requiredMutationSequence, requiredPositions);
+        }
+
+        @Override
+        public void validateLocalStoreRecovery(final ShardId shardId,
+                                               final StoreRecoveryMetadata localMetadata) {
+            delegate.validateLocalStoreRecovery(shardId, localMetadata);
         }
 
         @Override

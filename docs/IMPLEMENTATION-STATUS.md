@@ -2148,6 +2148,15 @@ checkpoint identity/version fields are compared when present, while real
 adapter ownership/attestation, Recovery Floor barriers, quota release and
 Lane terminal-guard replacement remain pending.
 
+`OxiaRecoveryCatalog.validateLocalStoreRecovery` now forwards the documented
+local reuse proof to the Oxia CAS backend after rejecting an incomplete
+`StoreRecoveryMetadata` projection locally. The delegating embedded backend
+uses the same exact typed Floor, published base manifest, ancestry and
+Store-Incarnation/install-state checks as `RecoveryCatalog`; the remote backend
+remains responsible for binding that read to the current catalog and Owner
+Lease/session transaction. `RecoveryCatalogTest.OxiaBoundaryForwardsLocalStoreRecoveryValidation`
+covers the forwarding and incomplete/wrong-shard fences.
+
 `ResourceGcGuard` now exposes both the scalar necessary-condition result and a
 catalog-backed variant. The latter requires exact parent-hash ancestry from a
 published candidate through the current local Recovery Floor, in addition to

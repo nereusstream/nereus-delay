@@ -199,6 +199,33 @@ class RecoveryCatalogTest {
     }
 
     @Test
+    void OxiaBoundaryForwardsLocalStoreRecoveryValidation() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 15);
+        final byte[] lineage = id16(150);
+        final CheckpointManifest genesis = manifest(shard, UUID.randomUUID(), lineage, id16(151), 0, 1, 1, null);
+        final RecoveryCatalog delegate = new RecoveryCatalog();
+        delegate.publish(genesis, 0);
+        final RecoveryFloorRefV1 floor = delegate.advanceFloor(genesis.checkpointId(), 1, List.of());
+        final byte[] storeIncarnation = id16(152);
+        final StoreRecoveryMetadata local = new StoreRecoveryMetadata(
+                new RecoveryCandidateRefV1(RecoveryCandidateKindV1.LOCAL_STORE, lineage,
+                        genesis.checkpointId(), genesis.manifestSha256(), storeIncarnation), floor,
+                floor.catalogGeneration(), new RecoveryInstallStateV1(RecoveryInstallPhaseV1.OPEN,
+                        storeIncarnation, genesis.checkpointId()));
+        final OxiaRecoveryCatalog authority = new OxiaRecoveryCatalog(delegate);
+
+        authority.validateLocalStoreRecovery(shard, local);
+
+        final StoreRecoveryMetadata incomplete = StoreRecoveryMetadata.empty();
+        assertThrows(IllegalArgumentException.class,
+                () -> authority.validateLocalStoreRecovery(shard, incomplete));
+        final StoreRecoveryMetadata wrongShard = local;
+        assertThrows(IllegalArgumentException.class,
+                () -> authority.validateLocalStoreRecovery(
+                        new ShardId(RouteIncarnation.random(), 15), wrongShard));
+    }
+
+    @Test
     void catalogPublicationRequiresExactPublishedUploadIntentIdentity() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 11);
         final byte[] lineage = id16(70);

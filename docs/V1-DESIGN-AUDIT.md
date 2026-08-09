@@ -1901,6 +1901,13 @@ nested intent 也必须匹配同一 key。错挂的 GC value 会在 query/compac
 
 普通 local catalog publish 对已存在的 exact manifest 也先做 identity reread，
 因此 catalog generation 推进不会把一次已成功的 checkpoint insert 误报为冲突。
+`OxiaRecoveryCatalog.validateLocalStoreRecovery` 现在也把 local Store 的
+recovery-reuse proof 明确转发到 CAS backend，并在发起远端读取前拒绝缺失
+Floor/base/install-state 的不完整 projection；embedded delegating backend
+复用 `RecoveryCatalog` 的 exact typed Floor、manifest ancestry、Shard 与
+Store-Incarnation 校验。这个 adapter 仍不伪装成 current Oxia
+Owner Lease/session transaction，证据为
+`RecoveryCatalogTest.OxiaBoundaryForwardsLocalStoreRecoveryValidation`。
 
 `ShardStore.createCheckpoint` 现在先把完整 RocksDB 镜像写入同文件系统的
 `checkpoint-tmp` 命名空间，完成后才通过 atomic rename 安装到目标路径；已有
