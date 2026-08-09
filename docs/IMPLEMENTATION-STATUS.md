@@ -1943,6 +1943,13 @@ embedded compatibility seams; production wiring still must supply the required
 reconstruction from Message/Admission authority, collector merge/export and
 metric publication remain release blockers.
 
+`SloObservationCollector` now provides the local deterministic collector merge
+projection: it keys by canonical sample ID, rejects a different Start for that
+ID, and delegates repeated Final observations to the direction-aware
+conservative merge. `SloObservationCollectorTest` covers bad-evidence
+monotonicity, Start drift rejection and deterministic snapshot order. This is
+not yet the durable/authorized production collector or metric publisher.
+
 The pinned Kafka/Pulsar ingress adapters also catch a transport
 `CompletionStage` whose callback registration itself throws; after Producer
 ownership that path is conservatively projected as `ENQUEUE_UNCERTAIN` for both

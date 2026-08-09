@@ -1922,6 +1922,11 @@ monotonic one-second record/encoded-byte budget；拒绝只停止本次 scan，�
 和 `SloObservationOutboxExportRateTest`。该 rate state 在进程重启后不伪装成持久
 collector authority，生产配额、merge/export 和 evidence-gap projection 仍须外部
 证据闭合。
+本地 `SloObservationCollector` 还把相同 `(sampleId,startDigest)` 的 at-least-once
+记录合并为 deterministic projection：Start bytes 漂移 fail closed，Final 继续
+使用 Registry 的 direction-aware conservative merge；`SloObservationCollectorTest`
+覆盖 bad-evidence 单调性、Start drift 和 snapshot 排序。它不替代生产 collector
+的持久化、授权和 metric publication。
 
 Large-payload reservation 的本地读取也采用同一条组合身份边界：`id_cf/RESERVATION`
 key 中的 reservationId 必须与 `PayloadReservation` 值一致，值中的 ShardId 必须与
