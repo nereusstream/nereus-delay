@@ -11,6 +11,9 @@ import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
+import io.nereusstream.delay.protocol.PulsarJournalGenerationResourceV1;
+import io.nereusstream.delay.protocol.ResourceKind;
+import io.nereusstream.delay.protocol.ResourceRetireIntentBody;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.StableCode;
@@ -332,6 +335,21 @@ class PulsarAttemptJournalTest {
                 journalResource);
         assertThrows(PulsarAttemptJournal.JournalException.class,
                 () -> journal.notPublishedEvidence(mapping, 3, wrongLane, retirementBarrier));
+    }
+
+    @Test
+    void journalResourceProjectsTypedRegistryGenerationIdentity() {
+        final PulsarJournalResource resource = new PulsarJournalResource("cluster", bytes(32, 21),
+                "persistent://nereus/system/attempt-journal", Long.MIN_VALUE, 7);
+
+        final PulsarJournalGenerationResourceV1 typed = resource.protocolResource(Long.MIN_VALUE);
+        assertEquals(resource.partition(), typed.partition());
+        assertEquals(Long.MIN_VALUE, typed.evidenceGeneration());
+        assertEquals(typed, PulsarJournalGenerationResourceV1.decode(typed.canonicalBytes()));
+        final ResourceRetireIntentBody.ExactResourceIdentity identity =
+                ResourceRetireIntentBody.decodeResourceIdentity(ResourceKind.PULSAR_JOURNAL_GENERATION,
+                        resource.exactResourceCanonicalBytes(Long.MIN_VALUE));
+        assertArrayEquals(resource.exactResourceCanonicalBytes(Long.MIN_VALUE), identity.canonicalBytes());
     }
 
     private static PulsarAttemptJournal.JournalPosition position(final long entryId) {

@@ -2021,8 +2021,10 @@ canonical construction, decode and ExactResourceIdentity wrappers:
 covers payload optional-etag handling, typed Broker/channel/shard identities,
 raw unsigned Kafka/Pulsar fields and branch rejection, while
 `KafkaReceiptResource.protocolResource()` exposes the slot geometry through the
-same Registry identity. This remains a local identity codec; slot allocation,
-retirement authority and Broker/Oxia ownership are still external.
+same Registry identity and `PulsarJournalResource.protocolResource()` exposes
+the Journal resource/generation identity. This remains a local identity codec;
+slot allocation, retirement authority and Broker/Oxia ownership are still
+external.
 `PublishAdmissionBody`'s nested ProfileRef and Broker-resource validators now
 apply the same raw-version/physical-identity rule, so a canonical Admission
 cannot reject a Profile version that the standalone Registry codec accepts.

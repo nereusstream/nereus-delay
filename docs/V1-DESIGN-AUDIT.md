@@ -121,8 +121,9 @@ The seven Registry retirement branches are now exposed as typed protocol values:
 `LaneChannelResourceV1` and `LocalStoreResourceV1`. Each value owns its direct
 canonical codec and exact `ResourceKind` wrapper; `ExternalResourceBranchTest`
 covers the newly added payload/DLQ/lane/local-store values as well as raw
-unsigned Kafka/Pulsar fields. `KafkaReceiptResource` projects the same slot
-identity. This closes only the local resource-value boundary, not slot
+unsigned Kafka/Pulsar fields. `KafkaReceiptResource` and
+`PulsarJournalResource` project their physical identities into the same typed
+Registry branches. This closes only the local resource-value boundary, not slot
 allocation, external retirement, Broker evidence or Oxia ownership.
 
 Payload-proof trust-set semantic/reference versions now also preserve complete
