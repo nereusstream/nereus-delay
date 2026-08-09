@@ -832,6 +832,12 @@ public final class DelayShard {
                                                      final byte[] claimedCharge) {
         Objects.requireNonNull(messageId, "messageId");
         Objects.requireNonNull(owner, "owner");
+        // A shared Worker resource breach fences the next Claim/Admission
+        // attempt across all owned shard DBs. Source-ordered control and
+        // capacity-gated mutations remain applicable so drain/release work
+        // can make progress; this pre-Producer helper must not create new
+        // business work after the runtime envelope has failed.
+        store.sharedResources().requireRuntimeBusinessAdmission();
         owner.requireFor(SystemMutationType.CLAIM_RESULT);
         if (claimDeadlineEpochMs < 0) {
             throw new IllegalArgumentException("claim deadline must be non-negative");

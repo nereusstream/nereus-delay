@@ -1264,9 +1264,13 @@ background pool；每个 DB 另外绑定 `maxBackgroundJobsPerDb` 以及非零
 `FileStore` 对应卷的最小可用空间。`ShardStore.physicalUsage()`/
 `requirePhysicalUsageWithin` 与 `RocksDbUsageLimitsTest`、
 `ShardStoreTest.physicalUsageProbeAndGuardObserveOneShardDb` 证明了这个本地
-guard。它仍是显式 snapshot/guard，不是每次 WriteBatch 的动态 admission，也不
-替代真实 JVM/cgroup/rlimit probe、work-class reserve、checkpoint/compaction
-调度和 Oxia placement authority；这些继续保持 release blocker。
+guard。`WorkerRuntimeSafetyGate` 还把新鲜的 JVM/cgroup/FD/filesystem
+observation 接入一个 sticky `ACTIVE -> DRAIN_OR_MIGRATE` 门；共享资源的
+ownership/restore slots 和 embedded Claim 在门未恢复前 fail closed，只有
+显式 empty-drain activation 才能重新开放。它仍不是自动 probe scheduler、
+每次 WriteBatch 的 native attribution/work-class reserve admission，也不替代
+真实 JVM/cgroup/rlimit、checkpoint/compaction 调度和 Oxia placement authority；
+这些继续保持 release blocker。
 
 Control Reserve 的本地投影也已覆盖 Registry 的 class 6：
 `meta_cf/CONTROL_RESERVE` 以 `CapacityVectorV1` 持久化 Broker system-writer
@@ -1489,9 +1493,12 @@ WriteBufferManager 预算之和不超过认证的 RocksDB native 桶；聚焦回
 拒绝路径。`WorkerRuntimeResourceProbe` 现在从 JVM、procfs、cgroup v1/v2
 和 rootPath 对应的精确 FileStore 读取有限 runtime observation；`max`、缺失
 或 malformed limit 均 fail closed，`WorkerResourceEnvelope.validate` 再逐项
-检查 heap/direct/RSS/cgroup/FD/filesystem 交叉边界。`WorkerRuntimeResourceProbeTest`
-覆盖解析与 envelope rejection；dynamic hot-shrink、RocksDB native bucket
-attribution 和 write-time reserve admission 仍是 release gate。
+检查 heap/direct/RSS/cgroup/FD/filesystem 交叉边界。`WorkerRuntimeSafetyGate`
+提供 fresh observation 的 sticky drain/migrate 状态和 explicit empty-drain
+activation；`WorkerRuntimeResourceProbeTest` 与 `WorkerRuntimeSafetyGateTest`
+覆盖解析、envelope rejection 和共享资源 ownership fencing。自动 probe
+调度、RocksDB native bucket attribution、work-class reserve 和 write-time
+reserve admission 仍是 release gate。
 Lease validity additionally rejects negative observation times even when a
 caller reaches `OwnerLease.validAt` directly rather than through an authority
 request; `OwnerLeaseTest.negativeClockCannotMakeOwnerLeaseValid` covers the

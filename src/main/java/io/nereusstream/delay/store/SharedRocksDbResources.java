@@ -18,6 +18,8 @@ public final class SharedRocksDbResources implements AutoCloseable {
         RocksDbNativeLoader.load();
     }
 
+    private final ShardStoreConfig config;
+    private final WorkerRuntimeSafetyGate runtimeSafetyGate;
     private final Cache blockCache;
     private final Env env;
     private final WriteBufferManager writeBufferManager;
@@ -70,30 +72,33 @@ public final class SharedRocksDbResources implements AutoCloseable {
     public SharedRocksDbResources(final ShardStoreConfig config,
                                   final WorkerResourceEnvelope envelope,
                                   final WorkerRuntimeResourceObservation observation) {
+        this.config = java.util.Objects.requireNonNull(config, "config");
         if (envelope != null) {
             if (observation == null) {
-                envelope.validate(config);
+                envelope.validate(this.config);
             } else {
-                envelope.validate(config, observation);
+                envelope.validate(this.config, observation);
             }
         } else if (observation != null) {
             throw new IllegalArgumentException("runtime observation requires a Worker resource envelope");
         }
+        runtimeSafetyGate = envelope == null ? null
+                : new WorkerRuntimeSafetyGate(this.config, envelope, observation);
         env = Env.getDefault();
-        env.setBackgroundThreads(config.maxBackgroundJobs());
-        blockCache = new LRUCache(config.sharedBlockCacheBytes());
-        writeBufferManager = new WriteBufferManager(config.sharedWriteBufferBudgetBytes(), blockCache);
+        env.setBackgroundThreads(this.config.maxBackgroundJobs());
+        blockCache = new LRUCache(this.config.sharedBlockCacheBytes());
+        writeBufferManager = new WriteBufferManager(this.config.sharedWriteBufferBudgetBytes(), blockCache);
         // Use the worker-wide checkpoint/compaction I/O budget for every DB
         // opened by this process.  A zero-byte limiter would silently disable
         // the global bound even though the config declares one.
-        rateLimiter = new RateLimiter(config.checkpointIoBytesPerSecond());
-        shardAcquireSlots = new Semaphore(config.maxConcurrentAcquiresPerWorker(), true);
-        ownedShardSlots = new Semaphore(config.maxOwnedShards(), true);
-        openDbSlots = new Semaphore(config.maxOpenShardDbs(), true);
-        checkpointCreateSlots = new Semaphore(config.maxConcurrentCheckpointCreatesPerWorker(), true);
-        checkpointUploadSlots = new Semaphore(config.maxConcurrentCheckpointUploadsPerWorker(), true);
-        checkpointDownloadSlots = new Semaphore(config.maxConcurrentCheckpointDownloadsPerWorker(), true);
-        drainSlots = new Semaphore(config.maxConcurrentDrainsPerWorker(), true);
+        rateLimiter = new RateLimiter(this.config.checkpointIoBytesPerSecond());
+        shardAcquireSlots = new Semaphore(this.config.maxConcurrentAcquiresPerWorker(), true);
+        ownedShardSlots = new Semaphore(this.config.maxOwnedShards(), true);
+        openDbSlots = new Semaphore(this.config.maxOpenShardDbs(), true);
+        checkpointCreateSlots = new Semaphore(this.config.maxConcurrentCheckpointCreatesPerWorker(), true);
+        checkpointUploadSlots = new Semaphore(this.config.maxConcurrentCheckpointUploadsPerWorker(), true);
+        checkpointDownloadSlots = new Semaphore(this.config.maxConcurrentCheckpointDownloadsPerWorker(), true);
+        drainSlots = new Semaphore(this.config.maxConcurrentDrainsPerWorker(), true);
     }
 
     /** Probes the current process/container before opening shared resources. */
@@ -120,9 +125,62 @@ public final class SharedRocksDbResources implements AutoCloseable {
         return rateLimiter;
     }
 
+    /** Revalidates the startup envelope against a fresh runtime observation. */
+    public synchronized void revalidateRuntime(final WorkerRuntimeResourceObservation observation) {
+        ensureOpen();
+        if (runtimeSafetyGate == null) {
+            throw new IllegalStateException("runtime safety gate requires a Worker resource envelope");
+        }
+        runtimeSafetyGate.observe(observation);
+    }
+
+    /** Stages a new envelope and fences new ownership before drain/migration. */
+    public synchronized void stageRuntimeEnvelope(final WorkerResourceEnvelope envelope,
+                                                   final WorkerRuntimeResourceObservation observation) {
+        ensureOpen();
+        if (runtimeSafetyGate == null) {
+            throw new IllegalStateException("runtime safety gate requires a Worker resource envelope");
+        }
+        runtimeSafetyGate.stage(envelope, observation);
+    }
+
+    /** Explicitly moves a staged/unsafe Worker into drain or migration. */
+    public synchronized void beginRuntimeDrainOrMigrate() {
+        ensureOpen();
+        if (runtimeSafetyGate == null) {
+            throw new IllegalStateException("runtime safety gate requires a Worker resource envelope");
+        }
+        runtimeSafetyGate.beginDrainOrMigrate();
+    }
+
+    /** Reopens the gate only after the old physical ownership boundary is empty. */
+    public synchronized void activateRuntimeAfterDrain(final long ownedShardDbs,
+                                                        final long openShardDbs,
+                                                        final boolean transitionInFlight,
+                                                        final WorkerRuntimeResourceObservation observation) {
+        ensureOpen();
+        if (runtimeSafetyGate == null) {
+            throw new IllegalStateException("runtime safety gate requires a Worker resource envelope");
+        }
+        runtimeSafetyGate.activateAfterDrain(ownedShardDbs, openShardDbs, transitionInFlight, observation);
+    }
+
+    public synchronized WorkerRuntimeSafetyGate.State runtimeSafetyState() {
+        return runtimeSafetyGate == null ? null : runtimeSafetyGate.state();
+    }
+
+    /** Fences a new Claim/Admission attempt after a shared runtime breach. */
+    public synchronized void requireRuntimeBusinessAdmission() {
+        ensureOpen();
+        if (runtimeSafetyGate != null) {
+            runtimeSafetyGate.requireActive("Claim/Admission");
+        }
+    }
+
     /** Reserves one slot for the bounded shard-open/restore acquisition phase. */
     public synchronized void acquireShardAcquireSlot() {
         ensureOpen();
+        requireRuntimeOwnershipAdmission();
         if (!shardAcquireSlots.tryAcquire()) {
             throw new IllegalStateException("worker concurrent shard acquire limit reached");
         }
@@ -144,6 +202,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
      */
     public synchronized void acquireOwnedShardSlot() {
         ensureOpen();
+        requireRuntimeOwnershipAdmission();
         if (!ownedShardSlots.tryAcquire()) {
             throw new IllegalStateException("worker maxOwnedShards limit reached");
         }
@@ -153,6 +212,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
     /** Reserves the logical owned slot for one exact Shard identity. */
     public synchronized void acquireOwnedShardSlot(final ShardId shardId) {
         ensureOpen();
+        requireRuntimeOwnershipAdmission();
         if (shardId == null) {
             throw new NullPointerException("shardId");
         }
@@ -191,6 +251,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
 
     public synchronized void acquireDbSlot() {
         ensureOpen();
+        requireRuntimeOwnershipAdmission();
         if (!openDbSlots.tryAcquire()) {
             throw new IllegalStateException("worker maxOpenShardDbs limit reached");
         }
@@ -240,6 +301,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
     /** Reserves the process-wide slot for checkpoint download/restore staging. */
     public synchronized void acquireCheckpointDownloadSlot() {
         ensureOpen();
+        requireRuntimeOwnershipAdmission();
         if (!checkpointDownloadSlots.tryAcquire()) {
             throw new IllegalStateException("worker checkpoint download concurrency limit reached");
         }
@@ -334,6 +396,12 @@ public final class SharedRocksDbResources implements AutoCloseable {
     private void ensureOpen() {
         if (closed.get() || closeStarted) {
             throw new IllegalStateException("shared RocksDB resources are closed");
+        }
+    }
+
+    private void requireRuntimeOwnershipAdmission() {
+        if (runtimeSafetyGate != null) {
+            runtimeSafetyGate.requireActive("ownership/restore");
         }
     }
 }
