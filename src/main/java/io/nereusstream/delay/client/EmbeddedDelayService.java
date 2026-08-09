@@ -8,6 +8,7 @@ import io.nereusstream.delay.protocol.CommandCodec;
 import io.nereusstream.delay.protocol.CommandQueuedReceiptV1;
 import io.nereusstream.delay.protocol.CommandQueuedReceiptV1.KafkaQueuedAck;
 import io.nereusstream.delay.protocol.CommandQueryResponseV1;
+import io.nereusstream.delay.protocol.CommandQueryResult;
 import io.nereusstream.delay.protocol.ControlOperationQueryResponseV1;
 import io.nereusstream.delay.protocol.ControlOperationReceiptV1;
 import io.nereusstream.delay.protocol.CurrentControlOperationV1;
@@ -308,6 +309,23 @@ public final class EmbeddedDelayService implements DelayClient {
             final long fullResultRetainUntilEpochMs, final PublicDestinationBindingViewV1 binding) {
         return CompletableFuture.completedFuture(queryCommand(receipt, nowEpochMs, fullResultRetainUntilEpochMs,
                 binding));
+    }
+
+    @Override
+    public synchronized CompletionStage<CommandQueryResponseV1> awaitAppliedV1(
+            final CommandQueuedReceiptV1 receipt, final long nowEpochMs,
+            final long fullResultRetainUntilEpochMs, final PublicDestinationBindingViewV1 binding) {
+        ensureOpen();
+        if (receipt == null || !isEmbeddedReceipt(receipt)) {
+            return CompletableFuture.completedFuture(CommandQueryResponseV1.error(StableCode.RECEIPT_MISMATCH,
+                    null));
+        }
+        CommandQueryResponseV1 result = queryCommand(receipt, nowEpochMs, fullResultRetainUntilEpochMs, binding);
+        if (result.resultKind() == CommandQueryResult.PENDING) {
+            drain();
+            result = queryCommand(receipt, nowEpochMs, fullResultRetainUntilEpochMs, binding);
+        }
+        return CompletableFuture.completedFuture(result);
     }
 
     @Override

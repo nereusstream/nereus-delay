@@ -663,6 +663,35 @@ class EmbeddedDelayServiceTest {
     }
 
     @Test
+    void awaitAppliedV1DrainsOnlyAfterReceiptValidation() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 27);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("await-v1")), shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final DelayClient client = service;
+            final PreparedCommand command = client.prepareCancelV1(DelayMessageId.random(shard),
+                    new MessagePreconditionV1(0L, null), 10_000);
+            final EnqueueOutcome queued = client.enqueueV1(command).toCompletableFuture().join();
+            final CommandQueuedReceiptV1 receipt = service.queuedReceiptV1(queued, 10_000,
+                    java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("await-v1-attempt")), 16));
+
+            assertEquals(CommandQueryResult.APPLIED,
+                    client.awaitAppliedV1(receipt, 1_000, 10_000, null)
+                            .toCompletableFuture().join().resultKind());
+            assertEquals(0, service.pendingCommandCount());
+
+            final PreparedCommand foreign = PreparedCommand.scheduleV1(shard,
+                    scheduleIntentV1("foreign-await-v1", 2_000, 5_000, "payload"), 10_000);
+            final CommandQueuedReceiptV1 forged = CommandQueuedReceiptV1.create(foreign,
+                    receipt.sourcePosition(), receipt.brokerAck(), receipt.receiptQueryUntilEpochMs(),
+                    receipt.physicalEnqueueAttemptId());
+            assertEquals(CommandQueryResult.RECEIPT_MISMATCH,
+                    client.awaitAppliedV1(forged, 1_000, 10_000, null)
+                            .toCompletableFuture().join().resultKind());
+        }
+    }
+
+    @Test
     void delayClientExposesBoundedCommandAndMessageQueries() {
         final long now = 1_000;
         final ShardId shard = new ShardId(RouteIncarnation.random(), 21);

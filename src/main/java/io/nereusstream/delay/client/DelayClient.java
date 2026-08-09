@@ -69,6 +69,11 @@ public interface DelayClient extends AutoCloseable {
                                                               long fullResultRetainUntilEpochMs,
                                                               PublicDestinationBindingViewV1 binding);
 
+    CompletionStage<CommandQueryResponseV1> awaitAppliedV1(CommandQueuedReceiptV1 receipt,
+                                                            long nowEpochMs,
+                                                            long fullResultRetainUntilEpochMs,
+                                                            PublicDestinationBindingViewV1 binding);
+
     /** Queries the V1 message projection with caller-supplied bounded policy inputs. */
     CompletionStage<MessageQueryResponseV1> getMessage(DelayMessageId messageId,
                                                         PublicDestinationBindingViewV1 binding,

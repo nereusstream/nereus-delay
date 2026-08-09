@@ -43,6 +43,12 @@ the closed `INVALID_PREPARED_COMMAND` definitive outcome. The batch form keeps
 the same independent input-order semantics as legacy batch enqueue, covered by
 `EmbeddedDelayServiceTest.strictV1IngressRejectsLegacyBodiesBeforeSourceAdmission`.
 
+`DelayClient.awaitAppliedV1` now performs a bounded local wait by validating the
+embedded V1 receipt first, draining only a valid pending source prefix, and
+re-querying the closed union. Invalid/forged receipts return
+`RECEIPT_MISMATCH` without a drain side effect; the evidence is
+`EmbeddedDelayServiceTest.awaitAppliedV1DrainsOnlyAfterReceiptValidation`.
+
 The local in-memory Owner Lease authority advances the raw `uint64` epoch
 domain through the high-bit boundary and fails only when the all-ones value is
 exhausted (`OwnerLeaseTest.ownerEpochSuccessorUsesTheCompleteUnsignedDomain`).
