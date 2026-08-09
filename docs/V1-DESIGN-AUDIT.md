@@ -374,6 +374,15 @@ response evidence 仍是外部 release gate。Native adapter 若配置
 epoch millisecond 时返回 `AUTO_FAST_PREREQUISITE_UNAVAILABLE`，不把本地时间源故障
 解释成 expiry 或 Producer ownership；`NativeSubmissionAdapterTest` 覆盖这两个分支。
 时钟认证和生产 Broker-time authority 仍是 release gate。
+`PulsarAttemptJournal` 进一步把 ADR 0037 的本地可验证部分落成独立 seam：Producer
+key 固定在一个 Shard，sequence 严格递增，mapping append 必须先拿到 Journal position，
+精确重放幂等，未 retirement 的 lower sequence 阻塞后续 Admission，
+`RETIRED_NOT_PUBLISHED` 之后才允许下一个 sequence，`sendAfterMapped` 不接受未 durable
+或已 retirement 的 mapping。Broker sequence 超过 Journal 最大值，或 lower sequence 缺少
+inactivity-horizon 与 producer-snapshot 两项证明，统一返回
+`PULSAR_EVIDENCE_DIVERGENCE`；`PulsarAttemptJournalTest` 覆盖这些分支。该类的 injected
+appender 只是本地协议测试，不替代 Nereus-owned topic、ExclusiveWithFencing、guarded
+reader/reconnect、Recovery-Floor retention 或真实 Broker evidence。
 同步 prepare 入口的本地参数/strict-frame 校验现在统一投影为
 `PreparationFailure`，其 `StableErrorV1.stage` 固定为 `PREPARATION`，同时保持
 `IllegalArgumentException` 兼容性；`AutoFastScheduleTest` 覆盖稳定错误的 canonical
