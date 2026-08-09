@@ -380,8 +380,11 @@ key 固定在一个 Shard，sequence 严格递增，mapping append 必须先拿�
 successor，首条或后续跳号都以 `INTEGRITY_ERROR` 拒绝而不留下部分 state；对某个
 Lane-scoped Producer，`evidenceCursor` 可将最新本地 Journal position 投影成带目标
 resource/creation/partition、batch cursor、generation 和最大本地 Broker 时间的 typed
-`EvidenceCursorV1`，但这仍不是 contiguous Broker reader、retention 或 guarded
-publication 证明；
+`EvidenceCursorV1`；`publishedEvidence` 进一步构造 Registry 的
+`PULSAR_ATTEMPT_JOURNAL` PUBLISHED branch，绑定 exact Attempt owner、prepared hash、
+producer-name hash、sequence、mapping-record hash 和可选 target-ack evidence。两者都
+仍只是本地 canonical value projection，不是 contiguous Broker reader、retention、
+authenticated Broker ACK/guard 或 publication 证明；
 `appendOrReuse`/重载 `sendAfterMapped` 对同一 exact attempt
 重试复用原 mapping/sequence，且在 mapping append 失败时不进入 target sender；
 未 retirement 的 lower sequence 阻塞后续 Admission，

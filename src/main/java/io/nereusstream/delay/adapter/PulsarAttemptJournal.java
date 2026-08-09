@@ -1,9 +1,14 @@
 package io.nereusstream.delay.adapter;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.CanonicalProtobuf;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DestinationLaneId;
+import io.nereusstream.delay.protocol.EvidenceVerificationStatusV1;
 import io.nereusstream.delay.protocol.EvidenceCursorV1;
+import io.nereusstream.delay.protocol.ExternalDeliveryIdentityV1;
+import io.nereusstream.delay.protocol.PublishEvidenceKindV1;
+import io.nereusstream.delay.protocol.PublishEvidenceV1;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.StableCode;
 
@@ -227,6 +232,49 @@ public final class PulsarAttemptJournal {
                 target.resourceIncarnation(), target.partition(), evidenceGeneration, maxBrokerPersistedAt,
                 target.physicalTopic(), target.physicalTopicCreationTimestamp(), position.ledgerId(),
                 position.entryId(), position.batchIndex(), position.batchSize()));
+    }
+
+    /**
+     * Builds the canonical local PUBLISHED Journal evidence branch for one
+     * still-live mapping. The returned value is suitable for local codec and
+     * identity tests only; Broker acknowledgement, guard attestation and
+     * retention authority remain outside this class.
+     */
+    public synchronized PublishEvidenceV1 publishedEvidence(final Mapping mapping, final long evidenceGeneration,
+                                                             final byte[] targetAckEvidenceId) {
+        Objects.requireNonNull(mapping, "mapping");
+        requireShard(mapping);
+        final MappingState state = mappings.get(Bytes.hex(mapping.mappingId()));
+        if (state == null || !state.mapping.sameCanonical(mapping)) {
+            throw conflict("published evidence has no exact Journal mapping");
+        }
+        if (state.retired) {
+            throw conflict("retired Journal mapping cannot produce PUBLISHED evidence");
+        }
+        final EvidenceCursorV1 cursor = evidenceCursor(mapping.producer(), evidenceGeneration).orElseThrow(() ->
+                conflict("published evidence has no Journal cursor"));
+        if (targetAckEvidenceId != null) {
+            Bytes.requireLength(targetAckEvidenceId, HASH_LENGTH, "targetAckEvidenceId");
+        }
+        final JournalRecord record = state.mappedRecord;
+        final JournalPosition position = record.position();
+        final byte[] branch = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, cursor.canonicalBytes());
+            CanonicalProtobuf.uint64Bits(output, 2, position.ledgerId());
+            CanonicalProtobuf.uint64Bits(output, 3, position.entryId());
+            CanonicalProtobuf.uint32Bits(output, 4, position.batchIndex());
+            CanonicalProtobuf.bytes(output, 5, ExternalDeliveryIdentityV1.publishAttempt(mapping.publishAttemptId())
+                    .canonicalBytes());
+            CanonicalProtobuf.bytes(output, 6, mapping.preparedPublishHash());
+            CanonicalProtobuf.bytes(output, 7, mapping.producer().stableProducerNameHash());
+            CanonicalProtobuf.uint64Bits(output, 8, mapping.sequenceId());
+            CanonicalProtobuf.bytes(output, 9, Bytes.sha256(record.canonicalBytes()));
+            if (targetAckEvidenceId != null) {
+                CanonicalProtobuf.bytes(output, 10, targetAckEvidenceId);
+            }
+        });
+        return PublishEvidenceV1.create(PublishEvidenceKindV1.PULSAR_ATTEMPT_JOURNAL,
+                EvidenceVerificationStatusV1.VERIFIED_PUBLISHED, branch);
     }
 
     /**

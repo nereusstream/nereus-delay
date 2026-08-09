@@ -263,6 +263,33 @@ class PulsarAttemptJournalTest {
         assertEquals(1_010, retired.maxBrokerPersistedAtThroughCursor());
     }
 
+    @Test
+    void publishedEvidenceBindsExactMappingAndJournalRecordHash() {
+        final ShardId shard = shard();
+        final PulsarAttemptJournal.ProducerKey producer = producer();
+        final AtomicLong entry = new AtomicLong(80);
+        final PulsarAttemptJournal journal = new PulsarAttemptJournal(shard, request -> position(entry.getAndIncrement()));
+        final PulsarAttemptJournal.Mapping mapping = journal.appendNext(producer, identity(shard, 11))
+                .record().mapping();
+        final byte[] targetAckEvidence = Bytes.sha256(Bytes.utf8("target-ack-evidence"));
+
+        final io.nereusstream.delay.protocol.PublishEvidenceV1 evidence = journal.publishedEvidence(mapping, 2,
+                targetAckEvidence);
+        assertEquals(io.nereusstream.delay.protocol.PublishEvidenceKindV1.PULSAR_ATTEMPT_JOURNAL,
+                evidence.evidenceKind());
+        assertEquals(io.nereusstream.delay.protocol.EvidenceVerificationStatusV1.VERIFIED_PUBLISHED,
+                evidence.verificationStatus());
+        evidence.requireBusinessMutation(mapping.publishAttemptId(), true);
+        assertArrayEquals(evidence.canonicalBytes(),
+                io.nereusstream.delay.protocol.PublishEvidenceV1.decode(evidence.canonicalBytes()).canonicalBytes());
+
+        journal.retireNotPublished(mapping.mappingId());
+        final PulsarAttemptJournal.JournalException retired = assertThrows(
+                PulsarAttemptJournal.JournalException.class,
+                () -> journal.publishedEvidence(mapping, 2, targetAckEvidence));
+        assertEquals(StableCode.INTEGRITY_ERROR, retired.stableCode());
+    }
+
     private static PulsarAttemptJournal.JournalPosition position(final long entryId) {
         return new PulsarAttemptJournal.JournalPosition(1, entryId, 0, 1, 1_000);
     }
