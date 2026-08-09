@@ -33,6 +33,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -117,6 +118,32 @@ class InMemoryPayloadObjectStoreTest {
                 reservation.reservationExpiryEpochMs(), PayloadReservationStatus.RESERVED,
                 reservation.stateVersion() + 1, reservation.sourcePosition(), null);
         assertThrows(IllegalStateException.class, () -> store.register(drifted));
+    }
+
+    @Test
+    void boundsHandleLifetimeAndResignsAfterCapabilityExpiry() throws Exception {
+        final KeyPair keyPair = keyPair();
+        final PayloadProofTrustSetSemanticV1 trust = trustSet(keyPair, 9_000);
+        final InMemoryPayloadObjectStore store = new InMemoryPayloadObjectStore(profile(),
+                Bytes.sha256(Bytes.utf8("tenant")), trust, 7, 500, keyPair.getPrivate());
+        final PayloadReservation reservation = reservation(5_000, Bytes.utf8("large"));
+        store.register(reservation);
+
+        final var first = store.issueUploadHandle(reservation.reservationId(),
+                UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_000).issued();
+        assertEquals(1_500L, first.expiresAtEpochMs());
+        assertEquals(first, store.issueUploadHandle(reservation.reservationId(),
+                UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_200).issued());
+        assertEquals(PayloadAttestationOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED,
+                store.attest(first, 1_501).outcome());
+
+        final var second = store.issueUploadHandle(reservation.reservationId(),
+                UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_501).issued();
+        assertEquals(2_001L, second.expiresAtEpochMs());
+        assertNotEquals(first, second);
+        assertThrows(IllegalArgumentException.class, () -> store.upload(first, Bytes.utf8("large"), 1_501));
+        store.upload(second, Bytes.utf8("large"), 1_502);
+        assertEquals(PayloadAttestationOutcomeV1.ATTESTED, store.attest(second, 1_503).outcome());
     }
 
     private static ProfileSemanticEnvelopeV1 profile() {

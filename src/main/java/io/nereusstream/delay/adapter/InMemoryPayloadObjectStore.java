@@ -50,6 +50,7 @@ public final class InMemoryPayloadObjectStore {
     private final PayloadProofTrustSetSemanticV1 trustSet;
     private final byte[] tenantRoutingScope;
     private final int proofKeyVersion;
+    private final long maxUploadHandleLifetimeMs;
     private final PrivateKey proofSigningKey;
     private final Map<String, ReservationState> reservations = new HashMap<>();
 
@@ -62,6 +63,20 @@ public final class InMemoryPayloadObjectStore {
                                       final PayloadProofTrustSetSemanticV1 trustSet,
                                       final int proofKeyVersion,
                                       final PrivateKey proofSigningKey) {
+        this(profile, tenantRoutingScope, trustSet, proofKeyVersion, Long.MAX_VALUE, proofSigningKey);
+    }
+
+    /**
+     * Creates a local adapter with an explicit short-lived handle lifetime.
+     * The effective expiry is the checked minimum of this bound and the
+     * reservation expiry; the bound is not a provider credential lease.
+     */
+    public InMemoryPayloadObjectStore(final ProfileSemanticEnvelopeV1 profile,
+                                      final byte[] tenantRoutingScope,
+                                      final PayloadProofTrustSetSemanticV1 trustSet,
+                                      final int proofKeyVersion,
+                                      final long maxUploadHandleLifetimeMs,
+                                      final PrivateKey proofSigningKey) {
         this.profile = Objects.requireNonNull(profile, "profile");
         if (profile.profileKind() != ProfileKindV1.OBJECT_STORE
                 || !(profile.body() instanceof ObjectStoreProfileSemanticV1 body)) {
@@ -72,6 +87,10 @@ public final class InMemoryPayloadObjectStore {
         this.tenantRoutingScope = Bytes.copy(tenantRoutingScope);
         this.trustSet = Objects.requireNonNull(trustSet, "trustSet");
         this.proofKeyVersion = proofKeyVersion;
+        if (maxUploadHandleLifetimeMs <= 0) {
+            throw new IllegalArgumentException("maxUploadHandleLifetimeMs must be positive");
+        }
+        this.maxUploadHandleLifetimeMs = maxUploadHandleLifetimeMs;
         this.proofSigningKey = Objects.requireNonNull(proofSigningKey, "proofSigningKey");
         requireTrustKey(trustSet, proofKeyVersion);
         requireEd25519PrivateKey(proofSigningKey);
@@ -118,15 +137,20 @@ public final class InMemoryPayloadObjectStore {
             return uploadError(PayloadUploadHandleOutcomeV1.INTEGRITY_ERROR, null);
         }
         final OpaquePayloadUploadHandleV1 existing = state.handles.get(kind);
-        if (existing != null) {
+        if (existing != null && nowEpochMs <= existing.expiresAtEpochMs()) {
             return PayloadUploadHandleResponseV1.issued(existing);
         }
+        if (existing != null) {
+            state.handles.remove(kind);
+        }
+        final long handleExpiry = boundedHandleExpiry(nowEpochMs,
+                state.reservation.reservationExpiryEpochMs(), maxUploadHandleLifetimeMs);
         final byte[] capability = Bytes.sha256(CAPABILITY_DOMAIN, state.reservation.reservationId(),
-                Bytes.u32be(kind.wireValue()), Bytes.u64be(state.reservation.reservationExpiryEpochMs()),
+                Bytes.u32be(kind.wireValue()), Bytes.u64be(handleExpiry),
                 profile.semanticHash());
         final OpaquePayloadUploadHandleV1 handle = OpaquePayloadUploadHandleV1.create(
                 state.reservation.reservationId(), profile.ref(), kind,
-                state.reservation.reservationExpiryEpochMs(), capability);
+                handleExpiry, capability);
         state.handles.put(kind, handle);
         return PayloadUploadHandleResponseV1.issued(handle);
     }
@@ -167,7 +191,7 @@ public final class InMemoryPayloadObjectStore {
         Objects.requireNonNull(handle, "handle");
         requireNow(nowEpochMs);
         final ReservationState state = reservations.get(key(handle.reservationId()));
-        if (state == null || !state.matches(handle)) {
+        if (state == null || !state.matches(handle, nowEpochMs)) {
             return attestationError(PayloadAttestationOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED, null);
         }
         final PayloadAttestationOutcomeV1 lifecycle = attestationLifecycle(state, nowEpochMs);
@@ -200,7 +224,7 @@ public final class InMemoryPayloadObjectStore {
 
     private ReservationState requireHandle(final OpaquePayloadUploadHandleV1 handle, final long nowEpochMs) {
         final ReservationState state = reservations.get(key(handle.reservationId()));
-        if (state == null || !state.matches(handle)) {
+        if (state == null || !state.matches(handle, nowEpochMs)) {
             throw new IllegalArgumentException("upload handle is not authorized for this reservation");
         }
         final PayloadUploadHandleOutcomeV1 lifecycle = uploadLifecycle(state, nowEpochMs);
@@ -290,6 +314,17 @@ public final class InMemoryPayloadObjectStore {
         return Math.min(candidate, expiryEpochMs);
     }
 
+    private static long boundedHandleExpiry(final long nowEpochMs, final long reservationExpiryEpochMs,
+                                            final long maxLifetimeMs) {
+        final long candidate;
+        try {
+            candidate = Math.addExact(nowEpochMs, maxLifetimeMs);
+        } catch (ArithmeticException overflow) {
+            return reservationExpiryEpochMs;
+        }
+        return Math.min(candidate, reservationExpiryEpochMs);
+    }
+
     private static void requireNow(final long nowEpochMs) {
         if (nowEpochMs < 0) {
             throw new IllegalArgumentException("nowEpochMs must be non-negative");
@@ -334,10 +369,11 @@ public final class InMemoryPayloadObjectStore {
             this.reservation = reservation;
         }
 
-        private boolean matches(final OpaquePayloadUploadHandleV1 handle) {
+        private boolean matches(final OpaquePayloadUploadHandleV1 handle, final long nowEpochMs) {
             return profile.ref().equals(handle.objectStoreProfile())
                     && Arrays.equals(handle.reservationId(), reservation.reservationId())
-                    && handle.expiresAtEpochMs() == reservation.reservationExpiryEpochMs()
+                    && nowEpochMs <= handle.expiresAtEpochMs()
+                    && handle.expiresAtEpochMs() <= reservation.reservationExpiryEpochMs()
                     && Objects.equals(handles.get(handle.kind()), handle);
         }
     }
