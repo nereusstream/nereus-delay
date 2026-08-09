@@ -71,6 +71,14 @@ an identity proof. `KafkaReceiptJournalTest`
 position case. It does not replace the production Kafka transaction,
 `read_committed`, LSO or retention evidence gates.
 
+The Pulsar Attempt Journal now uses the same canonical-byte identity for
+replayed `MAPPED` and `RETIRED_NOT_PUBLISHED` positions. Both reconstructed
+position branches remain exact idempotent no-ops instead of depending on Java
+record/object equality. `PulsarAttemptJournalTest`
+`reconstructedMappedAndRetirementReplayUsesCanonicalPositionBytes` covers the
+two branches; the real Journal topic, ExclusiveWithFencing and Broker evidence
+gates remain external.
+
 The UNKNOWN-outcome audit now closes a Store-integrity edge at the same
 ownership boundary: before `PUBLISH_OUTCOME_V1(UNKNOWN)` can materialize an
 uncertain retry or update READY, the current Message Lane, durable Lane record,

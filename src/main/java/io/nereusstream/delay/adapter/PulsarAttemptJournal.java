@@ -175,13 +175,17 @@ public final class PulsarAttemptJournal {
                 throw conflict("Attempt Journal mapping id/body conflict");
             }
             if (record.kind() == RecordKind.MAPPED) {
-                if (current.mappedRecord.position().equals(record.position())) {
+                // JournalPosition is reconstructed during replay; compare its
+                // canonical bytes rather than relying on record identity.
+                if (Arrays.equals(current.mappedRecord.position().canonicalBytes(),
+                        record.position().canonicalBytes())) {
                     return;
                 }
                 throw conflict("Attempt Journal mapped record replay conflict");
             }
             if (current.retired) {
-                if (current.retirementRecord.position().equals(record.position())) {
+                if (Arrays.equals(current.retirementRecord.position().canonicalBytes(),
+                        record.position().canonicalBytes())) {
                     return;
                 }
                 throw conflict("Attempt Journal retirement record replay conflict");

@@ -218,6 +218,34 @@ class PulsarAttemptJournalTest {
     }
 
     @Test
+    void reconstructedMappedAndRetirementReplayUsesCanonicalPositionBytes() {
+        final ShardId shard = shard();
+        final PulsarAttemptJournal source = new PulsarAttemptJournal(shard,
+                request -> position(request.kind() == PulsarAttemptJournal.RecordKind.MAPPED ? 80 : 81));
+        final PulsarAttemptJournal.ProducerKey producer = producer();
+        final PulsarAttemptJournal.AppendResult mapped = source.appendNext(producer, identity(shard, 28));
+        final PulsarAttemptJournal.AppendResult retired = source.retireNotPublished(mapped.record().mapping().mappingId());
+
+        final PulsarAttemptJournal.JournalPosition mappedPosition = new PulsarAttemptJournal.JournalPosition(
+                mapped.record().position().ledgerId(), mapped.record().position().entryId(),
+                mapped.record().position().batchIndex(), mapped.record().position().batchSize(),
+                mapped.record().position().brokerEntryTimestampEpochMs());
+        final PulsarAttemptJournal.JournalPosition retiredPosition = new PulsarAttemptJournal.JournalPosition(
+                retired.record().position().ledgerId(), retired.record().position().entryId(),
+                retired.record().position().batchIndex(), retired.record().position().batchSize(),
+                retired.record().position().brokerEntryTimestampEpochMs());
+        final PulsarAttemptJournal recovered = new PulsarAttemptJournal(shard, request -> position(90));
+
+        recovered.replay(new PulsarAttemptJournal.JournalRecord(
+                PulsarAttemptJournal.RecordKind.MAPPED, mapped.record().mapping(), mappedPosition));
+        recovered.replay(new PulsarAttemptJournal.JournalRecord(
+                PulsarAttemptJournal.RecordKind.RETIRED_NOT_PUBLISHED, retired.record().mapping(), retiredPosition));
+
+        assertEquals(2, recovered.records().size());
+        assertArrayEquals(retired.record().canonicalBytes(), recovered.records().get(1).canonicalBytes());
+    }
+
+    @Test
     void replayRejectsAProducerSequenceGapBeforeInstallingState() {
         final ShardId shard = shard();
         final PulsarAttemptJournal.ProducerKey producer = producer();

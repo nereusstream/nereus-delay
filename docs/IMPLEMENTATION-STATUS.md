@@ -72,6 +72,15 @@ reconstructed replay. This is local journal evidence only; Kafka
 `read_committed`/LSO/retention proof and transactional Broker authority remain
 release blockers.
 
+The Pulsar Attempt Journal applies the same canonical replay rule to both
+`MAPPED` and `RETIRED_NOT_PUBLISHED` records. Reconstructed `JournalPosition`
+values are compared by their exact canonical bytes, so response-loss replay
+cannot depend on Java object identity. `PulsarAttemptJournalTest`
+`reconstructedMappedAndRetirementReplayUsesCanonicalPositionBytes` covers both
+branches. This remains a local journal seam; the Nereus-owned Pulsar topic,
+ExclusiveWithFencing writer and Broker evidence authority remain release
+blockers.
+
 The source-ordered `PUBLISH_OUTCOME(UNKNOWN)` projection now verifies the
 current Message Lane identity, durable Lane presence, and exact Lane
 incarnation against the `PUBLISHING` attempt ledger before constructing any
