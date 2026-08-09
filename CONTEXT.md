@@ -144,6 +144,14 @@ _Avoid_: Rejected Command, silently skipped record
 The immutable result returned only after a Delay Shard has durably applied or rejected a Command. It is distinct from a Command Queued Receipt.
 _Avoid_: Broker acknowledgement, message delivery receipt
 
+**Command Queued Receipt**:
+An immutable receipt proving that one Prepared Command was durably accepted at an authenticated ingress Source Position. Its query boundary is anchored to Broker persistence time plus the immutable Route window; it never proves Command application.
+_Avoid_: Applied receipt, delivery receipt
+
+**Full Command Result Retention**:
+The policy-derived boundary through which the complete applied or rejected Command result may be returned, measured from the first result Source Position's Broker persistence time.
+_Avoid_: Worker apply TTL, SDK-supplied deadline
+
 **Deterministic Command Application**:
 The requirement that replaying a source record from any permitted checkpoint produces the same authoritative result from canonical Command bytes, Broker source metadata, preceding durable shard state, immutable referenced versions, and preceding source-ordered control markers. Live destination state, Worker clock, cache timing, and physical disk size are not business-result inputs.
 _Avoid_: Best-effort replay, current-environment validation
