@@ -1468,6 +1468,9 @@ non-regular file; a failed restore/pointer install therefore cannot overwrite
 an external target through a temporary path. `ShardStoreTest`
 `checkpointAndActivePointerTemporaryPathsRejectSymbolicLinks` covers both
 boundaries and verifies the external target bytes remain unchanged.
+Normal `ShardStore.open` now applies the same directory-durability ordering as
+restore: it fsyncs the Store Incarnation parent after open and before publishing
+the checksummed `ACTIVE` pointer, including when it adopts an orphan incarnation.
 `CheckpointUploadCoordinator` now inventories the exact local file set before
 provider I/O, requires the RocksDB `CURRENT` marker, charges the Worker upload
 slot, validates returned manifest

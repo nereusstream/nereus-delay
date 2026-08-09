@@ -124,6 +124,10 @@ public final class ShardStore implements AutoCloseable {
             final Path dbPath = locateOrCreateDbPath(shardRoot);
             final ShardStore opened = openAtPath(config, shardId, dbPath, resources, null, true);
             try {
+                // A fresh/opened Store Incarnation must be durable before the
+                // checksummed ACTIVE pointer publishes it.  This also covers
+                // recovery of an orphan incarnation when ACTIVE was missing.
+                forceDirectory(dbPath.getParent());
                 writeActivePointer(shardRoot, storeUuidFromPath(dbPath));
                 return opened;
             } catch (IOException exception) {
