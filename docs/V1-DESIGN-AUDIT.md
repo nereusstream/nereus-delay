@@ -55,6 +55,13 @@ them. `ProtocolCodecTest` covers all three malformed lower-bound cases; this
 closes a local wire-integrity gap while source-time authority and retention
 publication remain external release gates.
 
+The embedded absolute-boundary query compatibility seam now checks that same
+lower bound after reading the durable result Source Position and maps an early
+boundary or malformed local projection to typed `INTEGRITY_ERROR`. It no longer
+leaks a result-constructor exception to the caller. The strict policy path still
+derives its boundary from source time; `EmbeddedDelayServiceTest` covers the
+compatibility-path regression. This is local fail-closed evidence only.
+
 The UNKNOWN-outcome audit now closes a Store-integrity edge at the same
 ownership boundary: before `PUBLISH_OUTCOME_V1(UNKNOWN)` can materialize an
 uncertain retry or update READY, the current Message Lane, durable Lane record,

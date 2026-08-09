@@ -53,6 +53,15 @@ coverage is in `ProtocolCodecTest`, alongside the existing policy-derived
 upper-bound checks; this is local wire-integrity evidence and does not replace
 external source-time authority or retention-policy publication gates.
 
+The embedded compatibility query overload now applies the same lower-bound
+fence before projecting a result. A caller-supplied absolute retention boundary
+that precedes the applied Source Position's Broker persistence time, or a
+malformed local result/projection, returns typed `INTEGRITY_ERROR` rather than
+leaking a constructor exception; strict policy-bound queries continue to derive
+the boundary from source time. `EmbeddedDelayServiceTest` covers the malformed
+absolute-boundary path. This remains local fail-closed behavior, not production
+query routing or retention authority.
+
 The source-ordered `PUBLISH_OUTCOME(UNKNOWN)` projection now verifies the
 current Message Lane identity, durable Lane presence, and exact Lane
 incarnation against the `PUBLISHING` attempt ledger before constructing any

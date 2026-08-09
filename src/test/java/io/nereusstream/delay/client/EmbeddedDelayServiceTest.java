@@ -683,6 +683,8 @@ class EmbeddedDelayServiceTest {
             assertEquals(applied, CommandAppliedReceiptV1.decodeFrame(applied.frame()));
             assertEquals(CommandQueryResult.RESULT_EXPIRED,
                     service.queryCommand(queued, 3_000, 2_000, publicBinding()).resultKind());
+            assertEquals(CommandQueryResult.INTEGRITY_ERROR,
+                    service.queryCommand(queued, now, 999, publicBinding()).resultKind());
             assertEquals(CommandQueryResult.RESULT_EVIDENCE_EXPIRED,
                     service.queryCommand(queued, 10_001, 10_000, publicBinding()).resultKind());
 

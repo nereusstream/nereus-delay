@@ -1156,22 +1156,31 @@ public final class EmbeddedDelayService implements DelayClient {
         if (!shard.matchesCommandHash(receipt.command().commandId(), receipt.command().commandHash())) {
             return CommandQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
         }
+        final SourcePosition appliedPosition;
         final long retentionBoundary;
         try {
+            appliedPosition = SourcePositionCodec.decode(result.appliedSourcePosition());
             retentionBoundary = retentionPolicy == null
                     ? Objects.requireNonNull(fullResultRetainUntilEpochMs, "fullResultRetainUntilEpochMs")
-                    : retentionPolicy.retainUntil(SourcePositionCodec.decode(result.appliedSourcePosition()));
+                    : retentionPolicy.retainUntil(appliedPosition);
+            if (retentionBoundary < appliedPosition.brokerPersistenceTimeEpochMs()) {
+                return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+            }
         } catch (RuntimeException invalidPolicy) {
             return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
         }
-        if (nowEpochMs > retentionBoundary) {
+        try {
+            if (nowEpochMs > retentionBoundary) {
+                return retentionPolicy == null
+                        ? BoundedLocalQueryProjector.compactCommand(result, retentionBoundary)
+                        : BoundedLocalQueryProjector.compactCommand(result, retentionPolicy);
+            }
             return retentionPolicy == null
-                    ? BoundedLocalQueryProjector.compactCommand(result, retentionBoundary)
-                    : BoundedLocalQueryProjector.compactCommand(result, retentionPolicy);
+                    ? BoundedLocalQueryProjector.command(result, retentionBoundary, binding)
+                    : BoundedLocalQueryProjector.command(result, retentionPolicy, binding);
+        } catch (RuntimeException invalidProjection) {
+            return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
         }
-        return retentionPolicy == null
-                ? BoundedLocalQueryProjector.command(result, retentionBoundary, binding)
-                : BoundedLocalQueryProjector.command(result, retentionPolicy, binding);
     }
 
     /**
