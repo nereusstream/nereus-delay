@@ -17,6 +17,18 @@ Lane and the Message, attempt, quota, and source position remain unchanged.
 covers the missing-record regression. This is local Store-integrity evidence;
 it does not replace the external Owner/source/evidence recovery gates.
 
+The same missing-Lane fence now covers existing-message `RESCHEDULE` and
+`CANCEL`, plus large-payload `COMMIT`: each path requires the durable Lane
+before it can construct a result or enter the generic quota/READY projection.
+Missing Lane state throws before the WriteBatch, so the Message or Reservation,
+quota and source position remain unchanged rather than being silently repaired by
+`LaneRecord.initial(...)`. Focused regressions are
+`DelayShardTest.rescheduleFailsClosedWithoutRecreatingAMissingLaneProjection`,
+`DelayShardTest.reservedPayloadCancelFailsClosedWithoutRecreatingAMissingLaneProjection`
+and `DelayShardTest.largePayloadCommitFailsClosedWithoutRecreatingAMissingLaneProjection`.
+This closes a local Store-integrity boundary only; production ownership, replay
+and external authority evidence remain release gates.
+
 The local Lane quota projection now scans the complete `(LaneId, LaneIncarnation)`
 identity tuple instead of stopping at the first foreign incarnation for a Lane ID.
 This preserves access to a replacement while an older terminal/retired incarnation

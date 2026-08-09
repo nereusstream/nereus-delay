@@ -2603,6 +2603,107 @@ class DelayShardTest {
     }
 
     @Test
+    void rescheduleFailsClosedWithoutRecreatingAMissingLaneProjection() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("reschedule-missing-lane"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 93);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("reschedule-missing-lane"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("reschedule-missing-lane")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition reschedulePosition = position(shardId, 1, 1_001);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            store.write(batch -> batch.delete(ColumnFamily.META, KeyCodec.metaLane(lane)));
+
+            final PreparedCommand reschedule = PreparedCommand.reschedule(shardId, schedule.delayMessageId(), 0,
+                    3_000, 6_000, 9_000);
+            final IllegalStateException failure = assertThrows(IllegalStateException.class,
+                    () -> shard.apply(reschedule, reschedulePosition));
+            assertEquals("reschedule references a message on a missing Lane", failure.getMessage());
+            assertNull(shard.getLane(lane));
+            assertEquals(MessageStatus.SCHEDULED, shard.getMessage(schedule.delayMessageId()).status());
+            assertEquals(0, shard.getMessage(schedule.delayMessageId()).generation());
+            assertEquals(schedulePosition, shard.lastAppliedSourcePosition());
+        }
+    }
+
+    @Test
+    void reservedPayloadCancelFailsClosedWithoutRecreatingAMissingLaneProjection() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("reservation-cancel-missing-lane"));
+        final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,
+                3, 100, 10_000);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 94);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("reservation-cancel-missing-lane"));
+        final LargeScheduleIntent intent = new LargeScheduleIntent(lane, 2_000, 5_000,
+                OrderingMode.BEST_EFFORT, 8, Bytes.sha256(Bytes.utf8("reservation-cancel-missing-lane")),
+                4_000, 9);
+        final PreparedCommand prepare = PreparedCommand.prepareLarge(shardId, intent, 9_000);
+        final KafkaSourcePosition preparePosition = position(shardId, 0, 1_000);
+        final byte[] reservationId = Bytes.sha256(Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                prepare.commandId().bytes(), prepare.delayMessageId().bytes(), prepare.commandHash());
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, shardConfig);
+            assertEquals(StableCode.OK, shard.apply(prepare, preparePosition).stableCode());
+            store.write(batch -> batch.delete(ColumnFamily.META, KeyCodec.metaLane(lane)));
+
+            final PreparedCommand cancel = PreparedCommand.cancel(shardId, prepare.delayMessageId(), 0, 9_000);
+            final IllegalStateException failure = assertThrows(IllegalStateException.class,
+                    () -> shard.apply(cancel, position(shardId, 1, 1_001)));
+            assertEquals("cancel references a reservation on a missing Lane", failure.getMessage());
+            assertNull(shard.getLane(lane));
+            assertEquals(PayloadReservationStatus.RESERVED, shard.getReservation(reservationId).status());
+            assertEquals(preparePosition, shard.lastAppliedSourcePosition());
+        }
+    }
+
+    @Test
+    void largePayloadCommitFailsClosedWithoutRecreatingAMissingLaneProjection() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("large-commit-missing-lane"));
+        final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,
+                3, 100, 10_000);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 95);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("large-commit-missing-lane"));
+        final LargeScheduleIntent intent = new LargeScheduleIntent(lane, 2_000, 5_000,
+                OrderingMode.BEST_EFFORT, 8, Bytes.sha256(Bytes.utf8("large-commit-missing-lane")),
+                4_000, 9);
+        final PreparedCommand prepare = PreparedCommand.prepareLarge(shardId, intent, 9_000);
+        final KafkaSourcePosition preparePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition commitPosition = position(shardId, 1, 1_001);
+        final byte[] reservationId = Bytes.sha256(Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                prepare.commandId().bytes(), prepare.delayMessageId().bytes(), prepare.commandHash());
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, shardConfig);
+            assertEquals(StableCode.OK, shard.apply(prepare, preparePosition).stableCode());
+            store.write(batch -> batch.delete(ColumnFamily.META, KeyCodec.metaLane(lane)));
+
+            final PayloadCommitProof proof = PayloadCommitProof.signed(9, 2,
+                    shardId.routeIncarnation().bytes(), shardId.partition(), prepare.delayMessageId(), reservationId,
+                    Bytes.sha256(Bytes.utf8("missing-lane-profile")), Bytes.utf8("bucket"), Bytes.utf8("key"),
+                    Bytes.utf8("v1"), new byte[0], intent.expectedPayloadLength(), intent.payloadSha256(), 5_000,
+                    keyPair.getPrivate());
+            final PreparedCommand commit = PreparedCommand.commitLarge(shardId, prepare.delayMessageId(), proof,
+                    9_000);
+            final IllegalStateException failure = assertThrows(IllegalStateException.class,
+                    () -> shard.apply(commit, commitPosition));
+            assertEquals("large payload commit references a reservation on a missing Lane", failure.getMessage());
+            assertNull(shard.getLane(lane));
+            assertEquals(PayloadReservationStatus.RESERVED, shard.getReservation(reservationId).status());
+            assertNull(shard.getMessage(prepare.delayMessageId()));
+            assertEquals(preparePosition, shard.lastAppliedSourcePosition());
+        }
+    }
+
+    @Test
     void malformedCanonicalAdmissionLedgerDoesNotDowngradeToZeroCharge() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("malformed-canonical-admission"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 91);

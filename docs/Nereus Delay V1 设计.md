@@ -1456,6 +1456,13 @@ preparedPublishHash =
 
 Reschedule 原子写旧 generation `SUPERSEDED` 和新 generation timeline。Dead Letter Replay 创建下一 generation 并递增 Message Control Version。Retry 保持 generation 和 Message Control Version。
 
+对已经存在的 Message 或 Payload Reservation，`Cancel`、`Reschedule` 和大消息
+`Commit` 都必须先读取并校验其 durable Destination Lane。Lane 缺失、错挂或身份不匹配
+是 Store integrity failure，必须在任何状态结果、quota/READY projection 和
+`WriteBatch` 之前 fail closed；不得推进 `appliedSourcePosition`，也不得让通用投影通过
+`LaneRecord.initial(...)` 偷创建 Lane。只有首次 `Schedule` 或 `PrepareLarge` 在明确允许
+新 Lane 的路径上才能创建 Lane projection。
+
 `SCHEDULED`/`RETRY_WAIT` 只有在 `earliestUtcNow >= expireAt` 时进入 `EXPIRED`。`UNCERTAIN` 不能因到达 `expireAt` 被改写成“从未发布”：它先尝试 capability resolution，最终只能保留 unknown，或按显式 bounded policy 进入带 `possibleDestinationDuplicate=true` 的 `DEAD_LETTER`。
 
 ## 12. Scheduler、Lane 与时钟

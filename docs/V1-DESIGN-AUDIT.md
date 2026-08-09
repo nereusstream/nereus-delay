@@ -22,6 +22,18 @@ focused regression is
 This is local crash/corruption evidence only; Owner lease, source replay and
 external evidence authority remain release gates.
 
+The same audit boundary now covers existing-message `RESCHEDULE` and `CANCEL`,
+and large-payload `COMMIT`: each command requires a durable, identity-matching
+Lane before any generic quota/READY projection is built. A missing Lane fails
+before the WriteBatch, leaving the Message or Reservation and source position
+unchanged; `LaneRecord.initial(...)` is reserved for first Schedule/Prepare
+creation. The focused regressions are
+`DelayShardTest.rescheduleFailsClosedWithoutRecreatingAMissingLaneProjection`,
+`DelayShardTest.reservedPayloadCancelFailsClosedWithoutRecreatingAMissingLaneProjection`
+and `DelayShardTest.largePayloadCommitFailsClosedWithoutRecreatingAMissingLaneProjection`.
+This is local Store-integrity evidence and does not close the external ownership,
+replay or production authority gates.
+
 The self-routing identity audit now closes the logical locator shape: the
 fixed-width bytes between the Route/partition prefix and CRC must carry UUID
 version 7 and RFC variant `10`. `SelfRoutingId.decode` rejects a CRC-valid

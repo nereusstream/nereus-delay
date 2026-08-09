@@ -6080,7 +6080,10 @@ public final class DelayShard {
             return persistRejected(command, sourcePosition, StableCode.RESERVATION_NOT_COMMITTED);
         }
         final LaneRecord reservationLane = readLane(storedReservation.intent().laneId());
-        if (reservationLane != null && reservationLane.admissionGate() == AdmissionGate.CLOSED
+        if (reservationLane == null) {
+            throw new IllegalStateException("large payload commit references a reservation on a missing Lane");
+        }
+        if (reservationLane.admissionGate() == AdmissionGate.CLOSED
                 && storedReservation.status() == PayloadReservationStatus.RESERVED) {
             return persistRejected(command, sourcePosition, StableCode.PAYLOAD_RESERVATION_CLOSED);
         }
@@ -6262,7 +6265,10 @@ public final class DelayShard {
                     return applied(StableCode.VERSION_CONFLICT, sourcePosition, null);
                 }
                 final LaneRecord reservationLane = readLane(reservation.intent().laneId());
-                if (reservationLane != null && reservationLane.admissionGate() == AdmissionGate.CLOSED
+                if (reservationLane == null) {
+                    throw new IllegalStateException("cancel references a reservation on a missing Lane");
+                }
+                if (reservationLane.admissionGate() == AdmissionGate.CLOSED
                         && reservation.status() == PayloadReservationStatus.RESERVED) {
                     return applied(StableCode.PAYLOAD_RESERVATION_CLOSED, sourcePosition, null);
                 }
@@ -6280,7 +6286,10 @@ public final class DelayShard {
             return applied(StableCode.VERSION_CONFLICT, sourcePosition, existing);
         }
         final LaneRecord lane = readLane(existing.laneId());
-        if (lane != null && lane.admissionGate() == AdmissionGate.CLOSED
+        if (lane == null) {
+            throw new IllegalStateException("cancel references a message on a missing Lane");
+        }
+        if (lane.admissionGate() == AdmissionGate.CLOSED
                 && isUnadmittedGeneration(existing)) {
             return applied(StableCode.ALREADY_DEAD_LETTERED, sourcePosition, existing);
         }
@@ -6319,7 +6328,10 @@ public final class DelayShard {
             return applied(StableCode.VERSION_CONFLICT, sourcePosition, existing);
         }
         final LaneRecord lane = readLane(existing.laneId());
-        if (lane != null && lane.admissionGate() == AdmissionGate.CLOSED
+        if (lane == null) {
+            throw new IllegalStateException("reschedule references a message on a missing Lane");
+        }
+        if (lane.admissionGate() == AdmissionGate.CLOSED
                 && isUnadmittedGeneration(existing)) {
             return applied(StableCode.LANE_CLOSED, sourcePosition, existing);
         }
