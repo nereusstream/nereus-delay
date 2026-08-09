@@ -85,42 +85,51 @@ public final class PersistentLaneScheduler {
             persistedRestored = true;
             return;
         }
-        final List<DestinationLaneId> order = persisted.activeRing().entries().stream()
-                .filter(this::matchesRegisteredLane)
-                .map(SchedulerProjectionsV1.RingEntry::laneId)
-                .toList();
-        delegate.rebuildActiveRing(order);
-        final Map<LaneKey, SchedulerProjectionsV1.DeficitEntry> deficits = new HashMap<>();
-        for (SchedulerProjectionsV1.DeficitEntry entry : persisted.deficitMap().entries()) {
-            deficits.put(new LaneKey(entry.laneId(), entry.laneIncarnation()), entry);
+        final RuntimeSnapshot before = runtimeSnapshot();
+        try {
+            final List<DestinationLaneId> order = persisted.activeRing().entries().stream()
+                    .filter(this::matchesRegisteredLane)
+                    .map(SchedulerProjectionsV1.RingEntry::laneId)
+                    .toList();
+            final Map<LaneKey, SchedulerProjectionsV1.DeficitEntry> deficits = new HashMap<>();
+            for (SchedulerProjectionsV1.DeficitEntry entry : persisted.deficitMap().entries()) {
+                deficits.put(new LaneKey(entry.laneId(), entry.laneIncarnation()), entry);
+            }
+            final Map<LaneKey, SchedulerProjectionsV1.LastServedEntry> lastServed = new HashMap<>();
+            for (SchedulerProjectionsV1.LastServedEntry entry : persisted.lastServedMap().entries()) {
+                lastServed.put(new LaneKey(entry.laneId(), entry.laneIncarnation()), entry);
+            }
+            // Fairness counters are persisted for every registered Lane, not
+            // only the currently active ring.  A blocked/paused Lane may be
+            // absent from the ring but must retain its service-gap state when it
+            // becomes READY again after restart.
+            final List<LaneScheduler.LaneSnapshot> snapshots = delegate.snapshot().lanes().stream()
+                    .map(snapshot -> {
+                        final LaneRecord lane = registered.get(snapshot.laneId());
+                        final byte[] incarnation = lane == null ? new byte[16] : lane.laneIncarnation();
+                        final LaneKey key = new LaneKey(snapshot.laneId(), incarnation);
+                        final SchedulerProjectionsV1.DeficitEntry deficit = deficits.get(key);
+                        final SchedulerProjectionsV1.LastServedEntry served = lastServed.get(key);
+                        return new LaneScheduler.LaneSnapshot(snapshot.laneId(), snapshot.weight(),
+                                deficit == null ? 0 : deficit.deficitBytes(),
+                                served == null ? 0 : served.lastServedRound(), snapshot.pendingItems(),
+                                snapshot.schedulable());
+                    }).toList();
+            // Validate and apply the complete counter projection before changing
+            // the active ring. A malformed persisted generation must not leave a
+            // newly registered scheduler with a partially restored ring.
+            delegate.restore(new LaneScheduler.SchedulerSnapshot(persisted.activeRing().nextIndex(),
+                    persisted.round().roundGeneration(), snapshots));
+            delegate.rebuildActiveRing(order);
+            final boolean ownerChanged = !persisted.round().owner().equals(owner);
+            recoveryFirstPass = ownerChanged || persisted.round().recoveryFirstPass();
+            recoveryServed.clear();
+            discoveredHeads.clear();
+            persistedRestored = true;
+        } catch (RuntimeException failure) {
+            rollbackRuntime(before, List.of(), List.of(), null, failure, null);
+            throw failure;
         }
-        final Map<LaneKey, SchedulerProjectionsV1.LastServedEntry> lastServed = new HashMap<>();
-        for (SchedulerProjectionsV1.LastServedEntry entry : persisted.lastServedMap().entries()) {
-            lastServed.put(new LaneKey(entry.laneId(), entry.laneIncarnation()), entry);
-        }
-        // Fairness counters are persisted for every registered Lane, not
-        // only the currently active ring.  A blocked/paused Lane may be
-        // absent from the ring but must retain its service-gap state when it
-        // becomes READY again after restart.
-        final List<LaneScheduler.LaneSnapshot> snapshots = delegate.snapshot().lanes().stream()
-                .map(snapshot -> {
-                    final LaneRecord lane = registered.get(snapshot.laneId());
-                    final byte[] incarnation = lane == null ? new byte[16] : lane.laneIncarnation();
-                    final LaneKey key = new LaneKey(snapshot.laneId(), incarnation);
-                    final SchedulerProjectionsV1.DeficitEntry deficit = deficits.get(key);
-                    final SchedulerProjectionsV1.LastServedEntry served = lastServed.get(key);
-                    return new LaneScheduler.LaneSnapshot(snapshot.laneId(), snapshot.weight(),
-                            deficit == null ? 0 : deficit.deficitBytes(),
-                            served == null ? 0 : served.lastServedRound(), snapshot.pendingItems(),
-                            snapshot.schedulable());
-                }).toList();
-        delegate.restore(new LaneScheduler.SchedulerSnapshot(persisted.activeRing().nextIndex(),
-                persisted.round().roundGeneration(), snapshots));
-        final boolean ownerChanged = !persisted.round().owner().equals(owner);
-        recoveryFirstPass = ownerChanged || persisted.round().recoveryFirstPass();
-        recoveryServed.clear();
-        discoveredHeads.clear();
-        persistedRestored = true;
     }
 
     /**

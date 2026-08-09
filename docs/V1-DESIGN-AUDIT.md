@@ -846,6 +846,10 @@ change; a malformed later snapshot entry or ambiguous repeated identity cannot
 leave an earlier Lane/Shard partially restored (`LaneSchedulerTest.invalidLaterRestoreEntryDoesNotPartiallyApplyEarlierCounters`,
 `LaneSchedulerTest.duplicateLaneRestoreIdentityDoesNotPartiallyApplyEarlierCounters`,
 `WorkerSchedulerTest.duplicateWorkerRestoreIdentityDoesNotPartiallyApplyEarlierCounters`).
+Persistent projection restore applies the same rule across the active ring: the
+semantic generation/counter snapshot is validated before replacing the ring,
+and a malformed persisted generation rolls the registered scheduler back to its
+exact pre-restore ring and counters (`LaneSchedulerTest.malformedPersistedSchedulerGenerationDoesNotPartiallyApplyTheActiveRing`).
 The inner and outer two-rotation visit limits also widen `ring.size() * 2`
 before comparison, with `LaneSchedulerTest.ringVisitLimitUsesWideArithmetic`
 and `WorkerSchedulerTest.outerVisitLimitUsesWideArithmetic` covering the

@@ -606,6 +606,44 @@ class LaneSchedulerTest {
     }
 
     @Test
+    void malformedPersistedSchedulerGenerationDoesNotPartiallyApplyTheActiveRing() {
+        final DestinationLaneId lane = lane(48);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 48);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("scheduler-restore-partial-generation"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final SchedulerProjectionsV1.ReadyDiscoveryCursor discovery =
+                    new SchedulerProjectionsV1.ReadyDiscoveryCursor(null, 0, 1);
+            final SchedulerProjectionsV1.ActiveRing activeRing =
+                    new SchedulerProjectionsV1.ActiveRing(1, -1, 0, List.of());
+            final SchedulerProjectionsV1.DeficitMap deficits =
+                    new SchedulerProjectionsV1.DeficitMap(List.of());
+            final SchedulerProjectionsV1.Round round =
+                    new SchedulerProjectionsV1.Round(-1, owner(1), false);
+            final SchedulerProjectionsV1.LastServedMap lastServed =
+                    new SchedulerProjectionsV1.LastServedMap(List.of());
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.META, 5, KeyCodec.metaScheduler(1), discovery.canonicalBytes());
+                batch.putValue(ColumnFamily.META, 5, KeyCodec.metaScheduler(2), activeRing.canonicalBytes());
+                batch.putValue(ColumnFamily.META, 5, KeyCodec.metaScheduler(3), deficits.canonicalBytes());
+                batch.putValue(ColumnFamily.META, 5, KeyCodec.metaScheduler(4), round.canonicalBytes());
+                batch.putValue(ColumnFamily.META, 5, KeyCodec.metaScheduler(5), lastServed.canonicalBytes());
+            });
+
+            final LaneScheduler delegate = LaneScheduler.defaults();
+            final PersistentLaneScheduler recovered = new PersistentLaneScheduler(store, delegate);
+            recovered.register(record(lane, 1));
+            final LaneScheduler.SchedulerSnapshot before = delegate.snapshot();
+            final List<DestinationLaneId> beforeRing = delegate.ringOrder();
+
+            assertThrows(IllegalArgumentException.class, recovered::restorePersistedState);
+            assertEquals(before, delegate.snapshot());
+            assertEquals(beforeRing, delegate.ringOrder());
+        }
+    }
+
+    @Test
     void fencedRecoveryRebuildsReadyQueueFromLaneAndMessageIndexes() {
         final DestinationLaneId lane = lane(7);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 7);
