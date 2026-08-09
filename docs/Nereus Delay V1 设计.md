@@ -761,6 +761,14 @@ Source consumer 的 look-ahead cursor 只能在该记录的 shard WriteBatch 成
 bounded replay turn 原样重试。不能先消费 source cursor、再把失败记录交给调用方自行
 猜测或重新定位。
 
+如果同步 `db.write` 返回 native failure，或 WriteBatch 已返回成功但 Store 无法完成
+提交后的 ingress-fence 重读/解码校验，Store 必须进入本地
+`WRITE_OUTCOME_UNCERTAIN` 状态：禁止继续读写、禁止写 clean-close marker，source
+consumer 不得 ACK/commit 后续 record；Owner 必须关闭该 Store，并从其 durable
+incarnation 或受保护 checkpoint 重新打开后再恢复 replay。这个状态不等同于远端
+Publish 的 `UNCERTAIN`，也不表示 batch 一定已经提交；它表示当前进程不能证明
+提交结果，继续使用内存 projection 会破坏 Source Position 原子性。
+
 写入 `dedupe_cf` 的 `CommandResult` 与 `SystemMutationResult` 必须携带完整、canonical
 的 `SourcePosition` bytes；空值、截断值或非 canonical wire 变体在结果对象构造/解码时
 就 fail closed，不能等到某个查询路径再决定是否接受该 source anchor。

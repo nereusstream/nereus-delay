@@ -2503,6 +2503,18 @@ dispatch instead of leaking arithmetic narrowing; the local regression is
 This keeps the full Registry wire domain distinct from the current signed
 runtime compatibility projection.
 
+`ShardStore.write` now treats a native WriteBatch failure, or a post-write
+ingress-fence reread/decoding failure, as a storage boundary rather than a
+semantic rejection. The Store enters local `WRITE_OUTCOME_UNCERTAIN`, rejects
+all further reads/writes, skips the clean-close marker, and requires a fresh
+reopen from the durable incarnation; source replay therefore retains the
+physical record and cannot advance an in-memory projection after an
+unverifiable commit. `ShardStoreTest.nativeWriteFailureHasATypeDistinctFromSemanticStaleness`
+and `ShardStoreTest.postWriteVerificationFailureFencesStoreUntilReopen` cover
+the pre-write and committed-but-unverifiable branches. This is local
+RocksDB/source-cursor evidence only; it does not claim production consumer
+restart orchestration.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

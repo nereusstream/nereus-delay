@@ -100,6 +100,13 @@ public final class ShardStore implements AutoCloseable {
     private final EnumSet<ColumnFamily> closedColumnFamilyHandles = EnumSet.noneOf(ColumnFamily.class);
     private final boolean[] closedColumnFamilyOptions;
     private boolean cleanCloseAttempted;
+    /**
+     * Set after a native WriteBatch may have committed but its post-write
+     * verification did not complete.  The DB may contain the batch while the
+     * in-memory projection cannot prove that fact, so the only safe next step
+     * is to close and reopen the Store from its durable image.
+     */
+    private boolean writeOutcomeUncertain;
     private StoreRuntimeMetadata runtimeMetadata;
     private StoreRecoveryMetadata recoveryMetadata;
     private long closedIngressDeadlineThrough;
@@ -1344,6 +1351,15 @@ public final class ShardStore implements AutoCloseable {
         return closed.get();
     }
 
+    /**
+     * Returns whether this Store must be closed and reopened before any more
+     * reads or writes are allowed.  This is a local storage-safety signal, not
+     * a source acknowledgement or remote ownership result.
+     */
+    public synchronized boolean isWriteOutcomeUncertain() {
+        return writeOutcomeUncertain;
+    }
+
     /** Returns the local mutable metadata projection; it is not remote authority. */
     public synchronized StoreRuntimeMetadata runtimeMetadata() {
         return runtimeMetadata;
@@ -1488,7 +1504,15 @@ public final class ShardStore implements AutoCloseable {
         try (WriteBatch batch = new WriteBatch(); WriteOptions writeOptions = new WriteOptions().setSync(true)) {
             final Batch pending = new Batch(this, batch, handles, closedIngressDeadlineThrough, runtimeMetadata);
             operation.apply(pending);
-            db.write(writeOptions, batch);
+            try {
+                db.write(writeOptions, batch);
+            } catch (RocksDBException exception) {
+                // RocksDB reports a native failure after the call boundary;
+                // the caller cannot safely infer that no bytes reached the
+                // WAL.  Require a fresh reopen before another source record.
+                writeOutcomeUncertain = true;
+                throw new RocksDbWriteFailure("RocksDB write failed", exception);
+            }
             if (pending.runtimeMetadata != null) {
                 runtimeMetadata = pending.runtimeMetadata;
             }
@@ -1498,10 +1522,20 @@ public final class ShardStore implements AutoCloseable {
             try {
                 closedIngressDeadlineThrough = readIngressFenceState(db, handles.get(ColumnFamily.META))
                         .closedThroughEpochMs();
-            } catch (RocksDBException exception) {
-                throw new RocksDbWriteFailure("cannot reread ingress fence state after write", exception);
+            } catch (RocksDBException | RuntimeException exception) {
+                // The WriteBatch has already returned successfully.  A
+                // native/read/decoding failure here leaves commit status and
+                // the in-memory fence projection unprovable, so continuing
+                // would allow a later source record to be applied against a
+                // stale projection.
+                writeOutcomeUncertain = true;
+                throw new RocksDbWriteFailure("cannot verify ingress fence state after write", exception);
             }
         } catch (RocksDBException exception) {
+            // This branch is only reachable when the caller's BatchOperation
+            // failed before db.write was issued.  No native commit is
+            // possible in that case, so do not poison an otherwise usable
+            // Store merely because validation code surfaced RocksDBException.
             throw new RocksDbWriteFailure("RocksDB write failed", exception);
         }
     }
@@ -1635,22 +1669,25 @@ public final class ShardStore implements AutoCloseable {
         RuntimeException closeFailure = null;
         if (!cleanCloseAttempted) {
             cleanCloseAttempted = true;
-            try {
-                // Keep the store open while the clean-close marker is written
-                // so the lifecycle guard on write() does not reject its own
-                // close protocol. The marker is attempted at most once: if it
-                // fails, the native DB may still be torn down safely and the
-                // next open will conservatively treat the store as unclean.
-                final StoreRuntimeMetadata cleanRuntime = runtimeMetadata.withCleanCloseMarker(true);
-                final StoreRecoveryMetadata cleanRecovery = recoveryMetadata.withInstallState(
-                        new RecoveryInstallStateV1(RecoveryInstallPhaseV1.CLOSED_CLEAN,
-                                metadata.storeIncarnation(), recoveryMetadata.checkpointId()));
-                write(batch -> {
-                    batch.putRuntimeMetadata(cleanRuntime);
-                    batch.putRecoveryMetadata(cleanRecovery);
-                });
-            } catch (RuntimeException exception) {
-                closeFailure = appendCloseFailure(closeFailure, exception);
+            if (!writeOutcomeUncertain) {
+                try {
+                    // Keep the store open while the clean-close marker is
+                    // written so the lifecycle guard on write() does not
+                    // reject its own close protocol. The marker is attempted
+                    // at most once: if it fails, the native DB may still be
+                    // torn down safely and the next open will conservatively
+                    // treat the store as unclean.
+                    final StoreRuntimeMetadata cleanRuntime = runtimeMetadata.withCleanCloseMarker(true);
+                    final StoreRecoveryMetadata cleanRecovery = recoveryMetadata.withInstallState(
+                            new RecoveryInstallStateV1(RecoveryInstallPhaseV1.CLOSED_CLEAN,
+                                    metadata.storeIncarnation(), recoveryMetadata.checkpointId()));
+                    write(batch -> {
+                        batch.putRuntimeMetadata(cleanRuntime);
+                        batch.putRecoveryMetadata(cleanRecovery);
+                    });
+                } catch (RuntimeException exception) {
+                    closeFailure = appendCloseFailure(closeFailure, exception);
+                }
             }
         }
         // The marker write above is the final allowed Store operation. Once
@@ -1772,6 +1809,9 @@ public final class ShardStore implements AutoCloseable {
     private void ensureOpen() {
         if (closed.get() || closeStarted) {
             throw new IllegalStateException("shard store is closed");
+        }
+        if (writeOutcomeUncertain) {
+            throw new IllegalStateException("shard store write outcome is uncertain; reopen required");
         }
     }
 

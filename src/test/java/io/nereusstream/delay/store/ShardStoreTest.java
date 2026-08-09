@@ -40,6 +40,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -120,6 +121,30 @@ class ShardStoreTest {
                     }));
             assertEquals("RocksDB write failed", failure.getMessage());
             assertTrue(failure.getCause() instanceof RocksDBException);
+        }
+    }
+
+    @Test
+    void postWriteVerificationFailureFencesStoreUntilReopen() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("post-write-verification"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 20);
+        final SharedRocksDbResources resources = new SharedRocksDbResources(config);
+        final ShardStore store = ShardStore.open(config, shardId, resources);
+        try {
+            final ShardStore.RocksDbWriteFailure failure = assertThrows(ShardStore.RocksDbWriteFailure.class,
+                    () -> store.write(batch -> batch.put(ColumnFamily.META, KeyCodec.metaFixed(4),
+                            Bytes.utf8("malformed-ingress-fence"))));
+            assertEquals("cannot verify ingress fence state after write", failure.getMessage());
+            assertTrue(failure.getCause() instanceof RuntimeException);
+            assertTrue(store.isWriteOutcomeUncertain());
+            assertThrows(IllegalStateException.class,
+                    () -> store.get(ColumnFamily.META, KeyCodec.metaFixed(1)));
+            assertThrows(IllegalStateException.class,
+                    () -> store.write(batch -> batch.put(ColumnFamily.META, KeyCodec.metaFixed(15),
+                            Bytes.utf8("must-not-follow-uncertain-write"))));
+            assertDoesNotThrow(store::close);
+        } finally {
+            resources.close();
         }
     }
 

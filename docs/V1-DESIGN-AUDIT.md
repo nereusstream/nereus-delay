@@ -2359,10 +2359,14 @@ authority and collector/export remain release gates.
 
 The same stale-result catch is now fenced against native storage errors: `ShardStore.write`
 exposes a typed `RocksDbWriteFailure`, and the Admission apply path propagates it before any
-fallback result or source-position advance. `ShardStoreTest.nativeWriteFailureHasATypeDistinctFromSemanticStaleness`
-covers the boundary. This preserves the design invariant that a failed synchronous WriteBatch
-stops before Source ACK; it is local failure classification, not evidence of a production
-RocksDB or source-consumer deployment.
+fallback result or source-position advance. If the native call may have committed but the
+post-write ingress-fence reread/decoding check fails, the Store enters local
+`WRITE_OUTCOME_UNCERTAIN`, rejects further reads/writes, skips the clean-close marker and
+requires a fresh reopen from the durable incarnation; `ShardStoreTest.postWriteVerificationFailureFencesStoreUntilReopen`
+covers this committed-but-unverifiable boundary. `ShardStoreTest.nativeWriteFailureHasATypeDistinctFromSemanticStaleness`
+covers the pre-write callback failure classification. This preserves the design invariant
+that a failed or unverifiable synchronous WriteBatch stops before Source ACK; it is local
+failure classification, not evidence of a production RocksDB or source-consumer deployment.
 
 SLO 文档与 Registry 的 native 时间字段也已对齐：`native_handoff_ack_lag` 的起点是
 `NativePreparedDelivery` field 10 的未平移 business `deliverAt`，field 11 的 shifted
