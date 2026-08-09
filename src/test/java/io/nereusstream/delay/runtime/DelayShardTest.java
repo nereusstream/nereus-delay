@@ -66,7 +66,9 @@ import io.nereusstream.delay.protocol.ShardCapacityEnvelopeV1;
 import io.nereusstream.delay.protocol.SloAuthoritativeStartFactory;
 import io.nereusstream.delay.protocol.SloObjectiveNameV1;
 import io.nereusstream.delay.protocol.SloObjectiveV1;
+import io.nereusstream.delay.protocol.SloPathV1;
 import io.nereusstream.delay.protocol.SloPopulationV1;
+import io.nereusstream.delay.protocol.SloSampleStartV1;
 import io.nereusstream.delay.protocol.SloThresholdDirectionV1;
 import io.nereusstream.delay.protocol.SloThresholdUnitV1;
 import io.nereusstream.delay.protocol.SourcePosition;
@@ -4173,10 +4175,13 @@ class DelayShardTest {
                 Bytes.sha256(Bytes.utf8("wrong-admission-identity")), fixture.body(), fixture.owner(), 1,
                 keyPair.getPrivate());
         final PublishAdmissionBody parsed = PublishAdmissionBody.decode(fixture.body());
+        final SloObjectiveV1 dueObjective = dueAdmissionObjective();
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
-            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, null,
+                    null, null, null, null, null, dueObjective,
+                    new SloObservationOutboxLimits(8, 1L << 20));
             assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
             shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
             assertNull(shard.getClaim(parsed.claimId(), 1));
@@ -4199,7 +4204,57 @@ class DelayShardTest {
             assertEquals(parsed.descriptor().attemptNo(), ledger.attemptNo());
             assertArrayEquals(fixture.body(), ledger.admissionBytes());
             assertEquals(result, shard.getSystemMutationResult(mutation.systemMutationId()));
+            final SloObservationOutboxStore outbox = new SloObservationOutboxStore(store);
+            final SloSampleStartV1 expectedStart = SloAuthoritativeStartFactory.dueAdmission(dueObjective,
+                    messageId, parsed.generation(), SloPathV1.ORDINARY_MANAGED,
+                    parsed.descriptor().actionAtEpochMs(), Bytes.sha256(parsed.descriptor().canonicalBytes()));
+            assertNotNull(outbox.get(expectedStart.sampleId()));
             assertEquals(result, shard.applySystemMutation(mutation, admissionPosition, keyPair.getPublic()));
+            assertEquals(1, outbox.scan(10).size());
+        }
+    }
+
+    @Test
+    void dueAdmissionSloCapacityFailureDoesNotBecomeStaleMutation() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-admission-slo-capacity"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 18);
+        final DelayMessageId messageId = DelayMessageId.random(shardId);
+        final DestinationLaneId lane = new DestinationLaneId(Bytes.sha256(Bytes.utf8("lane")));
+        final PreparedCommand schedule = PreparedCommand.create(shardId,
+                io.nereusstream.delay.protocol.CommandId.random(shardId), messageId,
+                io.nereusstream.delay.protocol.CommandType.SCHEDULE, 9_000,
+                io.nereusstream.delay.protocol.CommandBodies.schedule(
+                        new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                                OrderingMode.BEST_EFFORT, Bytes.utf8("hello"))));
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final byte[] sourceTimelineKey = KeyCodec.timelineDue(lane, 2_000,
+                schedulePosition.sourceOrderToken(), messageId, 0);
+        final Fixture fixture = Fixture.createForSource(shardId, messageId,
+                LaneRecord.initial(lane, schedulePosition).laneIncarnation(), sourceTimelineKey, 1, 0, 0,
+                GenerationRuntimeIndex.obligationSetDigest(List.of()),
+                new TimelineWorkRef(TimelineWorkKind.INITIAL_SCHEDULE, sourceTimelineKey, 2_000, 2_000,
+                        1, 1, false, UncertainRetryAuthority.NONE, null, null).semanticWorkDigest());
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 2_002);
+        final java.security.KeyPairGenerator keyPairGenerator = java.security.KeyPairGenerator.getInstance("Ed25519");
+        final java.security.KeyPair keyPair = keyPairGenerator.generateKeyPair();
+        final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_ADMISSION, 9_000,
+                PublishAdmissionBody.decode(fixture.body()).publishAttemptId(), fixture.body(), fixture.owner(), 1,
+                keyPair.getPrivate());
+        final PublishAdmissionBody parsed = PublishAdmissionBody.decode(fixture.body());
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, null,
+                    null, null, null, null, null, dueAdmissionObjective(),
+                    new SloObservationOutboxLimits(8, 1));
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+
+            assertThrows(IllegalStateException.class,
+                    () -> shard.applySystemMutation(mutation, admissionPosition, keyPair.getPublic()));
+            assertEquals(schedulePosition, shard.lastAppliedSourcePosition());
+            assertNull(shard.getSystemMutationResult(mutation.systemMutationId()));
+            assertNull(shard.findOpenPublishAttempt(parsed.publishAttemptId()));
+            assertEquals(MessageStatus.SCHEDULED, shard.getMessage(messageId).status());
         }
     }
 
@@ -6537,6 +6592,13 @@ class DelayShardTest {
                 SloPopulationV1.ALL_ACCEPTED, SloThresholdDirectionV1.AT_MOST,
                 SloThresholdUnitV1.MILLISECONDS, 1_000, 99, 100, 60_000, 1,
                 List.of(), 1, Bytes.sha256(Bytes.utf8("command-applied-slo-envelope")));
+    }
+
+    private static SloObjectiveV1 dueAdmissionObjective() {
+        return new SloObjectiveV1(SloObjectiveNameV1.DUE_ADMISSION_LAG,
+                SloPopulationV1.ALL_ACCEPTED, SloThresholdDirectionV1.AT_MOST,
+                SloThresholdUnitV1.MILLISECONDS, 1_000, 99, 100, 60_000, 1,
+                List.of(), 1, Bytes.sha256(Bytes.utf8("due-admission-slo-envelope")));
     }
 
     private static byte[] bytes(final int length, final int value) {

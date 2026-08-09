@@ -2969,6 +2969,19 @@ outbox 的 record/byte envelope 在 RocksDB write 前预检，超限会使整个
 提交的 source turn 缺少 Start，只允许按同一 typed Source Position 做幂等补写，不能
 重新生成不同 sample identity。
 
+对 source-ordered `PUBLISH_ADMISSION_V1`，嵌入式实现还可注入一个
+`DUE_ADMISSION_LAG` 的 `ALL_ACCEPTED` objective。Admission descriptor 已经由签名、
+Profile/timing 和 shard-state 校验确定 `messageId`、unsigned generation、ordinary
+managed 或 managed Pulsar handoff path 以及 `deliverAt/actionAt`；实现以 descriptor
+的 canonical bytes 作为本地 semantic-evidence digest，使用
+`SloAuthoritativeStartFactory.dueAdmission(...)` 生成 Start，并在成功 Admission 或
+`ADMISSION_CAPACITY_GATED` 的同一 WriteBatch 中物化。SLO capacity/integrity failure
+必须穿透 Admission 的 stale-result 兼容 catch，保持 source position、Message 和
+System Mutation result 不推进；不能把证据容量故障伪装成 `STALE_SYSTEM_MUTATION`。
+这只是本地 typed evidence seam；Schedule/eligibility authority 对每个 accepted due
+record 的立即 Start、HEALTHY 配对 objective 的完整区间证明，以及生产 Profile/Oxia/
+Broker authority 仍必须在 release gate 中闭合。
+
 协议层提供 `SloAuthoritativeStartFactory` 作为同一重建边界的 typed helper：
 `commandApplied(objective, sourcePosition)` 把 Registry `SourcePositionV1` 的 canonical
 bytes 放入 `COMMAND_APPLIED_LATENCY` identity，并以该 Source Position 的

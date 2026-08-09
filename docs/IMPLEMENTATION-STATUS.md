@@ -2234,6 +2234,21 @@ rejection, replay and rollback paths. Objective/catalog authentication, due-admi
 materialization from Message/Admission authority, and production collector/export remain
 release blockers; constructors without an objective remain compatibility seams.
 
+The source-ordered `PUBLISH_ADMISSION_V1` seam now also accepts an immutable
+`DUE_ADMISSION_LAG` objective restricted to `ALL_ACCEPTED`. After the typed Admission
+descriptor and local Profile/timing/shard-state checks establish the message identity,
+generation, managed path and `deliverAt/actionAt`, `DelayShard` calls
+`SloAuthoritativeStartFactory.dueAdmission(...)` and appends the Start to the same business
+batch for both successful Admission and `ADMISSION_CAPACITY_GATED`. The descriptor digest is
+only local semantic evidence; it is not a substitute for Schedule/eligibility authority.
+`SloStartMaterializationException` is kept outside the stale-result compatibility catch, so
+SLO capacity or integrity failure aborts the source turn instead of advancing a stale System
+Mutation result. `DelayShardTest.sourceOrderedPublishAdmissionPersistsAttemptAndMutationResultTogether`
+and `DelayShardTest.dueAdmissionSloCapacityFailureDoesNotBecomeStaleMutation` cover the
+positive, replay-idempotent and joint-abort paths. Immediate accepted-due reconstruction,
+HEALTHY/full-interval proof, production Profile/Oxia/Broker authority and collector/export
+remain release blockers.
+
 `SloAuthoritativeStartFactory` now provides the typed local reconstruction projection for the
 two Shard-derived branches. `commandApplied(...)` uses the Registry `SourcePositionV1`
 canonical bytes, the Source Position Broker-persistence timestamp and its exact SHA-256;

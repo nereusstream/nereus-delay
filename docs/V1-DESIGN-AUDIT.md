@@ -2225,6 +2225,21 @@ replay 和 joint abort。该实现仍只证明 shard-local atomicity；objective
 Message/Admission authority 驱动的 due Start、source-order recovery 编排和 production
 collector/export 仍是 release gate。
 
+The source-ordered `PUBLISH_ADMISSION_V1` seam now accepts an immutable
+`DUE_ADMISSION_LAG` objective only for `ALL_ACCEPTED`. Typed Admission descriptor fields plus
+the local Profile/timing/shard-state gate determine the message ID, unsigned generation,
+ordinary managed or managed Pulsar handoff path, and `deliverAt/actionAt`; the implementation
+uses the descriptor canonical bytes as a local semantic-evidence digest and materializes the
+Start in the same batch as both successful Admission and `ADMISSION_CAPACITY_GATED`.
+`SloStartMaterializationException` deliberately bypasses the stale-result compatibility catch:
+capacity/integrity failure leaves the source position, message and System Mutation result
+unadvanced rather than producing `STALE_SYSTEM_MUTATION`. The evidence is covered by
+`DelayShardTest.sourceOrderedPublishAdmissionPersistsAttemptAndMutationResultTogether` and
+`DelayShardTest.dueAdmissionSloCapacityFailureDoesNotBecomeStaleMutation`. This closes only
+the local typed atomicity seam; the descriptor digest is not external eligibility authority,
+and immediate accepted-due Starts, HEALTHY/full-interval proof, production Profile/Oxia/Broker
+authority and collector/export remain release gates.
+
 SLO 文档与 Registry 的 native 时间字段也已对齐：`native_handoff_ack_lag` 的起点是
 `NativePreparedDelivery` field 10 的未平移 business `deliverAt`，field 11 的 shifted
 Broker `deliverAt` 只用于 Broker visibility 语义；V1 native wire 没有独立的

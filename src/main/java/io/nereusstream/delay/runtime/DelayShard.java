@@ -57,6 +57,8 @@ import io.nereusstream.delay.protocol.ScheduleIntentV1;
 import io.nereusstream.delay.protocol.SloAuthoritativeStartFactory;
 import io.nereusstream.delay.protocol.SloObjectiveNameV1;
 import io.nereusstream.delay.protocol.SloObjectiveV1;
+import io.nereusstream.delay.protocol.SloPathV1;
+import io.nereusstream.delay.protocol.SloPopulationV1;
 import io.nereusstream.delay.protocol.SloSampleStartV1;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
@@ -125,6 +127,8 @@ public final class DelayShard {
     private final ProfileCatalog profileCatalog;
     /** Optional immutable catalog projection for command-applied SLO Starts. */
     private final SloObjectiveV1 commandAppliedSloObjective;
+    /** Optional ALL_ACCEPTED due-admission objective for source Admission turns. */
+    private final SloObjectiveV1 dueAdmissionSloObjective;
     private final SloObservationOutboxStore sloObservationOutboxStore;
     private PayloadProofTrustSetControlState payloadProofTrustSetControlState;
     private ProfileBindingControlState profileBindingControlState;
@@ -239,7 +243,7 @@ public final class DelayShard {
                       final ProfileCatalog profileCatalog) {
         this(store, config, payloadProofTrustSet, capacityEnvelope, v1ScheduleResolver,
                 payloadProofTrustSetControlCatalog, retryPolicyCatalog, controlTargetRegistrationAuthority,
-                profileCatalog, null, null);
+                profileCatalog, null, null, null);
     }
 
     /**
@@ -262,7 +266,7 @@ public final class DelayShard {
                       final SloObjectiveV1 commandAppliedSloObjective) {
         this(store, config, payloadProofTrustSet, capacityEnvelope, v1ScheduleResolver,
                 payloadProofTrustSetControlCatalog, retryPolicyCatalog, controlTargetRegistrationAuthority,
-                profileCatalog, commandAppliedSloObjective, null);
+                profileCatalog, commandAppliedSloObjective, null, null);
     }
 
     /**
@@ -280,6 +284,28 @@ public final class DelayShard {
                       final ProfileCatalog profileCatalog,
                       final SloObjectiveV1 commandAppliedSloObjective,
                       final SloObservationOutboxLimits sloObservationOutboxLimits) {
+        this(store, config, payloadProofTrustSet, capacityEnvelope, v1ScheduleResolver,
+                payloadProofTrustSetControlCatalog, retryPolicyCatalog, controlTargetRegistrationAuthority,
+                profileCatalog, commandAppliedSloObjective, null, sloObservationOutboxLimits);
+    }
+
+    /**
+     * Full SLO objective wiring for the local source-ordered Admission seam.
+     * The due objective is restricted to the ALL_ACCEPTED population: a
+     * HEALTHY due sample requires a separate full-interval predicate proof and
+     * must not be inferred from an Admission body.
+     */
+    public DelayShard(final ShardStore store, final DelayShardConfig config,
+                      final PayloadProofTrustSet payloadProofTrustSet,
+                      final ShardCapacityEnvelopeV1 capacityEnvelope,
+                      final V1ScheduleResolver v1ScheduleResolver,
+                      final PayloadProofTrustSetControlCatalog payloadProofTrustSetControlCatalog,
+                      final RetryPolicyCatalog retryPolicyCatalog,
+                      final ControlTargetRegistrationAuthority controlTargetRegistrationAuthority,
+                      final ProfileCatalog profileCatalog,
+                      final SloObjectiveV1 commandAppliedSloObjective,
+                      final SloObjectiveV1 dueAdmissionSloObjective,
+                      final SloObservationOutboxLimits sloObservationOutboxLimits) {
         this.store = Objects.requireNonNull(store, "store");
         this.config = Objects.requireNonNull(config, "config");
         this.payloadProofTrustSet = payloadProofTrustSet;
@@ -291,11 +317,15 @@ public final class DelayShard {
                 && commandAppliedSloObjective.name() != SloObjectiveNameV1.COMMAND_APPLIED_LATENCY) {
             throw new IllegalArgumentException("command-applied SLO objective has the wrong name");
         }
-        if (commandAppliedSloObjective == null && sloObservationOutboxLimits != null) {
-            throw new IllegalArgumentException("SLO outbox limits require a command-applied objective");
+        if (dueAdmissionSloObjective != null
+                && (dueAdmissionSloObjective.name() != SloObjectiveNameV1.DUE_ADMISSION_LAG
+                || dueAdmissionSloObjective.population() != SloPopulationV1.ALL_ACCEPTED)) {
+            throw new IllegalArgumentException("due-admission objective must be ALL_ACCEPTED DUE_ADMISSION_LAG");
         }
         this.commandAppliedSloObjective = commandAppliedSloObjective;
-        this.sloObservationOutboxStore = commandAppliedSloObjective == null ? null
+        this.dueAdmissionSloObjective = dueAdmissionSloObjective;
+        this.sloObservationOutboxStore = commandAppliedSloObjective == null && dueAdmissionSloObjective == null
+                && sloObservationOutboxLimits == null ? null
                 : new SloObservationOutboxStore(store, sloObservationOutboxLimits);
         this.capacityEnvelope = capacityEnvelope;
         this.v1ScheduleResolver = v1ScheduleResolver;
@@ -2073,20 +2103,21 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }
+        final SloSampleStartV1 dueAdmissionStart = dueAdmissionStart(body);
         final OutcomeReserveUsage admissionCharge;
         try {
             admissionCharge = OutcomeReserveUsage.from(body.chargeVector());
         } catch (ArithmeticException | IllegalArgumentException overflow) {
-            return persistAdmissionCapacityGated(body, mutation, sourcePosition, localClaim);
+            return persistAdmissionCapacityGated(body, mutation, sourcePosition, localClaim, dueAdmissionStart);
         }
         if (!outcomeReserve.fits(admissionCharge, config.maxOutcomeReserveRecords(),
                 config.maxOutcomeReserveBytes())) {
-            return persistAdmissionCapacityGated(body, mutation, sourcePosition, localClaim);
+            return persistAdmissionCapacityGated(body, mutation, sourcePosition, localClaim, dueAdmissionStart);
         }
         try {
             validateOutcomeReserveVector(outcomeReserveVector.add(body.chargeVector().toCapacityVector()));
         } catch (ArithmeticException | IllegalArgumentException | IllegalStateException exception) {
-            return persistAdmissionCapacityGated(body, mutation, sourcePosition, localClaim);
+            return persistAdmissionCapacityGated(body, mutation, sourcePosition, localClaim, dueAdmissionStart);
         }
         if (current.status() == MessageStatus.CLAIMED) {
             if (localClaim != null && (!localClaim.delayMessageId().equals(messageId)
@@ -2109,8 +2140,10 @@ public final class DelayShard {
                 sourcePosition.canonicalBytes());
         try {
             admitPublishAttempt(admission, sourcePosition, result, replayState.claimMayBeMissing(),
-                    replayState.uncertainRetryAdmission(), admissionCharge);
+                    replayState.uncertainRetryAdmission(), admissionCharge, dueAdmissionStart);
             return result;
+        } catch (SloStartMaterializationException exception) {
+            throw exception;
         } catch (IllegalArgumentException | IllegalStateException exception) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
@@ -2160,7 +2193,8 @@ public final class DelayShard {
     private SystemMutationResult persistAdmissionCapacityGated(final PublishAdmissionBody body,
                                                                final SystemMutation mutation,
                                                                final SourcePosition sourcePosition,
-                                                               final ClaimRecord claim) {
+                                                               final ClaimRecord claim,
+                                                               final SloSampleStartV1 dueAdmissionStart) {
         final DelayMessageId messageId = new DelayMessageId(body.messageId());
         final MessageRecord current = getMessage(messageId);
         if (current == null || (current.status() != MessageStatus.SCHEDULED
@@ -2211,6 +2245,7 @@ public final class DelayShard {
             }
             persistQuota(batch, quota, nextLaneQuota);
             writeSystemResult(batch, result);
+            persistSloStart(batch, dueAdmissionStart);
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
@@ -4480,7 +4515,8 @@ public final class DelayShard {
      */
     public synchronized PublishAttemptLedger admitPublishAttempt(final PublishAttemptLedger admission,
                                                                   final SourcePosition sourcePosition) {
-        return admitPublishAttempt(admission, sourcePosition, null, false, false, OutcomeReserveUsage.empty());
+        return admitPublishAttempt(admission, sourcePosition, null, false, false,
+                OutcomeReserveUsage.empty(), null);
     }
 
     private PublishAttemptLedger admitPublishAttempt(final PublishAttemptLedger admission,
@@ -4488,7 +4524,8 @@ public final class DelayShard {
                                                      final SystemMutationResult systemResult,
                                                      final boolean claimMayBeMissing,
                                                      final boolean uncertainRetryAdmission,
-                                                     final OutcomeReserveUsage admissionCharge) {
+                                                     final OutcomeReserveUsage admissionCharge,
+                                                     final SloSampleStartV1 dueAdmissionStart) {
         Objects.requireNonNull(admission, "admission");
         validateMutationPosition(sourcePosition);
         if (admission.state() != AttemptLedgerState.PUBLISHING) {
@@ -4578,6 +4615,7 @@ public final class DelayShard {
             }
             persistQuota(batch, quota, projectedLaneQuota);
             persistOutcomeReserve(batch, nextOutcomeReserve, nextOutcomeReserveVector, projectedLaneQuota);
+            persistSloStart(batch, dueAdmissionStart);
             writePosition(batch, sourcePosition);
         });
         lastAppliedSourcePosition = sourcePosition;
@@ -6290,12 +6328,57 @@ public final class DelayShard {
      */
     private void persistCommandAppliedStart(final ShardStore.Batch batch,
                                             final SourcePosition position) throws org.rocksdb.RocksDBException {
-        if (sloObservationOutboxStore == null) {
+        if (commandAppliedSloObjective == null) {
             return;
         }
         final SloSampleStartV1 start = SloAuthoritativeStartFactory.commandApplied(
                 commandAppliedSloObjective, position);
-        sloObservationOutboxStore.reconcileDurableStartsInBatch(batch, List.of(start));
+        persistSloStart(batch, start);
+    }
+
+    /**
+     * Reconstructs the ALL_ACCEPTED due-admission Start from the canonical
+     * Admission descriptor. The descriptor is the local semantic evidence
+     * projection; production profile/eligibility authority must still prove
+     * the same path before this hook is enabled.
+     */
+    private SloSampleStartV1 dueAdmissionStart(final PublishAdmissionBody body) {
+        if (dueAdmissionSloObjective == null) {
+            return null;
+        }
+        final long deliverAt = body.descriptor().deliverAtEpochMs();
+        final long actionAt = body.descriptor().actionAtEpochMs();
+        final SloPathV1 path = actionAt == deliverAt
+                ? SloPathV1.ORDINARY_MANAGED : SloPathV1.MANAGED_PULSAR_HANDOFF;
+        return SloAuthoritativeStartFactory.dueAdmission(dueAdmissionSloObjective,
+                new DelayMessageId(body.messageId()), Integer.toUnsignedLong(body.generation()), path, actionAt,
+                Bytes.sha256(body.descriptor().canonicalBytes()));
+    }
+
+    private void persistSloStart(final ShardStore.Batch batch,
+                                  final SloSampleStartV1 start) throws org.rocksdb.RocksDBException {
+        if (start == null) {
+            return;
+        }
+        if (sloObservationOutboxStore == null) {
+            throw new IllegalStateException("SLO Start supplied without an outbox store");
+        }
+        try {
+            sloObservationOutboxStore.reconcileDurableStartsInBatch(batch, List.of(start));
+        } catch (SloStartMaterializationException exception) {
+            throw exception;
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            throw new SloStartMaterializationException("SLO Start materialization failed", exception);
+        }
+    }
+
+    /** Prevents an SLO evidence-capacity/integrity failure from becoming a stale Admission result. */
+    private static final class SloStartMaterializationException extends IllegalStateException {
+        private static final long serialVersionUID = 1L;
+
+        private SloStartMaterializationException(final String message, final Throwable cause) {
+            super(message, cause);
+        }
     }
 
     /**
