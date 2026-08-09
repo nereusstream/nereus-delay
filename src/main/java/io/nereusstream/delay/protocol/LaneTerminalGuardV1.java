@@ -41,6 +41,8 @@ public final class LaneTerminalGuardV1 {
         this.capabilityProfile = requireProfile(capabilityProfile, ProfileKindV1.DELIVERY_CAPABILITY,
                 "capabilityProfile");
         this.canonicalLaneTuple = tuple(canonicalLaneTuple);
+        CanonicalLaneTupleV1.requireProfileProjection(this.canonicalLaneTuple, this.destinationProfile,
+                this.capabilityProfile);
         this.laneId = DestinationLaneId.derive(this.canonicalLaneTuple);
         this.canonicalLaneTupleSha256 = Bytes.sha256(this.canonicalLaneTuple);
         this.retirementIntentId = nonZero(retirementIntentId, "retirementIntentId");
@@ -68,6 +70,8 @@ public final class LaneTerminalGuardV1 {
         this.capabilityProfile = requireProfile(capabilityProfile, ProfileKindV1.DELIVERY_CAPABILITY,
                 "capabilityProfile");
         this.canonicalLaneTuple = tuple(canonicalLaneTuple);
+        CanonicalLaneTupleV1.requireProfileProjection(this.canonicalLaneTuple, this.destinationProfile,
+                this.capabilityProfile);
         Bytes.requireLength(tupleDigest, HASH_LENGTH, "canonicalLaneTupleSha256");
         this.canonicalLaneTupleSha256 = Bytes.copy(tupleDigest);
         this.retirementIntentId = nonZero(retirementIntentId, "retirementIntentId");

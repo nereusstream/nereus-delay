@@ -11,9 +11,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class ActiveLaneStateV1Test {
     @Test
     void roundTripsBlockedStateWithCheckedTupleAndCharge() {
-        final byte[] tuple = Bytes.utf8("canonical-lane-tuple");
         final ProfileRefV1 destination = profile(ProfileKindV1.DESTINATION, 1);
         final ProfileRefV1 capability = profile(ProfileKindV1.DELIVERY_CAPABILITY, 2);
+        final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
         final ActiveLaneStateV1 state = new ActiveLaneStateV1(
                 DestinationLaneId.derive(tuple), bytes(16, 1), AdmissionGate.OPEN,
                 RuntimeReadiness.BLOCKED, LaneRuntimeBlockReasonV1.CAPABILITY, 3, 4, destination, capability,
@@ -27,9 +27,9 @@ class ActiveLaneStateV1Test {
 
     @Test
     void readyRequiresCertificateAndRejectsReadyKeyDigestTampering() {
-        final byte[] tuple = Bytes.utf8("ready-lane-tuple");
         final ProfileRefV1 destination = profile(ProfileKindV1.DESTINATION, 3);
         final ProfileRefV1 capability = profile(ProfileKindV1.DELIVERY_CAPABILITY, 4);
+        final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
         assertThrows(IllegalArgumentException.class, () -> new ActiveLaneStateV1(
                 DestinationLaneId.derive(tuple), bytes(16, 2), AdmissionGate.OPEN, RuntimeReadiness.READY,
                 null, 1, 1, destination, capability, tuple, 1, charge(), null, null,
@@ -50,9 +50,9 @@ class ActiveLaneStateV1Test {
 
     @Test
     void rejectsTupleIdentityAndCircuitInvariantViolations() {
-        final byte[] tuple = Bytes.utf8("tuple");
         final ProfileRefV1 destination = profile(ProfileKindV1.DESTINATION, 5);
         final ProfileRefV1 capability = profile(ProfileKindV1.DELIVERY_CAPABILITY, 6);
+        final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
         assertThrows(IllegalArgumentException.class, () -> new ActiveLaneStateV1(
                 new DestinationLaneId(bytes(32, 7)), bytes(16, 4), AdmissionGate.OPEN,
                 RuntimeReadiness.RECOVERING_EVIDENCE, null, 1, 1, destination, capability, tuple, 1, charge(),
@@ -65,9 +65,9 @@ class ActiveLaneStateV1Test {
 
     @Test
     void preservesUnsignedLaneVersionWeightAndFailureBits() {
-        final byte[] tuple = Bytes.utf8("unsigned-lane-tuple");
         final ProfileRefV1 destination = profile(ProfileKindV1.DESTINATION, 7);
         final ProfileRefV1 capability = profile(ProfileKindV1.DELIVERY_CAPABILITY, 8);
+        final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
         final ActiveLaneStateV1 state = new ActiveLaneStateV1(
                 DestinationLaneId.derive(tuple), bytes(16, 6), AdmissionGate.OPEN,
                 RuntimeReadiness.BLOCKED, LaneRuntimeBlockReasonV1.CAPABILITY,
@@ -80,6 +80,35 @@ class ActiveLaneStateV1Test {
         assertEquals(Long.MIN_VALUE, decoded.schedulerWeight());
         assertEquals(-1L, decoded.consecutiveFailures());
         assertArrayEquals(state.canonicalBytes(), decoded.canonicalBytes());
+    }
+
+    @Test
+    void rejectsProfileProjectionDriftInTypedState() {
+        final ProfileRefV1 destination = profile(ProfileKindV1.DESTINATION, 9);
+        final ProfileRefV1 capability = profile(ProfileKindV1.DELIVERY_CAPABILITY, 10);
+        final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
+        final ProfileRefV1 driftedDestination = new ProfileRefV1(bytes(8, 11), destination.version(),
+                destination.semanticHash(), ProfileKindV1.DESTINATION);
+
+        assertThrows(IllegalArgumentException.class, () -> new ActiveLaneStateV1(
+                DestinationLaneId.derive(tuple), bytes(16, 7), AdmissionGate.OPEN,
+                RuntimeReadiness.BLOCKED, LaneRuntimeBlockReasonV1.CAPABILITY, 1, 1, driftedDestination,
+                capability, tuple, 1, charge(), null, null, LaneCircuitStateV1.CLOSED, 0, 0, 0, 0,
+                null, null, null));
+    }
+
+    @Test
+    void rejectsMalformedCanonicalTupleInTypedState() {
+        final ProfileRefV1 destination = profile(ProfileKindV1.DESTINATION, 12);
+        final ProfileRefV1 capability = profile(ProfileKindV1.DELIVERY_CAPABILITY, 13);
+        final byte[] validTuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
+        final byte[] tupleWithTrailingBytes = Bytes.concat(validTuple, new byte[]{0});
+
+        assertThrows(IllegalArgumentException.class, () -> new ActiveLaneStateV1(
+                DestinationLaneId.derive(tupleWithTrailingBytes), bytes(16, 8), AdmissionGate.OPEN,
+                RuntimeReadiness.BLOCKED, LaneRuntimeBlockReasonV1.CAPABILITY, 1, 1, destination, capability,
+                tupleWithTrailingBytes, 1, charge(), null, null, LaneCircuitStateV1.CLOSED, 0, 0, 0, 0,
+                null, null, null));
     }
 
     private static ProfileRefV1 profile(final ProfileKindV1 kind, final int seed) {

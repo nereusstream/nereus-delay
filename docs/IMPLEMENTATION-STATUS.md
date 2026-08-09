@@ -303,6 +303,13 @@ missing BLOCKED reason, READY key/certificate or out-of-range local field fails
 closed instead of downgrading the value. `DelayShardTest.typedActiveLaneStateIsReadAndUpdatedWithoutLegacyDowngrade`
 covers reopen/read and same-key update. The typed state remains a local
 persistence/runtime bridge until full Lane/Profile/Oxia activation is available.
+The typed state and terminal-guard constructors now also parse the
+Registry-shaped canonical Lane tuple and require exact byte projection of both
+immutable Profile slots; malformed tuple structure or Profile id/version/hash
+drift fails closed. `ActiveLaneStateV1Test.rejectsProfileProjectionDriftInTypedState`
+and `LaneTerminalGuardV1Test.guardRejectsProfileProjectionDrift` cover the two
+typed branches. This is local canonical-shape evidence only; resolver/catalog,
+Profile activation and Oxia ownership authority remain outside the codec.
 
 The nested Registry `ChargeVectorV1` codec now preserves all seventeen raw
 `uint64` fields, including high-bit values, through canonical encode/decode.
@@ -748,10 +755,11 @@ wrong-kind rejection. This closes the local Profile union only; verifier
 registration, key activation and signature authority remain external gates.
 `LaneTerminalGuardV1` now applies the Registry slot fence (`DESTINATION` then
 `DELIVERY_CAPABILITY`) in both construction and decode; `LaneTerminalGuardV1Test`
-covers both invalid slot directions. The canonical Lane tuple remains an
-externally resolved opaque byte projection in this compatibility layer, so full
-tuple/profile byte projection remains a resolver/authority gate rather than an
-invented local parser.
+covers both invalid slot directions and the typed constructor/decode paths now
+parse the canonical tuple enough to reject malformed structure and Profile
+id/version/hash projection drift. The compatibility adapter may still retain
+resolver-provided opaque bytes, while complete resolver/catalog/Oxia authority
+remains an external gate.
 Physical channel/evidence generations and the credential binding generation in
 `ChannelResourceIdentityV1` now preserve raw unsigned `uint64` bit patterns
 (zero is still rejected), matching the typed `EvidenceCursorV1` generation.

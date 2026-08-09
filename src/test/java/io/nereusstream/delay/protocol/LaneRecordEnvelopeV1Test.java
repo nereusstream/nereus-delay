@@ -24,8 +24,9 @@ class LaneRecordEnvelopeV1Test {
                 ProfileKindV1.DESTINATION);
         final ProfileRefV1 capability = new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4),
                 ProfileKindV1.DELIVERY_CAPABILITY);
+        final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
         final LaneTerminalGuardV1 guard = new LaneTerminalGuardV1(bytes(16, 5), 3, source, destination,
-                capability, Bytes.utf8("tuple"), bytes(32, 6), 9);
+                capability, tuple, bytes(32, 6), 9);
         final LaneRecordEnvelopeV1 terminal = LaneRecordEnvelopeV1.terminal(guard);
         assertEquals(terminal, LaneRecordEnvelopeV1.decode(terminal.canonicalBytes()));
         assertArrayEquals(guard.canonicalBytes(), terminal.terminalGuard().canonicalBytes());
@@ -33,11 +34,11 @@ class LaneRecordEnvelopeV1Test {
 
     @Test
     void typedActiveBranchRoundTripsWithoutAcceptingLegacyBytesAsFullState() {
-        final byte[] tuple = Bytes.utf8("typed-lane-tuple");
         final ProfileRefV1 destination = new ProfileRefV1(bytes(4, 7), 1, bytes(32, 8),
                 ProfileKindV1.DESTINATION);
         final ProfileRefV1 capability = new ProfileRefV1(bytes(4, 9), 1, bytes(32, 10),
                 ProfileKindV1.DELIVERY_CAPABILITY);
+        final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
         final ActiveLaneStateV1 state = new ActiveLaneStateV1(
                 DestinationLaneId.derive(tuple), bytes(16, 11), io.nereusstream.delay.runtime.AdmissionGate.OPEN,
                 io.nereusstream.delay.runtime.RuntimeReadiness.BLOCKED,

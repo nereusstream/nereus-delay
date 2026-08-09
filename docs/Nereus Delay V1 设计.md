@@ -1188,6 +1188,15 @@ reason、READY key/certificate 或超出本地数值范围时必须 fail closed�
 不改变 V1 的 wire/recovery 语义，待 Schedule/Profile/Oxia activation 输入完整后
 再移除适配路径。
 
+Typed `ActiveLaneStateV1` 和 `LaneTerminalGuardV1` 还必须把 canonical Lane
+tuple 当作 Registry-shaped bytes 解析到两个 immutable Profile 槽位：tuple 中的
+`destinationProfileId/version/semanticHash` 与 field 9 完全一致，
+`capabilityProfileId/version/semanticHash` 与 field 10 完全一致，并拒绝截断、未知
+分支、尾随 bytes 或 adapter/resource/ordering 结构不一致的 tuple。该本地 parser
+只证明 tuple 的 canonical shape 和 Profile byte projection，不代替 Profile
+resolver、catalog、Oxia 或 Broker authority；历史兼容 adapter 仍可保存 opaque
+bytes，但 typed branch 不得借此绕过投影校验。
+
 ### 10.3 Key
 
 所有 key 以 record type + key format version 开头。整数为 fixed-width unsigned big endian，variable bytes 长度前缀且有上限。

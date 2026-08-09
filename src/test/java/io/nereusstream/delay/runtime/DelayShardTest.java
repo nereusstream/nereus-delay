@@ -45,6 +45,7 @@ import io.nereusstream.delay.protocol.ProfileBindingActivatePayloadV1;
 import io.nereusstream.delay.protocol.ProfileNewBindingClosePayloadV1;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
+import io.nereusstream.delay.protocol.ProtocolTestFixtures;
 import io.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.PreparedControlOperationV1;
@@ -614,12 +615,12 @@ class DelayShardTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("lane-guard-source-shard-mismatch"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 72);
         final ShardId otherShardId = new ShardId(RouteIncarnation.random(), 73);
-        final byte[] tuple = Bytes.utf8("lane-guard-source-shard-mismatch-tuple");
-        final DestinationLaneId lane = DestinationLaneId.derive(tuple);
         final ProfileRefV1 destination = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2),
                 ProfileKindV1.DESTINATION);
         final ProfileRefV1 capability = new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4),
                 ProfileKindV1.DELIVERY_CAPABILITY);
+        final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
+        final DestinationLaneId lane = DestinationLaneId.derive(tuple);
         final LaneTerminalGuardV1 misplaced = new LaneTerminalGuardV1(bytes(16, 5), 1,
                 position(otherShardId, 0, 1_000), destination, capability, tuple, bytes(32, 6), 1);
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
@@ -636,12 +637,12 @@ class DelayShardTest {
     void typedActiveLaneStateIsReadAndUpdatedWithoutLegacyDowngrade() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("typed-lane-state-runtime"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 81);
-        final byte[] tuple = Bytes.utf8("typed-lane-state-runtime-tuple");
-        final DestinationLaneId lane = DestinationLaneId.derive(tuple);
         final ProfileRefV1 destination = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2),
                 ProfileKindV1.DESTINATION);
         final ProfileRefV1 capability = new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4),
                 ProfileKindV1.DELIVERY_CAPABILITY);
+        final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
+        final DestinationLaneId lane = DestinationLaneId.derive(tuple);
         final ActiveLaneStateV1 state = new ActiveLaneStateV1(lane, bytes(16, 5), AdmissionGate.OPEN,
                 RuntimeReadiness.BLOCKED, LaneRuntimeBlockReasonV1.CAPABILITY, 1, 1, destination, capability,
                 tuple, 1, zeroChargeVector(), null, null, LaneCircuitStateV1.CLOSED, 0, 0, 0, 0,
@@ -2130,16 +2131,16 @@ class DelayShardTest {
         final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 1,
                 1, 1_000, 10_000);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 8);
-        final byte[] tuple = Bytes.utf8("terminal-lane-tuple");
-        final DestinationLaneId lane = DestinationLaneId.derive(tuple);
-        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
-                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
-                        OrderingMode.BEST_EFFORT, Bytes.utf8("terminal-lane")), 9_000);
         final KafkaSourcePosition source = position(shardId, 0, 1_000);
         final ProfileRefV1 destination = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2),
                 ProfileKindV1.DESTINATION);
         final ProfileRefV1 capability = new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4),
                 ProfileKindV1.DELIVERY_CAPABILITY);
+        final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
+        final DestinationLaneId lane = DestinationLaneId.derive(tuple);
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("terminal-lane")), 9_000);
         final byte[] retirementId = bytes(32, 6);
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
@@ -2208,16 +2209,16 @@ class DelayShardTest {
     void laneRetirementRejectsInflightKeyValueMismatchBeforeRetiring() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("lane-retirement-inflight-mismatch"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 74);
-        final byte[] tuple = Bytes.utf8("lane-retirement-inflight-mismatch-tuple");
-        final DestinationLaneId lane = DestinationLaneId.derive(tuple);
-        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
-                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
-                        OrderingMode.BEST_EFFORT, Bytes.utf8("lane-retirement-inflight-mismatch")), 9_000);
         final KafkaSourcePosition source = position(shardId, 0, 1_000);
         final ProfileRefV1 destination = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2),
                 ProfileKindV1.DESTINATION);
         final ProfileRefV1 capability = new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4),
                 ProfileKindV1.DELIVERY_CAPABILITY);
+        final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
+        final DestinationLaneId lane = DestinationLaneId.derive(tuple);
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("lane-retirement-inflight-mismatch")), 9_000);
         final byte[] retirementId = bytes(32, 6);
         final byte[] valueAttemptId = Bytes.sha256(Bytes.utf8("lane-retirement-value-attempt"));
         final byte[] keyAttemptId = Bytes.sha256(Bytes.utf8("lane-retirement-key-attempt"));

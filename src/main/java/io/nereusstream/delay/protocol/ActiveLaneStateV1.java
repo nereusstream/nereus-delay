@@ -81,6 +81,8 @@ public final class ActiveLaneStateV1 {
         this.capabilityProfile = requireProfile(capabilityProfile, ProfileKindV1.DELIVERY_CAPABILITY,
                 "capabilityProfile");
         this.canonicalLaneTuple = tuple(canonicalLaneTuple);
+        CanonicalLaneTupleV1.requireProfileProjection(this.canonicalLaneTuple, this.destinationProfile,
+                this.capabilityProfile);
         if (!laneId.equals(DestinationLaneId.derive(this.canonicalLaneTuple))) {
             throw new IllegalArgumentException("Lane identity does not match canonical tuple");
         }

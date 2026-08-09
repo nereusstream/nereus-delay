@@ -1018,6 +1018,13 @@ legacy-adapter 区分，并对 malformed typed bytes fail closed；不过当前
 `ScheduleIntent` 只带 `destinationLaneId`，无法无损提供完整 active state 所需的
 immutable Profile refs、canonical tuple、READY certificate 和 quota 输入，所以
 `DelayShard` 仍明确停留在兼容 adapter 路径，不能把这一步误报成运行时 cutover。
+Typed `ActiveLaneStateV1` 与 `LaneTerminalGuardV1` 现在还会解析
+Registry-shaped canonical Lane tuple，要求两个 immutable Profile 槽位按
+id/version/semantic-hash byte-project，并在 tuple 截断、未知分支、尾随 bytes 或
+adapter/resource/ordering 不一致时 fail closed。新增的
+`CanonicalLaneTupleV1` 及其 Active/Terminal 回归测试只证明本地 canonical shape
+和 projection fence；Profile resolver/catalog、Oxia ownership 与 Broker authority
+仍是 release evidence，兼容 adapter 也仍未切换为 typed runtime persistence。
 
 协议边界也已开始按 Registry 收敛：`ScheduleIntentV1` 及其
 `RetryPolicyRefV1`、`AdapterMetadataV1`、`KafkaMetadataV1`、
@@ -1408,9 +1415,10 @@ Profile kind 的负向回归；Profile 注册、key activation 与签名 authori
 仍属于外部 release gate。
 `LaneTerminalGuardV1` 的两个 Profile 槽位也已在构造和 decode 路径强制为
 `DESTINATION`、`DELIVERY_CAPABILITY`，由 `LaneTerminalGuardV1Test` 覆盖
-双向错误 kind；兼容层仍把已由 resolver 解析的 canonical Lane tuple 作为
-opaque bytes 保存，完整的 tuple/profile byte projection 仍依赖 resolver 与
-外部 authority，而不是在本地猜测 tuple 结构。
+双向错误 kind；typed Active/Terminal 路径还由
+`CanonicalLaneTupleV1` 强制 tuple 的 Registry shape 和 Profile
+id/version/semantic-hash byte projection。该 parser 不代替 resolver 或外部
+authority，兼容层仍可保存 resolver 提供的 opaque bytes。
 
 `ChannelResourceIdentityV1` now preserves the complete raw unsigned patterns for
 its physical `channel_generation`, optional `evidence_generation`, and

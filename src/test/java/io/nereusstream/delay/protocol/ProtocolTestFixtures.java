@@ -33,6 +33,28 @@ public final class ProtocolTestFixtures {
                 Bytes.sha256(Bytes.utf8("fixture-guard")), 1, bindingDigest, fingerprint, lease).canonicalBytes();
     }
 
+    /** Builds the Registry-shaped Kafka Lane tuple used by typed Lane tests. */
+    public static byte[] canonicalKafkaLaneTuple(final ProfileRefV1 destination,
+                                                  final ProfileRefV1 capability) {
+        final byte[] topicUuid = uuidBytes(UUID.nameUUIDFromBytes(Bytes.utf8("fixture-lane-topic")));
+        return Bytes.concat(
+                Bytes.sha256(Bytes.utf8("fixture-tenant-routing-scope")),
+                Bytes.u8(AdapterKindV1.KAFKA.wireValue()),
+                Bytes.lp32(Bytes.utf8("fixture-target-cluster")),
+                Bytes.u8(1),
+                topicUuid,
+                Bytes.lp32(topicUuid),
+                Bytes.u32be(3),
+                Bytes.lp32(destination.profileId()),
+                Bytes.u64beBits(destination.version()),
+                destination.semanticHash(),
+                Bytes.lp32(capability.profileId()),
+                Bytes.u64beBits(capability.version()),
+                capability.semanticHash(),
+                Bytes.u8(1),
+                Bytes.sha256(Bytes.utf8("fixture-ordering-domain")));
+    }
+
     private static byte[] channelFieldsThrough13(final AdapterKindV1 adapterKind, final ChannelKindV1 channelKind,
                                                   final byte[] lane, final byte[] laneIncarnation,
                                                   final BrokerResourceIdentityV1 target, final long partition,
@@ -51,5 +73,10 @@ public final class ProtocolTestFixtures {
             CanonicalProtobuf.bytes(output, 10, Bytes.sha256(producer));
             CanonicalProtobuf.bytes(output, 13, guardDigest);
         });
+    }
+
+    private static byte[] uuidBytes(final UUID value) {
+        return java.nio.ByteBuffer.allocate(16).putLong(value.getMostSignificantBits())
+                .putLong(value.getLeastSignificantBits()).array();
     }
 }

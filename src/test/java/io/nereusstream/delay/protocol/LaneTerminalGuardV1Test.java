@@ -19,8 +19,9 @@ class LaneTerminalGuardV1Test {
                 ProfileKindV1.DESTINATION);
         final ProfileRefV1 capability = new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4),
                 ProfileKindV1.DELIVERY_CAPABILITY);
+        final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
         final LaneTerminalGuardV1 guard = new LaneTerminalGuardV1(bytes(16, 5), 7, source, destination,
-                capability, Bytes.utf8("canonical-lane-tuple"), bytes(32, 6), 8);
+                capability, tuple, bytes(32, 6), 8);
         final LaneRetirementProgressV1 progress = new LaneRetirementProgressV1(bytes(32, 7), 9, source);
 
         assertArrayEquals(guard.canonicalBytes(), LaneTerminalGuardV1.decode(guard.canonicalBytes()).canonicalBytes());
@@ -37,9 +38,10 @@ class LaneTerminalGuardV1Test {
                 ProfileKindV1.DESTINATION);
         final ProfileRefV1 capability = new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4),
                 ProfileKindV1.DELIVERY_CAPABILITY);
+        final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
         final long highBit = Long.MIN_VALUE;
         final LaneTerminalGuardV1 guard = new LaneTerminalGuardV1(bytes(16, 5), 7, source, destination, capability,
-                Bytes.utf8("canonical-lane-tuple"), bytes(32, 6), highBit);
+                tuple, bytes(32, 6), highBit);
         final LaneRetirementProgressV1 progress = new LaneRetirementProgressV1(bytes(32, 7), highBit, source);
 
         assertEquals(highBit, LaneTerminalGuardV1.decode(guard.canonicalBytes()).retirementMutationSequence());
@@ -55,8 +57,9 @@ class LaneTerminalGuardV1Test {
         final ProfileRefV1 destination = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2), ProfileKindV1.DESTINATION);
         final ProfileRefV1 capability = new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4),
                 ProfileKindV1.DELIVERY_CAPABILITY);
+        final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
         final LaneTerminalGuardV1 guard = new LaneTerminalGuardV1(bytes(16, 3), 1, source, destination, capability,
-                Bytes.utf8("tuple"), bytes(32, 4), 1);
+                tuple, bytes(32, 4), 1);
         final byte[] tampered = guard.canonicalBytes();
         tampered[tampered.length - 1] ^= 1;
         assertThrows(IllegalArgumentException.class, () -> LaneTerminalGuardV1.decode(tampered));
@@ -71,11 +74,29 @@ class LaneTerminalGuardV1Test {
                 ProfileKindV1.DESTINATION);
         final ProfileRefV1 capability = new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4),
                 ProfileKindV1.DELIVERY_CAPABILITY);
+        final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
 
         assertThrows(IllegalArgumentException.class, () -> new LaneTerminalGuardV1(bytes(16, 5), 1, source,
-                capability, capability, Bytes.utf8("tuple"), bytes(32, 6), 1));
+                capability, capability, tuple, bytes(32, 6), 1));
         assertThrows(IllegalArgumentException.class, () -> new LaneTerminalGuardV1(bytes(16, 5), 1, source,
-                destination, destination, Bytes.utf8("tuple"), bytes(32, 6), 1));
+                destination, destination, tuple, bytes(32, 6), 1));
+    }
+
+    @Test
+    void guardRejectsProfileProjectionDrift() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 1);
+        final KafkaSourcePosition source = new KafkaSourcePosition(shard, "cluster", UUID.randomUUID(), 1,
+                null, 10);
+        final ProfileRefV1 destination = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2),
+                ProfileKindV1.DESTINATION);
+        final ProfileRefV1 capability = new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4),
+                ProfileKindV1.DELIVERY_CAPABILITY);
+        final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
+        final ProfileRefV1 driftedDestination = new ProfileRefV1(bytes(4, 9), destination.version(),
+                destination.semanticHash(), ProfileKindV1.DESTINATION);
+
+        assertThrows(IllegalArgumentException.class, () -> new LaneTerminalGuardV1(bytes(16, 5), 1, source,
+                driftedDestination, capability, tuple, bytes(32, 6), 1));
     }
 
     private static byte[] bytes(final int length, final int value) {
