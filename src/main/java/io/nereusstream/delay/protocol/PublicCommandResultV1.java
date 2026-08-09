@@ -114,7 +114,7 @@ public final class PublicCommandResultV1 implements QueryResponseBranchV1 {
         }
         final PublicCommandResultV1 result = new PublicCommandResultV1(
                 CommandApplyStatusV1.fromWire(QueryCodecSupport.uint(fields.get(0), 1)),
-                StableCode.fromWire(Math.toIntExact(QueryCodecSupport.uint(fields.get(1), 2))),
+                StableCode.fromWire(QueryCodecSupport.uint32(fields.get(1), 2)),
                 QueryCodecSupport.decodeSourcePosition(QueryCodecSupport.nested(fields.get(2), 3)), generation,
                 stateVersion, binding, QueryCodecSupport.uint(fields.get(index), 7));
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "PublicCommandResultV1");

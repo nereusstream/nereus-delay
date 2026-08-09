@@ -116,7 +116,7 @@ public final class CommandAppliedReceiptV1 {
         final byte[] queuedDigest = QueryCodecSupport.fixed(fields.get(1), 2, HASH_LENGTH);
         final CommandAppliedReceiptV1 result = new CommandAppliedReceiptV1(queuedDigest,
                 CommandApplyStatusV1.fromWire(QueryCodecSupport.uint(fields.get(2), 3)),
-                StableCode.fromWire(Math.toIntExact(QueryCodecSupport.uint(fields.get(3), 4))),
+                StableCode.fromWire(QueryCodecSupport.uint32(fields.get(3), 4)),
                 QueryCodecSupport.decodeSourcePosition(QueryCodecSupport.nested(fields.get(4), 5)), generation,
                 stateVersion, binding, QueryCodecSupport.uint(fields.get(index), 9), digest);
         final byte[] expected = Bytes.sha256(Bytes.utf8("nereus-delay-command-applied-receipt-v1\0"),

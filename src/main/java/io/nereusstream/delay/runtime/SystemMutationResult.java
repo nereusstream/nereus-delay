@@ -93,7 +93,11 @@ public record SystemMutationResult(
             case 2 -> ApplyStatus.REJECTED;
             default -> throw new IllegalArgumentException("unknown system mutation apply status");
         };
-        final StableCode code = StableCode.fromWire(Math.toIntExact(readU32(input, "stableCode")));
+        final long stableCodeValue = readU32(input, "stableCode");
+        if (stableCodeValue > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("stableCode exceeds local runtime range");
+        }
+        final StableCode code = StableCode.fromWire((int) stableCodeValue);
         final byte[] author = readLp32(input, "authorIdentity");
         final byte[] source = readLp32(input, "appliedSourcePosition");
         if (input.hasRemaining()) {

@@ -106,7 +106,7 @@ public final class TerminalMessageViewV1 implements QueryResponseBranchV1 {
                 QueryCodecSupport.uint32(fields.get(0), 1),
                 QueryCodecSupport.uint(fields.get(1), 2),
                 MessageGenerationStateV1.fromWire(QueryCodecSupport.uint(fields.get(2), 3)),
-                StableCode.fromWire(Math.toIntExact(QueryCodecSupport.uint(fields.get(3), 4))),
+                StableCode.fromWire(QueryCodecSupport.uint32(fields.get(3), 4)),
                 PublicDestinationBindingViewV1.decode(QueryCodecSupport.nested(fields.get(4), 5)),
                 PayloadAvailabilityV1.fromWire(QueryCodecSupport.uint(fields.get(5), 6)),
                 DlqExportStateV1.fromWire(QueryCodecSupport.uint(fields.get(6), 7)),

@@ -2453,6 +2453,14 @@ the exact pending result and legacy constructor identity fences. This is local
 receipt/query evidence; it does not replace gateway authorization, cross-worker
 routing, or production receipt retention authority.
 
+The public query/result codec boundary now routes closed union tags, stable
+codes and Client Command types through an explicit bounded runtime projection.
+High-bit wire `uint32` values fail with `IllegalArgumentException` before enum
+dispatch instead of leaking arithmetic narrowing; the local regression is
+`ProtocolCodecTest.publicClosedUnionTagsRejectHighBitUint32AsInvalidInput`.
+This keeps the full Registry wire domain distinct from the current signed
+runtime compatibility projection.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

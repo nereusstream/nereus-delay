@@ -328,7 +328,11 @@ public final class ResourceRetireIntentBody {
             if (fields.size() < 3 || fields.size() > 7) {
                 throw new IllegalArgumentException("ProtectionRef fields are incomplete");
             }
-            final int kind = Math.toIntExact(unsigned(field(fields, 1), 1));
+            final long kindValue = unsigned(field(fields, 1), 1);
+            if (kindValue > Integer.MAX_VALUE) {
+                throw new IllegalArgumentException("ProtectionRef kind exceeds local runtime range");
+            }
+            final int kind = (int) kindValue;
             final byte[] resourceId = fixed(bytes(field(fields, 2), 2), HASH_LENGTH, 2);
             final long generation = rawUnsigned(field(fields, 3), 3);
             final byte[] source = optionalBytes(fields, 4);

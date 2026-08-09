@@ -2412,6 +2412,8 @@ INTEGRITY_ERROR
 
 以上 response 不是开放 JSON map。`CommandQueryResponseV1`、`MessageQueryResponseV1`、safe binding/payload/evidence view 的 exact field numbers、state subset、presence matrix 和 receipt-only branch 由 Protocol Registry §6.3.1 固定。Bare Command query 返回不含 queued-receipt digest 的 `PublicCommandResultV1`，不能为凑字段伪造 `CommandAppliedReceiptV1`；bare locator 也不能产生 `PENDING`/receipt mismatch/evidence-expired 分支。
 
+这些 closed union 的 `result_kind`、`stable_code` 和 `CommandType` 在 Java runtime 中只接受非负 `int` 子集；wire 上落入高位的 `uint32` 不得通过 `Math.toIntExact` 等隐式窄化进入枚举，而必须以明确的 `IllegalArgumentException` fail closed。该边界只限制当前本地 runtime projection，不改变 Registry wire 的完整 `uint32` 域；若未来开放更宽的 runtime 值，必须同步迁移对应枚举、状态/查询 projection 和持久化兼容测试。
+
 没有 source position 的 uncertain enqueue 查询可为 `UNKNOWN`；absence 不能证明未入 Broker。可靠动作仍是 retry 原 Prepared Command。
 
 Position audit 不能按普通 full-result TTL 删除。Queued receipt 的 `receiptQueryUntil` 按该 record Broker persistence time + immutable Route `queuedReceiptQueryWindow` 计算；full result 的 `fullResultRetainUntil` 同样按 first Source Position Broker time + `fullCommandResultRetention` 计算，replay 不读取 apply wall clock。`dedupe_cf/POSITION` 只有在 `closedIngressDeadlineThrough >= receiptQueryUntil`、source 越过 fence、descendant Recovery Floor 包含 audit mutation 且 minimum audit retention 已过后才能回收。之后 queued query 返回 `RESULT_EVIDENCE_EXPIRED`，不伪造 `UNKNOWN` 或 mismatch。该 retention 进入 checkpoint/source/object capacity proof。

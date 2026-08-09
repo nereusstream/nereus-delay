@@ -64,7 +64,11 @@ public final class CommandCodec {
         requireVarint(command.get(0), 1, 1);
         final CommandId commandId = new CommandId(requireBytes(command.get(1), 2));
         final DelayMessageId messageId = new DelayMessageId(requireBytes(command.get(2), 3));
-        final int commandType = Math.toIntExact(requireVarint(command.get(3), 5));
+        final long commandTypeValue = requireVarint(command.get(3), 5);
+        if (commandTypeValue < 0 || commandTypeValue > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("CommandType exceeds local runtime range");
+        }
+        final int commandType = (int) commandTypeValue;
         final long retryUntil = requireVarint(command.get(4), 7);
         final byte[] body = requireBytes(command.get(5), 8);
         final byte[] hash = requireBytes(command.get(6), 9);

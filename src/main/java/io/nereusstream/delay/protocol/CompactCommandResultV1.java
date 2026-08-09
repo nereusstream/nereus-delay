@@ -53,7 +53,7 @@ public final class CompactCommandResultV1 implements QueryResponseBranchV1 {
         QueryCodecSupport.requireNumbers(fields, new int[]{1, 2, 3, 4}, "CompactCommandResultV1");
         final CompactCommandResultV1 result = new CompactCommandResultV1(
                 CommandApplyStatusV1.fromWire(QueryCodecSupport.uint(fields.get(0), 1)),
-                StableCode.fromWire(Math.toIntExact(QueryCodecSupport.uint(fields.get(1), 2))),
+                StableCode.fromWire(QueryCodecSupport.uint32(fields.get(1), 2)),
                 QueryCodecSupport.decodeSourcePosition(QueryCodecSupport.nested(fields.get(2), 3)),
                 QueryCodecSupport.uint(fields.get(3), 4));
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "CompactCommandResultV1");

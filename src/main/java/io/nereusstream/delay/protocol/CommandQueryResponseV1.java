@@ -75,8 +75,7 @@ public record CommandQueryResponseV1(CommandQueryResult resultKind, PublicQueryE
         if (QueryCodecSupport.uint(fields.get(0), 1) != VERSION) {
             throw new IllegalArgumentException("unsupported CommandQueryResponseV1 version");
         }
-        final CommandQueryResult result = CommandQueryResult.fromWire(
-                Math.toIntExact(QueryCodecSupport.uint(fields.get(1), 2)));
+        final CommandQueryResult result = CommandQueryResult.fromWire(QueryCodecSupport.uint32(fields.get(1), 2));
         final int branchField = branchField(result);
         final byte[] branchBytes = QueryCodecSupport.nested(fields.get(2), branchField);
         final QueryResponseBranchV1 branch = decodeBranch(result, branchBytes);

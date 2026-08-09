@@ -55,6 +55,15 @@ Pulsar physical-topic creation identity. The closed Control and Scheduler
 projection validators apply the same fence to local `uint32` and boolean
 fields. `ProtocolCodecTest` covers these malformed-input fences.
 
+Public Command/Message query responses, public result/error views, terminal
+views, applied receipts and the Client Command envelope now use the same
+bounded runtime projection for enum/status/command tags. A wire `uint32` above
+the local signed range is rejected as `IllegalArgumentException` before enum
+dispatch, rather than leaking an arithmetic narrowing exception or producing a
+negative runtime tag. `ProtocolCodecTest.publicClosedUnionTagsRejectHighBitUint32AsInvalidInput`
+covers the public query union boundary; this remains a local codec fence and
+does not narrow the Registry wire domain.
+
 The canonical Protobuf length-delimited reader rejects high-bit `uint64`
 length prefixes and lengths above the bounded Java `int` payload limit before
 the value is narrowed for slicing. This closes the local malformed-input path

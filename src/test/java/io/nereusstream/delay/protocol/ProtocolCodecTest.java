@@ -642,6 +642,27 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void publicClosedUnionTagsRejectHighBitUint32AsInvalidInput() {
+        final byte[] highBitError = CanonicalProtobuf.message(output ->
+                CanonicalProtobuf.uint32(output, 1, 0x8000_0000L));
+        assertThrows(IllegalArgumentException.class, () -> PublicQueryErrorV1.decode(highBitError));
+
+        final byte[] highBitCommandResult = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint32(output, 1, 1);
+            CanonicalProtobuf.uint32(output, 2, 0x8000_0000L);
+            CanonicalProtobuf.bytes(output, 10, new byte[0]);
+        });
+        assertThrows(IllegalArgumentException.class, () -> CommandQueryResponseV1.decode(highBitCommandResult));
+
+        final byte[] highBitMessageResult = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint32(output, 1, 1);
+            CanonicalProtobuf.uint32(output, 2, 0x8000_0000L);
+            CanonicalProtobuf.bytes(output, 10, new byte[0]);
+        });
+        assertThrows(IllegalArgumentException.class, () -> MessageQueryResponseV1.decode(highBitMessageResult));
+    }
+
+    @Test
     void preparedCommandRoundTripsThroughCanonicalFrame() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
         final ScheduleIntent intent = new ScheduleIntent(

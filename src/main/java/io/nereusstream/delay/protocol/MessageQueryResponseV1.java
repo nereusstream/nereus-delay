@@ -72,8 +72,7 @@ public record MessageQueryResponseV1(MessageQueryResult resultKind, PublicQueryE
         if (QueryCodecSupport.uint(fields.get(0), 1) != VERSION) {
             throw new IllegalArgumentException("unsupported MessageQueryResponseV1 version");
         }
-        final MessageQueryResult result = MessageQueryResult.fromWire(
-                Math.toIntExact(QueryCodecSupport.uint(fields.get(1), 2)));
+        final MessageQueryResult result = MessageQueryResult.fromWire(QueryCodecSupport.uint32(fields.get(1), 2));
         final int branchField = branchField(result);
         final QueryResponseBranchV1 branch = decodeBranch(result,
                 QueryCodecSupport.nested(fields.get(2), branchField));
