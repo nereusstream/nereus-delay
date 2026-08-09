@@ -814,6 +814,20 @@ class ShardStoreTest {
     }
 
     @Test
+    void perDbWriteBufferCeilingIsBoundAtRocksDbDbLevel() throws Exception {
+        final ShardStoreConfig config = new ShardStoreConfig(tempDir.resolve("db-wbm"), 1, 1, 32, 32,
+                1, 1024 * 1024, 1024 * 1024, 1, 1, 1, 1024, 1, 4096);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 22);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final java.lang.reflect.Field field = ShardStore.class.getDeclaredField("dbOptions");
+            field.setAccessible(true);
+            final DBOptions options = (DBOptions) field.get(store);
+            assertEquals(config.maxWriteBufferBytesPerDb(), options.dbWriteBufferSize());
+        }
+    }
+
+    @Test
     void backgroundJobSplitMustFitPerDbCeiling() {
         assertThrows(IllegalArgumentException.class, () -> new ShardStoreConfig(
                 tempDir.resolve("invalid-background-split"), 1, 1, 32, 32, 2,

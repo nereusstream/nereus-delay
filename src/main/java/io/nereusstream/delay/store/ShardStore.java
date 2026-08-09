@@ -802,6 +802,13 @@ public final class ShardStore implements AutoCloseable {
                 .setMaxBackgroundJobs(config.maxBackgroundJobsPerDb())
                 .setMaxBackgroundFlushes(config.reservedFlushJobs())
                 .setMaxBackgroundCompactions(config.maxCompactionJobs())
+                // ColumnFamilyOptions.setWriteBufferSize() is only a
+                // per-CF ceiling.  V1's maxWriteBufferBytesPerDb is an
+                // aggregate DB ceiling, so bind the DB-level option as well;
+                // otherwise the seven application CFs (plus RocksDB's
+                // mandatory default CF) could each consume the configured
+                // amount before the shared process WBM noticed pressure.
+                .setDbWriteBufferSize(config.maxWriteBufferBytesPerDb())
                 .setWriteBufferManager(resources.writeBufferManager())
                 .setRateLimiter(resources.rateLimiter());
         final List<ColumnFamilyHandle> openedHandles = new ArrayList<>();

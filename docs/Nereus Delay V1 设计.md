@@ -2751,7 +2751,7 @@ Worker 在 RocksDB 之上强制 per-shard ceiling 和 work-class reserve：
 - 一个 DB 的 WBM pressure、L0 slowdown、compaction debt 或 checkpoint 不能吃掉另一 DB 的 WAL/due minimum；
 - cache/I/O/background-job 的空闲份额可借用，但在下一次 work admission 可回收。
 
-每个 event-loop/work class 都有正 weight、bounded queue records/bytes、per-turn record/byte/time caps 和 `maxEventLoopClassDelay`。lease/fence closure 可抢占；correctness/outcome、expiry、flush 和 capacity-releasing GC minima 不可借。借出的 cache/I/O/job token 每个 bounded chunk 重取，并在 configured maximum hold time 内可回收；每个 DB 至少保留一个可产生 flush forward progress 的 job/token，compaction storm 不能占满全部 background slots。
+每个 event-loop/work class 都有正 weight、bounded queue records/bytes、per-turn record/byte/time caps 和 `maxEventLoopClassDelay`。lease/fence closure 可抢占；correctness/outcome、expiry、flush 和 capacity-releasing GC minima 不可借。借出的 cache/I/O/job token 每个 bounded chunk 重取，并在 configured maximum hold time 内可回收；每个 DB 至少保留一个可产生 flush forward progress 的 job/token，compaction storm 不能占满全部 background slots。`maxWriteBufferBytesPerDb` 必须绑定 RocksDB 的 DB-level `db_write_buffer_size`；各 CF 的 `write_buffer_size` 只能作为单 CF ceiling，不能把八个 physical CF 的上限相加后冒充 DB 聚合上限。
 
 降低 Worker/container memory、FD、disk、open-DB 或 Adapter envelope 必须 `STAGED -> DRAIN_OR_MIGRATE -> ACTIVE`：staged version 先拒绝新 ownership，等全部 committed envelope/fixed cost/transition demand fit 后才能激活。外部提前 hot-shrink 是 shared safety breach，不是 replay-dependent Schedule rejection。
 

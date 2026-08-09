@@ -1508,14 +1508,18 @@ desired-placement plan 或 Owner Lease authority。
 
 `ShardStoreConfig.maxWriteBufferBytesPerDb` 现在是显式的 Worker 配置，
 `ShardStore` 会把它绑定到每个 Column Family 的 RocksDB
-`ColumnFamilyOptions.setWriteBufferSize`，同时继续由进程级
-`WriteBufferManager` 约束共享 memtable 总预算。共享 `Env` 明确承载进程级
-background pool；每个 DB 另外绑定 `maxBackgroundJobsPerDb` 以及非零
-`reservedFlushJobs`/`maxCompactionJobs` split，并在配置不满足 split 时 fail closed。
-这证明了本地 option binding 和非法配置证据（`ShardStoreTest.perDbWriteBufferCeilingMustBePositive`、
-`ShardStoreTest.backgroundJobSplitMustFitPerDbCeiling`），但不把每个 CF 的上限或
-每个 DB 的 job split 误报成聚合 WAL/SST/temp 运行时记账；work-class reserve、
-真实 JVM/cgroup/rlimit 和 Oxia placement authority 仍是外部资源证据。
+`ColumnFamilyOptions.setWriteBufferSize`，并同时绑定到每个 DB 的
+`DBOptions.setDbWriteBufferSize`；前者只是单 CF ceiling，后者才是八个
+physical CF 的聚合 DB ceiling。进程级 `WriteBufferManager` 继续约束共享
+memtable 总预算。共享 `Env` 明确承载进程级 background pool；每个 DB 另外绑定
+`maxBackgroundJobsPerDb` 以及非零 `reservedFlushJobs`/`maxCompactionJobs` split，
+并在配置不满足 split 时 fail closed。这由
+`ShardStoreTest.perDbWriteBufferCeilingMustBePositive`、
+`ShardStoreTest.perDbWriteBufferCeilingIsBoundAtRocksDbDbLevel` 和
+`ShardStoreTest.backgroundJobSplitMustFitPerDbCeiling` 证明；但不把 DB
+memtable option 或每个 DB 的 job split 误报成聚合 WAL/SST/temp 运行时记账。
+work-class reserve、真实 JVM/cgroup/rlimit 和 Oxia placement authority 仍是
+外部资源证据。
 
 资源审计现在还有一个可复用的本地物理观测边界：`RocksDbUsageSnapshot`
 从打开的单 shard DB 读取 live SST、WAL、MANIFEST、L0、compaction-pending
