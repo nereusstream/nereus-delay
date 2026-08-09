@@ -127,6 +127,21 @@ class KafkaReceiptJournalTest {
     }
 
     @Test
+    void localAppenderFailsClosedBeforeUnsignedOffsetExhaustionCanWrap() {
+        final ShardId shard = shard();
+        final KafkaReceiptJournal journal = new KafkaReceiptJournal(shard, resource(shard), -1L);
+
+        assertThrows(KafkaReceiptJournal.JournalException.class,
+                () -> journal.appendNext(producer(), identity(shard, 28)));
+        assertTrue(journal.records().isEmpty());
+        // The failed append must not advance the local cursor to zero and
+        // accidentally admit a later record after the u64 domain is spent.
+        assertThrows(KafkaReceiptJournal.JournalException.class,
+                () -> journal.appendNext(producer(), identity(shard, 29)));
+        assertTrue(journal.records().isEmpty());
+    }
+
+    @Test
     void retirementAppenderFailureKeepsLowerSequenceUnresolved() {
         final ShardId shard = shard();
         final KafkaReceiptJournal journal = new KafkaReceiptJournal(shard, request ->

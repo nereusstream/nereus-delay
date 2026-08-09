@@ -17,6 +17,15 @@ scheduler already applies the same recomputation rule. This remains local
 scheduler evidence and does not replace the certified capacity artifact or
 production placement telemetry.
 
+The local Kafka receipt appender now computes the checked exclusive successor
+before advancing its cursor. At the raw u64 all-ones offset, the append fails
+with the stable Journal integrity error and the cursor remains exhausted,
+instead of wrapping to offset zero after a failed `ReceiptPosition` build.
+`KafkaReceiptJournalTest.localAppenderFailsClosedBeforeUnsignedOffsetExhaustionCanWrap`
+covers the repeated-failure boundary. This is local seam evidence only; the
+production Kafka receipt partition, read-committed LSO and retention proofs
+remain external release blockers.
+
 The deprecated `PulsarActivationBarrier` compatibility constructor now actually
 supports its documented unknown-batch-shape form: a non-empty legacy barrier
 may carry `batchSize=0`, skips only the same-entry batch-shape check, and still

@@ -60,6 +60,16 @@ public final class KafkaReceiptJournal {
         this(shard, new LocalAppender(), receiptResource);
     }
 
+    /**
+     * Creates the deterministic local appender at an explicit raw offset.
+     * This package-private seam exists only for exhaustion-boundary tests; a
+     * production Kafka adapter must obtain positions from the Broker.
+     */
+    KafkaReceiptJournal(final ShardId shard, final KafkaReceiptResource receiptResource,
+                        final long initialOffset) {
+        this(shard, new LocalAppender(initialOffset), receiptResource);
+    }
+
     /** Creates a receipt journal seam with an injected durable append. */
     public KafkaReceiptJournal(final ShardId shard, final DurableAppender appender,
                                final KafkaReceiptResource receiptResource) {
@@ -928,11 +938,26 @@ public final class KafkaReceiptJournal {
     private static final class LocalAppender implements DurableAppender {
         private long nextOffset;
 
+        private LocalAppender() {
+            this(0);
+        }
+
+        private LocalAppender(final long initialOffset) {
+            nextOffset = initialOffset;
+        }
+
         @Override
         public ReceiptPosition append(final AppendRequest request) {
-            final long offset = nextOffset++;
-            return new ReceiptPosition(offset, request.mapping().guardedBrokerTimestampEpochMs(), offset + 1,
+            final long offset = nextOffset;
+            // 0xffffffffffffffff has no representable exclusive successor.
+            // Compute and validate that successor before mutating the local
+            // cursor, so a failed append cannot wrap the seam into offset 0.
+            final long lastStableOffsetExclusive = successor(offset);
+            final ReceiptPosition position = new ReceiptPosition(offset,
+                    request.mapping().guardedBrokerTimestampEpochMs(), lastStableOffsetExclusive,
                     Bytes.sha256(RECORD_DOMAIN, request.mapping().canonicalBytes()));
+            nextOffset = lastStableOffsetExclusive;
+            return position;
         }
     }
 }

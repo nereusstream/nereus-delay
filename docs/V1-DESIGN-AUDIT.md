@@ -20,6 +20,15 @@ after a downgrade to weight `1`. This aligns the inner scheduler with the
 outer Worker cap rule and ADR-0032; certified capacity limits, placement and
 real service fairness evidence remain release gates.
 
+The local Kafka receipt appender now computes the checked exclusive successor
+before advancing its cursor. At the all-ones raw u64 offset, the append stays
+exhausted and fails with the typed Journal integrity error; a failed position
+construction can no longer wrap the seam to offset zero. The regression
+`KafkaReceiptJournalTest.localAppenderFailsClosedBeforeUnsignedOffsetExhaustionCanWrap`
+covers the repeated-failure boundary. This closes only the local appender
+overflow seam; production Kafka transaction, read-committed LSO and retention
+authority remain external release gates.
+
 The Pulsar activation-barrier compatibility seam is now internally consistent:
 the deprecated constructor can represent a non-empty legacy barrier without a
 known batch size, while the identity, source-connection guard and inclusive
