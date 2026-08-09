@@ -312,6 +312,54 @@ public final class KafkaReceiptJournal {
                 EvidenceVerificationStatusV1.VERIFIED_NOT_PUBLISHED, branch);
     }
 
+    /**
+     * Classifies one caller-supplied read-committed observation against the
+     * latest unresolved mapping. Matching receipt bytes prove PUBLISHED only
+     * for that exact attempt; absence is accepted only after the local
+     * retirement marker and both caller-supplied LSO/retention predicates.
+     * Identity or predicate drift returns a fail-closed divergence result.
+     */
+    public synchronized Resolution resolve(final ProducerKey producer,
+                                           final ReceiptObservation observation) {
+        Objects.requireNonNull(producer, "producer");
+        Objects.requireNonNull(observation, "observation");
+        requireReceiptCluster(producer);
+        final ProducerState producerState = producers.get(producer);
+        if (producerState == null || producerState.lastMappingId == null) {
+            return Resolution.empty();
+        }
+        final MappingState state = mappings.get(producerState.lastMappingId);
+        if (state == null || state.mappedRecord.position() == null) {
+            return Resolution.divergence(null, "transactional channel lost its latest receipt mapping");
+        }
+        if (!cursorMatches(producer, observation.cursor())) {
+            return Resolution.divergence(state.mapping, "receipt cursor identity does not match the channel");
+        }
+        final ReceiptPosition mappedPosition = state.mappedRecord.position();
+        if (observation.receipt() != null) {
+            if (state.retired) {
+                return Resolution.divergence(state.mapping,
+                        "a retired mapping cannot be classified from a published receipt");
+            }
+            final ReceiptMatch receipt = observation.receipt();
+            if (receipt.offset() != mappedPosition.offset()
+                    || !Arrays.equals(receipt.publishAttemptId(), state.mapping.publishAttemptId())
+                    || !Arrays.equals(receipt.preparedPublishHash(), state.mapping.preparedPublishHash())
+                    || !Arrays.equals(receipt.receiptRecordHash(), mappedPosition.receiptRecordHash())
+                    || !cursorIncludesOffset(observation.cursor(), mappedPosition.offset())) {
+                return Resolution.divergence(state.mapping, "receipt attempt/hash/offset does not match mapping");
+            }
+            return Resolution.published(state.mapping);
+        }
+        if (!state.retired || !observation.fenceAndLsoBarrierValid()
+                || !observation.receiptRangeRetained()
+                || !cursorLsoIncludesOffset(observation.cursor(), mappedPosition.offset())) {
+            return Resolution.divergence(state.mapping,
+                    "receipt absence lacks retirement, LSO barrier or retention proof");
+        }
+        return Resolution.notPublished(state.mapping);
+    }
+
     private void validateFencedReceiptChannel(final ProducerKey producer,
                                               final ChannelResourceIdentityV1 channel,
                                               final EvidenceCursorV1 cursor,
@@ -352,6 +400,24 @@ public final class KafkaReceiptJournal {
                 || !receiptResource.nativeTopicUuid().equals(evidence.nativeTopicUuid())) {
             throw conflict("receipt cursor identity differs from the fenced evidence resource");
         }
+    }
+
+    private boolean cursorMatches(final ProducerKey producer, final EvidenceCursorV1 cursor) {
+        return cursor != null
+                && cursor.evidenceKind() == EvidenceKindV1.KAFKA_RECEIPT_CONTIGUOUS
+                && Arrays.equals(cursor.destinationLaneId(), producer.laneId().bytes())
+                && Arrays.equals(cursor.laneIncarnation(), producer.laneIncarnation())
+                && Arrays.equals(cursor.topicUuid(), uuidBytes(receiptResource.nativeTopicUuid()))
+                && cursor.physicalPartition() == receiptResource.receiptPartition()
+                && cursor.evidenceGeneration() != 0;
+    }
+
+    private static boolean cursorIncludesOffset(final EvidenceCursorV1 cursor, final long offset) {
+        return Long.compareUnsigned(cursor.nextOffsetExclusive(), successor(offset)) >= 0;
+    }
+
+    private static boolean cursorLsoIncludesOffset(final EvidenceCursorV1 cursor, final long offset) {
+        return Long.compareUnsigned(cursor.lastObservedLsoExclusive(), successor(offset)) >= 0;
     }
 
     /** Allows a target transaction only after the exact mapping is durable. */
@@ -552,6 +618,95 @@ public final class KafkaReceiptJournal {
         public byte[] canonicalBytes() {
             return Bytes.concat(RECORD_DOMAIN, Bytes.u8(kind.wireValue()), mapping.canonicalBytes(),
                     position == null ? new byte[0] : position.canonicalBytes());
+        }
+    }
+
+    /** Exact receipt record identity returned by a pinned read-committed reader. */
+    public record ReceiptMatch(long offset, byte[] publishAttemptId, byte[] preparedPublishHash,
+                               byte[] receiptRecordHash) {
+        public ReceiptMatch {
+            if (offset < 0) {
+                throw new IllegalArgumentException("receipt offset must be non-negative");
+            }
+            Bytes.requireLength(publishAttemptId, HASH_LENGTH, "publishAttemptId");
+            Bytes.requireLength(preparedPublishHash, HASH_LENGTH, "preparedPublishHash");
+            Bytes.requireLength(receiptRecordHash, HASH_LENGTH, "receiptRecordHash");
+            publishAttemptId = Bytes.copy(publishAttemptId);
+            preparedPublishHash = Bytes.copy(preparedPublishHash);
+            receiptRecordHash = Bytes.copy(receiptRecordHash);
+        }
+
+        @Override
+        public byte[] publishAttemptId() {
+            return Bytes.copy(publishAttemptId);
+        }
+
+        @Override
+        public byte[] preparedPublishHash() {
+            return Bytes.copy(preparedPublishHash);
+        }
+
+        @Override
+        public byte[] receiptRecordHash() {
+            return Bytes.copy(receiptRecordHash);
+        }
+    }
+
+    /**
+     * Observation returned by the adapter's pinned receipt reader. A null
+     * receipt means that the caller observed no exact record in the bounded
+     * range; the two boolean predicates must still be independently proven.
+     */
+    public record ReceiptObservation(EvidenceCursorV1 cursor, ReceiptMatch receipt,
+                                     boolean fenceAndLsoBarrierValid,
+                                     boolean receiptRangeRetained) {
+        public ReceiptObservation {
+            Objects.requireNonNull(cursor, "cursor");
+        }
+
+        public static ReceiptObservation published(final EvidenceCursorV1 cursor, final ReceiptMatch receipt) {
+            return new ReceiptObservation(cursor, Objects.requireNonNull(receipt, "receipt"), false, false);
+        }
+
+        public static ReceiptObservation absent(final EvidenceCursorV1 cursor,
+                                                final boolean fenceAndLsoBarrierValid,
+                                                final boolean receiptRangeRetained) {
+            return new ReceiptObservation(cursor, null, fenceAndLsoBarrierValid, receiptRangeRetained);
+        }
+    }
+
+    public enum ResolutionKind {
+        EMPTY,
+        PUBLISHED,
+        NOT_PUBLISHED,
+        DIVERGENCE
+    }
+
+    public record Resolution(ResolutionKind kind, Mapping mapping, StableCode stableCode, String detail) {
+        public Resolution {
+            Objects.requireNonNull(kind, "kind");
+            if (kind == ResolutionKind.DIVERGENCE && stableCode != StableCode.INTEGRITY_ERROR) {
+                throw new IllegalArgumentException("divergence must use INTEGRITY_ERROR");
+            }
+            if (kind != ResolutionKind.DIVERGENCE && stableCode != null) {
+                throw new IllegalArgumentException("non-divergence resolution cannot carry a stable code");
+            }
+        }
+
+        private static Resolution empty() {
+            return new Resolution(ResolutionKind.EMPTY, null, null, null);
+        }
+
+        private static Resolution published(final Mapping mapping) {
+            return new Resolution(ResolutionKind.PUBLISHED, mapping, null, null);
+        }
+
+        private static Resolution notPublished(final Mapping mapping) {
+            return new Resolution(ResolutionKind.NOT_PUBLISHED, mapping, null, null);
+        }
+
+        private static Resolution divergence(final Mapping mapping, final String detail) {
+            return new Resolution(ResolutionKind.DIVERGENCE, mapping, StableCode.INTEGRITY_ERROR, detail);
         }
     }
 

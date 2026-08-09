@@ -118,6 +118,41 @@ class KafkaReceiptJournalTest {
     }
 
     @Test
+    void resolverRequiresExactReceiptIdentityAndIndependentAbsencePredicates() {
+        final ShardId shard = shard();
+        final KafkaReceiptResource resource = resource(shard);
+        final KafkaReceiptJournal.ProducerKey producer = producer();
+        final KafkaReceiptJournal journal = new KafkaReceiptJournal(shard, request -> position(20), resource);
+        final KafkaReceiptJournal.Mapping mapping = journal.appendNext(producer, identity(shard, 6))
+                .record().mapping();
+        final KafkaReceiptJournal.ReceiptPosition position = journal.records().get(0).position();
+        final io.nereusstream.delay.protocol.EvidenceCursorV1 cursor = journal.evidenceCursor(producer, 8)
+                .orElseThrow();
+        final KafkaReceiptJournal.ReceiptMatch exact = new KafkaReceiptJournal.ReceiptMatch(position.offset(),
+                mapping.publishAttemptId(), mapping.preparedPublishHash(), position.receiptRecordHash());
+
+        final KafkaReceiptJournal.Resolution published = journal.resolve(producer,
+                KafkaReceiptJournal.ReceiptObservation.published(cursor, exact));
+        assertEquals(KafkaReceiptJournal.ResolutionKind.PUBLISHED, published.kind());
+
+        final KafkaReceiptJournal.ReceiptMatch drifted = new KafkaReceiptJournal.ReceiptMatch(position.offset(),
+                mapping.publishAttemptId(), Bytes.sha256(Bytes.utf8("different-prepared")), position.receiptRecordHash());
+        final KafkaReceiptJournal.Resolution mismatch = journal.resolve(producer,
+                KafkaReceiptJournal.ReceiptObservation.published(cursor, drifted));
+        assertEquals(KafkaReceiptJournal.ResolutionKind.DIVERGENCE, mismatch.kind());
+        assertEquals(StableCode.INTEGRITY_ERROR, mismatch.stableCode());
+
+        journal.retireNotPublished(mapping.mappingId());
+        final KafkaReceiptJournal.Resolution absent = journal.resolve(producer,
+                KafkaReceiptJournal.ReceiptObservation.absent(cursor, true, true));
+        assertEquals(KafkaReceiptJournal.ResolutionKind.NOT_PUBLISHED, absent.kind());
+
+        final KafkaReceiptJournal.Resolution missingRetention = journal.resolve(producer,
+                KafkaReceiptJournal.ReceiptObservation.absent(cursor, true, false));
+        assertEquals(KafkaReceiptJournal.ResolutionKind.DIVERGENCE, missingRetention.kind());
+    }
+
+    @Test
     void retiredMappingProjectsStrictReceiptAbsenceEvidence() {
         final ShardId shard = shard();
         final KafkaReceiptResource resource = resource(shard);

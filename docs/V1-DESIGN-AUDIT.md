@@ -411,7 +411,10 @@ mapping，严格阻塞 unresolved lower sequence，支持 mapping/retirement rep
 `KAFKA_TRANSACTIONAL_RECEIPT` PUBLISHED branch 以及 durable retirement 后的
 `KAFKA_RECEIPT_ABSENCE` branch，绑定 target/receipt UUID、partition、generation、
 transaction identity、prepared hash 和 receipt/barrier digest；
-`KafkaReceiptJournalTest` 覆盖这些本地顺序、回放、cursor 与 identity fence。
+`ReceiptObservation`/`Resolution` 还会对 receipt cursor identity、attempt/
+prepared/record hash 漂移 fail closed，并要求独立的 retirement、LSO barrier
+和 retention predicate 才能得到本地 `NOT_PUBLISHED`；
+`KafkaReceiptJournalTest` 覆盖这些本地顺序、回放、cursor、resolver 与 identity fence。
 注入的 appender 和调用方提供的 fenced channel 仍只是 canonical value seam，不能
 证明真实 target+receipt Kafka transaction、`read_committed` Fetch/LSO contiguous
 replay、ExclusiveWithFencing、retention/Floor 或 slot authority，故这些仍是 release
