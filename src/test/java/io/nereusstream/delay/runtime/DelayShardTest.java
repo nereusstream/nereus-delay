@@ -1574,6 +1574,41 @@ class DelayShardTest {
     }
 
     @Test
+    void laterDuplicateOutsideBrokerRetryWindowReturnsPositionRejectionWithoutChangingLogicalResult() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("later-duplicate-expired"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 37);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("later-duplicate-expired-lane"));
+        final PreparedCommand command = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("later-duplicate-expired")), 2_000);
+        final KafkaSourcePosition firstPosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition expiredPosition = position(shardId, 1, 2_001);
+        final CommandResult first;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            first = shard.apply(command, firstPosition);
+            assertEquals(StableCode.SCHEDULED, first.stableCode());
+
+            final CommandResult expired = shard.apply(command, expiredPosition);
+            assertEquals(StableCode.COMMAND_RETRY_WINDOW_EXPIRED, expired.stableCode());
+            assertEquals(ApplyStatus.REJECTED, expired.applyStatus());
+            assertArrayEquals(expiredPosition.canonicalBytes(), expired.appliedSourcePosition());
+            assertEquals(first, shard.getCommandResult(command.commandId()));
+            assertEquals(expiredPosition, shard.lastAppliedSourcePosition());
+            assertEquals(expired, shard.apply(command, expiredPosition));
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(first, reopened.getCommandResult(command.commandId()));
+            assertEquals(StableCode.COMMAND_RETRY_WINDOW_EXPIRED,
+                    reopened.apply(command, expiredPosition).stableCode());
+            assertEquals(expiredPosition, reopened.lastAppliedSourcePosition());
+        }
+    }
+
+    @Test
     void exactCommandReplayFailsClosedWhenPositionAuditIsMissing() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("missing-command-audit"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 36);

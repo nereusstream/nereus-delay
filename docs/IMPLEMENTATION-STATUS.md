@@ -2096,7 +2096,11 @@ the same position-level result without creating a logical Command Result. Both
 Command and System Mutation exact replays fail closed when the matching
 POSITION audit is missing; the same-hash duplicate path also validates that
 locator after restart before reusing the first logical result at a later
-physical position. `DelayShardTest` covers both replay paths. Reservation-expiry
+physical position. A later same-hash Command whose Broker persistence time
+is outside its retry window now returns only position-level
+`COMMAND_RETRY_WINDOW_EXPIRED`, keeps the first logical result unchanged,
+and returns that same position-level result on exact replay and after
+restart; `DelayShardTest` covers both replay paths. Reservation-expiry
 watermark overlay now makes still-RESERVED payload reservations immediately
 appear `EXPIRED` to Commit/Cancel/Query, while the bounded
 `RESERVATION_EXPIRY` cursor materializes the state and releases reservation

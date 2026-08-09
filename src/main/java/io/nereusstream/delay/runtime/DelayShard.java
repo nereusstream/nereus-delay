@@ -485,6 +485,16 @@ public final class DelayShard {
                             || !audit.commandId().equals(command.commandId())) {
                         throw new IllegalStateException("duplicate command source position has conflicting evidence");
                     }
+                    if (commandRetryWindowExpired(command, sourcePosition)) {
+                        // A later physical duplicate can be outside the
+                        // command's retry window even though the first
+                        // logical result remains valid.  Keep that result
+                        // immutable, but replay the exact position-level
+                        // rejection rather than exposing the first result for
+                        // this physical record.
+                        repairCommandAppliedStartAfterExistingApply(sourcePosition);
+                        return rejected(StableCode.COMMAND_RETRY_WINDOW_EXPIRED, sourcePosition, -1, 0, null);
+                    }
                     if (!Bytes.constantTimeEquals(prior.result().appliedSourcePosition(),
                             sourcePosition.canonicalBytes())) {
                         if (!Bytes.constantTimeEquals(lastAppliedSourcePosition.canonicalBytes(),
@@ -505,8 +515,7 @@ public final class DelayShard {
                         repairCommandAppliedStartAfterExistingApply(sourcePosition);
                         return rejected(StableCode.COMMAND_ID_CONFLICT, sourcePosition, -1, 0, null);
                     }
-                    if (closedIngressDeadlineThrough >= 0
-                            && command.retryUntilEpochMs() <= closedIngressDeadlineThrough) {
+                    if (commandRetryWindowExpired(command, sourcePosition)) {
                         // A fence rejection deliberately has no logical
                         // COMMAND/RESULT record. Its POSITION audit is still
                         // sufficient to make the exact source record replay
@@ -518,8 +527,7 @@ public final class DelayShard {
                 throw new IllegalStateException("duplicate source position without matching command evidence");
             }
         }
-        if (closedIngressDeadlineThrough >= 0
-                && command.retryUntilEpochMs() <= closedIngressDeadlineThrough) {
+        if (commandRetryWindowExpired(command, sourcePosition)) {
             return persistRejectedPositionOnly(command, sourcePosition,
                     StableCode.COMMAND_RETRY_WINDOW_EXPIRED);
         }
@@ -7153,6 +7161,13 @@ public final class DelayShard {
         });
         lastAppliedSourcePosition = position;
         mutationSequence = nextMutationSequence();
+    }
+
+    private boolean commandRetryWindowExpired(final PreparedCommand command,
+                                              final SourcePosition sourcePosition) {
+        return (closedIngressDeadlineThrough >= 0
+                && command.retryUntilEpochMs() <= closedIngressDeadlineThrough)
+                || sourcePosition.brokerPersistenceTimeEpochMs() > command.retryUntilEpochMs();
     }
 
     private CommandDedupeRecord readCommandDedupe(final CommandId commandId) {

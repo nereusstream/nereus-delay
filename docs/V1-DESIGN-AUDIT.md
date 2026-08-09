@@ -726,8 +726,12 @@ rejection or `COMMAND_ID_CONFLICT` to return the same result without creating a
 logical Command Result or appending another audit. The same-hash duplicate
 Command path validates that locator both at the first logical result position
 and after restart at a later physical position; a missing or cross-shard
-POSITION value remains fail-closed. `DelayShardTest` covers exact replay with a
-missing audit and `laterDuplicateCommandReplayAfterRestartUsesPositionAudit`.
+POSITION value remains fail-closed. A later same-hash Command whose Broker
+persistence time is outside its retry window returns only a position-level
+`COMMAND_RETRY_WINDOW_EXPIRED` result, leaves the first logical result
+unchanged, and replays that position-level result after restart. The local
+evidence is `DelayShardTest.laterDuplicateOutsideBrokerRetryWindowReturnsPositionRejectionWithoutChangingLogicalResult`
+alongside the exact-replay and missing-audit tests.
 The System Mutation dedupe path applies the complementary rule: an exact
 already-verified mutation at its first or a later Source Position must match
 the physical audit; an in-window later duplicate advances only the durable
