@@ -98,7 +98,16 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
         if (!signatureValid) {
             return completed(localDefinite(prepared, StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE));
         }
-        if (clock.millis() >= prepared.capabilityExpiryEpochMs()) {
+        final long nowEpochMs;
+        try {
+            nowEpochMs = clock.millis();
+        } catch (RuntimeException unavailable) {
+            return completed(localDefinite(prepared, StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE));
+        }
+        if (nowEpochMs < 0) {
+            return completed(localDefinite(prepared, StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE));
+        }
+        if (nowEpochMs >= prepared.capabilityExpiryEpochMs()) {
             return completed(localDefinite(prepared, StableCode.NATIVE_PREPARED_SUBMISSION_EXPIRED));
         }
         if (credentialFingerprintProvider != null) {

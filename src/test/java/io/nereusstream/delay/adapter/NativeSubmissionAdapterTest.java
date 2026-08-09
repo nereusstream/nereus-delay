@@ -202,6 +202,49 @@ class NativeSubmissionAdapterTest {
     }
 
     @Test
+    void unavailableOrInvalidClockIsTypedBeforeProducerOwnership() throws Exception {
+        final Fixture fixture = fixture(4_000, 3_000);
+        final AtomicBoolean called = new AtomicBoolean();
+        final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport transport = request -> {
+            called.set(true);
+            return CompletableFuture.failedFuture(new AssertionError("transport must not be called"));
+        };
+        final Clock throwingClock = new Clock() {
+            @Override
+            public java.time.ZoneId getZone() {
+                return ZoneOffset.UTC;
+            }
+
+            @Override
+            public Clock withZone(final java.time.ZoneId zone) {
+                return this;
+            }
+
+            @Override
+            public Instant instant() {
+                throw new IllegalStateException("clock unavailable");
+            }
+        };
+        try (PinnedPulsarNativeSubmissionAdapter adapter = new PinnedPulsarNativeSubmissionAdapter(
+                fixture.resource, fixture.keyPair.getPublic(), throwingClock, transport)) {
+            final SubmissionOutcomeMessageV1 outcome = adapter.submit(fixture.prepared, attempt(43))
+                    .toCompletableFuture().join();
+            assertEquals(StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE,
+                    outcome.nativeDefinitelyNotQueued().error().code());
+        }
+
+        final Clock negativeClock = Clock.fixed(Instant.ofEpochMilli(-1), ZoneOffset.UTC);
+        try (PinnedPulsarNativeSubmissionAdapter adapter = new PinnedPulsarNativeSubmissionAdapter(
+                fixture.resource, fixture.keyPair.getPublic(), negativeClock, transport)) {
+            final SubmissionOutcomeMessageV1 outcome = adapter.submit(fixture.prepared, attempt(44))
+                    .toCompletableFuture().join();
+            assertEquals(StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE,
+                    outcome.nativeDefinitelyNotQueued().error().code());
+        }
+        assertFalse(called.get());
+    }
+
+    @Test
     void mismatchedPinnedTargetIsRejectedBeforeTransport() throws Exception {
         final Fixture fixture = fixture(4_000, 3_000);
         final AtomicBoolean called = new AtomicBoolean();

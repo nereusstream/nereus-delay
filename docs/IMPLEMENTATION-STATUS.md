@@ -1707,6 +1707,14 @@ branch calls the Pulsar transport. The legacy constructors intentionally leave
 the provider unset as compatibility seams; they do not claim a production
 credential authority or durable rotation protection.
 
+The same native pre-ownership gate now treats a clock that throws or returns a
+negative epoch millisecond value as an unavailable AUTO_FAST prerequisite,
+returning `AUTO_FAST_PREREQUISITE_UNAVAILABLE` without invoking the transport.
+This prevents local time-source failure or an invalid epoch from becoming an
+expiry decision or Producer ownership; `NativeSubmissionAdapterTest` covers
+both cases. Clock certification and production Broker-time authority remain
+external release gates.
+
 The current source-ordered control increment is deliberately bounded: the
 `RESOLVE_UNCERTAIN_V1(RETRY_ALLOW_POSSIBLE_DUPLICATE)` branch now validates a
 canonical `ControlRefV1`, its Resolve logical identity, lane incarnation,
