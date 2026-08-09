@@ -35,6 +35,15 @@ physical attempt, while an invalid attempt remains a local
 ownership boundary; the wrapper never leaks an exceptional Future or switches
 the prepared branch to native.
 
+The embedded managed-outcome bridge now also converts a queued receipt
+projection failure (for example, a query boundary earlier than the authenticated
+embedded Broker persistence time) into managed `ENQUEUE_UNCERTAIN` with the
+same physical attempt and bounded `INTEGRITY_ERROR` diagnostic. The command may
+already be durably admitted, so this path cannot leak a constructor exception
+or claim `DEFINITELY_NOT_QUEUED`; `EmbeddedDelayServiceTest`
+`embeddedIngressProjectsAllManagedOutcomeBranches` covers the malformed-boundary
+regression.
+
 The replay-stable Claim materialization subset is now a shared typed protocol
 projection: `PayloadForPublishV1` validates the inline/object union and exact
 length/SHA-256, while `ClaimMaterializationV1` validates the two Profile slot
@@ -2482,9 +2491,12 @@ The embedded managed-outcome bridge applies the same physical-attempt rule to
 its queued and uncertain projections: a null, wrong-length, or all-zero attempt
 is returned as local `DEFINITELY_NOT_QUEUED(INVALID_PREPARED_COMMAND)` rather
 than leaking a constructor exception or emitting an uncertain union without a
-valid attempt identity. `EmbeddedDelayServiceTest.embeddedIngressProjectsAllManagedOutcomeBranches`
-covers both queued and uncertain invalid-attempt projections; the embedded
-service remains a conformance seam, not a real Broker adapter.
+valid attempt identity. If a queued receipt's query boundary or ACK projection
+is malformed after local admission, the bridge retains that attempt and returns
+`ENQUEUE_UNCERTAIN` with a bounded `INTEGRITY_ERROR` diagnostic instead of
+claiming non-persistence. `EmbeddedDelayServiceTest.embeddedIngressProjectsAllManagedOutcomeBranches`
+covers queued/uncertain, invalid-attempt and malformed-boundary projections; the
+embedded service remains a conformance seam, not a real Broker adapter.
 
 The local physical-admission lifecycle now has an explicit Lane teardown
 boundary: after the channel/Producer generation is fenced, READY is closed and

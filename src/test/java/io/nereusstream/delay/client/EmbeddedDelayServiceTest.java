@@ -911,6 +911,13 @@ class EmbeddedDelayServiceTest {
             final EnqueueOutcomeMessageV1 queuedWire = service.enqueueOutcomeV1(queued, 10_000, attemptId);
             assertEquals(EnqueueOutcomeKindV1.QUEUED, queuedWire.kind());
             assertEquals(queuedWire, EnqueueOutcomeMessageV1.decode(queuedWire.canonicalBytes()));
+            final EnqueueOutcomeMessageV1 malformedBoundary = service.enqueueOutcomeV1(queued, 999, attemptId);
+            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, malformedBoundary.kind());
+            assertEquals(StableCode.ENQUEUE_RESULT_UNCERTAIN,
+                    malformedBoundary.uncertain().error().code());
+            assertEquals(StableCode.INTEGRITY_ERROR.wireValue(),
+                    malformedBoundary.uncertain().error().diagnosticCode());
+            assertArrayEquals(attemptId, malformedBoundary.uncertain().physicalEnqueueAttemptId());
             final EnqueueOutcomeMessageV1 invalidQueuedAttempt = service.enqueueOutcomeV1(queued, 10_000,
                     new byte[16]);
             assertEquals(EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED, invalidQueuedAttempt.kind());

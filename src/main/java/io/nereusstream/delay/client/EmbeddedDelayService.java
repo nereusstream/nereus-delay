@@ -924,8 +924,15 @@ public final class EmbeddedDelayService implements DelayClient {
                 if (!validPhysicalAttempt(physicalAttemptId)) {
                     yield localDefiniteOutcome(outcome.preparedCommand(), StableCode.INVALID_PREPARED_COMMAND);
                 }
-                yield EnqueueOutcomeMessageV1.queued(
-                        queuedReceiptV1(outcome, receiptQueryUntilEpochMs, physicalAttemptId));
+                try {
+                    yield EnqueueOutcomeMessageV1.queued(
+                            queuedReceiptV1(outcome, receiptQueryUntilEpochMs, physicalAttemptId));
+                } catch (RuntimeException malformedReceipt) {
+                    // A queued command may already be durable; a malformed
+                    // receipt projection is therefore not proof of rejection.
+                    yield uncertainOutcome(outcome.preparedCommand(), physicalAttemptId,
+                            StableCode.INTEGRITY_ERROR.wireValue());
+                }
             }
             case DEFINITELY_NOT_QUEUED -> localDefiniteOutcome(outcome.preparedCommand(), stableErrorCode(outcome));
             case ENQUEUE_UNCERTAIN -> {
@@ -948,6 +955,15 @@ public final class EmbeddedDelayService implements DelayClient {
                 NonPersistenceProofKindV1.LOCAL_BEFORE_PRODUCER_OWNERSHIP, null, ref.frameSha256(), null, null, null);
         return EnqueueOutcomeMessageV1.definitelyNotQueued(new DefinitelyNotQueuedV1(ref, proof,
                 StableErrorV1.of(FailureStageV1.ENQUEUE, code, null, ref, null, null)));
+    }
+
+    private static EnqueueOutcomeMessageV1 uncertainOutcome(final PreparedCommand command,
+                                                              final byte[] physicalAttemptId,
+                                                              final Integer diagnosticCode) {
+        final CommandQueuedReceiptV1.PreparedCommandRef ref = CommandQueuedReceiptV1.PreparedCommandRef.from(command);
+        return EnqueueOutcomeMessageV1.uncertain(new EnqueueUncertainV1(ref, physicalAttemptId,
+                StableErrorV1.of(FailureStageV1.ENQUEUE, StableCode.ENQUEUE_RESULT_UNCERTAIN,
+                        null, ref, null, diagnosticCode)));
     }
 
     /**

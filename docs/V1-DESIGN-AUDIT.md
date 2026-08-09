@@ -1117,8 +1117,12 @@ Broker response attestation。
 physical attempt 的分支也先执行同一 nonzero 16-byte 校验；null、长度错误或全零
 输入固定映射为本地 `DEFINITELY_NOT_QUEUED(INVALID_PREPARED_COMMAND)`，不会让
 `CommandQueuedReceiptV1`/`EnqueueUncertainV1` 构造器异常穿透，也不会产生无 attempt
-identity 的 uncertain union。`EmbeddedDelayServiceTest.embeddedIngressProjectsAllManagedOutcomeBranches`
-覆盖 queued/uncertain 两个投影。这仍只属于 embedded conformance seam。
+identity 的 uncertain union。Queued receipt 的 query-boundary/ack projection
+失败则保留同一 physical attempt，收敛为 `ENQUEUE_UNCERTAIN`，并只携带 bounded
+`INTEGRITY_ERROR` diagnostic；已经进入本地队列的命令不能因 receipt projection
+失败而伪造 definitive rejection。`EmbeddedDelayServiceTest.embeddedIngressProjectsAllManagedOutcomeBranches`
+覆盖 queued/uncertain、invalid attempt 和 malformed boundary 投影。这仍只属于
+embedded conformance seam。
 
 V1 managed submission 现在还在 Producer ownership 前强制执行
 `CommandCodec.encodeFrameV1/decodeFrameV1`：`PinnedKafkaCommandIngress`、

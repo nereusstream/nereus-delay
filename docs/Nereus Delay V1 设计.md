@@ -414,6 +414,10 @@ result 无法构造成合法 receipt（包括 malformed projection、缺少 resp
 `CompletionStage` 或空 stage value：wrapper 必须使用同一 physical attempt
 收敛为 `ENQUEUE_UNCERTAIN`，不能把可能已经取得 Producer ownership 的调用泄漏为
 exceptional Future，也不能切换到 native branch。
+Embedded conformance bridge 也遵守同一规则：queued receipt 的 ACK/query-boundary
+projection 若在本地 admission 后失败，保留该 physical attempt 并返回
+`ENQUEUE_UNCERTAIN`；不能把已进入本地队列的命令伪造成
+`DEFINITELY_NOT_QUEUED`。
 
 合法 non-persistence proof 仅为 Producer ownership 前本地拒绝、Kafka authenticated definitive rejection、Pulsar pre-persistence guard rejection，或已认证 Adapter/library 的 pre-ownership cancel。Timeout、Future cancel、丢 callback、连接/进程退出及未验证 exception 没有 proof branch，必须 `ENQUEUE_UNCERTAIN`。
 
