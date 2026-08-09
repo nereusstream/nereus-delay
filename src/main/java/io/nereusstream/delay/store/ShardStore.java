@@ -1470,7 +1470,7 @@ public final class ShardStore implements AutoCloseable {
         ensureOpen();
         Objects.requireNonNull(operation, "operation");
         try (WriteBatch batch = new WriteBatch(); WriteOptions writeOptions = new WriteOptions().setSync(true)) {
-            final Batch pending = new Batch(batch, handles, closedIngressDeadlineThrough, runtimeMetadata);
+            final Batch pending = new Batch(this, batch, handles, closedIngressDeadlineThrough, runtimeMetadata);
             operation.apply(pending);
             db.write(writeOptions, batch);
             if (pending.runtimeMetadata != null) {
@@ -1786,6 +1786,7 @@ public final class ShardStore implements AutoCloseable {
     }
 
     public static final class Batch {
+        private final ShardStore owner;
         private final WriteBatch batch;
         private final Map<ColumnFamily, ColumnFamilyHandle> handles;
         private final StoreRuntimeMetadata currentRuntimeMetadata;
@@ -1793,13 +1794,20 @@ public final class ShardStore implements AutoCloseable {
         private StoreRecoveryMetadata recoveryMetadata;
         private long closedIngressDeadlineThrough;
 
-        private Batch(final WriteBatch batch, final Map<ColumnFamily, ColumnFamilyHandle> handles,
+        private Batch(final ShardStore owner, final WriteBatch batch,
+                      final Map<ColumnFamily, ColumnFamilyHandle> handles,
                       final long closedIngressDeadlineThrough,
                       final StoreRuntimeMetadata currentRuntimeMetadata) {
+            this.owner = Objects.requireNonNull(owner, "owner");
             this.batch = batch;
             this.handles = handles;
             this.closedIngressDeadlineThrough = closedIngressDeadlineThrough;
             this.currentRuntimeMetadata = currentRuntimeMetadata;
+        }
+
+        /** Returns whether this batch belongs to the supplied open ShardStore. */
+        boolean belongsTo(final ShardStore candidate) {
+            return owner == candidate;
         }
 
         public void put(final ColumnFamily family, final byte[] key, final byte[] value) throws RocksDBException {

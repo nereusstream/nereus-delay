@@ -2193,6 +2193,15 @@ metric publication。
 容量回滚。该 seam 仍不等于 source-ordered Start reconstruction、接管时的 authority
 认证或 evidence-gap `BAD_EVIDENCE_GAP` 记录；这些仍是 production release gate。
 
+同一 store 现在还提供 `reconcileDurableStartsInBatch(...)`：source-apply caller 可以把
+完整 authority-derived Start 集追加到自己的 `ShardStore.Batch`，在同一同步 WriteBatch
+提交业务 projection 与 SLO denominator。该入口在追加前完成冲突/容量预检，并明确要求
+一个 apply batch 只调用一次，且 batch identity 必须属于同一个 ShardStore；
+`SloObservationOutboxStoreTest.reconcileInCallerBatchSharesBusinessCommitAndRollsBackTogether`
+与 `reconcileInCallerBatchRejectsABatchFromAnotherShardStore` 证明 caller batch 的 joint
+commit/joint abort 与 cross-store rejection。它关闭的是本地 WriteBatch 窗口，不是
+生产 source-order authority、Message/Admission reconstruction 或 evidence-gap 计数。
+
 `SloAuthoritativeStartFactory` 进一步把两条 Shard-derived reconstruction 输入固定为
 typed fields：`commandApplied(...)` 使用 Registry `SourcePositionV1` canonical bytes、
 Broker persistence time 和对应 SHA-256；`dueAdmission(...)` 强制完整 unsigned-32

@@ -2209,6 +2209,18 @@ reconstruction: production activation must still obtain and authenticate that ex
 set, and must record `BAD_EVIDENCE_GAP` rather than shrink the denominator when the
 authority or evidence is unavailable.
 
+`SloObservationOutboxStore.reconcileDurableStartsInBatch(...)` now exposes the same
+preflight/materialization logic on a caller-owned `ShardStore.Batch`. It appends all missing
+Starts only after conflict and configured record/byte checks pass, allowing a source-apply
+caller to commit its Message/Admission/Source Position projection and SLO denominator in one
+synchronous WriteBatch. The caller must provide the complete Start set once per batch because
+RocksDB does not expose uncommitted reads to the projection, and the batch is identity-bound to
+the same ShardStore; the rollback/foreign-batch tests
+`SloObservationOutboxStoreTest.reconcileInCallerBatchSharesBusinessCommitAndRollsBackTogether`
+and `reconcileInCallerBatchRejectsABatchFromAnotherShardStore` prove both joint commit/joint
+abort and cross-store rejection. This is still a local atomicity seam, not production
+source-order orchestration or Message/Admission authority.
+
 `SloAuthoritativeStartFactory` now provides the typed local reconstruction projection for the
 two Shard-derived branches. `commandApplied(...)` uses the Registry `SourcePositionV1`
 canonical bytes, the Source Position Broker-persistence timestamp and its exact SHA-256;

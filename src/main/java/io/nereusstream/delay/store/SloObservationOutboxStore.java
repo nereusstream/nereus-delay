@@ -146,6 +146,36 @@ public final class SloObservationOutboxStore {
      */
     public synchronized List<SloObservationOutboxV1> reconcileDurableStarts(
             final Iterable<SloSampleStartV1> authoritativeStarts) {
+        final List<SloObservationOutboxV1> result = new ArrayList<>();
+        store.write(batch -> result.addAll(reconcileDurableStartsInBatch(batch, authoritativeStarts)));
+        return List.copyOf(result);
+    }
+
+    /**
+     * Adds the exact missing Starts to a caller-owned synchronous RocksDB
+     * batch. This is the source-apply/recovery integration seam: the caller
+     * can put Message, Admission, Source Position and SLO projections in one
+     * WriteBatch, so a crash cannot commit one boundary without the other.
+     *
+     * <p>All authoritative Starts for one apply turn must be supplied in this
+     * call. The method performs all conflict and capacity checks before it
+     * appends anything to {@code batch}; it never reads an arbitrary business
+     * message and never removes an existing Final. The caller must invoke this
+     * method at most once for a given batch, because RocksDB does not expose
+     * uncommitted batch reads to this store.</p>
+     *
+     * @return the resulting key-ordered projections, including preserved
+     *         existing Finals
+     * @throws org.rocksdb.RocksDBException when the native batch rejects an
+     *         appended value
+     */
+    public synchronized List<SloObservationOutboxV1> reconcileDurableStartsInBatch(
+            final ShardStore.Batch batch,
+            final Iterable<SloSampleStartV1> authoritativeStarts) throws org.rocksdb.RocksDBException {
+        Objects.requireNonNull(batch, "batch");
+        if (!batch.belongsTo(store)) {
+            throw new IllegalArgumentException("SLO outbox batch belongs to another ShardStore");
+        }
         Objects.requireNonNull(authoritativeStarts, "authoritativeStarts");
         final List<SloSampleStartV1> sorted = new ArrayList<>();
         for (SloSampleStartV1 start : authoritativeStarts) {
@@ -194,12 +224,10 @@ public final class SloObservationOutboxStore {
             requireCapacity(missingBytes, missing.size(), currentUsage.recordCount(), currentUsage.encodedBytes());
         }
         if (!missing.isEmpty()) {
-            store.write(batch -> {
-                for (SloObservationOutboxV1 created : missing) {
-                    batch.putValue(ColumnFamily.META, VALUE_TYPE,
-                            KeyCodec.metaSloOutbox(created.sampleId()), created.canonicalBytes());
-                }
-            });
+            for (SloObservationOutboxV1 created : missing) {
+                batch.putValue(ColumnFamily.META, VALUE_TYPE,
+                        KeyCodec.metaSloOutbox(created.sampleId()), created.canonicalBytes());
+            }
         }
         return List.copyOf(result);
     }

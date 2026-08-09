@@ -2948,6 +2948,15 @@ Message/Admission/Lane/Recovery authority 重建的 exact `SloSampleStartV1`。�
 生产 collector authority；真实的 Message/Admission/Recovery 重建、source-ordered
 接管编排和 evidence-gap `BAD_EVIDENCE_GAP` 记录仍是 production release gate。
 
+当 source apply 已经拥有一个业务 `ShardStore.Batch` 时，必须使用同一逻辑的
+`reconcileDurableStartsInBatch(batch, starts)` 入口，把 Message/Admission/Source Position
+与 SLO Start 放进同一个同步 WriteBatch。该入口在向 caller-owned batch 添加任何值前完成
+排序、冲突和容量预检，并保留已有 Final；调用方一次提交该 apply turn 的完整 Start 集，
+不得把不同 Store 的 batch 传入，或把同一批次拆成多个不可见的 outbox reconciliation call。
+这样保证本地 crash 不会
+只提交业务状态或只提交 SLO denominator；它仍不替代生产 authority 的 source-order
+编排和 evidence-gap 记录。
+
 协议层提供 `SloAuthoritativeStartFactory` 作为同一重建边界的 typed helper：
 `commandApplied(objective, sourcePosition)` 把 Registry `SourcePositionV1` 的 canonical
 bytes 放入 `COMMAND_APPLIED_LATENCY` identity，并以该 Source Position 的

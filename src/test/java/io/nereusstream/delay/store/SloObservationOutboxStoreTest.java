@@ -30,6 +30,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -215,6 +216,55 @@ class SloObservationOutboxStoreTest {
             assertEquals(new SloObservationOutboxStore.Usage(0, 0), outbox.usage());
             assertNull(outbox.get(first.sampleId()));
             assertNull(outbox.get(second.sampleId()));
+        }
+    }
+
+    @Test
+    void reconcileInCallerBatchSharesBusinessCommitAndRollsBackTogether() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("slo-outbox-caller-batch"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 10);
+        final SloSampleStartV1 sample = startWith(10);
+        final byte[] businessKey = new byte[]{0x55, 0x01};
+        final byte[] businessValue = bytes(7, 42);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final SloObservationOutboxStore outbox = new SloObservationOutboxStore(store);
+
+            assertThrows(IllegalStateException.class, () -> store.write(batch -> {
+                outbox.reconcileDurableStartsInBatch(batch, List.of(sample));
+                batch.put(ColumnFamily.GC, businessKey, businessValue);
+                throw new IllegalStateException("abort source apply");
+            }));
+            assertNull(outbox.get(sample.sampleId()));
+            assertNull(store.get(ColumnFamily.GC, businessKey));
+
+            store.write(batch -> {
+                outbox.reconcileDurableStartsInBatch(batch, List.of(sample));
+                batch.put(ColumnFamily.GC, businessKey, businessValue);
+            });
+            assertEquals(sample, outbox.get(sample.sampleId()).start());
+            assertArrayEquals(businessValue, store.get(ColumnFamily.GC, businessKey));
+        }
+    }
+
+    @Test
+    void reconcileInCallerBatchRejectsABatchFromAnotherShardStore() {
+        final ShardStoreConfig localConfig = ShardStoreConfig.defaults(tempDir.resolve("slo-outbox-local-batch"));
+        final ShardStoreConfig foreignConfig = ShardStoreConfig.defaults(tempDir.resolve("slo-outbox-foreign-batch"));
+        final ShardId localShard = new ShardId(RouteIncarnation.random(), 11);
+        final ShardId foreignShard = new ShardId(RouteIncarnation.random(), 12);
+        final SloSampleStartV1 sample = startWith(11);
+        try (SharedRocksDbResources localResources = new SharedRocksDbResources(localConfig);
+             ShardStore localStore = ShardStore.open(localConfig, localShard, localResources);
+             SharedRocksDbResources foreignResources = new SharedRocksDbResources(foreignConfig);
+             ShardStore foreignStore = ShardStore.open(foreignConfig, foreignShard, foreignResources)) {
+            final SloObservationOutboxStore localOutbox = new SloObservationOutboxStore(localStore);
+
+            assertThrows(IllegalArgumentException.class, () -> foreignStore.write(batch ->
+                    localOutbox.reconcileDurableStartsInBatch(batch, List.of(sample))));
+            assertNull(localOutbox.get(sample.sampleId()));
+            assertNull(foreignStore.getValue(ColumnFamily.META, KeyCodec.metaSloOutbox(sample.sampleId()),
+                    SloObservationOutboxStore.VALUE_TYPE));
         }
     }
 
