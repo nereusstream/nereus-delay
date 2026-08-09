@@ -1895,6 +1895,12 @@ current Floor、published base manifest、parent-hash ancestry 以及 Store
 Incarnation/install-state identity 绑定，拒绝 stale Floor、跨 shard 或跨 lineage
 重用；它仍是只读 local proof seam，不是 Oxia transaction 或 Owner Lease/session
 authority。
+manifest restore 在 staged DB install 前还会把 `meta/RECOVERY` 的 lineage/base、
+observed-Floor lineage 和 install-state checkpoint identity 与 checkpoint manifest
+做 exact 比较，拒绝把一份合法 RocksDB 文件镜像与另一条 recovery projection 拼接；
+`ShardStoreTest.restoreWithManifestRejectsRecoveryProjectionLineageDrift` 覆盖该
+fail-closed 边界。它仍不等于真实 Object Store/Oxia catalog、Owner Lease/session
+或 source replay activation 证据。
 带 identity 的 `ShardStore.createCheckpoint(path, checkpointId)` 会先把 exact
 16-byte checkpoint identity 写入 live DB，再拍摄完整镜像；物理失败会同步恢复
 旧 projection，恢复后的 DB 因而保留它所代表的 checkpoint identity。无 identity

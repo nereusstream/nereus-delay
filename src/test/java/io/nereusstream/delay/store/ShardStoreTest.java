@@ -955,6 +955,45 @@ class ShardStoreTest {
         }
     }
 
+    @Test
+    void restoreWithManifestRejectsRecoveryProjectionLineageDrift() throws Exception {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 37);
+        final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("recovery-manifest-source"));
+        final Path checkpoint = tempDir.resolve("recovery-manifest-checkpoint");
+        final byte[] checkpointId = bytes(50);
+        final KafkaSourcePosition appliedPosition = new KafkaSourcePosition(
+                shardId, "cluster", UUID.randomUUID(), 4, null, 1_004);
+        final byte[] dbIdentity;
+        final UUID sourceStoreIncarnation;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(sourceConfig);
+             ShardStore store = ShardStore.open(sourceConfig, shardId, resources)) {
+            dbIdentity = store.metadata().dbIdentity();
+            sourceStoreIncarnation = store.metadata().storeIncarnationUuid();
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(3), appliedPosition.canonicalBytes());
+                batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(5), Bytes.u64be(9));
+            });
+            store.recordRecoveryMetadata(new RecoveryCandidateRefV1(RecoveryCandidateKindV1.LOCAL_STORE,
+                    bytes(51), checkpointId, bytes(32, 52), store.metadata().storeIncarnation()), null);
+            store.createCheckpoint(checkpoint, checkpointId);
+        }
+        final List<CheckpointManifest.FileEntry> files = CheckpointFileInventory.collect(checkpoint).stream()
+                .map(file -> new CheckpointManifest.FileEntry(file.name(), file.length(), file.checksum(),
+                        Bytes.utf8("object/" + file.name()), Bytes.utf8("version"), null))
+                .toList();
+        final CheckpointManifest manifest = new CheckpointManifest(checkpointId, bytes(53), 0, null, null,
+                new CheckpointManifest.CreatedBy(bytes(54), bytes(55), 1),
+                new CheckpointManifest.CreatedAt(1_000, 1_000, "CERTIFIED_HOST_CLOCK", bytes(56), 1, 0, 0,
+                        Bytes.sha256(Bytes.utf8("evidence")), 0, null), shardId, dbIdentity, sourceStoreIncarnation,
+                1, 9, appliedPosition, new byte[32], new byte[32], files);
+
+        final ShardStoreConfig restoreConfig = ShardStoreConfig.defaults(tempDir.resolve("recovery-manifest-restore"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(restoreConfig)) {
+            assertThrows(IllegalStateException.class, () -> ShardStore.restoreFromCheckpoint(
+                    restoreConfig, shardId, resources, checkpoint, manifest));
+        }
+    }
+
     private static byte[] bytes(final int last) {
         final byte[] value = new byte[16];
         value[15] = (byte) last;

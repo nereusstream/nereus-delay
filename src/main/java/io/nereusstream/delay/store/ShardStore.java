@@ -285,6 +285,7 @@ public final class ShardStore implements AutoCloseable {
             }
             if (manifest != null) {
                 validateRestoredRuntimeState(staged, manifest);
+                validateRestoredRecoveryState(staged, manifest);
             }
             staged.close();
             staged = null;
@@ -519,6 +520,26 @@ public final class ShardStore implements AutoCloseable {
         }
         if (!staged.runtimeMetadata().evidenceCursors().equals(manifest.evidenceCursors())) {
             throw new IOException("restored evidence cursors do not match checkpoint manifest");
+        }
+    }
+
+    private static void validateRestoredRecoveryState(final ShardStore staged,
+                                                      final CheckpointManifest manifest) throws IOException {
+        final StoreRecoveryMetadata recovery = staged.recoveryMetadata();
+        if (recovery.lineageBase() != null
+                && !Bytes.constantTimeEquals(recovery.lineageBase().recoveryLineageId(),
+                manifest.recoveryLineageId())) {
+            throw new IOException("restored recovery candidate lineage does not match checkpoint manifest");
+        }
+        if (recovery.lastObservedFloor() != null
+                && !Bytes.constantTimeEquals(recovery.lastObservedFloor().recoveryLineageId(),
+                manifest.recoveryLineageId())) {
+            throw new IOException("restored Recovery Floor lineage does not match checkpoint manifest");
+        }
+        if (recovery.installState() != null && recovery.lineageBase() != null
+                && !java.util.Arrays.equals(recovery.installState().checkpointId(),
+                recovery.lineageBase().checkpointId())) {
+            throw new IOException("restored recovery install state does not match its base candidate");
         }
     }
 

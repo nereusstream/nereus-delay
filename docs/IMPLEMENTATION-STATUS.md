@@ -13,6 +13,13 @@ identity, parent-hash ancestry and Store Incarnation/install-state identity.
 This is a read-only local proof seam; `OxiaRecoveryCatalog` still requires the
 production catalog/Floor and Owner Lease/session transaction.
 
+Manifest restore now also validates the staged DB's persisted `meta/RECOVERY`
+lineage/base, observed-Floor lineage and install-state checkpoint identity
+against the manifest before install. This closes the local DB/projection splice
+boundary; `ShardStoreTest.restoreWithManifestRejectsRecoveryProjectionLineageDrift`
+covers the fail-closed path. It remains local evidence, not production catalog,
+Owner Lease/session or source-replay activation evidence.
+
 The client contract now exposes the bounded V1 query bridge through
 `DelayClient.getCommandResult` and `DelayClient.getMessage`. The embedded
 implementation delegates to the existing receipt/source-barrier and
