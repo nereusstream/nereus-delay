@@ -1,5 +1,6 @@
 package io.nereusstream.delay.adapter;
 
+import io.nereusstream.delay.protocol.KafkaReceiptSlotResourceV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 
 import java.nio.charset.StandardCharsets;
@@ -46,6 +47,17 @@ public record KafkaReceiptResource(
         if (expectedPartition > 0xffff_ffffL || receiptPartition != (int) expectedPartition) {
             throw new IllegalArgumentException("receiptPartition does not match Shard/slot geometry");
         }
+    }
+
+    /** Returns the same slot identity in the Registry's typed resource value. */
+    public KafkaReceiptSlotResourceV1 protocolResource() {
+        return new KafkaReceiptSlotResourceV1(authenticatedClusterId, nativeTopicUuid, routeIncarnation,
+                shardPartition, receiptLaneSlot, slotGeneration);
+    }
+
+    /** Returns the full ExactResourceIdentity wrapper for GC/protection bindings. */
+    public byte[] exactResourceCanonicalBytes() {
+        return protocolResource().exactResourceCanonicalBytes();
     }
 
     private static String canonicalText(final String value, final String name) {

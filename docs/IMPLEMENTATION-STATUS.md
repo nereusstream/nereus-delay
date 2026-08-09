@@ -2013,6 +2013,14 @@ does not reject a high-bit physical-topic creation timestamp. These values are
 identity inputs, not local counters, and high-bit coverage is included in
 `ResourceRetireIntentBodyTest`; payload/checkpoint byte lengths remain bounded
 by the local object/manifest admission envelope.
+The same two external resource branches now have typed protocol values:
+`KafkaReceiptSlotResourceV1` and `PulsarJournalGenerationResourceV1` provide
+canonical construction, decode and ExactResourceIdentity wrappers, while
+`KafkaReceiptResource.protocolResource()` exposes the slot geometry through the
+same Registry identity. `ExternalResourceBranchTest` covers canonical
+round-trip, raw unsigned partition/generation preservation and the Pulsar
+resource-kind fence. This remains a local identity codec; slot allocation,
+retirement authority and Broker/Oxia ownership are still external.
 `PublishAdmissionBody`'s nested ProfileRef and Broker-resource validators now
 apply the same raw-version/physical-identity rule, so a canonical Admission
 cannot reject a Profile version that the standalone Registry codec accepts.

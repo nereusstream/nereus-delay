@@ -115,6 +115,13 @@ resource codecs. Payload-object and checkpoint lengths follow the Registry's
 rejected before the GC intent can be persisted. `ResourceRetireIntentBodyTest`
 covers both zero-length branches and rejects a payload identity carrying a
 Destination Profile.
+The Kafka receipt-slot and Pulsar Journal-generation branches are also exposed
+as typed protocol values (`KafkaReceiptSlotResourceV1` and
+`PulsarJournalGenerationResourceV1`), with canonical ExactResourceIdentity
+wrappers and raw unsigned partition/generation round-trip coverage in
+`ExternalResourceBranchTest`; `KafkaReceiptResource` projects the same slot
+identity. This closes only the local resource-value boundary, not slot
+allocation, external retirement, Broker evidence or Oxia ownership.
 
 Payload-proof trust-set semantic/reference versions now also preserve complete
 raw bits, while the source-ordered activation projection compares versions as
