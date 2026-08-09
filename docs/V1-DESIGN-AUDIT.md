@@ -1529,7 +1529,10 @@ Store native teardown 前移除 source；缺失、身份不一致、逐 DB 或 W
 RocksDB-native bucket attribution（shared block cache、memtable、table-reader
 metadata、pinned blocks/iterators、flush/compaction scratch）和独立的
 other-native bucket；`SharedRocksDbResources` 在 JNI 创建前预留 shared cache/WBM，
-并在对应 native close 后释放。`WorkClassScheduler` 对七个冻结 work class
+并在对应 native close 后释放。Ledger release 现在先 checked 计算两个 successor
+bucket，再移除 allocation identity；underflow 会保留 active reservation 供后续
+重试，回归证据为 `WorkerNativeResourceLedgerTest.underflowingReleaseLeavesReservationForRetry`。
+`WorkClassScheduler` 对七个冻结 work class
 提供 bounded queue/turn record-byte-time caps、`LEASE_FENCE` 抢占和 stale-class
 选择；`WorkClassResourcePool` 还按 class 保护 non-borrowable record/byte
 minimum、把 acquisition checked-sum overflow 转成 closed rejection，并限制

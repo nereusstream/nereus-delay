@@ -2726,6 +2726,8 @@ maxProcessRssBytes + minContainerHeadroomBytes
 
 runtime limit unknown/unbounded、container limit 小于认证值或任一 checked sum overflow 都 startup fail。FD/WAL/MANIFEST/SST/temp bytes 同样同时证明 per-DB、process 和 exact filesystem/quota 三层；`rootPath` 所在卷的安全 watermark 不是 `df` 全机推测。
 
+进程级 native reservation 的 release 也必须是 fail-closed 的小事务：先 checked 计算两个 successor bucket，确认不会 underflow，再移除 allocation identity 并发布新总量。若 release arithmetic 失败，reservation 仍保持 active、handle 仍可重试，不能先删 identity 再留下不可归因的容量泄漏。
+
 共享总上限不等于 shard 隔离。每个 `grantVersion` 绑定 Protocol Registry 的 immutable `ShardCapacityEnvelopeV1`：它以 1–66 全维度、zero-explicit 的 `CapacityVectorV1` 覆盖完整 logical grant、最坏 write/compaction amplification 已折算的物理承诺、WAL/MANIFEST/FD、memtable、Adapter minima 和四个 Control Capacity component grant，并绑定 release capacity-artifact digest。未使用部分也不能再次承诺给别的 shard。component grant 已是 full vector 投影，hard filter 只逐维计算一次 `sum(committed shard envelopes) + Worker fixed cost + transition temporary demand <= hard caps`，不能再把 component 加到外层。
 
 envelope 从 assignment acceptance 起一直 charge 到 DB/channel 物理关闭；`ACQUIRING/RESTORING/CATCHING_UP/DRAINING` 都不免费。迁移期间旧、新 Worker 同时 charge，new Worker 还 charge restore temp demand。Owner Lease acquisition 必须校验 exact envelope version/digest；unknown/mismatch 不得取得 lease。

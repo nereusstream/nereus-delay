@@ -3,10 +3,13 @@ package io.nereusstream.delay.store;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.lang.reflect.Field;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class WorkerNativeResourceLedgerTest {
     @TempDir
@@ -82,5 +85,24 @@ class WorkerNativeResourceLedgerTest {
         final NativeResourceUsage overflow = new NativeResourceUsage(
                 Long.MAX_VALUE, 1, 0, 0, 0, 0);
         assertThrows(IllegalStateException.class, overflow::rocksDbNativeBytes);
+    }
+
+    @Test
+    void underflowingReleaseLeavesReservationForRetry() throws Exception {
+        final WorkerNativeResourceLedger ledger = new WorkerNativeResourceLedger(100, 50);
+        final WorkerNativeResourceLedger.Reservation reservation = ledger.reserve("retry",
+                NativeResourceUsage.blockCache(10), 0);
+        final Field usage = WorkerNativeResourceLedger.class.getDeclaredField("rocksDbNativeUsage");
+        usage.setAccessible(true);
+        usage.set(ledger, NativeResourceUsage.zero());
+
+        assertThrows(IllegalStateException.class, reservation::close);
+        assertFalse(reservation.isReleased());
+        assertEquals(1, ledger.snapshot().activeAllocations());
+
+        usage.set(ledger, NativeResourceUsage.blockCache(10));
+        reservation.close();
+        assertTrue(reservation.isReleased());
+        assertEquals(0, ledger.snapshot().activeAllocations());
     }
 }

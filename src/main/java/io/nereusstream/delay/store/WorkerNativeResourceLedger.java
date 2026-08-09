@@ -77,13 +77,22 @@ public final class WorkerNativeResourceLedger {
         if (current != reservation) {
             throw new IllegalStateException("native allocation is not active: " + reservation.allocationId);
         }
-        reservations.remove(reservation.allocationId);
+        // Compute both successor buckets before changing the identity map.  A
+        // corrupted or otherwise inconsistent projection must leave the
+        // reservation active so a later close can retry; removing it first
+        // would make the failed release look completed while leaking capacity
+        // (and would make the handle's idempotence flag impossible to repair).
+        final NativeResourceUsage nextRocksDbUsage;
+        final long nextOtherNativeBytes;
         try {
-            rocksDbNativeUsage = subtract(rocksDbNativeUsage, reservation.rocksDbUsage);
-            otherNativeBytes = Math.subtractExact(otherNativeBytes, reservation.otherNativeBytes);
-        } catch (ArithmeticException overflow) {
+            nextRocksDbUsage = subtract(rocksDbNativeUsage, reservation.rocksDbUsage);
+            nextOtherNativeBytes = Math.subtractExact(otherNativeBytes, reservation.otherNativeBytes);
+        } catch (ArithmeticException | IllegalStateException overflow) {
             throw new IllegalStateException("native resource release underflows", overflow);
         }
+        reservations.remove(reservation.allocationId);
+        rocksDbNativeUsage = nextRocksDbUsage;
+        otherNativeBytes = nextOtherNativeBytes;
     }
 
     private static NativeResourceUsage subtract(final NativeResourceUsage left,
