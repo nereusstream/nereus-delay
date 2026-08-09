@@ -1,5 +1,6 @@
 package io.nereusstream.delay.client;
 
+import io.nereusstream.delay.adapter.InMemoryPayloadObjectStore;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.AdapterKindV1;
 import io.nereusstream.delay.protocol.AdapterMetadataV1;
@@ -29,17 +30,23 @@ import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.KafkaMetadataV1;
 import io.nereusstream.delay.protocol.ForceCheckpointRequestV1;
+import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.PublicDestinationBindingViewV1;
 import io.nereusstream.delay.protocol.MessageQueryResult;
 import io.nereusstream.delay.protocol.MessagePreconditionV1;
 import io.nereusstream.delay.protocol.PayloadCommitProofV1;
 import io.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
+import io.nereusstream.delay.protocol.PayloadProofTrustSetSemanticV1;
+import io.nereusstream.delay.protocol.PayloadProofVerifierKeyV1;
 import io.nereusstream.delay.protocol.PayloadReservationReceiptV1;
 import io.nereusstream.delay.protocol.PayloadAttestationOutcomeV1;
 import io.nereusstream.delay.protocol.PayloadAttestationResponseV1;
 import io.nereusstream.delay.protocol.PayloadUploadHandleOutcomeV1;
 import io.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
 import io.nereusstream.delay.protocol.UploadHandleKindV1;
+import io.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
+import io.nereusstream.delay.protocol.ObjectStoreProviderKindV1;
+import io.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.RetryPolicyRefV1;
@@ -156,6 +163,44 @@ class EmbeddedDelayServiceTest {
             assertEquals(PayloadAttestationOutcomeV1.OBJECT_STORE_UNAVAILABLE_RETRYABLE,
                     attestation.outcome());
             assertEquals(StableCode.OBJECT_STORE_UNAVAILABLE_RETRYABLE, attestation.error().code());
+        }
+    }
+
+    @Test
+    void receiptBoundPayloadFacadeRereadsTheShardReservation() throws Exception {
+        final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final PayloadProofTrustSetSemanticV1 trustSet = payloadTrustSet(keyPair);
+        final ProfileSemanticEnvelopeV1 profile = payloadObjectStoreProfile();
+        final byte[] payload = new byte[(1 << 20) + 1];
+        payload[0] = 1;
+        final InMemoryPayloadObjectStore objectStore = new InMemoryPayloadObjectStore(profile,
+                Bytes.sha256(Bytes.utf8("tenant")), trustSet, 7, 500, keyPair.getPrivate());
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 24);
+        final LargeScheduleIntent intent = new LargeScheduleIntent(
+                DestinationLaneId.derive(Bytes.utf8("payload-facade-lane")), 2_000, 5_000,
+                OrderingMode.BEST_EFFORT, payload.length, Bytes.sha256(payload), 4_000, trustSet.version());
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("payload-facade")), shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC),
+                EmbeddedDelayServiceConfig.defaults(), objectStore)) {
+            final PreparedCommand prepare = service.prepareLargeSchedule(intent, 10_000);
+            final EnqueueOutcome queued = service.enqueue(prepare).toCompletableFuture().join();
+            final CommandResult applied = service.awaitApplied(queued.receipt()).toCompletableFuture().join();
+            assertEquals(StableCode.OK, applied.stableCode());
+            final byte[] reservationId = Bytes.sha256(Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                    prepare.commandId().bytes(), prepare.delayMessageId().bytes(), prepare.commandHash());
+            final var reservation = service.shard().getReservation(reservationId);
+            objectStore.register(reservation);
+            final PayloadReservationReceiptV1 receipt = objectStore.reservationReceipt(reservation);
+
+            final PayloadUploadHandleResponseV1 handle = service.issuePayloadUploadHandle(receipt,
+                    UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_100).toCompletableFuture().join();
+            assertEquals(PayloadUploadHandleOutcomeV1.ISSUED, handle.outcome());
+            objectStore.upload(receipt, handle.issued(), payload, 1_101);
+            final PayloadAttestationResponseV1 attestation = service.attestPayloadUpload(receipt,
+                    handle.issued(), 1_102).toCompletableFuture().join();
+            assertEquals(PayloadAttestationOutcomeV1.ATTESTED, attestation.outcome());
+            assertEquals(EnqueueStatus.QUEUED, queued.status());
         }
     }
 
@@ -820,6 +865,19 @@ class EmbeddedDelayServiceTest {
         return ScheduleIntentV1.create(destination, retryPolicy, deliverAt, expireAt, DeliveryMode.MANAGED,
                 OrderingMode.BEST_EFFORT, new byte[0], Bytes.utf8(payload), null,
                 AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())), null, null);
+    }
+
+    private static ProfileSemanticEnvelopeV1 payloadObjectStoreProfile() {
+        final ObjectStoreProfileSemanticV1 body = new ObjectStoreProfileSemanticV1(ObjectStoreProviderKindV1.S3,
+                Bytes.sha256(Bytes.utf8("endpoint")), Bytes.sha256(Bytes.utf8("credential-scope")), 1,
+                true, true, true, true, Bytes.sha256(Bytes.utf8("encryption")), 2 << 20,
+                ObjectStoreProfileSemanticV1.SINGLE_PUT, 1, Bytes.sha256(Bytes.utf8("lifecycle")));
+        return new ProfileSemanticEnvelopeV1(ProfileKindV1.OBJECT_STORE, Bytes.utf8("object-store"), 1, body);
+    }
+
+    private static PayloadProofTrustSetSemanticV1 payloadTrustSet(final KeyPair keyPair) {
+        return new PayloadProofTrustSetSemanticV1(9,
+                List.of(PayloadProofVerifierKeyV1.fromPublicKey(7, keyPair.getPublic(), 0, 9_000)));
     }
 
     private static ControlOperationReceiptV1 controlReceipt() {

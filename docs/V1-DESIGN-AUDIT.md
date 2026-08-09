@@ -415,6 +415,8 @@ The client facade also exposes receipt-bound `issuePayloadUploadHandle` and
 injected. It rereads/registers the exact shard reservation and returns the
 closed retryable unavailable branch when no adapter is configured; it does not
 claim Oxia handle-protection CAS, provider credentials or remote immutability.
+The positive local reserve-to-handle-to-attestation path is covered by
+`EmbeddedDelayServiceTest.receiptBoundPayloadFacadeRereadsTheShardReservation`.
 Terminal generation history uses the same guarded reads for source and
 obligation framing in both legacy and v2 branches; the local prefix evidence
 is `TerminalGenerationRecordTest`. Direct `DelayShard` history reads also

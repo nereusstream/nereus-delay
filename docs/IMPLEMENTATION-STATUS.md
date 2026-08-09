@@ -26,7 +26,9 @@ injected into `EmbeddedDelayService`. The facade rereads the exact shard
 reservation, registers it in the adapter, and compares the service-owned
 receipt before delegating; an unconfigured adapter returns the closed typed
 `OBJECT_STORE_UNAVAILABLE_RETRYABLE` branch. Provider credentials, Oxia
-protection CAS and remote Object Store authority remain release blockers.
+protection CAS and remote Object Store authority remain release blockers;
+`EmbeddedDelayServiceTest.receiptBoundPayloadFacadeRereadsTheShardReservation`
+covers the positive reserve-to-handle-to-attestation path.
 
 The local in-memory Owner Lease authority advances the raw `uint64` epoch
 domain through the high-bit boundary and fails only when the all-ones value is
@@ -1938,7 +1940,7 @@ to the intended modules:
 | `io.nereusstream.delay.runtime` | Deterministic Shard Log application, message state machine and Lane gate projection | `delay-core` |
 | `io.nereusstream.delay.scheduler` | Lane-local failure isolation and bounded weighted DRR | `delay-core` |
 | `io.nereusstream.delay.ownership` | Owner Lease CAS boundary and local ownerEpoch fencing | `delay-server` / `delay-metadata-oxia` |
-| `io.nereusstream.delay.client` | Queued/applied outcome contract and embedded conformance service | `delay-api` / `delay-client-core` / `delay-testkit` |
+| `io.nereusstream.delay.client` | Preparation, ordered enqueue outcomes, bounded command/message queries, receipt-bound large-payload operations and embedded conformance service | `delay-api` / `delay-client-core` / `delay-testkit` |
 | `io.nereusstream.delay.adapter` | Broker/destination interfaces and test adapters | ingress/adapter modules |
 
 ## Evidence matrix
