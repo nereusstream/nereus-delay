@@ -105,4 +105,31 @@ class WorkerNativeResourceLedgerTest {
         assertTrue(reservation.isReleased());
         assertEquals(0, ledger.snapshot().activeAllocations());
     }
+
+    @Test
+    void sharedResourceCloseRetriesReservationsAfterReleaseFailure() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("close-retry"));
+        final WorkerResourceEnvelope envelope = new WorkerResourceEnvelope(
+                256L * 1024 * 1024, 128L * 1024 * 1024, 128L * 1024 * 1024, 64L * 1024 * 1024,
+                64L * 1024 * 1024, 900L * 1024 * 1024, 64L * 1024 * 1024, 1024L * 1024 * 1024,
+                10_000, 1_000, 10L * 1024 * 1024 * 1024, 2L * 1024 * 1024 * 1024,
+                256L * 1024 * 1024, 256L * 1024 * 1024, 16L * 1024 * 1024, 10_000);
+        final SharedRocksDbResources resources = new SharedRocksDbResources(config, envelope,
+                new WorkerRuntimeResourceObservation(
+                        128L * 1024 * 1024, 64L * 1024 * 1024, 128L * 1024 * 1024,
+                        1024L * 1024 * 1024, 10_000, 10L * 1024 * 1024 * 1024,
+                        8L * 1024 * 1024 * 1024));
+        final WorkerNativeResourceLedger ledger = resources.nativeResourceLedger();
+        final Field usage = WorkerNativeResourceLedger.class.getDeclaredField("rocksDbNativeUsage");
+        usage.setAccessible(true);
+        usage.set(ledger, NativeResourceUsage.zero());
+
+        assertThrows(IllegalStateException.class, resources::close);
+        assertEquals(2, ledger.snapshot().activeAllocations());
+
+        usage.set(ledger, new NativeResourceUsage(config.sharedBlockCacheBytes(),
+                config.sharedWriteBufferBudgetBytes(), 0, 0, 0, 0));
+        resources.close();
+        assertEquals(0, ledger.snapshot().activeAllocations());
+    }
 }

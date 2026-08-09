@@ -1532,6 +1532,9 @@ other-native bucket；`SharedRocksDbResources` 在 JNI 创建前预留 shared ca
 并在对应 native close 后释放。Ledger release 现在先 checked 计算两个 successor
 bucket，再移除 allocation identity；underflow 会保留 active reservation 供后续
 重试，回归证据为 `WorkerNativeResourceLedgerTest.underflowingReleaseLeavesReservationForRetry`。
+Shared resource close 还会在 cache/WBM native teardown 成功后独立重试尚未释放的
+shared reservation，并以 `WorkerNativeResourceLedgerTest.sharedResourceCloseRetriesReservationsAfterReleaseFailure`
+证明只有两个 reservation 都释放后才完成 Worker close。
 `WorkClassScheduler` 对七个冻结 work class
 提供 bounded queue/turn record-byte-time caps、`LEASE_FENCE` 抢占和 stale-class
 选择；`WorkClassResourcePool` 还按 class 保护 non-borrowable record/byte

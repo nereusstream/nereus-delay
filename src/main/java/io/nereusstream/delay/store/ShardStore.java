@@ -1499,7 +1499,7 @@ public final class ShardStore implements AutoCloseable {
                 closedIngressDeadlineThrough = readIngressFenceState(db, handles.get(ColumnFamily.META))
                         .closedThroughEpochMs();
             } catch (RocksDBException exception) {
-                throw new IllegalStateException("cannot reread ingress fence state after write", exception);
+                throw new RocksDbWriteFailure("cannot reread ingress fence state after write", exception);
             }
         } catch (RocksDBException exception) {
             throw new RocksDbWriteFailure("RocksDB write failed", exception);

@@ -519,9 +519,14 @@ public final class SharedRocksDbResources implements AutoCloseable {
             try {
                 writeBufferManager.close();
                 writeBufferManagerClosed = true;
-                if (sharedWriteBufferReservation != null) {
-                    sharedWriteBufferReservation.close();
-                }
+            } catch (RuntimeException failure) {
+                closeFailure = appendCloseFailure(closeFailure, failure);
+            }
+        }
+        if (writeBufferManagerClosed && sharedWriteBufferReservation != null
+                && !sharedWriteBufferReservation.isReleased()) {
+            try {
+                sharedWriteBufferReservation.close();
             } catch (RuntimeException failure) {
                 closeFailure = appendCloseFailure(closeFailure, failure);
             }
@@ -530,14 +535,23 @@ public final class SharedRocksDbResources implements AutoCloseable {
             try {
                 blockCache.close();
                 blockCacheClosed = true;
-                if (sharedBlockCacheReservation != null) {
-                    sharedBlockCacheReservation.close();
-                }
             } catch (RuntimeException failure) {
                 closeFailure = appendCloseFailure(closeFailure, failure);
             }
         }
-        if (closeFailure == null && rateLimiterClosed && writeBufferManagerClosed && blockCacheClosed) {
+        if (blockCacheClosed && sharedBlockCacheReservation != null
+                && !sharedBlockCacheReservation.isReleased()) {
+            try {
+                sharedBlockCacheReservation.close();
+            } catch (RuntimeException failure) {
+                closeFailure = appendCloseFailure(closeFailure, failure);
+            }
+        }
+        final boolean sharedReservationsReleased = (sharedWriteBufferReservation == null
+                || sharedWriteBufferReservation.isReleased())
+                && (sharedBlockCacheReservation == null || sharedBlockCacheReservation.isReleased());
+        if (closeFailure == null && rateLimiterClosed && writeBufferManagerClosed && blockCacheClosed
+                && sharedReservationsReleased) {
             closed.set(true);
         }
         if (closeFailure != null) {
