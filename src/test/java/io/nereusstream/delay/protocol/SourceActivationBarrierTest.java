@@ -80,6 +80,22 @@ class SourceActivationBarrierTest {
     }
 
     @Test
+    @SuppressWarnings("deprecation")
+    void legacyPulsarBarrierAllowsUnknownBatchShapeWithoutWeakeningIdentityFence() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 8);
+        final byte[] resource = Bytes.sha256(Bytes.utf8("legacy-batch-resource"));
+        final byte[] guard = Bytes.sha256(Bytes.utf8("legacy-batch-guard"));
+        final PulsarActivationBarrier barrier = new PulsarActivationBarrier(shard, resource,
+                "persistent://t/legacy", 4, 8, 1, Long.MIN_VALUE, guard, false);
+
+        assertTrue(barrier.reachedBy(new PulsarSourcePosition(shard, resource, "persistent://t/legacy",
+                4, 8, 2, 3, PulsarSourcePosition.EntryKind.BATCH, 100)));
+        assertThrows(IllegalArgumentException.class, () -> barrier.reachedBy(new PulsarSourcePosition(shard,
+                Bytes.sha256(Bytes.utf8("replacement-resource")), "persistent://t/legacy", 4, 8, 2, 3,
+                PulsarSourcePosition.EntryKind.BATCH, 100)));
+    }
+
+    @Test
     void emptyPulsarBarrierStillRejectsARecordFromAnotherResource() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 2);
         final byte[] resource = Bytes.sha256(Bytes.utf8("empty-resource"));

@@ -22,8 +22,9 @@ public record PulsarActivationBarrier(
         Bytes.requireLength(brokerResourceIncarnation, 32, "brokerResourceIncarnation");
         Bytes.requireLength(resourceGuardAttestationDigest, 32, "resourceGuardAttestationDigest");
         physicalTopic = canonicalText(physicalTopic, "physicalTopic");
-        if (physicalTopic.isBlank() || (empty ? batchSize != 0 : batchSize == 0)
-                || (!empty && Integer.compareUnsigned(normalizedLastBatchIndex, batchSize) >= 0)
+        if (physicalTopic.isBlank() || (empty && batchSize != 0)
+                || (!empty && batchSize != 0
+                && Integer.compareUnsigned(normalizedLastBatchIndex, batchSize) >= 0)
                 || guardedSourceConnectionGeneration == 0) {
             throw new IllegalArgumentException("invalid Pulsar activation barrier");
         }

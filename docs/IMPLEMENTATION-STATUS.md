@@ -7,6 +7,16 @@ normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20�
 the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
+The deprecated `PulsarActivationBarrier` compatibility constructor now actually
+supports its documented unknown-batch-shape form: a non-empty legacy barrier
+may carry `batchSize=0`, skips only the same-entry batch-shape check, and still
+fences the shard, physical resource, topic and inclusive batch-index boundary.
+V1 source adapters must continue to use the full constructor with a positive
+batch size. `SourceActivationBarrierTest`
+`legacyPulsarBarrierAllowsUnknownBatchShapeWithoutWeakeningIdentityFence`
+covers the compatibility path; this does not replace production Pulsar source
+assignment or Broker guard evidence.
+
 The local queued-receipt adapter seam now has a strict Route-policy path:
 `QueuedReceiptQueryPolicy` derives `receipt_query_until` only as checked addition
 of the authenticated Broker persistence time and the immutable policy window.

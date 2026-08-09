@@ -11,6 +11,15 @@ V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障
 
 **Open semantic questions: none.**
 
+The Pulsar activation-barrier compatibility seam is now internally consistent:
+the deprecated constructor can represent a non-empty legacy barrier without a
+known batch size, while the identity, source-connection guard and inclusive
+batch-index checks remain active. The full V1 constructor still requires and
+pins a positive batch size, so this compatibility repair does not weaken the
+V1 source-assignment contract. Focused evidence is
+`SourceActivationBarrierTest.legacyPulsarBarrierAllowsUnknownBatchShapeWithoutWeakeningIdentityFence`;
+real source assignment and Broker guard authority remain release gates.
+
 The queued-receipt audit now has an executable local binding for the existing
 Registry rule: `QueuedReceiptQueryPolicy` computes `receipt_query_until` from
 Broker persistence time with checked arithmetic, and policy-bound Kafka/Pulsar
