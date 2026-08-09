@@ -152,6 +152,10 @@ _Avoid_: Applied receipt, delivery receipt
 The policy-derived boundary through which the complete applied or rejected Command result may be returned, measured from the first result Source Position's Broker persistence time.
 _Avoid_: Worker apply TTL, SDK-supplied deadline
 
+**Control Operation Query Policy**:
+The immutable policy snapshot bound to a Prepared Control Operation. Its version must match `controlQueryPolicyVersion`, and its window is added to `registeredAt.latest` with checked arithmetic to derive the receipt's fixed `queryUntil` boundary before registration.
+_Avoid_: caller-selected absolute Control receipt deadline, response-time extension
+
 **Deterministic Command Application**:
 The requirement that replaying a source record from any permitted checkpoint produces the same authoritative result from canonical Command bytes, Broker source metadata, preceding durable shard state, immutable referenced versions, and preceding source-ordered control markers. Live destination state, Worker clock, cache timing, and physical disk size are not business-result inputs.
 _Avoid_: Best-effort replay, current-environment validation

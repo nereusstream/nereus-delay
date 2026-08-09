@@ -2,6 +2,7 @@ package io.nereusstream.delay.client;
 
 import io.nereusstream.delay.adapter.InMemoryPayloadObjectStore;
 import io.nereusstream.delay.adapter.CommandResultRetentionPolicy;
+import io.nereusstream.delay.adapter.ControlOperationQueryPolicy;
 import io.nereusstream.delay.adapter.PreparedSubmissionAdapter;
 import io.nereusstream.delay.adapter.QueuedReceiptQueryPolicy;
 import io.nereusstream.delay.protocol.Bytes;
@@ -1298,6 +1299,32 @@ public final class EmbeddedDelayService implements DelayClient {
             final long controlOperationQueryWindowMs) {
         ensureOpen();
         Objects.requireNonNull(prepared, "prepared");
+        return registerPreparedControlOperationInternal(prepared, registeredAt, controlOperationQueryWindowMs);
+    }
+
+    /**
+     * Registers a Prepared Control Operation with the immutable policy bound
+     * into its pre-I/O envelope. Callers cannot replace the policy window or
+     * version after preparation.
+     */
+    public synchronized ControlRegistrationProjectionV1 registerPreparedControlOperation(
+            final PreparedControlOperationV1 prepared, final TrustedUtcIntervalEvidence registeredAt,
+            final ControlOperationQueryPolicy policy) {
+        ensureOpen();
+        Objects.requireNonNull(prepared, "prepared");
+        Objects.requireNonNull(policy, "policy");
+        if (prepared.controlQueryPolicyVersion() != policy.policyVersion()) {
+            throw new IllegalArgumentException("Control query policy version does not match Prepared operation");
+        }
+        // Derive before registering the target so a malformed or overflowing
+        // policy cannot leave a partial local registration behind.
+        policy.queryUntil(Objects.requireNonNull(registeredAt, "registeredAt"));
+        return registerPreparedControlOperationInternal(prepared, registeredAt, policy.queryWindowMs());
+    }
+
+    private ControlRegistrationProjectionV1 registerPreparedControlOperationInternal(
+            final PreparedControlOperationV1 prepared, final TrustedUtcIntervalEvidence registeredAt,
+            final long controlOperationQueryWindowMs) {
         controlTargetRegistrationAuthority.register(prepared);
         final ControlRegistrationProjectionV1 projection = ControlRegistrationProjectionV1.initialWithQueryWindow(
                 prepared, registeredAt, controlOperationQueryWindowMs);

@@ -34,6 +34,17 @@ seams only. Focused evidence is
 and `CommandResultRetentionPolicyTest`; external policy publication and query
 authority remain release gates.
 
+The Control Operation receipt boundary now has the same executable local fence:
+`ControlOperationQueryPolicy` must match the policy version carried by the
+Prepared Control Operation and derives `queryUntil` from the trusted
+registration upper bound before target registration. Version drift and checked
+addition overflow fail closed without a partial local registration. Explicit
+deadline/window constructors remain compatibility seams; immutable policy
+publication and the production Oxia registration transaction remain external
+release gates. Focused evidence is
+`ControlOperationQueryPolicyTest` and
+`EmbeddedDelayServiceTest.strictPreparedControlRegistrationRejectsPolicyDriftAndOverflowBeforeRegistration`.
+
 The UNKNOWN-outcome audit now closes a Store-integrity edge at the same
 ownership boundary: before `PUBLISH_OUTCOME_V1(UNKNOWN)` can materialize an
 uncertain retry or update READY, the current Message Lane, durable Lane record,

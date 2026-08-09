@@ -2,6 +2,7 @@ package io.nereusstream.delay.client;
 
 import io.nereusstream.delay.adapter.InMemoryPayloadObjectStore;
 import io.nereusstream.delay.adapter.CommandResultRetentionPolicy;
+import io.nereusstream.delay.adapter.ControlOperationQueryPolicy;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.AdapterKindV1;
 import io.nereusstream.delay.protocol.AdapterMetadataV1;
@@ -916,11 +917,43 @@ class EmbeddedDelayServiceTest {
         try (EmbeddedDelayService service = new EmbeddedDelayService(
                 ShardStoreConfig.defaults(tempDir.resolve("prepared-control")), shard,
                 Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
-            final var projection = service.registerPreparedControlOperation(prepared, registeredAt, 1_000);
+            final var projection = service.registerPreparedControlOperation(prepared, registeredAt,
+                    new ControlOperationQueryPolicy(1, 1_000));
             assertArrayEquals(prepared.operationId(), projection.receipt().operationId());
             assertEquals(ControlOperationStateV1.PENDING, projection.current().state());
+            assertEquals(2_100, projection.receipt().queryUntilEpochMs());
             assertEquals(ControlOperationQueryResultV1.CURRENT,
                     service.queryControlOperation(projection.receipt(), 1_500).resultKind());
+        }
+    }
+
+    @Test
+    void strictPreparedControlRegistrationRejectsPolicyDriftAndOverflowBeforeRegistration() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 8);
+        final ControlOperationRequestV1 request = ControlOperationRequestV1.forceCheckpoint(
+                new ForceCheckpointRequestV1(new ControlReasonV1(ControlReasonKindV1.MAINTENANCE, null, null)));
+        final ControlTargetRefV1 target = new ControlTargetRefV1(0, ControlTargetKindV1.SHARD,
+                new ShardSubjectV1(shard), null, null);
+        final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final PreparedControlOperationV1 prepared = PreparedControlOperationV1.prepare(Bytes.sha256(
+                        Bytes.utf8("strict-control-policy")), request.kind(),
+                new ControlAuthorV1(Bytes.sha256(Bytes.utf8("actor")), Bytes.sha256(Bytes.utf8("roles")),
+                        Bytes.sha256(Bytes.utf8("scope"))), request, List.of(target), 1, 2, 1,
+                keyPair.getPrivate());
+        final TrustedUtcIntervalEvidence registeredAt = new TrustedUtcIntervalEvidence(1_000, 1_100,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("strict-control-clock"),
+                1, 1, 1, Bytes.sha256(Bytes.utf8("strict-control-evidence")), 0, null);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("strict-control-policy")), shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            assertThrows(IllegalArgumentException.class, () -> service.registerPreparedControlOperation(
+                    prepared, registeredAt, new ControlOperationQueryPolicy(2, 1_000)));
+            final TrustedUtcIntervalEvidence overflowAt = new TrustedUtcIntervalEvidence(
+                    Long.MAX_VALUE, Long.MAX_VALUE, TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                    Bytes.utf8("strict-control-overflow-clock"), 1, 1, 1,
+                    Bytes.sha256(Bytes.utf8("strict-control-overflow-evidence")), 0, null);
+            assertThrows(IllegalArgumentException.class, () -> service.registerPreparedControlOperation(
+                    prepared, overflowAt, new ControlOperationQueryPolicy(1, 1)));
         }
     }
 
