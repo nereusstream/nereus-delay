@@ -73,6 +73,21 @@ public final class ResourceRetireIntentBody {
     public static void validateExternalDeleteIdentity(final ResourceKind kind, final byte[] encoded,
                                                        final byte[] observedImmutableVersion,
                                                        final byte[] observedEtag) {
+        validateExternalDeleteIdentity(kind, encoded, observedImmutableVersion, observedEtag, null);
+    }
+
+    /**
+     * Checks provider-returned identity fields for a specific delete outcome.
+     * A {@code DELETED} payload/checkpoint must carry the immutable version
+     * that was actually deleted; an empty response cannot prove that the
+     * exact pinned object was removed.  The legacy overload above remains a
+     * shape-only compatibility seam for callers that do not yet carry the
+     * outcome tag.
+     */
+    public static void validateExternalDeleteIdentity(final ResourceKind kind, final byte[] encoded,
+                                                       final byte[] observedImmutableVersion,
+                                                       final byte[] observedEtag,
+                                                       final ResourceDeleteConfirmedBody.DeleteOutcome outcome) {
         final ExactResourceIdentity identity = decodeResourceIdentity(kind, encoded);
         Objects.requireNonNull(observedImmutableVersion, "observedImmutableVersion");
         Objects.requireNonNull(observedEtag, "observedEtag");
@@ -80,17 +95,29 @@ public final class ResourceRetireIntentBody {
         final List<CanonicalProtobuf.Reader.Field> fields = read(branchField.rawValue(), kind + " resource");
         if (kind == ResourceKind.PAYLOAD_OBJECT) {
             final byte[] exactVersion = bytes(field(fields, 4), 4);
+            if (outcome == ResourceDeleteConfirmedBody.DeleteOutcome.DELETED
+                    && observedImmutableVersion.length == 0) {
+                throw new IllegalArgumentException("DELETED payload evidence must carry immutable version");
+            }
             if (observedImmutableVersion.length != 0
                     && !Arrays.equals(exactVersion, observedImmutableVersion)) {
                 throw new IllegalArgumentException("delete evidence immutable version does not match payload identity");
             }
             final byte[] exactEtag = optionalBytes(fields, 5);
+            if (outcome == ResourceDeleteConfirmedBody.DeleteOutcome.DELETED
+                    && exactEtag.length != 0 && observedEtag.length == 0) {
+                throw new IllegalArgumentException("DELETED payload evidence must carry pinned etag");
+            }
             if (observedEtag.length != 0
                     && (exactEtag.length == 0 || !Arrays.equals(exactEtag, observedEtag))) {
                 throw new IllegalArgumentException("delete evidence etag does not match payload identity");
             }
         } else if (kind == ResourceKind.CHECKPOINT) {
             final byte[] exactVersion = bytes(field(fields, 6), 6);
+            if (outcome == ResourceDeleteConfirmedBody.DeleteOutcome.DELETED
+                    && observedImmutableVersion.length == 0) {
+                throw new IllegalArgumentException("DELETED checkpoint evidence must carry immutable version");
+            }
             if (observedImmutableVersion.length != 0
                     && !Arrays.equals(exactVersion, observedImmutableVersion)) {
                 throw new IllegalArgumentException("delete evidence immutable version does not match checkpoint identity");

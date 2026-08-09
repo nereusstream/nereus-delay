@@ -90,6 +90,29 @@ class ResourceDeleteConfirmedBodyTest {
                 ResourceKind.PAYLOAD_OBJECT, identity, Bytes.utf8("version-2"), Bytes.utf8("etag-1")));
     }
 
+    @Test
+    void deletedObjectEvidenceMustCarryThePinnedImmutableIdentity() {
+        final byte[] identity = CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1,
+                CanonicalProtobuf.message(payload -> {
+                    CanonicalProtobuf.bytes(payload, 1, profileRef());
+                    CanonicalProtobuf.bytes(payload, 2, Bytes.utf8("container"));
+                    CanonicalProtobuf.bytes(payload, 3, Bytes.utf8("object"));
+                    CanonicalProtobuf.bytes(payload, 4, Bytes.utf8("version-1"));
+                    CanonicalProtobuf.bytes(payload, 5, Bytes.utf8("etag-1"));
+                    CanonicalProtobuf.uint64(payload, 6, 4);
+                    CanonicalProtobuf.bytes(payload, 7, Bytes.sha256(Bytes.utf8("payload")));
+                })));
+
+        assertThrows(IllegalArgumentException.class, () ->
+                ResourceRetireIntentBody.validateExternalDeleteIdentity(ResourceKind.PAYLOAD_OBJECT, identity,
+                        new byte[0], new byte[0], ResourceDeleteConfirmedBody.DeleteOutcome.DELETED));
+        assertThrows(IllegalArgumentException.class, () ->
+                ResourceRetireIntentBody.validateExternalDeleteIdentity(ResourceKind.PAYLOAD_OBJECT, identity,
+                        Bytes.utf8("version-1"), new byte[0], ResourceDeleteConfirmedBody.DeleteOutcome.DELETED));
+        ResourceRetireIntentBody.validateExternalDeleteIdentity(ResourceKind.PAYLOAD_OBJECT, identity,
+                Bytes.utf8("version-1"), Bytes.utf8("etag-1"), ResourceDeleteConfirmedBody.DeleteOutcome.DELETED);
+    }
+
     private static byte[] body(final ShardId shard, final byte[] mutationId, final byte[] mutationHash,
                                final byte[] resourceHash, final long expectedVersion,
                                final ResourceDeleteConfirmedBody.DeleteOutcome outcome,
