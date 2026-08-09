@@ -210,89 +210,97 @@ public final class PersistentLaneScheduler {
         if (!persistedRestored) {
             restorePersistedState();
         }
-        final long startedNanos = System.nanoTime();
-        final ReadyScan readyScan = scanReadyEntries(budget.maxMessages());
-        final List<ShardStore.KeyValue> entries = readyScan.entries();
-        final List<ReadyProjection> projections = new ArrayList<>();
-        final Set<DestinationLaneId> scannedLanes = new HashSet<>();
-        long scannedBytes = 0;
-        byte[] lastEligibleReadyKey = null;
-        for (ShardStore.KeyValue entry : entries) {
-            if (System.nanoTime() - startedNanos >= budget.maxElapsedNanos()) {
-                break;
+        final RuntimeSnapshot before = runtimeSnapshot();
+        final List<ScheduleWorkItem> offered = new ArrayList<>();
+        try {
+            final long startedNanos = System.nanoTime();
+            final ReadyScan readyScan = scanReadyEntries(budget.maxMessages());
+            final List<ShardStore.KeyValue> entries = readyScan.entries();
+            final List<ReadyProjection> projections = new ArrayList<>();
+            final Set<DestinationLaneId> scannedLanes = new HashSet<>();
+            long scannedBytes = 0;
+            byte[] lastEligibleReadyKey = null;
+            for (ShardStore.KeyValue entry : entries) {
+                if (System.nanoTime() - startedNanos >= budget.maxElapsedNanos()) {
+                    break;
+                }
+                final long entryBytes = Math.addExact(entry.key().length, entry.value().length);
+                // A valid READY projection must fit every certified scheduler
+                // byte cap.  Do not make a first-entry exception that bypasses
+                // the cap; activation/configuration is responsible for proving
+                // that admitted work and its durable projection fit.
+                if (entryBytes > budget.maxBytes()) {
+                    throw new IllegalStateException("READY discovery entry exceeds byte budget");
+                }
+                if (entryBytes > budget.maxBytes() - scannedBytes) {
+                    break;
+                }
+                scannedBytes = Math.addExact(scannedBytes, entryBytes);
+                final ReadyProjection projection = decodeReadyProjection(entry);
+                if (!scannedLanes.add(projection.lane().laneId())) {
+                    throw new IllegalStateException("multiple READY heads discovered for Lane: "
+                            + projection.lane().laneId());
+                }
+                projections.add(projection);
+                if (projection.item().eligibleAtEpochMs() <= dueThroughEpochMs) {
+                    lastEligibleReadyKey = entry.key();
+                }
             }
-            final long entryBytes = Math.addExact(entry.key().length, entry.value().length);
-            // A valid READY projection must fit every certified scheduler
-            // byte cap.  Do not make a first-entry exception that bypasses
-            // the cap; activation/configuration is responsible for proving
-            // that admitted work and its durable projection fit.
-            if (entryBytes > budget.maxBytes()) {
-                throw new IllegalStateException("READY discovery entry exceeds byte budget");
-            }
-            if (entryBytes > budget.maxBytes() - scannedBytes) {
-                break;
-            }
-            scannedBytes = Math.addExact(scannedBytes, entryBytes);
-            final ReadyProjection projection = decodeReadyProjection(entry);
-            if (!scannedLanes.add(projection.lane().laneId())) {
-                throw new IllegalStateException("multiple READY heads discovered for Lane: "
-                        + projection.lane().laneId());
-            }
-            projections.add(projection);
-            if (projection.item().eligibleAtEpochMs() <= dueThroughEpochMs) {
-                lastEligibleReadyKey = entry.key();
-            }
-        }
 
-        final List<ScheduleWorkItem> toOffer = new ArrayList<>();
-        final List<ScheduleWorkItem> newlyPromoted = new ArrayList<>();
-        final Map<DestinationLaneId, DiscoveredHead> nextHeads = new HashMap<>();
-        for (ReadyProjection projection : projections) {
-            final DestinationLaneId laneId = projection.lane().laneId();
-            final ScheduleWorkItem item = projection.item();
-            final ScheduleWorkItem queued = delegate.pendingHead(laneId);
-            final DiscoveredHead known = discoveredHeads.get(laneId);
-            if (queued != null) {
-                if (!sameWork(queued, item)) {
-                    throw new IllegalStateException("in-memory READY head differs from authoritative READY: "
-                            + laneId);
+            final List<ScheduleWorkItem> toOffer = new ArrayList<>();
+            final List<ScheduleWorkItem> newlyPromoted = new ArrayList<>();
+            final Map<DestinationLaneId, DiscoveredHead> nextHeads = new HashMap<>();
+            for (ReadyProjection projection : projections) {
+                final DestinationLaneId laneId = projection.lane().laneId();
+                final ScheduleWorkItem item = projection.item();
+                final ScheduleWorkItem queued = delegate.pendingHead(laneId);
+                final DiscoveredHead known = discoveredHeads.get(laneId);
+                if (queued != null) {
+                    if (!sameWork(queued, item)) {
+                        throw new IllegalStateException("in-memory READY head differs from authoritative READY: "
+                                + laneId);
+                    }
+                    if (known != null && !sameHead(known, projection)) {
+                        throw new IllegalStateException("in-memory READY key differs from authoritative READY: "
+                                + laneId);
+                    }
+                    nextHeads.put(laneId, new DiscoveredHead(queued, projection.readyKey()));
+                    continue;
                 }
-                if (known != null && !sameHead(known, projection)) {
-                    throw new IllegalStateException("in-memory READY key differs from authoritative READY: "
-                            + laneId);
+                if (known != null && sameHead(known, projection)) {
+                    nextHeads.put(laneId, known);
+                    continue;
                 }
-                nextHeads.put(laneId, new DiscoveredHead(queued, projection.readyKey()));
-                continue;
+                nextHeads.put(laneId, new DiscoveredHead(item, projection.readyKey()));
+                newlyPromoted.add(item);
+                if (item.eligibleAtEpochMs() <= dueThroughEpochMs) {
+                    toOffer.add(item);
+                }
             }
-            if (known != null && sameHead(known, projection)) {
-                nextHeads.put(laneId, known);
-                continue;
+            for (ScheduleWorkItem item : newlyPromoted) {
+                delegate.activateLane(item.laneId());
+                delegate.offer(item);
+                offered.add(item);
             }
-            nextHeads.put(laneId, new DiscoveredHead(item, projection.readyKey()));
-            newlyPromoted.add(item);
-            if (item.eligibleAtEpochMs() <= dueThroughEpochMs) {
-                toOffer.add(item);
+            // Do not consume a future READY key in the durable cursor.  The
+            // future item may be retained in this process-local queue, but a
+            // restart must be able to rediscover it before its due turn.  READY
+            // keys are ordered by eligibility, so the last eligible key is the
+            // safe cursor boundary for this time-bounded discovery turn.
+            if (lastEligibleReadyKey != null) {
+                lastScannedReadyKey = lastEligibleReadyKey;
             }
+            discoveredHeads.putAll(nextHeads);
+            if (lastEligibleReadyKey != null) {
+                final long nextWrapGeneration = readyScan.wrapped()
+                        ? incrementWrapGeneration(wrapGeneration) : wrapGeneration;
+                persist(nextWrapGeneration);
+            }
+            return List.copyOf(toOffer);
+        } catch (RuntimeException failure) {
+            rollbackRuntime(before, List.of(), offered, null, failure);
+            throw failure;
         }
-        for (ScheduleWorkItem item : newlyPromoted) {
-            delegate.activateLane(item.laneId());
-            delegate.offer(item);
-        }
-        // Do not consume a future READY key in the durable cursor.  The
-        // future item may be retained in this process-local queue, but a
-        // restart must be able to rediscover it before its due turn.  READY
-        // keys are ordered by eligibility, so the last eligible key is the
-        // safe cursor boundary for this time-bounded discovery turn.
-        if (lastEligibleReadyKey != null) {
-            lastScannedReadyKey = lastEligibleReadyKey;
-        }
-        discoveredHeads.putAll(nextHeads);
-        if (lastEligibleReadyKey != null) {
-            final long nextWrapGeneration = readyScan.wrapped()
-                    ? incrementWrapGeneration(wrapGeneration) : wrapGeneration;
-            persist(nextWrapGeneration);
-        }
-        return List.copyOf(toOffer);
     }
 
     /** Returns the current durable discovery cursor projection. */
@@ -315,21 +323,96 @@ public final class PersistentLaneScheduler {
     public synchronized List<ScheduleWorkItem> poll(final long dueThroughEpochMs,
                                                      final SchedulerBudget budget) {
         requireDueThrough(dueThroughEpochMs);
-        final List<ScheduleWorkItem> result;
-        if (recoveryFirstPass) {
-            final Set<DestinationLaneId> eligible = delegate.dueSchedulableLanes(dueThroughEpochMs);
-            recoveryServed.retainAll(eligible);
-            result = delegate.pollRecoveryFirstPass(dueThroughEpochMs, budget, recoveryServed);
-            result.forEach(item -> recoveryServed.add(item.laneId()));
-            if (!eligible.isEmpty() && recoveryServed.containsAll(eligible)) {
-                recoveryFirstPass = false;
-                recoveryServed.clear();
+        Objects.requireNonNull(budget, "budget");
+        final RuntimeSnapshot before = runtimeSnapshot();
+        List<ScheduleWorkItem> result = List.of();
+        try {
+            if (recoveryFirstPass) {
+                final Set<DestinationLaneId> eligible = delegate.dueSchedulableLanes(dueThroughEpochMs);
+                recoveryServed.retainAll(eligible);
+                result = delegate.pollRecoveryFirstPass(dueThroughEpochMs, budget, recoveryServed);
+                result.forEach(item -> recoveryServed.add(item.laneId()));
+                if (!eligible.isEmpty() && recoveryServed.containsAll(eligible)) {
+                    recoveryFirstPass = false;
+                    recoveryServed.clear();
+                }
+            } else {
+                result = delegate.poll(dueThroughEpochMs, budget);
             }
-        } else {
-            result = delegate.poll(dueThroughEpochMs, budget);
+            persist();
+            return result;
+        } catch (RuntimeException failure) {
+            rollbackRuntime(before, result, List.of(), null, failure);
+            throw failure;
         }
-        persist();
-        return result;
+    }
+
+    private void requireRegisteredLane(final DestinationLaneId laneId) {
+        final LaneRecord lane = registered.get(Objects.requireNonNull(laneId, "laneId"));
+        if (lane == null) {
+            throw new IllegalArgumentException("lane is not registered: " + laneId);
+        }
+    }
+
+    private RuntimeSnapshot runtimeSnapshot() {
+        return new RuntimeSnapshot(delegate.snapshot(), delegate.ringOrder(), new HashMap<>(discoveredHeads),
+                lastScannedReadyKey == null ? null : Bytes.copy(lastScannedReadyKey), ringGeneration,
+                wrapGeneration, recoveryFirstPass, new HashSet<>(recoveryServed));
+    }
+
+    /**
+     * Restores process state after a durable scheduler projection failed.  The
+     * original failure remains the primary error; an inability to roll back is
+     * attached so the caller never mistakes a partially restored registry for
+     * a successful scheduler turn.
+     */
+    private void rollbackRuntime(final RuntimeSnapshot snapshot,
+                                 final List<ScheduleWorkItem> polled,
+                                 final List<ScheduleWorkItem> offered,
+                                 final DestinationLaneId restoreLaneId,
+                                 final RuntimeException original) {
+        try {
+            if (!offered.isEmpty()) {
+                delegate.rollbackOffers(offered);
+            }
+            for (int index = polled.size() - 1; index >= 0; index--) {
+                delegate.requeueFirst(polled.get(index));
+            }
+            if (restoreLaneId != null) {
+                final boolean expectedSchedulable = snapshot.schedulerSnapshot().lanes().stream()
+                        .filter(state -> state.laneId().equals(restoreLaneId))
+                        .findFirst()
+                        .orElseThrow(() -> new IllegalStateException("scheduler rollback lost Lane snapshot: "
+                                + restoreLaneId))
+                        .schedulable();
+                final boolean currentSchedulable = delegate.snapshot().lanes().stream()
+                        .filter(state -> state.laneId().equals(restoreLaneId))
+                        .findFirst()
+                        .orElseThrow(() -> new IllegalStateException("scheduler rollback lost Lane registration: "
+                                + restoreLaneId))
+                        .schedulable();
+                if (currentSchedulable != expectedSchedulable) {
+                    if (expectedSchedulable) {
+                        delegate.markReady(restoreLaneId);
+                    } else {
+                        delegate.markBlocked(restoreLaneId);
+                    }
+                }
+            }
+            delegate.rebuildActiveRing(snapshot.ringOrder());
+            delegate.restore(snapshot.schedulerSnapshot());
+            discoveredHeads.clear();
+            discoveredHeads.putAll(snapshot.discoveredHeads());
+            lastScannedReadyKey = snapshot.lastScannedReadyKey() == null
+                    ? null : Bytes.copy(snapshot.lastScannedReadyKey());
+            ringGeneration = snapshot.ringGeneration();
+            wrapGeneration = snapshot.wrapGeneration();
+            recoveryFirstPass = snapshot.recoveryFirstPass();
+            recoveryServed.clear();
+            recoveryServed.addAll(snapshot.recoveryServed());
+        } catch (RuntimeException rollbackFailure) {
+            original.addSuppressed(rollbackFailure);
+        }
     }
 
     private static void requireDueThrough(final long dueThroughEpochMs) {
@@ -339,15 +422,33 @@ public final class PersistentLaneScheduler {
     }
 
     public synchronized void markBlocked(final DestinationLaneId laneId) {
-        delegate.markBlocked(laneId);
-        delegate.deactivateLane(laneId);
-        persist();
+        requireRegisteredLane(laneId);
+        final RuntimeSnapshot before = runtimeSnapshot();
+        try {
+            delegate.markBlocked(laneId);
+            delegate.deactivateLane(laneId);
+            recoveryFirstPass = true;
+            recoveryServed.clear();
+            persist();
+        } catch (RuntimeException failure) {
+            rollbackRuntime(before, List.of(), List.of(), laneId, failure);
+            throw failure;
+        }
     }
 
     public synchronized void markReady(final DestinationLaneId laneId) {
-        delegate.markReady(laneId);
-        delegate.activateLane(laneId);
-        persist();
+        requireRegisteredLane(laneId);
+        final RuntimeSnapshot before = runtimeSnapshot();
+        try {
+            delegate.markReady(laneId);
+            delegate.activateLane(laneId);
+            recoveryFirstPass = true;
+            recoveryServed.clear();
+            persist();
+        } catch (RuntimeException failure) {
+            rollbackRuntime(before, List.of(), List.of(), laneId, failure);
+            throw failure;
+        }
     }
 
     /**
@@ -730,6 +831,28 @@ public final class PersistentLaneScheduler {
                                   SchedulerProjectionsV1.DeficitMap deficitMap,
                                   SchedulerProjectionsV1.Round round,
                                   SchedulerProjectionsV1.LastServedMap lastServedMap) {
+    }
+
+    private record RuntimeSnapshot(LaneScheduler.SchedulerSnapshot schedulerSnapshot,
+                                   List<DestinationLaneId> ringOrder,
+                                   Map<DestinationLaneId, DiscoveredHead> discoveredHeads,
+                                   byte[] lastScannedReadyKey,
+                                   long ringGeneration,
+                                   long wrapGeneration,
+                                   boolean recoveryFirstPass,
+                                   Set<DestinationLaneId> recoveryServed) {
+        private RuntimeSnapshot {
+            Objects.requireNonNull(schedulerSnapshot, "schedulerSnapshot");
+            ringOrder = List.copyOf(ringOrder);
+            discoveredHeads = Map.copyOf(discoveredHeads);
+            lastScannedReadyKey = lastScannedReadyKey == null ? null : Bytes.copy(lastScannedReadyKey);
+            recoveryServed = Set.copyOf(recoveryServed);
+        }
+
+        @Override
+        public byte[] lastScannedReadyKey() {
+            return lastScannedReadyKey == null ? null : Bytes.copy(lastScannedReadyKey);
+        }
     }
 
     private record ReadyKey(DestinationLaneId laneId, long nextEligibleAtEpochMs, long laneVersion) {

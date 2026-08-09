@@ -186,6 +186,26 @@ public final class LaneScheduler {
         requireLane(item.laneId()).queue.addFirst(item);
     }
 
+    /**
+     * Removes work items that were appended by a discovery turn whose durable
+     * projection write failed.  Discovery appends at the tail, so reversing
+     * the successful append order restores each Lane's prior queue exactly.
+     */
+    synchronized void rollbackOffers(final List<ScheduleWorkItem> offered) {
+        Objects.requireNonNull(offered, "offered");
+        for (int index = offered.size() - 1; index >= 0; index--) {
+            final ScheduleWorkItem expected = offered.get(index);
+            final LaneQueue lane = requireLane(expected.laneId());
+            final ScheduleWorkItem actual = lane.queue.pollLast();
+            if (!expected.equals(actual)) {
+                if (actual != null) {
+                    lane.queue.addLast(actual);
+                }
+                throw new IllegalStateException("scheduler discovery rollback queue mismatch");
+            }
+        }
+    }
+
     public synchronized int pendingItems(final DestinationLaneId laneId) {
         return requireLane(laneId).queue.size();
     }

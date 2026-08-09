@@ -414,6 +414,52 @@ class LaneSchedulerTest {
     }
 
     @Test
+    void failedPollProjectionWriteRestoresThePolledHeadInMemory() {
+        final DestinationLaneId lane = lane(37);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 37);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("scheduler-poll-write-failure"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+            final ShardStore store = ShardStore.open(config, shardId, resources);
+            try {
+                final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
+                scheduler.register(record(lane, 1));
+                scheduler.offer(item(lane, 1));
+                scheduler.persist();
+                final LaneScheduler.SchedulerSnapshot before = scheduler.snapshot();
+
+                store.close();
+                assertThrows(IllegalStateException.class,
+                        () -> scheduler.poll(new SchedulerBudget(1, 1024, 1_000_000_000)));
+                assertEquals(before, scheduler.snapshot());
+            } finally {
+                store.close();
+            }
+        }
+    }
+
+    @Test
+    void failedReadinessProjectionWriteRestoresThePreviousGateProjection() {
+        final DestinationLaneId lane = lane(38);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 38);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("scheduler-ready-write-failure"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+            final ShardStore store = ShardStore.open(config, shardId, resources);
+            try {
+                final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
+                scheduler.register(record(lane, 1));
+                scheduler.markBlocked(lane);
+                final LaneScheduler.SchedulerSnapshot before = scheduler.snapshot();
+
+                store.close();
+                assertThrows(IllegalStateException.class, () -> scheduler.markReady(lane));
+                assertEquals(before, scheduler.snapshot());
+            } finally {
+                store.close();
+            }
+        }
+    }
+
+    @Test
     void failedReadyProjectionDecodeDoesNotAdvanceWrapGenerationInMemory() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 31);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("scheduler-wrap-failure"));
