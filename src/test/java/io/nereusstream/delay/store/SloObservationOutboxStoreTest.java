@@ -23,6 +23,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -145,11 +146,83 @@ class SloObservationOutboxStoreTest {
         }
     }
 
+    @Test
+    void reconcileDurableStartsSortsDeduplicatesAndPreservesExistingFinal() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("slo-outbox-reconcile"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 5);
+        final SloSampleStartV1 first = startWith(1);
+        final SloSampleStartV1 second = startWith(4);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final SloObservationOutboxStore outbox = new SloObservationOutboxStore(store);
+
+            final List<SloObservationOutboxV1> reconciled = outbox.reconcileDurableStarts(
+                    List.of(second, first, first));
+            final List<SloSampleStartV1> expected = List.of(first, second).stream()
+                    .sorted((left, right) -> Arrays.compareUnsigned(left.sampleId(), right.sampleId()))
+                    .toList();
+            assertEquals(expected, reconciled.stream().map(SloObservationOutboxV1::start).toList());
+
+            final SloSampleFinalV1 finalObservation = new SloSampleFinalV1(first.sampleId(), first.startDigest(),
+                    SloFinalOutcomeV1.SUCCESS, SloThresholdUnitV1.MILLISECONDS, 1, 1, null,
+                    brokerEndpoint(200), bytes(32, 5), 1);
+            outbox.mergeFinal(finalObservation, SloThresholdDirectionV1.AT_MOST);
+
+            final List<SloObservationOutboxV1> retried = outbox.reconcileDurableStarts(List.of(first, second));
+            assertEquals(finalObservation, retried.stream()
+                    .filter(value -> Arrays.equals(value.sampleId(), first.sampleId()))
+                    .findFirst().orElseThrow().finalObservation());
+            assertEquals(2, outbox.usage().recordCount());
+        }
+    }
+
+    @Test
+    void reconcileRejectsConflictingStartsBeforeAnyWrite() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("slo-outbox-reconcile-conflict"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 6);
+        final SloSampleStartV1 first = startWith(5, 100);
+        final SloSampleStartV1 conflicting = startWith(5, 101);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final SloObservationOutboxStore outbox = new SloObservationOutboxStore(store);
+
+            assertThrows(IllegalStateException.class,
+                    () -> outbox.reconcileDurableStarts(List.of(first, conflicting)));
+            assertEquals(new SloObservationOutboxStore.Usage(0, 0), outbox.usage());
+            assertNull(outbox.get(first.sampleId()));
+        }
+    }
+
+    @Test
+    void reconcilePreflightsCapacityBeforeAtomicBatch() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("slo-outbox-reconcile-capacity"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 7);
+        final SloSampleStartV1 first = startWith(7);
+        final SloSampleStartV1 second = startWith(8);
+        final long oneRecordBytes = ValueEnvelope.encode(SloObservationOutboxStore.VALUE_TYPE,
+                SloObservationOutboxV1.open(first).canonicalBytes()).length;
+        final SloObservationOutboxLimits limits = new SloObservationOutboxLimits(1, oneRecordBytes);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final SloObservationOutboxStore outbox = new SloObservationOutboxStore(store, limits);
+
+            assertThrows(IllegalStateException.class,
+                    () -> outbox.reconcileDurableStarts(List.of(first, second)));
+            assertEquals(new SloObservationOutboxStore.Usage(0, 0), outbox.usage());
+            assertNull(outbox.get(first.sampleId()));
+            assertNull(outbox.get(second.sampleId()));
+        }
+    }
+
     private static SloSampleStartV1 start() {
         return startWith(1);
     }
 
     private static SloSampleStartV1 startWith(final int seed) {
+        return startWith(seed, 100);
+    }
+
+    private static SloSampleStartV1 startWith(final int seed, final long startEpoch) {
         final byte[] commandHash = bytes(32, seed + 1);
         final byte[] physicalAttemptId = bytes(16, seed + 2);
         final byte[] completeBranchPayload = CanonicalProtobuf.message(output -> {
@@ -161,7 +234,7 @@ class SloObservationOutboxStoreTest {
                 SloObjectiveNameV1.COMMAND_QUEUED_LATENCY, completeBranchPayload);
         return new SloSampleStartV1(bytes(32, seed), SloObjectiveNameV1.COMMAND_QUEUED_LATENCY,
                 SloPopulationV1.ALL_ACCEPTED, SloPathV1.NOT_APPLICABLE, identity,
-                endpoint(100), 200L);
+                endpoint(startEpoch), 200L);
     }
 
     private static SloSampleStartV1 dueAcceptedStart() {

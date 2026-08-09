@@ -2185,6 +2185,14 @@ failure rollback、capacity fence 与 checksum corruption。它不替代生产 c
 的 rolling-window/late-finalization retention、授权、完整 merge/export history 或
 metric publication。
 
+`SloObservationOutboxStore.reconcileDurableStarts(...)` 现在补足了本地恢复物化的
+边界：它只接受调用方已经从 Message/Admission/Lane/Recovery authority 得到的 exact
+`SloSampleStartV1`，按 sample ID 确定性排序并折叠 byte-identical 重复，冲突 Start
+在写入前 fail closed，容量预检通过后以一个同步 batch 写入全部缺失 Start，并保留
+已有 Final。`SloObservationOutboxStoreTest` 覆盖排序、重试保留 Final、冲突回滚和
+容量回滚。该 seam 仍不等于 source-ordered Start reconstruction、接管时的 authority
+认证或 evidence-gap `BAD_EVIDENCE_GAP` 记录；这些仍是 production release gate。
+
 SLO 文档与 Registry 的 native 时间字段也已对齐：`native_handoff_ack_lag` 的起点是
 `NativePreparedDelivery` field 10 的未平移 business `deliverAt`，field 11 的 shifted
 Broker `deliverAt` 只用于 Broker visibility 语义；V1 native wire 没有独立的

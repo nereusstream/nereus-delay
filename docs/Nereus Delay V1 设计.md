@@ -2938,6 +2938,16 @@ Release gate 不只看 percentile：在 certified healthy load envelope 内，�
 - Shard 的 SLO outbox 是观测状态，不进入 command-derived semantic digest，也不授权/回滚 Admission、Command 或 Producer。它使用与 correctness/outcome reserve 分离的 bounded budget；在 certified envelope 内不得耗尽。越界时 objective 立即成为 `BAD_EVIDENCE_GAP` 并告警，不能静默缩小分母，也不能把目标故障变成 source pause。
 - collector ack 后本地记录才可删除；collector 的 raw Start/Final/merge history 保留完整 rolling window 加 late-finalization、replay 和审计 margin。发布报告固定 objective digest、load-envelope digest、source/binary digest、sample count、bad 分类和 evidence-gap count。
 
+嵌入式 shard store 的恢复/重放 seam 可以调用
+`SloObservationOutboxStore.reconcileDurableStarts(...)`，传入已经由
+Message/Admission/Lane/Recovery authority 重建的 exact `SloSampleStartV1`。该入口按
+`sampleId` 的 canonical unsigned bytes 排序，合并 byte-identical 重复输入，对同一
+`sampleId` 的不同 Start 直接 integrity fail，并在写入前完成 record/byte capacity
+预检；所有缺失 Start 在一个同步 RocksDB WriteBatch 中物化，已有 Final 不会被覆盖。
+它不从任意业务消息猜测 Start，也不证明调用方拥有 Source Position、Admission 或
+生产 collector authority；真实的 Message/Admission/Recovery 重建、source-ordered
+接管编排和 evidence-gap `BAD_EVIDENCE_GAP` 记录仍是 production release gate。
+
 嵌入式/一致性实现可以使用 `PersistentSloObservationCollector(Path)` 保存 collector
 的 canonical sample projection：按 `sampleId` 排序写入完整 `SloObservationOutboxV1`
 bytes，重启或 response loss 只接受相同 Start digest 和 direction-aware conservative

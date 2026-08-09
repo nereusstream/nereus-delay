@@ -87,6 +87,80 @@ public final class SloObservationOutboxStore {
     }
 
     /**
+     * Reconciles a bounded set of Starts reconstructed by the shard's
+     * authoritative Message/Admission/Lane/Recovery projection.
+     *
+     * <p>The store never derives a Start from an arbitrary message and never
+     * removes an existing Final.  Inputs are sorted by the canonical sample
+     * identity, exact duplicate inputs collapse to one entry, and a different
+     * Start for one sample identity fails before any write.  All newly missing
+     * Starts are then written in one synchronous RocksDB batch so a recovery
+     * turn cannot leave a partially materialized denominator.</p>
+     *
+     * @return the resulting key-ordered projections, including preserved
+     *         existing Finals
+     */
+    public synchronized List<SloObservationOutboxV1> reconcileDurableStarts(
+            final Iterable<SloSampleStartV1> authoritativeStarts) {
+        Objects.requireNonNull(authoritativeStarts, "authoritativeStarts");
+        final List<SloSampleStartV1> sorted = new ArrayList<>();
+        for (SloSampleStartV1 start : authoritativeStarts) {
+            sorted.add(Objects.requireNonNull(start, "authoritativeStarts contains null"));
+        }
+        sorted.sort((left, right) -> Arrays.compareUnsigned(left.sampleId(), right.sampleId()));
+
+        final List<SloSampleStartV1> unique = new ArrayList<>(sorted.size());
+        for (SloSampleStartV1 start : sorted) {
+            if (unique.isEmpty()) {
+                unique.add(start);
+                continue;
+            }
+            final SloSampleStartV1 previous = unique.get(unique.size() - 1);
+            if (!Arrays.equals(previous.sampleId(), start.sampleId())) {
+                unique.add(start);
+            } else if (!previous.equals(start)) {
+                throw new IllegalStateException("SLO sample identity has conflicting authoritative Starts");
+            }
+        }
+
+        final Usage currentUsage = limits == null ? null : usage();
+        final List<SloObservationOutboxV1> result = new ArrayList<>(unique.size());
+        final List<SloObservationOutboxV1> missing = new ArrayList<>();
+        long missingBytes = 0;
+        for (SloSampleStartV1 start : unique) {
+            final SloObservationOutboxV1 existing = get(start.sampleId());
+            if (existing != null) {
+                if (!existing.start().equals(start)) {
+                    throw new IllegalStateException("SLO sample identity has different durable Start bytes");
+                }
+                result.add(existing);
+                continue;
+            }
+            final SloObservationOutboxV1 created = SloObservationOutboxV1.open(start);
+            missing.add(created);
+            result.add(created);
+            try {
+                missingBytes = Math.addExact(missingBytes,
+                        ValueEnvelope.encode(VALUE_TYPE, created.canonicalBytes()).length);
+            } catch (ArithmeticException exception) {
+                throw new IllegalStateException("SLO outbox reconciliation byte usage overflow", exception);
+            }
+        }
+        if (limits != null) {
+            requireCapacity(missingBytes, missing.size(), currentUsage.recordCount(), currentUsage.encodedBytes());
+        }
+        if (!missing.isEmpty()) {
+            store.write(batch -> {
+                for (SloObservationOutboxV1 created : missing) {
+                    batch.putValue(ColumnFamily.META, VALUE_TYPE,
+                            KeyCodec.metaSloOutbox(created.sampleId()), created.canonicalBytes());
+                }
+            });
+        }
+        return List.copyOf(result);
+    }
+
+    /**
      * Merges and durably replaces the exact sample projection in one synced
      * batch. A missing Start is rejected so callers cannot create a Final-only
      * denominator.
