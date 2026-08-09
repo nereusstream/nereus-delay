@@ -29,6 +29,7 @@ import io.nereusstream.delay.protocol.NonPersistenceProofKindV1;
 import io.nereusstream.delay.protocol.NonPersistenceProofV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.PublicDestinationBindingViewV1;
+import io.nereusstream.delay.protocol.PublicEvidenceRefV1;
 import io.nereusstream.delay.protocol.ScheduleIntent;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.SourcePosition;
@@ -213,6 +214,23 @@ public final class EmbeddedDelayService implements DelayClient {
             outcomes.add(enqueueInternal(command));
         }
         return CompletableFuture.completedFuture(List.copyOf(outcomes));
+    }
+
+    @Override
+    public synchronized CompletionStage<CommandQueryResponseV1> getCommandResult(
+            final CommandQueuedReceiptV1 receipt, final long nowEpochMs,
+            final long fullResultRetainUntilEpochMs, final PublicDestinationBindingViewV1 binding) {
+        return CompletableFuture.completedFuture(queryCommand(receipt, nowEpochMs, fullResultRetainUntilEpochMs,
+                binding));
+    }
+
+    @Override
+    public synchronized CompletionStage<MessageQueryResponseV1> getMessage(
+            final DelayMessageId messageId, final PublicDestinationBindingViewV1 binding,
+            final DlqExportStateV1 dlqExportState, final PublicEvidenceRefV1 evidence,
+            final FirstScheduleEligibilityV1 unknownEligibility) {
+        return CompletableFuture.completedFuture(queryMessage(messageId, binding, dlqExportState, evidence,
+                unknownEligibility));
     }
 
     /** Enqueues one command without reacquiring the service monitor. */

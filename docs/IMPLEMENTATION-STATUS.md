@@ -7,6 +7,12 @@ normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20�
 the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
+The client contract now exposes the bounded V1 query bridge through
+`DelayClient.getCommandResult` and `DelayClient.getMessage`. The embedded
+implementation delegates to the existing receipt/source-barrier and
+caller-supplied binding/evidence/retention projections; it does not claim
+cross-Worker routing, tenant authorization, or production query authority.
+
 The local in-memory Owner Lease authority advances the raw `uint64` epoch
 domain through the high-bit boundary and fails only when the all-ones value is
 exhausted (`OwnerLeaseTest.ownerEpochSuccessorUsesTheCompleteUnsignedDomain`).

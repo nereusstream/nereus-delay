@@ -1,8 +1,15 @@
 package io.nereusstream.delay.client;
 
 import io.nereusstream.delay.protocol.DelayMessageId;
+import io.nereusstream.delay.protocol.CommandQueryResponseV1;
+import io.nereusstream.delay.protocol.CommandQueuedReceiptV1;
+import io.nereusstream.delay.protocol.DlqExportStateV1;
+import io.nereusstream.delay.protocol.FirstScheduleEligibilityV1;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
+import io.nereusstream.delay.protocol.MessageQueryResponseV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
+import io.nereusstream.delay.protocol.PublicDestinationBindingViewV1;
+import io.nereusstream.delay.protocol.PublicEvidenceRefV1;
 import io.nereusstream.delay.protocol.ScheduleIntent;
 import io.nereusstream.delay.runtime.CommandResult;
 
@@ -24,6 +31,19 @@ public interface DelayClient extends AutoCloseable {
 
     /** Enqueues each prepared command independently and returns outcomes in input order. */
     CompletionStage<List<EnqueueOutcome>> enqueueBatch(List<PreparedCommand> commands);
+
+    /** Queries the V1 command result using its queued receipt and source barrier. */
+    CompletionStage<CommandQueryResponseV1> getCommandResult(CommandQueuedReceiptV1 receipt,
+                                                              long nowEpochMs,
+                                                              long fullResultRetainUntilEpochMs,
+                                                              PublicDestinationBindingViewV1 binding);
+
+    /** Queries the V1 message projection with caller-supplied bounded policy inputs. */
+    CompletionStage<MessageQueryResponseV1> getMessage(DelayMessageId messageId,
+                                                        PublicDestinationBindingViewV1 binding,
+                                                        DlqExportStateV1 dlqExportState,
+                                                        PublicEvidenceRefV1 evidence,
+                                                        FirstScheduleEligibilityV1 unknownEligibility);
 
     CompletionStage<CommandResult> awaitApplied(CommandQueuedReceipt receipt);
 

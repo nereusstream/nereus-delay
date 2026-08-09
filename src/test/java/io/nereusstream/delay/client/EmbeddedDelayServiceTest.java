@@ -507,6 +507,34 @@ class EmbeddedDelayServiceTest {
     }
 
     @Test
+    void delayClientExposesBoundedCommandAndMessageQueries() {
+        final long now = 1_000;
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 21);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("client-query")), shard,
+                Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC))) {
+            final DelayClient client = service;
+            final PreparedCommand command = cancelV1(shard, 10_000);
+            final EnqueueOutcome outcome = client.enqueue(command).toCompletableFuture().join();
+            final CommandQueuedReceiptV1 receipt = service.queuedReceiptV1(outcome, 10_000,
+                    java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("client-query-attempt")), 16));
+
+            assertEquals(CommandQueryResult.PENDING,
+                    client.getCommandResult(receipt, now, 10_000, publicBinding())
+                            .toCompletableFuture().join().resultKind());
+            service.drain();
+            assertEquals(CommandQueryResult.APPLIED,
+                    client.getCommandResult(receipt, now, 10_000, null)
+                            .toCompletableFuture().join().resultKind());
+            assertEquals(MessageQueryResult.UNKNOWN,
+                    client.getMessage(DelayMessageId.random(shard), publicBinding(),
+                                    DlqExportStateV1.NOT_CONFIGURED, null,
+                                    io.nereusstream.delay.protocol.FirstScheduleEligibilityV1.NOT_PROVEN)
+                            .toCompletableFuture().join().resultKind());
+        }
+    }
+
+    @Test
     void embeddedQueryRejectsSameOffsetReceiptWithConflictingCanonicalMetadata() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 18);
         final Clock clock = Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC);

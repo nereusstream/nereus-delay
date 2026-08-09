@@ -334,6 +334,10 @@ source offset，drain 后释放精确 byte charge；`close()` 会先同步 drain
 `DelayClient.enqueueBatch` / `EmbeddedDelayService.enqueueBatch` 现在逐条复用同一
 本地 ingress admission，返回与输入顺序一致的独立 `EnqueueOutcome`；它明确不承诺
 跨命令原子性，混合 queued 与 definitive local rejection 的结果仍可逐条处理。
+`DelayClient.getCommandResult` 与 `getMessage` 也已把这两个 bounded local query
+projection 暴露在客户端契约中；它们仍要求 queued receipt/source barrier 与调用方
+提供的 binding/evidence/retention policy，不能被解释为跨 Worker routing 或 production
+authorization-safe lookup。
 close 还会在 DB close 失败后继续尝试释放共享 RocksDB 资源，并把后续失败作为
 suppressed exception 聚合；成功 drain 后服务立即进入 closed 状态，避免部分关闭
 时继续触碰已关闭的 Store。该清理顺序仍只属于 embedded seam，不等于真实
