@@ -61,6 +61,13 @@ public final class InMemoryOwnerLeaseStore implements OwnerLeaseStore {
         }
         final OwnerLease next = new OwnerLease(expected.shardId(), expected.ownerId(), expected.ownerEpoch(),
                 expected.leaseToken(), Math.addExact(nowEpochMs, leaseDurationMs), expected.context(), expected.state());
+        if (next.expiresAtEpochMs() < current.expiresAtEpochMs()) {
+            // A renewal response is a monotonic extension of the same
+            // fencing record. Do not let a stale/short duration move the
+            // live expiry backwards; the Oxia adapter applies the same
+            // response fence to remote results.
+            return Optional.empty();
+        }
         leases.put(expected.shardId(), next);
         return Optional.of(next);
     }

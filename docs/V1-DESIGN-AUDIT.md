@@ -30,6 +30,12 @@ closed-gate and executor-rejection paths release before a delegate invocation.
 covers both regressions. This is local admission evidence, not authenticated
 Broker ownership or provider teardown proof.
 
+The local Owner Lease model now rejects a renewal that would shorten the
+currently published expiry, matching the remote adapter's response fence and
+leaving the previous lease unchanged. `OwnerLeaseTest.renewalCannotMoveTheLiveExpiryBackwards`
+covers this CAS-parity edge; it does not replace Oxia session/ephemeral-record
+authority or a live lease-loss test.
+
 The queued-receipt audit now has an executable local binding for the existing
 Registry rule: `QueuedReceiptQueryPolicy` computes `receipt_query_until` from
 Broker persistence time with checked arithmetic, and policy-bound Kafka/Pulsar

@@ -105,6 +105,18 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void renewalCannotMoveTheLiveExpiryBackwards() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 22);
+        final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = authority.acquire(shard, "worker-monotonic-renewal", 100, 100).orElseThrow();
+
+        assertTrue(authority.renew(lease, 110, 20).isEmpty());
+        assertEquals(200, authority.current(shard).orElseThrow().expiresAtEpochMs());
+        assertTrue(authority.renew(lease, 110, 100).isPresent());
+        assertEquals(210, authority.current(shard).orElseThrow().expiresAtEpochMs());
+    }
+
+    @Test
     void ownerEpochSuccessorUsesTheCompleteUnsignedDomain() {
         assertEquals(Long.MIN_VALUE, InMemoryOwnerLeaseStore.nextEpoch(Long.MAX_VALUE));
         assertEquals(-2L, InMemoryOwnerLeaseStore.nextEpoch(-3L));

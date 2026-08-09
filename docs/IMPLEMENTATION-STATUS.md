@@ -27,6 +27,13 @@ rejection is a pre-ownership release. `BoundedDestinationPublishAdapterTest`
 unobserved branches. This local wrapper evidence does not replace the
 production adapter's ownership, cancellation or teardown attestation.
 
+The deterministic `InMemoryOwnerLeaseStore` now applies the same monotonic
+renewal fence as `OxiaOwnerLeaseStore`: a valid lease renewal cannot move the
+live expiry backwards, and a rejected shorter renewal leaves the current lease
+unchanged. `OwnerLeaseTest.renewalCannotMoveTheLiveExpiryBackwards` covers the
+local CAS parity; Oxia session/ephemeral-record authority remains an external
+release gate.
+
 The local queued-receipt adapter seam now has a strict Route-policy path:
 `QueuedReceiptQueryPolicy` derives `receipt_query_until` only as checked addition
 of the authenticated Broker persistence time and the immutable policy window.
