@@ -899,6 +899,15 @@ Producer ownership 前拒绝，`DestinationAdapterTest.kafkaDestinationDoesNotIn
 Kafka managed 时间关系保持一致；真实 Broker timing/target authority 仍需
 release conformance evidence。
 
+Pulsar managed target adapter 现在也默认只接受 ordinary `actionAt=deliverAt`。
+只有显式传入 `PulsarDestinationTimingPolicy.certifiedHandoff(fixedLead)` 时，才会在
+Producer ownership 前接受唯一的 `actionAt=deliverAt-fixedLead`；错误 lead、下溢和普通
+policy 下的提前 action 都归一化为 `DEFINITIVELY_NOT_PUBLISHED/INVALID_METADATA`，且不调用
+transport。这个 policy 只是低层 adapter 的 fail-closed guard，不能替代上游 immutable
+Destination/Delivery Capability Profile、Broker visibility guard 或发布 authority；
+`DestinationAdapterTest.pulsarDefaultTimingPolicyRejectsEarlyActionBeforeTransport` 和
+`DestinationAdapterTest.pulsarCertifiedHandoffRequiresTheExactFixedLead` 覆盖了该局部边界。
+
 本地 `DestinationPhysicalAdmission`/`BoundedDestinationPublishAdapter` 现在把
 target 请求的 physical request/byte charge 作为显式 reservation：Worker 和 target
 cluster hard cap、每 Lane cap 以及所有其它 READY Lane 的 committed minimum 都在

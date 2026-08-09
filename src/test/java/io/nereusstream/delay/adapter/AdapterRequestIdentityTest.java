@@ -60,6 +60,18 @@ class AdapterRequestIdentityTest {
                         new byte[16], messageId, 0, new byte[32], 99, 100, Bytes.utf8("payload"), new byte[0]));
     }
 
+    @Test
+    void pulsarTimingPolicyRejectsNonExactHandoffLead() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
+        final DestinationPublishRequest request = new DestinationPublishRequest(
+                DestinationLaneId.derive(Bytes.utf8("pulsar-timing-policy")), new byte[16],
+                DelayMessageId.random(shard), 0, new byte[32], 99, 200, Bytes.utf8("payload"), new byte[0]);
+        assertThrows(IllegalArgumentException.class,
+                () -> PulsarDestinationTimingPolicy.certifiedHandoff(100).validate(request));
+        assertThrows(IllegalArgumentException.class,
+                () -> PulsarDestinationTimingPolicy.ordinaryManaged().validate(request));
+    }
+
     private static byte[] nonZero(final int length) {
         final byte[] value = new byte[length];
         value[0] = 1;

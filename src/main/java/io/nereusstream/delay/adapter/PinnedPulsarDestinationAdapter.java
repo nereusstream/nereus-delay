@@ -11,12 +11,25 @@ import java.util.concurrent.CompletionStage;
 public final class PinnedPulsarDestinationAdapter implements DestinationPublishAdapter {
     private final PulsarTargetResource resource;
     private final PulsarDestinationTransport transport;
+    private final PulsarDestinationTimingPolicy timingPolicy;
     private final CloseGuard closeGuard = new CloseGuard();
 
     public PinnedPulsarDestinationAdapter(final PulsarTargetResource resource,
                                           final PulsarDestinationTransport transport) {
+        this(resource, transport, PulsarDestinationTimingPolicy.ordinaryManaged());
+    }
+
+    /**
+     * Creates an adapter with an explicit managed timing policy.  The policy
+     * is a local pre-transport guard; Profile/capability authority remains
+     * responsible for deciding whether the certified handoff is permitted.
+     */
+    public PinnedPulsarDestinationAdapter(final PulsarTargetResource resource,
+                                          final PulsarDestinationTransport transport,
+                                          final PulsarDestinationTimingPolicy timingPolicy) {
         this.resource = Objects.requireNonNull(resource, "resource");
         this.transport = Objects.requireNonNull(transport, "transport");
+        this.timingPolicy = Objects.requireNonNull(timingPolicy, "timingPolicy");
     }
 
     @Override
@@ -27,6 +40,11 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
     }
 
     private CompletionStage<DestinationPublishResult> publishOpen(final DestinationPublishRequest request) {
+        try {
+            timingPolicy.validate(request);
+        } catch (RuntimeException exception) {
+            return completed(DestinationPublishResult.definitelyNotPublished(StableCode.INVALID_METADATA, null));
+        }
         final PulsarDestinationRequest transportRequest;
         try {
             transportRequest = PulsarDestinationRequest.from(resource, request);
