@@ -31,7 +31,7 @@ generation bits. This remains shard-local protocol evidence, not proof of
 production catalog publication, but the local pair validator now requires a
 HEALTHY due objective and matching ALL_ACCEPTED policy before an exclusion can
 be merged; a different payload cannot regress observation revision. Start
-reconstruction, collector merge/export, and production SLO evidence remain
+reconstruction, production collector merge/export, and production SLO evidence remain
 release gates.
 
 The shared `uint32` decode boundary also rejects a varint outside the unsigned
@@ -1948,9 +1948,12 @@ collector authority，生产配额、merge/export 和 evidence-gap projection �
 证据闭合。
 本地 `SloObservationCollector` 还把相同 `(sampleId,startDigest)` 的 at-least-once
 记录合并为 deterministic projection：Start bytes 漂移 fail closed，Final 继续
-使用 Registry 的 direction-aware conservative merge；`SloObservationCollectorTest`
-覆盖 bad-evidence 单调性、Start drift 和 snapshot 排序。它不替代生产 collector
-的持久化、授权和 metric publication。
+使用 Registry 的 direction-aware conservative merge；配置
+`SloObservationCollectorLimits` 后，sample 数和当前 canonical projection bytes
+也有 checked 上限，超限不会修改已有 projection。`SloObservationCollectorTest`
+覆盖 bad-evidence 单调性、Start drift、snapshot 排序以及 sample/byte capacity
+rejection。它不替代生产 collector 的持久化、完整 merge/export history、授权和
+metric publication。
 
 SLO 文档与 Registry 的 native 时间字段也已对齐：`native_handoff_ack_lag` 的起点是
 `NativePreparedDelivery` field 10 的未平移 business `deliverAt`，field 11 的 shifted

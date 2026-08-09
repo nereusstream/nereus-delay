@@ -20,6 +20,7 @@ import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -64,6 +65,32 @@ class SloObservationCollectorTest {
         final var snapshot = collector.snapshot();
         assertEquals(2, snapshot.size());
         assertTrue(Bytes.hex(snapshot.get(0).sampleId()).compareTo(Bytes.hex(snapshot.get(1).sampleId())) <= 0);
+    }
+
+    @Test
+    void configuredLimitsRejectNewSamplesAndLargerReplacementsWithoutDroppingProjection() {
+        final SloSampleStartV1 first = start(4, 100);
+        final SloObservationOutboxV1 open = SloObservationOutboxV1.open(first);
+        final long openBytes = open.canonicalBytes().length;
+
+        final SloObservationCollector sampleBounded = new SloObservationCollector(
+                new SloObservationCollectorLimits(1, openBytes * 2));
+        sampleBounded.merge(open, SloThresholdDirectionV1.AT_MOST);
+        assertThrows(IllegalStateException.class,
+                () -> sampleBounded.merge(SloObservationOutboxV1.open(start(5, 100)),
+                        SloThresholdDirectionV1.AT_MOST));
+        assertEquals(new SloObservationCollector.Usage(1, openBytes), sampleBounded.usage());
+
+        final SloObservationCollector byteBounded = new SloObservationCollector(
+                new SloObservationCollectorLimits(2, openBytes));
+        byteBounded.merge(open, SloThresholdDirectionV1.AT_MOST);
+        final SloObservationOutboxV1 withFinal = open.mergeFinal(
+                finalObservation(first, SloFinalOutcomeV1.SUCCESS, 1, 2, 1),
+                SloThresholdDirectionV1.AT_MOST);
+        assertThrows(IllegalStateException.class,
+                () -> byteBounded.merge(withFinal, SloThresholdDirectionV1.AT_MOST));
+        assertEquals(new SloObservationCollector.Usage(1, openBytes), byteBounded.usage());
+        assertNull(byteBounded.get(first.sampleId()).finalObservation());
     }
 
     private static SloSampleStartV1 start(final int seed, final long startEpoch) {

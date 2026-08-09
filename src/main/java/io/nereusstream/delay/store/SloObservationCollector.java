@@ -15,12 +15,26 @@ import java.util.TreeMap;
  * <p>The collector keys records by the canonical sample ID and requires the
  * exact Start bytes to remain stable. Final observations use the protocol's
  * conservative direction-aware merge, so a retry cannot improve or erase a
- * bad/evidence-gap result. This class is a local merge seam; production
- * collector durability, authorization and metric publication remain outside
- * it.</p>
+ * bad/evidence-gap result. An optional {@link SloObservationCollectorLimits}
+ * bounds the retained projection; exceeding it is an explicit evidence-capacity
+ * failure and never a silent sample drop. This class is a local merge seam;
+ * production collector durability, authorization and metric publication remain
+ * outside it.</p>
  */
 public final class SloObservationCollector {
+    private final SloObservationCollectorLimits limits;
     private final TreeMap<String, SloObservationOutboxV1> samples = new TreeMap<>();
+    private long canonicalBytes;
+
+    /** Compatibility constructor for embedded callers without a capacity envelope. */
+    public SloObservationCollector() {
+        this(null);
+    }
+
+    /** Creates a collector projection with an explicit sample/byte envelope. */
+    public SloObservationCollector(final SloObservationCollectorLimits limits) {
+        this.limits = limits;
+    }
 
     /** Merges one exported outbox record and returns the current projection. */
     public synchronized SloObservationOutboxV1 merge(final SloObservationOutboxV1 incoming,
@@ -30,7 +44,10 @@ public final class SloObservationCollector {
         final String key = Bytes.hex(incoming.sampleId());
         final SloObservationOutboxV1 current = samples.get(key);
         if (current == null) {
+            final long incomingBytes = canonicalBytes(incoming);
+            requireCapacity(1, incomingBytes, "new sample");
             samples.put(key, incoming);
+            canonicalBytes = add(canonicalBytes, incomingBytes, "collector canonical bytes");
             return incoming;
         }
         if (!java.util.Arrays.equals(current.start().canonicalBytes(), incoming.start().canonicalBytes())) {
@@ -41,6 +58,18 @@ public final class SloObservationCollector {
             merged = current;
         } else {
             merged = current.mergeFinal(incoming.finalObservation(), direction);
+        }
+        if (merged != current) {
+            final long oldBytes = canonicalBytes(current);
+            final long newBytes = canonicalBytes(merged);
+            final long replacementBytes;
+            try {
+                replacementBytes = Math.addExact(Math.subtractExact(canonicalBytes, oldBytes), newBytes);
+            } catch (ArithmeticException exception) {
+                throw new IllegalStateException("SLO collector byte usage overflow", exception);
+            }
+            requireCapacity(0, replacementBytes, "sample replacement");
+            canonicalBytes = replacementBytes;
         }
         samples.put(key, merged);
         return merged;
@@ -58,5 +87,42 @@ public final class SloObservationCollector {
 
     public synchronized int size() {
         return samples.size();
+    }
+
+    /** Returns the current bounded projection usage. */
+    public synchronized Usage usage() {
+        return new Usage(samples.size(), canonicalBytes);
+    }
+
+    private void requireCapacity(final int addedSamples, final long nextBytes, final String operation) {
+        if (limits == null) {
+            return;
+        }
+        if (samples.size() + addedSamples > limits.maxSamples()) {
+            throw new IllegalStateException("SLO collector sample capacity exceeded during " + operation);
+        }
+        if (nextBytes > limits.maxCanonicalBytes()) {
+            throw new IllegalStateException("SLO collector byte capacity exceeded during " + operation);
+        }
+    }
+
+    private static long canonicalBytes(final SloObservationOutboxV1 value) {
+        return value.canonicalBytes().length;
+    }
+
+    private static long add(final long left, final long right, final String name) {
+        try {
+            return Math.addExact(left, right);
+        } catch (ArithmeticException exception) {
+            throw new IllegalStateException(name + " overflow", exception);
+        }
+    }
+
+    public record Usage(int sampleCount, long canonicalBytes) {
+        public Usage {
+            if (sampleCount < 0 || canonicalBytes < 0) {
+                throw new IllegalArgumentException("SLO collector usage cannot be negative");
+            }
+        }
     }
 }
