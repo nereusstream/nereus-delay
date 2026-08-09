@@ -1602,15 +1602,22 @@ public final class ShardStore implements AutoCloseable {
         }
         ensureOpen();
         final StoreRuntimeMetadata previousMetadata = runtimeMetadata;
-        if (checkpointId != null) {
-            recordLastCheckpointId(checkpointId);
-        }
         boolean slotAcquired = false;
+        boolean checkpointProjectionMutationAttempted = false;
         Path temporary = null;
         Path installedTarget = null;
         try {
             resources.acquireCheckpointCreateSlot();
             slotAcquired = true;
+            // Capacity admission must be established before mutating the
+            // live Store projection.  If the worker create budget is already
+            // exhausted, the attempt must leave no checkpoint identity that
+            // needs a compensating WriteBatch (and therefore no second
+            // failure-prone write on the rejection path).
+            if (checkpointId != null) {
+                checkpointProjectionMutationAttempted = true;
+                recordLastCheckpointId(checkpointId);
+            }
             if (Files.exists(checkpointPath, java.nio.file.LinkOption.NOFOLLOW_LINKS)
                     || Files.isSymbolicLink(checkpointPath)) {
                 throw new IOException("checkpoint target already exists: " + checkpointPath);
@@ -1646,7 +1653,7 @@ public final class ShardStore implements AutoCloseable {
                     exception.addSuppressed(cleanupException);
                 }
             }
-            if (checkpointId != null) {
+            if (checkpointProjectionMutationAttempted) {
                 try {
                     persistRuntimeMetadata(previousMetadata);
                 } catch (RuntimeException rollbackFailure) {

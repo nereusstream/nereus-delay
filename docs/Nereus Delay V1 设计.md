@@ -2321,6 +2321,12 @@ fail closed，不能重置较新的 checkpoint attempt 的 next-due 时间，也
 attempt 当成当前 attempt 完成。scheduler 重启或状态丢失不改变恢复正确性，必须
 回到 durable Upload Intent/Catalog 状态重新竞争。
 
+`ShardStore.createCheckpoint` 必须先取得 Worker 级 checkpoint-create slot，
+再把本次固定的 `checkpointId` 写入 live Store 的 runtime metadata 并创建物理镜像。
+create slot 已满时必须在任何 metadata WriteBatch 之前拒绝；不能先写入身份再依赖
+补偿写恢复原 projection。物理创建失败且身份已经写入时，才按同一 Store 边界恢复
+此前的 metadata；slot admission 本身不能产生 checkpoint identity 副作用。
+
 嵌入式/一致性测试实现可以把 `CheckpointUploadIntentStore` 绑定到一个专用本地
 state file，以保留完整 `CheckpointUploadIntentV1` canonical bytes。该文件使用
 checksum、临时文件、atomic rename、目录 fsync 和跨实例锁，重启或 response loss

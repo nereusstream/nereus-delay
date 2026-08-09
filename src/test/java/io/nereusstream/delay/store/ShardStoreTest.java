@@ -44,6 +44,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -322,6 +323,27 @@ class ShardStoreTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(restoreConfig);
              ShardStore restored = ShardStore.restoreFromCheckpoint(restoreConfig, shardId, resources, checkpoint)) {
             assertArrayEquals(checkpointId, restored.runtimeMetadata().lastCheckpointId());
+        }
+    }
+
+    @Test
+    void checkpointCreateSlotRejectionDoesNotMutateCheckpointProjection() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("checkpoint-slot-before-projection"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 35);
+        final byte[] checkpointId = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("slot-before-projection")), 16);
+        final Path checkpoint = tempDir.resolve("checkpoint-slot-before-projection-output");
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            resources.acquireCheckpointCreateSlot();
+            try {
+                assertThrows(IllegalStateException.class, () -> store.createCheckpoint(checkpoint, checkpointId));
+                assertNull(store.runtimeMetadata().lastCheckpointId());
+                assertNull(store.getValue(ColumnFamily.META, KeyCodec.metaFixed(7), 1));
+            } finally {
+                resources.releaseCheckpointCreateSlot();
+            }
+            store.createCheckpoint(checkpoint, checkpointId);
+            assertArrayEquals(checkpointId, store.runtimeMetadata().lastCheckpointId());
         }
     }
 

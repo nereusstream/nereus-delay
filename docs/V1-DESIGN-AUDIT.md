@@ -2169,6 +2169,10 @@ limits；这仍只是本地文件完整性边界，不替代 Object Store 内容
 
 `SharedRocksDbResources` 现在也把 checkpoint create/upload slot 纳入进程级
 关闭保护；后台 checkpoint 或上传操作持有 slot 时，资源 close 会 fail closed。
+`ShardStore.createCheckpoint(checkpointId)` 还会在写入 live Store 的 checkpoint
+identity projection 之前取得 create slot；并发预算已满时不会产生需要补偿的
+metadata WriteBatch，回归证据为
+`ShardStoreTest.checkpointCreateSlotRejectionDoesNotMutateCheckpointProjection`。
 一旦关闭获准，rate limiter、shared WriteBufferManager 和 block cache 会逐项尝试
 释放；某个 native close 抛出 runtime failure 时，后续资源仍会被尝试，异常以
 suppressed 形式保留，避免进程级资源被首个失败短路。

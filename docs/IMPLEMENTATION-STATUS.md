@@ -1496,6 +1496,13 @@ worker scheduling primitive;
 checkpoint manifests, upload intents and Oxia catalog publication remain the
 durability authority.
 
+`ShardStore.createCheckpoint(checkpointId)` now acquires the Worker-level
+checkpoint-create slot before mutating `meta_cf` checkpoint identity. A full
+create budget therefore rejects before any metadata WriteBatch; rollback of the
+previous identity is reserved for failures after that mutation was attempted.
+`ShardStoreTest.checkpointCreateSlotRejectionDoesNotMutateCheckpointProjection`
+covers the pre-admission side-effect fence.
+
 `CheckpointManifestLimits` now provides the explicit physical guard required by
 the manifest protocol: file count, individual/total file bytes, normalized path
 bytes, canonical manifest bytes, evidence-cursor count and file/manifest-object
