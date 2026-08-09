@@ -42,6 +42,13 @@ closed with `IllegalArgumentException`. The focused regression is
 this remains local codec evidence and does not prove gateway or external query
 authority.
 
+The lane-control audit now also routes ACK presence and close order-break reads
+through `AcknowledgementSetV1` and the typed varint helper. Direct inspection
+cannot bypass canonical field order, known ACK kinds, or wire-type validation;
+`PayloadProofControlPayloadV1Test.laneAcknowledgementQueryRejectsMalformedAckWireType`
+covers the malformed direct-query path. This remains local projection evidence;
+source-ordered authenticated control authority is still external.
+
 The local codec audit additionally verified that implemented V1 key-version
 fields honor the Registry's full unsigned `uint32` domain rather than silently
 narrowing to positive Java `int`: signed System Mutation, Native Capability,

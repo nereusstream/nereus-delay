@@ -93,6 +93,33 @@ class PayloadProofControlPayloadV1Test {
         assertThrows(IllegalArgumentException.class, body::laneTarget);
     }
 
+    @Test
+    void laneAcknowledgementQueryRejectsMalformedAckWireType() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 7);
+        final ControlRef controlRef = new ControlRef(Bytes.sha256(Bytes.utf8("lane-malformed-ack")),
+                Bytes.sha256(Bytes.utf8("lane-malformed-ack-request")), 1);
+        final byte[] laneTarget = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, Bytes.sha256(Bytes.utf8("lane")));
+            CanonicalProtobuf.bytes(output, 2, new byte[16]);
+            CanonicalProtobuf.uint32(output, 3, 1);
+        });
+        final byte[] malformedAcknowledgement = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, Bytes.utf8("wrong-wire-type"));
+            CanonicalProtobuf.bytes(output, 2, Bytes.sha256(Bytes.utf8("ack")));
+            CanonicalProtobuf.bytes(output, 3, Bytes.sha256(Bytes.utf8("scope")));
+        });
+        final byte[] acknowledgementSet = CanonicalProtobuf.message(output ->
+                CanonicalProtobuf.bytes(output, 1, malformedAcknowledgement));
+        final byte[] branch = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, laneTarget);
+            CanonicalProtobuf.bytes(output, 2, acknowledgementSet);
+        });
+        final ApplyShardControlBody body = ApplyShardControlBody.decode(controlBody(shard, controlRef, 10,
+                branch, Bytes.sha256(Bytes.utf8("lane-malformed-ack-semantic"))));
+
+        assertThrows(IllegalArgumentException.class, () -> body.hasAcknowledgement(1));
+    }
+
     private static byte[] controlBody(final ShardId shard, final ControlRef controlRef, final int controlKind,
                                       final byte[] branch, final byte[] semanticHash) {
         return controlBody(shard, controlRef, controlKind, branch, semanticHash, 1);

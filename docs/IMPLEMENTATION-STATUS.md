@@ -1364,6 +1364,13 @@ unknown reason kinds, malformed optional hashes and non-canonical acknowledgemen
 entries cannot pass the manual lane-target projection. The negative coverage is
 in `PayloadProofControlPayloadV1Test`.
 
+`ApplyShardControlBody.hasAcknowledgement` and `allowOrderBreak` now reuse the
+same typed/canonical ACK and varint decoders as `laneTarget`; callers cannot
+observe a malformed ACK wire type through a leaked `IllegalStateException` or
+an unchecked field read. `PayloadProofControlPayloadV1Test.laneAcknowledgementQueryRejectsMalformedAckWireType`
+covers the direct query boundary. This is still local marker projection
+evidence, not authenticated Oxia control authority.
+
 The local Owner Lease adapters now enforce the closed lifecycle transition
 matrix, including fail-closed backward transitions and fenced-lease
 non-reactivation; renewal also rejects a response that changes the expected

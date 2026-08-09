@@ -2513,6 +2513,10 @@ Lane 管理使用独立的 source-ordered `laneControlVersion`。首次创建 La
 
 `CloseDestinationLane` 要求 exact Lane Incarnation/`expectedLaneControlVersion` 和 reason。Strict Lane 还必须在同一个 Close operation 携 `allowOrderBreak=true` 与 duplicate/order-loss acknowledgement；这可直接执行 `OPEN|ADMIN_PAUSED|ORDERING_BROKEN -> CLOSED` 并写 order-break audit，不要求先发第二个 Break marker。
 
+Lane marker 的 ACK presence 查询必须复用 `AcknowledgementSetV1` 的完整 canonical
+decoder；不能仅按嵌套字段位置读取 ACK kind。畸形 wire type、未知 kind、重复/乱序
+entry 或非 canonical ACK set 都必须在控制语义判断前 fail closed。
+
 Marker 的单个 WriteBatch 把 Lane 置为不可逆 `CLOSED`，把 resulting `laneControlVersion` 固定为 `laneCloseVersion`，记录 `closedAtSourcePosition`、canonical close reason/time/dead-letter/GC inputs，删除 READY key并递增 `laneVersion`。它以 close overlay **语义上**撤销全部可逆 Claim并释放对应 executor permits；仍物理存在的 `inflight_cf/CLAIMED` 带 `closeOwnedByVersion`，restore/materializer 绝不 requeue。
 
 Lane 的 **generation/reservation state buckets** 必须互斥分裂为 `unadmittedScheduled`、`unadmittedRetry`、`reservations`、`claimedReversible`、`admittedOutstanding`、`possibleDeliveryEscrow` 和 `retained`，而不是只保留混合 pending 总数。每个非终态 generation 恰在一个 bucket：存在 UNCERTAIN ledger 时固定在 `possibleDeliveryEscrow`，即使 current work 是 timeline/Claim/PUBLISHING；无旧 uncertainty 的 current PUBLISHING 才在 `admittedOutstanding`。Claim record 和每个 attempt obligation 的 inflight/physical charge另行计数，不能把 generation 再算一遍。

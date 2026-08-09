@@ -135,7 +135,7 @@ public final class ApplyShardControlBody {
             throw new IllegalStateException("control kind is not CLOSE_DESTINATION_LANE");
         }
         final List<CanonicalProtobuf.Reader.Field> fields = laneBranchFields();
-        return fields.get(3).unsignedValue() == 1;
+        return unsigned(fields.get(3), 4) == 1;
     }
 
     /** Returns whether a required acknowledgement kind is present in a lane marker. */
@@ -145,16 +145,10 @@ public final class ApplyShardControlBody {
         }
         final List<CanonicalProtobuf.Reader.Field> fields = laneBranchFields();
         final int acknowledgementField = controlKind == 10 ? 2 : 5;
-        final List<CanonicalProtobuf.Reader.Field> entries =
-                readAll(new CanonicalProtobuf.Reader(fields.get(acknowledgementField - 1).rawValue(), true));
-        for (CanonicalProtobuf.Reader.Field entry : entries) {
-            final List<CanonicalProtobuf.Reader.Field> ack = readAll(
-                    new CanonicalProtobuf.Reader(entry.rawValue()));
-            if (ack.get(0).unsignedValue() == acknowledgementKind) {
-                return true;
-            }
-        }
-        return false;
+        final AcknowledgementSetV1 acknowledgements = AcknowledgementSetV1.decode(
+                fields.get(acknowledgementField - 1).rawValue());
+        return acknowledgements.acknowledgements().stream()
+                .anyMatch(acknowledgement -> acknowledgement.kind().wireValue() == acknowledgementKind);
     }
 
     private List<CanonicalProtobuf.Reader.Field> laneBranchFields() {
