@@ -1188,7 +1188,10 @@ bookkeeping before rethrowing. The regressions
 `LaneSchedulerTest.failedPollProjectionWriteRestoresThePolledHeadInMemory` and
 `LaneSchedulerTest.failedReadinessProjectionWriteRestoresThePreviousGateProjection`
 cover the queue and readiness cases; `LaneSchedulerTest.queueSnapshotRestoresExactFifoProjection`
-covers the exact FIFO snapshot used by fenced rebuild rollback. Failed terminal
+covers the exact FIFO snapshot used by fenced rebuild rollback. Full READY
+replacement now validates and assembles every item before clearing prior
+queues, so a later malformed or non-schedulable item cannot leave a partial FIFO
+(`LaneSchedulerTest.failedPendingReplacementKeepsTheOriginalQueues`). Failed terminal
 unregister also restores the exact prior active-ring membership, so a Lane that
 was already outside the ring cannot be reactivated by the rollback registration
 step (`LaneSchedulerTest.failedPersistentUnregisterDoesNotReactivatePreviouslyInactiveLane`).

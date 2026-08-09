@@ -90,6 +90,21 @@ class LaneSchedulerTest {
     }
 
     @Test
+    void failedPendingReplacementKeepsTheOriginalQueues() {
+        final DestinationLaneId healthy = lane(26);
+        final DestinationLaneId paused = lane(27);
+        final LaneScheduler scheduler = LaneScheduler.defaults();
+        scheduler.register(record(healthy, 1));
+        scheduler.register(record(paused, 1).pauseByAdmin());
+        scheduler.offer(item(healthy, 1));
+        final var before = scheduler.queueSnapshot();
+
+        assertThrows(IllegalStateException.class,
+                () -> scheduler.replacePending(List.of(item(healthy, 2), item(paused, 2))));
+        assertEquals(before, scheduler.queueSnapshot());
+    }
+
+    @Test
     void weightedDeficitRoundRobinEventuallyServicesBothLanes() {
         final DestinationLaneId first = lane(3);
         final DestinationLaneId second = lane(4);

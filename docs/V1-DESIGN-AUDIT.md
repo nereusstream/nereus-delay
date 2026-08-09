@@ -840,6 +840,9 @@ ready projection writes restore the previous schedulable state before rethrowing
 cover these rollback paths, while `LaneSchedulerTest.queueSnapshotRestoresExactFifoProjection`
 covers the exact FIFO snapshot used by fenced rebuild rollback. A durable READY
 head cannot be lost merely because its projection batch failed.
+The full READY queue replacement path now performs the same all-items-first
+validation: a later unknown/non-schedulable item leaves the original FIFO intact
+(`LaneSchedulerTest.failedPendingReplacementKeepsTheOriginalQueues`).
 Lane/Shard counter restore now validates the complete registered subset and
 rejects duplicate identities before publishing any counter or blocked-state
 change; a malformed later snapshot entry or ambiguous repeated identity cannot

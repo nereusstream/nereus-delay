@@ -1560,6 +1560,8 @@ Ready discovery 使用持久 rotating cursor 与 active DRR ring：bounded scan/
 
 任何用于标记 work class 已服务的时钟样本也必须在移除 queue head、扣减 deficit 或推进公平计数之前成功读取；单调时钟回拨、负值或其它时钟采样错误必须在这些内存变更之前 fail closed，不能让一次失败的 bounded turn 丢失仍由队列支持的 head。
 
+READY recovery 的全量 queue replacement 也必须先验证并组装所有 item，再清理旧 queue；未知 Lane、非 schedulable Lane、null 或其它 malformed item 只能在原 projection 仍完整时 fail closed，不能留下部分重建的 FIFO。
+
 这里的 `eligible` 必须按本轮 trusted due-through 重新计算：只有存在
 `eligibleAt <= dueThrough` 的 schedulable head 的 Lane/Shard 才进入 recovery
 first pass、outer deficit 或 service-gap 分母。仅有 future head 的 Lane/Shard 可以

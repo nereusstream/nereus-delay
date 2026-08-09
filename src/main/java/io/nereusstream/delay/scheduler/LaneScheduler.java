@@ -403,13 +403,21 @@ public final class LaneScheduler {
     /** Replaces all in-memory work with the exact READY projection recovered from storage. */
     public synchronized void replacePending(final List<ScheduleWorkItem> items) {
         Objects.requireNonNull(items, "items");
-        lanes.values().forEach(lane -> lane.queue.clear());
+        final Map<LaneQueue, List<ScheduleWorkItem>> replacement = new HashMap<>();
+        // Validate and assemble the complete replacement before touching any
+        // existing queue.  A malformed later READY item must not clear valid
+        // heads and leave a partially rebuilt scheduler behind.
         for (ScheduleWorkItem item : items) {
+            Objects.requireNonNull(item, "pending item");
             final LaneQueue lane = requireLane(item.laneId());
             if (!lane.schedulable()) {
                 throw new IllegalStateException("READY work belongs to a non-schedulable lane: " + item.laneId());
             }
-            lane.queue.addLast(item);
+            replacement.computeIfAbsent(lane, ignored -> new ArrayList<>()).add(item);
+        }
+        lanes.values().forEach(lane -> lane.queue.clear());
+        for (Map.Entry<LaneQueue, List<ScheduleWorkItem>> entry : replacement.entrySet()) {
+            entry.getKey().queue.addAll(entry.getValue());
         }
     }
 
