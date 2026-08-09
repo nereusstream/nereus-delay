@@ -529,11 +529,12 @@ public final class KafkaReceiptJournal {
     }
 
     private static long successor(final long offset) {
-        try {
-            return Math.addExact(offset, 1);
-        } catch (ArithmeticException overflow) {
+        if (offset == -1L) {
             throw conflict("Kafka receipt offset domain exhausted");
         }
+        // Kafka offsets are a raw uint64 domain.  Crossing the sign bit is a
+        // valid unsigned successor; only all-ones has no next value.
+        return offset + 1;
     }
 
     private static byte[] uuidBytes(final UUID uuid) {
@@ -592,7 +593,8 @@ public final class KafkaReceiptJournal {
                                   long lastStableOffsetExclusive, byte[] receiptRecordHash)
             implements Comparable<ReceiptPosition> {
         public ReceiptPosition {
-            if (offset < 0 || brokerLogAppendTimeEpochMs < 0 || lastStableOffsetExclusive <= offset) {
+            if (brokerLogAppendTimeEpochMs < 0
+                    || Long.compareUnsigned(lastStableOffsetExclusive, offset) <= 0) {
                 throw new IllegalArgumentException("invalid Kafka receipt position");
             }
             Bytes.requireLength(receiptRecordHash, HASH_LENGTH, "receiptRecordHash");
@@ -607,7 +609,7 @@ public final class KafkaReceiptJournal {
         @Override
         public int compareTo(final ReceiptPosition other) {
             Objects.requireNonNull(other, "other");
-            return Long.compare(offset, other.offset);
+            return Long.compareUnsigned(offset, other.offset);
         }
 
         public byte[] canonicalBytes() {
@@ -633,9 +635,6 @@ public final class KafkaReceiptJournal {
     public record ReceiptMatch(long offset, byte[] publishAttemptId, byte[] preparedPublishHash,
                                byte[] receiptRecordHash) {
         public ReceiptMatch {
-            if (offset < 0) {
-                throw new IllegalArgumentException("receipt offset must be non-negative");
-            }
             Bytes.requireLength(publishAttemptId, HASH_LENGTH, "publishAttemptId");
             Bytes.requireLength(preparedPublishHash, HASH_LENGTH, "preparedPublishHash");
             Bytes.requireLength(receiptRecordHash, HASH_LENGTH, "receiptRecordHash");

@@ -2203,7 +2203,15 @@ round-trip instead of being rejected by a signed parser. The boundary vector is
 covered by `CheckpointManifestTest.manifestRoundTripsUnsignedSourceAndEvidencePositions`.
 comparators and the strict Kafka successor use unsigned order. Boundary vectors
 cover high-bit position fields, receipt/evidence round-trips and manifest
-round-trips. The three `TrustedUtcIntervalEvidenceV1` uint64 counters and its
+round-trips. The local `KafkaReceiptJournal` now follows that same boundary for
+receipt positions and exact matches: it compares offsets and
+`lastStableOffsetExclusive` unsigned, permits sign-bit crossing, and treats only
+the all-ones raw offset as exhausted. `KafkaReceiptJournalTest`
+`receiptJournalPreservesUnsignedHighBitOffsetsAndOrdering` covers mapping,
+retirement and contiguous-cursor ordering across `Long.MAX_VALUE ->
+Long.MIN_VALUE`. This closes the local receipt-journal/source-codec width and
+ordering drift; Kafka transaction, read-committed LSO and contiguous replay
+authority remain release evidence. The three `TrustedUtcIntervalEvidenceV1` uint64 counters and its
 `sourceKeyVersion:uint32` also preserve their raw bit patterns through the
 canonical codec and checkpoint `createdAt` JSON; high-bit signed-time evidence
 is covered by `ProtocolCodecTest.trustedUtcEvidencePreservesUnsignedSourceKeyVersionBits`

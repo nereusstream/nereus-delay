@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -105,6 +106,24 @@ class KafkaReceiptJournalTest {
         assertEquals(41, retired.record().position().offset());
         assertEquals(2, journal.records().size());
         assertEquals(42, journal.evidenceCursor(producer, 1).orElseThrow().nextOffsetExclusive());
+    }
+
+    @Test
+    void receiptJournalPreservesUnsignedHighBitOffsetsAndOrdering() {
+        final ShardId shard = shard();
+        final AtomicInteger call = new AtomicInteger();
+        final KafkaReceiptJournal journal = new KafkaReceiptJournal(shard, request -> {
+            final long offset = call.getAndIncrement() == 0 ? Long.MAX_VALUE : Long.MIN_VALUE;
+            return position(offset);
+        }, resource(shard));
+        final KafkaReceiptJournal.ProducerKey producer = producer();
+        final KafkaReceiptJournal.AppendResult mapped = journal.appendNext(producer, identity(shard, 26));
+        final KafkaReceiptJournal.AppendResult retired = journal.retireNotPublished(mapped.record().mapping().mappingId());
+
+        assertEquals(Long.MAX_VALUE, mapped.record().position().offset());
+        assertEquals(Long.MIN_VALUE, retired.record().position().offset());
+        assertEquals(Long.MIN_VALUE + 1, journal.evidenceCursor(producer, 1).orElseThrow().nextOffsetExclusive());
+        assertEquals(2, journal.records().size());
     }
 
     @Test

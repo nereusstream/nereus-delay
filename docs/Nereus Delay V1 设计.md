@@ -738,7 +738,7 @@ Pulsar position order:
 
 Kafka 的 `sourceOrderToken` 是 offset 的 8-byte unsigned big-endian 编码。Pulsar 使用 ledger、entry、batch index 的 fixed-width big-endian 拼接；非 batch entry 的 normalized batch index 为 `0`，且 entry 类型也进入 position audit，禁止把 batch/non-batch 误认为同一位置。
 
-Kafka successor 是 `offset + 1`。Pulsar checkpoint 若停在 batch member，则 restore seek 到包含它的 entry，逐 member 重放并用 position audit/dedupe 跳过已应用成员；subscription cursor 只在整个 entry 处理完成后 ACK。
+Kafka successor 是 `offset + 1`，按 raw `uint64` 解释：跨过 Java `long` 符号位仍是合法 successor，只有全 1 的 offset 没有后继。这个规则同时适用于 Kafka receipt journal 的 receipt position、精确 receipt match、`lastStableOffsetExclusive` 边界和位置排序；receipt journal 不得用有符号 `long` 比较、拒绝高位 offset，或把 `Long.MAX_VALUE` 错当成耗尽。应用层的本地 mapping/producer sequence 仍是独立的有界计数器，不能与物理 offset 域混用。Pulsar checkpoint 若停在 batch member，则 restore seek 到包含它的 entry，逐 member 重放并用 position audit/dedupe 跳过已应用成员；subscription cursor 只在整个 entry 处理完成后 ACK。
 
 `canonicalSourcePosition` 的解码必须重新编码为完全相同的字节；非法 UTF-8、替换字符
 或任何其它非 canonical wire 变体都不是合法 Source Position，必须在进入
