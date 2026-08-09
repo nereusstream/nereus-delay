@@ -1608,9 +1608,10 @@ directory fsync；因此 staged DB 的 atomic rename 已先取得目录级持久
 不会出现 `ACTIVE` 已发布但对应 incarnation 目录项仍只存在于 page cache 的窗口。
 restore 的 checkpoint copy 还会先 fsync 每个拷贝文件，再按子目录到根目录
 fsync staged tree；因此该窗口同时覆盖 DB 文件内容和目录项，而不只覆盖 rename。
-Normal `ShardStore.open` 也在发布 `ACTIVE` 前 fsync 同一 Store Incarnation
-父目录，包括接管没有 `ACTIVE` 指针的 orphan incarnation；fresh-open 与
-restore 因此共享同一 pointer-before-directory-durability 顺序。
+Normal `ShardStore.open` 也在发布 `ACTIVE` 前 fsync DB 目录及同一 Store
+Incarnation 父目录，包括接管没有 `ACTIVE` 指针的 orphan incarnation；fresh-
+open 与 restore 因此共享同一 pointer-before-directory-durability 顺序，并覆盖
+open 阶段新建的 WAL/MANIFEST 目录项。
 Restore admission 只把 checksum-validated `ACTIVE` pointer 指向的
 incarnation 视为 live DB；pointer 尚未切换时留下的 orphan incarnation 不会
 阻塞新的 atomic restore，且不会被悄悄当作 active 覆盖。

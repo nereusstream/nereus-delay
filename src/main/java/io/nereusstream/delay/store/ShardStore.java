@@ -128,7 +128,7 @@ public final class ShardStore implements AutoCloseable {
                 // A fresh/opened Store Incarnation must be durable before the
                 // checksummed ACTIVE pointer publishes it.  This also covers
                 // recovery of an orphan incarnation when ACTIVE was missing.
-                forceDirectory(dbPath.getParent());
+                forceIncarnationBeforeActivePointer(dbPath);
                 writeActivePointer(shardRoot, storeUuidFromPath(dbPath));
                 return opened;
             } catch (IOException exception) {
@@ -295,6 +295,7 @@ public final class ShardStore implements AutoCloseable {
             if (!installed.shardId().equals(shardId)) {
                 throw new IOException("install-mode DB shard identity mismatch");
             }
+            forceIncarnationBeforeActivePointer(activeDb);
             deleteTree(restoreRoot);
             writeActivePointer(shardRoot, storeUuid);
             return installed;
@@ -1029,6 +1030,11 @@ public final class ShardStore implements AutoCloseable {
         try (FileChannel channel = FileChannel.open(file, StandardOpenOption.WRITE)) {
             channel.force(true);
         }
+    }
+
+    private static void forceIncarnationBeforeActivePointer(final Path dbPath) throws IOException {
+        forceDirectory(dbPath);
+        forceDirectory(dbPath.getParent());
     }
 
     private static void deleteTree(final Path root) throws IOException {
