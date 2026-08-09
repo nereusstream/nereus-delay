@@ -2331,6 +2331,9 @@ AND RecoveryFloor.includedMutationSequence >= r within that lineage
    parent-hash ancestry 和 Store Incarnation/install-state 一致；真正的 current
    Floor/Oxia Owner Lease/session transaction 仍是外部 authority，缺失或不一致时
    必须重新选择 checkpoint，不能把本地 proof 当成接管授权。
+   `meta/RECOVERY` 的 `catalogGeneration` 必须保留完整非零 `uint64` 位模式；
+   Java signed high-bit 值不能被当作非法负数，shard DB 重开后必须恢复同一
+   generation 并继续执行 exact Floor 校验。
 3. 否则下载 newest permitted pinned checkpoint 到 `restore-tmp/<checkpointId>-<nonce>/db`，验证 canonical manifest/ancestry/object/file checksum、DB/shard/route、`sourceStoreIncarnation`、store format 和 source/evidence retention；打开 staged DB 后还必须把 `meta_cf/RECOVERY` 中已有的 lineage/base（`recoveryLineageId`、`checkpointId`、`manifestSha256`，以及 `LOCAL_STORE` 的 Store Incarnation）、last-observed Floor lineage 与 install-state checkpoint identity 同 manifest 的 recovery lineage/checkpoint 做 exact 校验，且 install-state 必须同时与 lineage/base 一致，拒绝把合法 DB 文件与另一条本地 recovery projection 拼接。
 4. 生成全新 Store Incarnation，rename temp 到 `incarnations/<newStoreIncarnation>`；install-mode open，WAL-sync 写入新的 Store Incarnation、current Owner open metadata 和 unclean marker，再 close。
 5. 在替换 `ACTIVE` 前重读 exact pin/Floor/catalog/retention；Floor 已越过 candidate、session-bound pin 消失或 lineage 改变则关闭并丢弃安装、再重新选择。否则 fsync parent，写/fsync `ACTIVE.tmp`，atomic rename、fsync shard parent并 normal open。

@@ -19,9 +19,6 @@ public record StoreRecoveryMetadata(
         long catalogGeneration,
         RecoveryInstallStateV1 installState) {
     public StoreRecoveryMetadata {
-        if (catalogGeneration < 0) {
-            throw new IllegalArgumentException("catalogGeneration must be non-negative");
-        }
         if (lastObservedFloor != null && catalogGeneration != lastObservedFloor.catalogGeneration()) {
             throw new IllegalArgumentException("catalog generation does not match observed Recovery Floor");
         }

@@ -17,6 +17,14 @@ left for source-ordered outcome/evidence recovery. This is local crash/replay
 evidence only and does not claim Oxia lease/session, Source Log successor,
 materialization adapter, or external Producer authority.
 
+The local `StoreRecoveryMetadata` projection now preserves the complete
+nonzero `uint64` `catalogGeneration` bit pattern, including Java values with
+the sign bit set. A high-bit typed Floor generation is persisted in
+`meta/RECOVERY` and survives a normal shard DB reopen; the focused
+`StoreRecoveryMetadataTest.reopensRecoveryProjectionWithHighBitCatalogGeneration`
+regression prevents recovery reuse from failing only because a valid wire
+generation was narrowed to a signed non-negative value.
+
 The replay-stable Claim materialization subset is now a shared typed protocol
 projection: `PayloadForPublishV1` validates the inline/object union and exact
 length/SHA-256, while `ClaimMaterializationV1` validates the two Profile slot

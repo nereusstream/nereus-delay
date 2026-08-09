@@ -62,6 +62,37 @@ class StoreRecoveryMetadataTest {
         }
     }
 
+    @Test
+    void reopensRecoveryProjectionWithHighBitCatalogGeneration() {
+        final long highBitCatalogGeneration = Long.MIN_VALUE + 7;
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("recovery-meta-high-bit"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 18);
+        final byte[] lineage = bytes(16, 11);
+        final byte[] checkpoint = bytes(16, 12);
+        final RecoveryFloorRefV1 floor = new RecoveryFloorRefV1(lineage, checkpoint, bytes(32, 13),
+                highBitCatalogGeneration,
+                new KafkaSourcePosition(shardId, "cluster-a", UUID.randomUUID(), 22, 3, 101), 13,
+                java.util.List.of());
+        final StoreRecoveryMetadata persisted;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final RecoveryCandidateRefV1 candidate = new RecoveryCandidateRefV1(RecoveryCandidateKindV1.LOCAL_STORE,
+                    lineage, checkpoint, bytes(32, 13), store.metadata().storeIncarnation());
+            store.recordRecoveryMetadata(candidate, floor);
+            persisted = store.recoveryMetadata();
+            assertEquals(highBitCatalogGeneration, persisted.catalogGeneration());
+            assertArrayEquals(Bytes.u64beBits(highBitCatalogGeneration),
+                    store.getValue(ColumnFamily.META, KeyCodec.metaRecovery(3), 1).payload());
+        }
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore reopened = ShardStore.open(config, shardId, resources)) {
+            assertEquals(persisted, reopened.recoveryMetadata());
+            assertEquals(highBitCatalogGeneration, reopened.recoveryMetadata().catalogGeneration());
+            assertTrue(reopened.hasReusableRecoveryProof());
+        }
+    }
+
     private static byte[] bytes(final int length, final int seed) {
         final byte[] value = new byte[length];
         for (int index = 0; index < length; index++) {

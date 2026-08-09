@@ -2044,6 +2044,11 @@ Store Incarnation 漂移；restore 会为新 Store Incarnation 记录 LOCAL_STOR
 覆盖 canonical round-trip、key/value projection、reopen 与 restore。该投影只闭合
 本地 recovery-reuse facts；`hasReusableRecoveryProof()` 不证明 ancestry/Floor
 coverage，也不替代 Oxia Owner Lease/session/catalog authority。
+其中 `StoreRecoveryMetadata.catalogGeneration` 保留完整非零 `uint64` 位模式，
+包括 Java signed high-bit 值；高位 typed Floor generation 在 `meta/RECOVERY`
+持久化后可重开并继续参与 exact Floor 校验，回归由
+`StoreRecoveryMetadataTest.reopensRecoveryProjectionWithHighBitCatalogGeneration`
+覆盖。
 本地 `RecoveryCatalog.validateLocalStoreRecovery` 现在把这些 facts 与 exact typed
 current Floor、published base manifest、parent-hash ancestry 以及 Store
 Incarnation/install-state identity 绑定，拒绝 stale Floor、跨 shard 或跨 lineage
