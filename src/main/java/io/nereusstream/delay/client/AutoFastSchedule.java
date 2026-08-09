@@ -8,6 +8,7 @@ import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
 import io.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
 import io.nereusstream.delay.protocol.PulsarMetadataV1;
+import io.nereusstream.delay.protocol.StableCode;
 
 import java.security.PublicKey;
 import java.util.Objects;
@@ -22,13 +23,19 @@ public final class AutoFastSchedule {
     private final NativeCandidate nativeCandidate;
 
     private AutoFastSchedule(final PreparedCommand managedCommand, final NativeCandidate nativeCandidate) {
-        this.managedCommand = Objects.requireNonNull(managedCommand, "managedCommand");
-        if (managedCommand.type() != CommandType.SCHEDULE) {
-            throw new IllegalArgumentException("AUTO_FAST requires a ScheduleV1 command");
+        try {
+            this.managedCommand = Objects.requireNonNull(managedCommand, "managedCommand");
+            if (managedCommand.type() != CommandType.SCHEDULE) {
+                throw PreparationFailure.of(StableCode.INVALID_COMMAND);
+            }
+            // This is the local zero-I/O strictness fence. It also validates
+            // that a legacy body cannot be smuggled into the fallback branch.
+            CommandCodec.encodeFrameV1(managedCommand);
+        } catch (PreparationFailure failure) {
+            throw failure;
+        } catch (RuntimeException invalidCommand) {
+            throw PreparationFailure.of(StableCode.INVALID_COMMAND, invalidCommand);
         }
-        // This is the local zero-I/O strictness fence. It also validates that
-        // a legacy body cannot be smuggled into the fallback branch.
-        CommandCodec.encodeFrameV1(managedCommand);
         this.nativeCandidate = nativeCandidate;
     }
 
@@ -78,27 +85,34 @@ public final class AutoFastSchedule {
                                final long deliverAtEpochMs, final long nativeDelayBudgetMs,
                                final NativeCapabilitySnapshotV1 capabilitySnapshot,
                                final PublicKey issuerKey, final boolean directTargetAuthority) {
-            this.destinationProfile = Objects.requireNonNull(destinationProfile, "destinationProfile");
-            this.capabilityProfile = Objects.requireNonNull(capabilityProfile, "capabilityProfile");
-            this.target = Objects.requireNonNull(target, "target");
+            this.destinationProfile = require(destinationProfile, "destinationProfile");
+            this.capabilityProfile = require(capabilityProfile, "capabilityProfile");
+            this.target = require(target, "target");
             if (physicalPartition < 0) {
-                throw new IllegalArgumentException("physicalPartition must be non-negative");
+                throw PreparationFailure.of(StableCode.INVALID_COMMAND);
             }
             this.physicalPartition = physicalPartition;
-            this.inlinePayload = Bytes.copy(Objects.requireNonNull(inlinePayload, "inlinePayload"));
-            this.metadata = Objects.requireNonNull(metadata, "metadata");
+            this.inlinePayload = Bytes.copy(require(inlinePayload, "inlinePayload"));
+            this.metadata = require(metadata, "metadata");
             if (eventTimeEpochMs != null && eventTimeEpochMs < 0) {
-                throw new IllegalArgumentException("eventTime must be non-negative");
+                throw PreparationFailure.of(StableCode.INVALID_DELIVERY_WINDOW);
             }
             if (deliverAtEpochMs < 0 || nativeDelayBudgetMs <= 0) {
-                throw new IllegalArgumentException("native timing bounds must be non-negative/positive");
+                throw PreparationFailure.of(StableCode.INVALID_DELIVERY_WINDOW);
             }
             this.eventTimeEpochMs = eventTimeEpochMs;
             this.deliverAtEpochMs = deliverAtEpochMs;
             this.nativeDelayBudgetMs = nativeDelayBudgetMs;
-            this.capabilitySnapshot = Objects.requireNonNull(capabilitySnapshot, "capabilitySnapshot");
-            this.issuerKey = Objects.requireNonNull(issuerKey, "issuerKey");
+            this.capabilitySnapshot = require(capabilitySnapshot, "capabilitySnapshot");
+            this.issuerKey = require(issuerKey, "issuerKey");
             this.directTargetAuthority = directTargetAuthority;
+        }
+
+        private static <T> T require(final T value, final String name) {
+            if (value == null) {
+                throw PreparationFailure.of(StableCode.INVALID_COMMAND);
+            }
+            return value;
         }
 
         public ProfileSemanticEnvelopeV1 destinationProfile() {

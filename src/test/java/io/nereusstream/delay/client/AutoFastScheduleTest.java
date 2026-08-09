@@ -6,7 +6,9 @@ import io.nereusstream.delay.protocol.BrokerResourceIdentityV1;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DeliveryCapabilitySemanticV1;
 import io.nereusstream.delay.protocol.DeliveryMode;
+import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.DestinationProfileSemanticV1;
+import io.nereusstream.delay.protocol.FailureStageV1;
 import io.nereusstream.delay.protocol.NativeCapabilitySnapshotV1;
 import io.nereusstream.delay.protocol.NativePreparedDeliveryV1;
 import io.nereusstream.delay.protocol.OrderingMode;
@@ -20,7 +22,10 @@ import io.nereusstream.delay.protocol.PreparedSubmissionV1;
 import io.nereusstream.delay.protocol.RetryPolicyRefV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ScheduleIntentV1;
+import io.nereusstream.delay.protocol.ScheduleIntent;
 import io.nereusstream.delay.protocol.ShardId;
+import io.nereusstream.delay.protocol.StableCode;
+import io.nereusstream.delay.protocol.StableErrorV1;
 import io.nereusstream.delay.protocol.TargetPartitionHashInputV1;
 import io.nereusstream.delay.protocol.TargetPartitionPolicyV1;
 import io.nereusstream.delay.protocol.TimingCapabilityV1;
@@ -41,6 +46,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AutoFastScheduleTest {
@@ -101,6 +107,21 @@ class AutoFastScheduleTest {
                     service.prepareManagedSubmissionV1(fixture.command).managedFrame());
             assertEquals(0, service.pendingCommandCount());
         }
+    }
+
+    @Test
+    void malformedPreparationExposesAStablePreparationFailure() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 10);
+        final PreparedCommand legacy = PreparedCommand.schedule(shard,
+                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("legacy-autofast")),
+                        2_000, 5_000, OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+
+        final PreparationFailure failure = assertThrows(PreparationFailure.class,
+                () -> AutoFastSchedule.managed(legacy));
+        assertEquals(FailureStageV1.PREPARATION, failure.error().stage());
+        assertEquals(StableCode.INVALID_COMMAND, failure.error().code());
+        final StableErrorV1 decoded = StableErrorV1.decode(failure.error().canonicalBytes());
+        assertEquals(failure.error(), decoded);
     }
 
     private static Fixture fixture() throws Exception {

@@ -224,19 +224,31 @@ public final class EmbeddedDelayService implements DelayClient {
     @Override
     public PreparedCommand prepareSchedule(final ScheduleIntent intent, final long retryUntilEpochMs) {
         ensureOpen();
-        return PreparedCommand.schedule(shardId, intent, retryUntilEpochMs);
+        try {
+            return PreparedCommand.schedule(shardId, intent, retryUntilEpochMs);
+        } catch (RuntimeException invalidCommand) {
+            throw PreparationFailure.of(StableCode.INVALID_COMMAND, invalidCommand);
+        }
     }
 
     @Override
     public PreparedCommand prepareScheduleV1(final ScheduleIntentV1 intent, final long retryUntilEpochMs) {
         ensureOpen();
-        return PreparedCommand.scheduleV1(shardId, intent, retryUntilEpochMs);
+        try {
+            return PreparedCommand.scheduleV1(shardId, intent, retryUntilEpochMs);
+        } catch (RuntimeException invalidCommand) {
+            throw PreparationFailure.of(StableCode.INVALID_COMMAND, invalidCommand);
+        }
     }
 
     @Override
     public PreparedCommand prepareLargeSchedule(final LargeScheduleIntent intent, final long retryUntilEpochMs) {
         ensureOpen();
-        return PreparedCommand.prepareLarge(shardId, intent, retryUntilEpochMs);
+        try {
+            return PreparedCommand.prepareLarge(shardId, intent, retryUntilEpochMs);
+        } catch (RuntimeException invalidCommand) {
+            throw PreparationFailure.of(StableCode.INVALID_COMMAND, invalidCommand);
+        }
     }
 
     @Override
@@ -246,8 +258,12 @@ public final class EmbeddedDelayService implements DelayClient {
                                                   final PayloadProofTrustSetRefV1 trustSet,
                                                   final long retryUntilEpochMs) {
         ensureOpen();
-        return PreparedCommand.prepareLargeV1(shardId, intentWithoutPayload, expectedPayloadLength,
-                payloadSha256, reservationTtlMs, trustSet, retryUntilEpochMs);
+        try {
+            return PreparedCommand.prepareLargeV1(shardId, intentWithoutPayload, expectedPayloadLength,
+                    payloadSha256, reservationTtlMs, trustSet, retryUntilEpochMs);
+        } catch (RuntimeException invalidCommand) {
+            throw PreparationFailure.of(StableCode.INVALID_COMMAND, invalidCommand);
+        }
     }
 
     @Override
@@ -255,16 +271,24 @@ public final class EmbeddedDelayService implements DelayClient {
                                                      final PayloadCommitProofV1 proof,
                                                      final long retryUntilEpochMs) {
         ensureOpen();
-        requireLargePayloadCommitBinding(reservation, proof);
-        return PreparedCommand.commitLargeV1(shardId, reservation.delayMessageId(), reservation.reservationId(),
-                proof, retryUntilEpochMs);
+        try {
+            requireLargePayloadCommitBinding(reservation, proof);
+            return PreparedCommand.commitLargeV1(shardId, reservation.delayMessageId(), reservation.reservationId(),
+                    proof, retryUntilEpochMs);
+        } catch (RuntimeException invalidProof) {
+            throw PreparationFailure.of(StableCode.PAYLOAD_PROOF_INVALID, invalidProof);
+        }
     }
 
     @Override
     public PreparedCommand prepareCancel(final DelayMessageId messageId, final int expectedGeneration,
                                          final long retryUntilEpochMs) {
         ensureOpen();
-        return PreparedCommand.cancel(shardId, messageId, expectedGeneration, retryUntilEpochMs);
+        try {
+            return PreparedCommand.cancel(shardId, messageId, expectedGeneration, retryUntilEpochMs);
+        } catch (RuntimeException invalidCommand) {
+            throw PreparationFailure.of(StableCode.INVALID_COMMAND, invalidCommand);
+        }
     }
 
     @Override
@@ -272,7 +296,11 @@ public final class EmbeddedDelayService implements DelayClient {
                                            final MessagePreconditionV1 precondition,
                                            final long retryUntilEpochMs) {
         ensureOpen();
-        return PreparedCommand.cancelV1(shardId, messageId, precondition, retryUntilEpochMs);
+        try {
+            return PreparedCommand.cancelV1(shardId, messageId, precondition, retryUntilEpochMs);
+        } catch (RuntimeException invalidCommand) {
+            throw PreparationFailure.of(StableCode.INVALID_COMMAND, invalidCommand);
+        }
     }
 
     @Override
@@ -280,8 +308,12 @@ public final class EmbeddedDelayService implements DelayClient {
                                              final long deliverAtEpochMs, final long expireAtEpochMs,
                                              final long retryUntilEpochMs) {
         ensureOpen();
-        return PreparedCommand.reschedule(shardId, messageId, expectedGeneration, deliverAtEpochMs,
-                expireAtEpochMs, retryUntilEpochMs);
+        try {
+            return PreparedCommand.reschedule(shardId, messageId, expectedGeneration, deliverAtEpochMs,
+                    expireAtEpochMs, retryUntilEpochMs);
+        } catch (RuntimeException invalidCommand) {
+            throw PreparationFailure.of(StableCode.INVALID_DELIVERY_WINDOW, invalidCommand);
+        }
     }
 
     @Override
@@ -290,36 +322,57 @@ public final class EmbeddedDelayService implements DelayClient {
                                                final long deliverAtEpochMs, final long expireAtEpochMs,
                                                final long retryUntilEpochMs) {
         ensureOpen();
-        return PreparedCommand.rescheduleV1(shardId, messageId, precondition, deliverAtEpochMs,
-                expireAtEpochMs, retryUntilEpochMs);
+        try {
+            return PreparedCommand.rescheduleV1(shardId, messageId, precondition, deliverAtEpochMs,
+                    expireAtEpochMs, retryUntilEpochMs);
+        } catch (RuntimeException invalidCommand) {
+            throw PreparationFailure.of(StableCode.INVALID_DELIVERY_WINDOW, invalidCommand);
+        }
     }
 
     @Override
     public PreparedSubmissionV1 prepareManagedSubmissionV1(final PreparedCommand command) {
         ensureOpen();
-        return PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(Objects.requireNonNull(command, "command")));
+        try {
+            return PreparedSubmissionV1.managed(
+                    CommandCodec.encodeFrameV1(Objects.requireNonNull(command, "command")));
+        } catch (RuntimeException invalidCommand) {
+            throw PreparationFailure.of(StableCode.INVALID_PREPARED_COMMAND, invalidCommand);
+        }
     }
 
     @Override
     public PreparedSubmissionV1 prepareAutoFast(final AutoFastSchedule request) {
         ensureOpen();
-        Objects.requireNonNull(request, "request");
-        final byte[] managedFrame = CommandCodec.encodeFrameV1(request.managedCommand());
-        final NativePreparedDeliveryV1 nativePrepared = prepareNative(request);
-        return nativePrepared == null
-                ? PreparedSubmissionV1.managed(managedFrame)
-                : PreparedSubmissionV1.nativePrepared(nativePrepared);
+        try {
+            Objects.requireNonNull(request, "request");
+            final byte[] managedFrame = CommandCodec.encodeFrameV1(request.managedCommand());
+            final NativePreparedDeliveryV1 nativePrepared = prepareNative(request);
+            return nativePrepared == null
+                    ? PreparedSubmissionV1.managed(managedFrame)
+                    : PreparedSubmissionV1.nativePrepared(nativePrepared);
+        } catch (PreparationFailure failure) {
+            throw failure;
+        } catch (RuntimeException invalidRequest) {
+            throw PreparationFailure.of(StableCode.INVALID_COMMAND, invalidRequest);
+        }
     }
 
     @Override
     public List<PreparedSubmissionV1> prepareAutoFastBatch(final List<AutoFastSchedule> requests) {
         ensureOpen();
-        Objects.requireNonNull(requests, "requests");
-        final List<PreparedSubmissionV1> prepared = new ArrayList<>(requests.size());
-        for (AutoFastSchedule request : requests) {
-            prepared.add(prepareAutoFast(request));
+        try {
+            Objects.requireNonNull(requests, "requests");
+            final List<PreparedSubmissionV1> prepared = new ArrayList<>(requests.size());
+            for (AutoFastSchedule request : requests) {
+                prepared.add(prepareAutoFast(request));
+            }
+            return List.copyOf(prepared);
+        } catch (PreparationFailure failure) {
+            throw failure;
+        } catch (RuntimeException invalidRequest) {
+            throw PreparationFailure.of(StableCode.INVALID_COMMAND, invalidRequest);
         }
-        return List.copyOf(prepared);
     }
 
     /**

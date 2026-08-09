@@ -35,7 +35,12 @@ preparation methods already backed by the Registry-shaped `PreparedCommand`
 constructors. They remain zero-I/O and are covered by
 `EmbeddedDelayServiceTest.delayClientPreparesStrictV1CommandsWithoutIo`; the
 legacy preparation methods remain compatibility bridges and cannot be labeled
-as V1 managed submission by themselves.
+as V1 managed submission by themselves. Synchronous preparation validation now
+uses `PreparationFailure`, an `IllegalArgumentException`-compatible exception
+that carries a canonical `StableErrorV1(stage=PREPARATION)`; malformed legacy
+frames cannot be wrapped as V1 managed submissions, and payload-proof/timing
+preparation failures retain their stable code. `AutoFastScheduleTest` covers
+the typed error and its canonical round trip.
 
 Strict `enqueueV1`/`enqueueBatchV1` now validate the V1 frame before charging
 pending bytes or allocating an embedded Source Position; legacy bodies return

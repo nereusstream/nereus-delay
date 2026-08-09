@@ -364,6 +364,10 @@ native 不满足项都返回同一 strict managed frame；batch 逐项独立选�
 Position admission。Snapshot issuer、
 Oxia protection-before-rotation、Broker guard、Producer ownership 和 production
 response evidence 仍是外部 release gate。
+同步 prepare 入口的本地参数/strict-frame 校验现在统一投影为
+`PreparationFailure`，其 `StableErrorV1.stage` 固定为 `PREPARATION`，同时保持
+`IllegalArgumentException` 兼容性；`AutoFastScheduleTest` 覆盖稳定错误的 canonical
+round-trip。它不把网络或 Broker 结果伪装成本地 preparation failure。
 调用注入 adapter 时不持有 embedded service monitor，阻塞的 transport 不会
 阻止 close fence；仅本地 embedded admission 在 monitor 内完成。
 close 还会在 DB close 失败后继续尝试释放共享 RocksDB 资源，并把后续失败作为
