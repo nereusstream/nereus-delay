@@ -72,6 +72,24 @@ class LaneSchedulerTest {
     }
 
     @Test
+    void queueSnapshotRestoresExactFifoProjection() {
+        final DestinationLaneId lane = lane(2);
+        final LaneScheduler scheduler = LaneScheduler.defaults();
+        scheduler.register(record(lane, 1));
+        final ScheduleWorkItem first = item(lane, 1);
+        final ScheduleWorkItem second = item(lane, 2);
+        scheduler.offer(first);
+        scheduler.offer(second);
+        final var before = scheduler.queueSnapshot();
+
+        scheduler.poll(new SchedulerBudget(1, 1024, 1_000_000_000));
+        scheduler.restoreQueues(before);
+
+        assertEquals(before, scheduler.queueSnapshot());
+        assertEquals(List.of(first), scheduler.poll(new SchedulerBudget(1, 1, 1_000_000_000)));
+    }
+
+    @Test
     void weightedDeficitRoundRobinEventuallyServicesBothLanes() {
         final DestinationLaneId first = lane(3);
         final DestinationLaneId second = lane(4);

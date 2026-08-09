@@ -1180,13 +1180,15 @@ the five-value scheduler `WriteBatch` succeeds. A failed projection write or
 READY decode therefore cannot advertise a generation that was never durable;
 `LaneSchedulerTest.failedSchedulerProjectionWriteDoesNotAdvanceGenerationInMemory`
 and `LaneSchedulerTest.failedReadyProjectionDecodeDoesNotAdvanceWrapGenerationInMemory`
-cover both local failure boundaries. Poll, READY discovery and blocked/ready
-transitions now use the same rollback boundary: a failed write restores polled
-heads, newly offered tails, active-ring/cursor/fairness state, discovery heads
-and recovery-first-pass bookkeeping before rethrowing. The regressions
+cover both local failure boundaries. Poll, READY discovery, fenced READY
+rebuild and blocked/ready transitions now use the same rollback boundary: a
+failed write restores polled heads, newly offered tails, rebuilt queue state,
+active-ring/cursor/fairness state, discovery heads and recovery-first-pass
+bookkeeping before rethrowing. The regressions
 `LaneSchedulerTest.failedPollProjectionWriteRestoresThePolledHeadInMemory` and
 `LaneSchedulerTest.failedReadinessProjectionWriteRestoresThePreviousGateProjection`
-cover the queue and readiness cases.
+cover the queue and readiness cases; `LaneSchedulerTest.queueSnapshotRestoresExactFifoProjection`
+covers the exact FIFO snapshot used by fenced rebuild rollback.
 
 The inner and outer two-rotation visit caps now widen `ring.size() * 2` before
 comparison, so a large in-memory ring cannot turn the bounded loop limit into a

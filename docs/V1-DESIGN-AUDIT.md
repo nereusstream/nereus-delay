@@ -829,15 +829,17 @@ cannot leave the process advertising a generation that was never durable; the
 local regressions are
 `LaneSchedulerTest.failedSchedulerProjectionWriteDoesNotAdvanceGenerationInMemory`
 and `LaneSchedulerTest.failedReadyProjectionDecodeDoesNotAdvanceWrapGenerationInMemory`。
-The same durable boundary now covers every turn that mutates process state:
+The same durable boundary now covers every turn that mutates process state,
+including a fenced READY rebuild:
 failed `poll` writes put returned heads back at the front of their Lane queues;
 failed READY discovery removes only the tails it appended and restores the
 active ring, cursor, discovery heads and recovery bookkeeping; failed blocked/
 ready projection writes restore the previous schedulable state before rethrowing.
 `LaneSchedulerTest.failedPollProjectionWriteRestoresThePolledHeadInMemory` and
 `LaneSchedulerTest.failedReadinessProjectionWriteRestoresThePreviousGateProjection`
-cover these rollback paths, so a durable READY head cannot be lost merely
-because its projection batch failed.
+cover these rollback paths, while `LaneSchedulerTest.queueSnapshotRestoresExactFifoProjection`
+covers the exact FIFO snapshot used by fenced rebuild rollback. A durable READY
+head cannot be lost merely because its projection batch failed.
 The inner and outer two-rotation visit limits also widen `ring.size() * 2`
 before comparison, with `LaneSchedulerTest.ringVisitLimitUsesWideArithmetic`
 and `WorkerSchedulerTest.outerVisitLimitUsesWideArithmetic` covering the

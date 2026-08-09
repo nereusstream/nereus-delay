@@ -206,6 +206,31 @@ public final class LaneScheduler {
         }
     }
 
+    /** Returns each registered Lane queue in its exact FIFO order. */
+    synchronized Map<DestinationLaneId, List<ScheduleWorkItem>> queueSnapshot() {
+        final Map<DestinationLaneId, List<ScheduleWorkItem>> result = new HashMap<>();
+        for (LaneQueue lane : lanes.values()) {
+            result.put(lane.laneId, List.copyOf(lane.queue));
+        }
+        return Map.copyOf(result);
+    }
+
+    /** Restores an exact queue projection captured by {@link #queueSnapshot()}. */
+    synchronized void restoreQueues(final Map<DestinationLaneId, List<ScheduleWorkItem>> snapshot) {
+        Objects.requireNonNull(snapshot, "snapshot");
+        lanes.values().forEach(lane -> lane.queue.clear());
+        for (Map.Entry<DestinationLaneId, List<ScheduleWorkItem>> entry : snapshot.entrySet()) {
+            final DestinationLaneId laneId = Objects.requireNonNull(entry.getKey(), "snapshot laneId");
+            final LaneQueue lane = requireLane(laneId);
+            for (ScheduleWorkItem item : Objects.requireNonNull(entry.getValue(), "snapshot queue")) {
+                if (!laneId.equals(item.laneId())) {
+                    throw new IllegalArgumentException("snapshot queue item belongs to another Lane");
+                }
+                lane.queue.addLast(item);
+            }
+        }
+    }
+
     public synchronized int pendingItems(final DestinationLaneId laneId) {
         return requireLane(laneId).queue.size();
     }

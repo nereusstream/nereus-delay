@@ -139,42 +139,50 @@ public final class PersistentLaneScheduler {
         if (!persistedRestored) {
             restorePersistedState();
         }
-        final int scanLimit = maxReadyEntries == Integer.MAX_VALUE
-                ? Integer.MAX_VALUE : Math.addExact(maxReadyEntries, 1);
-        // Recovery is a complete bounded pass over the authoritative READY
-        // namespace.  The rotating discovery cursor is for steady-state
-        // promotion only; using it here could consume the cursor entry as
-        // look-ahead, fill the remaining bound from the wrapped prefix, and
-        // silently omit a READY head without detecting overflow.
-        final List<ShardStore.KeyValue> entries = scanAllReadyEntries(scanLimit);
-        if (entries.size() > maxReadyEntries) {
-            throw new IllegalStateException("READY index exceeds scheduler recovery bound");
-        }
-        final Map<DestinationLaneId, ScheduleWorkItem> byLane = new HashMap<>();
-        final Map<DestinationLaneId, DiscoveredHead> discovered = new HashMap<>();
-        final List<DestinationLaneId> activeOrder = new ArrayList<>();
-        for (ShardStore.KeyValue entry : entries) {
-            final ReadyProjection projection = decodeReadyProjection(entry);
-            if (byLane.put(projection.lane().laneId(), projection.item()) != null) {
-                throw new IllegalStateException("multiple READY heads for Lane: " + projection.lane().laneId());
+        final RuntimeSnapshot before = runtimeSnapshot();
+        final Map<DestinationLaneId, List<ScheduleWorkItem>> queuesBefore = delegate.queueSnapshot();
+        try {
+            final int scanLimit = maxReadyEntries == Integer.MAX_VALUE
+                    ? Integer.MAX_VALUE : Math.addExact(maxReadyEntries, 1);
+            // Recovery is a complete bounded pass over the authoritative READY
+            // namespace.  The rotating discovery cursor is for steady-state
+            // promotion only; using it here could consume the cursor entry as
+            // look-ahead, fill the remaining bound from the wrapped prefix, and
+            // silently omit a READY head without detecting overflow.
+            final List<ShardStore.KeyValue> entries = scanAllReadyEntries(scanLimit);
+            if (entries.size() > maxReadyEntries) {
+                throw new IllegalStateException("READY index exceeds scheduler recovery bound");
             }
-            discovered.put(projection.lane().laneId(),
-                    new DiscoveredHead(projection.item(), projection.readyKey()));
-            activeOrder.add(projection.lane().laneId());
+            final Map<DestinationLaneId, ScheduleWorkItem> byLane = new HashMap<>();
+            final Map<DestinationLaneId, DiscoveredHead> discovered = new HashMap<>();
+            final List<DestinationLaneId> activeOrder = new ArrayList<>();
+            for (ShardStore.KeyValue entry : entries) {
+                final ReadyProjection projection = decodeReadyProjection(entry);
+                if (byLane.put(projection.lane().laneId(), projection.item()) != null) {
+                    throw new IllegalStateException("multiple READY heads for Lane: "
+                            + projection.lane().laneId());
+                }
+                discovered.put(projection.lane().laneId(),
+                        new DiscoveredHead(projection.item(), projection.readyKey()));
+                activeOrder.add(projection.lane().laneId());
+            }
+            delegate.replacePending(new ArrayList<>(byLane.values()));
+            delegate.rebuildActiveRing(activeOrder);
+            discoveredHeads.clear();
+            discoveredHeads.putAll(discovered);
+            recoveryFirstPass = true;
+            recoveryServed.clear();
+            if (entries.isEmpty()) {
+                lastScannedReadyKey = null;
+            } else {
+                lastScannedReadyKey = entries.get(entries.size() - 1).key();
+            }
+            persist();
+            return byLane.size();
+        } catch (RuntimeException failure) {
+            rollbackRuntime(before, List.of(), List.of(), null, failure, queuesBefore);
+            throw failure;
         }
-        delegate.replacePending(new ArrayList<>(byLane.values()));
-        delegate.rebuildActiveRing(activeOrder);
-        discoveredHeads.clear();
-        discoveredHeads.putAll(discovered);
-        recoveryFirstPass = true;
-        recoveryServed.clear();
-        if (entries.isEmpty()) {
-            lastScannedReadyKey = null;
-        } else {
-            lastScannedReadyKey = entries.get(entries.size() - 1).key();
-        }
-        persist();
-        return byLane.size();
     }
 
     /**
@@ -298,7 +306,7 @@ public final class PersistentLaneScheduler {
             }
             return List.copyOf(toOffer);
         } catch (RuntimeException failure) {
-            rollbackRuntime(before, List.of(), offered, null, failure);
+            rollbackRuntime(before, List.of(), offered, null, failure, null);
             throw failure;
         }
     }
@@ -342,7 +350,7 @@ public final class PersistentLaneScheduler {
             persist();
             return result;
         } catch (RuntimeException failure) {
-            rollbackRuntime(before, result, List.of(), null, failure);
+            rollbackRuntime(before, result, List.of(), null, failure, null);
             throw failure;
         }
     }
@@ -370,7 +378,8 @@ public final class PersistentLaneScheduler {
                                  final List<ScheduleWorkItem> polled,
                                  final List<ScheduleWorkItem> offered,
                                  final DestinationLaneId restoreLaneId,
-                                 final RuntimeException original) {
+                                 final RuntimeException original,
+                                 final Map<DestinationLaneId, List<ScheduleWorkItem>> queueSnapshot) {
         try {
             if (!offered.isEmpty()) {
                 delegate.rollbackOffers(offered);
@@ -398,6 +407,9 @@ public final class PersistentLaneScheduler {
                         delegate.markBlocked(restoreLaneId);
                     }
                 }
+            }
+            if (queueSnapshot != null) {
+                delegate.restoreQueues(queueSnapshot);
             }
             delegate.rebuildActiveRing(snapshot.ringOrder());
             delegate.restore(snapshot.schedulerSnapshot());
@@ -431,7 +443,7 @@ public final class PersistentLaneScheduler {
             recoveryServed.clear();
             persist();
         } catch (RuntimeException failure) {
-            rollbackRuntime(before, List.of(), List.of(), laneId, failure);
+            rollbackRuntime(before, List.of(), List.of(), laneId, failure, null);
             throw failure;
         }
     }
@@ -446,7 +458,7 @@ public final class PersistentLaneScheduler {
             recoveryServed.clear();
             persist();
         } catch (RuntimeException failure) {
-            rollbackRuntime(before, List.of(), List.of(), laneId, failure);
+            rollbackRuntime(before, List.of(), List.of(), laneId, failure, null);
             throw failure;
         }
     }
