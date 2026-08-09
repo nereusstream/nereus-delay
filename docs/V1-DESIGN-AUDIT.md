@@ -2568,6 +2568,9 @@ monotonic one-second record/encoded-byte budget；拒绝只停止本次 scan，�
 和 `SloObservationOutboxExportRateTest`。该 rate state 在进程重启后不伪装成持久
 collector authority，生产配额、merge/export 和 evidence-gap projection 仍须外部
 证据闭合。
+其窗口初始化改为显式状态位，不再把 `Long.MIN_VALUE` 当作时钟哨兵；因此合法的
+`Long.MIN_VALUE` 首个单调时间戳不会在下一次 export turn 重置已用预算。回归用例为
+`SloObservationOutboxExportRateTest.treatsLongMinimumAsARealWindowStart`。
 本地 `SloObservationCollector` 还把相同 `(sampleId,startDigest)` 的 at-least-once
 记录合并为 deterministic projection：Start bytes 漂移 fail closed，Final 继续
 使用 Registry 的 direction-aware conservative merge；配置

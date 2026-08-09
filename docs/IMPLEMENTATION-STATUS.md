@@ -2573,6 +2573,12 @@ embedded compatibility seams; production wiring still must supply the required
 reconstruction from Message/Admission authority, production collector
 merge/export and metric publication remain release blockers.
 
+The export-rate state now uses an explicit initialized bit rather than a clock
+value sentinel, so `Long.MIN_VALUE` is a valid first monotonic timestamp and
+cannot reset the window on the next call. `SloObservationOutboxExportRateTest`
+`treatsLongMinimumAsARealWindowStart` covers the boundary while preserving the
+same checked regression and per-window budget fences.
+
 `SloObservationOutboxStore.reconcileDurableStarts(...)` now provides the local recovery
 materialization seam for an authority-supplied exact Start set. It sorts by sample ID,
 collapses byte-identical duplicate inputs, rejects conflicting Starts before mutation,

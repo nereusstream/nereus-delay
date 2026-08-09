@@ -16,8 +16,9 @@ public final class SloObservationOutboxExportRate {
 
     private final Limits limits;
     private final LongSupplier monotonicNanos;
-    private long windowStartNanos = Long.MIN_VALUE;
-    private long lastNowNanos = Long.MIN_VALUE;
+    private boolean initialized;
+    private long windowStartNanos;
+    private long lastNowNanos;
     private long exportedRecords;
     private long exportedBytes;
 
@@ -36,8 +37,9 @@ public final class SloObservationOutboxExportRate {
             throw new IllegalArgumentException("SLO export usage cannot be negative");
         }
         final long now = monotonicNanos.getAsLong();
-        if (windowStartNanos == Long.MIN_VALUE) {
+        if (!initialized) {
             windowStartNanos = now;
+            initialized = true;
         } else if (now < lastNowNanos) {
             throw new IllegalStateException("SLO export clock regressed");
         } else {

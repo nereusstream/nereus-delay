@@ -31,4 +31,16 @@ class SloObservationOutboxExportRateTest {
         now.set(99);
         assertThrows(IllegalStateException.class, () -> rate.tryAcquire(1, 1));
     }
+
+    @Test
+    void treatsLongMinimumAsARealWindowStart() {
+        final AtomicLong now = new AtomicLong(Long.MIN_VALUE);
+        final SloObservationOutboxExportRate rate = new SloObservationOutboxExportRate(
+                new SloObservationOutboxExportRate.Limits(2, 100), now::get);
+
+        assertTrue(rate.tryAcquire(1, 60));
+        now.set(Long.MIN_VALUE + 1);
+        assertFalse(rate.tryAcquire(2, 1));
+        assertFalse(rate.tryAcquire(1, 41));
+    }
 }
