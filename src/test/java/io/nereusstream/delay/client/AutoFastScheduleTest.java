@@ -27,6 +27,7 @@ import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.StableErrorV1;
 import io.nereusstream.delay.protocol.TargetPartitionHashInputV1;
+import io.nereusstream.delay.protocol.TargetPartitionHashV1;
 import io.nereusstream.delay.protocol.TargetPartitionPolicyV1;
 import io.nereusstream.delay.protocol.TimingCapabilityV1;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
@@ -110,6 +111,49 @@ class AutoFastScheduleTest {
     }
 
     @Test
+    void hashOnlyNativeSelectionRecomputesTheSignedPartition() throws Exception {
+        final Fixture base = fixture();
+        final PulsarMetadataV1 metadata = new PulsarMetadataV1(null, null, Bytes.utf8("native-ordering-key"),
+                List.of());
+        final ProfileSemanticEnvelopeV1 destination = destination(base.candidate.capabilityProfile().ref(),
+                base.target, TargetPartitionPolicyV1.HASH_ONLY, List.of(), TargetPartitionHashInputV1.ORDERING_KEY);
+        final ScheduleIntentV1 intent = ScheduleIntentV1.create(destination.ref(),
+                new RetryPolicyRefV1(Bytes.utf8("autofast-hash-retry"), 1, bytes(32, 30)),
+                4_000, 9_000, DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, new byte[0], base.payload,
+                null, AdapterMetadataV1.pulsar(metadata), null, null);
+        final PreparedCommand command = PreparedCommand.scheduleV1(base.shard, intent, 10_000);
+        final TrustedUtcIntervalEvidence issuedAt = new TrustedUtcIntervalEvidence(2_000, 2_010,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("autofast-hash-clock"),
+                1, 2, 3, Bytes.sha256(Bytes.utf8("autofast-hash-sample")), 0, null);
+        final int expectedPartition = (int) TargetPartitionHashV1.partition(destination.ref(), 2,
+                metadata.orderingKey());
+        final NativeCapabilitySnapshotV1 expectedSnapshot = NativeCapabilitySnapshotV1.create(destination.ref(),
+                base.candidate.capabilityProfile().ref(), base.target, expectedPartition, bytes(32, 40), 1, 1,
+                bytes(32, 41), bytes(32, 42), bytes(32, 43), issuedAt, 9_000, 1, base.keyPair.getPrivate());
+        final AutoFastSchedule.NativeCandidate expectedCandidate = new AutoFastSchedule.NativeCandidate(destination,
+                base.candidate.capabilityProfile(), base.target, expectedPartition, base.payload, metadata, null,
+                4_000, 5_000, expectedSnapshot, base.keyPair.getPublic(), true);
+        final int wrongPartition = expectedPartition == 0 ? 1 : 0;
+        final NativeCapabilitySnapshotV1 wrongSnapshot = NativeCapabilitySnapshotV1.create(destination.ref(),
+                base.candidate.capabilityProfile().ref(), base.target, wrongPartition, bytes(32, 40), 1, 1,
+                bytes(32, 41), bytes(32, 42), bytes(32, 43), issuedAt, 9_000, 1, base.keyPair.getPrivate());
+        final AutoFastSchedule.NativeCandidate wrongCandidate = new AutoFastSchedule.NativeCandidate(destination,
+                base.candidate.capabilityProfile(), base.target, wrongPartition, base.payload, metadata, null,
+                4_000, 5_000, wrongSnapshot, base.keyPair.getPublic(), true);
+
+        try (EmbeddedDelayService service = base.service(tempDir.resolve("hash-only-valid"))) {
+            assertFalse(service.prepareAutoFast(AutoFastSchedule.withNativeCandidate(command, expectedCandidate))
+                    .isManaged());
+        }
+        try (EmbeddedDelayService service = base.service(tempDir.resolve("hash-only-wrong"))) {
+            final PreparedSubmissionV1 prepared = service.prepareAutoFast(
+                    AutoFastSchedule.withNativeCandidate(command, wrongCandidate));
+            assertTrue(prepared.isManaged());
+            assertArrayEquals(service.prepareManagedSubmissionV1(command).managedFrame(), prepared.managedFrame());
+        }
+    }
+
+    @Test
     void malformedPreparationExposesAStablePreparationFailure() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 10);
         final PreparedCommand legacy = PreparedCommand.schedule(shard,
@@ -152,9 +196,17 @@ class AutoFastScheduleTest {
 
     private static ProfileSemanticEnvelopeV1 destination(final io.nereusstream.delay.protocol.ProfileRefV1 capability,
                                                          final PulsarBrokerResourceIdentityV1 target) {
+        return destination(capability, target, TargetPartitionPolicyV1.EXPLICIT_ONLY, List.of(0),
+                TargetPartitionHashInputV1.ORDERING_KEY);
+    }
+
+    private static ProfileSemanticEnvelopeV1 destination(final io.nereusstream.delay.protocol.ProfileRefV1 capability,
+                                                         final PulsarBrokerResourceIdentityV1 target,
+                                                         final TargetPartitionPolicyV1 policy,
+                                                         final List<Integer> allowedPartitions,
+                                                         final TargetPartitionHashInputV1 hashInput) {
         final DestinationProfileSemanticV1 body = new DestinationProfileSemanticV1(AdapterKindV1.PULSAR,
-                BrokerResourceIdentityV1.pulsar(target), 2, TargetPartitionPolicyV1.EXPLICIT_ONLY,
-                TargetPartitionHashInputV1.ORDERING_KEY, List.of(0), capability, 1, 0, 20,
+                BrokerResourceIdentityV1.pulsar(target), 2, policy, hashInput, allowedPartitions, capability, 1, 0, 20,
                 bytes(32, 50), 1_024, 512, 512, 1, Bytes.utf8("autofast-destination"), 0, 0, 1,
                 bytes(32, 51));
         return new ProfileSemanticEnvelopeV1(ProfileKindV1.DESTINATION, Bytes.utf8("autofast-destination"),

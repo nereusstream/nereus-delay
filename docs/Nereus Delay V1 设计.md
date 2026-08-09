@@ -382,6 +382,13 @@ NativePreparedDelivery:
 
 Native credential authority 在线下 snapshot issuer 用一个 Oxia transaction 同时 compare current Head triplet 并对 exact generation 的 `CredentialBindingProtectionV1.nativeCapabilityProtectionUntil` 做 monotonic max-CAS，durable reread 后才线性化；protection-before-rotation 允许该 bounded old-generation snapshot，rotation-before-protection 则拒绝 stale issuer。`prepareAutoFast` 只消费已分发且未过期的 signed snapshot，所以仍是 zero I/O。等价 Credential Binding 轮换不追溯撤销已经签发的 snapshot；它只阻止新 snapshot 使用旧 generation。旧 binding/audit material 必须保留到 protectionUntil、所有可能已取得 Producer ownership 的 native request 和 quiescence 都结束。snapshot 不是紧急吊销：紧急停止要撤销 Pulsar resource guard/实际 credential，Producer 已接管的竞态仍是 uncertain。
 
+`prepareAutoFast` 不把 signed snapshot 中的 `physicalPartition` 当作独立的路由授权。对于
+`HASH_ONLY`，以及 `EXPLICIT_OR_HASH` 中未命中允许显式集合的候选，它必须从 exact managed
+Command 的 adapter metadata 或 Delay Message ID 取出 Profile 指定的 routing bytes，按
+`TARGET_PARTITION_HASH_V1` 重新计算并逐字比较；不匹配即在任何网络 I/O 前回退到同一份
+managed Prepared Command。该公式由 `TargetPartitionHashV1` 与 Shard Log Admission
+共用，避免 native snapshot 伪造一个合法范围内但错误的目标分区。
+
 `submit` 的所有结果都带 exact prepared type/identity/hash。Producer ownership 前必须验证 full snapshot signature/expiry/projections、guard prerequisite，以及 SDK credential provider 解析出的 immutable version/public-fingerprint digest 等于 snapshot；expiry、普通 prerequisite 失效、credential drift 分别返回 `NATIVE_PREPARED_SUBMISSION_EXPIRED`、`AUTO_FAST_PREREQUISITE_UNAVAILABLE`、`CREDENTIAL_BINDING_DRIFT` 的 `NativeDefinitelyNotQueued` 和 exact local non-persistence proof。Producer ownership 后的 response loss 返回指向同一 prepared object 的 `NativeEnqueueUncertain`，retry 复用原 bytes/ID，不重新 prepare。超过 inline/native limit 的调用方显式使用 managed Large Payload API；AUTO_FAST 不隐藏 reserve/upload/attest/commit 多阶段协议。
 
 ### 6.1 Enqueue outcome

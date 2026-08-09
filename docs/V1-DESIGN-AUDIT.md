@@ -423,7 +423,10 @@ payload/metadata/timing/direct-authority 检查全部满足时生成新的 nonze
 delivery identity，并把 shifted Broker timestamp 固定进 native prepared bytes；任何
 native 不满足项都返回同一 strict managed frame；batch 逐项独立选择并保持输入顺序。
 `AutoFastScheduleTest` 覆盖 eligible native、exact managed fallback、batch 和 no Source
-Position admission。Snapshot issuer、
+Position admission。`HASH_ONLY` 及未命中显式集合的 `EXPLICIT_OR_HASH` 现在不再只信任
+signed snapshot 的分区字段；`EmbeddedDelayService` 从 exact managed Command 的
+adapter metadata/Delay Message ID 按共享 `TargetPartitionHashV1` 重算目标分区，
+错配在 Producer 前稳定回退 managed。Snapshot issuer、
 Oxia protection-before-rotation、Broker guard、Producer ownership 和 production
 response evidence 仍是外部 release gate。Native adapter 若配置
 `CredentialFingerprintProvider`，会在 Producer ownership 前解析当前凭据指纹并

@@ -307,11 +307,8 @@ public final class PublishAdmissionBody {
                     : nullableBytes(metadata.pulsar().partitionKey());
             case DELAY_MESSAGE_ID -> descriptor.messageId();
         };
-        final byte[] digest = Bytes.sha256(Bytes.utf8("nereus-delay-target-partition-v1"),
-                Bytes.lp32(destinationRef.profileId()), Bytes.u64beBits(destinationRef.version()),
-                Bytes.lp32(routingBytes));
-        final long expectedPartition = Long.remainderUnsigned(Bytes.readU64be(digest, 0),
-                Integer.toUnsignedLong(destinationProfile.targetPartitionCount()));
+        final long expectedPartition = TargetPartitionHashV1.partition(destinationRef,
+                destinationProfile.targetPartitionCount(), routingBytes);
         if (physicalPartition != expectedPartition) {
             throw new IllegalArgumentException("Publish Admission physical partition hash mismatch");
         }

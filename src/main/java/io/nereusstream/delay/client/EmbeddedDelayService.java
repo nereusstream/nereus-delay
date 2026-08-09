@@ -57,6 +57,8 @@ import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.StableErrorV1;
 import io.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
+import io.nereusstream.delay.protocol.TargetPartitionHashInputV1;
+import io.nereusstream.delay.protocol.TargetPartitionHashV1;
 import io.nereusstream.delay.protocol.TimingCapabilityV1;
 import io.nereusstream.delay.protocol.UploadHandleKindV1;
 import io.nereusstream.delay.ownership.ControlOperationAuthority;
@@ -421,14 +423,21 @@ public final class EmbeddedDelayService implements DelayClient {
                 return null;
             }
             final var snapshot = candidate.capabilitySnapshot();
+            final boolean explicitPartition = destination.allowedExplicitPartitions()
+                    .contains(candidate.physicalPartition());
+            final boolean partitionPolicyMatches = switch (destination.targetPartitionPolicy()) {
+                case EXPLICIT_ONLY -> explicitPartition;
+                case HASH_ONLY, EXPLICIT_OR_HASH -> explicitPartition
+                        || TargetPartitionHashV1.partition(destinationEnvelope.ref(),
+                        destination.targetPartitionCount(), nativeRoutingBytes(request, candidate,
+                                destination.targetPartitionHashInput())) == candidate.physicalPartition();
+            };
             if (!destinationEnvelope.ref().equals(snapshot.destination())
                     || !capabilityEnvelope.ref().equals(snapshot.capability())
                     || !snapshot.target().equals(candidate.target())
                     || snapshot.physicalPartition() != candidate.physicalPartition()
                     || candidate.physicalPartition() >= destination.targetPartitionCount()
-                    || (destination.targetPartitionPolicy()
-                    != io.nereusstream.delay.protocol.TargetPartitionPolicyV1.HASH_ONLY
-                    && !destination.allowedExplicitPartitions().contains(candidate.physicalPartition()))
+                    || !partitionPolicyMatches
                     || !snapshot.verifySignature(candidate.issuerKey())) {
                 return null;
             }
@@ -457,6 +466,20 @@ public final class EmbeddedDelayService implements DelayClient {
             // has already been validated and is returned by the caller.
             return null;
         }
+    }
+
+    private static byte[] nativeRoutingBytes(final AutoFastSchedule request,
+                                             final AutoFastSchedule.NativeCandidate candidate,
+                                             final TargetPartitionHashInputV1 hashInput) {
+        return switch (hashInput) {
+            case ORDERING_KEY -> nullableBytes(candidate.metadata().orderingKey());
+            case ADAPTER_MESSAGE_KEY -> nullableBytes(candidate.metadata().partitionKey());
+            case DELAY_MESSAGE_ID -> request.managedCommand().delayMessageId().bytes();
+        };
+    }
+
+    private static byte[] nullableBytes(final byte[] value) {
+        return value == null ? new byte[0] : value;
     }
 
     private static byte[] nextNativeDeliveryId() {
