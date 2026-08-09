@@ -1945,6 +1945,11 @@ collector authority，生产配额、merge/export 和 evidence-gap projection �
 覆盖 bad-evidence 单调性、Start drift 和 snapshot 排序。它不替代生产 collector
 的持久化、授权和 metric publication。
 
+SLO 文档与 Registry 的 native 时间字段也已对齐：`native_handoff_ack_lag` 的起点是
+`NativePreparedDelivery` field 10 的未平移 business `deliverAt`，field 11 的 shifted
+Broker `deliverAt` 只用于 Broker visibility 语义；V1 native wire 没有独立的
+`actionAt` 字段，不能在实现或审计中凭空引入该 API 名称。
+
 Large-payload reservation 的本地读取也采用同一条组合身份边界：`id_cf/RESERVATION`
 key 中的 reservationId 必须与 `PayloadReservation` 值一致，值中的 ShardId 必须与
 当前 Delay Shard 一致；按 messageId 的 bounded lookup 在超界或发现多个 reservation

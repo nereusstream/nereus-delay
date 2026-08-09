@@ -2813,7 +2813,7 @@ lagUpper = max(0, admissionSuccessObserved.latest - pathStart)
 
 SLO 判定使用保守 `lagUpper`。若进程在 Admission WAL sync 后、Final outbox sync 前崩溃，recovery 从仍可证明的 Admission 与 Message start 重建同一 sample ID，并以恢复后的 later observation 或 `BAD_UNQUALIFIED_TIME` 收口；它只能把样本算得更差，不能丢掉或倒填更早时间。Broker-enforced Pulsar consumer eligibility 另以 business `deliverAt` 为 start，不能用早期 handoff Admission 冒充 visibility SLO。
 
-`AUTO_FAST` native 没有 Shard/Admission，因此绝不能进入 `due_admission_lag`。它单独记录 `native_handoff_ack_lag`：start 是 exact `NativePreparedDelivery.actionAt`，success 是 pinned Broker durable `NativeDeliveryReceipt`；definitive-not-queued、uncertain 或 threshold 内无 receipt 为 bad sample。business visibility 仍由 guard 以 `deliverAt` 独立证明。
+`AUTO_FAST` native 没有 Shard/Admission，因此绝不能进入 `due_admission_lag`。它单独记录 `native_handoff_ack_lag`：start 是 `NativePreparedDelivery` Registry field 10 的未平移 business `deliverAt`（V1 native wire 没有另一个 `actionAt` 字段），success 是 pinned Broker durable `NativeDeliveryReceipt`；definitive-not-queued、uncertain 或 threshold 内无 receipt 为 bad sample。不能用 field 11 的 shifted Broker `deliverAt` 代替该起点。business visibility 仍由 guard 以同一个 business `deliverAt` 独立证明。
 
 `population=HEALTHY` 只包含在整个 eligible-to-admission interval 内满足 `admissionGate=OPEN`、`runtimeReadiness=READY`、Trusted UTC 有效、capacity envelope 未触发 safety gate、且 ordered message 未被更早 unresolved head 阻塞的 record。其它 accepted due record 仍进入 `population=ALL_ACCEPTED`，并以 mutually exclusive reason `ADMIN_PAUSED|ORDERING_BROKEN|CLOSED|RECOVERING_EVIDENCE|CAPABILITY_BLOCKED|CLOCK_GATED|ORDER_HEAD_BLOCKED|CAPACITY_GATED|ADAPTER_LANE_FULL` 暴露 `due_not_admitted_age`、count 与 bytes；任何排除都必须可从 durable/runtime state 重建，不能静默移出分母。
 
@@ -2847,7 +2847,7 @@ V1 SLI 的线性化事件固定如下：
 | `command_queued_latency` | SDK 把 exact `PreparedCommand` 交给 ingress Adapter；`commandId + commandHash + physicalEnqueueAttemptId` | exact Broker durability receipt；`DEFINITELY_NOT_QUEUED`、`ENQUEUE_UNCERTAIN` 或 threshold 内无 receipt 都是该 attempt 的 bad sample |
 | `command_applied_latency` | `brokerPersistedAt`；typed Source Position | result/state/position 的 RocksDB sync；stable `REJECTED` 也算成功完成，另按 result code分层 |
 | `due_admission_lag` | §20.2 的 ordinary `deliverAt` 或 managed handoff `actionAt`；exact `(objectiveDigest, delayMessageId, generation, pathStart, path)` | exact Admission mutation WAL sync 后的 first qualified durable Final observation；`HEALTHY/ALL_ACCEPTED` population 分开 |
-| `native_handoff_ack_lag` | `NativePreparedDelivery.actionAt`；`nativeDeliveryId + submissionHash` | guarded Broker durable Native receipt；native path 从不伪造 managed Admission |
+| `native_handoff_ack_lag` | `NativePreparedDelivery` field 10 的未平移 business `deliverAt`；`nativeDeliveryId + submissionHash` | guarded Broker durable Native receipt；native path 从不伪造 managed Admission |
 | `query_latency` | authenticated Gateway request accepted；`requestId` | barrier-qualified closed typed response；`awaitApplied` 同时报告 queue-to-barrier wait 与 barrier-complete 后 response latency，不把长轮询等待藏进普通 query |
 | `ownership_failover_rto` | fault cut 使旧 Owner gate 必须关闭；`shard + ownershipLossEpoch` | 新 Owner 达到 source Activation Barrier、CAS `ACTIVE_FOR_COMMANDS` 并完成第一个 bounded source turn；每 Lane publish-ready 另做 `lane_recovery_ready_rto` SLI |
 | `local_disk_loss_rto` | active Store 被证明 unreadable/lost；`shard + lostStoreIncarnation` | checkpoint restore + full replay + barrier + `ACTIVE_FOR_COMMANDS` + first source turn |
