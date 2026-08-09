@@ -138,6 +138,15 @@ proves repeated failure after the boundary. This closes only the deterministic
 appender seam; Broker Journal ownership, fencing and durability evidence remain
 release gates.
 
+The generic bounded destination wrapper now rejects a malformed
+`CompletionStage` whose `whenComplete(...)` registration returns `null` (also
+when its fallback future view does so). The logical result is `UNKNOWN` and
+the physical reservation remains `ZOMBIE` until an explicit release, so a
+broken callback cannot leave an in-flight operation pending without a bounded
+ownership state. `BoundedDestinationPublishAdapterTest.nullWhenCompleteReturnIsTreatedAsUnobservedCompletion`
+proves the local fence; destination Broker completion/teardown attestation
+remains an external release gate.
+
 The Pulsar Journal resolver now preserves the same fail-closed evidence rule
 after `RETIRED_NOT_PUBLISHED`: the marker cannot suppress the Broker
 last-sequence check or the two retention predicates. A late sequence at or

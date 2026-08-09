@@ -210,7 +210,10 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                                            final BiConsumer<? super DestinationPublishResult,
                                                    ? super Throwable> callback) {
         try {
-            raw.whenComplete(callback);
+            final CompletionStage<DestinationPublishResult> registered = raw.whenComplete(callback);
+            if (registered == null) {
+                throw new IllegalStateException("CompletionStage.whenComplete returned null");
+            }
             return;
         } catch (RuntimeException firstFailure) {
             try {
@@ -220,7 +223,10 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                 if (future == null) {
                     throw new IllegalStateException("CompletionStage returned a null CompletableFuture view");
                 }
-                future.whenComplete(callback);
+                final CompletableFuture<DestinationPublishResult> registered = future.whenComplete(callback);
+                if (registered == null) {
+                    throw new IllegalStateException("CompletableFuture.whenComplete returned null");
+                }
                 return;
             } catch (RuntimeException fallbackFailure) {
                 firstFailure.addSuppressed(fallbackFailure);

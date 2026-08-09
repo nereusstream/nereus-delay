@@ -135,6 +135,25 @@ class BoundedDestinationPublishAdapterTest {
     }
 
     @Test
+    void nullWhenCompleteReturnIsTreatedAsUnobservedCompletion() {
+        final DestinationLaneId lane = lane("null-when-complete");
+        final DestinationPhysicalAdmission admission = admission(lane, 2, 40, 1, 20);
+        admission.openReady(lane);
+        final DestinationPublishAdapter delegate = request -> new NullWhenCompleteFuture<>();
+        final BoundedDestinationPublishAdapter adapter = new BoundedDestinationPublishAdapter(
+                delegate, admission, Runnable::run);
+
+        final BoundedDestinationPublishAdapter.PublishCall call = adapter.submit(request(lane, 20));
+        final DestinationPublishResult result = call.outcome().toCompletableFuture().join();
+        assertEquals(DestinationPublishResult.Disposition.UNKNOWN, result.disposition());
+        assertEquals(StableCode.DESTINATION_OUTCOME_UNKNOWN, result.stableCode());
+        assertEquals(DestinationPhysicalAdmission.ReservationState.ZOMBIE, call.reservation().state());
+        assertEquals(1, admission.workerSnapshot().activeRequests());
+        assertTrue(call.releasePhysicalCharge());
+        assertEquals(0, admission.workerSnapshot().activeRequests());
+    }
+
+    @Test
     void pinnedAdapterRegistrationFailureRetainsPhysicalCharge() {
         final DestinationLaneId lane = lane("pinned-registration-failure");
         final DestinationPhysicalAdmission admission = admission(lane, 2, 40, 1, 20);
@@ -319,6 +338,15 @@ class BoundedDestinationPublishAdapterTest {
         @Override
         public <U> CompletableFuture<U> handle(
                 final java.util.function.BiFunction<? super T, Throwable, ? extends U> ignored) {
+            return null;
+        }
+    }
+
+    private static final class NullWhenCompleteFuture<T> extends CompletableFuture<T> {
+        @Override
+        public CompletableFuture<T> whenComplete(
+                final BiConsumer<? super T, ? super Throwable> action) {
+            super.whenComplete(action);
             return null;
         }
     }

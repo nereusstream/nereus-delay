@@ -147,6 +147,15 @@ repeated failure after exhaustion. This is local appender evidence only; the
 real Pulsar Journal position and Broker durability authority remain release
 blockers.
 
+The generic bounded destination adapter now treats a `CompletionStage` that
+returns `null` from `whenComplete(...)` (or from the fallback future view) as
+an unobserved physical operation. It returns `UNKNOWN`, marks the reservation
+as `ZOMBIE`, and keeps the request/byte charge until explicit physical release
+instead of leaving the logical outcome pending forever. `BoundedDestinationPublishAdapterTest`
+`nullWhenCompleteReturnIsTreatedAsUnobservedCompletion` covers this malformed
+callback-registration boundary. This is local wrapper evidence only; a real
+destination adapter must still provide Broker completion or teardown proof.
+
 Pulsar Journal resolution now also fails closed after a local retirement marker:
 `RETIRED_NOT_PUBLISHED` does not bypass the Broker last-sequence observation or
 the inactivity-horizon plus producer-snapshot retention predicates. A late
