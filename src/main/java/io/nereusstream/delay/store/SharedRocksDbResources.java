@@ -14,6 +14,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Process-level resources shared by all open shard DBs in one Worker. */
 public final class SharedRocksDbResources implements AutoCloseable {
+    private static final int SHARED_NATIVE_RESERVATION_COUNT = 2;
+
     static {
         RocksDbNativeLoader.load();
     }
@@ -31,6 +33,9 @@ public final class SharedRocksDbResources implements AutoCloseable {
     private final Semaphore checkpointUploadSlots;
     private final Semaphore checkpointDownloadSlots;
     private final Semaphore drainSlots;
+    private final WorkerNativeResourceLedger nativeResourceLedger;
+    private final WorkerNativeResourceLedger.Reservation sharedBlockCacheReservation;
+    private final WorkerNativeResourceLedger.Reservation sharedWriteBufferReservation;
     private final AtomicBoolean closed = new AtomicBoolean();
     /** Set after the in-flight check passes; all callers are then fenced. */
     private boolean closeStarted;
@@ -84,6 +89,21 @@ public final class SharedRocksDbResources implements AutoCloseable {
         }
         runtimeSafetyGate = envelope == null ? null
                 : new WorkerRuntimeSafetyGate(this.config, envelope, observation);
+        nativeResourceLedger = envelope == null ? null
+                : new WorkerNativeResourceLedger(envelope.maxRocksDbNativeBytes(), envelope.maxOtherNativeBytes());
+        if (nativeResourceLedger == null) {
+            sharedBlockCacheReservation = null;
+            sharedWriteBufferReservation = null;
+        } else {
+            // Reserve the configured shared native budgets before creating
+            // JNI objects.  The buckets are disjoint by construction: cache
+            // and mutable/immutable memtables cannot silently consume the
+            // other-native envelope.
+            sharedBlockCacheReservation = nativeResourceLedger.reserve("shared-block-cache",
+                    NativeResourceUsage.blockCache(this.config.sharedBlockCacheBytes()), 0);
+            sharedWriteBufferReservation = nativeResourceLedger.reserve("shared-write-buffer",
+                    NativeResourceUsage.memtable(this.config.sharedWriteBufferBudgetBytes()), 0);
+        }
         env = Env.getDefault();
         env.setBackgroundThreads(this.config.maxBackgroundJobs());
         blockCache = new LRUCache(this.config.sharedBlockCacheBytes());
@@ -123,6 +143,21 @@ public final class SharedRocksDbResources implements AutoCloseable {
 
     public RateLimiter rateLimiter() {
         return rateLimiter;
+    }
+
+    /** Returns the native bucket ledger for envelope-bound Workers. */
+    public synchronized WorkerNativeResourceLedger nativeResourceLedger() {
+        ensureOpen();
+        if (nativeResourceLedger == null) {
+            throw new IllegalStateException("native resource ledger requires a Worker resource envelope");
+        }
+        return nativeResourceLedger;
+    }
+
+    /** Reserves an explicitly attributed native allocation for one DB or runtime component. */
+    public synchronized WorkerNativeResourceLedger.Reservation reserveNativeResource(
+            final String allocationId, final NativeResourceUsage rocksDbUsage, final long otherNativeBytes) {
+        return nativeResourceLedger().reserve(allocationId, rocksDbUsage, otherNativeBytes);
     }
 
     /** Revalidates the startup envelope against a fresh runtime observation. */
@@ -350,7 +385,9 @@ public final class SharedRocksDbResources implements AutoCloseable {
         if (!closeStarted && (shardAcquireCount != 0 || openDbCount != 0 || ownedShardCount != 0
                 || !ownedShardIdentities.isEmpty()
                 || checkpointCreateCount != 0 || checkpointUploadCount != 0
-                || checkpointDownloadCount != 0 || drainCount != 0)) {
+                || checkpointDownloadCount != 0 || drainCount != 0
+                || (nativeResourceLedger != null
+                && nativeResourceLedger.snapshot().activeAllocations() != SHARED_NATIVE_RESERVATION_COUNT))) {
             throw new IllegalStateException("cannot close shared RocksDB resources while work is in flight");
         }
         closeStarted = true;
@@ -371,6 +408,9 @@ public final class SharedRocksDbResources implements AutoCloseable {
             try {
                 writeBufferManager.close();
                 writeBufferManagerClosed = true;
+                if (sharedWriteBufferReservation != null) {
+                    sharedWriteBufferReservation.close();
+                }
             } catch (RuntimeException failure) {
                 closeFailure = appendCloseFailure(closeFailure, failure);
             }
@@ -379,6 +419,9 @@ public final class SharedRocksDbResources implements AutoCloseable {
             try {
                 blockCache.close();
                 blockCacheClosed = true;
+                if (sharedBlockCacheReservation != null) {
+                    sharedBlockCacheReservation.close();
+                }
             } catch (RuntimeException failure) {
                 closeFailure = appendCloseFailure(closeFailure, failure);
             }

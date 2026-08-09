@@ -1267,14 +1267,19 @@ background pool；每个 DB 另外绑定 `maxBackgroundJobsPerDb` 以及非零
 `FileStore` 对应卷的最小可用空间。`ShardStore.physicalUsage()`/
 `requirePhysicalUsageWithin` 与 `RocksDbUsageLimitsTest`、
 `ShardStoreTest.physicalUsageProbeAndGuardObserveOneShardDb` 证明了这个本地
-guard。`WorkerRuntimeSafetyGate` 还把新鲜的 JVM/cgroup/FD/filesystem
+guard。`NativeResourceUsage`/`WorkerNativeResourceLedger` 又提供了互斥的
+RocksDB-native bucket attribution（shared block cache、memtable、table-reader
+metadata、pinned blocks/iterators、flush/compaction scratch）和独立的
+other-native bucket；`SharedRocksDbResources` 在 JNI 创建前预留 shared cache/WBM，
+并在对应 native close 后释放。`WorkerRuntimeSafetyGate` 还把新鲜的 JVM/cgroup/FD/filesystem
 observation 接入一个 sticky `ACTIVE -> DRAIN_OR_MIGRATE` 门；共享资源的
 ownership/restore slots 和 embedded Claim 在门未恢复前 fail closed，只有
 显式 empty-drain activation 才能重新开放。`WorkerRuntimeResourceMonitor`
 现在提供可关闭的 fixed-delay probe scheduler，并把 probe 异常和 envelope
-mismatch 路由回同一个 sticky gate；这仍不是每次 WriteBatch 的 native
-attribution/work-class reserve admission，也不替代真实 checkpoint/compaction
-调度和 Oxia placement authority；这些继续保持 release blocker。
+mismatch 路由回同一个 sticky gate；这仍不是每次 DB 的动态 RocksDB
+attribution、WriteBatch 的 work-class reserve admission，也不替代真实
+checkpoint/compaction 调度和 Oxia placement authority；这些继续保持 release
+blocker。
 
 Control Reserve 的本地投影也已覆盖 Registry 的 class 6：
 `meta_cf/CONTROL_RESERVE` 以 `CapacityVectorV1` 持久化 Broker system-writer
@@ -1502,8 +1507,11 @@ callback/source quiescence 仍由调用方和真实 transport 提供，超时保
 `DRAINING` 而不伪造成功。`OwnerDrainCoordinatorTest` 覆盖成功与 deadline
 失败边界。
 本地 Worker envelope 还会在创建 JNI 资源前检查显式 shared block cache 与
-WriteBufferManager 预算之和不超过认证的 RocksDB native 桶；聚焦回归覆盖
-拒绝路径。`WorkerRuntimeResourceProbe` 现在从 JVM、procfs、cgroup v1/v2
+WriteBufferManager 预算之和不超过认证的 RocksDB native 桶；
+`NativeResourceUsage`/`WorkerNativeResourceLedger` 将 block cache、memtable、
+table-reader metadata、pinned blocks/iterators、flush/compaction scratch
+保持互斥，并以 exact allocation identity 做 checked reserve/release；聚焦
+回归覆盖拒绝、重复 identity 和释放路径。`WorkerRuntimeResourceProbe` 现在从 JVM、procfs、cgroup v1/v2
 和 rootPath 对应的精确 FileStore 读取有限 runtime observation；`max`、缺失
 或 malformed limit 均 fail closed，`WorkerResourceEnvelope.validate` 再逐项
 检查 heap/direct/RSS/cgroup/FD/filesystem 交叉边界。`WorkerRuntimeSafetyGate`
@@ -1512,7 +1520,7 @@ activation；`WorkerRuntimeResourceMonitor` 将固定间隔 probe 接入同一 g
 probe 异常或 envelope mismatch 都会进入 drain/migrate，并可显式关闭调度器；
 `WorkerRuntimeResourceProbeTest`、`WorkerRuntimeSafetyGateTest` 与
 `WorkerRuntimeResourceMonitorTest` 覆盖解析、envelope rejection、周期探针
-生命周期和共享资源 ownership fencing。RocksDB native bucket attribution、
+生命周期和共享资源 ownership fencing。每 DB 的动态 RocksDB attribution、
 work-class reserve 和 write-time reserve admission 仍是 release gate。
 Lease validity additionally rejects negative observation times even when a
 caller reaches `OwnerLease.validAt` directly rather than through an authority
