@@ -85,7 +85,7 @@ class BoundedDestinationPublishAdapterTest {
     }
 
     @Test
-    void failedOrNullDelegateStageBecomesUnknownAndReleasesCharge() {
+    void failedOrNullDelegateStageRetainsChargeUntilExplicitRelease() {
         final DestinationLaneId lane = lane("failure");
         final DestinationPhysicalAdmission admission = admission(lane, 2, 40, 1, 20);
         admission.openReady(lane);
@@ -94,16 +94,24 @@ class BoundedDestinationPublishAdapterTest {
         };
         final BoundedDestinationPublishAdapter failingAdapter =
                 new BoundedDestinationPublishAdapter(failing, admission, Runnable::run);
-        final DestinationPublishResult failed = failingAdapter.publish(request(lane, 10)).toCompletableFuture().join();
+        final BoundedDestinationPublishAdapter.PublishCall failedCall =
+                failingAdapter.submit(request(lane, 10));
+        final DestinationPublishResult failed = failedCall.outcome().toCompletableFuture().join();
         assertEquals(DestinationPublishResult.Disposition.UNKNOWN, failed.disposition());
         assertEquals(StableCode.DESTINATION_OUTCOME_UNKNOWN, failed.stableCode());
-        assertEquals(0, admission.workerSnapshot().activeRequests());
+        assertEquals(DestinationPhysicalAdmission.ReservationState.ZOMBIE, failedCall.reservation().state());
+        assertEquals(1, admission.workerSnapshot().activeRequests());
+        assertTrue(failedCall.releasePhysicalCharge());
 
         final DestinationPublishAdapter nullStage = request -> null;
         final BoundedDestinationPublishAdapter nullAdapter =
                 new BoundedDestinationPublishAdapter(nullStage, admission, Runnable::run);
-        final DestinationPublishResult missing = nullAdapter.publish(request(lane, 10)).toCompletableFuture().join();
+        final BoundedDestinationPublishAdapter.PublishCall missingCall = nullAdapter.submit(request(lane, 10));
+        final DestinationPublishResult missing = missingCall.outcome().toCompletableFuture().join();
         assertEquals(DestinationPublishResult.Disposition.UNKNOWN, missing.disposition());
+        assertEquals(DestinationPhysicalAdmission.ReservationState.ZOMBIE, missingCall.reservation().state());
+        assertEquals(1, admission.workerSnapshot().activeRequests());
+        assertTrue(missingCall.releasePhysicalCharge());
         assertEquals(0, admission.workerSnapshot().activeRequests());
     }
 

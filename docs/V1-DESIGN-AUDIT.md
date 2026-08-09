@@ -20,6 +20,16 @@ V1 source-assignment contract. Focused evidence is
 `SourceActivationBarrierTest.legacyPulsarBarrierAllowsUnknownBatchShapeWithoutWeakeningIdentityFence`;
 real source assignment and Broker guard authority remain release gates.
 
+The physical-admission wrapper now fails closed for a generic delegate that
+throws before returning a stage or returns a null stage: neither condition is
+proof that Producer ownership was avoided. The wrapper preserves logical
+`UNKNOWN` and retains the physical request/byte charge until the returned
+`PublishCall` has a certified completion or fenced-teardown release; only the
+closed-gate and executor-rejection paths release before a delegate invocation.
+`BoundedDestinationPublishAdapterTest.failedOrNullDelegateStageRetainsChargeUntilExplicitRelease`
+covers both regressions. This is local admission evidence, not authenticated
+Broker ownership or provider teardown proof.
+
 The queued-receipt audit now has an executable local binding for the existing
 Registry rule: `QueuedReceiptQueryPolicy` computes `receipt_query_until` from
 Broker persistence time with checked arithmetic, and policy-bound Kafka/Pulsar

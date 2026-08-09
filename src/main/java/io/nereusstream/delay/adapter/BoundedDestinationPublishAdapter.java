@@ -142,7 +142,12 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                     try {
                         return new DelegateInvocation(delegate.publish(request), false);
                     } catch (RuntimeException exception) {
-                        return new DelegateInvocation(null, false);
+                        // A synchronous transport exception does not prove
+                        // that the request stopped before Producer/channel
+                        // ownership. Preserve the same unobserved marker used
+                        // by the pinned adapters so the physical charge is
+                        // retained until certified completion or teardown.
+                        return new DelegateInvocation(UnobservedDestinationPublishStage.unknown(), false);
                     }
                 },
                 () -> new DelegateInvocation(null, true));
@@ -152,6 +157,12 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
         }
         final CompletionStage<DestinationPublishResult> raw = invocation.stage();
         if (raw == null) {
+            // A null CompletionStage is not a non-persistence proof. A
+            // generic delegate may have acquired physical ownership before
+            // losing the stage, so retain the reservation as an unobserved
+            // operation rather than releasing it on logical UNKNOWN.
+            retainPhysicalCharge.set(true);
+            reservation.markZombie();
             outcome.complete(completedUnknownValue());
             return;
         }

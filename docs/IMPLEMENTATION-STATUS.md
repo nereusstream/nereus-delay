@@ -17,6 +17,16 @@ batch size. `SourceActivationBarrierTest`
 covers the compatibility path; this does not replace production Pulsar source
 assignment or Broker guard evidence.
 
+The generic `BoundedDestinationPublishAdapter` now treats a delegate that
+throws synchronously or returns no `CompletionStage` as an unobserved physical
+operation. It returns logical `UNKNOWN` while retaining the request/byte charge
+as `ZOMBIE`/in-flight until the caller's `PublishCall` receives certified
+completion or fenced-teardown release; only a closed gate or executor
+rejection is a pre-ownership release. `BoundedDestinationPublishAdapterTest`
+`failedOrNullDelegateStageRetainsChargeUntilExplicitRelease` covers both
+unobserved branches. This local wrapper evidence does not replace the
+production adapter's ownership, cancellation or teardown attestation.
+
 The local queued-receipt adapter seam now has a strict Route-policy path:
 `QueuedReceiptQueryPolicy` derives `receipt_query_until` only as checked addition
 of the authenticated Broker persistence time and the immutable policy window.
