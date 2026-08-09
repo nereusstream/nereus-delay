@@ -6488,7 +6488,7 @@ public final class DelayShard {
      * deliberate idempotent backfill; new turns use the joint business batch.
      */
     private void repairCommandAppliedStartAfterExistingApply(final SourcePosition position) {
-        if (sloObservationOutboxStore != null) {
+        if (commandAppliedSloObjective != null && sloObservationOutboxStore != null) {
             sloObservationOutboxStore.ensureCommandAppliedStart(commandAppliedSloObjective, position);
         }
     }

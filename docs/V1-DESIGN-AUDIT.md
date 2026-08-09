@@ -2337,6 +2337,11 @@ replay 和 joint abort。该实现仍只证明 shard-local atomicity；objective
 Message/Admission authority 驱动的 due Start、source-order recovery 编排和 production
 collector/export 仍是 release gate。
 
+该 repair 现在还按 objective 分支 fail closed：只配置 `DUE_ADMISSION_LAG` 的 shard
+重放已提交 Command 时不会把空的 command-applied objective 传入 factory，也不会凭空
+创建 command-applied sample。`DelayShardTest.commandReplayWithOnlyDueAdmissionObjectiveDoesNotMaterializeCommandAppliedStart`
+覆盖该配置边界；它仍只是本地 replay 证据，不替代生产 SLO authority。
+
 The source-ordered `PUBLISH_ADMISSION_V1` seam now accepts an immutable
 `DUE_ADMISSION_LAG` objective only for `ALL_ACCEPTED`. Typed Admission descriptor fields plus
 the local Profile/timing/shard-state gate determine the message ID, unsigned generation,

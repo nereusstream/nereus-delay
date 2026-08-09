@@ -3016,7 +3016,10 @@ outbox 的 record/byte envelope 在 RocksDB write 前预检，超限会使整个
 失败，不能只提交业务状态或只丢弃 SLO denominator。旧的无 objective 构造器保留为
 兼容 seam，不宣称已启用 production SLO；如果重放发现一个在 objective 激活前已经
 提交的 source turn 缺少 Start，只允许按同一 typed Source Position 做幂等补写，不能
-重新生成不同 sample identity。
+重新生成不同 sample identity。该 replay repair 只在
+`COMMAND_APPLIED_LATENCY` objective 实际存在时调用 command-applied Start factory；如果
+shard 只配置 `DUE_ADMISSION_LAG`，command replay 不得把空的 command objective 当作
+command-applied Start 物化输入。
 
 对 source-ordered `PUBLISH_ADMISSION_V1`，嵌入式实现还可注入一个
 `DUE_ADMISSION_LAG` 的 `ALL_ACCEPTED` objective。Admission descriptor 已经由签名、

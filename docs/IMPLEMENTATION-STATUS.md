@@ -2308,6 +2308,13 @@ rejection, replay and rollback paths. Objective/catalog authentication, due-admi
 materialization from Message/Admission authority, and production collector/export remain
 release blockers; constructors without an objective remain compatibility seams.
 
+The replay repair is now explicitly objective-gated: a shard configured only with
+`DUE_ADMISSION_LAG` does not call the command-applied Start factory with a null objective
+when an already committed client Command is replayed. `DelayShardTest`
+`commandReplayWithOnlyDueAdmissionObjectiveDoesNotMaterializeCommandAppliedStart` covers
+that configuration boundary; it keeps the due-admission outbox empty and the replay result
+idempotent. This is local configuration/replay evidence, not production SLO authority.
+
 The source-ordered `PUBLISH_ADMISSION_V1` seam now also accepts an immutable
 `DUE_ADMISSION_LAG` objective restricted to `ALL_ACCEPTED`. After the typed Admission
 descriptor and local Profile/timing/shard-state checks establish the message identity,

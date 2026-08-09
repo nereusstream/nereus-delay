@@ -176,6 +176,29 @@ class DelayShardTest {
     }
 
     @Test
+    void commandReplayWithOnlyDueAdmissionObjectiveDoesNotMaterializeCommandAppliedStart() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("due-admission-only-command-replay"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 47);
+        final SloObjectiveV1 dueObjective = dueAdmissionObjective();
+        final SloObservationOutboxLimits limits = new SloObservationOutboxLimits(8, 1L << 20);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("due-admission-only-replay-lane"));
+        final PreparedCommand command = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("due-admission-only-replay")), 9_000);
+        final SourcePosition position = position(shardId, 0, 1_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, null,
+                    null, null, null, null, null, dueObjective, limits);
+
+            assertEquals(StableCode.SCHEDULED, shard.apply(command, position).stableCode());
+            assertEquals(StableCode.SCHEDULED, shard.apply(command, position).stableCode());
+            assertTrue(new SloObservationOutboxStore(store).scan(10).isEmpty());
+        }
+    }
+
+    @Test
     void commandAppliedOutboxCapacityAbortsTheBusinessBatch() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(
                 tempDir.resolve("command-applied-slo-capacity"));
