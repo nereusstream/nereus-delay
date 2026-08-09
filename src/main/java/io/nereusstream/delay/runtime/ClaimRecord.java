@@ -2,6 +2,7 @@ package io.nereusstream.delay.runtime;
 
 import io.nereusstream.delay.protocol.AuthorIdentity;
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.ClaimMaterializationV1;
 import io.nereusstream.delay.protocol.ClaimResultBody;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DestinationLaneId;
@@ -185,6 +186,16 @@ public final class ClaimRecord {
 
     public byte[] preconditionBytes() {
         return Bytes.copy(preconditionBytes);
+    }
+
+    /** Returns whether this Claim retained the complete replay-stable materialization. */
+    public boolean hasMaterialization() {
+        return ClaimResultBody.decodePrecondition(preconditionBytes).hasMaterialization();
+    }
+
+    /** Returns the validated typed materialization retained by this Claim. */
+    public ClaimMaterializationV1 materialization() {
+        return ClaimResultBody.decodePrecondition(preconditionBytes).materializationValue();
     }
 
     public byte[] timelineKey() {

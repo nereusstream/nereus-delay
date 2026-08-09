@@ -144,10 +144,9 @@ public final class ClaimResultBody {
         }
         final byte[] materialization = hasMaterialization ? nested(field(fields, 10), 10) : new byte[0];
         if (hasMaterialization) {
-            validateMaterialization(materialization);
+            final ClaimMaterializationV1 materializationValue = ClaimMaterializationV1.decode(materialization);
             final byte[] materializationDigest = fixed(field(fields, 11), 11, HASH_LENGTH);
-            final byte[] expected = Bytes.sha256(Bytes.utf8("nereus-delay-claim-materialization-v1\0"),
-                    materialization);
+            final byte[] expected = materializationValue.materializationDigest();
             if (!Arrays.equals(materializationDigest, expected)) {
                 throw new IllegalArgumentException("Claim materialization digest mismatch");
             }
@@ -172,64 +171,6 @@ public final class ClaimResultBody {
             throw new IllegalArgumentException("non-canonical ClaimPrecondition");
         }
         return result;
-    }
-
-    private static void validateMaterialization(final byte[] encoded) {
-        final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "ClaimMaterialization");
-        requireExact(fields, 11, "ClaimMaterialization");
-        validateProfileRef(nested(field(fields, 1), 1), ProfileKindV1.DESTINATION);
-        validateProfileRef(nested(field(fields, 2), 2), ProfileKindV1.DELIVERY_CAPABILITY);
-        validateBrokerResource(nested(field(fields, 3), 3));
-        bodyUnsigned(field(fields, 4), 4);
-        fixed(field(fields, 5), 5, MESSAGE_ID_LENGTH);
-        intValue(field(fields, 6), 6);
-        validatePayload(nested(field(fields, 7), 7));
-        validateAdapterMetadata(nested(field(fields, 8), 8));
-        bodyUnsigned(field(fields, 9), 9);
-        bodyUnsigned(field(fields, 10), 10);
-        bodyUnsigned(field(fields, 11), 11);
-        if (!Arrays.equals(encoded, canonical(fields))) {
-            throw new IllegalArgumentException("non-canonical ClaimMaterialization");
-        }
-    }
-
-    private static void validateProfileRef(final byte[] encoded, final ProfileKindV1 expectedKind) {
-        if (ProfileRefV1.decode(encoded).profileKind() != expectedKind) {
-            throw new IllegalArgumentException("ClaimMaterialization Profile kind does not match its slot");
-        }
-    }
-
-    private static void validateBrokerResource(final byte[] encoded) {
-        BrokerResourceIdentityV1.decode(encoded);
-    }
-
-    private static void validatePayload(final byte[] encoded) {
-        final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "PayloadForPublish");
-        if (fields.size() != 3 || !has(fields, 1) || !has(fields, 2)
-                || has(fields, 3) == has(fields, 4)) {
-            throw new IllegalArgumentException("invalid PayloadForPublish shape");
-        }
-        final long length = bodyUnsigned(field(fields, 1), 1);
-        final byte[] hash = fixed(field(fields, 2), 2, HASH_LENGTH);
-        if (has(fields, 3)) {
-            final byte[] inline = bytes(field(fields, 3), 3);
-            if (inline.length != length || !Arrays.equals(hash, Bytes.sha256(inline))) {
-                throw new IllegalArgumentException("inline payload length/hash mismatch");
-            }
-        } else {
-            final CommittedPayloadDescriptorV1 object = CommittedPayloadDescriptorV1.decode(
-                    nested(field(fields, 4), 4));
-            if (length != object.length() || !Arrays.equals(hash, object.payloadSha256())) {
-                throw new IllegalArgumentException("object payload length/hash mismatch");
-            }
-        }
-        if (!Arrays.equals(encoded, canonical(fields))) {
-            throw new IllegalArgumentException("non-canonical PayloadForPublish");
-        }
-    }
-
-    private static void validateAdapterMetadata(final byte[] encoded) {
-        AdapterMetadataV1.decode(encoded);
     }
 
     private static void validateChargeVector(final byte[] encoded) {
@@ -399,6 +340,13 @@ public final class ClaimResultBody {
         public byte[] originalTimelineKeySha256() { return copy(originalTimelineKeySha256); }
         public boolean hasMaterialization() { return materialization.length != 0; }
         public byte[] materialization() { return copy(materialization); }
+        /** Returns the validated typed ClaimMaterializationV1 projection. */
+        public ClaimMaterializationV1 materializationValue() {
+            if (!hasMaterialization()) {
+                throw new IllegalStateException("ClaimPrecondition has no materialization");
+            }
+            return ClaimMaterializationV1.decode(materialization);
+        }
         public byte[] claimedCharge() { return copy(claimedCharge); }
         public long claimDeadline() { return claimDeadline; }
         public byte[] ownerIdentity() { return copy(ownerIdentity); }

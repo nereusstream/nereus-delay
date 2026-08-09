@@ -524,10 +524,9 @@ public final class PublishAdmissionBody {
             throw new IllegalArgumentException("Publish Admission requires Claim materialization");
         }
         final byte[] materialization = nested(field(fields, 10), 10);
-        validateMaterialization(materialization);
+        final ClaimMaterializationV1 materializationValue = ClaimMaterializationV1.decode(materialization);
         final byte[] materializationDigest = bytes(field(fields, 11), 11);
-        final byte[] expectedDigest = Bytes.sha256(Bytes.utf8("nereus-delay-claim-materialization-v1\0"),
-                materialization);
+        final byte[] expectedDigest = materializationValue.materializationDigest();
         if (!Arrays.equals(materializationDigest, expectedDigest)) {
             throw new IllegalArgumentException("Claim materialization digest mismatch");
         }
@@ -550,27 +549,7 @@ public final class PublishAdmissionBody {
     }
 
     private static void validatePayload(final byte[] encoded) {
-        final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "PayloadForPublish");
-        if (fields.size() != 3) {
-            throw new IllegalArgumentException("PayloadForPublish must contain one payload branch");
-        }
-        final long length = unsigned(field(fields, 1), 1);
-        final byte[] hash = bytes(field(fields, 2), 2);
-        if (!has(fields, 3) && !has(fields, 4)) {
-            throw new IllegalArgumentException("PayloadForPublish has no payload branch");
-        }
-        if (has(fields, 3)) {
-            final byte[] inline = bytes(field(fields, 3), 3);
-            if (inline.length != length || !Arrays.equals(hash, Bytes.sha256(inline))) {
-                throw new IllegalArgumentException("inline payload length/hash mismatch");
-            }
-        } else {
-            final CommittedPayloadDescriptorV1 object = CommittedPayloadDescriptorV1.decode(
-                    nested(field(fields, 4), 4));
-            if (length != object.length() || !Arrays.equals(hash, object.payloadSha256())) {
-                throw new IllegalArgumentException("object payload length/hash mismatch");
-            }
-        }
+        PayloadForPublishV1.decode(encoded);
     }
 
     private static void validateAdapterMetadata(final byte[] encoded) {
@@ -591,22 +570,6 @@ public final class PublishAdmissionBody {
         if (unsigned(field(fields, 9), 9) != 1) {
             throw new IllegalArgumentException("only managed DeliveryMode is supported");
         }
-    }
-
-    private static void validateMaterialization(final byte[] encoded) {
-        final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "ClaimMaterialization");
-        requireExactFields(fields, 11, "ClaimMaterialization");
-        validateProfileRef(nested(field(fields, 1), 1), ProfileKindV1.DESTINATION);
-        validateProfileRef(nested(field(fields, 2), 2), ProfileKindV1.DELIVERY_CAPABILITY);
-        validateBrokerResource(nested(field(fields, 3), 3));
-        unsigned(field(fields, 4), 4);
-        fixed(bytes(field(fields, 5), 5), MESSAGE_ID_LENGTH, 5);
-        intValue(field(fields, 6), 6);
-        validatePayload(nested(field(fields, 7), 7));
-        validateAdapterMetadata(nested(field(fields, 8), 8));
-        unsigned(field(fields, 9), 9);
-        unsigned(field(fields, 10), 10);
-        unsigned(field(fields, 11), 11);
     }
 
     private static void validateChargeVector(final byte[] encoded) {
@@ -1051,6 +1014,11 @@ public final class PublishAdmissionBody {
                 emitVarint(output, 11, unsigned(field(fields, 20), 20));
             });
         }
+
+        /** Returns the typed replay-stable Claim materialization projection. */
+        public ClaimMaterializationV1 materialization() {
+            return ClaimMaterializationV1.decode(materializationBytes());
+        }
     }
 
     public static final class ReadyCertificate {
@@ -1215,6 +1183,11 @@ public final class PublishAdmissionBody {
 
         public byte[] materialization() {
             return copy(materialization);
+        }
+
+        /** Returns the validated typed Claim materialization projection. */
+        public ClaimMaterializationV1 materializationValue() {
+            return ClaimMaterializationV1.decode(materialization);
         }
     }
 

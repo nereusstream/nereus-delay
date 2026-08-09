@@ -119,6 +119,16 @@ Registry slot kinds: field 1 is `DESTINATION` and field 2 is
 Profile reference from crossing the replay-stable Claim/Admission boundary;
 the negative vectors are in `ClaimResultBodyTest` and `PublishAdmissionBodyTest`.
 
+The replay-stable nested values now have one shared local implementation:
+`PayloadForPublishV1` owns the inline/object union and length/SHA-256 equality,
+and `ClaimMaterializationV1` owns the complete 11-field canonical projection,
+uint32 partition/generation range, target-resource/metadata branch agreement,
+nonnegative timing constraints and domain-separated digest. `ClaimResultBody`,
+`PublishAdmissionBody` and the Prepared Publish Descriptor all decode through
+these types, while `ClaimRecord` exposes the typed projection only after its
+durable Claim precondition has passed. This is stronger local codec evidence,
+not proof of Profile/catalog, Object Store, Adapter or Producer authority.
+
 The `ExactResourceIdentityV1` retirement projection now applies the same
 branch-specific Object Store Profile fence as the committed/checkpoint
 resource codecs. Payload-object and checkpoint lengths follow the Registry's
