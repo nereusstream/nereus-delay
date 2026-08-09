@@ -48,6 +48,22 @@ class WorkerRuntimeResourceProbeTest {
     }
 
     @Test
+    void countsLiveProcessDescriptorsOnlyFromARealProcDirectory() throws Exception {
+        final Path descriptors = tempDir.resolve("fd");
+        Files.createDirectory(descriptors);
+        Files.createFile(descriptors.resolve("0"));
+        Files.createFile(descriptors.resolve("1"));
+        Files.createFile(descriptors.resolve("2"));
+
+        assertEquals(3, WorkerRuntimeResourceProbe.readCurrentProcessOpenFiles(descriptors));
+
+        final Path link = tempDir.resolve("fd-link");
+        Files.createSymbolicLink(link, descriptors);
+        assertThrows(IllegalStateException.class,
+                () -> WorkerRuntimeResourceProbe.readCurrentProcessOpenFiles(link));
+    }
+
+    @Test
     void runtimeObservationMustFitCertifiedEnvelope() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("resources"));
         final WorkerResourceEnvelope envelope = new WorkerResourceEnvelope(
@@ -66,5 +82,29 @@ class WorkerRuntimeResourceProbeTest {
                         512L * 1024 * 1024, 64L * 1024 * 1024, 128L * 1024 * 1024,
                         1024L * 1024 * 1024, 10_000, 10L * 1024 * 1024 * 1024,
                         8L * 1024 * 1024 * 1024)));
+    }
+
+    @Test
+    void runtimeObservationPreservesProcessFdHeadroom() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("fd-headroom"));
+        final WorkerResourceEnvelope envelope = new WorkerResourceEnvelope(
+                256L * 1024 * 1024, 128L * 1024 * 1024, 128L * 1024 * 1024, 64L * 1024 * 1024,
+                64L * 1024 * 1024, 640L * 1024 * 1024, 64L * 1024 * 1024, 1024L * 1024 * 1024,
+                10_000, 1_000, 10L * 1024 * 1024 * 1024, 2L * 1024 * 1024 * 1024,
+                256L * 1024 * 1024, 256L * 1024 * 1024, 16L * 1024 * 1024, 10_000);
+
+        assertDoesNotThrow(() -> envelope.validate(config, new WorkerRuntimeResourceObservation(
+                128L * 1024 * 1024, 64L * 1024 * 1024, 128L * 1024 * 1024,
+                1024L * 1024 * 1024, 10_000, 9_000,
+                10L * 1024 * 1024 * 1024, 8L * 1024 * 1024 * 1024)));
+        assertThrows(IllegalArgumentException.class, () -> envelope.validate(config,
+                new WorkerRuntimeResourceObservation(
+                        128L * 1024 * 1024, 64L * 1024 * 1024, 128L * 1024 * 1024,
+                        1024L * 1024 * 1024, 10_000, 9_001,
+                        10L * 1024 * 1024 * 1024, 8L * 1024 * 1024 * 1024)));
+        assertThrows(IllegalArgumentException.class, () -> new WorkerRuntimeResourceObservation(
+                128L * 1024 * 1024, 64L * 1024 * 1024, 128L * 1024 * 1024,
+                1024L * 1024 * 1024, 10_000, 10_001,
+                10L * 1024 * 1024 * 1024, 8L * 1024 * 1024 * 1024));
     }
 }

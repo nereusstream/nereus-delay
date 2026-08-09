@@ -1877,9 +1877,11 @@ WriteBufferManager 预算之和不超过认证的 RocksDB native 桶；
 table-reader metadata、pinned blocks/iterators、flush/compaction scratch
 保持互斥，并以 exact allocation identity 做 checked reserve/release；聚焦
 回归覆盖拒绝、重复 identity 和释放路径。`WorkerRuntimeResourceProbe` 现在从 JVM、procfs、cgroup v1/v2
-和 rootPath 对应的精确 FileStore 读取有限 runtime observation；`max`、缺失
-或 malformed limit 均 fail closed，`WorkerResourceEnvelope.validate` 再逐项
-检查 heap/direct/RSS/cgroup/FD/filesystem 交叉边界。`WorkerRuntimeSafetyGate`
+和 rootPath 对应的精确 FileStore 读取有限 runtime observation，并读取真实
+`/proc/self/fd` entry count；`max`、缺失、非真实 FD 目录或 malformed limit
+均 fail closed，`WorkerResourceEnvelope.validate` 再以 checked arithmetic
+检查 `currentProcessOpenFiles + fdHeadroom <= maxProcessOpenFiles` 以及
+heap/direct/RSS/cgroup/FD/filesystem 交叉边界。`WorkerRuntimeSafetyGate`
 提供 fresh observation 的 sticky drain/migrate 状态和 explicit empty-drain
 activation；`WorkerRuntimeResourceMonitor` 将固定间隔 probe 接入同一 gate，
 probe 异常或 envelope mismatch 都会进入 drain/migrate，并可显式关闭调度器；

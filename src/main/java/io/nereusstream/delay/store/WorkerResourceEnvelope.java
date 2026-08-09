@@ -128,6 +128,15 @@ public record WorkerResourceEnvelope(
         if (observation.maxProcessOpenFiles() < maxProcessOpenFiles) {
             throw new IllegalArgumentException("certified open-file limit exceeds runtime limit");
         }
+        final long processFdWithHeadroom;
+        try {
+            processFdWithHeadroom = Math.addExact(observation.currentProcessOpenFiles(), fdHeadroom);
+        } catch (ArithmeticException overflow) {
+            throw new IllegalArgumentException("current process FD envelope overflows", overflow);
+        }
+        if (processFdWithHeadroom > maxProcessOpenFiles) {
+            throw new IllegalArgumentException("current process open files exceed FD headroom");
+        }
         if (observation.maxFilesystemBytes() < maxFilesystemBytes) {
             throw new IllegalArgumentException("certified filesystem capacity exceeds runtime capacity");
         }

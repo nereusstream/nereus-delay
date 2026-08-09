@@ -22,6 +22,7 @@ import java.util.Objects;
 public final class WorkerRuntimeResourceProbe {
     private static final Path PROC_STATUS = Path.of("/proc/self/status");
     private static final Path PROC_LIMITS = Path.of("/proc/self/limits");
+    private static final Path PROC_FD = Path.of("/proc/self/fd");
     private static final List<Path> CGROUP_MEMORY_LIMITS = List.of(
             Path.of("/sys/fs/cgroup/memory.max"),
             Path.of("/sys/fs/cgroup/memory/memory.limit_in_bytes"));
@@ -34,7 +35,7 @@ public final class WorkerRuntimeResourceProbe {
     public static WorkerRuntimeResourceObservation observe(final Path rootPath) {
         Objects.requireNonNull(rootPath, "rootPath");
         return observe(rootPath, PROC_STATUS, PROC_LIMITS, CGROUP_MEMORY_LIMITS,
-                ManagementFactory.getRuntimeMXBean());
+                PROC_FD, ManagementFactory.getRuntimeMXBean());
     }
 
     static WorkerRuntimeResourceObservation observe(final Path rootPath,
@@ -42,16 +43,27 @@ public final class WorkerRuntimeResourceProbe {
                                                     final Path procLimits,
                                                     final List<Path> cgroupMemoryLimits,
                                                     final RuntimeMXBean runtimeMxBean) {
+        return observe(rootPath, procStatus, procLimits, cgroupMemoryLimits, PROC_FD, runtimeMxBean);
+    }
+
+    static WorkerRuntimeResourceObservation observe(final Path rootPath,
+                                                    final Path procStatus,
+                                                    final Path procLimits,
+                                                    final List<Path> cgroupMemoryLimits,
+                                                    final Path procFdDirectory,
+                                                    final RuntimeMXBean runtimeMxBean) {
         Objects.requireNonNull(rootPath, "rootPath");
         Objects.requireNonNull(procStatus, "procStatus");
         Objects.requireNonNull(procLimits, "procLimits");
         Objects.requireNonNull(cgroupMemoryLimits, "cgroupMemoryLimits");
+        Objects.requireNonNull(procFdDirectory, "procFdDirectory");
         Objects.requireNonNull(runtimeMxBean, "runtimeMxBean");
         final long maxHeap = Runtime.getRuntime().maxMemory();
         final long maxDirect = readMaxDirectMemory(runtimeMxBean);
         final long rss = readProcessRss(procStatus);
         final long cgroup = readCgroupMemoryLimit(cgroupMemoryLimits);
         final long openFiles = readMaxProcessOpenFiles(procLimits);
+        final long currentOpenFiles = readCurrentProcessOpenFiles(procFdDirectory);
         final long filesystemBytes;
         final long usableBytes;
         try {
@@ -62,7 +74,7 @@ public final class WorkerRuntimeResourceProbe {
             throw new IllegalStateException("cannot inspect filesystem for " + rootPath, exception);
         }
         return new WorkerRuntimeResourceObservation(maxHeap, maxDirect, rss, cgroup, openFiles,
-                filesystemBytes, usableBytes);
+                currentOpenFiles, filesystemBytes, usableBytes);
     }
 
     static long readMaxDirectMemory(final RuntimeMXBean runtimeMxBean) {
@@ -101,6 +113,23 @@ public final class WorkerRuntimeResourceProbe {
             }
         }
         throw new IllegalStateException("Max open files is missing from " + procLimits);
+    }
+
+    /** Reads the live process descriptor count from an authoritative procfs directory. */
+    static long readCurrentProcessOpenFiles(final Path procFdDirectory) {
+        Objects.requireNonNull(procFdDirectory, "procFdDirectory");
+        if (Files.isSymbolicLink(procFdDirectory)
+                || !Files.isDirectory(procFdDirectory, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            throw new IllegalStateException("process FD directory is missing or not a real directory: "
+                    + procFdDirectory);
+        }
+        try (var entries = Files.list(procFdDirectory)) {
+            final long count = entries.count();
+            return positive(count, "current process open files");
+        } catch (IOException exception) {
+            throw new IllegalStateException("cannot read current process open files from " + procFdDirectory,
+                    exception);
+        }
     }
 
     static long readCgroupMemoryLimit(final List<Path> candidates) {

@@ -2802,7 +2802,7 @@ maxProcessRssBytes + minContainerHeadroomBytes
   <= effectiveCgroupMemoryLimitBytes
 ```
 
-runtime limit unknown/unbounded、container limit 小于认证值或任一 checked sum overflow 都 startup fail。FD/WAL/MANIFEST/SST/temp bytes 同样同时证明 per-DB、process 和 exact filesystem/quota 三层；`rootPath` 所在卷的安全 watermark 不是 `df` 全机推测。
+runtime limit unknown/unbounded、container limit 小于认证值或任一 checked sum overflow 都 startup fail。Runtime probe 还必须读取当前进程的实际打开文件描述符数量（Linux 为 `/proc/self/fd` entry count），并以 checked 不等式保持 `currentProcessOpenFiles + minProcessFdHeadroom <= maxProcessOpenFiles`；目录不可读、非真实目录或计数溢出都 fail closed。FD/WAL/MANIFEST/SST/temp bytes 同样同时证明 per-DB、process 和 exact filesystem/quota 三层；`rootPath` 所在卷的安全 watermark 不是 `df` 全机推测。
 
 进程级 native reservation 的 release 也必须是 fail-closed 的小事务：先 checked 计算两个 successor bucket，确认不会 underflow，再移除 allocation identity 并发布新总量。若 release arithmetic 失败，reservation 仍保持 active、handle 仍可重试，不能先删 identity 再留下不可归因的容量泄漏。
 
