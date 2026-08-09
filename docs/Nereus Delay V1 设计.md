@@ -410,6 +410,10 @@ result 无法构造成合法 receipt（包括 malformed projection、缺少 resp
 或 query boundary 与 Broker persistence time 冲突）时，不能让异常穿透 Future，也
 不能生成非持久化 proof；必须返回带同一 Prepared Command/physical attempt 的
 `ENQUEUE_UNCERTAIN`，并把 `INTEGRITY_ERROR` 仅作为 bounded diagnostic。
+这一条也适用于 managed submission wrapper 收到的异步 exceptional
+`CompletionStage` 或空 stage value：wrapper 必须使用同一 physical attempt
+收敛为 `ENQUEUE_UNCERTAIN`，不能把可能已经取得 Producer ownership 的调用泄漏为
+exceptional Future，也不能切换到 native branch。
 
 合法 non-persistence proof 仅为 Producer ownership 前本地拒绝、Kafka authenticated definitive rejection、Pulsar pre-persistence guard rejection，或已认证 Adapter/library 的 pre-ownership cancel。Timeout、Future cancel、丢 callback、连接/进程退出及未验证 exception 没有 proof branch，必须 `ENQUEUE_UNCERTAIN`。
 

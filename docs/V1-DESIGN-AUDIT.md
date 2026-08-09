@@ -1096,12 +1096,14 @@ Producer 可能已经取得 ownership 之后，不能泄漏为 exceptional Futur
 evidence 与 absence classifier 仍是发布门禁。
 
 `PreparedSubmissionAdapter` 也在 managed wrapper 层保留该 fail-closed 语义：
-managed adapter 返回 null、同步抛出，或其 `CompletionStage.thenApply(...)`
-注册失败时，结果固定收敛为 managed `ENQUEUE_UNCERTAIN`，并保留原始
+managed adapter 返回 null、同步抛出、异步 exceptional completion，或其
+`CompletionStage.handle(...)` 注册失败时，结果固定收敛为 managed
+`ENQUEUE_UNCERTAIN`，并保留原始
 Prepared Command 与 physical attempt id。包装层不能把可能已经进入 Producer
 ownership 的 managed 调用泄漏为 exceptional Future，也不能切换到 native
 branch；`NativeSubmissionAdapterTest.preparedSubmissionWrapperRegistrationFailureRemainsManagedUncertain`
-覆盖这条边界。若 physical attempt 本身无效，即使 wrapper 正在异常路径上，
+和 `NativeSubmissionAdapterTest.preparedSubmissionWrapperExceptionalStageRemainsManagedUncertain`
+覆盖注册失败与异步完成失败两条边界。若 physical attempt 本身无效，即使 wrapper 正在异常路径上，
 也固定回到本地 `INVALID_PREPARED_COMMAND` definitive rejection，而不构造
 缺少 attempt identity 的 uncertain branch；`NativeSubmissionAdapterTest.preparedSubmissionWrapperInvalidAttemptRemainsLocalDefinite`
 覆盖该优先级。wrapper 自身现在也在 close 请求上 fence managed branch；close

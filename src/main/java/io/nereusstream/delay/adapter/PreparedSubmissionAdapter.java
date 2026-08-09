@@ -51,31 +51,32 @@ public final class PreparedSubmissionAdapter implements AutoCloseable {
     private CompletionStage<SubmissionOutcomeMessageV1> submitManaged(final PreparedCommand command,
                                                                         final long receiptQueryUntilEpochMs,
                                                                         final byte[] physicalEnqueueAttemptId) {
-            try {
-                final CompletionStage<EnqueueOutcomeMessageV1> managedOutcome =
-                        managedIngress.enqueueOutcomeV1(command, receiptQueryUntilEpochMs, physicalEnqueueAttemptId);
-                if (managedOutcome == null) {
-                    return managedFailure(command, physicalEnqueueAttemptId);
-                }
-                try {
-                    return managedOutcome.thenApply(SubmissionOutcomeMessageV1::managed);
-                } catch (RuntimeException registrationFailure) {
-                    // The managed transport may already have reached Producer
-                    // ownership. A wrapper callback-registration failure is
-                    // therefore not evidence of non-persistence.
-                    return managedFailure(command, physicalEnqueueAttemptId);
-                }
-            } catch (RuntimeException submissionFailure) {
-                // Preserve the same conservative boundary if an adapter
-                // throws while returning its CompletionStage.
+        try {
+            final CompletionStage<EnqueueOutcomeMessageV1> managedOutcome =
+                    managedIngress.enqueueOutcomeV1(command, receiptQueryUntilEpochMs, physicalEnqueueAttemptId);
+            if (managedOutcome == null) {
                 return managedFailure(command, physicalEnqueueAttemptId);
             }
+            try {
+                return managedOutcome.handle((outcome, error) -> managedOutcome(command,
+                        physicalEnqueueAttemptId, outcome, error));
+            } catch (RuntimeException registrationFailure) {
+                // The managed transport may already have reached Producer
+                // ownership. A wrapper callback-registration failure is
+                // therefore not evidence of non-persistence.
+                return managedFailure(command, physicalEnqueueAttemptId);
+            }
+        } catch (RuntimeException submissionFailure) {
+            // Preserve the same conservative boundary if an adapter throws
+            // while returning its CompletionStage.
+            return managedFailure(command, physicalEnqueueAttemptId);
+        }
     }
 
     private static CompletionStage<SubmissionOutcomeMessageV1> managedFailure(final PreparedCommand command,
                                                                                  final byte[] physicalAttemptId) {
         try {
-            return uncertainManaged(command, physicalAttemptId);
+            return CompletableFuture.completedFuture(managedFailureOutcome(command, physicalAttemptId));
         } catch (RuntimeException invalidAttempt) {
             // An invalid physical attempt cannot identify a Producer call;
             // keep the local rejection definitive even on a broken wrapper.
@@ -84,11 +85,38 @@ public final class PreparedSubmissionAdapter implements AutoCloseable {
         }
     }
 
-    private static CompletionStage<SubmissionOutcomeMessageV1> uncertainManaged(final PreparedCommand command,
-                                                                                  final byte[] physicalAttemptId) {
-        return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
-                WireIngressOutcomeSupport.uncertain(command, physicalAttemptId,
-                        StableCode.ENQUEUE_RESULT_UNCERTAIN, null)));
+    /**
+     * Projects both synchronous and asynchronous managed-stage failures.  A
+     * failed CompletionStage is not proof that the Broker rejected a request:
+     * the managed transport may already have transferred Producer ownership.
+     */
+    private static SubmissionOutcomeMessageV1 managedOutcome(final PreparedCommand command,
+                                                              final byte[] physicalAttemptId,
+                                                              final EnqueueOutcomeMessageV1 outcome,
+                                                              final Throwable error) {
+        if (error != null || outcome == null) {
+            return managedFailureOutcome(command, physicalAttemptId);
+        }
+        try {
+            return SubmissionOutcomeMessageV1.managed(outcome);
+        } catch (RuntimeException malformedOutcome) {
+            // A malformed stage value is no more evidence of non-persistence
+            // than an exceptional completion.
+            return managedFailureOutcome(command, physicalAttemptId);
+        }
+    }
+
+    private static SubmissionOutcomeMessageV1 managedFailureOutcome(final PreparedCommand command,
+                                                                     final byte[] physicalAttemptId) {
+        try {
+            return SubmissionOutcomeMessageV1.managed(WireIngressOutcomeSupport.uncertain(command,
+                    physicalAttemptId, StableCode.ENQUEUE_RESULT_UNCERTAIN, null));
+        } catch (RuntimeException invalidAttempt) {
+            // An invalid physical attempt cannot identify a Producer call;
+            // keep the local rejection definitive even on a broken wrapper.
+            return SubmissionOutcomeMessageV1.managed(
+                    WireIngressOutcomeSupport.localDefinite(command, StableCode.INVALID_PREPARED_COMMAND));
+        }
     }
 
     @Override
