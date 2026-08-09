@@ -356,6 +356,8 @@ nonzero physical attempt，再分配 Source Position 并投影为 managed
 路径返回 typed `AUTO_FAST_PREREQUISITE_UNAVAILABLE`，不会把 native prepared
 submission 悄悄改走 managed。完整 `prepareAutoFast` 的 capability-snapshot
 issuer、Producer ownership 和 Broker evidence 仍是外部 release gate。
+调用注入 adapter 时不持有 embedded service monitor，阻塞的 transport 不会
+阻止 close fence；仅本地 embedded admission 在 monitor 内完成。
 close 还会在 DB close 失败后继续尝试释放共享 RocksDB 资源，并把后续失败作为
 suppressed exception 聚合；成功 drain 后服务立即进入 closed 状态，避免部分关闭
 时继续触碰已关闭的 Store。该清理顺序仍只属于 embedded seam，不等于真实

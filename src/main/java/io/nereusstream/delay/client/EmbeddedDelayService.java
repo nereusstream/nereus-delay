@@ -295,7 +295,7 @@ public final class EmbeddedDelayService implements DelayClient {
     }
 
     @Override
-    public synchronized CompletionStage<SubmissionOutcomeMessageV1> submit(
+    public CompletionStage<SubmissionOutcomeMessageV1> submit(
             final PreparedSubmissionV1 submission, final long receiptQueryUntilEpochMs,
             final byte[] physicalEnqueueAttemptId) {
         ensureOpen();
@@ -303,17 +303,20 @@ public final class EmbeddedDelayService implements DelayClient {
         if (preparedSubmissionAdapter != null) {
             return preparedSubmissionAdapter.submit(submission, receiptQueryUntilEpochMs, physicalEnqueueAttemptId);
         }
-        if (!submission.isManaged()) {
-            return CompletableFuture.completedFuture(nativeSubmissionUnavailable(submission.nativePrepared()));
+        synchronized (this) {
+            ensureOpen();
+            if (!submission.isManaged()) {
+                return CompletableFuture.completedFuture(nativeSubmissionUnavailable(submission.nativePrepared()));
+            }
+            final PreparedCommand command = CommandCodec.decodeFrameV1(submission.managedFrame());
+            if (!validPhysicalAttempt(physicalEnqueueAttemptId)) {
+                return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(localDefiniteOutcome(command,
+                        StableCode.INVALID_PREPARED_COMMAND)));
+            }
+            final EnqueueOutcome outcome = enqueueInternal(command, true);
+            return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(enqueueOutcomeV1(outcome,
+                    receiptQueryUntilEpochMs, physicalEnqueueAttemptId)));
         }
-        final PreparedCommand command = CommandCodec.decodeFrameV1(submission.managedFrame());
-        if (!validPhysicalAttempt(physicalEnqueueAttemptId)) {
-            return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(localDefiniteOutcome(command,
-                    StableCode.INVALID_PREPARED_COMMAND)));
-        }
-        final EnqueueOutcome outcome = enqueueInternal(command, true);
-        return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(enqueueOutcomeV1(outcome,
-                receiptQueryUntilEpochMs, physicalEnqueueAttemptId)));
     }
 
     @Override

@@ -60,6 +60,8 @@ typed as `AUTO_FAST_PREREQUISITE_UNAVAILABLE` rather than silently selecting
 managed; full `prepareAutoFast` capability-snapshot issuance remains an
 external adapter/authority release gate. The focused evidence is
 `EmbeddedDelayServiceTest.managedPreparedSubmissionKeepsStrictBranchAndAttemptFence`.
+The embedded facade does not hold its service monitor while invoking an
+injected adapter, so a blocked transport cannot prevent the close fence.
 
 The local in-memory Owner Lease authority advances the raw `uint64` epoch
 domain through the high-bit boundary and fails only when the all-ones value is
