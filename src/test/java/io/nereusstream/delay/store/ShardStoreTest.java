@@ -30,6 +30,7 @@ import org.rocksdb.ColumnFamilyOptions;
 import org.rocksdb.DBOptions;
 import org.rocksdb.Options;
 import org.rocksdb.RocksDB;
+import org.rocksdb.RocksDBException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -104,6 +105,21 @@ class ShardStoreTest {
             assertThrows(IllegalStateException.class, store::latestSequenceNumber);
         } finally {
             resources.close();
+        }
+    }
+
+    @Test
+    void nativeWriteFailureHasATypeDistinctFromSemanticStaleness() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("write-failure-type"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 19);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final ShardStore.RocksDbWriteFailure failure = assertThrows(ShardStore.RocksDbWriteFailure.class,
+                    () -> store.write(batch -> {
+                        throw new RocksDBException("synthetic native write failure");
+                    }));
+            assertEquals("RocksDB write failed", failure.getMessage());
+            assertTrue(failure.getCause() instanceof RocksDBException);
         }
     }
 

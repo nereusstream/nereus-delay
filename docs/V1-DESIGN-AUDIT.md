@@ -2343,6 +2343,13 @@ the local typed atomicity seam; the descriptor digest is not external eligibilit
 and immediate accepted-due Starts, HEALTHY/full-interval proof, production Profile/Oxia/Broker
 authority and collector/export remain release gates.
 
+The same stale-result catch is now fenced against native storage errors: `ShardStore.write`
+exposes a typed `RocksDbWriteFailure`, and the Admission apply path propagates it before any
+fallback result or source-position advance. `ShardStoreTest.nativeWriteFailureHasATypeDistinctFromSemanticStaleness`
+covers the boundary. This preserves the design invariant that a failed synchronous WriteBatch
+stops before Source ACK; it is local failure classification, not evidence of a production
+RocksDB or source-consumer deployment.
+
 SLO 文档与 Registry 的 native 时间字段也已对齐：`native_handoff_ack_lag` 的起点是
 `NativePreparedDelivery` field 10 的未平移 business `deliverAt`，field 11 的 shifted
 Broker `deliverAt` 只用于 Broker visibility 语义；V1 native wire 没有独立的

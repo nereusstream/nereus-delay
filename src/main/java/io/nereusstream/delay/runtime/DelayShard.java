@@ -2238,6 +2238,11 @@ public final class DelayShard {
             admitPublishAttempt(admission, sourcePosition, result, replayState.claimMayBeMissing(),
                     replayState.uncertainRetryAdmission(), admissionCharge, dueAdmissionStart);
             return result;
+        } catch (ShardStore.RocksDbWriteFailure exception) {
+            // A native WriteBatch failure is not semantic staleness.  Let the
+            // caller stop before Source ACK instead of trying to persist a
+            // second result that would incorrectly advance the source cursor.
+            throw exception;
         } catch (SloStartMaterializationException exception) {
             throw exception;
         } catch (IllegalArgumentException | IllegalStateException exception) {

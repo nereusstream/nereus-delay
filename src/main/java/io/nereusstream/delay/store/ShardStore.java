@@ -104,6 +104,22 @@ public final class ShardStore implements AutoCloseable {
     private StoreRecoveryMetadata recoveryMetadata;
     private long closedIngressDeadlineThrough;
 
+    /**
+     * A synchronous RocksDB write failed after the batch operation reached the
+     * store boundary.  This remains an {@link IllegalStateException} for
+     * callers that already treat native-store failures as fatal, but its
+     * concrete type lets replay handlers distinguish storage failure from a
+     * semantic stale-state rejection.  In particular, a failed WriteBatch must
+     * never be converted into a persisted logical result and source advance.
+     */
+    public static final class RocksDbWriteFailure extends IllegalStateException {
+        private static final long serialVersionUID = 1L;
+
+        private RocksDbWriteFailure(final String message, final Throwable cause) {
+            super(message, cause);
+        }
+    }
+
     private ShardStore(final ShardStoreConfig config, final ShardId shardId, final Path dbPath,
                         final SharedRocksDbResources resources, final RocksDB db, final DBOptions dbOptions,
                         final ColumnFamilyHandle defaultColumnFamilyHandle,
@@ -1486,7 +1502,7 @@ public final class ShardStore implements AutoCloseable {
                 throw new IllegalStateException("cannot reread ingress fence state after write", exception);
             }
         } catch (RocksDBException exception) {
-            throw new IllegalStateException("RocksDB write failed", exception);
+            throw new RocksDbWriteFailure("RocksDB write failed", exception);
         }
     }
 
