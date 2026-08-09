@@ -112,6 +112,10 @@ public final class SloSampleFinalV1 {
         if (!Arrays.equals(sampleId, start.sampleId()) || !Arrays.equals(startDigest, start.startDigest())) {
             throw new IllegalArgumentException("SLO final does not match its durable start");
         }
+        if (outcome == SloFinalOutcomeV1.SUCCESS
+                && finalObservation.kind() != requiredSuccessEndpoint(start.objective())) {
+            throw new IllegalArgumentException("SLO success final is not backed by its objective success event");
+        }
         if (start.population() == SloPopulationV1.HEALTHY && exclusionReason != null) {
             throw new IllegalArgumentException("HEALTHY SLO final cannot carry an exclusion");
         }
@@ -139,6 +143,19 @@ public final class SloSampleFinalV1 {
         if (!healthyObjective.exclusions().contains(exclusionReason)) {
             throw new IllegalArgumentException("SLO exclusion is not in the paired HEALTHY objective set");
         }
+    }
+
+    /**
+     * Maps each closed objective branch to the endpoint kind that can prove a
+     * successful completion.  A semantic fixed epoch is a Start-only value;
+     * accepting it on a SUCCESS Final would allow the configured business
+     * start to be replayed as if it were the durable completion event.
+     */
+    private static SloTimeEndpointKindV1 requiredSuccessEndpoint(final SloObjectiveNameV1 objective) {
+        return switch (objective) {
+            case COMMAND_QUEUED_LATENCY, NATIVE_HANDOFF_ACK_LAG -> SloTimeEndpointKindV1.BROKER_PERSISTENCE;
+            default -> SloTimeEndpointKindV1.TRUSTED_OBSERVATION;
+        };
     }
 
     /**

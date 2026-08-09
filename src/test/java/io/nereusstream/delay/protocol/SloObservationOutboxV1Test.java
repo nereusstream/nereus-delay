@@ -14,7 +14,7 @@ class SloObservationOutboxV1Test {
         final SloSampleStartV1 start = start();
         final SloSampleFinalV1 finalObservation = new SloSampleFinalV1(start.sampleId(), start.startDigest(),
                 SloFinalOutcomeV1.SUCCESS, SloThresholdUnitV1.MILLISECONDS, 4, 8, null,
-                endpoint(200), bytes(32, 3), 1);
+                brokerEndpoint(200), bytes(32, 3), 1);
         final SloObservationOutboxV1 outbox = SloObservationOutboxV1.open(start)
                 .mergeFinal(finalObservation, SloThresholdDirectionV1.AT_MOST);
 
@@ -31,7 +31,7 @@ class SloObservationOutboxV1Test {
         final SloSampleStartV1 start = start();
         final SloSampleFinalV1 success = new SloSampleFinalV1(start.sampleId(), start.startDigest(),
                 SloFinalOutcomeV1.SUCCESS, SloThresholdUnitV1.MILLISECONDS, 4, 8, null,
-                endpoint(200), bytes(32, 3), 1);
+                brokerEndpoint(200), bytes(32, 3), 1);
         final SloSampleFinalV1 timeout = new SloSampleFinalV1(start.sampleId(), start.startDigest(),
                 SloFinalOutcomeV1.BAD_TIMEOUT, SloThresholdUnitV1.MILLISECONDS, 20, 25,
                 null, endpoint(300), bytes(32, 4), 2);
@@ -172,7 +172,7 @@ class SloObservationOutboxV1Test {
         final SloSampleStartV1 start = start();
         final SloSampleFinalV1 finalObservation = new SloSampleFinalV1(start.sampleId(), start.startDigest(),
                 SloFinalOutcomeV1.SUCCESS, SloThresholdUnitV1.MILLISECONDS, 1, 1, null,
-                endpoint(200), bytes(32, 5), 1);
+                brokerEndpoint(200), bytes(32, 5), 1);
         final byte[] tampered = finalObservation.canonicalBytes();
         tampered[tampered.length - 1] ^= 1;
         assertThrows(IllegalArgumentException.class, () -> SloSampleFinalV1.decode(tampered));
@@ -194,6 +194,13 @@ class SloObservationOutboxV1Test {
     @Test
     void rejectsFinalUnitAndMergeDirectionThatDisagreeWithObjective() {
         final SloSampleStartV1 start = start();
+        final SloSampleFinalV1 semanticSuccess = new SloSampleFinalV1(start.sampleId(), start.startDigest(),
+                SloFinalOutcomeV1.SUCCESS, SloThresholdUnitV1.MILLISECONDS, 1, 1, null,
+                endpoint(200), bytes(32, 7), 1);
+        assertThrows(IllegalArgumentException.class,
+                () -> SloObservationOutboxV1.open(start).mergeFinal(semanticSuccess,
+                        SloThresholdDirectionV1.AT_MOST));
+
         final SloSampleFinalV1 wrongUnit = new SloSampleFinalV1(start.sampleId(), start.startDigest(),
                 SloFinalOutcomeV1.SUCCESS, SloThresholdUnitV1.BYTES, 1, 1, null,
                 endpoint(200), bytes(32, 8), 1);
@@ -203,7 +210,7 @@ class SloObservationOutboxV1Test {
 
         final SloSampleFinalV1 valid = new SloSampleFinalV1(start.sampleId(), start.startDigest(),
                 SloFinalOutcomeV1.SUCCESS, SloThresholdUnitV1.MILLISECONDS, 1, 1, null,
-                endpoint(200), bytes(32, 9), 1);
+                brokerEndpoint(200), bytes(32, 9), 1);
         assertThrows(IllegalArgumentException.class,
                 () -> SloObservationOutboxV1.open(start).mergeFinal(valid,
                         SloThresholdDirectionV1.AT_LEAST));
@@ -238,6 +245,11 @@ class SloObservationOutboxV1Test {
 
     private static SloTimeEndpointV1 endpoint(final long epochMs) {
         return new SloTimeEndpointV1(SloTimeEndpointKindV1.SEMANTIC_FIXED_EPOCH, epochMs, epochMs,
+                bytes(32, (int) epochMs));
+    }
+
+    private static SloTimeEndpointV1 brokerEndpoint(final long epochMs) {
+        return new SloTimeEndpointV1(SloTimeEndpointKindV1.BROKER_PERSISTENCE, epochMs, epochMs,
                 bytes(32, (int) epochMs));
     }
 

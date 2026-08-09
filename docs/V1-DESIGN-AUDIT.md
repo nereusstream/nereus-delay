@@ -1417,6 +1417,15 @@ SLO outbox 的 direct `get(sampleId)` 也与 bounded scan 使用同一
 `meta_cf/SLO_OUTBOX` key/value sample-id fence，错挂的 Start 不会进入 Final
 merge；`SloObservationOutboxStoreTest.scanRejectsKeyValueSampleIdentityMismatch`
 覆盖 direct 与 scan 两条读取路径。
+
+SLO Final 还按 Registry 的 success-event 分支绑定 endpoint kind：
+`COMMAND_QUEUED_LATENCY` 与 `NATIVE_HANDOFF_ACK_LAG` 的 `SUCCESS` 必须来自
+`BROKER_PERSISTENCE`，其它内部 WAL/barrier/probe 成功事件必须来自
+`TRUSTED_OBSERVATION`；`SEMANTIC_FIXED_EPOCH` 只能作为 Start 端点，不能被
+重复当成完成时间。`SloObservationOutboxV1Test` 覆盖 semantic-start-as-success
+拒绝。该校验只关闭本地 endpoint-kind 混淆，真实 Broker receipt、Admission
+WAL/evidence authority 与生产 Final 重建仍是 release blocker。
+
 Close-materialization discovery 也会在返回 scheduler work 前重验 cursor 的
 embedded close Source Position Shard，与 direct cursor query 保持同一边界；
 `DelayShardTest.laneCloseMaterializationDiscoveryRejectsForeignSourcePosition`

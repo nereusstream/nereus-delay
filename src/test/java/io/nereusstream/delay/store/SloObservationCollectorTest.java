@@ -113,12 +113,19 @@ class SloObservationCollectorTest {
                                                      final long lower, final long upper,
                                                      final long revision) {
         return new SloSampleFinalV1(start.sampleId(), start.startDigest(), outcome,
-                SloThresholdUnitV1.MILLISECONDS, lower, upper, null, endpoint(300), bytes(32, 9), revision);
+                SloThresholdUnitV1.MILLISECONDS, lower, upper, null, finalEndpoint(outcome, 300),
+                bytes(32, 9), revision);
     }
 
     private static SloTimeEndpointV1 endpoint(final long epochMs) {
         return new SloTimeEndpointV1(SloTimeEndpointKindV1.SEMANTIC_FIXED_EPOCH, epochMs, epochMs,
                 bytes(32, (int) epochMs));
+    }
+
+    private static SloTimeEndpointV1 finalEndpoint(final SloFinalOutcomeV1 outcome, final long epochMs) {
+        return new SloTimeEndpointV1(outcome == SloFinalOutcomeV1.SUCCESS
+                        ? SloTimeEndpointKindV1.BROKER_PERSISTENCE : SloTimeEndpointKindV1.SEMANTIC_FIXED_EPOCH,
+                epochMs, epochMs, bytes(32, (int) epochMs));
     }
 
     private static byte[] bytes(final int length, final int value) {

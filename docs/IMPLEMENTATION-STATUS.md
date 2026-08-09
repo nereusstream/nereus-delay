@@ -50,7 +50,13 @@ identity/path and semantic fixed-epoch agreement before it can be persisted;
 `SloObjectiveV1Test` covers path/time drift and negative-time vectors. Start
 reconstruction, production collector merge/export and production evidence
 authority remain release blockers; the local collector now has an explicit
-projection capacity envelope.
+projection capacity envelope. `SloSampleFinalV1.validateAgainst` also binds a
+`SUCCESS` Final to the endpoint kind of its closed objective success event:
+queued/native handoff require `BROKER_PERSISTENCE`, while internal/barrier/
+probe objectives require `TRUSTED_OBSERVATION`; a semantic fixed epoch cannot
+be reused as a completion observation. `SloObservationOutboxV1Test` covers the
+semantic-start-as-success rejection. This remains an endpoint-kind fence, not
+the production Broker/Admission/evidence authority.
 
 The shared `uint32` decoder now rejects any varint outside the unsigned
 32-bit domain, including a malformed `uint64` value whose Java `long` view has

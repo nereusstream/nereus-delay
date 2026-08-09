@@ -108,7 +108,7 @@ class SloObservationOutboxStoreTest {
             assertThrows(IllegalStateException.class, () -> outbox.ensureStart(startWith(4)));
             final SloSampleFinalV1 finalObservation = new SloSampleFinalV1(first.sampleId(), first.startDigest(),
                     SloFinalOutcomeV1.SUCCESS, SloThresholdUnitV1.MILLISECONDS, 1, 1, null,
-                    endpoint(200), bytes(32, 5), 1);
+                    brokerEndpoint(200), bytes(32, 5), 1);
             assertThrows(IllegalStateException.class,
                     () -> outbox.mergeFinal(finalObservation, SloThresholdDirectionV1.AT_MOST));
             assertNull(outbox.get(first.sampleId()).finalObservation());
@@ -188,6 +188,11 @@ class SloObservationOutboxStoreTest {
 
     private static SloTimeEndpointV1 endpoint(final long epochMs) {
         return new SloTimeEndpointV1(SloTimeEndpointKindV1.SEMANTIC_FIXED_EPOCH, epochMs, epochMs,
+                bytes(32, (int) epochMs));
+    }
+
+    private static SloTimeEndpointV1 brokerEndpoint(final long epochMs) {
+        return new SloTimeEndpointV1(SloTimeEndpointKindV1.BROKER_PERSISTENCE, epochMs, epochMs,
                 bytes(32, (int) epochMs));
     }
 
