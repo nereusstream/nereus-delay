@@ -218,16 +218,25 @@ public final class LaneScheduler {
     /** Restores an exact queue projection captured by {@link #queueSnapshot()}. */
     synchronized void restoreQueues(final Map<DestinationLaneId, List<ScheduleWorkItem>> snapshot) {
         Objects.requireNonNull(snapshot, "snapshot");
-        lanes.values().forEach(lane -> lane.queue.clear());
+        if (!lanes.keySet().equals(snapshot.keySet())) {
+            throw new IllegalArgumentException("scheduler queue snapshot registration differs");
+        }
+        final Map<LaneQueue, List<ScheduleWorkItem>> validated = new HashMap<>();
         for (Map.Entry<DestinationLaneId, List<ScheduleWorkItem>> entry : snapshot.entrySet()) {
             final DestinationLaneId laneId = Objects.requireNonNull(entry.getKey(), "snapshot laneId");
             final LaneQueue lane = requireLane(laneId);
-            for (ScheduleWorkItem item : Objects.requireNonNull(entry.getValue(), "snapshot queue")) {
+            final List<ScheduleWorkItem> items = Objects.requireNonNull(entry.getValue(), "snapshot queue");
+            for (ScheduleWorkItem item : items) {
+                Objects.requireNonNull(item, "snapshot queue item");
                 if (!laneId.equals(item.laneId())) {
                     throw new IllegalArgumentException("snapshot queue item belongs to another Lane");
                 }
-                lane.queue.addLast(item);
             }
+            validated.put(lane, items);
+        }
+        lanes.values().forEach(lane -> lane.queue.clear());
+        for (Map.Entry<LaneQueue, List<ScheduleWorkItem>> entry : validated.entrySet()) {
+            entry.getKey().queue.addAll(entry.getValue());
         }
     }
 
