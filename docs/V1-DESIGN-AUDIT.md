@@ -1319,11 +1319,14 @@ Adapter close 也已按同一 fail-closed 原则收敛：第一次 close 请求�
 release 或生产 channel quiescence；这些仍由外部 teardown/evidence gate 证明。
 
 该 close gate 现在还把每次同步 transport invocation 的接受与 close 请求放在同一
-线性化边界：不再允许独立读取 `isClosed()` 后在 gate 外调用 transport。close 前已
-接受的 invocation 可以在 close 请求后完成，并继续按 UNKNOWN/physical-charge 规则
-处理；close 线性化后则不能再开始新的 transport call。gate 不持有 adapter monitor
-执行同步 transport，因此永久阻塞的调用不会阻止 close fence 或 teardown retry；
-Bounded wrapper 仍把阻塞 transport 放在 Lane/Adapter executor。
+线性化边界：`CloseGuard.invokeIfOpen` 在同一 monitor 内登记 accepted invocation，
+然后才在 monitor 外执行 transport，不再允许独立读取 `isClosed()` 后在 gate 外调用
+transport。close 前已接受的 invocation 可以在 close 请求后完成，并继续按
+UNKNOWN/physical-charge 规则处理；close 线性化后则不能再开始新的 transport call。
+`CloseGuardTest.acceptedInvocationDoesNotLetCloseAdmitASecondTransportCall` 覆盖
+accepted-before-close 的生命周期。gate 不持有 adapter monitor 执行同步 transport，
+因此永久阻塞的调用不会阻止 close fence 或 teardown retry；Bounded wrapper 仍把
+阻塞 transport 放在 Lane/Adapter executor。
 
 本地 physical-admission registry 另有明确的 Lane teardown 边界：只有 READY
 已关闭、所有 physical/zombie charge 已清零且 exact `laneIncarnation` 通过 fencing

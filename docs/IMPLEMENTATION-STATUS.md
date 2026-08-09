@@ -2584,6 +2584,15 @@ cover the retry/fence boundary. This is local teardown evidence only: it does
 not prove Broker-side cancellation, physical-charge release, or production
 channel quiescence.
 
+`CloseGuard.invokeIfOpen` now increments an accepted-invocation count while
+holding the same monitor used by `close()`, then releases the monitor before
+running potentially blocking transport code. This removes the check-then-call
+window: an invocation accepted before the close fence may finish afterward, but
+no new ingress/submission/publish transport call can begin after the fence.
+`CloseGuardTest.acceptedInvocationDoesNotLetCloseAdmitASecondTransportCall`
+covers the accepted-before-close lifecycle; the implementation still does not
+claim production Broker teardown or physical-charge quiescence.
+
 The same gate now linearizes acceptance of each synchronous ingress, submission
 or publish transport invocation with the close request. The adapters no longer
 perform a standalone `isClosed()` check followed by a transport call outside

@@ -14,6 +14,8 @@ final class CloseGuard {
     private boolean requested;
     private boolean completed;
     private boolean closing;
+    /** Number of transport invocations accepted before the close fence. */
+    private int acceptedInvocations;
 
     synchronized boolean isClosed() {
         return requested;
@@ -31,16 +33,37 @@ final class CloseGuard {
     <T> T invokeIfOpen(final Supplier<T> action, final Supplier<T> closedValue) {
         Objects.requireNonNull(action, "action");
         Objects.requireNonNull(closedValue, "closedValue");
+        final boolean accepted;
         synchronized (this) {
             if (requested) {
-                return closedValue.get();
+                accepted = false;
+            } else {
+                // This increment is the invocation's linearization point.
+                // Once it is visible, close() may fence future calls but
+                // must treat this one as already accepted even though the
+                // potentially blocking action runs outside the monitor.
+                acceptedInvocations++;
+                accepted = true;
             }
         }
-        // The open decision is the invocation's linearization point.  Do not
-        // hold the guard while executing transport code: a synchronous
+        if (!accepted) {
+            return closedValue.get();
+        }
+        // Do not hold the guard while executing transport code: a synchronous
         // transport may block, and close must still be able to fence future
-        // calls and run its retryable teardown.
-        return action.get();
+        // calls and run its retryable teardown.  The accepted-invocation
+        // count makes the decision above atomic with the close fence; there
+        // is no check-then-call window after the lock is released.
+        try {
+            return action.get();
+        } finally {
+            synchronized (this) {
+                if (acceptedInvocations <= 0) {
+                    throw new IllegalStateException("close guard invocation accounting underflow");
+                }
+                acceptedInvocations--;
+            }
+        }
     }
 
     void close(final Runnable action) {
