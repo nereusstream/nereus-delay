@@ -258,6 +258,9 @@ public final class WorkerScheduler {
         for (ShardQueue shard : shards.values()) {
             maxDeficitBytes = Math.max(maxDeficitBytes, checkedWeightIncrement(shard.weight));
         }
+        for (ShardQueue shard : shards.values()) {
+            shard.deficit = Math.min(shard.deficit, maxDeficitBytes);
+        }
     }
 
     private long checkedWeightIncrement(final int weight) {

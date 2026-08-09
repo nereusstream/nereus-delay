@@ -80,6 +80,7 @@ class WorkerSchedulerTest {
 
         worker.unregisterShard(high);
 
+        assertEquals(40, worker.snapshot().shards().get(0).deficit());
         assertEquals(List.of(lowLane), worker.poll(new SchedulerBudget(1, 100, 1_000_000_000)).stream()
                 .map(ScheduleWorkItem::laneId).toList());
         assertEquals(39, worker.snapshot().shards().get(0).deficit());
