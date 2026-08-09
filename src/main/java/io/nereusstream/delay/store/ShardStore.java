@@ -280,6 +280,12 @@ public final class ShardStore implements AutoCloseable {
             ensureRealDirectory(activeDb.getParent());
             Files.move(stagedDb, activeDb, StandardCopyOption.ATOMIC_MOVE);
             activeDbMoved = true;
+            // Persist the new Store Incarnation directory entry before the
+            // checksummed ACTIVE pointer can publish it.  Without this
+            // directory fsync, a crash after the rename could leave ACTIVE
+            // pointing at an incarnation whose directory entry was not yet
+            // durable, violating the restore install protocol.
+            forceDirectory(activeDb.getParent());
             installed = openAtPath(config, shardId, activeDb, resources, null, true);
             if (!installed.shardId().equals(shardId)) {
                 throw new IOException("install-mode DB shard identity mismatch");

@@ -1603,6 +1603,9 @@ Restore 在把 staged DB 原子移动到新 incarnation 后，会先以正式 ac
 重试并保留无法证明已关闭的 orphan 目录供离线修复，同时保留原始 pointer I/O
 错误。`ShardStoreTest.failedActivePointerInstallRemovesUnpublishedDb` 覆盖
 `ACTIVE.tmp` 故障路径。
+在这次 pointer 切换之前，restore 还会对新 incarnation 的父目录执行
+directory fsync；因此 staged DB 的 atomic rename 已先取得目录级持久性，crash
+不会出现 `ACTIVE` 已发布但对应 incarnation 目录项仍只存在于 page cache 的窗口。
 Restore admission 只把 checksum-validated `ACTIVE` pointer 指向的
 incarnation 视为 live DB；pointer 尚未切换时留下的 orphan incarnation 不会
 阻塞新的 atomic restore，且不会被悄悄当作 active 覆盖。
