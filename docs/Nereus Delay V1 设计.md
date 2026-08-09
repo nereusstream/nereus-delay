@@ -1086,6 +1086,8 @@ Store close 的顺序也是固定协议：先写 clean-close marker，随后立�
 
 计划内 drain 若 Store close 报告可重试失败，或 Store 已关闭但 exact lease release 未得到确认，OwnerDrainCoordinator 必须保持本地 shard 为 `DRAINING`、保留 authoritative lease，并在后续 drain 调用中只重试尚未确认的 teardown/release；不得重新执行 Claim revoke、callback poll、flush 或 checkpoint，也不得把仍可重试的状态标为 `FENCED` 后丢失重试入口。只有 Store 完整关闭并确认 exact lease release 后才进入 `FENCED`。
 
+若 Store 已进入 `WRITE_OUTCOME_UNCERTAIN`，则不再尝试 `ACTIVE_FOR_COMMANDS -> DRAINING` 的普通 CAS：本地 replay/apply 已将 Owner gate 置为 `FENCED`，OwnerDrainCoordinator 必须先停止 source/scheduling（同一 teardown 重试不得重复触发），关闭这一个 exact Store，再读取 Oxia 当前 lease identity。只有 identity 与旧 Owner 的 `shardId/owner/epoch/token/context` 全部相同，才允许 release；close 失败、release response 丢失或 authority 暂不可读都必须保留可重试入口，identity 已变化时禁止释放新 Owner 的 lease。
+
 `meta_cf` 必须验证：
 
 ```text

@@ -2523,6 +2523,19 @@ boundary, while the surrounding worker still must close the failed Store,
 retain the lease/recovery evidence safely, and reopen a fresh incarnation
 before replay.
 
+`OwnerDrainCoordinator` now has a separate emergency teardown branch for that
+local `FENCED` + `WRITE_OUTCOME_UNCERTAIN` combination. It stops source and
+scheduling once, closes the exact Store before any lease release, and releases
+only an Oxia lease whose full fencing identity still matches the captured
+Owner. Native close failure and unconfirmed release remain retryable without
+re-running Claim/callback/flush/checkpoint decisions; a replacement lease is
+never released. `OwnerDrainCoordinatorTest.uncertainStoreClosesAndReleasesOnlyTheMatchingOwnerLease`,
+`OwnerDrainCoordinatorTest.uncertainStoreNeverReleasesAReplacementOwnerLease`
+and `OwnerDrainCoordinatorTest.uncertainStoreCloseFailureRetainsAReproducibleTeardownRetry`
+cover the matching, replacement-identity and close-retry paths. This remains
+local orchestration evidence; production source stop, Oxia session fencing and
+worker restart coordination are still release blockers.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

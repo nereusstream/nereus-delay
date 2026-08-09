@@ -2375,6 +2375,19 @@ physical record while the owner gate is closed; worker-level close, lease
 retention and fresh-incarnation replay remain orchestration evidence still
 required outside this local seam.
 
+The local orchestration seam now closes that gap for the failure path:
+`OwnerDrainCoordinator` treats `FENCED` plus `WRITE_OUTCOME_UNCERTAIN` as an
+emergency teardown, stops source/scheduling once, closes the exact Store, and
+checks the current Oxia lease identity before releasing it. Close failure or
+release response loss is retryable without repeating business drain decisions;
+an identity change is a hard no-release fence. The regression set is
+`OwnerDrainCoordinatorTest.uncertainStoreClosesAndReleasesOnlyTheMatchingOwnerLease`,
+`OwnerDrainCoordinatorTest.uncertainStoreNeverReleasesAReplacementOwnerLease`,
+and `OwnerDrainCoordinatorTest.uncertainStoreCloseFailureRetainsAReproducibleTeardownRetry`.
+This is local evidence only; production source quiescence, Oxia session
+fencing and restart/restore orchestration remain outside the implementation
+claim.
+
 SLO 文档与 Registry 的 native 时间字段也已对齐：`native_handoff_ack_lag` 的起点是
 `NativePreparedDelivery` field 10 的未平移 business `deliverAt`，field 11 的 shifted
 Broker `deliverAt` 只用于 Broker visibility 语义；V1 native wire 没有独立的

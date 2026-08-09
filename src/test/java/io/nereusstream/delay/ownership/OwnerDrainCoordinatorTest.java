@@ -12,6 +12,8 @@ import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.runtime.DelayShard;
 import io.nereusstream.delay.runtime.DelayShardConfig;
+import io.nereusstream.delay.store.ColumnFamily;
+import io.nereusstream.delay.store.KeyCodec;
 import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.ShardStoreConfig;
 import io.nereusstream.delay.store.SharedRocksDbResources;
@@ -64,6 +66,108 @@ class OwnerDrainCoordinatorTest {
             org.junit.jupiter.api.Assertions.assertArrayEquals(checkpointId,
                     store.runtimeMetadata().lastCheckpointId());
             store.close();
+        }
+    }
+
+    @Test
+    void uncertainStoreClosesAndReleasesOnlyTheMatchingOwnerLease() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 55);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("drain-uncertain-store"));
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease acquired = backend.acquire(shardId, "worker-uncertain-store", 100, 500).orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = activeOwnedShard(store, acquired, authority, shardId);
+            assertThrows(ShardStore.RocksDbWriteFailure.class,
+                    () -> store.write(batch -> batch.put(ColumnFamily.META, KeyCodec.metaFixed(4),
+                            Bytes.utf8("malformed-ingress-fence"))));
+            final AtomicInteger stopCalls = new AtomicInteger();
+            final OwnerDrainCoordinator coordinator = new OwnerDrainCoordinator(owned, store, resources, authority);
+
+            final OwnerDrainCoordinator.DrainResult result = coordinator.drain(
+                    new OwnerDrainCoordinator.DrainRequest(5_000, 0, null), () -> 101,
+                    stopCalls::incrementAndGet);
+
+            assertEquals(0, result.revokedClaims());
+            assertEquals(0, result.callbackPolls());
+            assertEquals(null, result.finalCheckpointPath());
+            assertEquals(1, stopCalls.get());
+            assertEquals(ShardLifecycleState.FENCED, owned.state());
+            assertTrue(store.isClosed());
+            assertTrue(backend.current(shardId).isEmpty());
+        }
+    }
+
+    @Test
+    void uncertainStoreNeverReleasesAReplacementOwnerLease() throws Exception {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 57);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("drain-uncertain-replacement"));
+        final InMemoryOwnerLeaseStore delegate = new InMemoryOwnerLeaseStore();
+        final OwnerLease acquired = delegate.acquire(shardId, "worker-uncertain-replacement", 100, 500).orElseThrow();
+        final OwnerLease replacement = new OwnerLease(shardId, "worker-new", acquired.ownerEpoch() + 1,
+                Bytes.sha256(Bytes.utf8("uncertain-replacement")), 500, null,
+                ShardLifecycleState.ACTIVE_FOR_COMMANDS);
+        final Path checkpoint = tempDir.resolve("drain-uncertain-replacement-checkpoint");
+        Files.createDirectories(checkpoint);
+        Files.writeString(checkpoint.resolve("CURRENT"), "replacement-visible");
+        final LeaseLossAfterCheckpointBackend backend =
+                new LeaseLossAfterCheckpointBackend(delegate, replacement, checkpoint);
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = activeOwnedShard(store, acquired, authority, shardId);
+            assertThrows(ShardStore.RocksDbWriteFailure.class,
+                    () -> store.write(batch -> batch.put(ColumnFamily.META, KeyCodec.metaFixed(4),
+                            Bytes.utf8("malformed-ingress-fence"))));
+            final OwnerDrainCoordinator coordinator = new OwnerDrainCoordinator(owned, store, resources, authority);
+
+            final IllegalStateException failure = assertThrows(IllegalStateException.class, () -> coordinator.drain(
+                    new OwnerDrainCoordinator.DrainRequest(5_000, 0, null), () -> 101, () -> { }));
+
+            assertEquals("owner lease changed while closing uncertain Store", failure.getMessage());
+            assertEquals(ShardLifecycleState.FENCED, owned.state());
+            assertTrue(store.isClosed());
+            assertEquals(replacement, backend.current(shardId).orElseThrow());
+            assertTrue(delegate.current(shardId).isPresent());
+        }
+    }
+
+    @Test
+    void uncertainStoreCloseFailureRetainsAReproducibleTeardownRetry() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 56);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("drain-uncertain-retry"));
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease acquired = backend.acquire(shardId, "worker-uncertain-retry", 100, 500).orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = activeOwnedShard(store, acquired, authority, shardId);
+            assertThrows(ShardStore.RocksDbWriteFailure.class,
+                    () -> store.write(batch -> batch.put(ColumnFamily.META, KeyCodec.metaFixed(4),
+                            Bytes.utf8("malformed-ingress-fence"))));
+            final AtomicInteger stopCalls = new AtomicInteger();
+            final OwnerDrainCoordinator coordinator = new OwnerDrainCoordinator(owned, store, resources, authority);
+            resources.releaseDbSlot();
+
+            assertThrows(IllegalStateException.class, () -> coordinator.drain(
+                    new OwnerDrainCoordinator.DrainRequest(5_000, 0, null), () -> 101,
+                    stopCalls::incrementAndGet));
+            assertEquals(ShardLifecycleState.FENCED, owned.state());
+            assertTrue(store.isCloseStarted());
+            assertFalse(store.isClosed());
+            assertTrue(backend.current(shardId).isPresent());
+            assertEquals(1, stopCalls.get());
+
+            resources.acquireDbSlot();
+            final OwnerDrainCoordinator.DrainResult result = coordinator.drain(
+                    new OwnerDrainCoordinator.DrainRequest(5_000, 0, null), () -> 101,
+                    stopCalls::incrementAndGet);
+            assertEquals(0, result.revokedClaims());
+            assertEquals(ShardLifecycleState.FENCED, owned.state());
+            assertTrue(store.isClosed());
+            assertTrue(backend.current(shardId).isEmpty());
+            assertEquals(1, stopCalls.get());
         }
     }
 

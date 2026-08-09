@@ -64,6 +64,42 @@ public final class OwnerDrainCoordinator {
             shardDrainAcquired = true;
             final long startNow = readNow(clock);
             final OwnerLease expectedLease = ownedShard.lease();
+            if (store.isWriteOutcomeUncertain()) {
+                // A Store whose synchronous write result cannot be proved is
+                // not eligible for the normal ACTIVE -> DRAINING CAS: the
+                // local owner may already have fenced itself while replaying
+                // the source record. Close that exact native Store first,
+                // then release only an authority lease with the same fencing
+                // identity. The branch remains retryable across native close
+                // failure and response-loss lease release.
+                if (!store.isCloseStarted() && ownedShard.state() != ShardLifecycleState.DRAINING) {
+                    callbacks.stopSourceAndScheduling();
+                }
+                ownedShard.fence();
+                if (!store.isClosed()) {
+                    store.close();
+                    storeClosed = true;
+                } else {
+                    storeClosed = true;
+                }
+                final Optional<OwnerLease> current = authority.current(expectedLease.shardId());
+                if (current.isEmpty()) {
+                    // The lease may already have been released after the
+                    // storage failure; there is nothing safe left to release.
+                    leaseReleased = true;
+                    return new DrainResult(pendingRevokedClaims, pendingCallbackPolls,
+                            pendingFinalCheckpoint);
+                }
+                final OwnerLease observed = current.orElseThrow();
+                if (!expectedLease.sameIdentity(observed)) {
+                    // The DB is closed, but never release a replacement
+                    // owner's lease after an identity change.
+                    throw new IllegalStateException("owner lease changed while closing uncertain Store");
+                }
+                releaseExactLease(observed);
+                leaseReleased = true;
+                return new DrainResult(pendingRevokedClaims, pendingCallbackPolls, pendingFinalCheckpoint);
+            }
             if (store.isCloseStarted()) {
                 if (ownedShard.state() != ShardLifecycleState.DRAINING) {
                     throw new IllegalStateException("Store close already started outside draining state");
