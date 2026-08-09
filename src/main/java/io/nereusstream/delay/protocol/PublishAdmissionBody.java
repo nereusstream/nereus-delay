@@ -390,63 +390,14 @@ public final class PublishAdmissionBody {
     }
 
     private static Descriptor decodeDescriptor(final byte[] encoded) {
-        final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "PreparedPublishDescriptor");
-        requireExactFields(fields, 20, "PreparedPublishDescriptor");
-        for (int number = 1; number <= 20; number++) {
-            field(fields, number);
-        }
-        if (unsigned(field(fields, 1), 1) != 1 || unsigned(field(fields, 3), 3) != 1) {
-            throw new IllegalArgumentException("unsupported PreparedPublishDescriptor version");
-        }
-        final byte[] destinationProfile = nested(field(fields, 6), 6);
-        final byte[] capabilityProfile = nested(field(fields, 7), 7);
-        validateProfileRef(destinationProfile, ProfileKindV1.DESTINATION);
-        validateProfileRef(capabilityProfile, ProfileKindV1.DELIVERY_CAPABILITY);
-        final byte[] targetResource = nested(field(fields, 8), 8);
-        validateBrokerResource(targetResource);
-        final byte[] channel = nested(field(fields, 10), 10);
-        final ChannelResourceIdentityV1 channelIdentity = ChannelResourceIdentityV1.decode(channel);
-        final AdapterKindV1 adapterKind = AdapterKindV1.fromWire(unsigned(field(fields, 2), 2));
-        if (unsigned(field(fields, 3), 3) != 1
-                || channelIdentity.adapterKind() != adapterKind
-                || channelIdentity.physicalPartition() != unsigned(field(fields, 9), 9)
-                || !Arrays.equals(targetResource, channelIdentity.targetResource().canonicalBytes())) {
-            throw new IllegalArgumentException("PreparedPublishDescriptor channel identity mismatch");
-        }
-        final byte[] payload = nested(field(fields, 15), 15);
-        validatePayload(payload);
-        final byte[] metadata = nested(field(fields, 16), 16);
-        validateAdapterMetadata(metadata);
-        final AdapterMetadataV1 metadataValue = AdapterMetadataV1.decode(metadata);
-        if ((adapterKind == AdapterKindV1.KAFKA && metadataValue.kind() != AdapterMetadataV1.Kind.KAFKA)
-                || (adapterKind == AdapterKindV1.PULSAR && metadataValue.kind() != AdapterMetadataV1.Kind.PULSAR)) {
-            throw new IllegalArgumentException("PreparedPublishDescriptor metadata branch does not match adapter");
-        }
-        final int generation = intValue(field(fields, 12), 12);
-        final byte[] reserved = nested(field(fields, 17), 17);
-        validateReservedMetadata(reserved);
-        final List<CanonicalProtobuf.Reader.Field> reservedFields = read(reserved, "ReservedPublishMetadata");
-        if (!Arrays.equals(bytes(field(reservedFields, 3), 3), bytes(field(fields, 11), 11))
-                || intValue(field(reservedFields, 4), 4) != generation
-                || !Arrays.equals(bytes(field(reservedFields, 5), 5), bytes(field(fields, 13), 13))
-                || unsigned(field(reservedFields, 8), 8) != unsigned(field(fields, 18), 18)) {
-            throw new IllegalArgumentException("reserved publish metadata identity mismatch");
-        }
-        final int attemptNo = intValue(field(fields, 14), 14);
-        if (attemptNo <= 0) {
-            throw new IllegalArgumentException("attemptNo must be positive");
-        }
-        final long deliverAt = unsigned(field(fields, 18), 18);
-        final long expireAt = unsigned(field(fields, 19), 19);
-        final long actionAt = unsigned(field(fields, 20), 20);
-        if (expireAt < deliverAt || actionAt > deliverAt) {
-            throw new IllegalArgumentException("invalid PreparedPublishDescriptor timing");
-        }
-        final byte[] preparedHash = Bytes.sha256(Bytes.utf8("nereus-delay-prepared-publish-v1\0"), encoded);
-        return new Descriptor(encoded, preparedHash, bytes(field(fields, 4), 4), bytes(field(fields, 5), 5),
-                channel, bytes(field(fields, 11), 11), generation, bytes(field(fields, 13), 13), attemptNo,
-                destinationProfile, capabilityProfile, targetResource, payload, metadata, deliverAt, expireAt,
-                actionAt);
+        final PreparedPublishDescriptorV1 typed = PreparedPublishDescriptorV1.decode(encoded);
+        return new Descriptor(encoded, typed.preparedPublishHash(), typed.destinationLaneId().bytes(),
+                typed.laneIncarnation(), typed.channel().canonicalBytes(), typed.messageId().bytes(),
+                Math.toIntExact(typed.generation()), typed.publishAttemptId(), Math.toIntExact(typed.attemptNo()),
+                typed.destinationProfile().canonicalBytes(), typed.capabilityProfile().canonicalBytes(),
+                typed.targetResource().canonicalBytes(), typed.payload().canonicalBytes(),
+                typed.businessMetadata().canonicalBytes(), typed.deliverAtEpochMs(), typed.expireAtEpochMs(),
+                typed.actionAtEpochMs());
     }
 
     /** Validates and decodes a Registry ReadyCertificateV1 outside an Admission body. */
@@ -538,38 +489,8 @@ public final class PublishAdmissionBody {
                 bytes(field(fields, 15), 15), materialization);
     }
 
-    private static void validateProfileRef(final byte[] encoded, final ProfileKindV1 expectedKind) {
-        if (ProfileRefV1.decode(encoded).profileKind() != expectedKind) {
-            throw new IllegalArgumentException("ProfileRef kind does not match its descriptor field");
-        }
-    }
-
     private static void validateBrokerResource(final byte[] encoded) {
         BrokerResourceIdentityV1.decode(encoded);
-    }
-
-    private static void validatePayload(final byte[] encoded) {
-        PayloadForPublishV1.decode(encoded);
-    }
-
-    private static void validateAdapterMetadata(final byte[] encoded) {
-        AdapterMetadataV1.decode(encoded);
-    }
-
-    private static void validateReservedMetadata(final byte[] encoded) {
-        final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "ReservedPublishMetadata");
-        requireExactFields(fields, 9, "ReservedPublishMetadata");
-        fixed(bytes(field(fields, 1), 1), 16, 1);
-        unsigned(field(fields, 2), 2);
-        fixed(bytes(field(fields, 3), 3), MESSAGE_ID_LENGTH, 3);
-        intValue(field(fields, 4), 4);
-        fixed(bytes(field(fields, 5), 5), HASH_LENGTH, 5);
-        fixed(bytes(field(fields, 6), 6), HASH_LENGTH, 6);
-        fixed(bytes(field(fields, 7), 7), HASH_LENGTH, 7);
-        unsigned(field(fields, 8), 8);
-        if (unsigned(field(fields, 9), 9) != 1) {
-            throw new IllegalArgumentException("only managed DeliveryMode is supported");
-        }
     }
 
     private static void validateChargeVector(final byte[] encoded) {

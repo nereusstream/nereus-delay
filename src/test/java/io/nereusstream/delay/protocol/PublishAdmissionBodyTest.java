@@ -162,6 +162,14 @@ public class PublishAdmissionBodyTest {
     }
 
     @Test
+    void rejectsDescriptorReservedMetadataProfileHashDrift() {
+        final Fixture fixture = Fixture.create(new ShardId(RouteIncarnation.random(), 16));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> PublishAdmissionBody.decode(tamperDescriptorReservedMetadata(fixture.body())));
+    }
+
+    @Test
     void retainsCertifiedHandoffTimingForProfileSemanticValidation() {
         final Fixture fixture = Fixture.createWithActionAt(
                 new ShardId(RouteIncarnation.random(), 6), 1_500);
@@ -427,6 +435,44 @@ public class PublishAdmissionBodyTest {
                     CanonicalProtobuf.uint64(output, field.number(), field.unsignedValue());
                 } else {
                     CanonicalProtobuf.bytes(output, field.number(), field.rawValue());
+                }
+            }
+        });
+    }
+
+    private static byte[] tamperDescriptorReservedMetadata(final byte[] body) {
+        final List<CanonicalProtobuf.Reader.Field> outerFields = readFields(body);
+        final byte[] descriptor = outerFields.stream().filter(field -> field.number() == 22)
+                .findFirst().orElseThrow().rawValue();
+        final byte[] driftedDescriptor = CanonicalProtobuf.message(output -> {
+            for (CanonicalProtobuf.Reader.Field field : readFields(descriptor)) {
+                if (field.number() == 17) {
+                    final byte[] reserved = field.rawValue();
+                    final byte[] driftedReserved = CanonicalProtobuf.message(reservedOutput -> {
+                        for (CanonicalProtobuf.Reader.Field reservedField : readFields(reserved)) {
+                            if (reservedField.number() == 6) {
+                                CanonicalProtobuf.bytes(reservedOutput, 6, bytes(32, 99));
+                            } else {
+                                writeField(reservedOutput, reservedField);
+                            }
+                        }
+                    });
+                    CanonicalProtobuf.bytes(output, 17, driftedReserved);
+                } else {
+                    writeField(output, field);
+                }
+            }
+        });
+        final byte[] driftedHash = Bytes.sha256(Bytes.utf8("nereus-delay-prepared-publish-v1\0"),
+                driftedDescriptor);
+        return CanonicalProtobuf.message(output -> {
+            for (CanonicalProtobuf.Reader.Field field : outerFields) {
+                if (field.number() == 18) {
+                    CanonicalProtobuf.bytes(output, 18, driftedHash);
+                } else if (field.number() == 22) {
+                    CanonicalProtobuf.bytes(output, 22, driftedDescriptor);
+                } else {
+                    writeField(output, field);
                 }
             }
         });

@@ -1297,11 +1297,11 @@ resource、metadata、payload length/SHA-256、时序和 materialization digest 
 canonical bytes 与 fail-closed 解析；Profile/catalog、Object Store、Adapter 和
 Producer 的真实 authority 仍必须在后续外部集成 gate 中证明。
 
-`PublishAdmissionBody.Descriptor.value()` 现在把完整的
-`PreparedPublishDescriptorV1`（以及嵌套的 `ReservedPublishMetadataV1`）作为同一份
-canonical bytes 的 typed projection 暴露出来；prepared hash 仍由完整 descriptor
-bytes 按 Registry 的 domain-separated 公式计算。它统一本地解析和等值校验，不能
-被解释为已经取得 Broker channel、Producer 或外部 Profile/catalog authority。
+`PublishAdmissionBody` 的主解析路径现在直接使用完整的
+`PreparedPublishDescriptorV1`（以及嵌套的 `ReservedPublishMetadataV1`）canonical
+decoder；`Descriptor.value()` 暴露的 typed projection 与 Admission 校验使用同一份
+bytes、等值规则和 prepared-hash domain-separated 公式。它统一本地解析和等值校验，
+不能被解释为已经取得 Broker channel、Producer 或外部 Profile/catalog authority。
 
 运行时现在另提供严格的 `DelayShard.claimForPublishV1` 入口：在构造 Claim
 WriteBatch 前，它把 typed materialization 的 message identity、generation、
