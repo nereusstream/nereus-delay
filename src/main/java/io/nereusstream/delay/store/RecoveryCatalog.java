@@ -5,6 +5,7 @@ import io.nereusstream.delay.protocol.CheckpointUploadIntentV1;
 import io.nereusstream.delay.protocol.CheckpointUploadStateV1;
 import io.nereusstream.delay.protocol.EvidenceCursorV1;
 import io.nereusstream.delay.protocol.RecoveryCandidateKindV1;
+import io.nereusstream.delay.protocol.RecoveryCandidateRefV1;
 import io.nereusstream.delay.protocol.RecoveryFloorRefV1;
 import io.nereusstream.delay.protocol.RecoveryPinV1;
 import io.nereusstream.delay.protocol.ShardSubjectV1;
@@ -267,6 +268,42 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
         final CheckpointManifest published = manifests.get(key(candidate.checkpointId()));
         if (published == null || !Bytes.constantTimeEquals(published.manifestSha256(), candidate.manifestSha256())) {
             throw new IllegalArgumentException("checkpoint is not the published catalog manifest");
+        }
+        recoverySet(candidate.checkpointId());
+    }
+
+    /**
+     * Validates the four local meta/RECOVERY projections before a Store can be
+     * considered for reuse.  This is deliberately read-only: a production
+     * Oxia implementation must bind the same checks to its catalog/Floor
+     * transaction and current Owner Lease/session.
+     */
+    @Override
+    public synchronized void validateLocalStoreRecovery(final io.nereusstream.delay.protocol.ShardId shardId,
+                                                         final StoreRecoveryMetadata localMetadata) {
+        Objects.requireNonNull(shardId, "shardId");
+        Objects.requireNonNull(localMetadata, "localMetadata");
+        if (!localMetadata.hasReusableProof() || localMetadata.lineageBase() == null
+                || localMetadata.lineageBase().kind() != RecoveryCandidateKindV1.LOCAL_STORE
+                || localMetadata.lastObservedFloor() == null || typedFloorRef == null) {
+            throw new IllegalArgumentException("local Store lacks a complete recovery-reuse projection");
+        }
+        if (!localMetadata.lastObservedFloor().equals(typedFloorRef)
+                || localMetadata.catalogGeneration() != typedFloorRef.catalogGeneration()) {
+            throw new IllegalStateException("local Store Recovery Floor observation is stale");
+        }
+        final RecoveryCandidateRefV1 candidate = localMetadata.lineageBase();
+        final CheckpointManifest manifest = manifests.get(key(candidate.checkpointId()));
+        if (manifest == null || !manifest.shardId().equals(shardId)
+                || !Bytes.constantTimeEquals(manifest.recoveryLineageId(), candidate.recoveryLineageId())
+                || !Bytes.constantTimeEquals(manifest.manifestSha256(), candidate.manifestSha256())) {
+            throw new IllegalArgumentException("local Store base candidate is not the exact published manifest");
+        }
+        if (localMetadata.installState() == null
+                || !java.util.Arrays.equals(localMetadata.installState().storeIncarnation(),
+                candidate.storeIncarnation())
+                || !java.util.Arrays.equals(localMetadata.installState().checkpointId(), candidate.checkpointId())) {
+            throw new IllegalArgumentException("local Store install state does not match its base candidate");
         }
         recoverySet(candidate.checkpointId());
     }

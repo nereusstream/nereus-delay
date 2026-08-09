@@ -2239,6 +2239,11 @@ AND RecoveryFloor.includedMutationSequence >= r within that lineage
 
 1. 读取 current Floor/catalog，选择 local `ACTIVE` 或 catalog checkpoint；用一个比较 exact Owner Lease/session 与 catalog generation 的 Oxia transaction 创建 Registry 的 session-bound ephemeral `RecoveryPinV1`。Pin 无 client-clock expiry；只要 exact record 存在，candidate/Floor checkpoint 对象就不能删除。
 2. local Store 只有在 DB 内 lineage/base checkpoint、last-observed Floor、source/evidence cursors、目录/lock/shard/DB/Store identity 全部证明它是 current Floor descendant 时才可复用；旧 host 的 checksummed pointer 本身不是资格。
+   本地 `RecoveryCatalog.validateLocalStoreRecovery` 只能验证已持久的
+   `StoreRecoveryMetadata` 与 exact typed current Floor、published base manifest、
+   parent-hash ancestry 和 Store Incarnation/install-state 一致；真正的 current
+   Floor/Oxia Owner Lease/session transaction 仍是外部 authority，缺失或不一致时
+   必须重新选择 checkpoint，不能把本地 proof 当成接管授权。
 3. 否则下载 newest permitted pinned checkpoint 到 `restore-tmp/<checkpointId>-<nonce>/db`，验证 canonical manifest/ancestry/object/file checksum、DB/shard/route、`sourceStoreIncarnation`、store format 和 source/evidence retention。
 4. 生成全新 Store Incarnation，rename temp 到 `incarnations/<newStoreIncarnation>`；install-mode open，WAL-sync 写入新的 Store Incarnation、current Owner open metadata 和 unclean marker，再 close。
 5. 在替换 `ACTIVE` 前重读 exact pin/Floor/catalog/retention；Floor 已越过 candidate、session-bound pin 消失或 lineage 改变则关闭并丢弃安装、再重新选择。否则 fsync parent，写/fsync `ACTIVE.tmp`，atomic rename、fsync shard parent并 normal open。

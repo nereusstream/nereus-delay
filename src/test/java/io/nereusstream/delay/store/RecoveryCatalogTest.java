@@ -12,6 +12,8 @@ import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.RecoveryCandidateKindV1;
 import io.nereusstream.delay.protocol.RecoveryCandidateRefV1;
 import io.nereusstream.delay.protocol.RecoveryFloorRefV1;
+import io.nereusstream.delay.protocol.RecoveryInstallPhaseV1;
+import io.nereusstream.delay.protocol.RecoveryInstallStateV1;
 import io.nereusstream.delay.protocol.RecoveryPinV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
@@ -169,6 +171,31 @@ class RecoveryCatalogTest {
         catalog.releaseRecoveryPin(pin);
         assertTrue(catalog.activeRecoveryPin().isEmpty());
         assertThrows(IllegalStateException.class, () -> catalog.createRecoveryPin(pin));
+    }
+
+    @Test
+    void validatesLocalStoreRecoveryAgainstTheTypedFloorAndAncestry() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 14);
+        final UUID topic = UUID.randomUUID();
+        final byte[] lineage = id16(140);
+        final CheckpointManifest genesis = manifest(shard, topic, lineage, id16(141), 0, 1, 1, null);
+        final RecoveryCatalog catalog = new RecoveryCatalog();
+        catalog.publish(genesis, 0);
+        final RecoveryFloorRefV1 floor = catalog.advanceFloor(genesis.checkpointId(), 1, List.of());
+        final byte[] storeIncarnation = id16(142);
+        final StoreRecoveryMetadata local = new StoreRecoveryMetadata(
+                new RecoveryCandidateRefV1(RecoveryCandidateKindV1.LOCAL_STORE, lineage,
+                        genesis.checkpointId(), genesis.manifestSha256(), storeIncarnation), floor,
+                floor.catalogGeneration(), new RecoveryInstallStateV1(RecoveryInstallPhaseV1.OPEN,
+                        storeIncarnation, genesis.checkpointId()));
+
+        catalog.validateLocalStoreRecovery(shard, local);
+
+        final CheckpointManifest child = manifest(shard, topic, lineage, id16(143), 1, 2, 2,
+                new CheckpointManifest.ParentCheckpoint(genesis.checkpointId(), Bytes.hex(genesis.manifestSha256())));
+        catalog.publish(child, floor.catalogGeneration());
+        catalog.advanceFloor(child.checkpointId(), floor.catalogGeneration() + 1, List.of());
+        assertThrows(IllegalStateException.class, () -> catalog.validateLocalStoreRecovery(shard, local));
     }
 
     @Test

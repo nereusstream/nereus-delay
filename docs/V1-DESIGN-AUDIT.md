@@ -1890,6 +1890,11 @@ Store Incarnation 漂移；restore 会为新 Store Incarnation 记录 LOCAL_STOR
 覆盖 canonical round-trip、key/value projection、reopen 与 restore。该投影只闭合
 本地 recovery-reuse facts；`hasReusableRecoveryProof()` 不证明 ancestry/Floor
 coverage，也不替代 Oxia Owner Lease/session/catalog authority。
+本地 `RecoveryCatalog.validateLocalStoreRecovery` 现在把这些 facts 与 exact typed
+current Floor、published base manifest、parent-hash ancestry 以及 Store
+Incarnation/install-state identity 绑定，拒绝 stale Floor、跨 shard 或跨 lineage
+重用；它仍是只读 local proof seam，不是 Oxia transaction 或 Owner Lease/session
+authority。
 带 identity 的 `ShardStore.createCheckpoint(path, checkpointId)` 会先把 exact
 16-byte checkpoint identity 写入 live DB，再拍摄完整镜像；物理失败会同步恢复
 旧 projection，恢复后的 DB 因而保留它所代表的 checkpoint identity。无 identity

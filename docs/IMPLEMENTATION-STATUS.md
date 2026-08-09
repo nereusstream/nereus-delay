@@ -7,6 +7,12 @@ normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20�
 the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
+The local RecoveryCatalog now also validates a persisted `StoreRecoveryMetadata`
+reuse projection against the exact typed current Floor, published base-manifest
+identity, parent-hash ancestry and Store Incarnation/install-state identity.
+This is a read-only local proof seam; `OxiaRecoveryCatalog` still requires the
+production catalog/Floor and Owner Lease/session transaction.
+
 The client contract now exposes the bounded V1 query bridge through
 `DelayClient.getCommandResult` and `DelayClient.getMessage`. The embedded
 implementation delegates to the existing receipt/source-barrier and

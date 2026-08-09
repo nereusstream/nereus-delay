@@ -4,6 +4,7 @@ import io.nereusstream.delay.protocol.RecoveryPinV1;
 import io.nereusstream.delay.protocol.CheckpointUploadIntentV1;
 import io.nereusstream.delay.protocol.EvidenceCursorV1;
 import io.nereusstream.delay.protocol.RecoveryFloorRefV1;
+import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.SourcePosition;
 
 import java.util.List;
@@ -50,6 +51,17 @@ public interface RecoveryCatalogAuthority {
     Optional<RecoveryCatalog.FloorCoverage> proveFloorCoverage(byte[] candidateCheckpointId,
                                                                long requiredMutationSequence,
                                                                SourcePosition... requiredPositions);
+
+    /**
+     * Validates whether a local Store's persisted recovery projections may be
+     * considered for reuse.  Production implementations must perform the
+     * same read against the current Oxia catalog/Floor transaction; the local
+     * implementation is deterministic and side-effect free.
+     */
+    default void validateLocalStoreRecovery(final ShardId shardId,
+                                            final StoreRecoveryMetadata localMetadata) {
+        throw new UnsupportedOperationException("local Store recovery validation is not implemented");
+    }
 
     /**
      * Creates the local/test projection of a session-bound recovery pin.
