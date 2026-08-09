@@ -93,7 +93,12 @@ public final class PersistentLaneScheduler {
                     .toList();
             final Map<LaneKey, SchedulerProjectionsV1.DeficitEntry> deficits = new HashMap<>();
             for (SchedulerProjectionsV1.DeficitEntry entry : persisted.deficitMap().entries()) {
-                deficits.put(new LaneKey(entry.laneId(), entry.laneIncarnation()), entry);
+                // Deficit is a physical Lane-version projection. A same-key
+                // Lane that has advanced its runtime version must not inherit
+                // the old cap/credit state after a restart.
+                if (matchesRegisteredLane(entry.laneId(), entry.laneIncarnation(), entry.observedLaneVersion())) {
+                    deficits.put(new LaneKey(entry.laneId(), entry.laneIncarnation()), entry);
+                }
             }
             final Map<LaneKey, SchedulerProjectionsV1.LastServedEntry> lastServed = new HashMap<>();
             for (SchedulerProjectionsV1.LastServedEntry entry : persisted.lastServedMap().entries()) {
@@ -785,9 +790,14 @@ public final class PersistentLaneScheduler {
     }
 
     private boolean matchesRegisteredLane(final SchedulerProjectionsV1.RingEntry entry) {
-        final LaneRecord lane = registered.get(entry.laneId());
-        return lane != null && Arrays.equals(lane.laneIncarnation(), entry.laneIncarnation())
-                && observedVersion(lane) == entry.observedLaneVersion();
+        return matchesRegisteredLane(entry.laneId(), entry.laneIncarnation(), entry.observedLaneVersion());
+    }
+
+    private boolean matchesRegisteredLane(final DestinationLaneId laneId, final byte[] laneIncarnation,
+                                          final long observedLaneVersion) {
+        final LaneRecord lane = registered.get(laneId);
+        return lane != null && Arrays.equals(lane.laneIncarnation(), laneIncarnation)
+                && observedVersion(lane) == observedLaneVersion;
     }
 
     private static long observedVersion(final LaneRecord lane) {

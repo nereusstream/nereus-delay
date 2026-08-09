@@ -850,6 +850,10 @@ Persistent projection restore applies the same rule across the active ring: the
 semantic generation/counter snapshot is validated before replacing the ring,
 and a malformed persisted generation rolls the registered scheduler back to its
 exact pre-restore ring and counters (`LaneSchedulerTest.malformedPersistedSchedulerGenerationDoesNotPartiallyApplyTheActiveRing`).
+Deficit entries are also checked against the currently registered Lane
+incarnation and `observedLaneVersion`; a same-key Lane version change cannot
+inherit stale credits, while the incarnation-level last-served history remains
+available for the service-gap projection (`LaneSchedulerTest.stalePersistedDeficitVersionDoesNotRestoreCreditsToARevisedLane`).
 The inner and outer two-rotation visit limits also widen `ring.size() * 2`
 before comparison, with `LaneSchedulerTest.ringVisitLimitUsesWideArithmetic`
 and `WorkerSchedulerTest.outerVisitLimitUsesWideArithmetic` covering the

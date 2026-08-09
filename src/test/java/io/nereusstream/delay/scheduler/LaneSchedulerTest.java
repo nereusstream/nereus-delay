@@ -644,6 +644,49 @@ class LaneSchedulerTest {
     }
 
     @Test
+    void stalePersistedDeficitVersionDoesNotRestoreCreditsToARevisedLane() {
+        final DestinationLaneId lane = lane(49);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 49);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("scheduler-stale-deficit-version"));
+        final byte[] incarnation = new byte[16];
+        final SchedulerProjectionsV1.ReadyDiscoveryCursor discovery =
+                new SchedulerProjectionsV1.ReadyDiscoveryCursor(null, 0, 1);
+        final SchedulerProjectionsV1.ActiveRing activeRing =
+                new SchedulerProjectionsV1.ActiveRing(1, 5, 0, List.of(
+                        new SchedulerProjectionsV1.RingEntry(lane, incarnation, 1)));
+        final SchedulerProjectionsV1.DeficitMap deficits = new SchedulerProjectionsV1.DeficitMap(List.of(
+                new SchedulerProjectionsV1.DeficitEntry(lane, incarnation, 64, 1)));
+        final SchedulerProjectionsV1.Round round = new SchedulerProjectionsV1.Round(5, owner(1), false);
+        final SchedulerProjectionsV1.LastServedMap lastServed = new SchedulerProjectionsV1.LastServedMap(List.of(
+                new SchedulerProjectionsV1.LastServedEntry(lane, incarnation, 4, 1)));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.META, 5, KeyCodec.metaScheduler(1), discovery.canonicalBytes());
+                batch.putValue(ColumnFamily.META, 5, KeyCodec.metaScheduler(2), activeRing.canonicalBytes());
+                batch.putValue(ColumnFamily.META, 5, KeyCodec.metaScheduler(3), deficits.canonicalBytes());
+                batch.putValue(ColumnFamily.META, 5, KeyCodec.metaScheduler(4), round.canonicalBytes());
+                batch.putValue(ColumnFamily.META, 5, KeyCodec.metaScheduler(5), lastServed.canonicalBytes());
+            });
+
+            final LaneScheduler delegate = LaneScheduler.defaults();
+            final PersistentLaneScheduler recovered = new PersistentLaneScheduler(store, delegate);
+            // The same Lane incarnation has advanced its runtime version. The
+            // old active ring and deficit entry are stale, while last-served
+            // history remains useful for the incarnation-level service gap.
+            recovered.register(new LaneRecord(lane, incarnation, 1, 2, AdmissionGate.OPEN,
+                    RuntimeReadiness.READY, 1, 0));
+            recovered.restorePersistedState();
+
+            final LaneScheduler.LaneSnapshot restored = delegate.snapshot().lanes().get(0);
+            assertEquals(0, restored.deficit());
+            assertEquals(4, restored.lastServedRound());
+            assertEquals(List.of(), delegate.ringOrder());
+        }
+    }
+
+    @Test
     void fencedRecoveryRebuildsReadyQueueFromLaneAndMessageIndexes() {
         final DestinationLaneId lane = lane(7);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 7);
