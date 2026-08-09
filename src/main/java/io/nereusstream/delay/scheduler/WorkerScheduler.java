@@ -101,7 +101,8 @@ public final class WorkerScheduler {
                 continue;
             }
             final boolean firstPassVisit = recoveryFirstPass;
-            final Set<ShardId> eligible = firstPassVisit ? eligibleShards(dueThroughEpochMs) : Set.of();
+            final Set<ShardId> eligible = firstPassVisit
+                    ? eligibleShards(dueThroughEpochMs, budget.maxBytes()) : Set.of();
             if (firstPassVisit && recoveryServed.contains(shard.shardId)) {
                 continue;
             }
@@ -132,7 +133,7 @@ public final class WorkerScheduler {
             bytes = Math.addExact(bytes, visitBytes);
             if (firstPassVisit) {
                 recoveryServed.add(shard.shardId);
-                if (recoveryServed.containsAll(eligibleShards(dueThroughEpochMs))) {
+                if (recoveryServed.containsAll(eligibleShards(dueThroughEpochMs, budget.maxBytes()))) {
                     recoveryFirstPass = false;
                     recoveryServed.clear();
                 }
@@ -251,11 +252,15 @@ public final class WorkerScheduler {
         recoveryServed.clear();
     }
 
-    private Set<ShardId> eligibleShards(final long dueThroughEpochMs) {
+    private Set<ShardId> eligibleShards(final long dueThroughEpochMs, final long maximumHeadBytes) {
         requireDueThrough(dueThroughEpochMs);
+        if (maximumHeadBytes <= 0) {
+            throw new IllegalArgumentException("maximum recovery head bytes must be positive");
+        }
         final Set<ShardId> eligible = new HashSet<>();
         for (ShardQueue shard : shards.values()) {
-            if (shard.schedulable(dueThroughEpochMs)) {
+            if (shard.schedulable(dueThroughEpochMs)
+                    && shard.scheduler.minimumSchedulableHeadBytes(dueThroughEpochMs) <= maximumHeadBytes) {
                 eligible.add(shard.shardId);
             }
         }

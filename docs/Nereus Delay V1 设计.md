@@ -1621,6 +1621,12 @@ first pass、outer deficit 或 service-gap 分母。仅有 future head 的 Lane/
 继续保留在 READY/pending projection，但不能让恢复首轮等待它到期，也不能因此阻塞
 同一连续 ownership interval 内已经 due 的其它 work。
 
+`eligible` 还必须满足本轮调用方的全局 byte budget：如果某个 due head
+大于当前剩余 budget，它本轮不能 Claim，也不能被计入 recovery first pass
+的待服务集合。该 head 必须保留在 READY/pending projection，等待拥有足够
+全局预算的后续 turn；它不能让 inner 或 outer 的恢复首轮保持打开并阻塞其它
+仍可在当前预算内完成的 Lane/Shard。
+
 在 ready 数有界、weight 非零、全局保留容量持续可用、record 同时不超过 deficit/visit/Lane/shard/Worker/Adapter 全部 byte cap 的前提下，每个健康 Lane 每完整一轮至少被访问一次，并在：
 
 ```text

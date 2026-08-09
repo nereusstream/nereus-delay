@@ -988,6 +988,31 @@ class LaneSchedulerTest {
     }
 
     @Test
+    void persistentRecoveryFirstPassDoesNotWaitForAnOversizedHead() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 35);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("scheduler-recovery-byte-fairness"));
+        final DestinationLaneId oversizedLane = lane(50);
+        final DestinationLaneId smallLane = lane(51);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
+            scheduler.register(record(oversizedLane, 1));
+            scheduler.register(record(smallLane, 1));
+            scheduler.offer(new ScheduleWorkItem(oversizedLane, DelayMessageId.random(shardId), 1, 1_000, 20));
+            scheduler.offer(new ScheduleWorkItem(smallLane, DelayMessageId.random(shardId), 1, 1_000, 1));
+
+            final SchedulerBudget budget = new SchedulerBudget(1, 10, 1_000_000_000);
+            assertEquals(List.of(smallLane), scheduler.poll(1_000, budget).stream()
+                    .map(ScheduleWorkItem::laneId).toList());
+
+            scheduler.offer(new ScheduleWorkItem(smallLane, DelayMessageId.random(shardId), 2, 1_001, 1));
+            assertEquals(List.of(smallLane), scheduler.poll(1_001, budget).stream()
+                    .map(ScheduleWorkItem::laneId).toList());
+        }
+    }
+
+    @Test
     void readyDiscoveryRejectsFirstEntryThatExceedsByteBudget() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 32);
         final ShardStoreConfig config = ShardStoreConfig.defaults(

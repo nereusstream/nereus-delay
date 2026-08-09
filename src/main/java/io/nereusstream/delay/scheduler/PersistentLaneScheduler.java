@@ -350,7 +350,8 @@ public final class PersistentLaneScheduler {
         List<ScheduleWorkItem> result = List.of();
         try {
             if (recoveryFirstPass) {
-                final Set<DestinationLaneId> eligible = delegate.dueSchedulableLanes(dueThroughEpochMs);
+                final Set<DestinationLaneId> eligible = dueSchedulableLanesWithinBudget(
+                        dueThroughEpochMs, budget.maxBytes());
                 recoveryServed.retainAll(eligible);
                 result = delegate.pollRecoveryFirstPass(dueThroughEpochMs, budget, recoveryServed);
                 result.forEach(item -> recoveryServed.add(item.laneId()));
@@ -367,6 +368,24 @@ public final class PersistentLaneScheduler {
             rollbackRuntime(before, result, List.of(), null, failure, null);
             throw failure;
         }
+    }
+
+    /**
+     * A due head that is larger than this turn's global byte budget cannot be
+     * claimed in this turn.  It must not keep the recovery first pass open and
+     * thereby prevent smaller healthy lanes from receiving later turns.
+     */
+    private Set<DestinationLaneId> dueSchedulableLanesWithinBudget(final long dueThroughEpochMs,
+                                                                    final long maximumHeadBytes) {
+        if (maximumHeadBytes <= 0) {
+            throw new IllegalArgumentException("maximum recovery head bytes must be positive");
+        }
+        return delegate.dueSchedulableLanes(dueThroughEpochMs).stream()
+                .filter(laneId -> {
+                    final ScheduleWorkItem head = delegate.pendingHead(laneId);
+                    return head != null && head.accountedBytes() <= maximumHeadBytes;
+                })
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
     private void requireRegisteredLane(final DestinationLaneId laneId) {

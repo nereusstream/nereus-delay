@@ -126,6 +126,29 @@ class WorkerSchedulerTest {
     }
 
     @Test
+    void oversizedHeadDoesNotHoldRecoveryFirstPassOpenForSmallerShard() {
+        final ShardId oversizedShard = shard(32);
+        final ShardId smallShard = shard(33);
+        final DestinationLaneId oversizedLane = lane(32);
+        final DestinationLaneId smallLane = lane(33);
+        final WorkerScheduler worker = new WorkerScheduler(10, 4);
+        worker.registerShard(oversizedShard, 1, LaneScheduler.defaults());
+        worker.registerShard(smallShard, 1, LaneScheduler.defaults());
+        worker.registerLane(oversizedShard, laneRecord(oversizedLane));
+        worker.registerLane(smallShard, laneRecord(smallLane));
+        worker.offer(new ScheduleWorkItem(oversizedLane, DelayMessageId.random(oversizedShard), 1, 1_000, 20));
+        worker.offer(new ScheduleWorkItem(smallLane, DelayMessageId.random(smallShard), 1, 1_000, 1));
+
+        final SchedulerBudget budget = new SchedulerBudget(1, 10, 1_000_000_000);
+        assertEquals(List.of(smallLane), worker.poll(1_000, budget).stream()
+                .map(ScheduleWorkItem::laneId).toList());
+
+        worker.offer(new ScheduleWorkItem(smallLane, DelayMessageId.random(smallShard), 2, 1_001, 1));
+        assertEquals(List.of(smallLane), worker.poll(1_001, budget).stream()
+                .map(ScheduleWorkItem::laneId).toList());
+    }
+
+    @Test
     void emptyShardDoesNotConsumeOuterDeficitVisit() {
         final ShardId emptyShard = shard(5);
         final ShardId healthyShard = shard(6);

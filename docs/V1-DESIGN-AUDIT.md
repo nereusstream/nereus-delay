@@ -828,6 +828,13 @@ due head。否则一个远期 future Lane/Shard 会让 `recovery_first_pass` 永
 与 `WorkerSchedulerTest.futureShardDoesNotHoldRecoveryFirstPassOpenForDueWork` 覆盖
 该本地公平性边界；生产 Trusted UTC、placement 和 Owner/Oxia authority 仍不由此
 证明。
+
+本轮还把调用方的全局 byte budget 纳入 recovery-first-pass 的机会集合：due
+head 大于当前 budget 时不会 Claim，也不会让 inner/outer 的恢复首轮等待该
+不可服务的 head；它会留在 pending projection，等后续拥有足够预算的 turn
+再被尝试。`LaneSchedulerTest.persistentRecoveryFirstPassDoesNotWaitForAnOversizedHead`
+与 `WorkerSchedulerTest.oversizedHeadDoesNotHoldRecoveryFirstPassOpenForSmallerShard`
+覆盖这一边界，证明一个过大的 due head 不会阻塞当前预算内可服务的健康 work。
 Legacy client receipt handling now closes the remaining local locator gap:
 `CommandQueuedReceipt` binds `commandId`, `delayMessageId`, and Source Position
 to the same Shard, and embedded `awaitApplied` validates its pinned Kafka source
