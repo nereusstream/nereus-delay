@@ -713,6 +713,13 @@ restore 或 READY 集合重新激活后进入 recovery first pass：当前 eligi
 Lane head；当该合法 record 大于 outer deficit cap 时，只在全局 byte budget 足够的
 情况下临时放宽本次 shard budget，因此大记录不会被 cap 永久饿死。
 `WorkerSchedulerTest.outerDeficitCapDoesNotMakeLargeHeadUnserviceable` 覆盖该边界。
+ownership loss 后，`WorkerScheduler.unregisterShard` 还要求 outer shard 已 blocked
+且其所有本地 Lane queue 已排空，随后才从进程内 ring/registry 移除并按剩余 shard
+重算 deficit cap；`WorkerSchedulerTest.shardUnregisterRequiresBlockedAndDrainedLocalQueue`
+与 `WorkerSchedulerTest.unregisteringHighestWeightShardRecomputesOuterDeficitCap`
+覆盖这一生命周期 fence。它只回收可重建 outer process state，不宣称跨 shard DB
+的持久原子更新，也不替代 source-ordered terminal guard、Store close 或 Oxia
+ownership authority。
 两级 scheduler 现在还对
 `weight * quantum` 与 deficit cap 做 checked arithmetic，并对运行时 deficit 累加做
 saturating arithmetic；配置、注册或恢复导致的整数溢出不会 wrap 成可调度的错误预算。

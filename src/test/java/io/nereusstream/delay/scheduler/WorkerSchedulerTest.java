@@ -40,6 +40,52 @@ class WorkerSchedulerTest {
     }
 
     @Test
+    void shardUnregisterRequiresBlockedAndDrainedLocalQueue() {
+        final ShardId shard = shard(29);
+        final DestinationLaneId lane = lane(29);
+        final WorkerScheduler worker = new WorkerScheduler(10, 4);
+        worker.registerShard(shard, 1, LaneScheduler.defaults());
+        worker.registerLane(shard, laneRecord(lane));
+        worker.offer(item(shard, lane, 1));
+
+        assertThrows(IllegalStateException.class, () -> worker.unregisterShard(shard));
+        worker.markShardBlocked(shard);
+        assertThrows(IllegalStateException.class, () -> worker.unregisterShard(shard));
+
+        worker.markShardReady(shard);
+        assertEquals(List.of(lane), worker.poll(new SchedulerBudget(1, 100, 1_000_000_000)).stream()
+                .map(ScheduleWorkItem::laneId).toList());
+        worker.markShardBlocked(shard);
+        worker.unregisterShard(shard);
+
+        assertEquals(List.of(), worker.snapshot().shards());
+        assertEquals(List.of(), worker.poll(new SchedulerBudget(1, 100, 1_000_000_000)));
+    }
+
+    @Test
+    void unregisteringHighestWeightShardRecomputesOuterDeficitCap() {
+        final ShardId high = shard(30);
+        final ShardId low = shard(31);
+        final DestinationLaneId highLane = lane(30);
+        final DestinationLaneId lowLane = lane(31);
+        final WorkerScheduler worker = new WorkerScheduler(10, 4);
+        worker.registerShard(high, 8, LaneScheduler.defaults());
+        worker.registerShard(low, 1, LaneScheduler.defaults());
+        worker.registerLane(high, laneRecord(highLane));
+        worker.registerLane(low, laneRecord(lowLane));
+        worker.markShardBlocked(high);
+        worker.offer(item(low, lowLane, 1));
+        worker.restore(new WorkerScheduler.WorkerSnapshot(0, 0,
+                List.of(new WorkerScheduler.ShardSnapshot(low, 1, Long.MAX_VALUE, 0, false))));
+
+        worker.unregisterShard(high);
+
+        assertEquals(List.of(lowLane), worker.poll(new SchedulerBudget(1, 100, 1_000_000_000)).stream()
+                .map(ScheduleWorkItem::laneId).toList());
+        assertEquals(39, worker.snapshot().shards().get(0).deficit());
+    }
+
+    @Test
     void workerPollCarriesTheInclusiveDueThroughBoundaryToShardScheduler() {
         final ShardId shard = shard(26);
         final DestinationLaneId lane = lane(26);

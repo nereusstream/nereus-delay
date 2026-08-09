@@ -168,6 +168,44 @@ public final class WorkerScheduler {
         recoveryServed.clear();
     }
 
+    /**
+     * Removes a shard from the rebuildable outer registry after ownership has
+     * been fenced and its local scheduler queue has drained.
+     *
+     * <p>The outer ring is process state rather than a cross-DB durable
+     * projection.  Keeping an old shard registered after ownership loss would
+     * nevertheless retain its scheduler and fairness state for the lifetime
+     * of the Worker, so removal is deliberately guarded by the same two local
+     * facts that make the registry safe to discard: the shard is blocked and
+     * every registered Lane queue is empty.  Source-ordered terminal guards,
+     * Oxia ownership and Store close remain outside this process-local method.
+     */
+    public synchronized void unregisterShard(final ShardId shardId) {
+        final ShardQueue shard = requireShard(shardId);
+        if (!shard.blocked) {
+            throw new IllegalStateException("only a blocked shard can be unregistered");
+        }
+        if (shard.hasPendingWork()) {
+            throw new IllegalStateException("cannot unregister a shard with pending work");
+        }
+        final int removed = ring.indexOf(shardId);
+        shards.remove(shardId);
+        if (removed >= 0) {
+            ring.remove(removed);
+            if (ring.isEmpty()) {
+                cursor = 0;
+            } else if (removed < cursor) {
+                cursor--;
+                cursor %= ring.size();
+            } else {
+                cursor %= ring.size();
+            }
+        }
+        recoveryFirstPass = true;
+        recoveryServed.clear();
+        recomputeDeficitCap();
+    }
+
     public synchronized WorkerSnapshot snapshot() {
         final List<ShardSnapshot> states = shards.values().stream()
                 .sorted(Comparator.comparing(state -> state.shardId.toString()))
@@ -213,6 +251,13 @@ public final class WorkerScheduler {
             throw new IllegalArgumentException("shard is not registered: " + shardId);
         }
         return shard;
+    }
+
+    private void recomputeDeficitCap() {
+        maxDeficitBytes = checkedDeficitCap(quantumBytes);
+        for (ShardQueue shard : shards.values()) {
+            maxDeficitBytes = Math.max(maxDeficitBytes, checkedWeightIncrement(shard.weight));
+        }
     }
 
     private long checkedWeightIncrement(final int weight) {
@@ -276,6 +321,10 @@ public final class WorkerScheduler {
 
         private boolean schedulable(final long dueThroughEpochMs) {
             return !blocked && !scheduler.dueSchedulableLanes(dueThroughEpochMs).isEmpty();
+        }
+
+        private boolean hasPendingWork() {
+            return scheduler.snapshot().lanes().stream().anyMatch(state -> state.pendingItems() > 0);
         }
     }
 }

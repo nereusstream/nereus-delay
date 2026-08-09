@@ -1547,7 +1547,7 @@ Worker 先在至少有一个 `admissionGate=OPEN && runtimeReadiness=READY` Lane
 - ordered Lane 每次最多 head；unordered 可有界多条；
 - global permit 不足时不再 Claim。
 
-Ready discovery 使用持久 rotating cursor 与 active DRR ring：bounded scan/permit exhaustion 从 successor 续跑，走到末尾 wrap；已经 active 的 hot early key 不重复占 discovery prefix。每个 shard DB 的 inner Lane cursor、ring generation、`lastServedRound` 与 capped deficit 以 Protocol Registry 的五个 closed value 持久在自己的 `meta_cf/SCHEDULER`，每 bounded cycle/成功 Claim 同步推进；恢复的 first round 在所有 discovered Lane 各获一次机会前不能重复服务同一 Lane。Worker-level outer shard DRR 是从有限 `ACTIVE_FOR_COMMANDS` shard DB 集合重建的 bounded process state；构建后同样先给每个 eligible shard 一次机会，V1 不跨独立 shard DB 伪造一个原子持久 Worker ring。进展保证以连续 ownership interval 为边界。
+Ready discovery 使用持久 rotating cursor 与 active DRR ring：bounded scan/permit exhaustion 从 successor 续跑，走到末尾 wrap；已经 active 的 hot early key 不重复占 discovery prefix。每个 shard DB 的 inner Lane cursor、ring generation、`lastServedRound` 与 capped deficit 以 Protocol Registry 的五个 closed value 持久在自己的 `meta_cf/SCHEDULER`，每 bounded cycle/成功 Claim 同步推进；恢复的 first round 在所有 discovered Lane 各获一次机会前不能重复服务同一 Lane。Worker-level outer shard DRR 是从有限 `ACTIVE_FOR_COMMANDS` shard DB 集合重建的 bounded process state；构建后同样先给每个 eligible shard 一次机会，V1 不跨独立 shard DB 伪造一个原子持久 Worker ring。ownership loss 先把 shard 从 outer visit 中 fence，待本地 scheduler queue 排空后才允许从进程内 registry 注销，并重算当前 shard 集合的 outer deficit cap；该注销只回收可重建 process state，不替代 source-ordered terminal guard、Store close 或 Oxia ownership。进展保证以连续 ownership interval 为边界。
 
 这里的 `eligible` 必须按本轮 trusted due-through 重新计算：只有存在
 `eligibleAt <= dueThrough` 的 schedulable head 的 Lane/Shard 才进入 recovery
