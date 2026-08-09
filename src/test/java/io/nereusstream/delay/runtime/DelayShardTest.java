@@ -1362,6 +1362,47 @@ class DelayShardTest {
     }
 
     @Test
+    void canonicalAttemptLedgerRejectsStaleLaneIncarnationBeforePersistence() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("canonical-admission-lane-incarnation"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 37);
+        final DestinationLaneId lane = new DestinationLaneId(Bytes.sha256(Bytes.utf8("lane")));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("canonical-admission-lane-incarnation")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 1_001);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+
+            final byte[] staleLaneIncarnation = shard.getLane(lane).laneIncarnation();
+            staleLaneIncarnation[0] ^= 1;
+            final byte[] sourceTimelineKey = KeyCodec.timelineDue(lane, 2_000,
+                    schedulePosition.sourceOrderToken(), schedule.delayMessageId(), 0);
+            final Fixture fixture = Fixture.createForSource(shardId, schedule.delayMessageId(),
+                    staleLaneIncarnation, sourceTimelineKey, 1, 0, 0,
+                    GenerationRuntimeIndex.obligationSetDigest(List.of()),
+                    Bytes.sha256(Bytes.utf8("canonical-admission-lane-incarnation-semantic")));
+            final PublishAdmissionBody body = PublishAdmissionBody.decode(fixture.body());
+            final PublishAttemptLedger admission = PublishAttemptLedger.publishingWithRetryWindow(
+                    schedule.delayMessageId(), 0, body.publishAttemptId(), body.claimId(), 7, 1, lane,
+                    body.laneIncarnation(), body.ownerIdentity(), body.storeIncarnation(),
+                    body.preparedPublishHash(), fixture.body(), body.decisionTime().latestEpochMs(),
+                    5_000, admissionPosition.canonicalBytes());
+
+            final IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                    () -> shard.admitPublishAttempt(admission, admissionPosition));
+            assertEquals("typed retry window Lane identity is stale", failure.getMessage());
+            assertEquals(schedulePosition, shard.lastAppliedSourcePosition());
+            assertEquals(MessageStatus.SCHEDULED, shard.getMessage(schedule.delayMessageId()).status());
+            assertNull(shard.findOpenPublishAttempt(body.publishAttemptId()));
+        }
+    }
+
+    @Test
     void profileBindingControlsGateNewRegistryBindingsBySourcePosition() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("profile-binding-controls"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 34);

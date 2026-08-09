@@ -1394,6 +1394,18 @@ proves that the malformed canonical-looking ledger does not create `PUBLISHING`
 state or an open attempt. This is local integrity evidence, not authenticated
 source-ordered Admission authority or external grant evidence.
 
+The embedded Admission boundary now applies the same canonical fence to valid
+V2 ledgers: before a `PUBLISHING` WriteBatch, the retained body is compared
+with the ledger's attempt/generation/message/Claim/Lane/Owner/Store/prepared
+hash/attempt number, owner generation and Message timing, and its Lane
+incarnation must equal the current durable Lane. The regression
+`DelayShardTest.canonicalAttemptLedgerRejectsStaleLaneIncarnationBeforePersistence`
+shows that a body/ledger pair from a stale Lane is rejected without advancing
+the Source Position or creating an attempt. Opaque V1 ledgers remain a
+compatibility seam and are not locally upgraded without authoritative
+source-ordered replay; external source and Owner authority remain release
+gates.
+
 同一 logical-identity fence 现在也覆盖三个此前容易被签名 envelope 掩盖的入口：
 `PUBLISH_ADMISSION_V1` 必须使用 body 的 `PublishAttemptId`，
 `CLAIM_RESULT_V1` 必须使用 body 的 `ClaimId`，而 `EXPIRE_GENERATION_V1`

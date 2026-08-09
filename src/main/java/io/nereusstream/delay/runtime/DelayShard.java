@@ -2627,6 +2627,7 @@ public final class DelayShard {
     /** Validates V2 ledger facts before an attempt can become durable. */
     private void validatePersistedRetryWindow(final PublishAttemptLedger admission,
                                               final MessageRecord current,
+                                              final LaneRecord lane,
                                               final SourcePosition sourcePosition) {
         if (!admission.hasRetryWindow()) {
             return;
@@ -2639,8 +2640,27 @@ public final class DelayShard {
         }
         if (!Arrays.equals(body.publishAttemptId(), admission.publishAttemptId())
                 || body.generation() != admission.generation()
-                || !Arrays.equals(body.messageId(), admission.delayMessageId().bytes())) {
+                || !Arrays.equals(body.messageId(), admission.delayMessageId().bytes())
+                || !Arrays.equals(body.claimId(), admission.claimId())
+                || !Arrays.equals(body.laneId(), admission.laneId().bytes())
+                || !Arrays.equals(body.laneIncarnation(), admission.laneIncarnation())
+                || !Arrays.equals(body.ownerIdentity(), admission.ownerIdentity())
+                || !Arrays.equals(body.storeIncarnation(), admission.storeIncarnation())
+                || !Arrays.equals(body.preparedPublishHash(), admission.preparedPublishHash())
+                || body.descriptor().attemptNo() != admission.attemptNo()) {
             throw new IllegalArgumentException("typed retry window is bound to another Admission");
+        }
+        if (!Arrays.equals(body.laneId(), lane.laneId().bytes())
+                || !Arrays.equals(body.laneIncarnation(), lane.laneIncarnation())) {
+            throw new IllegalArgumentException("typed retry window Lane identity is stale");
+        }
+        final AuthorIdentity owner = AuthorIdentity.decode(body.ownerIdentity());
+        if (owner.generation() != admission.ownerEpoch()) {
+            throw new IllegalArgumentException("typed retry window owner generation is stale");
+        }
+        if (body.descriptor().deliverAtEpochMs() != current.deliverAtEpochMs()
+                || body.descriptor().expireAtEpochMs() != current.expireAtEpochMs()) {
+            throw new IllegalArgumentException("typed retry window message timing is stale");
         }
         final RetryPolicySemanticV1 policy = retryPolicyFor(admission.delayMessageId(), current, sourcePosition);
         final long expectedFirst = body.decisionTime().latestEpochMs();
@@ -4682,7 +4702,6 @@ public final class DelayShard {
                 || current.generation() != admission.generation() || !current.laneId().equals(admission.laneId())) {
             throw new IllegalStateException("publish admission is stale for the current message generation");
         }
-        validatePersistedRetryWindow(admission, current, sourcePosition);
         validateAdmissionBudget(admission.delayMessageId(), current, current.runtimeIndex(), uncertainRetryAdmission,
                 sourcePosition);
         final ClaimRecord claim = current.status() == MessageStatus.CLAIMED
@@ -4700,6 +4719,7 @@ public final class DelayShard {
         if (lane == null || !lane.schedulable()) {
             throw new IllegalStateException("publish admission requires a schedulable lane");
         }
+        validatePersistedRetryWindow(admission, current, lane, sourcePosition);
         final List<AttemptObligationRef> obligations = withObligation(current.runtimeIndex(), admission.obligationRef());
         MessageRecord next = new MessageRecord(MessageStatus.PUBLISHING, current.generation(),
                 Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),

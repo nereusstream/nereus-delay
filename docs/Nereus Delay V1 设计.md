@@ -1438,6 +1438,8 @@ preparedPublishHash =
 
 `PUBLISH_ADMISSION_V1` 的 canonical body 一旦进入 durable attempt ledger，解析失败不是 legacy adapter 分支，必须 fail closed；运行时只有不带 canonical System Mutation common-body prefix（field 1 nested 的 protobuf tag `0x0a`）的 pre-V1 synthetic ledger 才允许使用 all-zero charge compatibility projection。该兼容边界只服务嵌入式旧适配器，不改变 source-ordered production path：生产 Admission 必须保留 exact canonical body，不能因 charge decode 失败降级为零、释放容量或继续 publish。
 
+任何已经携带 retry window 的 canonical V2 attempt ledger，在进入 durable `PUBLISHING` WriteBatch 前还必须重新验证其 Admission body 与 ledger 的完整 identity：`publishAttemptId`、generation、message、Claim、Lane/Lane incarnation、Owner/Store、prepared hash、attempt number、owner generation 以及当前 Message 的 delivery/expiry timing 都必须 byte/value-equal；body 的 Lane incarnation 还必须等于当前 durable Lane。该检查适用于嵌入式 Admission 入口，防止一个可解析但错挂的 ledger 先被写入、再等后续 outcome 才暴露；旧的无 retry-window opaque V1 ledger 仍只保留历史兼容夹层，不能凭本地猜测升级为 canonical V2，生产升级必须来自 authoritative source-ordered Admission replay。
+
 同一 Owner/Store 下的迟到 callback 按 exact attempt 记入 ledger。若该 generation 尚未 terminal，任何可验证 success 都可使其 terminal；可逆 TIMELINE/CLAIMED work 同 batch 删除，另一个已经 admitted 的 attempt 则不能撤销，继续列入 open obligations 并使结果标记 possible duplicate。Terminal 后的合法 callback/evidence 只能减少该 attempt 的 obligation/charge 或单调提高 duplicate risk，不得重写 terminal state/code/time。若 Replay 已创建新 generation，旧 callback 只比较旧 ledger/terminal summary，绝不读取或 terminalize 新 `id_cf/MESSAGE` runtime index。旧 Owner、旧 Store、错误 generation 或无法验证的 callback 只作 audit；跨 Owner 的可验证结果只能走 Profile 已定义的 external evidence path。Strong capability 在允许新 retry 前先解析旧 attempt。
 
 ### 11.3 Cancel / Reschedule
