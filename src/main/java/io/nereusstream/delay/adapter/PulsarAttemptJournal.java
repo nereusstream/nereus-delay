@@ -57,6 +57,15 @@ public final class PulsarAttemptJournal {
         this(shard, new LocalAppender(), null);
     }
 
+    /**
+     * Creates the deterministic local appender at an explicit raw entry ID.
+     * This package-private seam exists only for exhaustion-boundary tests; a
+     * production Pulsar adapter must obtain Journal positions from the Broker.
+     */
+    PulsarAttemptJournal(final ShardId shard, final long initialEntry) {
+        this(shard, new LocalAppender(initialEntry), null);
+    }
+
     /** Creates a journal seam with an injected Broker-like durable append. */
     public PulsarAttemptJournal(final ShardId shard, final DurableAppender appender) {
         this(shard, appender, null);
@@ -871,12 +880,34 @@ public final class PulsarAttemptJournal {
 
     private static final class LocalAppender implements DurableAppender {
         private long nextEntry;
+        private boolean exhausted;
+
+        private LocalAppender() {
+            this(0);
+        }
+
+        private LocalAppender(final long initialEntry) {
+            nextEntry = initialEntry;
+        }
 
         @Override
         public JournalPosition append(final AppendRequest request) {
-            final long entry = nextEntry++;
-            return new JournalPosition(0, entry, 0, 1,
+            if (exhausted) {
+                throw new JournalException(StableCode.INTEGRITY_ERROR,
+                        "Pulsar Journal entry domain exhausted");
+            }
+            final long entry = nextEntry;
+            final JournalPosition position = new JournalPosition(0, entry, 0, 1,
                     request.mapping().guardedBrokerTimestampEpochMs());
+            // Raw u64 all-ones is a valid final entry, but it has no
+            // representable successor. Keep the appender permanently
+            // exhausted instead of wrapping to the first entry.
+            if (entry == -1L) {
+                exhausted = true;
+            } else {
+                nextEntry = entry + 1;
+            }
+            return position;
         }
     }
 }

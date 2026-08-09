@@ -130,6 +130,14 @@ record/object equality. `PulsarAttemptJournalTest`
 two branches; the real Journal topic, ExclusiveWithFencing and Broker evidence
 gates remain external.
 
+The local Pulsar Journal appender now closes its raw u64 `entryId` domain
+without wraparound: the all-ones entry is accepted once, then every later
+append fails with `INTEGRITY_ERROR` before any local Journal state changes.
+`PulsarAttemptJournalTest.localAppenderFailsClosedAfterUnsignedEntryExhaustionWithoutWrapping`
+proves repeated failure after the boundary. This closes only the deterministic
+appender seam; Broker Journal ownership, fencing and durability evidence remain
+release gates.
+
 The Pulsar Journal resolver now preserves the same fail-closed evidence rule
 after `RETIRED_NOT_PUBLISHED`: the marker cannot suppress the Broker
 last-sequence check or the two retention predicates. A late sequence at or

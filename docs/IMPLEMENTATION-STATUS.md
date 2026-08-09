@@ -137,6 +137,16 @@ branches. This remains a local journal seam; the Nereus-owned Pulsar topic,
 ExclusiveWithFencing writer and Broker evidence authority remain release
 blockers.
 
+The local Pulsar Journal appender now treats raw u64 all-ones as the final
+usable `entryId`: it writes that entry once and then remains permanently
+exhausted. A subsequent retirement fails with typed `INTEGRITY_ERROR` before
+the Journal state or record list changes, rather than allowing an internal
+entry cursor to wrap toward zero. `PulsarAttemptJournalTest`
+`localAppenderFailsClosedAfterUnsignedEntryExhaustionWithoutWrapping` covers
+repeated failure after exhaustion. This is local appender evidence only; the
+real Pulsar Journal position and Broker durability authority remain release
+blockers.
+
 Pulsar Journal resolution now also fails closed after a local retirement marker:
 `RETIRED_NOT_PUBLISHED` does not bypass the Broker last-sequence observation or
 the inactivity-horizon plus producer-snapshot retention predicates. A late

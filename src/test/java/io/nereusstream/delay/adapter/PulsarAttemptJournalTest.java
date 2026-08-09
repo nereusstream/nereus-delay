@@ -33,6 +33,29 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PulsarAttemptJournalTest {
     @Test
+    void localAppenderFailsClosedAfterUnsignedEntryExhaustionWithoutWrapping() {
+        final ShardId shard = shard();
+        final PulsarAttemptJournal journal = new PulsarAttemptJournal(shard, -1L);
+        final PulsarAttemptJournal.ProducerKey producer = producer();
+
+        final PulsarAttemptJournal.AppendResult finalEntry = journal.appendNext(producer, identity(shard, 31));
+        assertEquals(-1L, finalEntry.record().position().entryId());
+        assertEquals(1, journal.records().size());
+
+        final PulsarAttemptJournal.JournalException firstExhaustion = assertThrows(
+                PulsarAttemptJournal.JournalException.class,
+                () -> journal.retireNotPublished(finalEntry.record().mapping().mappingId()));
+        assertEquals(StableCode.INTEGRITY_ERROR, firstExhaustion.stableCode());
+        assertEquals(1, journal.records().size());
+
+        final PulsarAttemptJournal.JournalException secondExhaustion = assertThrows(
+                PulsarAttemptJournal.JournalException.class,
+                () -> journal.retireNotPublished(finalEntry.record().mapping().mappingId()));
+        assertEquals(StableCode.INTEGRITY_ERROR, secondExhaustion.stableCode());
+        assertEquals(1, journal.records().size());
+    }
+
+    @Test
     void exactMappingMustBeDurableBeforeSendAndReplayIsIdempotent() {
         final ShardId shard = shard();
         final PulsarAttemptJournal.ProducerKey producer = producer();
