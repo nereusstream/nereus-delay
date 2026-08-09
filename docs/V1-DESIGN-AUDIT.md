@@ -21,6 +21,14 @@ activation branch. This closes the local metadata ordering seam, not the
 production Oxia lease/session transaction, RecoveryPin deletion or source
 replay authority.
 
+The local checkpoint seam now gives every physical image a fresh non-zero
+16-byte `checkpointId`, including the convenience creation path. The ID is
+written before the RocksDB snapshot and survives restore; response-loss retry
+callers must use the explicit-ID overload so the same identity is reused.
+`ShardStoreTest.convenienceCheckpointAllocatesIdentityBeforeSnapshot` covers
+the copied-image boundary. This is local identity evidence only; Oxia
+upload-intent/catalog CAS and Object Store publication remain release gates.
+
 The inner Lane DRR now closes the weight-downgrade cap gap: registering an
 existing Lane with a lower scheduler weight recomputes the cap across all
 registered Lanes and immediately clamps historical deficit credit. The

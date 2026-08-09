@@ -1575,12 +1575,20 @@ public final class ShardStore implements AutoCloseable {
     }
 
     public synchronized Path createCheckpoint(final Path checkpointPath) {
-        return createCheckpoint(checkpointPath, null);
+        // The V1 checkpoint identity is part of the physical image, not an
+        // optional label.  Keep this convenience overload useful for embedded
+        // callers, but still allocate the identity before any checkpoint I/O.
+        return createCheckpoint(checkpointPath, randomCheckpointId());
     }
 
     /**
      * Creates a physical checkpoint whose local runtime metadata carries the
      * exact 16-byte checkpoint identity inside the copied DB image.
+     *
+     * <p>A {@code null} identity is a compatibility convenience only: this
+     * method allocates a fresh non-zero identity before the checkpoint slot or
+     * RocksDB snapshot is touched. Callers that need response-loss retries
+     * must pass the same explicit identity to every retry.</p>
      *
      * <p>The identity is written before RocksDB snapshots the files, so a
      * restored image can prove which checkpoint it represents.  If physical
@@ -1590,15 +1598,15 @@ public final class ShardStore implements AutoCloseable {
      */
     public synchronized Path createCheckpoint(final Path checkpointPath, final byte[] checkpointId) {
         Objects.requireNonNull(checkpointPath, "checkpointPath");
-        if (checkpointId != null) {
-            Bytes.requireLength(checkpointId, 16, "checkpointId");
-            boolean nonZero = false;
-            for (byte value : checkpointId) {
-                nonZero |= value != 0;
-            }
-            if (!nonZero) {
-                throw new IllegalArgumentException("checkpointId must not be all zero");
-            }
+        final byte[] effectiveCheckpointId = checkpointId == null
+                ? randomCheckpointId() : Bytes.copy(checkpointId);
+        Bytes.requireLength(effectiveCheckpointId, 16, "checkpointId");
+        boolean nonZero = false;
+        for (byte value : effectiveCheckpointId) {
+            nonZero |= value != 0;
+        }
+        if (!nonZero) {
+            throw new IllegalArgumentException("checkpointId must not be all zero");
         }
         ensureOpen();
         final StoreRuntimeMetadata previousMetadata = runtimeMetadata;
@@ -1614,10 +1622,8 @@ public final class ShardStore implements AutoCloseable {
             // exhausted, the attempt must leave no checkpoint identity that
             // needs a compensating WriteBatch (and therefore no second
             // failure-prone write on the rejection path).
-            if (checkpointId != null) {
-                checkpointProjectionMutationAttempted = true;
-                recordLastCheckpointId(checkpointId);
-            }
+            checkpointProjectionMutationAttempted = true;
+            recordLastCheckpointId(effectiveCheckpointId);
             if (Files.exists(checkpointPath, java.nio.file.LinkOption.NOFOLLOW_LINKS)
                     || Files.isSymbolicLink(checkpointPath)) {
                 throw new IOException("checkpoint target already exists: " + checkpointPath);
@@ -1674,6 +1680,19 @@ public final class ShardStore implements AutoCloseable {
                 resources.releaseCheckpointCreateSlot();
             }
         }
+    }
+
+    /** Allocates the cryptographic-random 16-byte identity required by V1. */
+    private static byte[] randomCheckpointId() {
+        final UUID uuid = UUID.randomUUID();
+        final byte[] id = uuidBytes(uuid);
+        // UUID.randomUUID() is overwhelmingly non-zero, but keeping the
+        // invariant explicit avoids ever emitting the reserved all-zero ID.
+        boolean nonZero = false;
+        for (byte value : id) {
+            nonZero |= value != 0;
+        }
+        return nonZero ? id : randomCheckpointId();
     }
 
     private static void forceDirectory(final Path directory) throws IOException {

@@ -17,6 +17,15 @@ activation marker. This closes the local owner-open metadata boundary only;
 Oxia lease/session CAS, recovery-pin transaction and source replay authority
 remain release blockers.
 
+`ShardStore.createCheckpoint` now guarantees that every physical checkpoint
+image carries a fresh non-zero 16-byte `checkpointId`, including the embedded
+convenience overload that previously allowed a missing identity. The identity
+is persisted before RocksDB snapshots the files and is restored from the
+copied image; callers that need response-loss retries must use the explicit-ID
+overload and reuse the same bytes. `ShardStoreTest.convenienceCheckpointAllocatesIdentityBeforeSnapshot`
+covers the local image/restore boundary. This does not replace the external
+Oxia upload-intent/catalog CAS or Object Store publication protocol.
+
 `LaneScheduler.register(existingLane)` now recomputes the process-local
 deficit cap after an existing Lane's scheduler weight changes and clamps any
 historical credit to the largest currently registered Lane increment. This

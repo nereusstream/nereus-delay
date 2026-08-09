@@ -42,6 +42,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -319,6 +320,27 @@ class ShardStoreTest {
             assertArrayEquals(checkpointId, source.runtimeMetadata().lastCheckpointId());
             assertThrows(IllegalStateException.class, () -> source.createCheckpoint(checkpoint, checkpointId));
             assertArrayEquals(checkpointId, source.runtimeMetadata().lastCheckpointId());
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(restoreConfig);
+             ShardStore restored = ShardStore.restoreFromCheckpoint(restoreConfig, shardId, resources, checkpoint)) {
+            assertArrayEquals(checkpointId, restored.runtimeMetadata().lastCheckpointId());
+        }
+    }
+
+    @Test
+    void convenienceCheckpointAllocatesIdentityBeforeSnapshot() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 36);
+        final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("checkpoint-auto-id"));
+        final ShardStoreConfig restoreConfig = ShardStoreConfig.defaults(tempDir.resolve("checkpoint-auto-id-restored"));
+        final Path checkpoint = tempDir.resolve("checkpoint-auto-id-output");
+        final byte[] checkpointId;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(sourceConfig);
+             ShardStore source = ShardStore.open(sourceConfig, shardId, resources)) {
+            assertEquals(checkpoint, source.createCheckpoint(checkpoint));
+            checkpointId = source.runtimeMetadata().lastCheckpointId();
+            assertNotNull(checkpointId);
+            assertEquals(16, checkpointId.length);
+            assertFalse(java.util.Arrays.equals(new byte[16], checkpointId));
         }
         try (SharedRocksDbResources resources = new SharedRocksDbResources(restoreConfig);
              ShardStore restored = ShardStore.restoreFromCheckpoint(restoreConfig, shardId, resources, checkpoint)) {
