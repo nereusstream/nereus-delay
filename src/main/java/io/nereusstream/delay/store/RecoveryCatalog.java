@@ -1,6 +1,7 @@
 package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.CheckpointResourceV1;
 import io.nereusstream.delay.protocol.CheckpointUploadIntentV1;
 import io.nereusstream.delay.protocol.CheckpointUploadStateV1;
 import io.nereusstream.delay.protocol.EvidenceCursorV1;
@@ -9,6 +10,7 @@ import io.nereusstream.delay.protocol.RecoveryCandidateRefV1;
 import io.nereusstream.delay.protocol.RecoveryFloorRefV1;
 import io.nereusstream.delay.protocol.RecoveryPinV1;
 import io.nereusstream.delay.protocol.ShardSubjectV1;
+import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.SourcePosition;
 
 import java.util.ArrayList;
@@ -27,7 +29,7 @@ import java.util.Optional;
  */
 public final class RecoveryCatalog implements RecoveryCatalogAuthority {
     private final Map<String, CheckpointManifest> manifests = new HashMap<>();
-    private final Map<String, io.nereusstream.delay.protocol.CheckpointResourceV1> manifestResources = new HashMap<>();
+    private final Map<String, CheckpointResourceV1> manifestResources = new HashMap<>();
     private long catalogGeneration;
     private RecoveryFloor floor;
     private RecoveryFloorRefV1 typedFloorRef;
@@ -400,6 +402,118 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
         return catalogGeneration;
     }
 
+    /** Returns an immutable local snapshot for a crash-durable wrapper. */
+    synchronized Snapshot snapshot() {
+        return new Snapshot(catalogGeneration, catalogShard, new ArrayList<>(manifests.values()),
+                new HashMap<>(manifestResources), floor, typedFloorRef, activeRecoveryPin);
+    }
+
+    /** Restores a previously validated local snapshot without performing CAS. */
+    static RecoveryCatalog fromSnapshot(final Snapshot snapshot) {
+        final RecoveryCatalog catalog = new RecoveryCatalog();
+        catalog.installSnapshot(Objects.requireNonNull(snapshot, "snapshot"));
+        return catalog;
+    }
+
+    private synchronized void installSnapshot(final Snapshot snapshot) {
+        manifests.clear();
+        manifestResources.clear();
+        catalogGeneration = snapshot.catalogGeneration();
+        catalogShard = snapshot.catalogShard();
+        floor = snapshot.floor();
+        typedFloorRef = snapshot.typedFloorRef();
+        activeRecoveryPin = snapshot.activeRecoveryPin();
+        for (CheckpointManifest manifest : snapshot.manifests()) {
+            Objects.requireNonNull(manifest, "snapshot manifest");
+            final String key = key(manifest.checkpointId());
+            if (manifests.put(key, manifest) != null) {
+                throw new IllegalArgumentException("snapshot contains duplicate checkpoint");
+            }
+            if (catalogShard != null && !catalogShard.equals(manifest.shardId())) {
+                throw new IllegalArgumentException("snapshot contains another shard");
+            }
+            if (catalogShard == null) {
+                catalogShard = manifest.shardId();
+            }
+        }
+        for (CheckpointManifest manifest : manifests.values()) {
+            validateParent(manifest);
+        }
+        for (Map.Entry<String, CheckpointResourceV1> entry : snapshot.manifestResources().entrySet()) {
+            final CheckpointManifest manifest = manifests.get(entry.getKey());
+            final CheckpointResourceV1 resource = Objects.requireNonNull(entry.getValue(), "snapshot resource");
+            if (manifest == null || !Bytes.constantTimeEquals(resource.checkpointId(), manifest.checkpointId())
+                    || !Bytes.constantTimeEquals(resource.recoveryLineageId(), manifest.recoveryLineageId())
+                    || !Bytes.constantTimeEquals(resource.manifestSha256(), manifest.manifestSha256())) {
+                throw new IllegalArgumentException("snapshot resource identity does not match manifest");
+            }
+            manifestResources.put(entry.getKey(), resource);
+        }
+        if (floor != null) {
+            validateFloorProjection(floor);
+        }
+        if (typedFloorRef != null) {
+            validateTypedFloorProjection(typedFloorRef);
+        }
+        if (floor != null && typedFloorRef != null) {
+            if (!Bytes.constantTimeEquals(floor.recoveryLineageId(), typedFloorRef.recoveryLineageId())
+                    || !Bytes.constantTimeEquals(floor.checkpointId(), typedFloorRef.checkpointId())
+                    || !Bytes.constantTimeEquals(floor.manifestSha256(), typedFloorRef.manifestSha256())
+                    || floor.catalogGeneration() != typedFloorRef.catalogGeneration()
+                    || !floor.appliedSourcePosition().equals(typedFloorRef.appliedSourcePosition())
+                    || floor.includedMutationSequence() != typedFloorRef.includedMutationSequence()
+                    || !Bytes.constantTimeEquals(floor.evidenceCursorDigest(), typedFloorRef.floorDigest())) {
+                throw new IllegalArgumentException("snapshot scalar and typed Floors disagree");
+            }
+        }
+        if (activeRecoveryPin != null) {
+            validatePinProjection(activeRecoveryPin);
+        }
+    }
+
+    private void validateFloorProjection(final RecoveryFloor value) {
+        final CheckpointManifest manifest = manifests.get(key(value.checkpointId()));
+        if (manifest == null || !Bytes.constantTimeEquals(value.recoveryLineageId(), manifest.recoveryLineageId())
+                || !Bytes.constantTimeEquals(value.manifestSha256(), manifest.manifestSha256())
+                || !value.appliedSourcePosition().equals(manifest.appliedShardLogPosition())
+                || value.includedMutationSequence() != manifest.shardMutationSequence()
+                || Long.compareUnsigned(value.catalogGeneration(), catalogGeneration) > 0) {
+            throw new IllegalArgumentException("snapshot scalar Floor does not match a published manifest");
+        }
+    }
+
+    private void validateTypedFloorProjection(final RecoveryFloorRefV1 value) {
+        final CheckpointManifest manifest = manifests.get(key(value.checkpointId()));
+        if (manifest == null || !Bytes.constantTimeEquals(value.recoveryLineageId(), manifest.recoveryLineageId())
+                || !Bytes.constantTimeEquals(value.manifestSha256(), manifest.manifestSha256())
+                || !value.appliedSourcePosition().equals(manifest.appliedShardLogPosition())
+                || value.includedMutationSequence() != manifest.shardMutationSequence()
+                || !value.evidenceCursors().equals(manifest.evidenceCursors())
+                || Long.compareUnsigned(value.catalogGeneration(), catalogGeneration) > 0) {
+            throw new IllegalArgumentException("snapshot typed Floor does not match a published manifest");
+        }
+    }
+
+    private void validatePinProjection(final RecoveryPinV1 pin) {
+        if (catalogShard == null || !new ShardSubjectV1(catalogShard).equals(pin.shard())
+                || pin.observedCatalogGeneration() != catalogGeneration) {
+            throw new IllegalArgumentException("snapshot RecoveryPin shard/generation mismatch");
+        }
+        if (floor == null || !matchesFloor(pin)) {
+            throw new IllegalArgumentException("snapshot RecoveryPin does not match the current Floor");
+        }
+        final CheckpointManifest candidate = manifests.get(key(pin.candidate().checkpointId()));
+        if (candidate == null || !Bytes.constantTimeEquals(candidate.manifestSha256(), pin.candidate().manifestSha256())
+                || !Bytes.constantTimeEquals(candidate.recoveryLineageId(), pin.candidate().recoveryLineageId())) {
+            throw new IllegalArgumentException("snapshot RecoveryPin candidate is not published");
+        }
+        recoverySet(candidate.checkpointId());
+        if (pin.candidate().kind() == RecoveryCandidateKindV1.CATALOG_CHECKPOINT
+                && pin.candidate().storeIncarnation() != null) {
+            throw new IllegalArgumentException("snapshot catalog RecoveryPin carries a Store Incarnation");
+        }
+    }
+
     /**
      * Creates the bounded local projection of the Registry Recovery Pin.
      * This validates the same immutable identities available to the local
@@ -541,6 +655,15 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
     private static byte[] uuidBytes(final java.util.UUID value) {
         return ByteBuffer.allocate(16).putLong(value.getMostSignificantBits()).putLong(value.getLeastSignificantBits())
                 .array();
+    }
+
+    record Snapshot(long catalogGeneration, ShardId catalogShard, List<CheckpointManifest> manifests,
+                    Map<String, CheckpointResourceV1> manifestResources, RecoveryFloor floor,
+                    RecoveryFloorRefV1 typedFloorRef, RecoveryPinV1 activeRecoveryPin) {
+        Snapshot {
+            manifests = List.copyOf(Objects.requireNonNull(manifests, "manifests"));
+            manifestResources = Map.copyOf(Objects.requireNonNull(manifestResources, "manifestResources"));
+        }
     }
 
     public record Publication(CheckpointManifest manifest, long catalogGeneration, RecoveryFloor floor) {

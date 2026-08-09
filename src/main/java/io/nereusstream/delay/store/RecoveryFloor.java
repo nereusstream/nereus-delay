@@ -1,8 +1,11 @@
 package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.SourcePosition;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.Arrays;
 import java.util.Objects;
 
@@ -82,6 +85,40 @@ public record RecoveryFloor(
                 Bytes.u64beBits(includedMutationSequence), evidenceCursorDigest, floorDigest);
     }
 
+    /** Decodes and revalidates the exact local scalar Floor projection. */
+    public static RecoveryFloor decode(final byte[] encoded) {
+        Objects.requireNonNull(encoded, "encoded");
+        final ByteBuffer input = ByteBuffer.wrap(encoded).order(ByteOrder.BIG_ENDIAN);
+        requireRemaining(input, Integer.BYTES + 16 + 16 + 32 + Long.BYTES + Integer.BYTES
+                + Long.BYTES + 32 + 32);
+        if (input.getInt() != 1) {
+            throw new IllegalArgumentException("unsupported RecoveryFloor version");
+        }
+        final byte[] lineage = readFixed(input, 16, "recoveryLineageId");
+        final byte[] checkpoint = readFixed(input, 16, "checkpointId");
+        final byte[] manifest = readFixed(input, 32, "manifestSha256");
+        final long generation = input.getLong();
+        final long positionLength = Integer.toUnsignedLong(input.getInt());
+        if (positionLength > input.remaining()) {
+            throw new IllegalArgumentException("RecoveryFloor source position is truncated");
+        }
+        final byte[] positionBytes = readFixed(input, Math.toIntExact(positionLength), "appliedSourcePosition");
+        final SourcePosition position = SourcePositionCodec.decode(positionBytes);
+        requireRemaining(input, Long.BYTES + 32 + 32);
+        final long sequence = input.getLong();
+        final byte[] evidence = readFixed(input, 32, "evidenceCursorDigest");
+        final byte[] floorDigest = readFixed(input, 32, "floorDigest");
+        if (input.hasRemaining()) {
+            throw new IllegalArgumentException("RecoveryFloor has trailing bytes");
+        }
+        final RecoveryFloor result = new RecoveryFloor(lineage, checkpoint, manifest, generation, position,
+                sequence, evidence, floorDigest);
+        if (!Bytes.constantTimeEquals(encoded, result.canonicalBytes())) {
+            throw new IllegalArgumentException("RecoveryFloor is not canonical");
+        }
+        return result;
+    }
+
     @Override
     public boolean equals(final Object other) {
         if (!(other instanceof RecoveryFloor that)) {
@@ -125,5 +162,26 @@ public record RecoveryFloor(
             result[index] = value[index];
         }
         return result;
+    }
+
+    private static byte[] readFixed(final ByteBuffer input, final int length, final String name) {
+        requireRemaining(input, length);
+        final byte[] result = new byte[length];
+        input.get(result);
+        return result;
+    }
+
+    private static void requireRemaining(final ByteBuffer input, final int length) {
+        if (length < 0 || input.remaining() < length) {
+            throw new IllegalArgumentException("RecoveryFloor is truncated");
+        }
+    }
+
+    private static void requireRemaining(final ByteBuffer input, final int length, final String name) {
+        try {
+            requireRemaining(input, length);
+        } catch (IllegalArgumentException truncated) {
+            throw new IllegalArgumentException("RecoveryFloor field is truncated: " + name, truncated);
+        }
     }
 }

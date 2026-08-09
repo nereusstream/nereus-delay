@@ -2236,6 +2236,16 @@ CAS，或 Object Store 的上传、quiescence、attestation 和删除 authority�
 ### 16.3 Recovery Set / Floor
 
 Catalog 保存有界 checkpoint count/age、lineage parent-hash chain 和 monotonic Recovery Floor。Floor 固定 exact `(recoveryLineageId, checkpointId, manifestHash, catalogGeneration, appliedShardLogPosition, includedMutationSequence, evidenceCursors)`；`includedMutationSequence` 是完整 `u64`，Floor coverage 以 unsigned order 比较。恢复从 newest 开始，只可 fallback 到 parent chain 能到达该 exact Floor 的 candidate；scalar position/sequence 大小不能替代 ancestry。
+
+嵌入式实现可以用 `PersistentRecoveryCatalog(Path)` 保存这一 Catalog 的 crash-durable
+本地 projection：snapshot 包含已发布 manifest、immutable manifest-object identity、
+scalar/typed Floor 和 active Recovery Pin，manifest entry 以 canonical bytes 排序并
+带有 bounded count/size。state file 使用 domain-separated checksum、临时文件、
+atomic rename、文件/目录 fsync 以及 JVM 与 on-disk lock；每次读写都重新加载并验证
+canonical snapshot，损坏、截断、身份漂移、父链或 Floor/Pin projection 不一致时
+fail closed。它只闭合本地重启和 response-loss 语义，不是 Oxia Owner Lease/session、
+catalog/Floor CAS、Object Store publication 或 source-retention authority；生产实现
+仍必须把相同的不变量放进 Oxia transaction。
 在判断 Floor 是否覆盖某个 mutation 的 Source Position 时，若 covered 与 required 的 order token 相等，还必须比较完整 canonical bytes；同一 Kafka offset 或 Pulsar ledger/entry/batch 携不同 metadata 不是覆盖证明。order token 严格更晚时才可按单调顺序覆盖。
 
 资源 retirement mutation sequence 为 `r`，只有：
