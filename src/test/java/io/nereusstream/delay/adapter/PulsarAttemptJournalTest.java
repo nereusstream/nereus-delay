@@ -203,7 +203,7 @@ class PulsarAttemptJournalTest {
         recovered.replay(mapped.record());
         recovered.replay(retired.record());
         assertTrue(recovered.unresolved(producer()).isEmpty());
-        assertEquals(PulsarAttemptJournal.ResolutionKind.NOT_PUBLISHED,
+        assertEquals(PulsarAttemptJournal.ResolutionKind.DIVERGENCE,
                 recovered.resolve(producer(), new PulsarAttemptJournal.BrokerSequenceEvidence(-1, false, false))
                         .kind());
 
@@ -275,6 +275,29 @@ class PulsarAttemptJournalTest {
         assertEquals(StableCode.INTEGRITY_ERROR, later.stableCode());
         assertEquals(2, journal.records().size());
         assertTrue(journal.unresolved(producer).isEmpty());
+    }
+
+    @Test
+    void retiredMappingStillRequiresRetentionProofAndFencesLateBrokerPublication() {
+        final ShardId shard = shard();
+        final AtomicLong entry = new AtomicLong(100);
+        final PulsarAttemptJournal journal = new PulsarAttemptJournal(shard,
+                request -> position(entry.getAndIncrement()));
+        final PulsarAttemptJournal.ProducerKey producer = producer();
+        final PulsarAttemptJournal.Mapping mapping = journal.appendNext(producer, identity(shard, 29))
+                .record().mapping();
+        journal.retireNotPublished(mapping.mappingId());
+
+        assertEquals(PulsarAttemptJournal.ResolutionKind.DIVERGENCE,
+                journal.resolve(producer, new PulsarAttemptJournal.BrokerSequenceEvidence(-1, false, false))
+                        .kind());
+        assertEquals(PulsarAttemptJournal.ResolutionKind.NOT_PUBLISHED,
+                journal.resolve(producer, new PulsarAttemptJournal.BrokerSequenceEvidence(-1, true, true))
+                        .kind());
+        final PulsarAttemptJournal.Resolution latePublication = journal.resolve(producer,
+                new PulsarAttemptJournal.BrokerSequenceEvidence(mapping.sequenceId(), true, true));
+        assertEquals(PulsarAttemptJournal.ResolutionKind.DIVERGENCE, latePublication.kind());
+        assertEquals(StableCode.PULSAR_EVIDENCE_DIVERGENCE, latePublication.stableCode());
     }
 
     @Test

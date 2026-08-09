@@ -81,6 +81,16 @@ branches. This remains a local journal seam; the Nereus-owned Pulsar topic,
 ExclusiveWithFencing writer and Broker evidence authority remain release
 blockers.
 
+Pulsar Journal resolution now also fails closed after a local retirement marker:
+`RETIRED_NOT_PUBLISHED` does not bypass the Broker last-sequence observation or
+the inactivity-horizon plus producer-snapshot retention predicates. A late
+Broker sequence at or above the retired mapping is classified as
+`PULSAR_EVIDENCE_DIVERGENCE`, while a lower/absent sequence is `NOT_PUBLISHED`
+only with both proofs. `PulsarAttemptJournalTest`
+`retiredMappingStillRequiresRetentionProofAndFencesLateBrokerPublication`
+covers these branches. This is local evidence classification; real Broker
+sequence, fencing and retention authority remain release blockers.
+
 The source-ordered `PUBLISH_OUTCOME(UNKNOWN)` projection now verifies the
 current Message Lane identity, durable Lane presence, and exact Lane
 incarnation against the `PUBLISHING` attempt ledger before constructing any

@@ -414,11 +414,12 @@ public final class PulsarAttemptJournal {
                 && Long.compareUnsigned(evidence.brokerLastSequenceId(), state.lastSequenceId) > 0) {
             return Resolution.divergence(latest.mapping, "Broker sequence is above the Journal maximum");
         }
-        if (latest.retired) {
-            return Resolution.notPublished(latest.mapping);
-        }
         if (evidence.brokerLastSequenceId() >= 0
                 && Long.compareUnsigned(evidence.brokerLastSequenceId(), latest.mapping.sequenceId()) >= 0) {
+            if (latest.retired) {
+                return Resolution.divergence(latest.mapping,
+                        "retired mapping has a late Broker sequence acknowledging publication");
+            }
             return Resolution.published(latest.mapping);
         }
         if (evidence.inactivityHorizonValid() && evidence.producerSnapshotRetained()) {

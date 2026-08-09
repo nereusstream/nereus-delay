@@ -79,6 +79,15 @@ record/object equality. `PulsarAttemptJournalTest`
 two branches; the real Journal topic, ExclusiveWithFencing and Broker evidence
 gates remain external.
 
+The Pulsar Journal resolver now preserves the same fail-closed evidence rule
+after `RETIRED_NOT_PUBLISHED`: the marker cannot suppress the Broker
+last-sequence check or the two retention predicates. A late sequence at or
+above the retired mapping is a typed evidence divergence, and only a lower or
+absent sequence with both proofs yields `NOT_PUBLISHED`.
+`PulsarAttemptJournalTest.retiredMappingStillRequiresRetentionProofAndFencesLateBrokerPublication`
+covers the regression; external sequence/fencing/retention authority remains a
+release gate.
+
 The UNKNOWN-outcome audit now closes a Store-integrity edge at the same
 ownership boundary: before `PUBLISH_OUTCOME_V1(UNKNOWN)` can materialize an
 uncertain retry or update READY, the current Message Lane, durable Lane record,
