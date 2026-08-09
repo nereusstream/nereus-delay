@@ -41,7 +41,8 @@ outcome-reserve-record bounds. V1 permits one Message to retain multiple
 unresolved Attempt obligations, so a scan limited only by `maxPendingMessages`
 could falsely fence a healthy shard; `DelayShardTest.openAttemptLookupUsesOutcomeReserveBoundInsteadOfMessageBound`
 covers the exact boundary. This remains local recovery evidence, not external
-Producer ownership or outcome authority.
+Producer ownership or outcome authority; activation reconciliation and
+Lane-retirement scans apply the same bounded distinction.
 
 The queued-receipt audit now has an executable local binding for the existing
 Registry rule: `QueuedReceiptQueryPolicy` computes `receipt_query_until` from

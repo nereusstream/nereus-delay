@@ -40,8 +40,9 @@ the V1 case where one Message owns multiple unresolved Attempt ledgers; using
 only the message count could fence a valid shard during admission/outcome
 recovery. `DelayShardTest.openAttemptLookupUsesOutcomeReserveBoundInsteadOfMessageBound`
 covers three live ledgers with one pending Message slot. Mixed Claim+Attempt
-scans remain conservatively bounded separately, and external producer/evidence
-authority is unchanged.
+scans, activation runtime-index reconciliation and Lane-retirement proof use
+matching conservative bounds, and external producer/evidence authority is
+unchanged.
 
 The local queued-receipt adapter seam now has a strict Route-policy path:
 `QueuedReceiptQueryPolicy` derives `receipt_query_until` only as checked addition

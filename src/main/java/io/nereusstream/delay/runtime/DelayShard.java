@@ -7093,6 +7093,15 @@ public final class DelayShard {
         return Math.max(config.maxPendingMessages(), config.maxOutcomeReserveRecords());
     }
 
+    /** Bounds a scan that includes both the one-per-Message Claim and open Attempts. */
+    private long configuredAllInflightLedgerLimit() {
+        try {
+            return Math.addExact(config.maxPendingMessages(), config.maxOutcomeReserveRecords());
+        } catch (ArithmeticException overflow) {
+            return Long.MAX_VALUE;
+        }
+    }
+
     private ShardQuota quotaAfter(final MessageRecord prior, final MessageRecord next, final CommandResult result,
                                   final boolean existingLane) {
         if (prior == null && next != null && result.stableCode() == StableCode.SCHEDULED) {
@@ -7580,9 +7589,11 @@ public final class DelayShard {
             }
         }
 
+        final long configuredInflightLimit = configuredInflightLedgerLimit();
+        final int inflightLimit = boundedLimitPlusOne(configuredInflightLimit);
         final List<io.nereusstream.delay.store.ShardStore.KeyValue> attemptEntries = store.scan(ColumnFamily.INFLIGHT,
-                new byte[]{INFLIGHT_PUBLISHING_KIND, 1}, new byte[]{4, 1}, limit);
-        if (attemptEntries.size() >= limit && config.maxPendingMessages() < Integer.MAX_VALUE) {
+                new byte[]{INFLIGHT_PUBLISHING_KIND, 1}, new byte[]{4, 1}, inflightLimit);
+        if (attemptEntries.size() >= inflightLimit && configuredInflightLimit < Integer.MAX_VALUE) {
             throw new IllegalStateException("attempt reconciliation scan exceeded configured bound");
         }
         for (var entry : attemptEntries) {
@@ -7739,9 +7750,11 @@ public final class DelayShard {
                 return true;
             }
         }
+        final long configuredInflightLimit = configuredAllInflightLedgerLimit();
+        final int inflightLimit = boundedLimitPlusOne(configuredInflightLimit);
         final List<io.nereusstream.delay.store.ShardStore.KeyValue> attempts = store.scan(ColumnFamily.INFLIGHT,
-                new byte[]{1, 1}, new byte[]{4, 1}, limit);
-        if (attempts.size() >= limit && config.maxPendingMessages() < Integer.MAX_VALUE) {
+                new byte[]{1, 1}, new byte[]{4, 1}, inflightLimit);
+        if (attempts.size() >= inflightLimit && configuredInflightLimit < Integer.MAX_VALUE) {
             throw new IllegalStateException("inflight scan exceeded configured bound during lane retirement");
         }
         for (var entry : attempts) {
