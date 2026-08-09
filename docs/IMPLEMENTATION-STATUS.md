@@ -7,6 +7,14 @@ normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20�
 the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
+The local Lane quota projection now scans the complete `(LaneId, LaneIncarnation)`
+identity tuple instead of stopping at the first foreign incarnation for a Lane ID.
+This preserves access to a replacement while an older terminal/retired incarnation
+is still retained in the Registry-shaped map. The regression is
+`LaneQuotaUsageProjectionTest.findsExactIncarnationWhenSameLaneRetainsAForeignEntry`;
+the class-3 map's revision coupling and external retirement authority remain
+release gates.
+
 The self-routing ID decoder now enforces the complete logical-locator shape:
 after the fixed format byte, route incarnation, partition and CRC framing are
 parsed, bytes 21--36 must carry UUID version 7 with RFC variant `10`. A valid

@@ -238,13 +238,22 @@ public final class LaneQuotaUsageProjection {
     }
 
     private LaneQuotaUsageEntryV1 find(final DestinationLaneId laneId, final byte[] incarnation) {
+        boolean sawForeignIncarnation = false;
         for (LaneQuotaUsageEntryV1 entry : map.entries()) {
             if (entry.laneId().equals(laneId)) {
-                if (!Arrays.equals(entry.laneIncarnation(), incarnation)) {
-                    throw new IllegalStateException("per-Lane quota incarnation mismatch");
+                if (Arrays.equals(entry.laneIncarnation(), incarnation)) {
+                    return entry;
                 }
-                return entry;
+                // The Registry key is (Lane ID, Lane incarnation), so a
+                // terminal/retired incarnation and its replacement may
+                // legitimately coexist in one projection during a guarded
+                // transition. Keep scanning for the exact incarnation rather
+                // than letting the first foreign entry shadow it.
+                sawForeignIncarnation = true;
             }
+        }
+        if (sawForeignIncarnation) {
+            throw new IllegalStateException("per-Lane quota incarnation mismatch");
         }
         return null;
     }

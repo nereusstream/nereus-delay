@@ -1685,6 +1685,11 @@ shard placement proof。退休前会扫描完整 17 维 usage vector；即使未
 不会把带残留 usage 的 Lane 变成 terminal guard，同时原子释放该 Lane 的普通
 和 strong-capability cardinality slots。
 
+本地回归还覆盖了同一 `DestinationLaneId` 同时保留旧/新 incarnation 的过渡投影：
+`LaneQuotaUsageProjection` 按完整 tuple 精确查找目标 entry，不会因排序中更早的
+foreign incarnation 提前报错或误更新错误一代（`LaneQuotaUsageProjectionTest`
+`findsExactIncarnationWhenSameLaneRetainsAForeignEntry`）。
+
 Owner Lease 的本地 CAS 投影现在还按 V1 lifecycle graph 拒绝回退状态和
 `FENCED -> ACTIVE_FOR_COMMANDS` 复活；允许的前向 acquisition/activation
 跳转、fence 和 fenced recycle 都保留。续租响应若改变期望的 lifecycle

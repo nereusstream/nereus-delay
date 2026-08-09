@@ -100,6 +100,28 @@ class LaneQuotaUsageProjectionTest {
         assertEquals(0, strongProjection.removeLane(lane, incarnation, 2).map().entries().size());
     }
 
+    @Test
+    void findsExactIncarnationWhenSameLaneRetainsAForeignEntry() {
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("lane-quota-incarnations"));
+        final byte[] oldIncarnation = bytes(16, 1);
+        final byte[] newIncarnation = bytes(16, 2);
+        final PublishAdmissionBody.ChargeVector oldUsage = new PublishAdmissionBody.ChargeVector(
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0);
+        final PublishAdmissionBody.ChargeVector newUsage = new PublishAdmissionBody.ChargeVector(
+                1, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0);
+        LaneQuotaUsageProjection projection = LaneQuotaUsageProjection.decode(
+                new LaneQuotaUsageMapV1(List.of(
+                        new LaneQuotaUsageEntryV1(lane, oldIncarnation, oldUsage, 7),
+                        new LaneQuotaUsageEntryV1(lane, newIncarnation, newUsage, 7)))
+                        .canonicalBytes());
+
+        assertEquals(newUsage, projection.usageFor(lane, newIncarnation));
+        projection = projection.addSchedule(lane, newIncarnation, 3, false, 8);
+        assertEquals(oldUsage, projection.usageFor(lane, oldIncarnation));
+        assertEquals(2, projection.usageFor(lane, newIncarnation).activeMessages());
+        assertEquals(12, projection.usageFor(lane, newIncarnation).pendingPayloadBytes());
+    }
+
     private static byte[] bytes(final int length, final int seed) {
         final byte[] value = new byte[length];
         for (int index = 0; index < value.length; index++) {

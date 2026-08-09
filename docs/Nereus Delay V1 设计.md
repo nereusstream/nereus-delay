@@ -2685,6 +2685,11 @@ logicalStateBytes(record) =
 
 当前 Registry 只冻结了 `meta/QUOTA` class 2 的 aggregate vector 和 class 3 的 per-Lane map；class 4（retained/object usage）与 class 5（grandfathered transfer state）目前只有 subtype 名称，尚未冻结 value schema、digest 和 source-ordered accounting transition。V1 代码对这两个 class 的非空值 fail closed，不能把它们当作空 projection；在 Registry revision 定义完整编码和转移规则前，不得写入或恢复这两个 class。
 
+class 3 map 的身份键是完整的 `(DestinationLaneId, LaneIncarnation)` tuple，而不是只按
+`DestinationLaneId` 索引。旧 terminal/retired incarnation 与 replacement incarnation
+在受保护过渡期间可以同时保留；所有 quota projection 更新、读取和释放都必须继续扫描到
+exact incarnation，不能让同 Lane ID 的第一条 foreign entry 遮蔽目标 incarnation。
+
 每个 active grant 同时固定：
 
 ```text
