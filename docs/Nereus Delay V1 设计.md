@@ -477,6 +477,12 @@ physical apply result，供之后的 legacy `awaitApplied` 按 exact Source Posi
 
 `PreparedCommandRefV1`、`SafeBrokerAckV1` Kafka/Pulsar branches、`PayloadReservationReceiptV1`、`ControlOperationReceiptV1`、`NativePreparedRefV1`、`StableErrorV1`、所有 union presence 与 digest preimage 均由 Registry 固定；开放 metadata map、exception-class-as-code 或实现自选 locator field 被禁止。
 
+Submission outcome 中的 managed/native `DefinitelyNotQueued` 与 `EnqueueUncertain`
+错误必须使用 `FailureStageV1=ENQUEUE`，不能把 query/application/payload 等其它
+stage 冒充 ingress 结果；`StableErrorV1` 也禁止使用成功码 `OK`。`OK` 只属于
+成功持久化/应用结果，错误 branch 必须使用 Registry 中的非 `OK` stable code，且
+managed/native prepared ref、retryability 与 proof 仍由各自 union branch 绑定。
+
 `CommandApplyStatus` 与业务 outcome 是两个维度：
 
 | Apply status | 含义 | 例子 |

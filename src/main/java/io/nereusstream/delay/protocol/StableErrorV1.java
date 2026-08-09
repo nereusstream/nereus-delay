@@ -19,6 +19,9 @@ public final class StableErrorV1 {
                          final NativePreparedRefV1 nativePrepared, final Integer diagnosticCode) {
         this.stage = Objects.requireNonNull(stage, "stage");
         this.code = Objects.requireNonNull(code, "code");
+        if (code == StableCode.OK) {
+            throw new IllegalArgumentException("StableError cannot carry the successful OK code");
+        }
         this.retryability = Objects.requireNonNull(retryability, "retryability");
         if (retryability != RetryabilityV1.forCode(code)) {
             throw new IllegalArgumentException("retryability does not match stable code registry");

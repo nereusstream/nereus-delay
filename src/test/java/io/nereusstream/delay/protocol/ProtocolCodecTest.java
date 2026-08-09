@@ -481,6 +481,24 @@ class ProtocolCodecTest {
                 Bytes.sha256(Bytes.utf8("native-snapshot")), 2_000, Bytes.sha256(Bytes.utf8("native-prepared")));
         assertThrows(IllegalArgumentException.class, () -> StableErrorV1.of(FailureStageV1.ENQUEUE,
                 StableCode.ENQUEUE_RESULT_UNCERTAIN, null, commandRef, nativeRef, null));
+        assertThrows(IllegalArgumentException.class, () -> StableErrorV1.of(FailureStageV1.QUERY,
+                StableCode.OK, null, null, null, null));
+
+        final NonPersistenceProofV1 managedProof = NonPersistenceProofV1.create(
+                NonPersistenceProofKindV1.LOCAL_BEFORE_PRODUCER_OWNERSHIP, null, commandRef.frameSha256(),
+                null, null, null);
+        final NonPersistenceProofV1 nativeProof = NonPersistenceProofV1.create(
+                NonPersistenceProofKindV1.LOCAL_BEFORE_PRODUCER_OWNERSHIP, null, nativeRef.submissionHash(),
+                null, null, null);
+        assertThrows(IllegalArgumentException.class, () -> new DefinitelyNotQueuedV1(commandRef, managedProof,
+                StableErrorV1.of(FailureStageV1.QUERY, StableCode.INVALID_COMMAND, null, commandRef, null, null)));
+        assertThrows(IllegalArgumentException.class, () -> new EnqueueUncertainV1(commandRef, nonZero(16, 11),
+                StableErrorV1.of(FailureStageV1.QUERY, StableCode.CLIENT_CLOSED, null, commandRef, null, null)));
+        assertThrows(IllegalArgumentException.class, () -> new NativeDefinitelyNotQueuedV1(nativeRef, nativeProof,
+                StableErrorV1.of(FailureStageV1.QUERY, StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE,
+                        null, null, nativeRef, null)));
+        assertThrows(IllegalArgumentException.class, () -> new NativeEnqueueUncertainV1(nativeRef, nonZero(16, 12),
+                StableErrorV1.of(FailureStageV1.QUERY, StableCode.CLIENT_CLOSED, null, null, nativeRef, null)));
     }
 
     @Test

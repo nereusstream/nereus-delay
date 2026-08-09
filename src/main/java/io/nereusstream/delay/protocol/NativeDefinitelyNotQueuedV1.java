@@ -17,9 +17,10 @@ public final class NativeDefinitelyNotQueuedV1 {
             throw new IllegalArgumentException("native proof does not bind submission hash");
         }
         final StableErrorV1 checked = Objects.requireNonNull(error, "error");
-        if (checked.command() != null
+        if (checked.stage() != FailureStageV1.ENQUEUE
+                || checked.command() != null
                 || (checked.nativePrepared() != null && !checked.nativePrepared().equals(nativePrepared))) {
-            throw new IllegalArgumentException("native error does not bind the native prepared ref");
+            throw new IllegalArgumentException("native enqueue error does not bind the native prepared ref");
         }
         this.error = checked;
     }

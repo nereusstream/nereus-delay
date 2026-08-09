@@ -64,9 +64,10 @@ public final class DefinitelyNotQueuedV1 {
     private static StableErrorV1 requireCommandError(final StableErrorV1 error,
                                                       final CommandQueuedReceiptV1.PreparedCommandRef command) {
         final StableErrorV1 checked = Objects.requireNonNull(error, "error");
-        if (checked.nativePrepared() != null
+        if (checked.stage() != FailureStageV1.ENQUEUE
+                || checked.nativePrepared() != null
                 || (checked.command() != null && !checked.command().equals(command))) {
-            throw new IllegalArgumentException("managed error does not bind the managed prepared command");
+            throw new IllegalArgumentException("managed enqueue error does not bind the managed prepared command");
         }
         return checked;
     }

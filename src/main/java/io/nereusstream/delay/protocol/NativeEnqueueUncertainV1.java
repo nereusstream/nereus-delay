@@ -14,10 +14,11 @@ public final class NativeEnqueueUncertainV1 {
         this.nativePrepared = Objects.requireNonNull(nativePrepared, "nativePrepared");
         this.physicalEnqueueAttemptId = nonZero(physicalEnqueueAttemptId);
         final StableErrorV1 checked = Objects.requireNonNull(error, "error");
-        if (checked.command() != null
+        if (checked.stage() != FailureStageV1.ENQUEUE
+                || checked.command() != null
                 || (checked.nativePrepared() != null && !checked.nativePrepared().equals(nativePrepared))
                 || checked.retryability() != RetryabilityV1.RETRY_EXACT_BYTES) {
-            throw new IllegalArgumentException("native uncertain error does not bind exact-byte retry");
+            throw new IllegalArgumentException("native uncertain enqueue error does not bind exact-byte retry");
         }
         this.error = checked;
     }

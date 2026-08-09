@@ -1134,6 +1134,13 @@ native submission；malformed result 只作为 bounded `INTEGRITY_ERROR` diagnos
 managed callback 内部若在已返回的 `PERSISTED` result 上发现 malformed
 position/identity，也会收敛为 `ENQUEUE_UNCERTAIN`，不会把异常泄漏成
 exceptional Future；该保护与 wire projection 的 malformed-result 降级保持一致。
+Submission union 的本地构造边界也已固定：managed/native
+`DefinitelyNotQueued` 与 `EnqueueUncertain` 只接受
+`StableErrorV1.stage=ENQUEUE`，不能把其它 stage 当作 ingress 结果；公共
+`StableErrorV1` 拒绝 `OK` 成功码。`ProtocolCodecTest.stableErrorPinsRegistryRetryabilityAndPreparedRefPresence`
+覆盖错误 stage、`OK` 和四个 managed/native branch 构造的 fail-closed 回归，保留
+各 branch 对 prepared ref、retryability 与 proof 的既有绑定。真实 Broker proof
+和 Producer ownership 仍是外部 release blocker。
 Native submission 的 `CompletionStage` callback registration 失败也已收敛为
 `NATIVE_ENQUEUE_RESULT_UNCERTAIN`，保留原始 physical attempt；这类异常不能证明
 Broker 在 Producer ownership 后没有持久化。
