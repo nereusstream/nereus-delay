@@ -13,6 +13,9 @@ import java.util.UUID;
 public final class SelfRoutingId extends FixedBytes {
     public static final int LENGTH = 41;
     private static final int FORMAT_VERSION = 1;
+    private static final int LOGICAL_UUID_OFFSET = 21;
+    private static final int LOGICAL_UUID_VERSION = 7;
+    private static final int UUID_BYTES = 16;
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final ShardId shardId;
@@ -42,6 +45,7 @@ public final class SelfRoutingId extends FixedBytes {
         if ((bytes[0] & 0xff) != FORMAT_VERSION) {
             throw new IllegalArgumentException("unsupported self-routing ID version");
         }
+        validateLogicalUuidV7(bytes);
         final long expected = Bytes.crc32c(bytes, 0, 37);
         final long actual = Bytes.readU32be(bytes, 37);
         if (expected != actual) {
@@ -77,5 +81,22 @@ public final class SelfRoutingId extends FixedBytes {
         crc.update(bytes, offset, length);
         return crc.getValue();
     }
-}
 
+    /**
+     * V1 uses UUIDv7 for the logical locator so its timestamp can participate
+     * in first-seen age validation.  The timestamp itself is interpreted by
+     * the route policy; this decoder only enforces the UUID version and RFC
+     * variant bits that make the locator a UUIDv7 rather than arbitrary bytes.
+     */
+    private static void validateLogicalUuidV7(final byte[] bytes) {
+        final ByteBuffer logical = ByteBuffer.wrap(bytes, LOGICAL_UUID_OFFSET, UUID_BYTES);
+        final long most = logical.getLong();
+        final long least = logical.getLong();
+        final int version = (int) ((most >>> 12) & 0x0f);
+        final int variant = (int) ((least >>> 62) & 0x03);
+        if (version != LOGICAL_UUID_VERSION || variant != 0x02) {
+            throw new IllegalArgumentException("logical locator is not a UUIDv7");
+        }
+    }
+
+}

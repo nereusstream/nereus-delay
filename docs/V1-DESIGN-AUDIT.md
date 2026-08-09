@@ -11,6 +11,15 @@ V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障
 
 **Open semantic questions: none.**
 
+The self-routing identity audit now closes the logical locator shape: the
+fixed-width bytes between the Route/partition prefix and CRC must carry UUID
+version 7 and RFC variant `10`. `SelfRoutingId.decode` rejects a CRC-valid
+non-v7/non-RFC-variant locator before it can become a `CommandId` or
+`DelayMessageId`, with `ProtocolCodecTest`
+`selfRoutingIdRejectsNonUuidV7LogicalLocatorsEvenWithValidCrc` covering both
+negative vectors. Timestamp age/future-skew remains a Route policy and is not
+claimed by this byte-level evidence.
+
 The Evidence Cursor audit now treats the Pulsar Attempt Journal's
 `physicalTopic` and `physicalTopicCreationTimestamp` as part of the full
 stream identity. `EvidenceCursorV1.sameIdentity` and `dominates` reject a

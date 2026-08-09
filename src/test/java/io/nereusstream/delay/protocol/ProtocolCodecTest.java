@@ -696,6 +696,25 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void selfRoutingIdRejectsNonUuidV7LogicalLocatorsEvenWithValidCrc() {
+        final SelfRoutingId id = SelfRoutingId.random(new ShardId(RouteIncarnation.random(), 0));
+
+        final byte[] wrongVersion = id.bytes();
+        wrongVersion[27] = (byte) ((wrongVersion[27] & 0x0f) | 0x60);
+        rewriteCrc(wrongVersion);
+        assertThrows(IllegalArgumentException.class, () -> SelfRoutingId.decode(wrongVersion));
+
+        final byte[] wrongVariant = id.bytes();
+        wrongVariant[29] = (byte) (wrongVariant[29] & 0x3f);
+        rewriteCrc(wrongVariant);
+        assertThrows(IllegalArgumentException.class, () -> SelfRoutingId.decode(wrongVariant));
+    }
+
+    private static void rewriteCrc(final byte[] encoded) {
+        System.arraycopy(Bytes.crc32cbe(Arrays.copyOf(encoded, 37)), 0, encoded, 37, 4);
+    }
+
+    @Test
     void scheduleBodyIsCanonicalAndDefensive() {
         final DestinationLaneId lane = new DestinationLaneId(new byte[32]);
         final byte[] payload = new byte[]{1, 2, 3};

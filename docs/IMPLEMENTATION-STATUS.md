@@ -7,6 +7,16 @@ normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20�
 the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
+The self-routing ID decoder now enforces the complete logical-locator shape:
+after the fixed format byte, route incarnation, partition and CRC framing are
+parsed, bytes 21--36 must carry UUID version 7 with RFC variant `10`. A valid
+CRC no longer makes arbitrary 128-bit logical bytes acceptable as a
+`commandId` or `delayMessageId`. `ProtocolCodecTest`
+`selfRoutingIdRejectsNonUuidV7LogicalLocatorsEvenWithValidCrc` covers both the
+version and variant rejection paths. UUIDv7 timestamp age/future checks remain
+Route-policy concerns; this local decoder evidence does not establish the
+production preparation-age authority.
+
 The adapter callback fence now also treats a malformed `CompletionStage` whose
 `handle(...)` returns null as unobserved transport completion: managed Kafka/Pulsar
 ingress and native/managed submission wrappers return the same uncertain branch,

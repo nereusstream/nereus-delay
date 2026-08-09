@@ -306,6 +306,13 @@ bytes 37..40 CRC32C(bytes 0..36)
 
 文本分别为 `ndm1_` / `ndc1_` + unpadded Base64url。CRC 只防误码，不授权。UUIDv7 timestamp 只用于 first-seen age validation 和追踪，不用于命令顺序。
 
+Decoder 必须在 CRC 校验前同时验证 logical locator 的 UUID version=7 和 RFC
+variant=10；只有这两个 bit-level 条件满足时，bytes 21..36 才是合法的 V1
+logical UUID。CRC 正确但 logical UUID 不是 UUIDv7 的值必须 fail closed，不能
+被当作 `commandId` 或 `delayMessageId` 继续路由、去重或查询。UUIDv7 timestamp
+的未来偏差和 first-seen age 仍由 Route policy 在 preparation/apply 阶段校验，
+不能在 fixed-width decoder 中改成顺序字段。
+
 初始 Schedule generation 为 `0`。Reschedule 和 Dead Letter Replay 做 checked `generation + 1`；retry 不变 generation。
 
 ### 5.4 租户身份
