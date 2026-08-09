@@ -7,6 +7,8 @@ import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.FirstScheduleEligibilityV1;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.MessageQueryResponseV1;
+import io.nereusstream.delay.protocol.PayloadCommitProofV1;
+import io.nereusstream.delay.protocol.PayloadReservationReceiptV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.PublicDestinationBindingViewV1;
 import io.nereusstream.delay.protocol.PublicEvidenceRefV1;
@@ -21,6 +23,9 @@ public interface DelayClient extends AutoCloseable {
     PreparedCommand prepareSchedule(ScheduleIntent intent, long retryUntilEpochMs);
 
     PreparedCommand prepareLargeSchedule(LargeScheduleIntent intent, long retryUntilEpochMs);
+
+    PreparedCommand prepareLargePayloadCommit(PayloadReservationReceiptV1 reservation,
+                                               PayloadCommitProofV1 proof, long retryUntilEpochMs);
 
     PreparedCommand prepareCancel(DelayMessageId messageId, int expectedGeneration, long retryUntilEpochMs);
 

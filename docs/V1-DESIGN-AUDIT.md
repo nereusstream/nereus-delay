@@ -403,6 +403,13 @@ the actual minimum framing prefix, so short valid LP32 values remain readable;
 The large-payload reservation value applies the same guards to its post-intent
 numeric and presence fields; `PayloadReservationTest` covers strict-prefix
 rejection before payload-reference decoding.
+`DelayClient.prepareLargePayloadCommit` now closes the client-side preparation
+boundary as well: the embedded path refuses a proof whose reservation/message,
+shard, object identity, payload digest/length, trust-set version or expiry
+drifts from the durable reservation receipt before constructing the canonical
+`CommitLargeScheduleV1` body. This is still a local pre-I/O binding check;
+source-ordered reservation lookup, proof-key authority and production Object
+Store verification remain release gates.
 Terminal generation history uses the same guarded reads for source and
 obligation framing in both legacy and v2 branches; the local prefix evidence
 is `TerminalGenerationRecordTest`. Direct `DelayShard` history reads also

@@ -32,6 +32,9 @@ import io.nereusstream.delay.protocol.ForceCheckpointRequestV1;
 import io.nereusstream.delay.protocol.PublicDestinationBindingViewV1;
 import io.nereusstream.delay.protocol.MessageQueryResult;
 import io.nereusstream.delay.protocol.MessagePreconditionV1;
+import io.nereusstream.delay.protocol.PayloadCommitProofV1;
+import io.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
+import io.nereusstream.delay.protocol.PayloadReservationReceiptV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.RetryPolicyRefV1;
@@ -92,6 +95,44 @@ class EmbeddedDelayServiceTest {
             final CommandResultView result = new CommandResultView(
                     service.awaitApplied(outcome.receipt()).toCompletableFuture().join().stableCode());
             assertEquals(StableCode.SCHEDULED, result.code());
+        }
+    }
+
+    @Test
+    void prepareLargePayloadCommitBindsReceiptAndProof() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 22);
+        final DelayMessageId messageId = DelayMessageId.random(shard);
+        final byte[] payload = Bytes.utf8("payload");
+        final byte[] payloadHash = Bytes.sha256(payload);
+        final ProfileRefV1 objectStoreProfile = new ProfileRefV1(Bytes.utf8("object-store"), 1,
+                Bytes.sha256(Bytes.utf8("object-store-semantic")), ProfileKindV1.OBJECT_STORE);
+        final PayloadProofTrustSetRefV1 trustSet = new PayloadProofTrustSetRefV1(1,
+                Bytes.sha256(Bytes.utf8("payload-trust-set")));
+        final KafkaSourcePosition source = new KafkaSourcePosition(shard, "embedded", UUID.randomUUID(), 3,
+                null, 1_000);
+        final PayloadReservationReceiptV1 receipt = PayloadReservationReceiptV1.create(
+                Bytes.sha256(Bytes.utf8("reservation")), messageId, shard, source, 1, objectStoreProfile,
+                Bytes.utf8("container"), Bytes.utf8("object-key"), payload.length, payloadHash, 5_000, trustSet);
+        final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final PayloadCommitProofV1 proof = PayloadCommitProofV1.signed(receipt.reservationId(),
+                Bytes.sha256(Bytes.utf8("tenant-scope")), shard.routeIncarnation().bytes(), shard.partition(),
+                messageId, objectStoreProfile, trustSet.version(), 1, receipt.container(), receipt.objectKey(),
+                Bytes.utf8("sha256-version"), payloadHash, payload.length, payloadHash, 4_500, keyPair.getPrivate());
+
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("prepare-large-commit")), shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final PreparedCommand prepared = service.prepareLargePayloadCommit(receipt, proof, 10_000);
+            assertEquals(messageId, prepared.delayMessageId());
+            assertEquals(proof, CommandBodies.decodeCommitLargeV1(prepared.canonicalBody()).proof());
+
+            final PayloadCommitProofV1 drifted = PayloadCommitProofV1.signed(receipt.reservationId(),
+                    Bytes.sha256(Bytes.utf8("tenant-scope")), shard.routeIncarnation().bytes(), shard.partition(),
+                    messageId, objectStoreProfile, trustSet.version(), 1, receipt.container(),
+                    Bytes.utf8("different-object-key"), Bytes.utf8("sha256-version"), payloadHash,
+                    payload.length, payloadHash, 4_500, keyPair.getPrivate());
+            assertThrows(IllegalArgumentException.class,
+                    () -> service.prepareLargePayloadCommit(receipt, drifted, 10_000));
         }
     }
 

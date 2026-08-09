@@ -13,6 +13,13 @@ implementation delegates to the existing receipt/source-barrier and
 caller-supplied binding/evidence/retention projections; it does not claim
 cross-Worker routing, tenant authorization, or production query authority.
 
+The same client contract now exposes `prepareLargePayloadCommit`. The embedded
+preparation path binds the reservation receipt to the typed proof's message,
+reservation, shard, service-owned object identity, payload digest/length,
+trust-set version and proof expiry before producing the canonical V1 command;
+proof signature verification and source-ordered reservation authority remain
+apply-time/production gates.
+
 The local in-memory Owner Lease authority advances the raw `uint64` epoch
 domain through the high-bit boundary and fails only when the all-ones value is
 exhausted (`OwnerLeaseTest.ownerEpochSuccessorUsesTheCompleteUnsignedDomain`).

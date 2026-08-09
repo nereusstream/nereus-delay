@@ -27,6 +27,8 @@ import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.MessageQueryResponseV1;
 import io.nereusstream.delay.protocol.NonPersistenceProofKindV1;
 import io.nereusstream.delay.protocol.NonPersistenceProofV1;
+import io.nereusstream.delay.protocol.PayloadCommitProofV1;
+import io.nereusstream.delay.protocol.PayloadReservationReceiptV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.PublicDestinationBindingViewV1;
 import io.nereusstream.delay.protocol.PublicEvidenceRefV1;
@@ -52,6 +54,7 @@ import io.nereusstream.delay.store.SharedRocksDbResources;
 import java.time.Clock;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Deque;
 import java.util.List;
 import java.util.Objects;
@@ -184,6 +187,16 @@ public final class EmbeddedDelayService implements DelayClient {
     }
 
     @Override
+    public PreparedCommand prepareLargePayloadCommit(final PayloadReservationReceiptV1 reservation,
+                                                     final PayloadCommitProofV1 proof,
+                                                     final long retryUntilEpochMs) {
+        ensureOpen();
+        requireLargePayloadCommitBinding(reservation, proof);
+        return PreparedCommand.commitLargeV1(shardId, reservation.delayMessageId(), reservation.reservationId(),
+                proof, retryUntilEpochMs);
+    }
+
+    @Override
     public PreparedCommand prepareCancel(final DelayMessageId messageId, final int expectedGeneration,
                                          final long retryUntilEpochMs) {
         ensureOpen();
@@ -265,6 +278,27 @@ public final class EmbeddedDelayService implements DelayClient {
         pending.addLast(new QueuedRecord(command, position, frameBytes));
         pendingBytes = Math.addExact(pendingBytes, frameBytes);
         return EnqueueOutcome.queued(command, receipt);
+    }
+
+    private void requireLargePayloadCommitBinding(final PayloadReservationReceiptV1 reservation,
+                                                  final PayloadCommitProofV1 proof) {
+        Objects.requireNonNull(reservation, "reservation");
+        Objects.requireNonNull(proof, "proof");
+        if (!shardId.equals(reservation.shardId())
+                || !shardId.equals(proof.delayMessageId().routingId().shardId())
+                || !reservation.delayMessageId().equals(proof.delayMessageId())
+                || !Arrays.equals(reservation.reservationId(), proof.reservationId())
+                || !reservation.objectStoreProfile().equals(proof.objectStoreProfile())
+                || !Arrays.equals(reservation.container(), proof.container())
+                || !Arrays.equals(reservation.objectKey(), proof.objectKey())
+                || reservation.expectedLength() != proof.length()
+                || !Bytes.constantTimeEquals(reservation.payloadSha256(), proof.payloadSha256())
+                || reservation.trustSet().version() != proof.trustSetVersion()
+                || proof.notAfterEpochMs() > reservation.reservationExpiryEpochMs()
+                || !Arrays.equals(reservation.shardId().routeIncarnation().bytes(), proof.routeIncarnationUuid())
+                || reservation.shardId().partition() != proof.partition()) {
+            throw new IllegalArgumentException("payload reservation receipt and proof do not bind");
+        }
     }
 
     /** Applies all queued records in Source Position order. */
