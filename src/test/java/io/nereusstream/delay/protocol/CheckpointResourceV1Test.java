@@ -3,6 +3,7 @@ package io.nereusstream.delay.protocol;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class CheckpointResourceV1Test {
@@ -14,6 +15,10 @@ class CheckpointResourceV1Test {
                 Bytes.utf8("version-7"), 1234, bytes(32, 3));
 
         assertEquals(resource, CheckpointResourceV1.decode(resource.canonicalBytes()));
+        final ResourceRetireIntentBody.ExactResourceIdentity identity =
+                ResourceRetireIntentBody.decodeResourceIdentity(ResourceKind.CHECKPOINT,
+                        resource.exactResourceCanonicalBytes());
+        assertArrayEquals(resource.exactResourceCanonicalBytes(), identity.canonicalBytes());
     }
 
     @Test

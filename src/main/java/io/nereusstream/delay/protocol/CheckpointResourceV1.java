@@ -83,6 +83,12 @@ public final class CheckpointResourceV1 {
         });
     }
 
+    /** Returns the full ExactResourceIdentity wrapper for GC/protection bindings. */
+    public byte[] exactResourceCanonicalBytes() {
+        return CanonicalProtobuf.message(output ->
+                CanonicalProtobuf.bytes(output, ResourceKind.CHECKPOINT.wireValue(), canonicalBytes()));
+    }
+
     public static CheckpointResourceV1 decode(final byte[] encoded) {
         final List<CanonicalProtobuf.Reader.Field> fields = QueryCodecSupport.read(encoded,
                 "CheckpointResourceV1");
