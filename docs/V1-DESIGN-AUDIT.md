@@ -377,7 +377,11 @@ epoch millisecond 时返回 `AUTO_FAST_PREREQUISITE_UNAVAILABLE`，不把本地�
 `PulsarAttemptJournal` 进一步把 ADR 0037 的本地可验证部分落成独立 seam：Producer
 key 固定在一个 Shard，sequence 严格递增，mapping append 必须先拿到 Journal position，
 精确重放幂等；replay 也会在首条和后续 mapping 安装前验证严格的 Producer sequence
-successor，首条或后续跳号都以 `INTEGRITY_ERROR` 拒绝而不留下部分 state；
+successor，首条或后续跳号都以 `INTEGRITY_ERROR` 拒绝而不留下部分 state；对某个
+Lane-scoped Producer，`evidenceCursor` 可将最新本地 Journal position 投影成带目标
+resource/creation/partition、batch cursor、generation 和最大本地 Broker 时间的 typed
+`EvidenceCursorV1`，但这仍不是 contiguous Broker reader、retention 或 guarded
+publication 证明；
 `appendOrReuse`/重载 `sendAfterMapped` 对同一 exact attempt
 重试复用原 mapping/sequence，且在 mapping append 失败时不进入 target sender；
 未 retirement 的 lower sequence 阻塞后续 Admission，

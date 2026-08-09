@@ -236,6 +236,33 @@ class PulsarAttemptJournalTest {
         assertTrue(journal.unresolved(producer).isEmpty());
     }
 
+    @Test
+    void evidenceCursorProjectsTheLatestLaneProducerJournalPosition() {
+        final ShardId shard = shard();
+        final AtomicLong entry = new AtomicLong(70);
+        final PulsarAttemptJournal.ProducerKey producer = producer();
+        final PulsarAttemptJournal journal = new PulsarAttemptJournal(shard,
+                request -> new PulsarAttemptJournal.JournalPosition(2, entry.getAndIncrement(), 1, 3,
+                        request.kind() == PulsarAttemptJournal.RecordKind.MAPPED ? 1_000 : 1_010));
+
+        assertTrue(journal.evidenceCursor(producer, 1).isEmpty());
+        journal.appendNext(producer, identity(shard, 10));
+        final io.nereusstream.delay.protocol.EvidenceCursorV1 mapped = journal.evidenceCursor(producer, 1)
+                .orElseThrow();
+        assertEquals(2, mapped.ledgerId());
+        assertEquals(70, mapped.entryId());
+        assertEquals(1, mapped.normalizedBatchIndex());
+        assertEquals(3, mapped.batchSize());
+        assertEquals(1_000, mapped.maxBrokerPersistedAtThroughCursor());
+        assertThrows(IllegalArgumentException.class, () -> journal.evidenceCursor(producer, 0));
+
+        journal.retireNotPublished(journal.records().get(0).mapping().mappingId());
+        final io.nereusstream.delay.protocol.EvidenceCursorV1 retired = journal.evidenceCursor(producer, 1)
+                .orElseThrow();
+        assertEquals(71, retired.entryId());
+        assertEquals(1_010, retired.maxBrokerPersistedAtThroughCursor());
+    }
+
     private static PulsarAttemptJournal.JournalPosition position(final long entryId) {
         return new PulsarAttemptJournal.JournalPosition(1, entryId, 0, 1, 1_000);
     }

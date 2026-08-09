@@ -3,6 +3,7 @@ package io.nereusstream.delay.adapter;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DestinationLaneId;
+import io.nereusstream.delay.protocol.EvidenceCursorV1;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.StableCode;
 
@@ -192,6 +193,40 @@ public final class PulsarAttemptJournal {
     /** Returns an immutable snapshot in Journal append order. */
     public synchronized List<JournalRecord> records() {
         return List.copyOf(records);
+    }
+
+    /**
+     * Projects the latest local Journal position for one Lane-scoped Producer
+     * into the typed checkpoint evidence cursor.  The cursor is only a local
+     * value projection: a real reader must still prove Broker retention,
+     * resource identity and contiguous replay before publishing it in a
+     * checkpoint manifest.
+     */
+    public synchronized Optional<EvidenceCursorV1> evidenceCursor(final ProducerKey producer,
+                                                                    final long evidenceGeneration) {
+        Objects.requireNonNull(producer, "producer");
+        if (evidenceGeneration == 0) {
+            throw new IllegalArgumentException("evidenceGeneration must be non-zero");
+        }
+        JournalRecord latest = null;
+        long maxBrokerPersistedAt = 0;
+        for (JournalRecord record : records) {
+            if (!record.mapping().producer().equals(producer)) {
+                continue;
+            }
+            latest = record;
+            maxBrokerPersistedAt = Math.max(maxBrokerPersistedAt,
+                    record.position().brokerEntryTimestampEpochMs());
+        }
+        if (latest == null) {
+            return Optional.empty();
+        }
+        final JournalPosition position = latest.position();
+        final PulsarTargetResource target = producer.target();
+        return Optional.of(EvidenceCursorV1.pulsar(producer.laneId().bytes(), producer.laneIncarnation(),
+                target.resourceIncarnation(), target.partition(), evidenceGeneration, maxBrokerPersistedAt,
+                target.physicalTopic(), target.physicalTopicCreationTimestamp(), position.ledgerId(),
+                position.entryId(), position.batchIndex(), position.batchSize()));
     }
 
     /**
