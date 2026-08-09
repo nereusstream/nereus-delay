@@ -2368,6 +2368,13 @@ covers the pre-write callback failure classification. This preserves the design 
 that a failed or unverifiable synchronous WriteBatch stops before Source ACK; it is local
 failure classification, not evidence of a production RocksDB or source-consumer deployment.
 
+`OwnedDelayShard` now maps that typed storage failure to local `FENCED` for
+command, System Mutation, mixed replay and Claim-recovery paths before
+rethrowing. The caller-owned source cursor therefore remains on the exact
+physical record while the owner gate is closed; worker-level close, lease
+retention and fresh-incarnation replay remain orchestration evidence still
+required outside this local seam.
+
 SLO 文档与 Registry 的 native 时间字段也已对齐：`native_handoff_ack_lag` 的起点是
 `NativePreparedDelivery` field 10 的未平移 business `deliverAt`，field 11 的 shifted
 Broker `deliverAt` 只用于 Broker visibility 语义；V1 native wire 没有独立的

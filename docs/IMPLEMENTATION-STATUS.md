@@ -2515,6 +2515,14 @@ the pre-write and committed-but-unverifiable branches. This is local
 RocksDB/source-cursor evidence only; it does not claim production consumer
 restart orchestration.
 
+`OwnedDelayShard` now maps the typed `RocksDbWriteFailure` from command,
+System Mutation, mixed replay and Claim-recovery batches to local
+`FENCED` before rethrowing; the caller-owned source cursor remains on the
+physical record. This closes the owner command gate at the same local failure
+boundary, while the surrounding worker still must close the failed Store,
+retain the lease/recovery evidence safely, and reopen a fresh incarnation
+before replay.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

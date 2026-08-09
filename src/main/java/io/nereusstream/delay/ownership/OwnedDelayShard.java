@@ -9,6 +9,7 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.runtime.SystemMutationResult;
 import io.nereusstream.delay.runtime.CommandResult;
 import io.nereusstream.delay.runtime.DelayShard;
+import io.nereusstream.delay.store.ShardStore;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -57,7 +58,15 @@ public final class OwnedDelayShard {
             activationBarrier.validatePosition(position);
             validateSourceConnection(position, sourceConnectionGeneration, guardAttestationDigest);
         }
-        return delegate.apply(command, position);
+        try {
+            return delegate.apply(command, position);
+        } catch (ShardStore.RocksDbWriteFailure failure) {
+            // A native batch failure can leave commit status unknown.  Close
+            // the owner gate immediately; source replay must retain the
+            // physical record until a fresh Store incarnation is opened.
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        }
     }
 
     /**
@@ -265,7 +274,13 @@ public final class OwnedDelayShard {
                         record.guardAttestationDigest());
             }
             validateCatchupOrder(position);
-            final CommandResult result = delegate.apply(record.command(), position);
+            final CommandResult result;
+            try {
+                result = delegate.apply(record.command(), position);
+            } catch (ShardStore.RocksDbWriteFailure failure) {
+                state = ShardLifecycleState.FENCED;
+                throw failure;
+            }
             // Advance the caller-owned cursor only after the shard WriteBatch
             // has returned successfully.  A validation or storage failure
             // must leave the exact source record available for retry.
@@ -347,8 +362,13 @@ public final class OwnedDelayShard {
                         record.guardAttestationDigest());
             }
             validateCatchupOrder(position);
-            final SystemMutationResult result = delegate.applySystemMutation(record.mutation(), position,
-                    verificationKey);
+            final SystemMutationResult result;
+            try {
+                result = delegate.applySystemMutation(record.mutation(), position, verificationKey);
+            } catch (ShardStore.RocksDbWriteFailure failure) {
+                state = ShardLifecycleState.FENCED;
+                throw failure;
+            }
             records.next();
             lastCatchupPosition = position;
             results.add(result);
@@ -419,12 +439,23 @@ public final class OwnedDelayShard {
             final SourcePosition position = record.position();
             validateReplayPosition(position, record.sourceConnectionGeneration(), record.guardAttestationDigest());
             if (record instanceof SourceReplayRecord commandRecord) {
-                final CommandResult result = delegate.apply(commandRecord.command(), position);
+                final CommandResult result;
+                try {
+                    result = delegate.apply(commandRecord.command(), position);
+                } catch (ShardStore.RocksDbWriteFailure failure) {
+                    state = ShardLifecycleState.FENCED;
+                    throw failure;
+                }
                 lastCatchupPosition = position;
                 results.add(SourceReplayOutcome.command(position, replayCommandResultAt(position, result)));
             } else if (record instanceof SourceReplayMutation mutationRecord) {
-                final SystemMutationResult result = delegate.applySystemMutation(mutationRecord.mutation(), position,
-                        verificationKey);
+                final SystemMutationResult result;
+                try {
+                    result = delegate.applySystemMutation(mutationRecord.mutation(), position, verificationKey);
+                } catch (ShardStore.RocksDbWriteFailure failure) {
+                    state = ShardLifecycleState.FENCED;
+                    throw failure;
+                }
                 lastCatchupPosition = position;
                 results.add(SourceReplayOutcome.systemMutation(position, replaySystemMutationResultAt(position, result)));
             } else {
@@ -545,7 +576,12 @@ public final class OwnedDelayShard {
         // A restored CLAIMED record is only a reversible pre-Producer
         // reservation.  Requeue it before opening the command gate so a new
         // Owner cannot inherit an old Owner Epoch's local send authority.
-        delegate.requeueClaimsForRecovery();
+        try {
+            delegate.requeueClaimsForRecovery();
+        } catch (ShardStore.RocksDbWriteFailure failure) {
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        }
         state = ShardLifecycleState.ACTIVE_FOR_COMMANDS;
     }
 
@@ -556,7 +592,12 @@ public final class OwnedDelayShard {
         // Keep the local recovery boundary identical for the authoritative
         // and embedded activation paths.  A failed lease CAS leaves the
         // requeue durable and harmless; it never grants publish authority.
-        delegate.requeueClaimsForRecovery();
+        try {
+            delegate.requeueClaimsForRecovery();
+        } catch (ShardStore.RocksDbWriteFailure failure) {
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        }
         final OwnerLease transitioned;
         try {
             transitioned = authority.transitionOrRead(lease, ShardLifecycleState.ACTIVE_FOR_COMMANDS)
