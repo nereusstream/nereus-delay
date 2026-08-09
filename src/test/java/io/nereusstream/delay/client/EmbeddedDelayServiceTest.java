@@ -1,6 +1,7 @@
 package io.nereusstream.delay.client;
 
 import io.nereusstream.delay.adapter.InMemoryPayloadObjectStore;
+import io.nereusstream.delay.adapter.CommandResultRetentionPolicy;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.AdapterKindV1;
 import io.nereusstream.delay.protocol.AdapterMetadataV1;
@@ -688,6 +689,29 @@ class EmbeddedDelayServiceTest {
                     service.queryMessage(DelayMessageId.random(shard), publicBinding(),
                             DlqExportStateV1.NOT_CONFIGURED, null,
                             io.nereusstream.delay.protocol.FirstScheduleEligibilityV1.NOT_PROVEN).resultKind());
+        }
+    }
+
+    @Test
+    void embeddedQueryDerivesFullResultRetentionFromAppliedSourceTime() {
+        final long now = 1_000;
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 41);
+        final CommandResultRetentionPolicy policy = new CommandResultRetentionPolicy(3, 4_000);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(ShardStoreConfig.defaults(
+                tempDir.resolve("query-retention-policy")), shard,
+                Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC))) {
+            final PreparedCommand command = cancelV1(shard, 20_000);
+            final EnqueueOutcome outcome = service.enqueue(command).toCompletableFuture().join();
+            final CommandQueuedReceiptV1 queued = service.queuedReceiptV1(outcome, 20_000,
+                    java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("retention-policy-attempt")), 16));
+            service.drain();
+
+            assertEquals(CommandQueryResult.APPLIED,
+                    service.queryCommand(queued, 4_999, policy, null).resultKind());
+            assertEquals(CommandQueryResult.RESULT_EXPIRED,
+                    service.queryCommand(queued, 5_001, policy, null).resultKind());
+            assertEquals(5_000, service.appliedReceiptV1(queued, policy, null)
+                    .fullResultRetainUntilEpochMs());
         }
     }
 

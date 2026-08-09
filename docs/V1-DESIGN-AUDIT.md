@@ -23,6 +23,17 @@ Route publication, source-time authority and concrete production transports are
 still release gates. Focused evidence is in `AdapterIngressTest` and
 `NativeSubmissionAdapterTest`.
 
+The same source-time rule is now executable for full command-result retention:
+`CommandResultRetentionPolicy` derives the boundary from the applied result
+Source Position with checked arithmetic, and the embedded query/await/applied
+receipt bridges expose policy-bound overloads. A boundary overflow becomes a
+bounded integrity error; callers cannot change the strict path by supplying an
+absolute timestamp. Legacy absolute-boundary methods remain compatibility
+seams only. Focused evidence is
+`EmbeddedDelayServiceTest.embeddedQueryDerivesFullResultRetentionFromAppliedSourceTime`
+and `CommandResultRetentionPolicyTest`; external policy publication and query
+authority remain release gates.
+
 The UNKNOWN-outcome audit now closes a Store-integrity edge at the same
 ownership boundary: before `PUBLISH_OUTCOME_V1(UNKNOWN)` can materialize an
 uncertain retry or update READY, the current Message Lane, durable Lane record,

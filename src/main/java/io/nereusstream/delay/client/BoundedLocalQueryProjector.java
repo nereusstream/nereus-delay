@@ -1,5 +1,6 @@
 package io.nereusstream.delay.client;
 
+import io.nereusstream.delay.adapter.CommandResultRetentionPolicy;
 import io.nereusstream.delay.protocol.ActiveMessageViewV1;
 import io.nereusstream.delay.protocol.CommandApplyStatusV1;
 import io.nereusstream.delay.protocol.CommandQueryResponseV1;
@@ -48,6 +49,15 @@ public final class BoundedLocalQueryProjector {
                 ? CommandQueryResponseV1.applied(view) : CommandQueryResponseV1.rejected(view);
     }
 
+    /** Projects a full result using the immutable retention policy. */
+    public static CommandQueryResponseV1 command(final CommandResult result,
+                                                 final CommandResultRetentionPolicy retentionPolicy,
+                                                 final PublicDestinationBindingViewV1 binding) {
+        Objects.requireNonNull(retentionPolicy, "retentionPolicy");
+        return command(result, retentionPolicy.retainUntil(SourcePositionCodec.decode(result.appliedSourcePosition())),
+                binding);
+    }
+
     /** Projects the compact historical branch after the full result retention boundary. */
     public static CommandQueryResponseV1 compactCommand(final CommandResult result,
                                                         final long fullResultRetainUntilEpochMs) {
@@ -59,6 +69,14 @@ public final class BoundedLocalQueryProjector {
         final CompactCommandResultV1 view = new CompactCommandResultV1(status, result.stableCode(),
                 SourcePositionCodec.decode(result.appliedSourcePosition()), fullResultRetainUntilEpochMs);
         return CommandQueryResponseV1.resultExpired(view);
+    }
+
+    /** Projects the compact result using the immutable retention policy. */
+    public static CommandQueryResponseV1 compactCommand(final CommandResult result,
+                                                        final CommandResultRetentionPolicy retentionPolicy) {
+        Objects.requireNonNull(retentionPolicy, "retentionPolicy");
+        return compactCommand(result,
+                retentionPolicy.retainUntil(SourcePositionCodec.decode(result.appliedSourcePosition())));
     }
 
     /** Projects a local Message snapshot only when a safe binding has been authorized separately. */

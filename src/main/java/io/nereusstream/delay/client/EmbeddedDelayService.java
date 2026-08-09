@@ -1,6 +1,7 @@
 package io.nereusstream.delay.client;
 
 import io.nereusstream.delay.adapter.InMemoryPayloadObjectStore;
+import io.nereusstream.delay.adapter.CommandResultRetentionPolicy;
 import io.nereusstream.delay.adapter.PreparedSubmissionAdapter;
 import io.nereusstream.delay.adapter.QueuedReceiptQueryPolicy;
 import io.nereusstream.delay.protocol.Bytes;
@@ -595,6 +596,13 @@ public final class EmbeddedDelayService implements DelayClient {
     }
 
     @Override
+    public synchronized CompletionStage<CommandQueryResponseV1> getCommandResult(
+            final CommandQueuedReceiptV1 receipt, final long nowEpochMs,
+            final CommandResultRetentionPolicy retentionPolicy, final PublicDestinationBindingViewV1 binding) {
+        return CompletableFuture.completedFuture(queryCommand(receipt, nowEpochMs, retentionPolicy, binding));
+    }
+
+    @Override
     public synchronized CompletionStage<CommandQueryResponseV1> awaitAppliedV1(
             final CommandQueuedReceiptV1 receipt, final long nowEpochMs,
             final long fullResultRetainUntilEpochMs, final PublicDestinationBindingViewV1 binding) {
@@ -607,6 +615,24 @@ public final class EmbeddedDelayService implements DelayClient {
         if (result.resultKind() == CommandQueryResult.PENDING) {
             drain();
             result = queryCommand(receipt, nowEpochMs, fullResultRetainUntilEpochMs, binding);
+        }
+        return CompletableFuture.completedFuture(result);
+    }
+
+    @Override
+    public synchronized CompletionStage<CommandQueryResponseV1> awaitAppliedV1(
+            final CommandQueuedReceiptV1 receipt, final long nowEpochMs,
+            final CommandResultRetentionPolicy retentionPolicy, final PublicDestinationBindingViewV1 binding) {
+        ensureOpen();
+        Objects.requireNonNull(retentionPolicy, "retentionPolicy");
+        if (receipt == null || !isEmbeddedReceipt(receipt)) {
+            return CompletableFuture.completedFuture(CommandQueryResponseV1.error(StableCode.RECEIPT_MISMATCH,
+                    null));
+        }
+        CommandQueryResponseV1 result = queryCommand(receipt, nowEpochMs, retentionPolicy, binding);
+        if (result.resultKind() == CommandQueryResult.PENDING) {
+            drain();
+            result = queryCommand(receipt, nowEpochMs, retentionPolicy, binding);
         }
         return CompletableFuture.completedFuture(result);
     }
@@ -1070,12 +1096,29 @@ public final class EmbeddedDelayService implements DelayClient {
                                                              final long nowEpochMs,
                                                              final long fullResultRetainUntilEpochMs,
                                                              final PublicDestinationBindingViewV1 binding) {
+        return queryCommandInternal(receipt, nowEpochMs, fullResultRetainUntilEpochMs, null, binding);
+    }
+
+    /** Queries a command with retention derived from its applied Source Position. */
+    public synchronized CommandQueryResponseV1 queryCommand(final CommandQueuedReceiptV1 receipt,
+                                                             final long nowEpochMs,
+                                                             final CommandResultRetentionPolicy retentionPolicy,
+                                                             final PublicDestinationBindingViewV1 binding) {
+        Objects.requireNonNull(retentionPolicy, "retentionPolicy");
+        return queryCommandInternal(receipt, nowEpochMs, null, retentionPolicy, binding);
+    }
+
+    private CommandQueryResponseV1 queryCommandInternal(final CommandQueuedReceiptV1 receipt,
+                                                         final long nowEpochMs,
+                                                         final Long fullResultRetainUntilEpochMs,
+                                                         final CommandResultRetentionPolicy retentionPolicy,
+                                                         final PublicDestinationBindingViewV1 binding) {
         ensureOpen();
         Objects.requireNonNull(receipt, "receipt");
         if (!isEmbeddedReceipt(receipt)) {
             return CommandQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
         }
-        if (nowEpochMs < 0 || fullResultRetainUntilEpochMs < 0) {
+        if (nowEpochMs < 0 || (fullResultRetainUntilEpochMs != null && fullResultRetainUntilEpochMs < 0)) {
             return CommandQueryResponseV1.error(StableCode.INVALID_RECEIPT, null);
         }
         if (nowEpochMs > receipt.receiptQueryUntilEpochMs()) {
@@ -1112,9 +1155,22 @@ public final class EmbeddedDelayService implements DelayClient {
         if (!shard.matchesCommandHash(receipt.command().commandId(), receipt.command().commandHash())) {
             return CommandQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
         }
-        return nowEpochMs > fullResultRetainUntilEpochMs
-                ? BoundedLocalQueryProjector.compactCommand(result, fullResultRetainUntilEpochMs)
-                : BoundedLocalQueryProjector.command(result, fullResultRetainUntilEpochMs, binding);
+        final long retentionBoundary;
+        try {
+            retentionBoundary = retentionPolicy == null
+                    ? Objects.requireNonNull(fullResultRetainUntilEpochMs, "fullResultRetainUntilEpochMs")
+                    : retentionPolicy.retainUntil(SourcePositionCodec.decode(result.appliedSourcePosition()));
+        } catch (RuntimeException invalidPolicy) {
+            return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+        }
+        if (nowEpochMs > retentionBoundary) {
+            return retentionPolicy == null
+                    ? BoundedLocalQueryProjector.compactCommand(result, retentionBoundary)
+                    : BoundedLocalQueryProjector.compactCommand(result, retentionPolicy);
+        }
+        return retentionPolicy == null
+                ? BoundedLocalQueryProjector.command(result, retentionBoundary, binding)
+                : BoundedLocalQueryProjector.command(result, retentionPolicy, binding);
     }
 
     /**
@@ -1125,12 +1181,27 @@ public final class EmbeddedDelayService implements DelayClient {
     public synchronized CommandAppliedReceiptV1 appliedReceiptV1(final CommandQueuedReceiptV1 queuedReceipt,
                                                                   final long fullResultRetainUntilEpochMs,
                                                                   final PublicDestinationBindingViewV1 binding) {
+        return appliedReceiptV1Internal(queuedReceipt, fullResultRetainUntilEpochMs, null, binding);
+    }
+
+    /** Emits an applied receipt with a policy-derived full-result boundary. */
+    public synchronized CommandAppliedReceiptV1 appliedReceiptV1(final CommandQueuedReceiptV1 queuedReceipt,
+                                                                  final CommandResultRetentionPolicy retentionPolicy,
+                                                                  final PublicDestinationBindingViewV1 binding) {
+        Objects.requireNonNull(retentionPolicy, "retentionPolicy");
+        return appliedReceiptV1Internal(queuedReceipt, null, retentionPolicy, binding);
+    }
+
+    private CommandAppliedReceiptV1 appliedReceiptV1Internal(final CommandQueuedReceiptV1 queuedReceipt,
+                                                              final Long fullResultRetainUntilEpochMs,
+                                                              final CommandResultRetentionPolicy retentionPolicy,
+                                                              final PublicDestinationBindingViewV1 binding) {
         ensureOpen();
         Objects.requireNonNull(queuedReceipt, "queuedReceipt");
         if (!isEmbeddedReceipt(queuedReceipt)) {
             throw new IllegalArgumentException("queued receipt does not belong to embedded shard");
         }
-        if (fullResultRetainUntilEpochMs < 0) {
+        if (fullResultRetainUntilEpochMs != null && fullResultRetainUntilEpochMs < 0) {
             throw new IllegalArgumentException("full result retention deadline must be non-negative");
         }
         final SourcePosition current = shard.lastAppliedSourcePosition();
@@ -1161,8 +1232,11 @@ public final class EmbeddedDelayService implements DelayClient {
                 ? result.stateVersion() : null;
         final PublicDestinationBindingViewV1 appliedBinding = status == CommandApplyStatusV1.APPLIED
                 ? binding : null;
+        final long retentionBoundary = retentionPolicy == null
+                ? Objects.requireNonNull(fullResultRetainUntilEpochMs, "fullResultRetainUntilEpochMs")
+                : retentionPolicy.retainUntil(appliedPosition);
         return CommandAppliedReceiptV1.create(queuedReceipt, status, result.stableCode(), appliedPosition,
-                generation, stateVersion, appliedBinding, fullResultRetainUntilEpochMs);
+                generation, stateVersion, appliedBinding, retentionBoundary);
     }
 
     /** Projects a local message snapshot after the caller supplies policy inputs. */

@@ -1,6 +1,7 @@
 package io.nereusstream.delay.client;
 
 import io.nereusstream.delay.adapter.QueuedReceiptQueryPolicy;
+import io.nereusstream.delay.adapter.CommandResultRetentionPolicy;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.CommandQueryResponseV1;
 import io.nereusstream.delay.protocol.CommandQueuedReceiptV1;
@@ -103,9 +104,21 @@ public interface DelayClient extends AutoCloseable {
                                                               long fullResultRetainUntilEpochMs,
                                                               PublicDestinationBindingViewV1 binding);
 
+    /** Queries with a retention boundary derived from the result Source Position. */
+    CompletionStage<CommandQueryResponseV1> getCommandResult(CommandQueuedReceiptV1 receipt,
+                                                              long nowEpochMs,
+                                                              CommandResultRetentionPolicy retentionPolicy,
+                                                              PublicDestinationBindingViewV1 binding);
+
     CompletionStage<CommandQueryResponseV1> awaitAppliedV1(CommandQueuedReceiptV1 receipt,
                                                             long nowEpochMs,
                                                             long fullResultRetainUntilEpochMs,
+                                                            PublicDestinationBindingViewV1 binding);
+
+    /** Awaits application using the immutable result-retention policy. */
+    CompletionStage<CommandQueryResponseV1> awaitAppliedV1(CommandQueuedReceiptV1 receipt,
+                                                            long nowEpochMs,
+                                                            CommandResultRetentionPolicy retentionPolicy,
                                                             PublicDestinationBindingViewV1 binding);
 
     /** Queries the V1 message projection with caller-supplied bounded policy inputs. */

@@ -21,6 +21,17 @@ cover policy derivation, overflow and managed-branch binding. Route policy
 publication, source-time authority and production adapter wiring remain external
 release gates.
 
+The local command-result query seam now has the matching strict retention path:
+`CommandResultRetentionPolicy` derives `full_result_retain_until` from the
+applied result Source Position's Broker persistence time with checked addition.
+`EmbeddedDelayService`, `DelayClient` and `BoundedLocalQueryProjector` expose
+policy-bound query, await and applied-receipt overloads; a policy overflow is an
+integrity error rather than a wrapped or caller-selected deadline. Existing
+absolute-boundary overloads remain compatibility-only. The focused evidence is
+`EmbeddedDelayServiceTest.embeddedQueryDerivesFullResultRetentionFromAppliedSourceTime`
+and `CommandResultRetentionPolicyTest`; external retention-policy publication,
+source-time authority and production query routing remain release gates.
+
 The source-ordered `PUBLISH_OUTCOME(UNKNOWN)` projection now verifies the
 current Message Lane identity, durable Lane presence, and exact Lane
 incarnation against the `PUBLISHING` attempt ledger before constructing any
@@ -2381,6 +2392,7 @@ to the intended modules:
 | Area | Status | Evidence |
 |---|---|---|
 | Queued receipt Route-policy boundary | Implemented (local strict adapter seam; Route authority pending) | `QueuedReceiptQueryPolicy`, `PolicyBoundWireCommandIngressAdapter`, `PinnedKafkaCommandIngress`, `PinnedPulsarCommandIngress`, `PreparedSubmissionAdapter`, `EmbeddedDelayService`, `AdapterIngressTest`, `NativeSubmissionAdapterTest`; strict paths derive `receipt_query_until` from authenticated Broker persistence time with checked addition, reject missing/drifting policy snapshots before transport ownership, and retain post-persistence overflow as `ENQUEUE_UNCERTAIN`/integrity evidence; absolute-boundary overloads are compatibility-only and checked against a bound policy; Route policy publication, source-time authority and concrete production transports remain release blockers |
+| Full command-result retention boundary | Implemented (local strict query seam; retention authority pending) | `CommandResultRetentionPolicy`, `DelayClient`, `EmbeddedDelayService`, `BoundedLocalQueryProjector`, `EmbeddedDelayServiceTest.embeddedQueryDerivesFullResultRetentionFromAppliedSourceTime`, `CommandResultRetentionPolicyTest`; strict query/await/applied-receipt projections derive `full_result_retain_until` from the applied Source Position Broker persistence time with checked addition, while absolute-boundary overloads remain compatibility-only; policy publication, source-time authority and production query routing remain release blockers |
 | Strict typed Claim runtime binding | Implemented (local Message/payload binding; external authority pending) | `DelayShard.claimForPublishV1`, `ClaimMaterializationRuntimeTest`; strict Claim entrypoint binds message identity, generation, delivery window, timeline `actionAt` and inline/object payload reference before persistence, while the legacy byte-array entrypoint remains a compatibility bridge; Profile/catalog, Adapter serialization/size certification, Producer ownership and crash recovery remain release blockers |
 | Gradle Java 21 build | Implemented | `gradle compileJava`, `gradle test` |
 | Self-routing IDs and CRC32C | Implemented | `ProtocolCodecTest` |
