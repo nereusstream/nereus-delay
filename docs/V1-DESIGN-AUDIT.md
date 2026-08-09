@@ -891,6 +891,14 @@ canonical UTF-8/NFC fence；非 canonical 文本不能先进入 Worker/cluster �
 `DestinationPhysicalAdmissionTest.targetClusterIdentityRejectsNonCanonicalText`
 覆盖该构造期边界。
 
+Kafka destination request 还在自身构造边界固定
+`actionAt=deliverAt`。提前 action 只属于有固定 lead、Broker visibility guard
+和能力位证明的 Pulsar handoff；`KafkaDestinationRequest` 遇到提前 action 会在
+Producer ownership 前拒绝，`DestinationAdapterTest.kafkaDestinationDoesNotInvokeTransportForEarlyActionAt`
+证明不会调用 transport。这与主设计的“`deliverAt` 是消费者最早可见时间”及
+Kafka managed 时间关系保持一致；真实 Broker timing/target authority 仍需
+release conformance evidence。
+
 本地 `DestinationPhysicalAdmission`/`BoundedDestinationPublishAdapter` 现在把
 target 请求的 physical request/byte charge 作为显式 reservation：Worker 和 target
 cluster hard cap、每 Lane cap 以及所有其它 READY Lane 的 committed minimum 都在

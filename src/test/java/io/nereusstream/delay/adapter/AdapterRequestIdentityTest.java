@@ -49,6 +49,17 @@ class AdapterRequestIdentityTest {
                         Bytes.utf8("prepared")));
     }
 
+    @Test
+    void kafkaDestinationRejectsCertifiedHandoffTiming() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 5);
+        final DestinationLaneId laneId = DestinationLaneId.derive(Bytes.utf8("kafka-timing-lane"));
+        final DelayMessageId messageId = DelayMessageId.random(shard);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> new KafkaDestinationRequest("cluster", UUID.randomUUID(), shard.partition(), laneId,
+                        new byte[16], messageId, 0, new byte[32], 99, 100, Bytes.utf8("payload"), new byte[0]));
+    }
+
     private static byte[] nonZero(final int length) {
         final byte[] value = new byte[length];
         value[0] = 1;

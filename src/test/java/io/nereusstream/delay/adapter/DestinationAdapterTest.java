@@ -72,6 +72,24 @@ class DestinationAdapterTest {
     }
 
     @Test
+    void kafkaDestinationDoesNotInvokeTransportForEarlyActionAt() {
+        final KafkaTargetResource resource = new KafkaTargetResource("cluster", UUID.randomUUID(), 4);
+        final AtomicInteger calls = new AtomicInteger();
+        final PinnedKafkaDestinationAdapter.KafkaDestinationTransport transport = actual -> {
+            calls.incrementAndGet();
+            return CompletableFuture.completedFuture(DestinationPublishResult.unknown(
+                    StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
+        };
+        try (PinnedKafkaDestinationAdapter adapter = new PinnedKafkaDestinationAdapter(resource, transport)) {
+            final DestinationPublishResult result = adapter.publish(request(1_999, 2_000))
+                    .toCompletableFuture().join();
+            assertEquals(DestinationPublishResult.Disposition.DEFINITIVELY_NOT_PUBLISHED, result.disposition());
+            assertEquals(StableCode.INVALID_METADATA, result.stableCode());
+            assertEquals(0, calls.get());
+        }
+    }
+
+    @Test
     void targetTransportFailureIsUnknown() {
         final byte[] token = Bytes.sha256(Bytes.utf8("target-token"));
         final PulsarTargetResource resource = new PulsarTargetResource("cluster", token,

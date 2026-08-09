@@ -32,9 +32,15 @@ public record KafkaDestinationRequest(
         Objects.requireNonNull(adapterMetadata, "adapterMetadata");
         Bytes.requireLength(laneIncarnation, 16, "laneIncarnation");
         Bytes.requireLength(publishAttemptId, 32, "publishAttemptId");
-        if (generation < 0 || actionAtEpochMs < 0
-                || deliverAtEpochMs < actionAtEpochMs) {
+        if (generation < 0 || actionAtEpochMs < 0 || deliverAtEpochMs < actionAtEpochMs) {
             throw new IllegalArgumentException("invalid Kafka destination request");
+        }
+        // Kafka V1 has no certified delayed-handoff branch.  An early
+        // actionAt is only meaningful for the Pulsar guarded handoff path;
+        // allowing it here would let a malformed adapter request publish
+        // before the consumer-visible deliverAt boundary.
+        if (actionAtEpochMs != deliverAtEpochMs) {
+            throw new IllegalArgumentException("Kafka managed timing requires actionAt=deliverAt");
         }
         laneIncarnation = Bytes.copy(laneIncarnation);
         publishAttemptId = Bytes.copy(publishAttemptId);
