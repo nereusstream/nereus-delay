@@ -70,6 +70,19 @@ public final class WorkerRuntimeSafetyGate {
     }
 
     /**
+     * Records a probe failure as a shared safety breach.  A missing,
+     * malformed, or temporarily unreadable platform limit is not treated as
+     * an unlimited resource and cannot leave the Worker accepting work.
+     */
+    public synchronized void rejectProbeFailure(final Throwable failure) {
+        Objects.requireNonNull(failure, "failure");
+        if (state != State.DRAIN_OR_MIGRATE) {
+            failureReason = boundedFailureMessage(failure);
+            state = State.DRAIN_OR_MIGRATE;
+        }
+    }
+
+    /**
      * Stages a new certified envelope.  New ownership is fenced immediately;
      * the staged envelope becomes active only after all old DB/ownership and
      * transition resources have drained.
@@ -149,5 +162,12 @@ public final class WorkerRuntimeSafetyGate {
 
     public synchronized String failureReason() {
         return failureReason;
+    }
+
+    private static String boundedFailureMessage(final Throwable failure) {
+        final String message = failure.getMessage();
+        final String value = failure.getClass().getSimpleName()
+                + (message == null || message.isBlank() ? "" : ": " + message);
+        return value.length() <= 256 ? value : value.substring(0, 256);
     }
 }

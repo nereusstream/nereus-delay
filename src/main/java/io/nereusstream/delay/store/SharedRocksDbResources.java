@@ -134,6 +134,15 @@ public final class SharedRocksDbResources implements AutoCloseable {
         runtimeSafetyGate.observe(observation);
     }
 
+    /** Fences the Worker when a scheduled runtime probe cannot produce evidence. */
+    public synchronized void recordRuntimeProbeFailure(final Throwable failure) {
+        ensureOpen();
+        if (runtimeSafetyGate == null) {
+            throw new IllegalStateException("runtime safety gate requires a Worker resource envelope");
+        }
+        runtimeSafetyGate.rejectProbeFailure(failure);
+    }
+
     /** Stages a new envelope and fences new ownership before drain/migration. */
     public synchronized void stageRuntimeEnvelope(final WorkerResourceEnvelope envelope,
                                                    final WorkerRuntimeResourceObservation observation) {

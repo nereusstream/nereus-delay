@@ -1270,10 +1270,11 @@ background pool；每个 DB 另外绑定 `maxBackgroundJobsPerDb` 以及非零
 guard。`WorkerRuntimeSafetyGate` 还把新鲜的 JVM/cgroup/FD/filesystem
 observation 接入一个 sticky `ACTIVE -> DRAIN_OR_MIGRATE` 门；共享资源的
 ownership/restore slots 和 embedded Claim 在门未恢复前 fail closed，只有
-显式 empty-drain activation 才能重新开放。它仍不是自动 probe scheduler、
-每次 WriteBatch 的 native attribution/work-class reserve admission，也不替代
-真实 JVM/cgroup/rlimit、checkpoint/compaction 调度和 Oxia placement authority；
-这些继续保持 release blocker。
+显式 empty-drain activation 才能重新开放。`WorkerRuntimeResourceMonitor`
+现在提供可关闭的 fixed-delay probe scheduler，并把 probe 异常和 envelope
+mismatch 路由回同一个 sticky gate；这仍不是每次 WriteBatch 的 native
+attribution/work-class reserve admission，也不替代真实 checkpoint/compaction
+调度和 Oxia placement authority；这些继续保持 release blocker。
 
 Control Reserve 的本地投影也已覆盖 Registry 的 class 6：
 `meta_cf/CONTROL_RESERVE` 以 `CapacityVectorV1` 持久化 Broker system-writer
@@ -1507,10 +1508,12 @@ WriteBufferManager 预算之和不超过认证的 RocksDB native 桶；聚焦回
 或 malformed limit 均 fail closed，`WorkerResourceEnvelope.validate` 再逐项
 检查 heap/direct/RSS/cgroup/FD/filesystem 交叉边界。`WorkerRuntimeSafetyGate`
 提供 fresh observation 的 sticky drain/migrate 状态和 explicit empty-drain
-activation；`WorkerRuntimeResourceProbeTest` 与 `WorkerRuntimeSafetyGateTest`
-覆盖解析、envelope rejection 和共享资源 ownership fencing。自动 probe
-调度、RocksDB native bucket attribution、work-class reserve 和 write-time
-reserve admission 仍是 release gate。
+activation；`WorkerRuntimeResourceMonitor` 将固定间隔 probe 接入同一 gate，
+probe 异常或 envelope mismatch 都会进入 drain/migrate，并可显式关闭调度器；
+`WorkerRuntimeResourceProbeTest`、`WorkerRuntimeSafetyGateTest` 与
+`WorkerRuntimeResourceMonitorTest` 覆盖解析、envelope rejection、周期探针
+生命周期和共享资源 ownership fencing。RocksDB native bucket attribution、
+work-class reserve 和 write-time reserve admission 仍是 release gate。
 Lease validity additionally rejects negative observation times even when a
 caller reaches `OwnerLease.validAt` directly rather than through an authority
 request; `OwnerLeaseTest.negativeClockCannotMakeOwnerLeaseValid` covers the
