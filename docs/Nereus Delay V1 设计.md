@@ -2462,6 +2462,8 @@ uncertain 只 reread/retry exact prepared bytes，不生成新 ID/hash/target se
 
 `ControlOperationReceiptV1` 的 exact NDR1 fields 包含 fixed registered Trusted-UTC interval，且 `queryUntil = checkedAdd(registeredAt.latest, controlOperationQueryWindow)`；response/replay wall clock 不得移动该 retention boundary。
 
+嵌入式/一致性测试实现可以使用 crash-durable 的本地 Control Operation authority：每个 operation 以完整 receipt 与 current projection 的 canonical bytes 写入独立状态文件，文件内 checksum、临时文件、atomic rename 与目录 fsync 共同形成 durable CAS 边界。重启或 response loss 只允许用同一 receipt 和 exact revision successor 重读；损坏、截断、身份漂移或过期查询必须 fail closed。这个本地实现不替代生产 Oxia 的跨 Worker routing、租户授权、session fencing 和 source-ordered marker authority。
+
 ```text
 TargetMarkerState:
   PENDING

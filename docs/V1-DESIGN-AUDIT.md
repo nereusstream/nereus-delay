@@ -1986,9 +1986,12 @@ shard/checkpoint/manifest/generation projection；其余 control result branches
 枚举/presence 校验，`ControlTypedResultV1` 也会按 branch 调用对应 codec，拒绝
 tag/payload 漂移。本地 `ControlOperationAuthority` 现在把完整 receipt 作为
 唯一 locator，覆盖幂等 register、严格 revision CAS 和固定 `queryUntil` 边界；
-`OxiaControlOperationAuthority` 对 backend 的 CURRENT 响应执行 operation/request/
-scope identity 与 revision 不回退校验。这只是本地 CAS/验证 seam，durable
-control-operation query state、routing、authorization 和真实 Oxia ownership 仍未完成。
+`PersistentControlOperationAuthority` 还把 exact receipt/current pair 以 checksum、
+atomic rename 和 directory fsync 持久化，重启、同 bytes response-loss 重试以及
+损坏/截断状态均 fail closed；`OxiaControlOperationAuthority` 对 backend 的 CURRENT
+响应执行 operation/request/scope identity 与 revision 不回退校验。这闭合了本地
+crash-durable CAS seam，durable control-operation query state 的生产 routing、
+authorization、session ownership 和真实 Oxia authority 仍未完成。
 `EmbeddedDelayService` 已将该 seam 暴露为本地 register/advance/query 入口，便于
 conformance tests 验证 register 和 exact advance response-loss 后的精确 receipt
 重读；`OxiaControlOperationAuthority.advance` 不接受更高或不同状态的后续
