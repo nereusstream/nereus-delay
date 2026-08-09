@@ -2938,6 +2938,14 @@ Release gate 不只看 percentile：在 certified healthy load envelope 内，�
 - Shard 的 SLO outbox 是观测状态，不进入 command-derived semantic digest，也不授权/回滚 Admission、Command 或 Producer。它使用与 correctness/outcome reserve 分离的 bounded budget；在 certified envelope 内不得耗尽。越界时 objective 立即成为 `BAD_EVIDENCE_GAP` 并告警，不能静默缩小分母，也不能把目标故障变成 source pause。
 - collector ack 后本地记录才可删除；collector 的 raw Start/Final/merge history 保留完整 rolling window 加 late-finalization、replay 和审计 margin。发布报告固定 objective digest、load-envelope digest、source/binary digest、sample count、bad 分类和 evidence-gap count。
 
+嵌入式/一致性实现可以使用 `PersistentSloObservationCollector(Path)` 保存 collector
+的 canonical sample projection：按 `sampleId` 排序写入完整 `SloObservationOutboxV1`
+bytes，重启或 response loss 只接受相同 Start digest 和 direction-aware conservative
+merge；state file 使用 bounded size、checksum、临时文件、atomic rename、文件/目录
+fsync 及跨实例 lock，损坏、截断、非 canonical 顺序或 sample identity 漂移必须
+fail closed。这个 projection 只证明本地 crash/replay 边界，不替代生产 collector
+的 rolling-window retention、授权、ACK/export 或 metric publication authority。
+
 ### 20.5 必须告警
 
 - lease/assignment flapping 或 guard close；

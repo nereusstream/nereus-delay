@@ -2177,6 +2177,14 @@ collector authority，生产配额、merge/export 和 evidence-gap projection �
 rejection。它不替代生产 collector 的持久化、完整 merge/export history、授权和
 metric publication。
 
+`PersistentSloObservationCollector(Path)` 现在把该 projection 持久化为按 sample ID
+排序的 canonical snapshot，并用 checksum、atomic rename、directory fsync 与
+JVM/on-disk lock 保护重启、跨实例重读和 response-loss merge；
+`PersistentSloObservationCollectorTest` 覆盖 conservative Final 重开、identity
+failure rollback、capacity fence 与 checksum corruption。它不替代生产 collector
+的 rolling-window/late-finalization retention、授权、完整 merge/export history 或
+metric publication。
+
 SLO 文档与 Registry 的 native 时间字段也已对齐：`native_handoff_ack_lag` 的起点是
 `NativePreparedDelivery` field 10 的未平移 business `deliverAt`，field 11 的 shifted
 Broker `deliverAt` 只用于 Broker visibility 语义；V1 native wire 没有独立的
