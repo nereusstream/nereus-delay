@@ -2221,6 +2221,19 @@ and `reconcileInCallerBatchRejectsABatchFromAnotherShardStore` prove both joint 
 abort and cross-store rejection. This is still a local atomicity seam, not production
 source-order orchestration or Message/Admission authority.
 
+`DelayShard` now wires that seam into the client-command source-ordered apply path when an
+external immutable `COMMAND_APPLIED_LATENCY` objective is supplied, with an optional
+`SloObservationOutboxLimits` envelope. Normal results, stable rejections, Command-ID
+conflicts, position-only dedupe and retry-window fences all materialize the typed Start in
+the same business `ShardStore.Batch`; replay of an already committed source position only
+performs a byte-identical idempotent repair. Capacity preflight fails before RocksDB
+`db.write`, so a rejected Start cannot leave a partial Message/result/position projection.
+`DelayShardTest.commandAppliedStartsShareClientCommandBatchesAndReplayIsIdempotent` and
+`DelayShardTest.commandAppliedOutboxCapacityAbortsTheBusinessBatch` cover the joint commit,
+rejection, replay and rollback paths. Objective/catalog authentication, due-admission Start
+materialization from Message/Admission authority, and production collector/export remain
+release blockers; constructors without an objective remain compatibility seams.
+
 `SloAuthoritativeStartFactory` now provides the typed local reconstruction projection for the
 two Shard-derived branches. `commandApplied(...)` uses the Registry `SourcePositionV1`
 canonical bytes, the Source Position Broker-persistence timestamp and its exact SHA-256;

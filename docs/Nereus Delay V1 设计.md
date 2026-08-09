@@ -2957,6 +2957,18 @@ Message/Admission/Lane/Recovery authority 重建的 exact `SloSampleStartV1`。�
 只提交业务状态或只提交 SLO denominator；它仍不替代生产 authority 的 source-order
 编排和 evidence-gap 记录。
 
+当前嵌入式 `DelayShard` 已把这条边界接入客户端 Command 的 source-ordered apply：
+由外部冻结的 `COMMAND_APPLIED_LATENCY` objective 注入后，正常结果、稳定拒绝、
+Command-ID conflict、位置级 retry fence 以及同一 Command 在新 Source Position 上的
+幂等 position audit，都在各自的业务 `ShardStore.Batch` 中调用
+`reconcileDurableStartsInBatch(batch, [commandAppliedStart])`。因此 command result、
+业务 projection、`appliedSourcePosition` 与 SLO Start 共享一次同步 WAL commit；SLO
+outbox 的 record/byte envelope 在 RocksDB write 前预检，超限会使整个 source turn
+失败，不能只提交业务状态或只丢弃 SLO denominator。旧的无 objective 构造器保留为
+兼容 seam，不宣称已启用 production SLO；如果重放发现一个在 objective 激活前已经
+提交的 source turn 缺少 Start，只允许按同一 typed Source Position 做幂等补写，不能
+重新生成不同 sample identity。
+
 协议层提供 `SloAuthoritativeStartFactory` 作为同一重建边界的 typed helper：
 `commandApplied(objective, sourcePosition)` 把 Registry `SourcePositionV1` 的 canonical
 bytes 放入 `COMMAND_APPLIED_LATENCY` identity，并以该 Source Position 的

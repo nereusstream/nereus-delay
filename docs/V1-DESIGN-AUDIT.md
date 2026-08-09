@@ -2213,6 +2213,18 @@ managed-path/time mismatch 与非法输入，store convenience test 覆盖幂等
 Shard 拒绝。此证据关闭的是本地 typed projection，不是生产 Message/Admission authority、
 source-ordered recovery 编排或 evidence-gap 计数。
 
+`DelayShard` 现在把 `COMMAND_APPLIED_LATENCY` 的本地 Start 物化接到真实 client
+Command apply：注入外部 immutable objective 后，正常结果、stable rejection、命令冲突、
+position-only dedupe 和 retry-window fence 都在各自的业务 `ShardStore.Batch` 中调用
+`SloAuthoritativeStartFactory.commandApplied(...)` +
+`reconcileDurableStartsInBatch(...)`，与 Message/result/Source Position 一起同步提交；
+同一已提交 position 的 replay 只做 byte-identical repair。容量预检失败发生在
+`db.write` 之前，`DelayShardTest.commandAppliedStartsShareClientCommandBatchesAndReplayIsIdempotent`
+与 `DelayShardTest.commandAppliedOutboxCapacityAbortsTheBusinessBatch` 证明 joint commit、
+replay 和 joint abort。该实现仍只证明 shard-local atomicity；objective/catalog authentication、
+Message/Admission authority 驱动的 due Start、source-order recovery 编排和 production
+collector/export 仍是 release gate。
+
 SLO 文档与 Registry 的 native 时间字段也已对齐：`native_handoff_ack_lag` 的起点是
 `NativePreparedDelivery` field 10 的未平移 business `deliverAt`，field 11 的 shifted
 Broker `deliverAt` 只用于 Broker visibility 语义；V1 native wire 没有独立的

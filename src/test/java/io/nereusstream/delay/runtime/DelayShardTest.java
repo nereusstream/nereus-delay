@@ -63,6 +63,12 @@ import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ScheduleIntentV1;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.ShardCapacityEnvelopeV1;
+import io.nereusstream.delay.protocol.SloAuthoritativeStartFactory;
+import io.nereusstream.delay.protocol.SloObjectiveNameV1;
+import io.nereusstream.delay.protocol.SloObjectiveV1;
+import io.nereusstream.delay.protocol.SloPopulationV1;
+import io.nereusstream.delay.protocol.SloThresholdDirectionV1;
+import io.nereusstream.delay.protocol.SloThresholdUnitV1;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.SystemMutation;
@@ -75,6 +81,8 @@ import io.nereusstream.delay.store.RecoveryFloor;
 import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.ShardStoreConfig;
 import io.nereusstream.delay.store.SharedRocksDbResources;
+import io.nereusstream.delay.store.SloObservationOutboxLimits;
+import io.nereusstream.delay.store.SloObservationOutboxStore;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -121,6 +129,82 @@ class DelayShardTest {
                     }
                 }
             }
+        }
+    }
+
+    @Test
+    void commandAppliedStartsShareClientCommandBatchesAndReplayIsIdempotent() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("command-applied-slo-batch"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 46);
+        final SloObjectiveV1 objective = commandAppliedObjective();
+        final SloObservationOutboxLimits limits = new SloObservationOutboxLimits(8, 1L << 20);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("command-applied-slo-lane"));
+        final PreparedCommand first = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("command-applied-first")), 9_000);
+        final PreparedCommand rejected = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, Long.MAX_VALUE - 1, Long.MAX_VALUE,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("command-applied-rejected")), 9_000);
+        final SourcePosition firstPosition = position(shardId, 0, 1_000);
+        final SourcePosition duplicatePosition = position(shardId, 1, 1_001);
+        final SourcePosition rejectedPosition = position(shardId, 2, 1_002);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, null,
+                    null, null, null, null, objective, limits);
+            assertEquals(StableCode.SCHEDULED, shard.apply(first, firstPosition).stableCode());
+            assertEquals(StableCode.SCHEDULED, shard.apply(first, duplicatePosition).stableCode());
+            assertEquals(StableCode.INVALID_DELIVERY_WINDOW,
+                    shard.apply(rejected, rejectedPosition).stableCode());
+
+            final SloObservationOutboxStore outbox = new SloObservationOutboxStore(store);
+            assertEquals(3, outbox.scan(10).size());
+            assertNotNull(outbox.get(SloAuthoritativeStartFactory.commandApplied(objective,
+                    firstPosition).sampleId()));
+            assertNotNull(outbox.get(SloAuthoritativeStartFactory.commandApplied(objective,
+                    duplicatePosition).sampleId()));
+            assertNotNull(outbox.get(SloAuthoritativeStartFactory.commandApplied(objective,
+                    rejectedPosition).sampleId()));
+
+            assertEquals(shard.apply(rejected, rejectedPosition), shard.apply(rejected, rejectedPosition));
+            assertEquals(3, outbox.scan(10).size());
+        }
+    }
+
+    @Test
+    void commandAppliedOutboxCapacityAbortsTheBusinessBatch() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("command-applied-slo-capacity"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 47);
+        final SloObjectiveV1 objective = commandAppliedObjective();
+        final SloObservationOutboxLimits limits = new SloObservationOutboxLimits(2, 1L << 20);
+        final PreparedCommand first = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(
+                        DestinationLaneId.derive(Bytes.utf8("slo-capacity-first")), 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("slo-capacity-first")), 9_000);
+        final PreparedCommand second = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(
+                        DestinationLaneId.derive(Bytes.utf8("slo-capacity-second")), 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("slo-capacity-second")), 9_000);
+        final PreparedCommand third = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(
+                        DestinationLaneId.derive(Bytes.utf8("slo-capacity-third")), 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("slo-capacity-third")), 9_000);
+        final SourcePosition firstPosition = position(shardId, 0, 1_000);
+        final SourcePosition secondPosition = position(shardId, 1, 1_001);
+        final SourcePosition thirdPosition = position(shardId, 2, 1_002);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, null,
+                    null, null, null, null, objective, limits);
+            assertEquals(StableCode.SCHEDULED, shard.apply(first, firstPosition).stableCode());
+            assertEquals(StableCode.SCHEDULED, shard.apply(second, secondPosition).stableCode());
+
+            assertThrows(IllegalStateException.class, () -> shard.apply(third, thirdPosition));
+            assertEquals(secondPosition, shard.lastAppliedSourcePosition());
+            assertNull(shard.getMessage(third.delayMessageId()));
+            assertEquals(2, new SloObservationOutboxStore(store).scan(10).size());
         }
     }
 
@@ -6446,6 +6530,13 @@ class DelayShardTest {
             CanonicalProtobuf.bytes(output, 12, evidence);
             CanonicalProtobuf.bytes(output, 13, time.canonicalBytes());
         });
+    }
+
+    private static SloObjectiveV1 commandAppliedObjective() {
+        return new SloObjectiveV1(SloObjectiveNameV1.COMMAND_APPLIED_LATENCY,
+                SloPopulationV1.ALL_ACCEPTED, SloThresholdDirectionV1.AT_MOST,
+                SloThresholdUnitV1.MILLISECONDS, 1_000, 99, 100, 60_000, 1,
+                List.of(), 1, Bytes.sha256(Bytes.utf8("command-applied-slo-envelope")));
     }
 
     private static byte[] bytes(final int length, final int value) {

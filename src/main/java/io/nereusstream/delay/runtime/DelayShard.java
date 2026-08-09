@@ -54,6 +54,10 @@ import io.nereusstream.delay.protocol.ResourceRetireIntentBody;
 import io.nereusstream.delay.protocol.RescheduleCommandBodyV1;
 import io.nereusstream.delay.protocol.ScheduleCommandBodyV1;
 import io.nereusstream.delay.protocol.ScheduleIntentV1;
+import io.nereusstream.delay.protocol.SloAuthoritativeStartFactory;
+import io.nereusstream.delay.protocol.SloObjectiveNameV1;
+import io.nereusstream.delay.protocol.SloObjectiveV1;
+import io.nereusstream.delay.protocol.SloSampleStartV1;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.StableCode;
@@ -69,6 +73,8 @@ import io.nereusstream.delay.store.IngressFenceState;
 import io.nereusstream.delay.store.KeyCodec;
 import io.nereusstream.delay.store.RecoveryCatalogAuthority;
 import io.nereusstream.delay.store.ShardStore;
+import io.nereusstream.delay.store.SloObservationOutboxLimits;
+import io.nereusstream.delay.store.SloObservationOutboxStore;
 import io.nereusstream.delay.store.ValueEnvelope;
 
 import java.nio.ByteBuffer;
@@ -117,6 +123,9 @@ public final class DelayShard {
     private final RetryPolicyCatalog retryPolicyCatalog;
     private final ControlTargetRegistrationAuthority controlTargetRegistrationAuthority;
     private final ProfileCatalog profileCatalog;
+    /** Optional immutable catalog projection for command-applied SLO Starts. */
+    private final SloObjectiveV1 commandAppliedSloObjective;
+    private final SloObservationOutboxStore sloObservationOutboxStore;
     private PayloadProofTrustSetControlState payloadProofTrustSetControlState;
     private ProfileBindingControlState profileBindingControlState;
     private final ShardCapacityEnvelopeV1 capacityEnvelope;
@@ -228,6 +237,49 @@ public final class DelayShard {
                       final RetryPolicyCatalog retryPolicyCatalog,
                       final ControlTargetRegistrationAuthority controlTargetRegistrationAuthority,
                       final ProfileCatalog profileCatalog) {
+        this(store, config, payloadProofTrustSet, capacityEnvelope, v1ScheduleResolver,
+                payloadProofTrustSetControlCatalog, retryPolicyCatalog, controlTargetRegistrationAuthority,
+                profileCatalog, null, null);
+    }
+
+    /**
+     * Opens a shard with an optional immutable command-applied SLO objective.
+     * When present, every client-command source turn materializes the exact
+     * {@code COMMAND_APPLIED_LATENCY} Start in the same synchronous RocksDB
+     * batch as the command result and applied Source Position. The objective
+     * must come from the caller's authenticated immutable catalog projection;
+     * this constructor does not make that catalog or its writer authority
+     * authoritative.
+     */
+    public DelayShard(final ShardStore store, final DelayShardConfig config,
+                      final PayloadProofTrustSet payloadProofTrustSet,
+                      final ShardCapacityEnvelopeV1 capacityEnvelope,
+                      final V1ScheduleResolver v1ScheduleResolver,
+                      final PayloadProofTrustSetControlCatalog payloadProofTrustSetControlCatalog,
+                      final RetryPolicyCatalog retryPolicyCatalog,
+                      final ControlTargetRegistrationAuthority controlTargetRegistrationAuthority,
+                      final ProfileCatalog profileCatalog,
+                      final SloObjectiveV1 commandAppliedSloObjective) {
+        this(store, config, payloadProofTrustSet, capacityEnvelope, v1ScheduleResolver,
+                payloadProofTrustSetControlCatalog, retryPolicyCatalog, controlTargetRegistrationAuthority,
+                profileCatalog, commandAppliedSloObjective, null);
+    }
+
+    /**
+     * Full constructor with the per-shard SLO outbox capacity envelope.
+     * Reaching the envelope fails the source turn before the business batch
+     * can commit; callers must not drop a Start or shrink the denominator.
+     */
+    public DelayShard(final ShardStore store, final DelayShardConfig config,
+                      final PayloadProofTrustSet payloadProofTrustSet,
+                      final ShardCapacityEnvelopeV1 capacityEnvelope,
+                      final V1ScheduleResolver v1ScheduleResolver,
+                      final PayloadProofTrustSetControlCatalog payloadProofTrustSetControlCatalog,
+                      final RetryPolicyCatalog retryPolicyCatalog,
+                      final ControlTargetRegistrationAuthority controlTargetRegistrationAuthority,
+                      final ProfileCatalog profileCatalog,
+                      final SloObjectiveV1 commandAppliedSloObjective,
+                      final SloObservationOutboxLimits sloObservationOutboxLimits) {
         this.store = Objects.requireNonNull(store, "store");
         this.config = Objects.requireNonNull(config, "config");
         this.payloadProofTrustSet = payloadProofTrustSet;
@@ -235,6 +287,16 @@ public final class DelayShard {
         this.retryPolicyCatalog = retryPolicyCatalog;
         this.controlTargetRegistrationAuthority = controlTargetRegistrationAuthority;
         this.profileCatalog = profileCatalog;
+        if (commandAppliedSloObjective != null
+                && commandAppliedSloObjective.name() != SloObjectiveNameV1.COMMAND_APPLIED_LATENCY) {
+            throw new IllegalArgumentException("command-applied SLO objective has the wrong name");
+        }
+        if (commandAppliedSloObjective == null && sloObservationOutboxLimits != null) {
+            throw new IllegalArgumentException("SLO outbox limits require a command-applied objective");
+        }
+        this.commandAppliedSloObjective = commandAppliedSloObjective;
+        this.sloObservationOutboxStore = commandAppliedSloObjective == null ? null
+                : new SloObservationOutboxStore(store, sloObservationOutboxLimits);
         this.capacityEnvelope = capacityEnvelope;
         this.v1ScheduleResolver = v1ScheduleResolver;
         final var sourceValue = store.getValue(ColumnFamily.META, KeyCodec.metaFixed(META_APPLIED_SOURCE_POSITION), 1);
@@ -398,6 +460,7 @@ public final class DelayShard {
                             throw new IllegalStateException("duplicate command position has conflicting source identity");
                         }
                     }
+                    repairCommandAppliedStartAfterExistingApply(sourcePosition);
                     return prior.result();
                 }
                 final CommandId positionCommandId = readPositionAuditCommandId(sourcePosition);
@@ -407,6 +470,7 @@ public final class DelayShard {
                         // physical record already produced the conflict. Do
                         // not append another audit or mutate the first command
                         // identity while replaying after a lost source ACK.
+                        repairCommandAppliedStartAfterExistingApply(sourcePosition);
                         return rejected(StableCode.COMMAND_ID_CONFLICT, sourcePosition, -1, 0, null);
                     }
                     if (closedIngressDeadlineThrough >= 0
@@ -415,6 +479,7 @@ public final class DelayShard {
                         // COMMAND/RESULT record. Its POSITION audit is still
                         // sufficient to make the exact source record replay
                         // idempotent after the RocksDB batch was acknowledged.
+                        repairCommandAppliedStartAfterExistingApply(sourcePosition);
                         return rejected(StableCode.COMMAND_RETRY_WINDOW_EXPIRED, sourcePosition, -1, 0, null);
                     }
                 }
@@ -6196,6 +6261,7 @@ public final class DelayShard {
             batch.putValue(ColumnFamily.DEDUPE, DEDUPE_POSITION_VALUE_TYPE,
                     KeyCodec.dedupePosition(position.canonicalBytes()),
                     command.commandId().bytes());
+            persistCommandAppliedStart(batch, position);
             writePosition(batch, position);
         });
         lastAppliedSourcePosition = position;
@@ -6215,6 +6281,32 @@ public final class DelayShard {
                                    final long stateVersion, final MessageStatus status) {
         return new CommandResult(ApplyStatus.REJECTED, code, generation, stateVersion, status,
                 sourcePosition.canonicalBytes());
+    }
+
+    /**
+     * Appends the exact command-applied Start to the caller-owned business
+     * batch. The objective is immutable catalog input; the Source Position is
+     * the sole event identity and Broker-persistence timestamp authority.
+     */
+    private void persistCommandAppliedStart(final ShardStore.Batch batch,
+                                            final SourcePosition position) throws org.rocksdb.RocksDBException {
+        if (sloObservationOutboxStore == null) {
+            return;
+        }
+        final SloSampleStartV1 start = SloAuthoritativeStartFactory.commandApplied(
+                commandAppliedSloObjective, position);
+        sloObservationOutboxStore.reconcileDurableStartsInBatch(batch, List.of(start));
+    }
+
+    /**
+     * Repairs a missing Start when replay discovers a source turn that was
+     * already committed before the SLO objective was activated. This is a
+     * deliberate idempotent backfill; new turns use the joint business batch.
+     */
+    private void repairCommandAppliedStartAfterExistingApply(final SourcePosition position) {
+        if (sloObservationOutboxStore != null) {
+            sloObservationOutboxStore.ensureCommandAppliedStart(commandAppliedSloObjective, position);
+        }
     }
 
     private void persistResultAndPosition(final PreparedCommand command, final SourcePosition position,
@@ -6321,6 +6413,7 @@ public final class DelayShard {
                     KeyCodec.dedupePosition(position.canonicalBytes()),
                     command.commandId().bytes());
             persistQuota(batch, nextQuota, projectedLaneQuota);
+            persistCommandAppliedStart(batch, position);
             writePosition(batch, position);
         });
         lastAppliedSourcePosition = position;
@@ -6792,6 +6885,7 @@ public final class DelayShard {
             batch.putValue(ColumnFamily.DEDUPE, DEDUPE_POSITION_VALUE_TYPE,
                     KeyCodec.dedupePosition(position.canonicalBytes()),
                     command.commandId().bytes());
+            persistCommandAppliedStart(batch, position);
             writePosition(batch, position);
         });
         lastAppliedSourcePosition = position;
