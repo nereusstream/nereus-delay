@@ -1543,14 +1543,17 @@ Shared resource close 还会在 cache/WBM native teardown 成功后独立重试�
 shared reservation，并以 `WorkerNativeResourceLedgerTest.sharedResourceCloseRetriesReservationsAfterReleaseFailure`
 证明只有两个 reservation 都释放后才完成 Worker close。
 `WorkClassScheduler` 对七个冻结 work class
-提供 bounded queue/turn record-byte-time caps、`LEASE_FENCE` 抢占和 stale-class
+提供 bounded queue/turn record-byte-time caps、`LEASE_FENCE` 首个 bounded turn
+抢占和跨小预算 poll 的 preemption-debt yield（连续 fence queue 不会饿死
+普通 class），以及 stale-class
 选择；`WorkClassResourcePool` 还按 class 保护 non-borrowable record/byte
 minimum、把 acquisition checked-sum overflow 转成 closed rejection，并限制
 borrowed hold time；这些仍是本地 scheduler/resource seams。`WorkClassScheduler`
 现在会在任何 queue head removal、deficit 扣减或 fairness counter 推进之前
 读取用于 `lastServed` 的单调时钟样本；负值/回拨样本只会 fail closed，不会丢掉
 仍由 bounded queue 支持的 head，回归证据为
-`WorkClassSchedulerTest.invalidClockSampleDoesNotDropHeadBeforeTurnMutation`。
+`WorkClassSchedulerTest.invalidClockSampleDoesNotDropHeadBeforeTurnMutation` 和
+`WorkClassSchedulerTest.continuousPreemptiveQueueYieldsAcrossSmallPolls`。
 `WorkerRuntimeSafetyGate` 还把新鲜的 JVM/cgroup/FD/filesystem
 observation 接入一个 sticky `ACTIVE -> DRAIN_OR_MIGRATE` 门；共享资源的
 ownership/restore slots 和 embedded Claim 在门未恢复前 fail closed，只有

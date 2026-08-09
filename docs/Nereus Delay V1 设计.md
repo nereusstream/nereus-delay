@@ -1618,7 +1618,7 @@ minDeliveryWindow
 
 ### 12.5 Work-class isolation
 
-Shard Log apply、lease event、callback-to-System-Mutation、expiry、scheduler、query、GC、checkpoint 使用独立有界 queue/pool。Shard event loop 仍是单 writer，但按配置的 class weight 和 record/byte/elapsed caps 轮转；lease loss 可立即关闭 gate。一个 source/expiry/outcome/due turn 都有硬上限，任何持续有 work 的 class 在 `maxEventLoopClassDelay` 内获得 turn；due burst 不能无限推迟 source，Command flood 也不能饿死 outcome/expiry。
+Shard Log apply、lease event、callback-to-System-Mutation、expiry、scheduler、query、GC、checkpoint 使用独立有界 queue/pool。Shard event loop 仍是单 writer，但按配置的 class weight 和 record/byte/elapsed caps 轮转；lease loss 可立即关闭 gate。一个 source/expiry/outcome/due turn 都有硬上限，任何持续有 work 的 class 在 `maxEventLoopClassDelay` 内获得 turn；due burst 不能无限推迟 source，Command flood 也不能饿死 outcome/expiry。`LEASE_FENCE` 的 preemptive 语义只保证首个 bounded turn 可抢占；若它持续有队列，scheduler 必须跨小预算 poll 保留一次未偿还的 preemption debt，并在存在可服务普通 class 时先让出一个 turn；只有没有其他可服务 work 时才可继续 preempt。
 
 ## 13. Destination Profile 与 Adapter
 

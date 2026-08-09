@@ -24,6 +24,13 @@ public final class WorkClassScheduler {
     private final LongSupplier clockNanos;
     private int cursor;
     private long lastClockNanos;
+    /**
+     * A preemptive class may take the first bounded turn, but a continuously
+     * queued preemptive class must yield a later turn to ordinary work.  Keep
+     * this debt across small caller polls; otherwise a maxMessages=1 caller
+     * could starve every non-preemptive class forever.
+     */
+    private boolean preemptiveServedSinceNormal;
 
     public WorkClassScheduler(final Map<WorkClass, WorkClassPolicy> policies,
                               final long maxEventLoopClassDelayNanos,
@@ -97,6 +104,11 @@ public final class WorkClassScheduler {
             classUsage.bytes = Math.addExact(classUsage.bytes, task.bytes());
             state.credits--;
             state.lastServedNanos = servedAtNanos;
+            if (state.policy.preemptive()) {
+                preemptiveServedSinceNormal = true;
+            } else {
+                preemptiveServedSinceNormal = false;
+            }
             cursor = (selected + 1) % order.size();
             noProgressRounds = 0;
             result.add(task);
@@ -120,6 +132,8 @@ public final class WorkClassScheduler {
     private int priorityIndex(final EnumMap<WorkClass, TurnUsage> usage,
                               final long remainingBytes,
                               final long elapsedNanos) {
+        final boolean deferPreemptive = preemptiveServedSinceNormal
+                && hasRunnableNonPreemptive(usage, remainingBytes, elapsedNanos);
         int selected = -1;
         long oldest = Long.MAX_VALUE;
         for (int index = 0; index < order.size(); index++) {
@@ -128,6 +142,9 @@ public final class WorkClassScheduler {
                 continue;
             }
             final boolean preemptive = state.policy.preemptive();
+            if (preemptive && deferPreemptive) {
+                continue;
+            }
             final boolean overdue = elapsedSince(state.lastServedNanos, readClock())
                     >= maxEventLoopClassDelayNanos;
             if (preemptive || overdue) {
@@ -143,6 +160,19 @@ public final class WorkClassScheduler {
             }
         }
         return selected;
+    }
+
+    private boolean hasRunnableNonPreemptive(final EnumMap<WorkClass, TurnUsage> usage,
+                                             final long remainingBytes,
+                                             final long elapsedNanos) {
+        for (WorkClass workClass : order) {
+            final ClassState state = states.get(workClass);
+            if (!state.policy.preemptive() && !state.queue.isEmpty()
+                    && canServe(state, usage.get(workClass), remainingBytes, elapsedNanos)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private int normalIndex(final EnumMap<WorkClass, TurnUsage> usage,

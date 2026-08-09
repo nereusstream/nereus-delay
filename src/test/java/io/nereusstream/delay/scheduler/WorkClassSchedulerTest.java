@@ -44,6 +44,23 @@ class WorkClassSchedulerTest {
     }
 
     @Test
+    void continuousPreemptiveQueueYieldsAcrossSmallPolls() {
+        final WorkClassScheduler scheduler = scheduler(100);
+        scheduler.offer(new WorkClassTask(WorkClass.SOURCE_APPLY, "source-1", 1));
+        scheduler.offer(new WorkClassTask(WorkClass.LEASE_FENCE, "fence-1", 1));
+        scheduler.offer(new WorkClassTask(WorkClass.LEASE_FENCE, "fence-2", 1));
+
+        assertEquals(List.of(new WorkClassTask(WorkClass.LEASE_FENCE, "fence-1", 1)),
+                scheduler.poll(new SchedulerBudget(1, 10, 1_000)));
+        // A caller that takes one task per poll must not let the still queued
+        // preemptive class starve source application forever.
+        assertEquals(List.of(new WorkClassTask(WorkClass.SOURCE_APPLY, "source-1", 1)),
+                scheduler.poll(new SchedulerBudget(1, 10, 1_000)));
+        assertEquals(List.of(new WorkClassTask(WorkClass.LEASE_FENCE, "fence-2", 1)),
+                scheduler.poll(new SchedulerBudget(1, 10, 1_000)));
+    }
+
+    @Test
     void overdueClassIsServedBeforeAHealthyClass() {
         final AtomicLong now = new AtomicLong(0);
         final WorkClassScheduler scheduler = scheduler(now, 10);
