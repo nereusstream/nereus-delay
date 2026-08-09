@@ -281,6 +281,22 @@ class WorkerSchedulerTest {
     }
 
     @Test
+    void duplicateWorkerRestoreIdentityDoesNotPartiallyApplyEarlierCounters() {
+        final ShardId first = shard(23);
+        final ShardId second = shard(24);
+        final WorkerScheduler worker = new WorkerScheduler(10, 4);
+        worker.registerShard(first, 1, LaneScheduler.defaults());
+        worker.registerShard(second, 1, LaneScheduler.defaults());
+        final WorkerScheduler.WorkerSnapshot before = worker.snapshot();
+
+        assertThrows(IllegalArgumentException.class, () -> worker.restore(
+                new WorkerScheduler.WorkerSnapshot(0, 0, List.of(
+                        new WorkerScheduler.ShardSnapshot(first, 1, 40, 7, true),
+                        new WorkerScheduler.ShardSnapshot(first, 1, 0, 0, false)))));
+        assertEquals(before, worker.snapshot());
+    }
+
+    @Test
     void saturatesRoundGenerationBeforeServingAtLongMaximum() {
         final ShardId shard = shard(22);
         final DestinationLaneId lane = lane(22);

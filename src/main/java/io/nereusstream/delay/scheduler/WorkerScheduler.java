@@ -216,13 +216,27 @@ public final class WorkerScheduler {
 
     public synchronized void restore(final WorkerSnapshot snapshot) {
         Objects.requireNonNull(snapshot, "snapshot");
+        final Set<ShardId> seen = new HashSet<>();
+        // Validate the complete identity set before publishing any restored
+        // counter or blocked-state change. A duplicate Shard entry is an
+        // ambiguous projection and must not let a later value overwrite an
+        // earlier one after partial application.
         for (ShardSnapshot saved : snapshot.shards()) {
+            if (!seen.add(saved.shardId())) {
+                throw new IllegalArgumentException("worker scheduler snapshot contains duplicate Shard");
+            }
             final ShardQueue shard = shards.get(saved.shardId());
             if (shard == null || shard.weight != saved.weight()) {
                 continue;
             }
             if (saved.deficit() < 0 || saved.lastServedRound() < 0) {
                 throw new IllegalArgumentException("invalid worker scheduler counters");
+            }
+        }
+        for (ShardSnapshot saved : snapshot.shards()) {
+            final ShardQueue shard = shards.get(saved.shardId());
+            if (shard == null || shard.weight != saved.weight()) {
+                continue;
             }
             // Restore must publish a bounded process projection immediately;
             // waiting for the next poll would leave an idle shard carrying an

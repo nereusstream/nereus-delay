@@ -214,6 +214,20 @@ class LaneSchedulerTest {
     }
 
     @Test
+    void duplicateLaneRestoreIdentityDoesNotPartiallyApplyEarlierCounters() {
+        final DestinationLaneId first = lane(25);
+        final LaneScheduler scheduler = new LaneScheduler(10, 2);
+        scheduler.register(record(first, 1));
+        final LaneScheduler.SchedulerSnapshot before = scheduler.snapshot();
+
+        assertThrows(IllegalArgumentException.class, () -> scheduler.restore(
+                new LaneScheduler.SchedulerSnapshot(0, 0, List.of(
+                        new LaneScheduler.LaneSnapshot(first, 1, 20, 3, 0, true),
+                        new LaneScheduler.LaneSnapshot(first, 1, 0, 0, 0, true)))));
+        assertEquals(before, scheduler.snapshot());
+    }
+
+    @Test
     void saturatesRoundGenerationBeforeServingAtLongMaximum() {
         final DestinationLaneId lane = lane(22);
         final LaneScheduler scheduler = new LaneScheduler(10, 1);

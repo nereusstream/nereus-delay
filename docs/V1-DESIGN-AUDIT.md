@@ -840,9 +840,12 @@ ready projection writes restore the previous schedulable state before rethrowing
 cover these rollback paths, while `LaneSchedulerTest.queueSnapshotRestoresExactFifoProjection`
 covers the exact FIFO snapshot used by fenced rebuild rollback. A durable READY
 head cannot be lost merely because its projection batch failed.
-Lane counter restore now validates the complete registered subset before
-publishing any counter; a malformed later snapshot entry cannot leave an
-earlier Lane partially restored (`LaneSchedulerTest.invalidLaterRestoreEntryDoesNotPartiallyApplyEarlierCounters`).
+Lane/Shard counter restore now validates the complete registered subset and
+rejects duplicate identities before publishing any counter or blocked-state
+change; a malformed later snapshot entry or ambiguous repeated identity cannot
+leave an earlier Lane/Shard partially restored (`LaneSchedulerTest.invalidLaterRestoreEntryDoesNotPartiallyApplyEarlierCounters`,
+`LaneSchedulerTest.duplicateLaneRestoreIdentityDoesNotPartiallyApplyEarlierCounters`,
+`WorkerSchedulerTest.duplicateWorkerRestoreIdentityDoesNotPartiallyApplyEarlierCounters`).
 The inner and outer two-rotation visit limits also widen `ring.size() * 2`
 before comparison, with `LaneSchedulerTest.ringVisitLimitUsesWideArithmetic`
 and `WorkerSchedulerTest.outerVisitLimitUsesWideArithmetic` covering the

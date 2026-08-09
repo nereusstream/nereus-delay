@@ -420,9 +420,14 @@ public final class LaneScheduler {
             throw new IllegalArgumentException("invalid scheduler snapshot");
         }
         // Validate every registered Lane before publishing any restored
-        // counter.  A malformed later entry must not leave earlier entries
-        // partially applied when restore fails closed.
+        // counter. A malformed later entry or duplicate Lane identity must
+        // not leave earlier entries partially applied when restore fails
+        // closed.
+        final Set<DestinationLaneId> seen = new HashSet<>();
         for (LaneSnapshot saved : snapshot.lanes()) {
+            if (!seen.add(saved.laneId())) {
+                throw new IllegalArgumentException("lane scheduler snapshot contains duplicate Lane");
+            }
             final LaneQueue lane = lanes.get(saved.laneId());
             if (lane == null || lane.weight != saved.weight()) {
                 continue;
