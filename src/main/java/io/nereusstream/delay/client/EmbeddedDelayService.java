@@ -311,6 +311,17 @@ public final class EmbeddedDelayService implements DelayClient {
                 : PreparedSubmissionV1.nativePrepared(nativePrepared);
     }
 
+    @Override
+    public List<PreparedSubmissionV1> prepareAutoFastBatch(final List<AutoFastSchedule> requests) {
+        ensureOpen();
+        Objects.requireNonNull(requests, "requests");
+        final List<PreparedSubmissionV1> prepared = new ArrayList<>(requests.size());
+        for (AutoFastSchedule request : requests) {
+            prepared.add(prepareAutoFast(request));
+        }
+        return List.copyOf(prepared);
+    }
+
     /**
      * Performs only local selection. Any failed native prerequisite returns
      * the already-validated managed frame; it never performs I/O or changes

@@ -66,6 +66,9 @@ public interface DelayClient extends AutoCloseable {
      */
     PreparedSubmissionV1 prepareAutoFast(AutoFastSchedule request);
 
+    /** Selects each AUTO_FAST item independently and preserves input order. */
+    List<PreparedSubmissionV1> prepareAutoFastBatch(List<AutoFastSchedule> requests);
+
     /**
      * Submits the exact prepared branch through the configured transport seam.
      * A retry must reuse the same submission and physical attempt identity.

@@ -64,8 +64,8 @@ signature, expiry, target/partition, payload/metadata, timing, and direct
 authority checks pass does it generate a nonzero native delivery identity and
 freeze the shifted Broker timestamp into native prepared bytes. Any native
 ineligibility returns the exact strict managed frame. `AutoFastScheduleTest`
-covers eligible native, exact managed fallback, and no Source Position
-admission. Snapshot issuance, Oxia protection-before-rotation, Broker guard,
+covers eligible native, exact managed fallback, independent input-ordered batch
+selection, and no Source Position admission. Snapshot issuance, Oxia protection-before-rotation, Broker guard,
 Producer ownership, and production response evidence remain external release
 gates. The focused evidence is
 `EmbeddedDelayServiceTest.managedPreparedSubmissionKeepsStrictBranchAndAttemptFence`.

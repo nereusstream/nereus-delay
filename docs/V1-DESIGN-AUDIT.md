@@ -359,8 +359,9 @@ selection seam：它消费调用方提供的 immutable Profile semantic envelope
 `NativeCapabilitySnapshotV1` 和 pinned issuer key，在签名/expiry/target/partition/
 payload/metadata/timing/direct-authority 检查全部满足时生成新的 nonzero native
 delivery identity，并把 shifted Broker timestamp 固定进 native prepared bytes；任何
-native 不满足项都返回同一 strict managed frame。`AutoFastScheduleTest` 覆盖 eligible
-native、exact managed fallback 和 no Source Position admission。Snapshot issuer、
+native 不满足项都返回同一 strict managed frame；batch 逐项独立选择并保持输入顺序。
+`AutoFastScheduleTest` 覆盖 eligible native、exact managed fallback、batch 和 no Source
+Position admission。Snapshot issuer、
 Oxia protection-before-rotation、Broker guard、Producer ownership 和 production
 response evidence 仍是外部 release gate。
 调用注入 adapter 时不持有 embedded service monitor，阻塞的 transport 不会

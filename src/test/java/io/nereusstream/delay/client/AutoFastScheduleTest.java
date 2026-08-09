@@ -86,6 +86,23 @@ class AutoFastScheduleTest {
         }
     }
 
+    @Test
+    void batchSelectionIsIndependentAndKeepsInputOrder() throws Exception {
+        final Fixture fixture = fixture();
+        try (EmbeddedDelayService service = fixture.service(tempDir.resolve("batch"))) {
+            final List<PreparedSubmissionV1> prepared = service.prepareAutoFastBatch(List.of(
+                    AutoFastSchedule.withNativeCandidate(fixture.command, fixture.candidate),
+                    AutoFastSchedule.managed(fixture.command)));
+
+            assertEquals(2, prepared.size());
+            assertFalse(prepared.get(0).isManaged());
+            assertTrue(prepared.get(1).isManaged());
+            assertArrayEquals(prepared.get(1).managedFrame(),
+                    service.prepareManagedSubmissionV1(fixture.command).managedFrame());
+            assertEquals(0, service.pendingCommandCount());
+        }
+    }
+
     private static Fixture fixture() throws Exception {
         final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final ShardId shard = new ShardId(RouteIncarnation.random(), 9);
