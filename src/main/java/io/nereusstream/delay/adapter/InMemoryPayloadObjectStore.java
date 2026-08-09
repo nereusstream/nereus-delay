@@ -10,10 +10,12 @@ import io.nereusstream.delay.protocol.PayloadAttestationResponseV1;
 import io.nereusstream.delay.protocol.PayloadCommitProofV1;
 import io.nereusstream.delay.protocol.PayloadProofTrustSetSemanticV1;
 import io.nereusstream.delay.protocol.PayloadProofVerifierKeyV1;
+import io.nereusstream.delay.protocol.PayloadReservationReceiptV1;
 import io.nereusstream.delay.protocol.PayloadUploadHandleOutcomeV1;
 import io.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
+import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.StableErrorV1;
 import io.nereusstream.delay.protocol.UploadHandleKindV1;
@@ -117,6 +119,24 @@ public final class InMemoryPayloadObjectStore {
     }
 
     /**
+     * Projects the exact registered reservation into the client receipt used
+     * by the authenticated handle/attestation API. The object identity is
+     * service-owned and deterministic; it is never accepted from the caller.
+     */
+    public synchronized PayloadReservationReceiptV1 reservationReceipt(final PayloadReservation reservation) {
+        Objects.requireNonNull(reservation, "reservation");
+        final ReservationState state = reservations.get(key(reservation.reservationId()));
+        if (state == null || !Arrays.equals(state.reservation.encode(), reservation.encode())) {
+            throw new IllegalArgumentException("reservation is not the exact registered binding");
+        }
+        return PayloadReservationReceiptV1.create(reservation.reservationId(), reservation.delayMessageId(),
+                reservation.shardId(), SourcePositionCodec.decode(reservation.sourcePosition()),
+                reservation.stateVersion(), profile.ref(), containerFor(profile), objectKeyFor(reservation),
+                reservation.intent().expectedPayloadLength(), reservation.intent().payloadSha256(),
+                reservation.reservationExpiryEpochMs(), trustSet.ref());
+    }
+
+    /**
      * Issues a stable handle for the registered reservation. The same
      * reservation/kind returns byte-identical handle bytes after response loss.
      */
@@ -155,6 +175,18 @@ public final class InMemoryPayloadObjectStore {
         return PayloadUploadHandleResponseV1.issued(handle);
     }
 
+    /** Issues a handle only when the complete receipt still matches the durable binding. */
+    public synchronized PayloadUploadHandleResponseV1 issueUploadHandle(final PayloadReservationReceiptV1 receipt,
+                                                                          final UploadHandleKindV1 kind,
+                                                                          final long nowEpochMs) {
+        Objects.requireNonNull(receipt, "receipt");
+        final ReservationState state = reservations.get(key(receipt.reservationId()));
+        if (state == null || !matchesReceipt(state, receipt)) {
+            return uploadError(PayloadUploadHandleOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED, null);
+        }
+        return issueUploadHandle(receipt.reservationId(), kind, nowEpochMs);
+    }
+
     /**
      * Stores payload bytes under the service-owned identity. Repeating the same
      * bytes is idempotent; a different value is an immutable-object conflict.
@@ -179,6 +211,20 @@ public final class InMemoryPayloadObjectStore {
             throw new IllegalArgumentException("payload length or SHA-256 does not match reservation");
         }
         state.payload = Bytes.copy(payload);
+    }
+
+    /** Uploads through a receipt-bound API; receipt drift is rejected before bytes are accepted. */
+    public synchronized void upload(final PayloadReservationReceiptV1 receipt,
+                                    final OpaquePayloadUploadHandleV1 handle, final byte[] payload,
+                                    final long nowEpochMs) {
+        Objects.requireNonNull(receipt, "receipt");
+        Objects.requireNonNull(handle, "handle");
+        final ReservationState state = reservations.get(key(receipt.reservationId()));
+        if (state == null || !matchesReceipt(state, receipt)
+                || !Arrays.equals(receipt.reservationId(), handle.reservationId())) {
+            throw new IllegalArgumentException("payload receipt is not authorized for this upload handle");
+        }
+        upload(handle, payload, nowEpochMs);
     }
 
     /**
@@ -210,8 +256,8 @@ public final class InMemoryPayloadObjectStore {
             return attestationError(PayloadAttestationOutcomeV1.INTEGRITY_ERROR, null);
         }
         final byte[] payloadHash = Bytes.sha256(state.payload);
-        final byte[] container = Bytes.concat(CONTAINER_PREFIX, Bytes.utf8(Bytes.hex(profile.profileId())));
-        final byte[] objectKey = Bytes.concat(OBJECT_KEY_PREFIX, Bytes.utf8(key(state.reservation.reservationId())));
+        final byte[] container = containerFor(profile);
+        final byte[] objectKey = objectKeyFor(state.reservation);
         final byte[] immutableVersion = Bytes.concat(OBJECT_VERSION_PREFIX, Bytes.utf8(Bytes.hex(payloadHash)));
         final byte[] etag = payloadHash;
         state.proof = PayloadCommitProofV1.signed(state.reservation.reservationId(), tenantRoutingScope,
@@ -220,6 +266,20 @@ public final class InMemoryPayloadObjectStore {
                 objectKey, immutableVersion, etag, state.payload.length, payloadHash,
                 state.reservation.reservationExpiryEpochMs(), proofSigningKey);
         return PayloadAttestationResponseV1.attested(state.proof);
+    }
+
+    /** Attests only when both the receipt and handle bind to the same reservation state. */
+    public synchronized PayloadAttestationResponseV1 attest(final PayloadReservationReceiptV1 receipt,
+                                                             final OpaquePayloadUploadHandleV1 handle,
+                                                             final long nowEpochMs) {
+        Objects.requireNonNull(receipt, "receipt");
+        Objects.requireNonNull(handle, "handle");
+        final ReservationState state = reservations.get(key(receipt.reservationId()));
+        if (state == null || !matchesReceipt(state, receipt)
+                || !Arrays.equals(receipt.reservationId(), handle.reservationId())) {
+            return attestationError(PayloadAttestationOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED, null);
+        }
+        return attest(handle, nowEpochMs);
     }
 
     private ReservationState requireHandle(final OpaquePayloadUploadHandleV1 handle, final long nowEpochMs) {
@@ -258,6 +318,34 @@ public final class InMemoryPayloadObjectStore {
         final int bit = kind == UploadHandleKindV1.OPAQUE_SINGLE_PUT
                 ? ObjectStoreProfileSemanticV1.SINGLE_PUT : ObjectStoreProfileSemanticV1.MULTIPART;
         return (objectStore.allowedUploadHandleBits() & bit) != 0;
+    }
+
+    private boolean matchesReceipt(final ReservationState state, final PayloadReservationReceiptV1 receipt) {
+        final PayloadReservation reservation = state.reservation;
+        try {
+            return Arrays.equals(receipt.reservationId(), reservation.reservationId())
+                    && receipt.delayMessageId().equals(reservation.delayMessageId())
+                    && receipt.shardId().equals(reservation.shardId())
+                    && Arrays.equals(receipt.appliedSourcePosition().canonicalBytes(), reservation.sourcePosition())
+                    && receipt.stateVersion() == reservation.stateVersion()
+                    && profile.ref().equals(receipt.objectStoreProfile())
+                    && Arrays.equals(receipt.container(), containerFor(profile))
+                    && Arrays.equals(receipt.objectKey(), objectKeyFor(reservation))
+                    && receipt.expectedLength() == reservation.intent().expectedPayloadLength()
+                    && Bytes.constantTimeEquals(receipt.payloadSha256(), reservation.intent().payloadSha256())
+                    && receipt.reservationExpiryEpochMs() == reservation.reservationExpiryEpochMs()
+                    && trustSet.ref().equals(receipt.trustSet());
+        } catch (IllegalArgumentException mismatch) {
+            return false;
+        }
+    }
+
+    private static byte[] containerFor(final ProfileSemanticEnvelopeV1 profile) {
+        return Bytes.concat(CONTAINER_PREFIX, Bytes.utf8(Bytes.hex(profile.profileId())));
+    }
+
+    private static byte[] objectKeyFor(final PayloadReservation reservation) {
+        return Bytes.concat(OBJECT_KEY_PREFIX, Bytes.utf8(key(reservation.reservationId())));
     }
 
     private static PayloadUploadHandleResponseV1 uploadError(final PayloadUploadHandleOutcomeV1 outcome,

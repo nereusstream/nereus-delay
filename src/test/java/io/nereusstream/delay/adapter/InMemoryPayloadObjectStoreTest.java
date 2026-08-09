@@ -4,6 +4,7 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CommandId;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DestinationLaneId;
+import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
 import io.nereusstream.delay.protocol.ObjectStoreProviderKindV1;
@@ -15,6 +16,7 @@ import io.nereusstream.delay.protocol.PayloadCommitProofV1;
 import io.nereusstream.delay.protocol.PayloadProofTrustSet;
 import io.nereusstream.delay.protocol.PayloadProofTrustSetSemanticV1;
 import io.nereusstream.delay.protocol.PayloadProofVerifierKeyV1;
+import io.nereusstream.delay.protocol.PayloadReservationReceiptV1;
 import io.nereusstream.delay.protocol.PayloadUploadHandleOutcomeV1;
 import io.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
 import io.nereusstream.delay.protocol.ProfileKindV1;
@@ -29,6 +31,7 @@ import org.junit.jupiter.api.Test;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.util.List;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -146,6 +149,35 @@ class InMemoryPayloadObjectStoreTest {
         assertEquals(PayloadAttestationOutcomeV1.ATTESTED, store.attest(second, 1_503).outcome());
     }
 
+    @Test
+    void receiptBindsObjectIdentityAndSourceReservationState() throws Exception {
+        final KeyPair keyPair = keyPair();
+        final PayloadProofTrustSetSemanticV1 trust = trustSet(keyPair, 9_000);
+        final InMemoryPayloadObjectStore store = new InMemoryPayloadObjectStore(profile(),
+                Bytes.sha256(Bytes.utf8("tenant")), trust, 7, 500, keyPair.getPrivate());
+        final PayloadReservation reservation = reservation(5_000, Bytes.utf8("large"));
+        store.register(reservation);
+
+        final var receipt = store.reservationReceipt(reservation);
+        assertEquals(receipt, PayloadReservationReceiptV1.decodeFrame(receipt.frame()));
+        final var handle = store.issueUploadHandle(receipt, UploadHandleKindV1.OPAQUE_SINGLE_PUT,
+                1_000).issued();
+        store.upload(receipt, handle, Bytes.utf8("large"), 1_001);
+        assertEquals(PayloadAttestationOutcomeV1.ATTESTED,
+                store.attest(receipt, handle, 1_002).outcome());
+
+        final var drifted = PayloadReservationReceiptV1.create(receipt.reservationId(), receipt.delayMessageId(),
+                receipt.shardId(), receipt.appliedSourcePosition(), receipt.stateVersion(), receipt.objectStoreProfile(),
+                receipt.container(), receipt.objectKey(), receipt.expectedLength() + 1, receipt.payloadSha256(),
+                receipt.reservationExpiryEpochMs(), receipt.trustSet());
+        assertEquals(PayloadUploadHandleOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED,
+                store.issueUploadHandle(drifted, UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_003).outcome());
+        assertThrows(IllegalArgumentException.class,
+                () -> store.upload(drifted, handle, Bytes.utf8("large"), 1_003));
+        assertEquals(PayloadAttestationOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED,
+                store.attest(drifted, handle, 1_003).outcome());
+    }
+
     private static ProfileSemanticEnvelopeV1 profile() {
         final ObjectStoreProfileSemanticV1 body = new ObjectStoreProfileSemanticV1(ObjectStoreProviderKindV1.S3,
                 digest("endpoint"), digest("credential-scope"), 1, true, true, true, true,
@@ -165,9 +197,11 @@ class InMemoryPayloadObjectStoreTest {
         final LargeScheduleIntent intent = new LargeScheduleIntent(
                 DestinationLaneId.derive(Bytes.utf8("lane")), 2_000, 4_000, OrderingMode.BEST_EFFORT,
                 payload.length, Bytes.sha256(payload), 1_000, 9);
+        final byte[] sourcePosition = new KafkaSourcePosition(shard, "embedded", UUID.nameUUIDFromBytes(
+                Bytes.utf8("payload-source")), 1, null, 1_000).canonicalBytes();
         return new PayloadReservation(shard, Bytes.sha256(Bytes.utf8("reservation"), commandId.bytes()), commandId,
                 messageId, Bytes.sha256(Bytes.utf8("command")), intent, expiry, PayloadReservationStatus.RESERVED,
-                1, Bytes.u64be(1), null);
+                1, sourcePosition, null);
     }
 
     private static KeyPair keyPair() throws Exception {
