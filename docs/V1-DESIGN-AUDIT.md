@@ -1267,7 +1267,11 @@ background pool；每个 DB 另外绑定 `maxBackgroundJobsPerDb` 以及非零
 `FileStore` 对应卷的最小可用空间。`ShardStore.physicalUsage()`/
 `requirePhysicalUsageWithin` 与 `RocksDbUsageLimitsTest`、
 `ShardStoreTest.physicalUsageProbeAndGuardObserveOneShardDb` 证明了这个本地
-guard。`NativeResourceUsage`/`WorkerNativeResourceLedger` 又提供了互斥的
+guard。`SharedRocksDbResources.startRocksDbUsageMonitor` 现在注册每个打开
+Store 的 identity-bound physical source，按 fixed delay 聚合所有 shard DB，并在
+Store native teardown 前移除 source；缺失、身份不一致、逐 DB 或 Worker 聚合
+上限超限以及 filesystem floor 证据都会复用同一个 sticky runtime gate。
+`NativeResourceUsage`/`WorkerNativeResourceLedger` 又提供了互斥的
 RocksDB-native bucket attribution（shared block cache、memtable、table-reader
 metadata、pinned blocks/iterators、flush/compaction scratch）和独立的
 other-native bucket；`SharedRocksDbResources` 在 JNI 创建前预留 shared cache/WBM，
@@ -1279,12 +1283,13 @@ minimum 并限制 borrowed hold time；这些仍是本地 scheduler/resource sea
 observation 接入一个 sticky `ACTIVE -> DRAIN_OR_MIGRATE` 门；共享资源的
 ownership/restore slots 和 embedded Claim 在门未恢复前 fail closed，只有
 显式 empty-drain activation 才能重新开放。`WorkerRuntimeResourceMonitor`
-现在提供可关闭的 fixed-delay probe scheduler，并把 probe 异常和 envelope
-mismatch 路由回同一个 sticky gate；这仍不是每次 DB 的动态 RocksDB
-attribution、WriteBatch 的 work-class reserve admission，也不替代真实
-checkpoint/compaction 调度和 Oxia placement authority；这些继续保持 release
-blocker。`SharedRocksDbResources.startRuntimeResourceMonitor` 由 shared owner
-持有并在 native teardown 前关闭，补上了本地 monitor 生命周期边界。
+现在提供可关闭的 fixed-delay envelope probe scheduler，并把 probe 异常和
+envelope mismatch 路由回同一个 sticky gate；`WorkerRocksDbUsageMonitor`
+覆盖了本地 per-DB physical usage observation，但不提供 WriteBatch 的
+work-class reserve admission，也不替代真实 checkpoint/compaction 调度和 Oxia
+placement authority；这些继续保持 release blocker。两个 monitor 都由
+`SharedRocksDbResources` 持有并在 native teardown 前关闭，补上了本地 monitor
+生命周期边界。
 
 Control Reserve 的本地投影也已覆盖 Registry 的 class 6：
 `meta_cf/CONTROL_RESERVE` 以 `CapacityVectorV1` 持久化 Broker system-writer

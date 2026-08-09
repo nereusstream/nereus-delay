@@ -42,6 +42,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 
 /** One independent RocksDB instance for exactly one Delay Shard. */
 public final class ShardStore implements AutoCloseable {
@@ -78,6 +79,7 @@ public final class ShardStore implements AutoCloseable {
     private final Map<ColumnFamily, ColumnFamilyHandle> handles;
     private final StoreMetadata metadata;
     private final boolean ownsShardSlot;
+    private final Supplier<RocksDbUsageSnapshot> physicalUsageSource;
     private final AtomicBoolean closed = new AtomicBoolean();
     /** First close fences all Store operations; native teardown may be retried. */
     private boolean closeStarted;
@@ -110,6 +112,7 @@ public final class ShardStore implements AutoCloseable {
         this.handles = handles;
         this.metadata = metadata;
         this.ownsShardSlot = ownsShardSlot;
+        this.physicalUsageSource = this::physicalUsage;
         this.closedColumnFamilyOptions = new boolean[columnFamilyOptions.size()];
         this.runtimeMetadata = runtimeMetadata;
         this.closedIngressDeadlineThrough = closedIngressDeadlineThrough;
@@ -824,6 +827,7 @@ public final class ShardStore implements AutoCloseable {
             final ShardStore result = new ShardStore(config, shardId, dbPath, resources, db, dbOptions,
                     openedHandles.get(0), cfOptions, handles, metadata, ownsShardSlot, runtimeMetadata,
                     closedIngressDeadlineThrough);
+            resources.registerPhysicalUsage(shardId, result.physicalUsageSource);
             keepOpen = true;
             return result;
         } catch (IOException | RocksDBException | RuntimeException | Error exception) {
@@ -1470,6 +1474,7 @@ public final class ShardStore implements AutoCloseable {
         // when an earlier JNI close reports a runtime failure.  Losing the
         // release in that path would permanently consume maxOpenShardDbs or
         // maxOwnedShards and make a healthy worker reject future ownership.
+        resources.unregisterPhysicalUsage(shardId, physicalUsageSource);
         if (!defaultColumnFamilyClosed) {
             try {
                 defaultColumnFamilyHandle.close();

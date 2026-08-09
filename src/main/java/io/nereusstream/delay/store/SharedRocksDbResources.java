@@ -8,10 +8,16 @@ import org.rocksdb.RateLimiter;
 import org.rocksdb.WriteBufferManager;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 
 /** Process-level resources shared by all open shard DBs in one Worker. */
 public final class SharedRocksDbResources implements AutoCloseable {
@@ -39,6 +45,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
     private final WorkerNativeResourceLedger.Reservation sharedWriteBufferReservation;
     private final AtomicBoolean closed = new AtomicBoolean();
     private WorkerRuntimeResourceMonitor runtimeResourceMonitor;
+    private WorkerRocksDbUsageMonitor rocksDbUsageMonitor;
     /** Set after the in-flight check passes; all callers are then fenced. */
     private boolean closeStarted;
     private boolean rateLimiterClosed;
@@ -50,6 +57,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
      * create a fresh incarnation before either one installs ACTIVE.
      */
     private final Set<ShardId> ownedShardIdentities = new HashSet<>();
+    private final Map<ShardId, PhysicalUsageSource> physicalUsageSources = new HashMap<>();
     private int shardAcquireCount;
     private int ownedShardCount;
     private int openDbCount;
@@ -79,7 +87,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
     public SharedRocksDbResources(final ShardStoreConfig config,
                                   final WorkerResourceEnvelope envelope,
                                   final WorkerRuntimeResourceObservation observation) {
-        this.config = java.util.Objects.requireNonNull(config, "config");
+        this.config = Objects.requireNonNull(config, "config");
         if (envelope != null) {
             if (observation == null) {
                 envelope.validate(this.config);
@@ -172,6 +180,88 @@ public final class SharedRocksDbResources implements AutoCloseable {
             runtimeResourceMonitor = WorkerRuntimeResourceMonitor.start(config.rootPath(), interval, this);
         }
         return runtimeResourceMonitor;
+    }
+
+    /**
+     * Starts the owner-managed dynamic per-DB usage monitor. The supplied
+     * limits are applied to every complete Worker observation, including the
+     * exact filesystem safety floor.
+     */
+    public synchronized WorkerRocksDbUsageMonitor startRocksDbUsageMonitor(final RocksDbUsageLimits limits,
+                                                                             final Duration interval) {
+        ensureOpen();
+        Objects.requireNonNull(limits, "limits");
+        if (runtimeSafetyGate == null) {
+            throw new IllegalStateException("RocksDB usage monitor requires a Worker resource envelope");
+        }
+        if (rocksDbUsageMonitor == null || rocksDbUsageMonitor.isClosed()) {
+            rocksDbUsageMonitor = WorkerRocksDbUsageMonitor.start(interval,
+                    () -> collectPhysicalUsage(limits), this::recordRuntimeProbeFailure);
+        }
+        return rocksDbUsageMonitor;
+    }
+
+    /**
+     * Returns a point-in-time snapshot of all registered open shard DBs and
+     * validates the Worker aggregate against the supplied limits.
+     *
+     * <p>Sources are copied under the resource lock and invoked afterwards;
+     * this avoids a lock inversion with {@link ShardStore#physicalUsage()} and
+     * the Store close path.</p>
+     */
+    public List<RocksDbUsageSnapshot> collectPhysicalUsage(final RocksDbUsageLimits limits) {
+        Objects.requireNonNull(limits, "limits");
+        final List<PhysicalUsageSource> sources;
+        synchronized (this) {
+            ensureOpen();
+            sources = new ArrayList<>(physicalUsageSources.values());
+        }
+        final List<RocksDbUsageSnapshot> snapshots = new ArrayList<>(sources.size());
+        for (PhysicalUsageSource source : sources) {
+            try {
+                final RocksDbUsageSnapshot snapshot = Objects.requireNonNull(source.snapshot().get(),
+                        "physical usage source returned null");
+                if (!source.shardId().equals(snapshot.shardId())) {
+                    throw new IllegalStateException("physical usage source returned another shard identity");
+                }
+                snapshots.add(snapshot);
+            } catch (RuntimeException failure) {
+                synchronized (this) {
+                    if (physicalUsageSources.get(source.shardId()) != source) {
+                        continue;
+                    }
+                }
+                throw failure;
+            }
+        }
+        limits.validate(snapshots, config.rootPath());
+        return List.copyOf(snapshots);
+    }
+
+    /** Returns the number of open stores currently registered for observation. */
+    public synchronized int registeredPhysicalUsageSources() {
+        return physicalUsageSources.size();
+    }
+
+    void registerPhysicalUsage(final ShardId shardId, final Supplier<RocksDbUsageSnapshot> source) {
+        synchronized (this) {
+            ensureOpen();
+            Objects.requireNonNull(shardId, "shardId");
+            Objects.requireNonNull(source, "source");
+            if (physicalUsageSources.containsKey(shardId)) {
+                throw new IllegalStateException("physical usage source already registered for " + shardId);
+            }
+            physicalUsageSources.put(shardId, new PhysicalUsageSource(shardId, source));
+        }
+    }
+
+    void unregisterPhysicalUsage(final ShardId shardId, final Supplier<RocksDbUsageSnapshot> source) {
+        synchronized (this) {
+            final PhysicalUsageSource existing = physicalUsageSources.get(shardId);
+            if (existing != null && existing.snapshot() == source) {
+                physicalUsageSources.remove(shardId);
+            }
+        }
     }
 
     /** Revalidates the startup envelope against a fresh runtime observation. */
@@ -398,6 +488,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
         }
         if (!closeStarted && (shardAcquireCount != 0 || openDbCount != 0 || ownedShardCount != 0
                 || !ownedShardIdentities.isEmpty()
+                || !physicalUsageSources.isEmpty()
                 || checkpointCreateCount != 0 || checkpointUploadCount != 0
                 || checkpointDownloadCount != 0 || drainCount != 0
                 || (nativeResourceLedger != null
@@ -407,6 +498,9 @@ public final class SharedRocksDbResources implements AutoCloseable {
         closeStarted = true;
         if (runtimeResourceMonitor != null) {
             runtimeResourceMonitor.close();
+        }
+        if (rocksDbUsageMonitor != null) {
+            rocksDbUsageMonitor.close();
         }
         // Every process-level native resource must be attempted even if an
         // earlier close reports a JNI/runtime failure.  Otherwise a failed
@@ -472,5 +566,8 @@ public final class SharedRocksDbResources implements AutoCloseable {
         if (runtimeSafetyGate != null) {
             runtimeSafetyGate.requireActive("ownership/restore");
         }
+    }
+
+    private record PhysicalUsageSource(ShardId shardId, Supplier<RocksDbUsageSnapshot> snapshot) {
     }
 }
