@@ -1606,6 +1606,8 @@ Restore 在把 staged DB 原子移动到新 incarnation 后，会先以正式 ac
 在这次 pointer 切换之前，restore 还会对新 incarnation 的父目录执行
 directory fsync；因此 staged DB 的 atomic rename 已先取得目录级持久性，crash
 不会出现 `ACTIVE` 已发布但对应 incarnation 目录项仍只存在于 page cache 的窗口。
+restore 的 checkpoint copy 还会先 fsync 每个拷贝文件，再按子目录到根目录
+fsync staged tree；因此该窗口同时覆盖 DB 文件内容和目录项，而不只覆盖 rename。
 Normal `ShardStore.open` 也在发布 `ACTIVE` 前 fsync 同一 Store Incarnation
 父目录，包括接管没有 `ACTIVE` 指针的 orphan incarnation；fresh-open 与
 restore 因此共享同一 pointer-before-directory-durability 顺序。

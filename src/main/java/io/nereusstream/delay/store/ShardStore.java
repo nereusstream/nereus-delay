@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.Path;
@@ -990,6 +991,7 @@ public final class ShardStore implements AutoCloseable {
     }
 
     private static void copyTree(final Path source, final Path target) throws IOException {
+        final List<Path> copiedDirectories = new ArrayList<>();
         try (var paths = Files.walk(source)) {
             final var iterator = paths.iterator();
             while (iterator.hasNext()) {
@@ -998,15 +1000,34 @@ public final class ShardStore implements AutoCloseable {
                 if (Files.isSymbolicLink(path)) {
                     throw new IOException("checkpoint contains a symbolic link: " + path);
                 }
-                if (Files.isDirectory(path)) {
+                if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
                     Files.createDirectories(destination);
+                    ensureRealDirectory(destination);
+                    copiedDirectories.add(destination);
                 } else if (Files.isRegularFile(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
                     Files.createDirectories(destination.getParent());
-                    Files.copy(path, destination);
+                    Files.copy(path, destination, LinkOption.NOFOLLOW_LINKS);
+                    forceFile(destination);
                 } else {
                     throw new IOException("checkpoint contains a non-regular file: " + path);
                 }
             }
+        }
+        // Persist children before their parent directories, so a later ACTIVE
+        // pointer publication cannot expose a directory whose copied DB files
+        // still exist only in the page cache.
+        for (int index = copiedDirectories.size() - 1; index >= 0; index--) {
+            forceDirectory(copiedDirectories.get(index));
+        }
+    }
+
+    private static void forceFile(final Path file) throws IOException {
+        if (Files.isSymbolicLink(file)
+                || !Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("file must be a real regular file: " + file);
+        }
+        try (FileChannel channel = FileChannel.open(file, StandardOpenOption.WRITE)) {
+            channel.force(true);
         }
     }
 

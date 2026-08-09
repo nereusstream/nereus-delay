@@ -1461,7 +1461,9 @@ The checkpoint code now covers the local physical boundary: create the complete
 RocksDB image under the same-filesystem `checkpoint-tmp` namespace, atomically
 rename it into the requested checkpoint path, checksum the full directory,
 emit the closed manifest JSON projection, and install a validated checkpoint
-into a new local Store Incarnation without merging into an open DB. The local
+into a new local Store Incarnation without merging into an open DB; restore
+fsyncs each copied file and the staged directory tree before the incarnation
+rename. The local
 `checkpoint-tmp` parent is now required to be a real non-symbolic directory,
 and `ACTIVE.tmp` is rejected before writing when it is a symbolic link or a
 non-regular file; a failed restore/pointer install therefore cannot overwrite
