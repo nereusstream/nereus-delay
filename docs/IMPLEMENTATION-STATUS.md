@@ -55,6 +55,16 @@ Long.MIN_VALUE` boundary; `KafkaReceiptJournalTest`
 regression. Mapping/producer sequence numbers remain separate bounded local
 counters, and this does not claim Kafka broker or transaction authority.
 
+The local `EvidenceCursorV1.sameIdentity` fence now includes the complete
+Pulsar Attempt Journal physical identity, not only the resource token: a
+different `physicalTopic` or `physicalTopicCreationTimestamp` is an
+incomparable replacement stream even when the token, Lane, partition and
+generation match. `dominates`, typed Recovery Floor coverage and parent
+cursor checks therefore cannot promote a replacement Journal as a successor;
+`EvidenceCursorV1Test.pulsarCursorIdentityIncludesPhysicalTopicCreationIdentity`
+covers both drift branches. This remains local cursor/restore evidence and
+does not claim Broker resource-token or retention authority.
+
 The replay-stable Claim materialization subset is now a shared typed protocol
 projection: `PayloadForPublishV1` validates the inline/object union and exact
 length/SHA-256, while `ClaimMaterializationV1` validates the two Profile slot

@@ -2193,6 +2193,13 @@ PULSAR_ATTEMPT_JOURNAL_CONTIGUOUS:
 
 Kafka cursor 证明 read-committed scan 已连续处理所有 `< nextOffsetExclusive` 的可见 record；aborted/gap offset 不伪造 receipt。Pulsar cursor 是 inclusive last-applied batch member；restore seek containing entry 并跳过 `<=` cursor member。Dominance 只在 common identity/evidence generation 完全相同的 cursor 间比较：Kafka 比 `nextOffsetExclusive`，Pulsar 按 `(ledgerId, entryId, batchIndex)`；其它情况 incomparable。`maxBrokerPersistedAtThroughCursor` 是 guarded Broker-time anchor，用于 dedup horizon 证明，不能由 Worker wall clock伪造。
 
+对于 `PULSAR_ATTEMPT_JOURNAL_CONTIGUOUS`，`physicalTopic` 和
+`physicalTopicCreationIdentity` 也是 evidence stream 的完整物理身份。即使
+resource token 被错误复用，只要 topic 或 creation identity 发生变化，两个
+cursor 就不可互相 `sameIdentity` 或 `dominates`；不能把 replacement Journal
+当成旧 cursor 的 successor。`EvidenceCursorV1` 的本地 identity fence 必须在
+Recovery Floor、parent cursor coverage 和 evidence resolution 复用这一规则。
+
 Manifest/meta/Floor 将 cursor 按 `(evidenceKind, destinationLaneId, laneIncarnation, evidenceResourceIncarnation, physicalPartition, evidenceGeneration)` canonical byte order保存为严格递增 array；generation 是 identity key 的一部分，不是可忽略 value。旧、新 generation 在 Recovery Set 同时受保护时可并存；只有旧 generation 已被 evidence retention 与 descendant Recovery Floor 明确释放后才可删除。missing/duplicate/unknown kind、同完整 key 不可比较、或实际 retained successor range 不覆盖任何 required cursor 都是 evidence gap并 fail closed。
 
 每个 manifest 只描述一个完整 shard DB：

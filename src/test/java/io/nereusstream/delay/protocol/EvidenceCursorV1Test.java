@@ -81,6 +81,21 @@ class EvidenceCursorV1Test {
         assertTrue(!regressed.dominates(older));
     }
 
+    @Test
+    void pulsarCursorIdentityIncludesPhysicalTopicCreationIdentity() {
+        final EvidenceCursorV1 original = EvidenceCursorV1.pulsar(bytes(32, 11), bytes(16, 12), bytes(32, 13),
+                2, 7, 200, "persistent://tenant/ns/topic", 8, 9, 10, 1, 4);
+        final EvidenceCursorV1 replacementTopic = EvidenceCursorV1.pulsar(bytes(32, 11), bytes(16, 12),
+                bytes(32, 13), 2, 7, 201, "persistent://tenant/ns/replacement", 8, 9, 10, 2, 4);
+        final EvidenceCursorV1 replacementCreation = EvidenceCursorV1.pulsar(bytes(32, 11), bytes(16, 12),
+                bytes(32, 13), 2, 7, 201, "persistent://tenant/ns/topic", 9, 9, 10, 2, 4);
+
+        assertTrue(!original.sameIdentity(replacementTopic));
+        assertTrue(!original.dominates(replacementTopic));
+        assertTrue(!original.sameIdentity(replacementCreation));
+        assertTrue(!original.dominates(replacementCreation));
+    }
+
     private static byte[] bytes(final int length, final int seed) {
         final byte[] value = new byte[length];
         for (int i = 0; i < value.length; i++) {

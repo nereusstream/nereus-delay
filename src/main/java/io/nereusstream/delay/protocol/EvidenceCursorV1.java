@@ -258,10 +258,26 @@ public final class EvidenceCursorV1 implements Comparable<EvidenceCursorV1> {
     /**
      * Returns whether two cursors describe the same comparable evidence
      * stream. The evidence generation is part of this identity; cursors from
-     * different generations are intentionally incomparable.
+     * different generations are intentionally incomparable.  For the Pulsar
+     * branch, the journal's physical topic and creation timestamp are part of
+     * the resource identity as well: a reused resource token must not make a
+     * replacement topic look like a continuation of the old cursor.
      */
     public boolean sameIdentity(final EvidenceCursorV1 other) {
-        return other != null && compareTo(other) == 0;
+        if (other == null || evidenceKind != other.evidenceKind
+                || !Arrays.equals(destinationLaneId, other.destinationLaneId)
+                || !Arrays.equals(laneIncarnation, other.laneIncarnation)
+                || !Arrays.equals(evidenceResourceIncarnation, other.evidenceResourceIncarnation)
+                || physicalPartition != other.physicalPartition
+                || evidenceGeneration != other.evidenceGeneration) {
+            return false;
+        }
+        if (kafka) {
+            return Arrays.equals(topicUuid, other.topicUuid);
+        }
+        return Arrays.equals(resourceToken, other.resourceToken)
+                && physicalTopic.equals(other.physicalTopic)
+                && physicalTopicCreationTimestamp == other.physicalTopicCreationTimestamp;
     }
 
     /**

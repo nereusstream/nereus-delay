@@ -2,7 +2,7 @@
 
 状态：PASS / design semantics closed  
 Spec revision：`V1-FROZEN-2026-08-01`  
-审计日期：2026-08-09
+审计日期：2026-08-10
 性质：验收证据索引；不覆盖主设计、Protocol Registry 或 Accepted ADR
 
 ## 结论
@@ -10,6 +10,16 @@ Spec revision：`V1-FROZEN-2026-08-01`
 V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障隔离、恢复/GC 保护关系、公开错误模型和发布停止条件已经闭合。审计未留下需要实现自行选择的语义分支。
 
 **Open semantic questions: none.**
+
+The Evidence Cursor audit now treats the Pulsar Attempt Journal's
+`physicalTopic` and `physicalTopicCreationTimestamp` as part of the full
+stream identity. `EvidenceCursorV1.sameIdentity` and `dominates` reject a
+replacement topic or creation identity even when the resource token and
+generation are reused, so local Recovery Floor/parent-cursor coverage cannot
+splice two physical Journals. `EvidenceCursorV1Test`
+`pulsarCursorIdentityIncludesPhysicalTopicCreationIdentity` is the focused
+regression; Broker resource-token issuance and retention proof remain external
+gates.
 
 The local codec audit additionally verified that implemented V1 key-version
 fields honor the Registry's full unsigned `uint32` domain rather than silently
