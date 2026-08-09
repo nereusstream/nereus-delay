@@ -113,6 +113,14 @@ projection's local parser. Negative vectors for a non-canonical Broker identity
 and a committed descriptor with the wrong Profile kind are in
 `ClaimResultBodyTest`.
 
+The runtime Claim seam now has a strict `DelayShard.claimForPublishV1` entrypoint.
+Before Claim persistence it compares the typed materialization with the current
+Message's identity, generation, delivery window, timeline `actionAt` and
+inline/object payload reference; `ClaimMaterializationRuntimeTest` covers both
+payload branches and mismatch rejection. This is a local Message-binding
+proof only: Profile/catalog, Adapter serialization/size certification and
+Producer ownership/recovery remain release gates.
+
 Both Claim and Publish Admission materialization parsers also enforce the
 Registry slot kinds: field 1 is `DESTINATION` and field 2 is
 `DELIVERY_CAPABILITY`. This prevents a validly encoded but semantically wrong

@@ -28,6 +28,13 @@ This closes local canonical parsing only. Full materialization ownership,
 catalog/profile authority, adapter serialization/size limits and Producer
 recovery remain release blockers.
 
+The runtime now also exposes strict `DelayShard.claimForPublishV1`: before the
+Claim WriteBatch it binds message identity, generation, delivery window,
+timeline `actionAt` and inline/object payload identity to the current
+`MessageRecord`. The legacy byte-array Claim method remains a compatibility
+bridge and is not evidence of the typed V1 API; Profile/catalog, adapter and
+Producer authority remain external gates.
+
 The local RecoveryCatalog now also validates a persisted `StoreRecoveryMetadata`
 reuse projection against the exact typed current Floor, published base-manifest
 identity, parent-hash ancestry and Store Incarnation/install-state identity.
@@ -2130,6 +2137,7 @@ to the intended modules:
 
 | Area | Status | Evidence |
 |---|---|---|
+| Strict typed Claim runtime binding | Implemented (local Message/payload binding; external authority pending) | `DelayShard.claimForPublishV1`, `ClaimMaterializationRuntimeTest`; strict Claim entrypoint binds message identity, generation, delivery window, timeline `actionAt` and inline/object payload reference before persistence, while the legacy byte-array entrypoint remains a compatibility bridge; Profile/catalog, Adapter serialization/size certification, Producer ownership and crash recovery remain release blockers |
 | Gradle Java 21 build | Implemented | `gradle compileJava`, `gradle test` |
 | Self-routing IDs and CRC32C | Implemented | `ProtocolCodecTest` |
 | `commandId + commandHash` prepared before I/O | Implemented | `PreparedCommand`, `CommandHash`, `ProtocolCodecTest` |

@@ -12,6 +12,7 @@ import io.nereusstream.delay.protocol.CapacityDimensionV1;
 import io.nereusstream.delay.protocol.CapacityGrantV1;
 import io.nereusstream.delay.protocol.CapacityVectorV1;
 import io.nereusstream.delay.protocol.CancelCommandBodyV1;
+import io.nereusstream.delay.protocol.ClaimMaterializationV1;
 import io.nereusstream.delay.protocol.CommitLargeScheduleBodyV1;
 import io.nereusstream.delay.protocol.ControlRef;
 import io.nereusstream.delay.protocol.ControlTargetRefV1;
@@ -27,6 +28,7 @@ import io.nereusstream.delay.protocol.LaneQuotaUsageEntryV1;
 import io.nereusstream.delay.protocol.LaneRetirementProgressV1;
 import io.nereusstream.delay.protocol.LaneTerminalGuardV1;
 import io.nereusstream.delay.protocol.PayloadCommitProofView;
+import io.nereusstream.delay.protocol.PayloadForPublishV1;
 import io.nereusstream.delay.protocol.PayloadProofTrustSet;
 import io.nereusstream.delay.protocol.PayloadProofTrustSetControlState;
 import io.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
@@ -934,6 +936,26 @@ public final class DelayShard {
     }
 
     /**
+     * Claims a scheduled message with the typed V1 materialization projection.
+     *
+     * <p>The compatibility byte-array overload remains available for legacy
+     * embedded callers.  This entrypoint binds the replay-stable projection to
+     * the current Message before the Claim batch is built, so a caller cannot
+     * accidentally prepare a different message generation, delivery window or
+     * payload under an otherwise valid canonical materialization.</p>
+     */
+    public synchronized ClaimRecord claimForPublishV1(final DelayMessageId messageId,
+                                                       final AuthorIdentity owner,
+                                                       final long claimDeadlineEpochMs,
+                                                       final ClaimMaterializationV1 materialization,
+                                                       final byte[] claimedCharge) {
+        Objects.requireNonNull(materialization, "materialization");
+        final MessageRecord current = getMessage(Objects.requireNonNull(messageId, "messageId"));
+        requireClaimMaterializationMatchesMessage(messageId, current, materialization);
+        return claimForPublish(messageId, owner, claimDeadlineEpochMs, materialization.canonicalBytes(), claimedCharge);
+    }
+
+    /**
      * Atomically takes a scheduled timeline item into a reversible local Claim.
      * This embedded method deliberately exposes no Producer call: admission must
      * later be represented by the source-ordered PUBLISH_ADMISSION mutation.
@@ -1009,6 +1031,42 @@ public final class DelayShard {
         claimSequence = nextClaimSequence;
         laneQuotaUsage = nextLaneQuota;
         return claim;
+    }
+
+    private static void requireClaimMaterializationMatchesMessage(final DelayMessageId messageId,
+                                                                    final MessageRecord current,
+                                                                    final ClaimMaterializationV1 materialization) {
+        if (current == null) {
+            throw new IllegalStateException("Claim materialization requires an existing Message");
+        }
+        if (!materialization.messageId().equals(messageId)) {
+            throw new IllegalArgumentException("Claim materialization message identity mismatch");
+        }
+        if (materialization.generation() != Integer.toUnsignedLong(current.generation())) {
+            throw new IllegalArgumentException("Claim materialization generation mismatch");
+        }
+        if (materialization.deliverAtEpochMs() != current.deliverAtEpochMs()
+                || materialization.expireAtEpochMs() != current.expireAtEpochMs()) {
+            throw new IllegalArgumentException("Claim materialization delivery window mismatch");
+        }
+        final TimelineWorkRef currentWork = current.runtimeIndex().timeline();
+        if (currentWork == null || materialization.actionAtEpochMs() != currentWork.actionAtEpochMs()) {
+            throw new IllegalArgumentException("Claim materialization action time mismatch");
+        }
+
+        final PayloadForPublishV1 payload = materialization.payload();
+        if (payload.length() != current.payloadLength()) {
+            throw new IllegalArgumentException("Claim materialization payload length mismatch");
+        }
+        if (payload.hasInlinePayload()) {
+            if (current.payloadReference() != null
+                    || !Arrays.equals(payload.inlinePayload(), current.payload())) {
+                throw new IllegalArgumentException("Claim materialization inline payload mismatch");
+            }
+        } else if (current.payloadReference() == null
+                || !PayloadReference.fromDescriptor(payload.object()).equals(current.payloadReference())) {
+            throw new IllegalArgumentException("Claim materialization object payload mismatch");
+        }
     }
 
     /** Atomically revokes a local Claim and restores its exact timeline work. */

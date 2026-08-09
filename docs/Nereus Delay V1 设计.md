@@ -1297,6 +1297,13 @@ resource、metadata、payload length/SHA-256、时序和 materialization digest 
 canonical bytes 与 fail-closed 解析；Profile/catalog、Object Store、Adapter 和
 Producer 的真实 authority 仍必须在后续外部集成 gate 中证明。
 
+运行时现在另提供严格的 `DelayShard.claimForPublishV1` 入口：在构造 Claim
+WriteBatch 前，它把 typed materialization 的 message identity、generation、
+delivery window、current timeline 的 `actionAt` 以及 inline/object payload
+引用逐项绑定到当前 `MessageRecord`。旧的 `byte[]` 入口仍是兼容桥，不能被当作
+V1 typed Claim API；该绑定仍不替代 Profile/catalog、Adapter 序列化/大小证明或
+Producer ownership。
+
 Claim 的纯撤销/超时和 transient pre-send failure 都回到相同 semantic timeline key/work kind/authority/candidate attempt，可更新可重建的 Lane circuit/backoff，不消耗 Publish Admission count，也不把 generation 伪造成 `RETRY_WAIT`；重新插入时 semantic digest 保持一致，必须 checked increment runtime revision 并重算 instance digest，不能 byte-reuse 旧 snapshot token。payload checksum/immutable object loss、deterministic serialization/record-size 等已证明 permanent pre-send 结果若要把 generation 改为 `DEAD_LETTER`，executor 只能准备 exact `CLAIM_RESULT_V1`并等它按 Shard Log Source Position apply。该 mutation 携 Claim precondition、`CLAIM_PERMANENT_FAILURE`、Trusted-UTC 和 charge transfer；它与 Cancel/Reschedule/Expiry/Close 以及同 Claim Admission 排序，callback 不得直写 terminal state。
 V1 中 field 20 的 `ChargeVectorV1 transfer` 必须与 Claim precondition field 12 的 `claimed_charge` 做 canonical byte-equality；它只能释放该 reversible Claim 已冻结的 charge projection，不能由 callback 另行改写 quota。完整 grant policy、外部 charge authority 与 materialization/recovery accounting 仍按本设计的 release boundary 单独完成。
 
