@@ -92,6 +92,30 @@ class EmbeddedDelayServiceTest {
     Path tempDir;
 
     @Test
+    void delayClientPreparesStrictV1CommandsWithoutIo() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 25);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("v1-prepare")), shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final DelayClient client = service;
+            final PreparedCommand schedule = client.prepareScheduleV1(
+                    scheduleIntentV1("v1-prepare-lane", 2_000, 5_000, "payload"), 10_000);
+            assertEquals(schedule.delayMessageId(),
+                    CommandBodies.decodeScheduleV1(schedule.canonicalBody()).delayMessageId());
+
+            final PreparedCommand cancel = client.prepareCancelV1(schedule.delayMessageId(),
+                    new MessagePreconditionV1(0L, null), 10_000);
+            assertEquals(schedule.delayMessageId(),
+                    CommandBodies.decodeCancelV1(cancel.canonicalBody()).delayMessageId());
+
+            final PreparedCommand reschedule = client.prepareRescheduleV1(schedule.delayMessageId(),
+                    new MessagePreconditionV1(0L, null), 2_500, 5_500, 10_000);
+            assertEquals(schedule.delayMessageId(),
+                    CommandBodies.decodeRescheduleV1(reschedule.canonicalBody()).delayMessageId());
+        }
+    }
+
+    @Test
     void queuedReceiptIsNotAppliedReceipt() {
         final long now = 1_000;
         final ShardId shard = new ShardId(RouteIncarnation.random(), 0);

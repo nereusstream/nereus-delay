@@ -338,6 +338,10 @@ source offset，drain 后释放精确 byte charge；`close()` 会先同步 drain
 projection 暴露在客户端契约中；它们仍要求 queued receipt/source barrier 与调用方
 提供的 binding/evidence/retention policy，不能被解释为跨 Worker routing 或 production
 authorization-safe lookup。
+严格 V1 的 Schedule/PrepareLarge/Cancel/Reschedule prepare 入口也已进入同一
+`DelayClient` 契约；它们只构造 Registry-shaped canonical bytes，不做网络 I/O，
+`EmbeddedDelayServiceTest.delayClientPreparesStrictV1CommandsWithoutIo` 覆盖其
+body round-trip。legacy prepare 仍是兼容桥，不能伪装成 V1 managed submission。
 close 还会在 DB close 失败后继续尝试释放共享 RocksDB 资源，并把后续失败作为
 suppressed exception 聚合；成功 drain 后服务立即进入 closed 状态，避免部分关闭
 时继续触碰已关闭的 Store。该清理顺序仍只属于 embedded seam，不等于真实

@@ -25,6 +25,7 @@ import io.nereusstream.delay.protocol.FailureStageV1;
 import io.nereusstream.delay.protocol.FirstScheduleEligibilityV1;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
+import io.nereusstream.delay.protocol.MessagePreconditionV1;
 import io.nereusstream.delay.protocol.MessageQueryResponseV1;
 import io.nereusstream.delay.protocol.NonPersistenceProofKindV1;
 import io.nereusstream.delay.protocol.NonPersistenceProofV1;
@@ -32,6 +33,7 @@ import io.nereusstream.delay.protocol.OpaquePayloadUploadHandleV1;
 import io.nereusstream.delay.protocol.PayloadAttestationOutcomeV1;
 import io.nereusstream.delay.protocol.PayloadAttestationResponseV1;
 import io.nereusstream.delay.protocol.PayloadCommitProofV1;
+import io.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
 import io.nereusstream.delay.protocol.PayloadReservationReceiptV1;
 import io.nereusstream.delay.protocol.PayloadUploadHandleOutcomeV1;
 import io.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
@@ -39,6 +41,7 @@ import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.PublicDestinationBindingViewV1;
 import io.nereusstream.delay.protocol.PublicEvidenceRefV1;
 import io.nereusstream.delay.protocol.ScheduleIntent;
+import io.nereusstream.delay.protocol.ScheduleIntentV1;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
@@ -198,9 +201,26 @@ public final class EmbeddedDelayService implements DelayClient {
     }
 
     @Override
+    public PreparedCommand prepareScheduleV1(final ScheduleIntentV1 intent, final long retryUntilEpochMs) {
+        ensureOpen();
+        return PreparedCommand.scheduleV1(shardId, intent, retryUntilEpochMs);
+    }
+
+    @Override
     public PreparedCommand prepareLargeSchedule(final LargeScheduleIntent intent, final long retryUntilEpochMs) {
         ensureOpen();
         return PreparedCommand.prepareLarge(shardId, intent, retryUntilEpochMs);
+    }
+
+    @Override
+    public PreparedCommand prepareLargeScheduleV1(final ScheduleIntentV1 intentWithoutPayload,
+                                                  final long expectedPayloadLength, final byte[] payloadSha256,
+                                                  final long reservationTtlMs,
+                                                  final PayloadProofTrustSetRefV1 trustSet,
+                                                  final long retryUntilEpochMs) {
+        ensureOpen();
+        return PreparedCommand.prepareLargeV1(shardId, intentWithoutPayload, expectedPayloadLength,
+                payloadSha256, reservationTtlMs, trustSet, retryUntilEpochMs);
     }
 
     @Override
@@ -221,11 +241,29 @@ public final class EmbeddedDelayService implements DelayClient {
     }
 
     @Override
+    public PreparedCommand prepareCancelV1(final DelayMessageId messageId,
+                                           final MessagePreconditionV1 precondition,
+                                           final long retryUntilEpochMs) {
+        ensureOpen();
+        return PreparedCommand.cancelV1(shardId, messageId, precondition, retryUntilEpochMs);
+    }
+
+    @Override
     public PreparedCommand prepareReschedule(final DelayMessageId messageId, final int expectedGeneration,
                                              final long deliverAtEpochMs, final long expireAtEpochMs,
                                              final long retryUntilEpochMs) {
         ensureOpen();
         return PreparedCommand.reschedule(shardId, messageId, expectedGeneration, deliverAtEpochMs,
+                expireAtEpochMs, retryUntilEpochMs);
+    }
+
+    @Override
+    public PreparedCommand prepareRescheduleV1(final DelayMessageId messageId,
+                                               final MessagePreconditionV1 precondition,
+                                               final long deliverAtEpochMs, final long expireAtEpochMs,
+                                               final long retryUntilEpochMs) {
+        ensureOpen();
+        return PreparedCommand.rescheduleV1(shardId, messageId, precondition, deliverAtEpochMs,
                 expireAtEpochMs, retryUntilEpochMs);
     }
 

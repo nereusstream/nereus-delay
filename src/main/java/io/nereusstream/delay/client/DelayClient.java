@@ -6,16 +6,19 @@ import io.nereusstream.delay.protocol.CommandQueuedReceiptV1;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.FirstScheduleEligibilityV1;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
+import io.nereusstream.delay.protocol.MessagePreconditionV1;
 import io.nereusstream.delay.protocol.MessageQueryResponseV1;
 import io.nereusstream.delay.protocol.OpaquePayloadUploadHandleV1;
 import io.nereusstream.delay.protocol.PayloadAttestationResponseV1;
 import io.nereusstream.delay.protocol.PayloadCommitProofV1;
 import io.nereusstream.delay.protocol.PayloadReservationReceiptV1;
+import io.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
 import io.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.PublicDestinationBindingViewV1;
 import io.nereusstream.delay.protocol.PublicEvidenceRefV1;
 import io.nereusstream.delay.protocol.ScheduleIntent;
+import io.nereusstream.delay.protocol.ScheduleIntentV1;
 import io.nereusstream.delay.protocol.UploadHandleKindV1;
 import io.nereusstream.delay.runtime.CommandResult;
 
@@ -26,15 +29,28 @@ import java.util.concurrent.CompletionStage;
 public interface DelayClient extends AutoCloseable {
     PreparedCommand prepareSchedule(ScheduleIntent intent, long retryUntilEpochMs);
 
+    PreparedCommand prepareScheduleV1(ScheduleIntentV1 intent, long retryUntilEpochMs);
+
     PreparedCommand prepareLargeSchedule(LargeScheduleIntent intent, long retryUntilEpochMs);
+
+    PreparedCommand prepareLargeScheduleV1(ScheduleIntentV1 intentWithoutPayload,
+                                           long expectedPayloadLength, byte[] payloadSha256,
+                                           long reservationTtlMs, PayloadProofTrustSetRefV1 trustSet,
+                                           long retryUntilEpochMs);
 
     PreparedCommand prepareLargePayloadCommit(PayloadReservationReceiptV1 reservation,
                                                PayloadCommitProofV1 proof, long retryUntilEpochMs);
 
     PreparedCommand prepareCancel(DelayMessageId messageId, int expectedGeneration, long retryUntilEpochMs);
 
+    PreparedCommand prepareCancelV1(DelayMessageId messageId, MessagePreconditionV1 precondition,
+                                    long retryUntilEpochMs);
+
     PreparedCommand prepareReschedule(DelayMessageId messageId, int expectedGeneration, long deliverAtEpochMs,
                                       long expireAtEpochMs, long retryUntilEpochMs);
+
+    PreparedCommand prepareRescheduleV1(DelayMessageId messageId, MessagePreconditionV1 precondition,
+                                        long deliverAtEpochMs, long expireAtEpochMs, long retryUntilEpochMs);
 
     CompletionStage<EnqueueOutcome> enqueue(PreparedCommand command);
 

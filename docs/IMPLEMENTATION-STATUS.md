@@ -30,6 +30,13 @@ protection CAS and remote Object Store authority remain release blockers;
 `EmbeddedDelayServiceTest.receiptBoundPayloadFacadeRereadsTheShardReservation`
 covers the positive reserve-to-handle-to-attestation path.
 
+`DelayClient` also exposes the strict V1 Schedule/PrepareLarge/Cancel/Reschedule
+preparation methods already backed by the Registry-shaped `PreparedCommand`
+constructors. They remain zero-I/O and are covered by
+`EmbeddedDelayServiceTest.delayClientPreparesStrictV1CommandsWithoutIo`; the
+legacy preparation methods remain compatibility bridges and cannot be labeled
+as V1 managed submission by themselves.
+
 The local in-memory Owner Lease authority advances the raw `uint64` epoch
 domain through the high-bit boundary and fails only when the all-ones value is
 exhausted (`OwnerLeaseTest.ownerEpochSuccessorUsesTheCompleteUnsignedDomain`).
