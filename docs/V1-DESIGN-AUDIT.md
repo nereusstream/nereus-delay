@@ -1196,9 +1196,12 @@ channel teardown authority。
 Scheduler registry 也已补齐同一生命周期证据：terminal gate、empty queue 和
 exact Lane incarnation 通过后才允许移除；`PersistentLaneScheduler` 在同一个
 projection WriteBatch 清理 ring/fairness/discovery 状态，写失败会恢复内存
-registration。`LaneSchedulerTest` 覆盖 stale identity、pending work 和 restart
-后的空 projection。该证据只证明 bounded local index 回收，不替代 terminal
-guard、Oxia 或 source-ordered retirement authority。
+registration 和精确的 active-ring membership，原先处于 ring 外的
+BLOCKED/terminal Lane 不会被回滚注册步骤重新激活。`LaneSchedulerTest` 覆盖
+stale identity、pending work、restart 后的空 projection，以及
+`failedPersistentUnregisterDoesNotReactivatePreviouslyInactiveLane`。该证据只证明
+bounded local index 回收，不替代 terminal guard、Oxia 或 source-ordered retirement
+authority。
 
 `PublishOutcomeBody.encodeInitial` 和
 `PublishOutcomeBody.encodeEvidenceResolution` 现在复用 Registry 的 common fields

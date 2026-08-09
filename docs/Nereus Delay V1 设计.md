@@ -1750,7 +1750,7 @@ Cluster-wide outage 可以使同 cluster 的多个 Lane 同时不可用，但单
 
 Physical admission registry 的注册生命周期不等于 Lane 的 ownership 或 retirement authority。Source-ordered terminal retirement 只有在对应 Adapter channel/Producer generation 已 fenced、所有 physical 与 zombie reservation 都已 quiesce、且 READY 已关闭后，才能调用带 exact `laneIncarnation` 的本地 `unregisterLane` 释放进程内登记和容量元数据；注销遇到 READY、残留 charge 或 incarnation mismatch 必须 fail closed。旧 channel 的迟到 teardown callback 不得删除新 incarnation 的登记。该操作只回收本地可重建资源，不替代 Oxia grant release、terminal guard、Recovery Floor 或 source-ordered retirement proof。
 
-同一边界适用于 scheduler registry：terminal Lane 的 source-ordered guard 已安装、exact incarnation 已 fencing 且其本地 work queue 为空后，scheduler 才能 unregister 该 Lane，并在一个持久 projection WriteBatch 中同时移除 active ring、deficit、last-served 和 discovery 账本。非 terminal、仍有 pending work 或旧 incarnation 必须拒绝；WriteBatch 失败时内存 registry 必须回滚到原 projection。这样 retired Lane 不会无限占用调度 ring、fairness state 或 Worker 进程内索引，但 scheduler unregister 仍不是 terminal-guard/Oxia retirement authority。
+同一边界适用于 scheduler registry：terminal Lane 的 source-ordered guard 已安装、exact incarnation 已 fencing 且其本地 work queue 为空后，scheduler 才能 unregister 该 Lane，并在一个持久 projection WriteBatch 中同时移除 active ring、deficit、last-served 和 discovery 账本。非 terminal、仍有 pending work 或旧 incarnation 必须拒绝；WriteBatch 失败时内存 registry 必须回滚到原 projection，active ring 也必须精确恢复（原本被 BLOCKED/terminal readiness 排除的 Lane 不得因回滚重新加入 ring）。这样 retired Lane 不会无限占用调度 ring、fairness state 或 Worker 进程内索引，但 scheduler unregister 仍不是 terminal-guard/Oxia retirement authority。
 
 ### 13.3 Opaque payload 与 metadata
 

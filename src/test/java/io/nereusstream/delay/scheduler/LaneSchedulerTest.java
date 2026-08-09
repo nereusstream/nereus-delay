@@ -402,6 +402,34 @@ class LaneSchedulerTest {
     }
 
     @Test
+    void failedPersistentUnregisterDoesNotReactivatePreviouslyInactiveLane() {
+        final DestinationLaneId lane = lane(37);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 37);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("scheduler-lane-unregister-inactive-failure"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+            final ShardStore store = ShardStore.open(config, shardId, resources);
+            try {
+                final LaneScheduler delegate = LaneScheduler.defaults();
+                final PersistentLaneScheduler scheduler = new PersistentLaneScheduler(store, delegate);
+                final LaneRecord closed = recordWithIncarnation(lane, 1).closeForNewAdmission();
+                scheduler.register(closed);
+                scheduler.markBlocked(lane);
+                assertEquals(List.of(), delegate.ringOrder());
+                final LaneScheduler.SchedulerSnapshot before = scheduler.snapshot();
+
+                store.close();
+                assertThrows(IllegalStateException.class,
+                        () -> scheduler.unregister(lane, closed.laneIncarnation()));
+                assertEquals(before, scheduler.snapshot());
+                assertEquals(List.of(), delegate.ringOrder());
+            } finally {
+                store.close();
+            }
+        }
+    }
+
+    @Test
     void failedSchedulerProjectionWriteDoesNotAdvanceGenerationInMemory() {
         final DestinationLaneId lane = lane(30);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 30);

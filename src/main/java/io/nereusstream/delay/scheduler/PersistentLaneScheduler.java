@@ -499,7 +499,13 @@ public final class PersistentLaneScheduler {
             registered.put(laneId, lane);
             delegate.register(lane);
             delegate.restore(before);
-            delegate.restoreRing(beforeRing);
+            // The failed unregister may have re-registered a Lane that was
+            // intentionally outside the active ring (for example a blocked
+            // terminal Lane).  restoreRing() merges any currently registered
+            // Lane not present in the saved order, which would silently
+            // reactivate that Lane after a failed WriteBatch.  Rebuild the
+            // exact prior active projection instead.
+            delegate.rebuildActiveRing(beforeRing);
             recoveryServed.clear();
             recoveryServed.addAll(beforeRecoveryServed);
             if (beforeHead == null) {
