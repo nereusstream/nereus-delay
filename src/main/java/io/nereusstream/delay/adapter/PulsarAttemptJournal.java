@@ -272,6 +272,10 @@ public final class PulsarAttemptJournal {
         if (state.unresolvedMappingId != null) {
             throw conflict("replay would create two unresolved mappings");
         }
+        final long expectedSequence = state.lastSequenceId < 0 ? 0 : nextSequence(state.lastSequenceId);
+        if (mapping.sequenceId() != expectedSequence) {
+            throw conflict("replayed mapping sequence is not the next Producer sequence");
+        }
         final JournalRecord record = new JournalRecord(RecordKind.MAPPED, mapping, position);
         final MappingState value = new MappingState(mapping, state, record);
         mappings.put(Bytes.hex(mapping.mappingId()), value);

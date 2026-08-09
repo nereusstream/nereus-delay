@@ -376,7 +376,9 @@ epoch millisecond 时返回 `AUTO_FAST_PREREQUISITE_UNAVAILABLE`，不把本地�
 时钟认证和生产 Broker-time authority 仍是 release gate。
 `PulsarAttemptJournal` 进一步把 ADR 0037 的本地可验证部分落成独立 seam：Producer
 key 固定在一个 Shard，sequence 严格递增，mapping append 必须先拿到 Journal position，
-精确重放幂等；`appendOrReuse`/重载 `sendAfterMapped` 对同一 exact attempt
+精确重放幂等；replay 也会在首条和后续 mapping 安装前验证严格的 Producer sequence
+successor，首条或后续跳号都以 `INTEGRITY_ERROR` 拒绝而不留下部分 state；
+`appendOrReuse`/重载 `sendAfterMapped` 对同一 exact attempt
 重试复用原 mapping/sequence，且在 mapping append 失败时不进入 target sender；
 未 retirement 的 lower sequence 阻塞后续 Admission，
 `RETIRED_NOT_PUBLISHED` 之后才允许下一个 sequence，`sendAfterMapped` 不接受未 durable

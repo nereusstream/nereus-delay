@@ -204,6 +204,38 @@ class PulsarAttemptJournalTest {
         assertEquals(StableCode.INTEGRITY_ERROR, mismatch.stableCode());
     }
 
+    @Test
+    void replayRejectsAProducerSequenceGapBeforeInstallingState() {
+        final ShardId shard = shard();
+        final PulsarAttemptJournal.ProducerKey producer = producer();
+        final PulsarAttemptJournal journal = new PulsarAttemptJournal(shard, request -> position(50));
+        final PulsarAttemptJournal.Mapping firstGap = PulsarAttemptJournal.Mapping.create(shard, producer, 1,
+                identity(shard, 7));
+
+        final PulsarAttemptJournal.JournalException first = assertThrows(
+                PulsarAttemptJournal.JournalException.class,
+                () -> journal.replay(new PulsarAttemptJournal.JournalRecord(
+                        PulsarAttemptJournal.RecordKind.MAPPED, firstGap, position(50))));
+        assertEquals(StableCode.INTEGRITY_ERROR, first.stableCode());
+        assertTrue(journal.records().isEmpty());
+
+        final PulsarAttemptJournal source = new PulsarAttemptJournal(shard,
+                request -> position(request.kind() == PulsarAttemptJournal.RecordKind.MAPPED ? 60 : 61));
+        final PulsarAttemptJournal.AppendResult mapped = source.appendNext(producer, identity(shard, 8));
+        final PulsarAttemptJournal.AppendResult retired = source.retireNotPublished(mapped.record().mapping().mappingId());
+        journal.replay(mapped.record());
+        journal.replay(retired.record());
+        final PulsarAttemptJournal.Mapping laterGap = PulsarAttemptJournal.Mapping.create(shard, producer, 2,
+                identity(shard, 9));
+        final PulsarAttemptJournal.JournalException later = assertThrows(
+                PulsarAttemptJournal.JournalException.class,
+                () -> journal.replay(new PulsarAttemptJournal.JournalRecord(
+                        PulsarAttemptJournal.RecordKind.MAPPED, laterGap, position(62))));
+        assertEquals(StableCode.INTEGRITY_ERROR, later.stableCode());
+        assertEquals(2, journal.records().size());
+        assertTrue(journal.unresolved(producer).isEmpty());
+    }
+
     private static PulsarAttemptJournal.JournalPosition position(final long entryId) {
         return new PulsarAttemptJournal.JournalPosition(1, entryId, 0, 1, 1_000);
     }
