@@ -749,9 +749,17 @@ verification 仍是 release blocker。
 CommitLargeSchedule V1 也有独立 canonical body 和嵌套
 `PayloadCommitProofV1` codec，校验 reservation/message identity、typed Object
 Store Profile、tenant scope、optional etag presence、proof ID/signature 后，
-通过统一 proof view 复用现有 reservation commit 状态机；source-position
-trust-set authority、Object Store attestation/ownership 和完整 reservation
-binding 仍是 release blocker。
+通过统一 proof view 复用现有 reservation commit 状态机。新增的
+`InMemoryPayloadObjectStore` 是一个明确标注的 deterministic local seam：它
+只接受 canonical `PayloadReservation`，为同一预约固定 service-owned
+container/key/version，按 Object Store Profile 的 max-bytes、expected
+length/SHA-256 和 immutable-if-absent 规则处理上传，并把 response-loss
+重试固定为同一 opaque handle 与同一签名 `PayloadCommitProofV1`；
+`InMemoryPayloadObjectStoreTest` 还用 `PayloadProofTrustSet` 验证 proof。
+这闭合的是本地预约绑定、handle/上传/attestation 的可测试协议形状，不是
+真实 provider credentials、远端 if-absent/immutable 语义、Object Store
+availability/ownership evidence、Oxia source-order authority 或完整
+reservation migration；这些仍是 release blockers。
 `RetryPolicySemanticV1`
 现在也能按 Registry 公式重算 semantic hash、生成 typed ref，并拒绝 uncertain/
 DLQ 分支和 backoff arithmetic 漂移；`RetryPolicyCatalog` 接入后，V1
