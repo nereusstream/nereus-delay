@@ -50,7 +50,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
     private int drainCount;
 
     public SharedRocksDbResources(final ShardStoreConfig config) {
-        this(config, null);
+        this(config, null, null);
     }
 
     /**
@@ -59,8 +59,25 @@ public final class SharedRocksDbResources implements AutoCloseable {
      * do not claim a production resource envelope.
      */
     public SharedRocksDbResources(final ShardStoreConfig config, final WorkerResourceEnvelope envelope) {
+        this(config, envelope, null);
+    }
+
+    /**
+     * Creates shared resources after validating an envelope against a
+     * previously captured runtime observation.  The observation must come
+     * from the same process/container and root filesystem as the config.
+     */
+    public SharedRocksDbResources(final ShardStoreConfig config,
+                                  final WorkerResourceEnvelope envelope,
+                                  final WorkerRuntimeResourceObservation observation) {
         if (envelope != null) {
-            envelope.validate(config);
+            if (observation == null) {
+                envelope.validate(config);
+            } else {
+                envelope.validate(config, observation);
+            }
+        } else if (observation != null) {
+            throw new IllegalArgumentException("runtime observation requires a Worker resource envelope");
         }
         env = Env.getDefault();
         env.setBackgroundThreads(config.maxBackgroundJobs());
@@ -77,6 +94,13 @@ public final class SharedRocksDbResources implements AutoCloseable {
         checkpointUploadSlots = new Semaphore(config.maxConcurrentCheckpointUploadsPerWorker(), true);
         checkpointDownloadSlots = new Semaphore(config.maxConcurrentCheckpointDownloadsPerWorker(), true);
         drainSlots = new Semaphore(config.maxConcurrentDrainsPerWorker(), true);
+    }
+
+    /** Probes the current process/container before opening shared resources. */
+    public static SharedRocksDbResources withRuntimeProbe(final ShardStoreConfig config,
+                                                           final WorkerResourceEnvelope envelope) {
+        return new SharedRocksDbResources(config, envelope,
+                WorkerRuntimeResourceProbe.observe(config.rootPath()));
     }
 
     public Cache blockCache() {

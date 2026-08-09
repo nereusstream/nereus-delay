@@ -106,6 +106,36 @@ public record WorkerResourceEnvelope(
         }
     }
 
+    /**
+     * Validates the envelope against authoritative runtime observations before
+     * any native Worker resource is opened.
+     */
+    public void validate(final ShardStoreConfig config, final WorkerRuntimeResourceObservation observation) {
+        validate(config);
+        Objects.requireNonNull(observation, "observation");
+        if (observation.actualJvmHeapBytes() > certifiedJvmHeapBytes) {
+            throw new IllegalArgumentException("actual JVM heap limit exceeds certified envelope");
+        }
+        if (observation.actualMaxDirectMemoryBytes() > maxDirectMemoryBytes) {
+            throw new IllegalArgumentException("actual direct-memory limit exceeds certified envelope");
+        }
+        if (observation.currentProcessRssBytes() > maxProcessRssBytes) {
+            throw new IllegalArgumentException("current process RSS exceeds certified envelope");
+        }
+        if (observation.effectiveCgroupMemoryLimitBytes() < effectiveCgroupMemoryLimitBytes) {
+            throw new IllegalArgumentException("certified cgroup memory limit exceeds runtime limit");
+        }
+        if (observation.maxProcessOpenFiles() < maxProcessOpenFiles) {
+            throw new IllegalArgumentException("certified open-file limit exceeds runtime limit");
+        }
+        if (observation.maxFilesystemBytes() < maxFilesystemBytes) {
+            throw new IllegalArgumentException("certified filesystem capacity exceeds runtime capacity");
+        }
+        if (observation.usableFilesystemBytes() < physicalDiskSafetyWatermarkBytes) {
+            throw new IllegalArgumentException("filesystem usable space is below the safety watermark");
+        }
+    }
+
     /** Stable digest for placement/configuration identity and audit evidence. */
     public byte[] digest() {
         return Bytes.sha256(Bytes.utf8("nereus-delay-worker-resource-envelope-v1\0"), canonicalBytes());

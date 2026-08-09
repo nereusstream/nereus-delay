@@ -1469,7 +1469,12 @@ callback/source quiescence 仍由调用方和真实 transport 提供，超时保
 失败边界。
 本地 Worker envelope 还会在创建 JNI 资源前检查显式 shared block cache 与
 WriteBufferManager 预算之和不超过认证的 RocksDB native 桶；聚焦回归覆盖
-拒绝路径。live native/RSS/cgroup accounting 仍是 release gate。
+拒绝路径。`WorkerRuntimeResourceProbe` 现在从 JVM、procfs、cgroup v1/v2
+和 rootPath 对应的精确 FileStore 读取有限 runtime observation；`max`、缺失
+或 malformed limit 均 fail closed，`WorkerResourceEnvelope.validate` 再逐项
+检查 heap/direct/RSS/cgroup/FD/filesystem 交叉边界。`WorkerRuntimeResourceProbeTest`
+覆盖解析与 envelope rejection；dynamic hot-shrink、RocksDB native bucket
+attribution 和 write-time reserve admission 仍是 release gate。
 Lease validity additionally rejects negative observation times even when a
 caller reaches `OwnerLease.validAt` directly rather than through an authority
 request; `OwnerLeaseTest.negativeClockCannotMakeOwnerLeaseValid` covers the
