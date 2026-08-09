@@ -1772,6 +1772,13 @@ stableCode / evidenceDescriptor / diagnostic
 - `UNKNOWN` 无论同时发现 Lane/Owner/Adapter 故障，都必须先持久化 `UNCERTAIN`，故障作用域只决定 circuit/safety 动作，不能把 side effect 改成 failure；
 - `OWNER_FENCED`/`ADAPTER_BUG` 触发 shard safety path；若当前 Owner 已不能写，callback 只 audit，由新 Owner 从 durable `PUBLISHING` 与 evidence 恢复。
 
+`PUBLISH_OUTCOME_V1(UNKNOWN)` 的 apply 还必须先验证当前 `Message` 的
+`destinationLaneId`、durable `Lane` 记录和 `laneIncarnation` 与 `PUBLISHING`
+attempt ledger 完全一致。Lane 记录缺失或 incarnation 漂移属于 Store 状态损坏/错挂，
+必须在 WriteBatch 前 fail closed：不允许通用 READY projection 通过
+`LaneRecord.initial(...)` 偷创建一个新 Lane，不改变 Message、attempt、quota 或
+source position。该边界是恢复完整性校验，不是把 UNKNOWN 改成业务失败。
+
 对 `PUBLISHED`/`NOT_PUBLISHED` 这类 definitive Outcome，以及
 `EVIDENCE_RESOLUTION_V1` 的 verified result，body 中的 `ChargeVectorV1 transfer`
 必须与该 attempt 的 Admission ledger 所保留 charge 做 canonical byte-equality。

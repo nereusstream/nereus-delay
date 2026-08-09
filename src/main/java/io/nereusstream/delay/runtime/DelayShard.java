@@ -4863,10 +4863,19 @@ public final class DelayShard {
             throw new IllegalStateException("unknown outcome is stale for the current message");
         }
         final LaneRecord currentLane = readLane(current.laneId());
+        if (!current.laneId().equals(currentLedger.laneId())) {
+            throw new IllegalStateException("unknown outcome Lane identity does not match the attempt ledger");
+        }
+        if (currentLane == null) {
+            throw new IllegalStateException("unknown outcome references a missing Lane");
+        }
+        if (currentLedger.hasRetryWindow()
+                && !Arrays.equals(currentLane.laneIncarnation(), currentLedger.laneIncarnation())) {
+            throw new IllegalStateException("unknown outcome Lane incarnation does not match the attempt ledger");
+        }
         final boolean scheduleUncertainRetry = retryDecision != null && retryDecision.kind() == 2
-                && (currentLane == null
-                || (currentLane.admissionGate() != AdmissionGate.CLOSED
-                && currentLane.admissionGate() != AdmissionGate.RETIRED));
+                && (currentLane.admissionGate() != AdmissionGate.CLOSED
+                && currentLane.admissionGate() != AdmissionGate.RETIRED);
         final long retryAt;
         if (scheduleUncertainRetry) {
             final RetryPolicySemanticV1 pinnedPolicy = retryPolicyFor(currentLedger.delayMessageId(), current,

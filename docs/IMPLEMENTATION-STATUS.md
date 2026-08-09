@@ -7,6 +7,16 @@ normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20�
 the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
+The source-ordered `PUBLISH_OUTCOME(UNKNOWN)` projection now verifies the
+current Message Lane identity, durable Lane presence, and exact Lane
+incarnation against the `PUBLISHING` attempt ledger before constructing any
+READY projection. Missing or drifted Lane state fails closed before the
+WriteBatch, so `LaneRecord.initial(...)` cannot resurrect a corrupt/misplaced
+Lane and the Message, attempt, quota, and source position remain unchanged.
+`DelayShardTest.unknownOutcomeFailsClosedWithoutRecreatingAMissingLaneProjection`
+covers the missing-record regression. This is local Store-integrity evidence;
+it does not replace the external Owner/source/evidence recovery gates.
+
 The local Lane quota projection now scans the complete `(LaneId, LaneIncarnation)`
 identity tuple instead of stopping at the first foreign incarnation for a Lane ID.
 This preserves access to a replacement while an older terminal/retired incarnation

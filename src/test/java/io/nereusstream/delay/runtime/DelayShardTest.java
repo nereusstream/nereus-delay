@@ -2565,6 +2565,44 @@ class DelayShardTest {
     }
 
     @Test
+    void unknownOutcomeFailsClosedWithoutRecreatingAMissingLaneProjection() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("unknown-outcome-missing-lane"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 92);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("unknown-missing-lane"));
+        final PreparedCommand command = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("unknown-missing-lane")), 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition admissionPosition = position(shardId, 1, 1_001);
+        final KafkaSourcePosition outcomePosition = position(shardId, 2, 1_002);
+        final byte[] attemptId = Bytes.sha256(Bytes.utf8("unknown-missing-lane-attempt"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(command, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final PublishAttemptLedger admission = PublishAttemptLedger.publishing(command.delayMessageId(), 0,
+                    attemptId, Bytes.sha256(Bytes.utf8("unknown-missing-lane-claim")), 42, 1, lane,
+                    shard.getLane(lane).laneIncarnation(), Bytes.sha256(Bytes.utf8("unknown-missing-lane-owner")),
+                    store.metadata().storeIncarnation(), Bytes.sha256(Bytes.utf8("unknown-missing-lane-prepared")),
+                    Bytes.utf8("admission"), admissionPosition.canonicalBytes());
+            shard.admitPublishAttempt(admission, admissionPosition);
+
+            store.write(batch -> batch.delete(ColumnFamily.META, KeyCodec.metaLane(lane)));
+
+            final IllegalStateException failure = assertThrows(IllegalStateException.class,
+                    () -> shard.applyUnknownPublishOutcome(attemptId, 42, Bytes.utf8("unknown-outcome"),
+                            Bytes.utf8("timeout-evidence"), outcomePosition));
+            assertEquals("unknown outcome references a missing Lane", failure.getMessage());
+            assertNull(shard.getLane(lane));
+            assertEquals(MessageStatus.PUBLISHING, shard.getMessage(command.delayMessageId()).status());
+            assertEquals(AttemptLedgerState.PUBLISHING, shard.getPublishAttempt(attemptId, 42).state());
+            assertEquals(admissionPosition, shard.lastAppliedSourcePosition());
+        }
+    }
+
+    @Test
     void malformedCanonicalAdmissionLedgerDoesNotDowngradeToZeroCharge() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("malformed-canonical-admission"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 91);

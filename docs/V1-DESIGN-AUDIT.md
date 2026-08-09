@@ -11,6 +11,17 @@ V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障
 
 **Open semantic questions: none.**
 
+The UNKNOWN-outcome audit now closes a Store-integrity edge at the same
+ownership boundary: before `PUBLISH_OUTCOME_V1(UNKNOWN)` can materialize an
+uncertain retry or update READY, the current Message Lane, durable Lane record,
+and exact `laneIncarnation` must match the admitted attempt ledger. A missing
+or drifted Lane fails before the WriteBatch; the generic projection path cannot
+silently create `LaneRecord.initial(...)` and advance the source cursor. The
+focused regression is
+`DelayShardTest.unknownOutcomeFailsClosedWithoutRecreatingAMissingLaneProjection`.
+This is local crash/corruption evidence only; Owner lease, source replay and
+external evidence authority remain release gates.
+
 The self-routing identity audit now closes the logical locator shape: the
 fixed-width bytes between the Route/partition prefix and CRC must carry UUID
 version 7 and RFC variant `10`. `SelfRoutingId.decode` rejects a CRC-valid
