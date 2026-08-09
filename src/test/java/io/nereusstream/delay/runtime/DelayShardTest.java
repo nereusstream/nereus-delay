@@ -5863,6 +5863,45 @@ class DelayShardTest {
     }
 
     @Test
+    void openAttemptLookupUsesOutcomeReserveBoundInsteadOfMessageBound() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("open-attempt-scan-bound"));
+        final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000,
+                1, 1_000, 4, 3, 100, 10_000, 3, 0);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 91);
+        final DelayMessageId messageId = DelayMessageId.random(shardId);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("open-attempt-scan-lane"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, shardConfig);
+            final List<PublishAttemptLedger> attempts = new ArrayList<>();
+            for (int index = 0; index < 3; index++) {
+                final int attempt = index + 1;
+                attempts.add(PublishAttemptLedger.publishing(messageId, 0,
+                        Bytes.sha256(Bytes.utf8("open-attempt-id-" + attempt)),
+                        Bytes.sha256(Bytes.utf8("open-attempt-claim-" + attempt)), attempt, attempt, lane,
+                        new byte[PublishAttemptLedger.INCARNATION_LENGTH],
+                        Bytes.sha256(Bytes.utf8("open-attempt-owner-" + attempt)),
+                        store.metadata().storeIncarnation(),
+                        Bytes.sha256(Bytes.utf8("open-attempt-prepared-" + attempt)),
+                        Bytes.utf8("legacy-admission"), position(shardId, attempt, 1_000L + attempt)
+                                .canonicalBytes()));
+            }
+            store.write(batch -> {
+                for (PublishAttemptLedger attempt : attempts) {
+                    batch.putValue(ColumnFamily.INFLIGHT, PublishAttemptLedger.VALUE_TYPE,
+                            attempt.encodedKey(), attempt.encode());
+                }
+            });
+
+            assertEquals(3, shard.listOpenPublishAttempts().size());
+            for (PublishAttemptLedger attempt : attempts) {
+                assertEquals(attempt, shard.findOpenPublishAttempt(attempt.publishAttemptId()));
+            }
+        }
+    }
+
+    @Test
     void sourceOrderedClaimResultTerminalizesMatchingReplayStableTimeline() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-claim-result"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 21);

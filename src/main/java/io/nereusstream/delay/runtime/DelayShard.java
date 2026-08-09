@@ -4570,7 +4570,8 @@ public final class DelayShard {
      */
     public synchronized PublishAttemptLedger findOpenPublishAttempt(final byte[] publishAttemptId) {
         Bytes.requireLength(publishAttemptId, PublishAttemptLedger.HASH_LENGTH, "publishAttemptId");
-        final int limit = boundedLimitPlusOne(config.maxPendingMessages());
+        final long configuredInflightLimit = configuredInflightLedgerLimit();
+        final int limit = boundedLimitPlusOne(configuredInflightLimit);
         final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries = store.scan(ColumnFamily.INFLIGHT,
                 new byte[]{INFLIGHT_PUBLISHING_KIND, 1}, new byte[]{4, 1}, limit);
         PublishAttemptLedger found = null;
@@ -4584,7 +4585,7 @@ public final class DelayShard {
             }
             found = candidate;
         }
-        if (entries.size() >= limit && config.maxPendingMessages() < Integer.MAX_VALUE) {
+        if (entries.size() >= limit && configuredInflightLimit < Integer.MAX_VALUE) {
             throw new IllegalStateException("open publish attempt scan exceeded configured bound");
         }
         return found;
@@ -4597,10 +4598,11 @@ public final class DelayShard {
      * configured shard bound.
      */
     public synchronized List<PublishAttemptLedger> listOpenPublishAttempts() {
-        final int limit = boundedLimitPlusOne(config.maxPendingMessages());
+        final long configuredInflightLimit = configuredInflightLedgerLimit();
+        final int limit = boundedLimitPlusOne(configuredInflightLimit);
         final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries = store.scan(ColumnFamily.INFLIGHT,
                 new byte[]{INFLIGHT_PUBLISHING_KIND, 1}, new byte[]{4, 1}, limit);
-        if (entries.size() >= limit && config.maxPendingMessages() < Integer.MAX_VALUE) {
+        if (entries.size() >= limit && configuredInflightLimit < Integer.MAX_VALUE) {
             throw new IllegalStateException("open publish attempt scan exceeded configured bound");
         }
         final Set<String> identities = new HashSet<>();
@@ -7079,6 +7081,16 @@ public final class DelayShard {
 
     private static int boundedLimitPlusOne(final long configured) {
         return configured >= Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) Math.max(1, configured + 1);
+    }
+
+    /**
+     * Bounds scans containing only Claim/Attempt records by both local
+     * message capacity and the outcome-reserve record envelope. A single
+     * Message may retain several unresolved Attempt ledgers across retry
+     * generations, so maxPendingMessages alone is not a safe Attempt bound.
+     */
+    private long configuredInflightLedgerLimit() {
+        return Math.max(config.maxPendingMessages(), config.maxOutcomeReserveRecords());
     }
 
     private ShardQuota quotaAfter(final MessageRecord prior, final MessageRecord next, final CommandResult result,

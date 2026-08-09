@@ -36,6 +36,13 @@ leaving the previous lease unchanged. `OwnerLeaseTest.renewalCannotMoveTheLiveEx
 covers this CAS-parity edge; it does not replace Oxia session/ephemeral-record
 authority or a live lease-loss test.
 
+Open Attempt lookup/listing now uses the larger of the pending-Message and
+outcome-reserve-record bounds. V1 permits one Message to retain multiple
+unresolved Attempt obligations, so a scan limited only by `maxPendingMessages`
+could falsely fence a healthy shard; `DelayShardTest.openAttemptLookupUsesOutcomeReserveBoundInsteadOfMessageBound`
+covers the exact boundary. This remains local recovery evidence, not external
+Producer ownership or outcome authority.
+
 The queued-receipt audit now has an executable local binding for the existing
 Registry rule: `QueuedReceiptQueryPolicy` computes `receipt_query_until` from
 Broker persistence time with checked arithmetic, and policy-bound Kafka/Pulsar
