@@ -577,6 +577,10 @@ public final class OwnedDelayShard {
         // reservation.  Requeue it before opening the command gate so a new
         // Owner cannot inherit an old Owner Epoch's local send authority.
         try {
+            // Persist the owner-open marker before exposing ACTIVE_FOR_COMMANDS.
+            // This is Store metadata, not a source mutation; a failed write
+            // leaves the owner fenced and the source cursor unchanged.
+            delegate.recordOpenedOwnerEpoch(lease.ownerEpoch());
             delegate.requeueClaimsForRecovery();
         } catch (ShardStore.RocksDbWriteFailure failure) {
             state = ShardLifecycleState.FENCED;
@@ -593,6 +597,10 @@ public final class OwnedDelayShard {
         // and embedded activation paths.  A failed lease CAS leaves the
         // requeue durable and harmless; it never grants publish authority.
         try {
+            // Write the marker while the local gate is still CATCHING_UP. If
+            // the authority CAS is lost afterwards, the conservative higher
+            // observed epoch remains durable for the next owner.
+            delegate.recordOpenedOwnerEpoch(lease.ownerEpoch());
             delegate.requeueClaimsForRecovery();
         } catch (ShardStore.RocksDbWriteFailure failure) {
             state = ShardLifecycleState.FENCED;

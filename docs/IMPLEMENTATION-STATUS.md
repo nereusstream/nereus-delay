@@ -7,6 +7,16 @@ normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20�
 the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
+The owner activation seam now persists the current `ownerEpoch` into the
+Store's monotonic `lastOpenedOwnerEpoch` metadata before either the embedded
+or authoritative path exposes `ACTIVE_FOR_COMMANDS`. A failed metadata or
+Claim-requeue WriteBatch fences the local owner and leaves the source cursor
+unchanged; an authority CAS that is lost after the marker write remains
+conservative for the next owner. `OwnerLeaseTest` verifies the authoritative
+activation marker. This closes the local owner-open metadata boundary only;
+Oxia lease/session CAS, recovery-pin transaction and source replay authority
+remain release blockers.
+
 `LaneScheduler.register(existingLane)` now recomputes the process-local
 deficit cap after an existing Lane's scheduler weight changes and clamps any
 historical credit to the largest currently registered Lane increment. This

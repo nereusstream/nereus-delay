@@ -172,6 +172,7 @@ class OwnerLeaseTest {
             owned.activateForCommands(authority, 101);
             assertEquals(StableCode.SCHEDULED,
                     owned.applyAuthoritatively(authority, first, firstPosition, 101).stableCode());
+            assertEquals(lease.ownerEpoch(), store.runtimeMetadata().lastOpenedOwnerEpoch());
 
             assertTrue(backend.release(owned.lease()));
             backend.acquire(shardId, "worker-new", 150, 100).orElseThrow();

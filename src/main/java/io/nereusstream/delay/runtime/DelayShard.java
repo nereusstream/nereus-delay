@@ -5627,6 +5627,19 @@ public final class DelayShard {
         return lastAppliedSourcePosition;
     }
 
+    /**
+     * Persists the owner epoch observed for the next activation boundary.
+     *
+     * <p>The epoch is Store metadata rather than a Shard Log mutation: it
+     * records which owner opened this physical Store Incarnation and must be
+     * durable before the surrounding owner gate becomes
+     * {@code ACTIVE_FOR_COMMANDS}. The Store enforces the non-decreasing
+     * unsigned-u64 rule and keeps the write synchronous.</p>
+     */
+    public synchronized void recordOpenedOwnerEpoch(final long ownerEpoch) {
+        store.recordOpenedOwnerEpoch(ownerEpoch);
+    }
+
     /** Returns the source-ordered ingress retry deadline, or {@code -1} before the first fence. */
     public synchronized long closedIngressDeadlineThrough() {
         return closedIngressDeadlineThrough;

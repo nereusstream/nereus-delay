@@ -11,6 +11,16 @@ V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障
 
 **Open semantic questions: none.**
 
+The local activation path now records the current `ownerEpoch` in the
+Store's non-decreasing `lastOpenedOwnerEpoch` projection before opening the
+Command gate, for both embedded and authoritative activation. A failed
+metadata/requeue batch cannot advance the source cursor or expose
+`ACTIVE_FOR_COMMANDS`; a later loss of the authority CAS leaves only a
+conservative owner-open marker. `OwnerLeaseTest` covers the authoritative
+activation branch. This closes the local metadata ordering seam, not the
+production Oxia lease/session transaction, RecoveryPin deletion or source
+replay authority.
+
 The inner Lane DRR now closes the weight-downgrade cap gap: registering an
 existing Lane with a lower scheduler weight recomputes the cap across all
 registered Lanes and immediately clamps historical deficit credit. The
