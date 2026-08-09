@@ -354,8 +354,15 @@ nonzero physical attempt，再分配 Source Position 并投影为 managed
 `SubmissionOutcomeMessageV1`。注入 `PreparedSubmissionAdapter` 时由该 adapter
 保持 exact managed/native branch dispatch；未配置真实 native adapter 的 embedded
 路径返回 typed `AUTO_FAST_PREREQUISITE_UNAVAILABLE`，不会把 native prepared
-submission 悄悄改走 managed。完整 `prepareAutoFast` 的 capability-snapshot
-issuer、Producer ownership 和 Broker evidence 仍是外部 release gate。
+submission 悄悄改走 managed。`DelayClient.prepareAutoFast` 现在补齐零 I/O
+selection seam：它消费调用方提供的 immutable Profile semantic envelopes、已签名
+`NativeCapabilitySnapshotV1` 和 pinned issuer key，在签名/expiry/target/partition/
+payload/metadata/timing/direct-authority 检查全部满足时生成新的 nonzero native
+delivery identity，并把 shifted Broker timestamp 固定进 native prepared bytes；任何
+native 不满足项都返回同一 strict managed frame。`AutoFastScheduleTest` 覆盖 eligible
+native、exact managed fallback 和 no Source Position admission。Snapshot issuer、
+Oxia protection-before-rotation、Broker guard、Producer ownership 和 production
+response evidence 仍是外部 release gate。
 调用注入 adapter 时不持有 embedded service monitor，阻塞的 transport 不会
 阻止 close fence；仅本地 embedded admission 在 monitor 内完成。
 close 还会在 DB close 失败后继续尝试释放共享 RocksDB 资源，并把后续失败作为

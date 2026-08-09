@@ -3,6 +3,7 @@ package io.nereusstream.delay.client;
 import io.nereusstream.delay.adapter.InMemoryPayloadObjectStore;
 import io.nereusstream.delay.adapter.PreparedSubmissionAdapter;
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.AdapterKindV1;
 import io.nereusstream.delay.protocol.CommandAppliedReceiptV1;
 import io.nereusstream.delay.protocol.CommandApplyStatusV1;
 import io.nereusstream.delay.protocol.CommandCodec;
@@ -20,6 +21,8 @@ import io.nereusstream.delay.protocol.PreparedControlOperationV1;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DefinitelyNotQueuedV1;
+import io.nereusstream.delay.protocol.DeliveryCapabilitySemanticV1;
+import io.nereusstream.delay.protocol.DestinationProfileSemanticV1;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.EnqueueOutcomeMessageV1;
 import io.nereusstream.delay.protocol.EnqueueUncertainV1;
@@ -54,6 +57,7 @@ import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.StableErrorV1;
 import io.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
+import io.nereusstream.delay.protocol.TimingCapabilityV1;
 import io.nereusstream.delay.protocol.UploadHandleKindV1;
 import io.nereusstream.delay.ownership.ControlOperationAuthority;
 import io.nereusstream.delay.ownership.ControlTargetRegistrationAuthority;
@@ -70,6 +74,7 @@ import io.nereusstream.delay.store.ShardStoreConfig;
 import io.nereusstream.delay.store.SharedRocksDbResources;
 
 import java.time.Clock;
+import java.security.SecureRandom;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -88,6 +93,7 @@ public final class EmbeddedDelayService implements DelayClient {
     private static final String EMBEDDED_CLUSTER_ID = "embedded";
     private static final UUID EMBEDDED_TOPIC_UUID = UUID.nameUUIDFromBytes(
             Bytes.utf8("embedded-command-topic"));
+    private static final SecureRandom NATIVE_DELIVERY_ID_RANDOM = new SecureRandom();
 
     private final ShardId shardId;
     private final Clock clock;
@@ -292,6 +298,118 @@ public final class EmbeddedDelayService implements DelayClient {
     public PreparedSubmissionV1 prepareManagedSubmissionV1(final PreparedCommand command) {
         ensureOpen();
         return PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(Objects.requireNonNull(command, "command")));
+    }
+
+    @Override
+    public PreparedSubmissionV1 prepareAutoFast(final AutoFastSchedule request) {
+        ensureOpen();
+        Objects.requireNonNull(request, "request");
+        final byte[] managedFrame = CommandCodec.encodeFrameV1(request.managedCommand());
+        final NativePreparedDeliveryV1 nativePrepared = prepareNative(request);
+        return nativePrepared == null
+                ? PreparedSubmissionV1.managed(managedFrame)
+                : PreparedSubmissionV1.nativePrepared(nativePrepared);
+    }
+
+    /**
+     * Performs only local selection. Any failed native prerequisite returns
+     * the already-validated managed frame; it never performs I/O or changes
+     * the branch after this method returns.
+     */
+    private NativePreparedDeliveryV1 prepareNative(final AutoFastSchedule request) {
+        final AutoFastSchedule.NativeCandidate candidate = request.nativeCandidate();
+        if (candidate == null) {
+            return null;
+        }
+        try {
+            final var managedBody = io.nereusstream.delay.protocol.CommandBodies.decodeScheduleV1(
+                    request.managedCommand().canonicalBody());
+            final var intent = managedBody.intent();
+            if (!intent.hasInlinePayload() || !intent.profile().equals(candidate.destinationProfile().ref())
+                    || !Arrays.equals(intent.inlinePayload(), candidate.inlinePayload())
+                    || intent.deliverAtEpochMs() != candidate.deliverAtEpochMs()
+                    || !Objects.equals(intent.eventTimeEpochMs(), candidate.eventTimeEpochMs())
+                    || intent.adapterMetadata().kind() != io.nereusstream.delay.protocol.AdapterMetadataV1.Kind.PULSAR
+                    || !intent.adapterMetadata().pulsar().equals(candidate.metadata())) {
+                return null;
+            }
+            if (!candidate.directTargetAuthority()) {
+                return null;
+            }
+            final var destinationEnvelope = candidate.destinationProfile();
+            final var capabilityEnvelope = candidate.capabilityProfile();
+            if (destinationEnvelope.profileKind() != io.nereusstream.delay.protocol.ProfileKindV1.DESTINATION
+                    || capabilityEnvelope.profileKind()
+                    != io.nereusstream.delay.protocol.ProfileKindV1.DELIVERY_CAPABILITY) {
+                return null;
+            }
+            if (!(destinationEnvelope.body() instanceof DestinationProfileSemanticV1 destination)
+                    || !(capabilityEnvelope.body() instanceof DeliveryCapabilitySemanticV1 capability)) {
+                return null;
+            }
+            if (destination.adapterKind() != AdapterKindV1.PULSAR
+                    || capability.adapterKind() != AdapterKindV1.PULSAR
+                    || !TimingCapabilityV1.includes(capability.timingCapabilityBits(),
+                    TimingCapabilityV1.PULSAR_AUTO_FAST)
+                    || !destination.deliveryCapability().equals(capabilityEnvelope.ref())
+                    || destination.targetResource().kind() != io.nereusstream.delay.protocol.BrokerResourceIdentityV1.Kind.PULSAR
+                    || !destination.targetResource().pulsar().equals(candidate.target())) {
+                return null;
+            }
+            final var snapshot = candidate.capabilitySnapshot();
+            if (!destinationEnvelope.ref().equals(snapshot.destination())
+                    || !capabilityEnvelope.ref().equals(snapshot.capability())
+                    || !snapshot.target().equals(candidate.target())
+                    || snapshot.physicalPartition() != candidate.physicalPartition()
+                    || candidate.physicalPartition() >= destination.targetPartitionCount()
+                    || (destination.targetPartitionPolicy()
+                    != io.nereusstream.delay.protocol.TargetPartitionPolicyV1.HASH_ONLY
+                    && !destination.allowedExplicitPartitions().contains(candidate.physicalPartition()))
+                    || !snapshot.verifySignature(candidate.issuerKey())) {
+                return null;
+            }
+            final long now = clock.millis();
+            if (now < 0 || now < snapshot.issuedAt().earliestEpochMs() || now >= snapshot.notAfterEpochMs()
+                    || candidate.deliverAtEpochMs() < now
+                    || candidate.deliverAtEpochMs() - now > candidate.nativeDelayBudgetMs()) {
+                return null;
+            }
+            final byte[] metadataBytes = candidate.metadata().canonicalBytes();
+            final long payloadBytes = candidate.inlinePayload().length;
+            if (payloadBytes > destination.maxPayloadBytes()
+                    || metadataBytes.length > destination.maxAdapterMetadataBytes()
+                    || payloadBytes > destination.maxTargetRecordBytes() - metadataBytes.length) {
+                return null;
+            }
+            final long brokerDeliverAt = Math.addExact(candidate.deliverAtEpochMs(),
+                    destination.targetClockAheadBoundMs());
+            final byte[] nativeDeliveryId = nextNativeDeliveryId();
+            return NativePreparedDeliveryV1.create(nativeDeliveryId, destinationEnvelope.ref(),
+                    capabilityEnvelope.ref(), candidate.target(), candidate.physicalPartition(),
+                    candidate.inlinePayload(), candidate.metadata(), candidate.eventTimeEpochMs(),
+                    candidate.deliverAtEpochMs(), brokerDeliverAt, snapshot);
+        } catch (RuntimeException ineligible) {
+            // Selection failure is a managed fallback. The strict managed frame
+            // has already been validated and is returned by the caller.
+            return null;
+        }
+    }
+
+    private static byte[] nextNativeDeliveryId() {
+        final byte[] value = new byte[32];
+        do {
+            NATIVE_DELIVERY_ID_RANDOM.nextBytes(value);
+        } while (allZero(value));
+        return value;
+    }
+
+    private static boolean allZero(final byte[] value) {
+        for (byte item : value) {
+            if (item != 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override

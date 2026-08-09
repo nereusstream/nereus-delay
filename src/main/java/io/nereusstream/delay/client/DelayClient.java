@@ -61,6 +61,12 @@ public interface DelayClient extends AutoCloseable {
     PreparedSubmissionV1 prepareManagedSubmissionV1(PreparedCommand command);
 
     /**
+     * Selects and freezes the managed/native branch before any transport I/O.
+     * An ineligible native candidate returns the exact managed prepared frame.
+     */
+    PreparedSubmissionV1 prepareAutoFast(AutoFastSchedule request);
+
+    /**
      * Submits the exact prepared branch through the configured transport seam.
      * A retry must reuse the same submission and physical attempt identity.
      */

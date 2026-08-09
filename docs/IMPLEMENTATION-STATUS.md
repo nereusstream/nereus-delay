@@ -57,8 +57,17 @@ nonzero physical attempt before source admission and returns the managed
 `PreparedSubmissionAdapter` owns managed/native transport dispatch when real
 adapters are available. Without that adapter, an embedded native branch stays
 typed as `AUTO_FAST_PREREQUISITE_UNAVAILABLE` rather than silently selecting
-managed; full `prepareAutoFast` capability-snapshot issuance remains an
-external adapter/authority release gate. The focused evidence is
+managed; `DelayClient.prepareAutoFast` now supplies the zero-I/O selection
+seam: it consumes caller-supplied immutable Profile semantic envelopes, a
+signed `NativeCapabilitySnapshotV1`, and a pinned issuer key; only when the
+signature, expiry, target/partition, payload/metadata, timing, and direct
+authority checks pass does it generate a nonzero native delivery identity and
+freeze the shifted Broker timestamp into native prepared bytes. Any native
+ineligibility returns the exact strict managed frame. `AutoFastScheduleTest`
+covers eligible native, exact managed fallback, and no Source Position
+admission. Snapshot issuance, Oxia protection-before-rotation, Broker guard,
+Producer ownership, and production response evidence remain external release
+gates. The focused evidence is
 `EmbeddedDelayServiceTest.managedPreparedSubmissionKeepsStrictBranchAndAttemptFence`.
 The embedded facade does not hold its service monitor while invoking an
 injected adapter, so a blocked transport cannot prevent the close fence.
@@ -1973,7 +1982,7 @@ to the intended modules:
 | `io.nereusstream.delay.runtime` | Deterministic Shard Log application, message state machine and Lane gate projection | `delay-core` |
 | `io.nereusstream.delay.scheduler` | Lane-local failure isolation and bounded weighted DRR | `delay-core` |
 | `io.nereusstream.delay.ownership` | Owner Lease CAS boundary and local ownerEpoch fencing | `delay-server` / `delay-metadata-oxia` |
-| `io.nereusstream.delay.client` | Strict preparation, immutable managed submission bridge, ordered enqueue outcomes, bounded command/message queries, receipt-bound large-payload operations and embedded conformance service | `delay-api` / `delay-client-core` / `delay-testkit` |
+| `io.nereusstream.delay.client` | Strict preparation, zero-I/O AUTO_FAST branch selection, immutable managed/native submission bridge, ordered enqueue outcomes, bounded command/message queries, receipt-bound large-payload operations and embedded conformance service | `delay-api` / `delay-client-core` / `delay-testkit` |
 | `io.nereusstream.delay.adapter` | Broker/destination interfaces and test adapters | ingress/adapter modules |
 
 ## Evidence matrix
