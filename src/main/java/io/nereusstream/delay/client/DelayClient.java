@@ -7,12 +7,16 @@ import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.FirstScheduleEligibilityV1;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.MessageQueryResponseV1;
+import io.nereusstream.delay.protocol.OpaquePayloadUploadHandleV1;
+import io.nereusstream.delay.protocol.PayloadAttestationResponseV1;
 import io.nereusstream.delay.protocol.PayloadCommitProofV1;
 import io.nereusstream.delay.protocol.PayloadReservationReceiptV1;
+import io.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.PublicDestinationBindingViewV1;
 import io.nereusstream.delay.protocol.PublicEvidenceRefV1;
 import io.nereusstream.delay.protocol.ScheduleIntent;
+import io.nereusstream.delay.protocol.UploadHandleKindV1;
 import io.nereusstream.delay.runtime.CommandResult;
 
 import java.util.List;
@@ -49,6 +53,12 @@ public interface DelayClient extends AutoCloseable {
                                                         DlqExportStateV1 dlqExportState,
                                                         PublicEvidenceRefV1 evidence,
                                                         FirstScheduleEligibilityV1 unknownEligibility);
+
+    CompletionStage<PayloadUploadHandleResponseV1> issuePayloadUploadHandle(
+            PayloadReservationReceiptV1 reservation, UploadHandleKindV1 kind, long nowEpochMs);
+
+    CompletionStage<PayloadAttestationResponseV1> attestPayloadUpload(
+            PayloadReservationReceiptV1 reservation, OpaquePayloadUploadHandleV1 handle, long nowEpochMs);
 
     CompletionStage<CommandResult> awaitApplied(CommandQueuedReceipt receipt);
 

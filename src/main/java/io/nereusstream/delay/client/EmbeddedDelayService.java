@@ -1,5 +1,6 @@
 package io.nereusstream.delay.client;
 
+import io.nereusstream.delay.adapter.InMemoryPayloadObjectStore;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CommandAppliedReceiptV1;
 import io.nereusstream.delay.protocol.CommandApplyStatusV1;
@@ -27,8 +28,13 @@ import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.MessageQueryResponseV1;
 import io.nereusstream.delay.protocol.NonPersistenceProofKindV1;
 import io.nereusstream.delay.protocol.NonPersistenceProofV1;
+import io.nereusstream.delay.protocol.OpaquePayloadUploadHandleV1;
+import io.nereusstream.delay.protocol.PayloadAttestationOutcomeV1;
+import io.nereusstream.delay.protocol.PayloadAttestationResponseV1;
 import io.nereusstream.delay.protocol.PayloadCommitProofV1;
 import io.nereusstream.delay.protocol.PayloadReservationReceiptV1;
+import io.nereusstream.delay.protocol.PayloadUploadHandleOutcomeV1;
+import io.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.PublicDestinationBindingViewV1;
 import io.nereusstream.delay.protocol.PublicEvidenceRefV1;
@@ -38,6 +44,7 @@ import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.StableErrorV1;
+import io.nereusstream.delay.protocol.UploadHandleKindV1;
 import io.nereusstream.delay.ownership.ControlOperationAuthority;
 import io.nereusstream.delay.ownership.ControlTargetRegistrationAuthority;
 import io.nereusstream.delay.ownership.InMemoryControlOperationAuthority;
@@ -47,6 +54,7 @@ import io.nereusstream.delay.runtime.CommandResult;
 import io.nereusstream.delay.runtime.DelayShard;
 import io.nereusstream.delay.runtime.DelayShardConfig;
 import io.nereusstream.delay.runtime.MessageQuerySnapshot;
+import io.nereusstream.delay.runtime.PayloadReservation;
 import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.ShardStoreConfig;
 import io.nereusstream.delay.store.SharedRocksDbResources;
@@ -79,6 +87,7 @@ public final class EmbeddedDelayService implements DelayClient {
     private final ControlOperationAuthority controlOperationAuthority;
     private final ControlTargetRegistrationAuthority controlTargetRegistrationAuthority;
     private final EmbeddedDelayServiceConfig clientConfig;
+    private final InMemoryPayloadObjectStore payloadObjectStore;
     private final Deque<QueuedRecord> pending = new ArrayDeque<>();
     /**
      * Bounded local evidence for records applied by an explicit drain call.
@@ -108,9 +117,17 @@ public final class EmbeddedDelayService implements DelayClient {
 
     public EmbeddedDelayService(final ShardStoreConfig storeConfig, final ShardId shardId, final Clock clock,
                                 final EmbeddedDelayServiceConfig clientConfig) {
+        this(storeConfig, shardId, clock, clientConfig, null);
+    }
+
+    /** Creates an embedded client with an optional deterministic local payload adapter. */
+    public EmbeddedDelayService(final ShardStoreConfig storeConfig, final ShardId shardId, final Clock clock,
+                                final EmbeddedDelayServiceConfig clientConfig,
+                                final InMemoryPayloadObjectStore payloadObjectStore) {
         this.shardId = Objects.requireNonNull(shardId, "shardId");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.clientConfig = Objects.requireNonNull(clientConfig, "clientConfig");
+        this.payloadObjectStore = payloadObjectStore;
         final SharedRocksDbResources openedResources = new SharedRocksDbResources(storeConfig);
         final ShardStore openedStore;
         try {
@@ -246,6 +263,35 @@ public final class EmbeddedDelayService implements DelayClient {
                 unknownEligibility));
     }
 
+    @Override
+    public synchronized CompletionStage<PayloadUploadHandleResponseV1> issuePayloadUploadHandle(
+            final PayloadReservationReceiptV1 receipt, final UploadHandleKindV1 kind, final long nowEpochMs) {
+        ensureOpen();
+        if (payloadObjectStore == null) {
+            return CompletableFuture.completedFuture(payloadStoreUnavailableForUpload(nowEpochMs));
+        }
+        if (kind == null || receipt == null || bindPayloadReceipt(receipt) == null) {
+            return CompletableFuture.completedFuture(payloadUploadError(
+                    PayloadUploadHandleOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED));
+        }
+        return CompletableFuture.completedFuture(payloadObjectStore.issueUploadHandle(receipt, kind, nowEpochMs));
+    }
+
+    @Override
+    public synchronized CompletionStage<PayloadAttestationResponseV1> attestPayloadUpload(
+            final PayloadReservationReceiptV1 receipt, final OpaquePayloadUploadHandleV1 handle,
+            final long nowEpochMs) {
+        ensureOpen();
+        if (payloadObjectStore == null) {
+            return CompletableFuture.completedFuture(payloadStoreUnavailableForAttestation(nowEpochMs));
+        }
+        if (receipt == null || handle == null || bindPayloadReceipt(receipt) == null) {
+            return CompletableFuture.completedFuture(payloadAttestationError(
+                    PayloadAttestationOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED));
+        }
+        return CompletableFuture.completedFuture(payloadObjectStore.attest(receipt, handle, nowEpochMs));
+    }
+
     /** Enqueues one command without reacquiring the service monitor. */
     private EnqueueOutcome enqueueInternal(final PreparedCommand command) {
         if (!shardId.equals(command.shardId())) {
@@ -299,6 +345,83 @@ public final class EmbeddedDelayService implements DelayClient {
                 || reservation.shardId().partition() != proof.partition()) {
             throw new IllegalArgumentException("payload reservation receipt and proof do not bind");
         }
+    }
+
+    /** Registers and validates the exact durable reservation before Object Store authority is used. */
+    private PayloadReservation bindPayloadReceipt(final PayloadReservationReceiptV1 receipt) {
+        try {
+            if (!shardId.equals(receipt.shardId())) {
+                return null;
+            }
+            final PayloadReservation reservation = shard.getReservation(receipt.reservationId());
+            if (reservation == null) {
+                return null;
+            }
+            payloadObjectStore.register(reservation);
+            return payloadObjectStore.reservationReceipt(reservation).equals(receipt) ? reservation : null;
+        } catch (RuntimeException mismatch) {
+            return null;
+        }
+    }
+
+    private static PayloadUploadHandleResponseV1 payloadStoreUnavailableForUpload(final long nowEpochMs) {
+        return payloadUploadError(PayloadUploadHandleOutcomeV1.OBJECT_STORE_UNAVAILABLE_RETRYABLE,
+                safeRetryAt(Math.max(0, nowEpochMs)));
+    }
+
+    private static PayloadUploadHandleResponseV1 payloadUploadError(final PayloadUploadHandleOutcomeV1 outcome) {
+        return payloadUploadError(outcome, null);
+    }
+
+    private static PayloadUploadHandleResponseV1 payloadUploadError(final PayloadUploadHandleOutcomeV1 outcome,
+                                                                    final Long retryAtEpochMs) {
+        return PayloadUploadHandleResponseV1.error(outcome,
+                StableErrorV1.of(FailureStageV1.PAYLOAD, stableCode(outcome), retryAtEpochMs, null, null, null));
+    }
+
+    private static PayloadAttestationResponseV1 payloadStoreUnavailableForAttestation(final long nowEpochMs) {
+        return payloadAttestationError(PayloadAttestationOutcomeV1.OBJECT_STORE_UNAVAILABLE_RETRYABLE,
+                safeRetryAt(Math.max(0, nowEpochMs)));
+    }
+
+    private static PayloadAttestationResponseV1 payloadAttestationError(final PayloadAttestationOutcomeV1 outcome) {
+        return payloadAttestationError(outcome, null);
+    }
+
+    private static PayloadAttestationResponseV1 payloadAttestationError(final PayloadAttestationOutcomeV1 outcome,
+                                                                        final Long retryAtEpochMs) {
+        return PayloadAttestationResponseV1.error(outcome,
+                StableErrorV1.of(FailureStageV1.PAYLOAD, stableCode(outcome), retryAtEpochMs, null, null, null));
+    }
+
+    private static StableCode stableCode(final PayloadUploadHandleOutcomeV1 outcome) {
+        return switch (outcome) {
+            case RESERVATION_EXPIRED -> StableCode.RESERVATION_EXPIRED;
+            case RESERVATION_ABANDONED -> StableCode.RESERVATION_ABANDONED;
+            case RESERVATION_CLOSED -> StableCode.PAYLOAD_RESERVATION_CLOSED;
+            case NOT_FOUND_OR_NOT_AUTHORIZED -> StableCode.NOT_FOUND_OR_NOT_AUTHORIZED;
+            case SHARD_TRANSITIONING -> StableCode.SHARD_TRANSITIONING;
+            case SHARD_UNAVAILABLE -> StableCode.SHARD_UNAVAILABLE;
+            case INTEGRITY_ERROR -> StableCode.INTEGRITY_ERROR;
+            case OBJECT_STORE_UNAVAILABLE_RETRYABLE -> StableCode.OBJECT_STORE_UNAVAILABLE_RETRYABLE;
+            case ISSUED -> throw new IllegalArgumentException("ISSUED has no error");
+        };
+    }
+
+    private static StableCode stableCode(final PayloadAttestationOutcomeV1 outcome) {
+        return switch (outcome) {
+            case OBJECT_NOT_READY_RETRYABLE -> StableCode.OBJECT_NOT_READY_RETRYABLE;
+            case OBJECT_STORE_UNAVAILABLE_RETRYABLE -> StableCode.OBJECT_STORE_UNAVAILABLE_RETRYABLE;
+            case OBJECT_IDENTITY_CONFLICT -> StableCode.OBJECT_IDENTITY_CONFLICT;
+            case RESERVATION_EXPIRED -> StableCode.RESERVATION_EXPIRED;
+            case RESERVATION_ABANDONED -> StableCode.RESERVATION_ABANDONED;
+            case RESERVATION_CLOSED -> StableCode.PAYLOAD_RESERVATION_CLOSED;
+            case NOT_FOUND_OR_NOT_AUTHORIZED -> StableCode.NOT_FOUND_OR_NOT_AUTHORIZED;
+            case SHARD_TRANSITIONING -> StableCode.SHARD_TRANSITIONING;
+            case SHARD_UNAVAILABLE -> StableCode.SHARD_UNAVAILABLE;
+            case INTEGRITY_ERROR -> StableCode.INTEGRITY_ERROR;
+            case ATTESTED -> throw new IllegalArgumentException("ATTESTED has no error");
+        };
     }
 
     /** Applies all queued records in Source Position order. */

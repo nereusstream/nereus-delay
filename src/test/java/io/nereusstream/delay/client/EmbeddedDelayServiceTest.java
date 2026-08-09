@@ -35,6 +35,11 @@ import io.nereusstream.delay.protocol.MessagePreconditionV1;
 import io.nereusstream.delay.protocol.PayloadCommitProofV1;
 import io.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
 import io.nereusstream.delay.protocol.PayloadReservationReceiptV1;
+import io.nereusstream.delay.protocol.PayloadAttestationOutcomeV1;
+import io.nereusstream.delay.protocol.PayloadAttestationResponseV1;
+import io.nereusstream.delay.protocol.PayloadUploadHandleOutcomeV1;
+import io.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
+import io.nereusstream.delay.protocol.UploadHandleKindV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.RetryPolicyRefV1;
@@ -133,6 +138,24 @@ class EmbeddedDelayServiceTest {
                     payload.length, payloadHash, 4_500, keyPair.getPrivate());
             assertThrows(IllegalArgumentException.class,
                     () -> service.prepareLargePayloadCommit(receipt, drifted, 10_000));
+        }
+    }
+
+    @Test
+    void payloadClientWithoutLocalObjectStoreReturnsTypedRetryableOutcome() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 23);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("payload-store-unavailable")), shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final PayloadUploadHandleResponseV1 handle = service.issuePayloadUploadHandle(null,
+                    UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_000).toCompletableFuture().join();
+            assertEquals(PayloadUploadHandleOutcomeV1.OBJECT_STORE_UNAVAILABLE_RETRYABLE, handle.outcome());
+            assertEquals(StableCode.OBJECT_STORE_UNAVAILABLE_RETRYABLE, handle.error().code());
+            final PayloadAttestationResponseV1 attestation = service.attestPayloadUpload(null, null, 1_000)
+                    .toCompletableFuture().join();
+            assertEquals(PayloadAttestationOutcomeV1.OBJECT_STORE_UNAVAILABLE_RETRYABLE,
+                    attestation.outcome());
+            assertEquals(StableCode.OBJECT_STORE_UNAVAILABLE_RETRYABLE, attestation.error().code());
         }
     }
 

@@ -20,6 +20,14 @@ trust-set version and proof expiry before producing the canonical V1 command;
 proof signature verification and source-ordered reservation authority remain
 apply-time/production gates.
 
+`DelayClient.issuePayloadUploadHandle` and `attestPayloadUpload` now expose the
+deterministic local Object Store seam when an `InMemoryPayloadObjectStore` is
+injected into `EmbeddedDelayService`. The facade rereads the exact shard
+reservation, registers it in the adapter, and compares the service-owned
+receipt before delegating; an unconfigured adapter returns the closed typed
+`OBJECT_STORE_UNAVAILABLE_RETRYABLE` branch. Provider credentials, Oxia
+protection CAS and remote Object Store authority remain release blockers.
+
 The local in-memory Owner Lease authority advances the raw `uint64` epoch
 domain through the high-bit boundary and fails only when the all-ones value is
 exhausted (`OwnerLeaseTest.ownerEpochSuccessorUsesTheCompleteUnsignedDomain`).
