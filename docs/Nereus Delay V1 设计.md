@@ -1096,6 +1096,10 @@ evidenceCursors
 lastCheckpointId
 lastOpenedOwnerEpoch
 cleanCloseMarker
+recoveryLineageBase
+lastObservedRecoveryFloor
+recoveryCatalogGeneration
+recoveryInstallOpenState
 ```
 
 本地物理 checkpoint primitive 若已经取得本次 checkpoint 的 16-byte
@@ -1119,6 +1123,18 @@ cleanCloseMarker
 | `meta_cf` | FIXED / LANE / QUOTA / PRODUCER / SCHEDULER / CONTROL_RESERVE / RECOVERY / SLO_OUTBOX | shard identity、Lane、quota、producer sequence、持久公平游标、控制保留量、lineage/Floor 与独立观测 outbox 状态 |
 
 不增加 per-feature application CF，避免每个 shard 的 memtable/metadata 放大。
+
+`meta_cf/RECOVERY` 的四个固定 key 只承载本地物理恢复投影，并且使用同一个
+WAL-synchronised WriteBatch：`recoveryKeyKind=1` 是
+`RecoveryCandidateRefV1` lineage/base（`LOCAL_STORE` 必须带当前 Store
+Incarnation）；`2` 是本 Store 最后观察到的完整 `RecoveryFloorRefV1`，其
+Source Position 必须属于当前 Shard；`3` 是非零 raw `uint64`
+`catalog_generation`（Floor 存在时必须与 Floor field 4 相等）；`4` 是带
+digest 的 `RecoveryInstallStateV1` install/open phase、Store Incarnation 和可选
+checkpoint identity。Fresh Store 不写 synthetic candidate，目录名和 checksummed
+`ACTIVE` pointer 都不能替代这四项事实。缺失任一项只表示本地没有 recovery-reuse
+proof；是否仍在 current Floor ancestry 内必须由 Recovery Catalog/Oxia authority
+另行证明，不能由 Store 自己推断。
 
 `meta_cf/LANE` 的 ACTIVE branch 在 Protocol Registry 上是直接嵌套的
 `ActiveLaneStateV1`（`LaneRecordEnvelopeV1` field 10）；它与同一个 shard 的

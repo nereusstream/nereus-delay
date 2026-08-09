@@ -2,6 +2,10 @@ package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.EvidenceCursorV1;
+import io.nereusstream.delay.protocol.RecoveryCandidateRefV1;
+import io.nereusstream.delay.protocol.RecoveryFloorRefV1;
+import io.nereusstream.delay.protocol.RecoveryInstallPhaseV1;
+import io.nereusstream.delay.protocol.RecoveryInstallStateV1;
 import io.nereusstream.delay.protocol.RecoveryPinV1;
 import io.nereusstream.delay.protocol.ShardSubjectV1;
 import io.nereusstream.delay.protocol.ShardId;
@@ -60,6 +64,11 @@ public final class ShardStore implements AutoCloseable {
     private static final int META_CLAIM_SEQUENCE = 11;
     private static final int META_PAYLOAD_PROOF_CONTROL_STATE = 12;
     private static final int META_PROFILE_CONTROL_STATE = 13;
+    private static final int META_RECOVERY_LINEAGE_BASE = 1;
+    private static final int META_RECOVERY_LAST_OBSERVED_FLOOR = 2;
+    private static final int META_RECOVERY_CATALOG_GENERATION = 3;
+    private static final int META_RECOVERY_INSTALL_STATE = 4;
+    private static final int META_RECOVERY_VALUE_TYPE = 1;
     private static final int META_FIXED_VALUE_TYPE = 1;
     private static final int META_PAYLOAD_PROOF_VALUE_TYPE = 9;
     private static final int META_PROFILE_VALUE_TYPE = 10;
@@ -92,6 +101,7 @@ public final class ShardStore implements AutoCloseable {
     private final boolean[] closedColumnFamilyOptions;
     private boolean cleanCloseAttempted;
     private StoreRuntimeMetadata runtimeMetadata;
+    private StoreRecoveryMetadata recoveryMetadata;
     private long closedIngressDeadlineThrough;
 
     private ShardStore(final ShardStoreConfig config, final ShardId shardId, final Path dbPath,
@@ -100,6 +110,7 @@ public final class ShardStore implements AutoCloseable {
                         final List<ColumnFamilyOptions> columnFamilyOptions,
                         final Map<ColumnFamily, ColumnFamilyHandle> handles, final StoreMetadata metadata,
                         final boolean ownsShardSlot, final StoreRuntimeMetadata runtimeMetadata,
+                        final StoreRecoveryMetadata recoveryMetadata,
                         final long closedIngressDeadlineThrough) {
         this.config = config;
         this.shardId = shardId;
@@ -115,6 +126,7 @@ public final class ShardStore implements AutoCloseable {
         this.physicalUsageSource = this::physicalUsage;
         this.closedColumnFamilyOptions = new boolean[columnFamilyOptions.size()];
         this.runtimeMetadata = runtimeMetadata;
+        this.recoveryMetadata = recoveryMetadata;
         this.closedIngressDeadlineThrough = closedIngressDeadlineThrough;
     }
 
@@ -279,10 +291,17 @@ public final class ShardStore implements AutoCloseable {
             if (pin != null) {
                 validateRecoveryPin(shardId, manifest, catalog, pin);
             }
+            final RecoveryCandidateRefV1 installedCandidate = manifest == null ? null
+                    : new RecoveryCandidateRefV1(
+                    io.nereusstream.delay.protocol.RecoveryCandidateKindV1.LOCAL_STORE,
+                    manifest.recoveryLineageId(), manifest.checkpointId(), manifest.manifestSha256(),
+                    uuidBytes(storeUuid));
+            final RecoveryFloorRefV1 observedFloor = pin == null ? null : pin.observedFloor();
             prepared = openAtPath(config, shardId, stagedDb, resources, storeUuid, false);
             if (!prepared.shardId().equals(shardId)) {
                 throw new IOException("install-mode DB shard identity mismatch");
             }
+            prepared.recordRecoveryMetadata(installedCandidate, observedFloor);
             prepared.close();
             prepared = null;
             ensureRealDirectory(activeDb.getParent());
@@ -815,18 +834,25 @@ public final class ShardStore implements AutoCloseable {
             validateFixedMetadata(db, handles.get(ColumnFamily.META), shardId);
             final RuntimeMetadataRead runtimeRead = readRuntimeMetadata(db, handles.get(ColumnFamily.META));
             runtimeMetadata = runtimeRead.metadata();
+            StoreRecoveryMetadata recoveryMetadata = readRecoveryMetadata(db, handles.get(ColumnFamily.META),
+                    metadata, restoreStoreIncarnation != null);
             final long closedIngressDeadlineThrough = runtimeRead.closedIngressDeadlineThrough();
             if (runtimeMetadata.cleanCloseMarker()) {
                 runtimeMetadata = runtimeMetadata.withCleanCloseMarker(false);
             }
+            final RecoveryInstallPhaseV1 openPhase = restoreStoreIncarnation == null
+                    ? RecoveryInstallPhaseV1.OPEN : RecoveryInstallPhaseV1.INSTALLED;
+            recoveryMetadata = recoveryMetadata.withInstallState(new RecoveryInstallStateV1(openPhase,
+                    uuidBytes(metadata.storeIncarnationUuid()), recoveryMetadata.checkpointId()));
             try (WriteBatch batch = new WriteBatch(); WriteOptions writeOptions = new WriteOptions().setSync(true)) {
                 putRuntimeMetadata(batch, handles.get(ColumnFamily.META), runtimeMetadata,
                         closedIngressDeadlineThrough);
+                putRecoveryMetadata(batch, handles.get(ColumnFamily.META), recoveryMetadata);
                 db.write(writeOptions, batch);
             }
             final ShardStore result = new ShardStore(config, shardId, dbPath, resources, db, dbOptions,
                     openedHandles.get(0), cfOptions, handles, metadata, ownsShardSlot, runtimeMetadata,
-                    closedIngressDeadlineThrough);
+                    recoveryMetadata, closedIngressDeadlineThrough);
             resources.registerPhysicalUsage(shardId, result.physicalUsageSource);
             keepOpen = true;
             return result;
@@ -880,6 +906,53 @@ public final class ShardStore implements AutoCloseable {
                 ? List.of() : StoreRuntimeMetadata.decodeEvidenceCursors(evidenceBytes);
         return new RuntimeMetadataRead(new StoreRuntimeMetadata(ingressFence.proofId(), checkpointId, ownerEpoch,
                 cleanClose, evidenceCursors), ingressFence.closedThroughEpochMs());
+    }
+
+    private static StoreRecoveryMetadata readRecoveryMetadata(final RocksDB db,
+                                                              final ColumnFamilyHandle metaHandle,
+                                                              final StoreMetadata metadata,
+                                                              final boolean installMode)
+            throws RocksDBException {
+        final byte[] lineageBytes = optionalRecoveryValue(db, metaHandle, META_RECOVERY_LINEAGE_BASE);
+        final RecoveryCandidateRefV1 lineageBase = lineageBytes == null
+                ? null : RecoveryCandidateRefV1.decode(lineageBytes);
+        if (!installMode && lineageBase != null
+                && lineageBase.kind() == io.nereusstream.delay.protocol.RecoveryCandidateKindV1.LOCAL_STORE
+                && !java.util.Arrays.equals(lineageBase.storeIncarnation(), metadata.storeIncarnation())) {
+            throw new IllegalStateException("local recovery candidate store incarnation does not match DB identity");
+        }
+        final byte[] floorBytes = optionalRecoveryValue(db, metaHandle, META_RECOVERY_LAST_OBSERVED_FLOOR);
+        final RecoveryFloorRefV1 floor = floorBytes == null ? null : RecoveryFloorRefV1.decode(floorBytes);
+        if (floor != null && !metadata.shardId().equals(floor.appliedSourcePosition().shardId())) {
+            throw new IllegalStateException("persisted Recovery Floor belongs to another shard");
+        }
+        final byte[] generationBytes = optionalRecoveryValue(db, metaHandle, META_RECOVERY_CATALOG_GENERATION);
+        final long catalogGeneration;
+        if (generationBytes == null) {
+            catalogGeneration = 0;
+        } else {
+            if (generationBytes.length != Long.BYTES) {
+                throw new IllegalArgumentException("invalid persisted recovery catalog generation");
+            }
+            catalogGeneration = Bytes.readU64be(generationBytes, 0);
+            if (catalogGeneration == 0) {
+                throw new IllegalArgumentException("persisted recovery catalog generation must be nonzero");
+            }
+        }
+        final byte[] installBytes = optionalRecoveryValue(db, metaHandle, META_RECOVERY_INSTALL_STATE);
+        final RecoveryInstallStateV1 installState = installBytes == null
+                ? null : RecoveryInstallStateV1.decode(installBytes);
+        if (!installMode && installState != null
+                && !java.util.Arrays.equals(installState.storeIncarnation(), metadata.storeIncarnation())) {
+            throw new IllegalStateException("recovery install state store incarnation does not match DB identity");
+        }
+        return new StoreRecoveryMetadata(lineageBase, floor, catalogGeneration, installState);
+    }
+
+    private static byte[] optionalRecoveryValue(final RocksDB db, final ColumnFamilyHandle metaHandle,
+                                                final int recoveryKeyKind) throws RocksDBException {
+        final byte[] encoded = db.get(metaHandle, KeyCodec.metaRecovery(recoveryKeyKind));
+        return encoded == null ? null : ValueEnvelope.decode(encoded, META_RECOVERY_VALUE_TYPE).payload();
     }
 
     private static void validateFixedMetadata(final RocksDB db, final ColumnFamilyHandle metaHandle,
@@ -952,6 +1025,29 @@ public final class ShardStore implements AutoCloseable {
         batch.put(metaHandle, KeyCodec.metaFixed(META_CLEAN_CLOSE_MARKER),
                 ValueEnvelope.encode(META_FIXED_VALUE_TYPE,
                         Bytes.u8(next.cleanCloseMarker() ? 1 : 0)));
+    }
+
+    private static void putRecoveryMetadata(final WriteBatch batch, final ColumnFamilyHandle metaHandle,
+                                            final StoreRecoveryMetadata next) throws RocksDBException {
+        putOptionalRecoveryValue(batch, metaHandle, META_RECOVERY_LINEAGE_BASE,
+                next.lineageBase() == null ? null : next.lineageBase().canonicalBytes());
+        putOptionalRecoveryValue(batch, metaHandle, META_RECOVERY_LAST_OBSERVED_FLOOR,
+                next.lastObservedFloor() == null ? null : next.lastObservedFloor().canonicalBytes());
+        putOptionalRecoveryValue(batch, metaHandle, META_RECOVERY_CATALOG_GENERATION,
+                next.catalogGeneration() == 0 ? null : Bytes.u64beBits(next.catalogGeneration()));
+        putOptionalRecoveryValue(batch, metaHandle, META_RECOVERY_INSTALL_STATE,
+                next.installState() == null ? null : next.installState().canonicalBytes());
+    }
+
+    private static void putOptionalRecoveryValue(final WriteBatch batch, final ColumnFamilyHandle metaHandle,
+                                                 final int recoveryKeyKind, final byte[] payload)
+            throws RocksDBException {
+        final byte[] key = KeyCodec.metaRecovery(recoveryKeyKind);
+        if (payload == null) {
+            batch.delete(metaHandle, key);
+        } else {
+            batch.put(metaHandle, key, ValueEnvelope.encode(META_RECOVERY_VALUE_TYPE, payload));
+        }
     }
 
     private static void putOptionalFixedValue(final WriteBatch batch, final ColumnFamilyHandle metaHandle,
@@ -1209,6 +1305,43 @@ public final class ShardStore implements AutoCloseable {
         return runtimeMetadata;
     }
 
+    /** Returns the local recovery projection; it is not Oxia or catalog authority. */
+    public synchronized StoreRecoveryMetadata recoveryMetadata() {
+        return recoveryMetadata;
+    }
+
+    /**
+     * Returns whether this DB contains the minimum local facts needed before
+     * an external catalog can consider local recovery reuse.  The catalog must
+     * still prove ancestry/Floor coverage; this method never does so itself.
+     */
+    public synchronized boolean hasReusableRecoveryProof() {
+        return recoveryMetadata.hasReusableProof();
+    }
+
+    /**
+     * Atomically records the local lineage/base and observed Floor projection
+     * for this Store Incarnation.  A null Floor clears the local reuse proof.
+     */
+    public synchronized void recordRecoveryMetadata(final RecoveryCandidateRefV1 lineageBase,
+                                                     final RecoveryFloorRefV1 lastObservedFloor) {
+        ensureOpen();
+        if (lastObservedFloor != null
+                && !shardId.equals(lastObservedFloor.appliedSourcePosition().shardId())) {
+            throw new IllegalArgumentException("Recovery Floor belongs to another shard");
+        }
+        if (lineageBase != null
+                && lineageBase.kind() == io.nereusstream.delay.protocol.RecoveryCandidateKindV1.LOCAL_STORE
+                && !java.util.Arrays.equals(lineageBase.storeIncarnation(), metadata.storeIncarnation())) {
+            throw new IllegalArgumentException("local recovery candidate must identify this Store Incarnation");
+        }
+        final RecoveryInstallStateV1 state = new RecoveryInstallStateV1(RecoveryInstallPhaseV1.OPEN,
+                metadata.storeIncarnation(), lineageBase == null ? null : lineageBase.checkpointId());
+        final StoreRecoveryMetadata next = new StoreRecoveryMetadata(lineageBase, lastObservedFloor,
+                lastObservedFloor == null ? 0 : lastObservedFloor.catalogGeneration(), state);
+        write(batch -> batch.putRecoveryMetadata(next));
+    }
+
     /** Returns the exact source position persisted by the authoritative shard WriteBatch. */
     public synchronized SourcePosition appliedShardLogPosition() {
         final ValueEnvelope.Decoded value = getValue(ColumnFamily.META,
@@ -1314,6 +1447,9 @@ public final class ShardStore implements AutoCloseable {
             db.write(writeOptions, batch);
             if (pending.runtimeMetadata != null) {
                 runtimeMetadata = pending.runtimeMetadata;
+            }
+            if (pending.recoveryMetadata != null) {
+                recoveryMetadata = pending.recoveryMetadata;
             }
             try {
                 closedIngressDeadlineThrough = readIngressFenceState(db, handles.get(ColumnFamily.META))
@@ -1461,7 +1597,14 @@ public final class ShardStore implements AutoCloseable {
                 // close protocol. The marker is attempted at most once: if it
                 // fails, the native DB may still be torn down safely and the
                 // next open will conservatively treat the store as unclean.
-                persistRuntimeMetadata(runtimeMetadata.withCleanCloseMarker(true));
+                final StoreRuntimeMetadata cleanRuntime = runtimeMetadata.withCleanCloseMarker(true);
+                final StoreRecoveryMetadata cleanRecovery = recoveryMetadata.withInstallState(
+                        new RecoveryInstallStateV1(RecoveryInstallPhaseV1.CLOSED_CLEAN,
+                                metadata.storeIncarnation(), recoveryMetadata.checkpointId()));
+                write(batch -> {
+                    batch.putRuntimeMetadata(cleanRuntime);
+                    batch.putRecoveryMetadata(cleanRecovery);
+                });
             } catch (RuntimeException exception) {
                 closeFailure = appendCloseFailure(closeFailure, exception);
             }
@@ -1619,6 +1762,7 @@ public final class ShardStore implements AutoCloseable {
         private final Map<ColumnFamily, ColumnFamilyHandle> handles;
         private final StoreRuntimeMetadata currentRuntimeMetadata;
         private StoreRuntimeMetadata runtimeMetadata;
+        private StoreRecoveryMetadata recoveryMetadata;
         private long closedIngressDeadlineThrough;
 
         private Batch(final WriteBatch batch, final Map<ColumnFamily, ColumnFamilyHandle> handles,
@@ -1647,6 +1791,16 @@ public final class ShardStore implements AutoCloseable {
             }
             ShardStore.putRuntimeMetadata(batch, handle(ColumnFamily.META), next, closedIngressDeadlineThrough);
             runtimeMetadata = next;
+        }
+
+        /** Adds the Store recovery projection to this same atomic WriteBatch. */
+        public void putRecoveryMetadata(final StoreRecoveryMetadata next) throws RocksDBException {
+            Objects.requireNonNull(next, "next");
+            if (recoveryMetadata != null) {
+                throw new IllegalStateException("Store recovery metadata may be written once per batch");
+            }
+            ShardStore.putRecoveryMetadata(batch, handle(ColumnFamily.META), next);
+            recoveryMetadata = next;
         }
 
         /** Advances the source-ordered ingress fence in the same atomic WriteBatch. */

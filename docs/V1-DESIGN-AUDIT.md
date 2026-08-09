@@ -1878,6 +1878,18 @@ codec、生命周期与失败清理。该投影只证明本地 Store 事实，�
 lease/catalog 或真实 Broker fence authority。`TIME_FENCE` 的 verified proof ID
 现在与 mutation result/source position 在同一 batch 原子落盘，重开回归也验证该
 proof identity。
+`meta/RECOVERY` 的四个注册 key 现在也有独立的本地投影：key 1 持久
+`RecoveryCandidateRefV1` lineage/base，key 2 持久完整 typed `RecoveryFloorRefV1`，
+key 3 持久与 Floor generation 绑定的 raw `uint64` catalog generation，key 4 持久
+带 digest 的 `RecoveryInstallStateV1` install/open phase。Shard Store 在 open、
+install-mode、normal close 与恢复候选安装时用 WAL-synchronised batch 更新这些值，
+并拒绝 foreign-shard Floor、LOCAL_STORE candidate/DB identity 漂移和 install-state
+Store Incarnation 漂移；restore 会为新 Store Incarnation 记录 LOCAL_STORE candidate
+及 pin 观察到的 Floor。`StoreRecoveryMetadataTest`、
+`RecoveryInstallStateV1Test` 和 `ShardStoreTest.catalogBoundRestoreRequiresPublishedFloorEligibleManifest`
+覆盖 canonical round-trip、key/value projection、reopen 与 restore。该投影只闭合
+本地 recovery-reuse facts；`hasReusableRecoveryProof()` 不证明 ancestry/Floor
+coverage，也不替代 Oxia Owner Lease/session/catalog authority。
 带 identity 的 `ShardStore.createCheckpoint(path, checkpointId)` 会先把 exact
 16-byte checkpoint identity 写入 live DB，再拍摄完整镜像；物理失败会同步恢复
 旧 projection，恢复后的 DB 因而保留它所代表的 checkpoint identity。无 identity

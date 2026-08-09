@@ -1079,6 +1079,32 @@ durable projection of the Route Broker system-writer reservation; it is not
 proof that an external Broker quota authority has granted or charged that
 reservation.
 
+`meta/RECOVERY` values use ValueEnvelope type `1` and are closed as follows:
+
+- recoveryKeyKind `1` is the canonical `RecoveryCandidateRefV1` for the local
+  lineage/base projection. A `LOCAL_STORE` candidate must carry the current
+  Store Incarnation; a fresh store has no candidate and must not synthesize one
+  from its directory or `ACTIVE` pointer.
+- recoveryKeyKind `2` is the canonical `RecoveryFloorRefV1` last observed by
+  the local Store. Its Source Position must belong to this Shard.
+- recoveryKeyKind `3` is exactly eight big-endian bytes carrying a nonzero raw
+  `uint64 catalog_generation`. When key `2` is present this value must equal
+  the Floor's field 4; absence is encoded by an absent key, never by zero.
+- recoveryKeyKind `4` is the canonical `RecoveryInstallStateV1`: fields 1
+  `version=1`, 2 `RecoveryInstallPhaseV1 phase`, 3 Store Incarnation[16],
+  optional 4 checkpoint ID[16], and 5 state digest[32]. The digest is
+  `SHA-256("nereus-delay-recovery-install-state-v1\\0" || canonical fields
+  1–4)`. `FRESH`, `STAGED`, `INSTALLED`, `OPEN` and `CLOSED_CLEAN` are the
+  only phases. The value records physical install/open history; it is not an
+  Owner Lease, Recovery Pin or catalog decision.
+
+Keys 1–4 are updated in one WAL-synchronised WriteBatch whenever a Store
+Incarnation is installed or its local recovery observation changes. A Store
+may be considered for local reuse only when the lineage/base, observed Floor,
+catalog generation, install state, DB identity and shard identity are all
+present and internally consistent; current Floor ancestry and Oxia authority
+remain external checks.
+
 第二 byte 总是 key-format version `01`。布局：
 
 ```text

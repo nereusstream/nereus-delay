@@ -185,6 +185,26 @@ class ShardStoreTest {
     }
 
     @Test
+    void foreignRecoveryFloorDoesNotLeaveRocksDbOpen() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("foreign-recovery-floor"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 36);
+        final Path dbPath;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            dbPath = store.dbPath();
+        }
+        final ShardId foreignShard = new ShardId(RouteIncarnation.random(), 36);
+        final RecoveryFloorRefV1 foreignFloor = new RecoveryFloorRefV1(bytes(37), bytes(38), bytes(32, 39), 1,
+                new KafkaSourcePosition(foreignShard, "cluster", UUID.randomUUID(), 1, null, 1), 1, List.of());
+        overwriteRawColumnFamilyValue(dbPath, "meta_cf", KeyCodec.metaRecovery(2),
+                ValueEnvelope.encode(1, foreignFloor.canonicalBytes()));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+            assertThrows(IllegalStateException.class, () -> ShardStore.open(config, shardId, resources));
+        }
+        assertRawRocksDbCanBeOpened(dbPath);
+    }
+
+    @Test
     void fixedControlMetadataIsValidatedBeforeShardActivation() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("fixed-control-metadata"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 35);
@@ -660,6 +680,12 @@ class ShardStoreTest {
              ShardStore restored = ShardStore.restoreFromCheckpoint(restoreConfig, shardId, resources,
                      checkpoint, manifest, catalog, pin)) {
             assertArrayEquals(payload, restored.getValue(ColumnFamily.META, key, 3).payload());
+            assertEquals(floorRef, restored.recoveryMetadata().lastObservedFloor());
+            assertEquals(floorRef.catalogGeneration(), restored.recoveryMetadata().catalogGeneration());
+            assertEquals(RecoveryCandidateKindV1.LOCAL_STORE, restored.recoveryMetadata().lineageBase().kind());
+            assertArrayEquals(restored.metadata().storeIncarnation(),
+                    restored.recoveryMetadata().lineageBase().storeIncarnation());
+            assertTrue(restored.hasReusableRecoveryProof());
         }
         catalog.releaseRecoveryPin(pin);
         final ShardStoreConfig missingPinConfig = ShardStoreConfig.defaults(tempDir.resolve("missing-pin-restore"));
