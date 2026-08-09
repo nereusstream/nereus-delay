@@ -1557,7 +1557,11 @@ write-time attribution and authoritative checkpoint/compaction admission still
 remain release gates. `WorkClass`, `WorkClassPolicy`,
 `WorkClassTask` and `WorkClassScheduler` now provide a seven-class local
 queue/turn seam with bounded queue records/bytes, per-turn records/bytes/time,
-lease/fence preemption and stale-class selection. `WorkClassResourcePool`
+lease/fence preemption and stale-class selection. The service timestamp used
+to mark a class served is read before any head removal or fairness mutation, so
+an invalid monotonic-clock sample cannot drop a queued head
+(`WorkClassSchedulerTest.invalidClockSampleDoesNotDropHeadBeforeTurnMutation`).
+`WorkClassResourcePool`
 additionally protects other classes' non-borrowable record/byte minima and
 bounds borrowed lease holds, covered by `WorkClassSchedulerTest` and
 `WorkClassResourcePoolTest`. Production Worker event-loop wiring, chunk-level

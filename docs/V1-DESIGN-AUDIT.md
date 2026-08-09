@@ -1530,7 +1530,11 @@ other-native bucket；`SharedRocksDbResources` 在 JNI 创建前预留 shared ca
 提供 bounded queue/turn record-byte-time caps、`LEASE_FENCE` 抢占和 stale-class
 选择；`WorkClassResourcePool` 还按 class 保护 non-borrowable record/byte
 minimum、把 acquisition checked-sum overflow 转成 closed rejection，并限制
-borrowed hold time；这些仍是本地 scheduler/resource seams。
+borrowed hold time；这些仍是本地 scheduler/resource seams。`WorkClassScheduler`
+现在会在任何 queue head removal、deficit 扣减或 fairness counter 推进之前
+读取用于 `lastServed` 的单调时钟样本；负值/回拨样本只会 fail closed，不会丢掉
+仍由 bounded queue 支持的 head，回归证据为
+`WorkClassSchedulerTest.invalidClockSampleDoesNotDropHeadBeforeTurnMutation`。
 `WorkerRuntimeSafetyGate` 还把新鲜的 JVM/cgroup/FD/filesystem
 observation 接入一个 sticky `ACTIVE -> DRAIN_OR_MIGRATE` 门；共享资源的
 ownership/restore slots 和 embedded Claim 在门未恢复前 fail closed，只有

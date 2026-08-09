@@ -86,13 +86,17 @@ public final class WorkClassScheduler {
                 break;
             }
             final ClassState state = states.get(order.get(selected));
+            // Read the service timestamp before mutating the queue.  A clock
+            // regression/invalid sample must fail closed without losing a
+            // durable-looking head from the in-memory bounded queue.
+            final long servedAtNanos = readClock();
             final WorkClassTask task = state.queue.removeFirst();
             state.queuedBytes -= task.bytes();
             final TurnUsage classUsage = usage.get(state.workClass);
             classUsage.records++;
             classUsage.bytes = Math.addExact(classUsage.bytes, task.bytes());
             state.credits--;
-            state.lastServedNanos = readClock();
+            state.lastServedNanos = servedAtNanos;
             cursor = (selected + 1) % order.size();
             noProgressRounds = 0;
             result.add(task);

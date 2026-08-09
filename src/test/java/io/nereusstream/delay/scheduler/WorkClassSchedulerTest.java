@@ -4,7 +4,9 @@ import org.junit.jupiter.api.Test;
 
 import java.util.EnumMap;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.LongSupplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -59,6 +61,19 @@ class WorkClassSchedulerTest {
         assertEquals(1, scheduler.pending(WorkClass.QUERY));
     }
 
+    @Test
+    void invalidClockSampleDoesNotDropHeadBeforeTurnMutation() {
+        final AtomicInteger calls = new AtomicInteger();
+        final LongSupplier clock = () -> calls.getAndIncrement() < 4 ? 0 : -1;
+        final WorkClassScheduler scheduler = scheduler(clock, 100);
+        scheduler.offer(new WorkClassTask(WorkClass.QUERY, "query-1", 1));
+
+        assertThrows(IllegalStateException.class,
+                () -> scheduler.poll(new SchedulerBudget(1, 10, 1_000)));
+        assertEquals(1, scheduler.pending(WorkClass.QUERY));
+        assertEquals(1, scheduler.pendingBytes(WorkClass.QUERY));
+    }
+
     private static WorkClassScheduler scheduler(final long now, final long delay) {
         return scheduler(new AtomicLong(now), delay);
     }
@@ -76,5 +91,16 @@ class WorkClassSchedulerTest {
                     1_000, preemptive ? 1 : 0, preemptive ? 1 : 0, preemptive));
         }
         return new WorkClassScheduler(policies, delay, now::get);
+    }
+
+    private static WorkClassScheduler scheduler(final LongSupplier clock, final long delay) {
+        final EnumMap<WorkClass, WorkClassPolicy> policies = new EnumMap<>(WorkClass.class);
+        for (WorkClass workClass : WorkClass.values()) {
+            final boolean preemptive = workClass == WorkClass.LEASE_FENCE;
+            final int maxRecordsPerTurn = workClass == WorkClass.SOURCE_APPLY ? 2 : 8;
+            policies.put(workClass, new WorkClassPolicy(1, 8, 64, maxRecordsPerTurn, 16,
+                    1_000, preemptive ? 1 : 0, preemptive ? 1 : 0, preemptive));
+        }
+        return new WorkClassScheduler(policies, delay, clock);
     }
 }

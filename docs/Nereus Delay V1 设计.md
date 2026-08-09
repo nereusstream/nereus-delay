@@ -1558,6 +1558,8 @@ Ready discovery 使用持久 rotating cursor 与 active DRR ring：bounded scan/
 
 任何会同时改变本地 queue、discovery cursor、active ring、fairness counter 或 readiness projection 的 scheduler turn（包括 fenced READY rebuild），都必须把内存 projection 与五值 `WriteBatch` 视为一个成功边界。`WriteBatch` 失败时必须先回滚已 poll/offer/rebuild 的 work、ring/cursor、DRR counters、discovery heads 和 recovery-first-pass bookkeeping，再向调用方返回失败；恢复快照也必须先完整校验所有已注册 Lane 的计数和唯一身份，再统一应用，重复 Lane/Shard entry 或后一个坏 entry 都不能让前一个 Lane/Shard 留下半恢复状态。持久化 projection 的语义 generation、owner 和跨值 identity 校验也必须在重建 active ring 之前完成；active ring 与 deficit entry 必须匹配当前 Lane incarnation 和 `observedLaneVersion`，stale deficit 不得恢复为当前 credit；若校验或 `restore` 失败，已注册 Lane 的原 ring、counter 和 recovery bookkeeping 必须保持不变。不得因为结果已在异常前暂时生成，就丢失仍由 durable READY 支持的 head，也不得把未落盘的 readiness 当成成功。这样失败后重试仍从原 successor/队列状态继续，重启时也能由 authoritative READY 重建。
 
+任何用于标记 work class 已服务的时钟样本也必须在移除 queue head、扣减 deficit 或推进公平计数之前成功读取；单调时钟回拨、负值或其它时钟采样错误必须在这些内存变更之前 fail closed，不能让一次失败的 bounded turn 丢失仍由队列支持的 head。
+
 这里的 `eligible` 必须按本轮 trusted due-through 重新计算：只有存在
 `eligibleAt <= dueThrough` 的 schedulable head 的 Lane/Shard 才进入 recovery
 first pass、outer deficit 或 service-gap 分母。仅有 future head 的 Lane/Shard 可以
