@@ -49,6 +49,18 @@ re-querying the closed union. Invalid/forged receipts return
 `RECEIPT_MISMATCH` without a drain side effect; the evidence is
 `EmbeddedDelayServiceTest.awaitAppliedV1DrainsOnlyAfterReceiptValidation`.
 
+The client seam now also exposes `prepareManagedSubmissionV1` and the exact
+prepared-branch `submit` operation. Managed submissions are wrapped from the
+strict V1 frame before any transport I/O; the embedded fallback validates the
+nonzero physical attempt before source admission and returns the managed
+`SubmissionOutcomeMessageV1` projection. A caller-injected
+`PreparedSubmissionAdapter` owns managed/native transport dispatch when real
+adapters are available. Without that adapter, an embedded native branch stays
+typed as `AUTO_FAST_PREREQUISITE_UNAVAILABLE` rather than silently selecting
+managed; full `prepareAutoFast` capability-snapshot issuance remains an
+external adapter/authority release gate. The focused evidence is
+`EmbeddedDelayServiceTest.managedPreparedSubmissionKeepsStrictBranchAndAttemptFence`.
+
 The local in-memory Owner Lease authority advances the raw `uint64` epoch
 domain through the high-bit boundary and fails only when the all-ones value is
 exhausted (`OwnerLeaseTest.ownerEpochSuccessorUsesTheCompleteUnsignedDomain`).
@@ -1959,7 +1971,7 @@ to the intended modules:
 | `io.nereusstream.delay.runtime` | Deterministic Shard Log application, message state machine and Lane gate projection | `delay-core` |
 | `io.nereusstream.delay.scheduler` | Lane-local failure isolation and bounded weighted DRR | `delay-core` |
 | `io.nereusstream.delay.ownership` | Owner Lease CAS boundary and local ownerEpoch fencing | `delay-server` / `delay-metadata-oxia` |
-| `io.nereusstream.delay.client` | Preparation, ordered enqueue outcomes, bounded command/message queries, receipt-bound large-payload operations and embedded conformance service | `delay-api` / `delay-client-core` / `delay-testkit` |
+| `io.nereusstream.delay.client` | Strict preparation, immutable managed submission bridge, ordered enqueue outcomes, bounded command/message queries, receipt-bound large-payload operations and embedded conformance service | `delay-api` / `delay-client-core` / `delay-testkit` |
 | `io.nereusstream.delay.adapter` | Broker/destination interfaces and test adapters | ingress/adapter modules |
 
 ## Evidence matrix

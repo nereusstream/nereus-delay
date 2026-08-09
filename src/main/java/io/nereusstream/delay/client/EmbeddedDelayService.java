@@ -1,6 +1,7 @@
 package io.nereusstream.delay.client;
 
 import io.nereusstream.delay.adapter.InMemoryPayloadObjectStore;
+import io.nereusstream.delay.adapter.PreparedSubmissionAdapter;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CommandAppliedReceiptV1;
 import io.nereusstream.delay.protocol.CommandApplyStatusV1;
@@ -28,8 +29,11 @@ import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.MessagePreconditionV1;
 import io.nereusstream.delay.protocol.MessageQueryResponseV1;
+import io.nereusstream.delay.protocol.NativeDefinitelyNotQueuedV1;
 import io.nereusstream.delay.protocol.NonPersistenceProofKindV1;
 import io.nereusstream.delay.protocol.NonPersistenceProofV1;
+import io.nereusstream.delay.protocol.NativePreparedDeliveryV1;
+import io.nereusstream.delay.protocol.NativePreparedRefV1;
 import io.nereusstream.delay.protocol.OpaquePayloadUploadHandleV1;
 import io.nereusstream.delay.protocol.PayloadAttestationOutcomeV1;
 import io.nereusstream.delay.protocol.PayloadAttestationResponseV1;
@@ -39,6 +43,7 @@ import io.nereusstream.delay.protocol.PayloadReservationReceiptV1;
 import io.nereusstream.delay.protocol.PayloadUploadHandleOutcomeV1;
 import io.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
+import io.nereusstream.delay.protocol.PreparedSubmissionV1;
 import io.nereusstream.delay.protocol.PublicDestinationBindingViewV1;
 import io.nereusstream.delay.protocol.PublicEvidenceRefV1;
 import io.nereusstream.delay.protocol.ScheduleIntent;
@@ -48,6 +53,7 @@ import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.StableErrorV1;
+import io.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
 import io.nereusstream.delay.protocol.UploadHandleKindV1;
 import io.nereusstream.delay.ownership.ControlOperationAuthority;
 import io.nereusstream.delay.ownership.ControlTargetRegistrationAuthority;
@@ -92,6 +98,7 @@ public final class EmbeddedDelayService implements DelayClient {
     private final ControlTargetRegistrationAuthority controlTargetRegistrationAuthority;
     private final EmbeddedDelayServiceConfig clientConfig;
     private final InMemoryPayloadObjectStore payloadObjectStore;
+    private final PreparedSubmissionAdapter preparedSubmissionAdapter;
     private final Deque<QueuedRecord> pending = new ArrayDeque<>();
     /**
      * Bounded local evidence for records applied by an explicit drain call.
@@ -128,10 +135,23 @@ public final class EmbeddedDelayService implements DelayClient {
     public EmbeddedDelayService(final ShardStoreConfig storeConfig, final ShardId shardId, final Clock clock,
                                 final EmbeddedDelayServiceConfig clientConfig,
                                 final InMemoryPayloadObjectStore payloadObjectStore) {
+        this(storeConfig, shardId, clock, clientConfig, payloadObjectStore, null);
+    }
+
+    /**
+     * Creates an embedded client with optional payload and prepared-submission
+     * adapters. The service owns the injected submission adapter and closes it
+     * as part of its retryable lifecycle teardown.
+     */
+    public EmbeddedDelayService(final ShardStoreConfig storeConfig, final ShardId shardId, final Clock clock,
+                                final EmbeddedDelayServiceConfig clientConfig,
+                                final InMemoryPayloadObjectStore payloadObjectStore,
+                                final PreparedSubmissionAdapter preparedSubmissionAdapter) {
         this.shardId = Objects.requireNonNull(shardId, "shardId");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.clientConfig = Objects.requireNonNull(clientConfig, "clientConfig");
         this.payloadObjectStore = payloadObjectStore;
+        this.preparedSubmissionAdapter = preparedSubmissionAdapter;
         final SharedRocksDbResources openedResources = new SharedRocksDbResources(storeConfig);
         final ShardStore openedStore;
         try {
@@ -266,6 +286,34 @@ public final class EmbeddedDelayService implements DelayClient {
         ensureOpen();
         return PreparedCommand.rescheduleV1(shardId, messageId, precondition, deliverAtEpochMs,
                 expireAtEpochMs, retryUntilEpochMs);
+    }
+
+    @Override
+    public PreparedSubmissionV1 prepareManagedSubmissionV1(final PreparedCommand command) {
+        ensureOpen();
+        return PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(Objects.requireNonNull(command, "command")));
+    }
+
+    @Override
+    public synchronized CompletionStage<SubmissionOutcomeMessageV1> submit(
+            final PreparedSubmissionV1 submission, final long receiptQueryUntilEpochMs,
+            final byte[] physicalEnqueueAttemptId) {
+        ensureOpen();
+        Objects.requireNonNull(submission, "submission");
+        if (preparedSubmissionAdapter != null) {
+            return preparedSubmissionAdapter.submit(submission, receiptQueryUntilEpochMs, physicalEnqueueAttemptId);
+        }
+        if (!submission.isManaged()) {
+            return CompletableFuture.completedFuture(nativeSubmissionUnavailable(submission.nativePrepared()));
+        }
+        final PreparedCommand command = CommandCodec.decodeFrameV1(submission.managedFrame());
+        if (!validPhysicalAttempt(physicalEnqueueAttemptId)) {
+            return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(localDefiniteOutcome(command,
+                    StableCode.INVALID_PREPARED_COMMAND)));
+        }
+        final EnqueueOutcome outcome = enqueueInternal(command, true);
+        return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(enqueueOutcomeV1(outcome,
+                receiptQueryUntilEpochMs, physicalEnqueueAttemptId)));
     }
 
     @Override
@@ -694,6 +742,23 @@ public final class EmbeddedDelayService implements DelayClient {
                 StableErrorV1.of(FailureStageV1.ENQUEUE, code, null, ref, null, null)));
     }
 
+    /**
+     * No native submission can be admitted by an embedded service without a
+     * pinned Pulsar adapter. Keep the branch typed and definitive before any
+     * Producer ownership rather than silently converting it to managed.
+     */
+    private static SubmissionOutcomeMessageV1 nativeSubmissionUnavailable(
+            final NativePreparedDeliveryV1 prepared) {
+        final NativePreparedRefV1 ref = prepared.preparedRef();
+        final NonPersistenceProofV1 proof = NonPersistenceProofV1.create(
+                NonPersistenceProofKindV1.LOCAL_BEFORE_PRODUCER_OWNERSHIP, null, ref.submissionHash(), null, null,
+                null);
+        final StableErrorV1 error = StableErrorV1.of(FailureStageV1.ENQUEUE,
+                StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE, null, null, ref, null);
+        return SubmissionOutcomeMessageV1.nativeDefinitelyNotQueued(
+                new NativeDefinitelyNotQueuedV1(ref, proof, error));
+    }
+
     private static boolean validPhysicalAttempt(final byte[] physicalAttemptId) {
         if (physicalAttemptId == null || physicalAttemptId.length != NonPersistenceProofV1.ATTEMPT_ID_LENGTH) {
             return false;
@@ -920,10 +985,21 @@ public final class EmbeddedDelayService implements DelayClient {
             closeStarted = true;
         }
         RuntimeException closeFailure = null;
+        if (preparedSubmissionAdapter != null) {
+            try {
+                preparedSubmissionAdapter.close();
+            } catch (RuntimeException exception) {
+                closeFailure = exception;
+            }
+        }
         try {
             store.close();
         } catch (RuntimeException exception) {
-            closeFailure = exception;
+            if (closeFailure == null) {
+                closeFailure = exception;
+            } else {
+                closeFailure.addSuppressed(exception);
+            }
         }
         try {
             resources.close();

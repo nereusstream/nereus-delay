@@ -348,6 +348,14 @@ Source Position 或 byte budget，且 batch 仍逐条保持输入顺序。
 `DelayClient.awaitAppliedV1` 在同一边界上补齐等待语义：先验证 pinned embedded
 receipt，再对 PENDING 结果 drain 并 reread；不合法 receipt 直接返回
 `RECEIPT_MISMATCH`，不会推进 source。
+`DelayClient.prepareManagedSubmissionV1` 现在把严格 V1 frame 包装为不可变的
+managed `PreparedSubmissionV1`，其 `submit` bridge 在嵌入式路径先验证
+nonzero physical attempt，再分配 Source Position 并投影为 managed
+`SubmissionOutcomeMessageV1`。注入 `PreparedSubmissionAdapter` 时由该 adapter
+保持 exact managed/native branch dispatch；未配置真实 native adapter 的 embedded
+路径返回 typed `AUTO_FAST_PREREQUISITE_UNAVAILABLE`，不会把 native prepared
+submission 悄悄改走 managed。完整 `prepareAutoFast` 的 capability-snapshot
+issuer、Producer ownership 和 Broker evidence 仍是外部 release gate。
 close 还会在 DB close 失败后继续尝试释放共享 RocksDB 资源，并把后续失败作为
 suppressed exception 聚合；成功 drain 后服务立即进入 closed 状态，避免部分关闭
 时继续触碰已关闭的 Store。该清理顺序仍只属于 embedded seam，不等于真实

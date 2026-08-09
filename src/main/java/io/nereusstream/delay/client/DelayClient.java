@@ -19,6 +19,8 @@ import io.nereusstream.delay.protocol.PublicDestinationBindingViewV1;
 import io.nereusstream.delay.protocol.PublicEvidenceRefV1;
 import io.nereusstream.delay.protocol.ScheduleIntent;
 import io.nereusstream.delay.protocol.ScheduleIntentV1;
+import io.nereusstream.delay.protocol.PreparedSubmissionV1;
+import io.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
 import io.nereusstream.delay.protocol.UploadHandleKindV1;
 import io.nereusstream.delay.runtime.CommandResult;
 
@@ -51,6 +53,20 @@ public interface DelayClient extends AutoCloseable {
 
     PreparedCommand prepareRescheduleV1(DelayMessageId messageId, MessagePreconditionV1 precondition,
                                         long deliverAtEpochMs, long expireAtEpochMs, long retryUntilEpochMs);
+
+    /**
+     * Wraps one strict V1 managed command as an immutable prepared-submission
+     * branch. This performs no transport I/O and never selects a native path.
+     */
+    PreparedSubmissionV1 prepareManagedSubmissionV1(PreparedCommand command);
+
+    /**
+     * Submits the exact prepared branch through the configured transport seam.
+     * A retry must reuse the same submission and physical attempt identity.
+     */
+    CompletionStage<SubmissionOutcomeMessageV1> submit(PreparedSubmissionV1 submission,
+                                                        long receiptQueryUntilEpochMs,
+                                                        byte[] physicalEnqueueAttemptId);
 
     CompletionStage<EnqueueOutcome> enqueue(PreparedCommand command);
 

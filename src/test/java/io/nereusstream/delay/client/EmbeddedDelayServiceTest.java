@@ -48,6 +48,7 @@ import io.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
 import io.nereusstream.delay.protocol.ObjectStoreProviderKindV1;
 import io.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
+import io.nereusstream.delay.protocol.PreparedSubmissionV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.RetryPolicyRefV1;
 import io.nereusstream.delay.protocol.ScheduleIntent;
@@ -56,6 +57,7 @@ import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.ShardSubjectV1;
 import io.nereusstream.delay.protocol.PreparedControlOperationV1;
 import io.nereusstream.delay.protocol.StableCode;
+import io.nereusstream.delay.protocol.SubmissionOutcomeKindV1;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.runtime.ApplyStatus;
@@ -135,6 +137,33 @@ class EmbeddedDelayServiceTest {
             assertEquals(EnqueueStatus.DEFINITELY_NOT_QUEUED, rejected.status());
             assertEquals(StableCode.INVALID_PREPARED_COMMAND.wireValue(), rejected.stableCode());
             assertEquals(1, service.pendingCommandCount());
+        }
+    }
+
+    @Test
+    void managedPreparedSubmissionKeepsStrictBranchAndAttemptFence() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 27);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("managed-submission")), shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final DelayClient client = service;
+            final PreparedCommand command = client.prepareCancelV1(DelayMessageId.random(shard),
+                    new MessagePreconditionV1(0L, null), 10_000);
+            final PreparedSubmissionV1 submission = client.prepareManagedSubmissionV1(command);
+            assertEquals(submission, PreparedSubmissionV1.decode(submission.canonicalBytes()));
+
+            final var invalidAttempt = client.submit(submission, 10_000, new byte[16])
+                    .toCompletableFuture().join();
+            assertEquals(SubmissionOutcomeKindV1.MANAGED, invalidAttempt.kind());
+            assertEquals(StableCode.INVALID_PREPARED_COMMAND,
+                    invalidAttempt.managed().definitelyNotQueued().error().code());
+
+            final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("managed-submit-attempt")), 16);
+            final var queued = client.submit(submission, 10_000, attempt).toCompletableFuture().join();
+            assertEquals(SubmissionOutcomeKindV1.MANAGED, queued.kind());
+            assertEquals(EnqueueOutcomeKindV1.QUEUED, queued.managed().kind());
+            assertEquals(command.commandId(), queued.managed().queued().command().commandId());
+            assertArrayEquals(attempt, queued.managed().queued().physicalEnqueueAttemptId());
         }
     }
 
