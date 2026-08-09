@@ -1283,7 +1283,8 @@ ownership/restore slots 和 embedded Claim 在门未恢复前 fail closed，只�
 mismatch 路由回同一个 sticky gate；这仍不是每次 DB 的动态 RocksDB
 attribution、WriteBatch 的 work-class reserve admission，也不替代真实
 checkpoint/compaction 调度和 Oxia placement authority；这些继续保持 release
-blocker。
+blocker。`SharedRocksDbResources.startRuntimeResourceMonitor` 由 shared owner
+持有并在 native teardown 前关闭，补上了本地 monitor 生命周期边界。
 
 Control Reserve 的本地投影也已覆盖 Registry 的 class 6：
 `meta_cf/CONTROL_RESERVE` 以 `CapacityVectorV1` 持久化 Broker system-writer

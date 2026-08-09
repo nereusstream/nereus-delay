@@ -1392,6 +1392,9 @@ additionally protects other classes' non-borrowable record/byte minima and
 bounds borrowed lease holds, covered by `WorkClassSchedulerTest` and
 `WorkClassResourcePoolTest`. Production Worker event-loop wiring, chunk-level
 token reacquisition and write-time authority remain release gates.
+`SharedRocksDbResources.startRuntimeResourceMonitor` now owns the monitor
+instance and closes it before native resource teardown, so the local monitor
+lifecycle cannot outlive the shared Worker resource owner.
 Restore admission only treats a checksum-validated `ACTIVE` pointer target as
 the live incarnation; an orphan incarnation left before pointer installation
 does not block a new atomic restore and remains available for later repair.

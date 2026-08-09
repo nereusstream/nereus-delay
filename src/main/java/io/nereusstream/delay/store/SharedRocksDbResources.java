@@ -7,6 +7,7 @@ import org.rocksdb.LRUCache;
 import org.rocksdb.RateLimiter;
 import org.rocksdb.WriteBufferManager;
 
+import java.time.Duration;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.Semaphore;
@@ -37,6 +38,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
     private final WorkerNativeResourceLedger.Reservation sharedBlockCacheReservation;
     private final WorkerNativeResourceLedger.Reservation sharedWriteBufferReservation;
     private final AtomicBoolean closed = new AtomicBoolean();
+    private WorkerRuntimeResourceMonitor runtimeResourceMonitor;
     /** Set after the in-flight check passes; all callers are then fenced. */
     private boolean closeStarted;
     private boolean rateLimiterClosed;
@@ -158,6 +160,18 @@ public final class SharedRocksDbResources implements AutoCloseable {
     public synchronized WorkerNativeResourceLedger.Reservation reserveNativeResource(
             final String allocationId, final NativeResourceUsage rocksDbUsage, final long otherNativeBytes) {
         return nativeResourceLedger().reserve(allocationId, rocksDbUsage, otherNativeBytes);
+    }
+
+    /** Starts the owner-managed fixed-delay runtime probe after startup validation. */
+    public synchronized WorkerRuntimeResourceMonitor startRuntimeResourceMonitor(final Duration interval) {
+        ensureOpen();
+        if (runtimeSafetyGate == null) {
+            throw new IllegalStateException("runtime safety monitor requires a Worker resource envelope");
+        }
+        if (runtimeResourceMonitor == null || runtimeResourceMonitor.isClosed()) {
+            runtimeResourceMonitor = WorkerRuntimeResourceMonitor.start(config.rootPath(), interval, this);
+        }
+        return runtimeResourceMonitor;
     }
 
     /** Revalidates the startup envelope against a fresh runtime observation. */
@@ -391,6 +405,9 @@ public final class SharedRocksDbResources implements AutoCloseable {
             throw new IllegalStateException("cannot close shared RocksDB resources while work is in flight");
         }
         closeStarted = true;
+        if (runtimeResourceMonitor != null) {
+            runtimeResourceMonitor.close();
+        }
         // Every process-level native resource must be attempted even if an
         // earlier close reports a JNI/runtime failure.  Otherwise a failed
         // rate-limiter shutdown can strand the shared write-buffer manager or

@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class WorkerRuntimeResourceMonitorTest {
@@ -76,6 +77,18 @@ class WorkerRuntimeResourceMonitorTest {
             assertEquals(WorkerRuntimeSafetyGate.State.DRAIN_OR_MIGRATE, resources.runtimeSafetyState());
             assertNotNull(monitor.lastFailure());
         }
+    }
+
+    @Test
+    void sharedResourcesOwnMonitorLifecycle() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("owner-managed"));
+        final WorkerResourceEnvelope envelope = envelope(700L * 1024 * 1024);
+        final WorkerRuntimeResourceObservation healthy = observation(128L * 1024 * 1024);
+        final SharedRocksDbResources resources = new SharedRocksDbResources(config, envelope, healthy);
+        final WorkerRuntimeResourceMonitor first = resources.startRuntimeResourceMonitor(Duration.ofHours(1));
+        assertSame(first, resources.startRuntimeResourceMonitor(Duration.ofHours(1)));
+        resources.close();
+        assertTrue(first.isClosed());
     }
 
     private static WorkerResourceEnvelope envelope(final long maxProcessRssBytes) {
