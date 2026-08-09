@@ -62,14 +62,40 @@ public final class SloObservationOutboxV1 {
         return new SloObservationOutboxV1(start, merged, null);
     }
 
-    /** Merges a Final while also checking the paired HEALTHY exclusion set. */
+    /**
+     * Compatibility merge for non-excluded projections.  An excluded due
+     * projection is rejected because this overload does not carry the exact
+     * ALL_ACCEPTED companion; use the pair-aware overload below.
+     */
     public SloObservationOutboxV1 mergeFinal(final SloSampleFinalV1 incoming,
                                              final SloThresholdDirectionV1 direction,
                                              final SloObjectiveV1 healthyObjective) {
         Objects.requireNonNull(healthyObjective, "healthyObjective");
-        Objects.requireNonNull(incoming, "incoming").validateAgainst(start, healthyObjective);
+        Objects.requireNonNull(incoming, "incoming");
+        if (incoming.exclusionReason() != null
+                || finalObservation != null && finalObservation.exclusionReason() != null) {
+            throw new IllegalArgumentException(
+                    "SLO due exclusions require the exact ALL_ACCEPTED companion objective");
+        }
+        return mergeFinal(incoming, direction);
+    }
+
+    /**
+     * Merges a Final after proving the complete HEALTHY/ALL_ACCEPTED due
+     * objective pair.  This is the only pair-aware merge used by the durable
+     * shard outbox; the legacy three-argument overload remains for source
+     * compatibility but cannot authorize an exclusion on its own.
+     */
+    public SloObservationOutboxV1 mergeFinal(final SloSampleFinalV1 incoming,
+                                             final SloThresholdDirectionV1 direction,
+                                             final SloObjectiveV1 healthyObjective,
+                                             final SloObjectiveV1 allAcceptedObjective) {
+        Objects.requireNonNull(healthyObjective, "healthyObjective");
+        Objects.requireNonNull(allAcceptedObjective, "allAcceptedObjective");
+        Objects.requireNonNull(incoming, "incoming").validateAgainst(start, healthyObjective,
+                allAcceptedObjective);
         if (finalObservation != null) {
-            finalObservation.validateAgainst(start, healthyObjective);
+            finalObservation.validateAgainst(start, healthyObjective, allAcceptedObjective);
         }
         return mergeFinal(incoming, direction);
     }

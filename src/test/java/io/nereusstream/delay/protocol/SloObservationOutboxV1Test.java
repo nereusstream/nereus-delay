@@ -132,14 +132,51 @@ class SloObservationOutboxV1Test {
                 SloFinalOutcomeV1.BAD_EVIDENCE_GAP, SloThresholdUnitV1.MILLISECONDS, 1, 2,
                 DueExclusionReasonV1.CAPACITY_GATED, endpoint(200), bytes(32, 21), 1);
         final SloObservationOutboxV1 outbox = SloObservationOutboxV1.open(start)
-                .mergeFinal(excluded, SloThresholdDirectionV1.AT_MOST, healthy);
+                .mergeFinal(excluded, SloThresholdDirectionV1.AT_MOST, healthy, allAccepted);
         assertEquals(excluded, outbox.finalObservation());
 
         final SloSampleFinalV1 wrongReason = new SloSampleFinalV1(start.sampleId(), start.startDigest(),
                 SloFinalOutcomeV1.BAD_EVIDENCE_GAP, SloThresholdUnitV1.MILLISECONDS, 1, 2,
                 DueExclusionReasonV1.ADMIN_PAUSED, endpoint(201), bytes(32, 22), 2);
         assertThrows(IllegalArgumentException.class,
-                () -> wrongReason.validateAgainst(start, healthy));
+                () -> wrongReason.validateAgainst(start, healthy, allAccepted));
+    }
+
+    @Test
+    void excludedFinalRejectsAHealthyObjectiveFromAnotherCatalogPair() {
+        final SloObjectiveV1 healthy = dueObjective(SloPopulationV1.HEALTHY,
+                java.util.List.of(DueExclusionReasonV1.CAPACITY_GATED));
+        final SloObjectiveV1 allAccepted = dueObjective(SloPopulationV1.ALL_ACCEPTED, java.util.List.of());
+        final SloObjectiveV1 wrongHealthy = new SloObjectiveV1(SloObjectiveNameV1.DUE_ADMISSION_LAG,
+                SloPopulationV1.HEALTHY, SloThresholdDirectionV1.AT_MOST,
+                SloThresholdUnitV1.MILLISECONDS, 101, 99, 100, 60_000, 10,
+                java.util.List.of(DueExclusionReasonV1.CAPACITY_GATED), 7, bytes(32, 23));
+        final SloSampleEventIdentityV1 identity = new SloSampleEventIdentityV1(
+                SloObjectiveNameV1.DUE_ADMISSION_LAG, CanonicalProtobuf.message(output -> {
+                    CanonicalProtobuf.bytes(output, 1, bytes(41, 26));
+                    CanonicalProtobuf.uint32(output, 2, 1);
+                    CanonicalProtobuf.int64(output, 3, 100);
+                    CanonicalProtobuf.uint32(output, 4, SloPathV1.ORDINARY_MANAGED.wireValue());
+                }));
+        final SloSampleStartV1 start = new SloSampleStartV1(allAccepted,
+                SloPathV1.ORDINARY_MANAGED, identity, endpoint(100), 200L);
+        final SloSampleFinalV1 excluded = new SloSampleFinalV1(start.sampleId(), start.startDigest(),
+                SloFinalOutcomeV1.BAD_EVIDENCE_GAP, SloThresholdUnitV1.MILLISECONDS, 1, 2,
+                DueExclusionReasonV1.CAPACITY_GATED, endpoint(200), bytes(32, 27), 1);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> SloObservationOutboxV1.open(start).mergeFinal(excluded,
+                        SloThresholdDirectionV1.AT_MOST, wrongHealthy, allAccepted));
+        assertThrows(IllegalArgumentException.class,
+                () -> SloObservationOutboxV1.open(start).mergeFinal(excluded,
+                        SloThresholdDirectionV1.AT_MOST, healthy,
+                        new SloObjectiveV1(SloObjectiveNameV1.DUE_ADMISSION_LAG,
+                                SloPopulationV1.ALL_ACCEPTED, SloThresholdDirectionV1.AT_MOST,
+                                SloThresholdUnitV1.MILLISECONDS, 101, 99, 100, 60_000, 10,
+                                java.util.List.of(), 7, bytes(32, 23))));
+        assertThrows(IllegalArgumentException.class,
+                () -> SloObservationOutboxV1.open(start).mergeFinal(excluded,
+                        SloThresholdDirectionV1.AT_MOST, healthy));
     }
 
     private static SloObjectiveV1 dueObjective(final SloPopulationV1 population,

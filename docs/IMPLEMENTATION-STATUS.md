@@ -166,7 +166,11 @@ validation.
 `SloObservationOutboxV1Test.finalRoundTripsAndMergesCompleteUnsigned64BitFields`
 cover the high-bit vectors. This closes only the local SLO wire/merge boundary;
 `SloObjectiveV1.validateDueCompanion` and the paired Final validation now also
-fence a due ALL_ACCEPTED exclusion to the closed HEALTHY companion set.
+fence a due ALL_ACCEPTED exclusion to the exact closed HEALTHY/ALL_ACCEPTED
+companion pair: the ALL_ACCEPTED objective must validate the durable Start
+digest, while the HEALTHY objective must match every companion policy field.
+The pair-mismatch and legacy-overload rejection vectors are covered by
+`SloObservationOutboxV1Test.excludedFinalRejectsAHealthyObjectiveFromAnotherCatalogPair`.
 Final merge rejects a different payload that regresses observation revision;
 exact-byte replay remains idempotent.
 `SloDueAdmissionIdentityV1` now rejects a negative `path_start_epoch_ms`,
@@ -2061,9 +2065,12 @@ covers the semantic fence.
 The durable store entry point now requires an explicit paired HEALTHY objective
 when an ALL_ACCEPTED due Final carries an exclusion; the direction-only entry
 rejects both a new excluded Final and a previously excluded projection instead
-of allowing callers to bypass the catalog pair. `SloObservationOutboxStoreTest`
-`excludedFinalRequiresPairedHealthyObjectiveAtDurableBoundary` covers this
-boundary.
+of allowing callers to bypass the catalog pair. The pair-aware overload also
+requires the exact ALL_ACCEPTED objective whose digest is bound into the
+durable Start; the older three-argument overload is a fail-closed compatibility
+trap for excluded Finals. `SloObservationOutboxStoreTest`
+`excludedFinalRequiresPairedHealthyObjectiveAtDurableBoundary` covers the
+positive and bypass-rejection boundaries.
 The source-position audit now closes the complementary System Mutation replay
 boundary: `dedupe_cf/POSITION` value type 3 accepts only the registered
 `commandId[41]` or `systemMutationId[32]` branch, and every durable System

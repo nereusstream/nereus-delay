@@ -253,10 +253,9 @@ public final class SloObservationOutboxStore {
     }
 
     /**
-     * Merges a Final whose ALL_ACCEPTED due sample may carry an exclusion.
-     * The paired HEALTHY objective is required at this durable boundary so a
-     * caller cannot persist a reason that is absent from the immutable SLO
-     * catalog pair.
+     * Compatibility merge for non-excluded projections.  An excluded due
+     * projection is rejected because this overload lacks the exact
+     * ALL_ACCEPTED companion objective required by the durable boundary.
      */
     public synchronized SloObservationOutboxV1 mergeFinal(final SloSampleFinalV1 finalObservation,
                                                            final SloThresholdDirectionV1 direction,
@@ -268,7 +267,36 @@ public final class SloObservationOutboxStore {
         if (existing == null) {
             throw new IllegalStateException("cannot persist SLO Final without a durable Start");
         }
+        if (finalObservation.exclusionReason() != null
+                || existing.finalObservation() != null && existing.finalObservation().exclusionReason() != null) {
+            throw new IllegalArgumentException(
+                    "SLO due exclusions require the exact ALL_ACCEPTED companion at the durable merge boundary");
+        }
         final SloObservationOutboxV1 merged = existing.mergeFinal(finalObservation, direction, healthyObjective);
+        requireReplacementCapacity(existing, merged);
+        persist(KeyCodec.metaSloOutbox(merged.sampleId()), merged);
+        return merged;
+    }
+
+    /**
+     * Merges a Final whose due exclusion is authorized by the exact immutable
+     * HEALTHY/ALL_ACCEPTED objective pair.  Both objective digests and all
+     * companion policy fields are checked before the replacement WriteBatch.
+     */
+    public synchronized SloObservationOutboxV1 mergeFinal(final SloSampleFinalV1 finalObservation,
+                                                           final SloThresholdDirectionV1 direction,
+                                                           final SloObjectiveV1 healthyObjective,
+                                                           final SloObjectiveV1 allAcceptedObjective) {
+        Objects.requireNonNull(finalObservation, "finalObservation");
+        Objects.requireNonNull(direction, "direction");
+        Objects.requireNonNull(healthyObjective, "healthyObjective");
+        Objects.requireNonNull(allAcceptedObjective, "allAcceptedObjective");
+        final SloObservationOutboxV1 existing = get(finalObservation.sampleId());
+        if (existing == null) {
+            throw new IllegalStateException("cannot persist SLO Final without a durable Start");
+        }
+        final SloObservationOutboxV1 merged = existing.mergeFinal(finalObservation, direction, healthyObjective,
+                allAcceptedObjective);
         requireReplacementCapacity(existing, merged);
         persist(KeyCodec.metaSloOutbox(merged.sampleId()), merged);
         return merged;

@@ -146,6 +146,30 @@ public final class SloSampleFinalV1 {
     }
 
     /**
+     * Validates an excluded ALL_ACCEPTED Final against the complete immutable
+     * objective pair.  Checking only the exclusion list is insufficient: a
+     * different HEALTHY objective can carry the same reason while changing the
+     * threshold, load envelope or objective policy.  The ALL_ACCEPTED
+     * objective is also checked against the durable Start digest, so the pair
+     * cannot be relabelled at the merge boundary.
+     */
+    public void validateAgainst(final SloSampleStartV1 start,
+                                final SloObjectiveV1 healthyObjective,
+                                final SloObjectiveV1 allAcceptedObjective) {
+        validateAgainst(start);
+        Objects.requireNonNull(healthyObjective, "healthyObjective");
+        Objects.requireNonNull(allAcceptedObjective, "allAcceptedObjective");
+        allAcceptedObjective.validateStart(start);
+        healthyObjective.validateDueCompanion(allAcceptedObjective);
+        if (exclusionReason == null) {
+            return;
+        }
+        if (!healthyObjective.exclusions().contains(exclusionReason)) {
+            throw new IllegalArgumentException("SLO exclusion is not in the paired HEALTHY objective set");
+        }
+    }
+
+    /**
      * Maps each closed objective branch to the endpoint kind that can prove a
      * successful completion.  A semantic fixed epoch is a Start-only value;
      * accepting it on a SUCCESS Final would allow the configured business

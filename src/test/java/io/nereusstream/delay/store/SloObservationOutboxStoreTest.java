@@ -93,7 +93,10 @@ class SloObservationOutboxStoreTest {
             assertThrows(IllegalArgumentException.class,
                     () -> outbox.mergeFinal(excluded, SloThresholdDirectionV1.AT_MOST));
             assertEquals(excluded,
-                    outbox.mergeFinal(excluded, SloThresholdDirectionV1.AT_MOST, healthy).finalObservation());
+                    outbox.mergeFinal(excluded, SloThresholdDirectionV1.AT_MOST, healthy, dueAcceptedObjective())
+                            .finalObservation());
+            assertThrows(IllegalArgumentException.class,
+                    () -> outbox.mergeFinal(excluded, SloThresholdDirectionV1.AT_MOST, healthy));
         }
     }
 
@@ -342,6 +345,12 @@ class SloObservationOutboxStoreTest {
                 bytes(32, 23));
         return new SloSampleStartV1(allAccepted, SloPathV1.ORDINARY_MANAGED, identity,
                 endpoint(100), 200L);
+    }
+
+    private static SloObjectiveV1 dueAcceptedObjective() {
+        return new SloObjectiveV1(SloObjectiveNameV1.DUE_ADMISSION_LAG,
+                SloPopulationV1.ALL_ACCEPTED, SloThresholdDirectionV1.AT_MOST,
+                SloThresholdUnitV1.MILLISECONDS, 100, 99, 100, 60_000, 10, List.of(), 7, bytes(32, 23));
     }
 
     private static SloObjectiveV1 dueHealthyObjective() {

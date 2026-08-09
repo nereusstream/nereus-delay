@@ -32,10 +32,13 @@ generation bits. The due-admission identity now rejects a negative
 requires exact identity/path and semantic fixed-epoch agreement; the focused
 SLO tests cover path/time drift and the negative-time vector. This remains
 shard-local protocol evidence, not proof of production catalog publication, but
-the local pair validator now requires a HEALTHY due objective and matching
-ALL_ACCEPTED policy before an exclusion can be merged; a different payload
-cannot regress observation revision. Start reconstruction, production collector
-merge/export, and production SLO evidence remain release gates.
+the local pair validator now requires both the exact Start-bound ALL_ACCEPTED
+objective and its matching HEALTHY due companion before an exclusion can be
+merged. It checks the full companion policy rather than only membership of the
+exclusion reason; legacy pair-less overloads fail closed for excluded Finals.
+A different payload cannot regress observation revision. Start reconstruction,
+production catalog/collector merge-export, and production SLO evidence remain
+release gates.
 
 The ownership/recovery audit now covers the local reversible-Claim activation
 boundary: before either embedded or authoritative `OwnedDelayShard` activation
@@ -2285,8 +2288,12 @@ evidence，避免 revision 与 evidence 混配。`SloObservationOutboxV1Test.mer
 覆盖 mutually-exclusive reason 的完整性边界。这只补足 shard-local 持久化完整性，不能
 替代 SLO Start 重建、collector merge/export 或生产观测 authority。
 持久化 store 的方向-only merge 入口现在还会拒绝带 exclusion 的新旧投影；
-只有显式传入配对 HEALTHY objective 的 overload 才能写入 excluded ALL_ACCEPTED
-Final，`SloObservationOutboxStoreTest.excludedFinalRequiresPairedHealthyObjectiveAtDurableBoundary`
+只有显式传入 exact `HEALTHY`/`ALL_ACCEPTED` companion pair 的 overload 才能写入
+excluded ALL_ACCEPTED Final：`ALL_ACCEPTED` objective digest 必须与 durable Start
+一致，且 `HEALTHY.validateDueCompanion(ALL_ACCEPTED)` 必须通过；旧的 pair-less
+overload 对 exclusion fail closed。`SloObservationOutboxStoreTest`
+`excludedFinalRequiresPairedHealthyObjectiveAtDurableBoundary` 与
+`SloObservationOutboxV1Test.excludedFinalRejectsAHealthyObjectiveFromAnotherCatalogPair`
 覆盖该 catalog-pair 边界。
 
 SLO outbox 还增加了显式的 `SloObservationOutboxLimits` 本地容量 envelope。带

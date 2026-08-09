@@ -3006,6 +3006,14 @@ Release gate 不只看 percentile：在 certified healthy load envelope 内，�
 - Shard 的 SLO outbox 是观测状态，不进入 command-derived semantic digest，也不授权/回滚 Admission、Command 或 Producer。它使用与 correctness/outcome reserve 分离的 bounded budget；在 certified envelope 内不得耗尽。越界时 objective 立即成为 `BAD_EVIDENCE_GAP` 并告警，不能静默缩小分母，也不能把目标故障变成 source pause。
 - collector ack 后本地记录才可删除；collector 的 raw Start/Final/merge history 保留完整 rolling window 加 late-finalization、replay 和审计 margin。发布报告固定 objective digest、load-envelope digest、source/binary digest、sample count、bad 分类和 evidence-gap count。
 
+对 `DUE_ADMISSION_LAG` 的 `ALL_ACCEPTED` exclusion，durable Final merge 必须同时拿到
+当前 Start 对应的 exact `ALL_ACCEPTED` objective 和同事件 `HEALTHY` companion。
+实现必须先用 `ALL_ACCEPTED` objective digest 校验 Start，再用
+`HEALTHY.validateDueCompanion(ALL_ACCEPTED)` 校验 threshold、比例、窗口、timeout、
+healthy-load envelope 和 exclusion set 的完整策略相等；只检查 reason 是否出现在某个
+HEALTHY objective 中不足以授权 exclusion。缺少任一 objective 或 pair 校验失败时，Final
+不得写入 `SLO_OUTBOX`。
+
 嵌入式 shard store 的恢复/重放 seam 可以调用
 `SloObservationOutboxStore.reconcileDurableStarts(...)`，传入已经由
 Message/Admission/Lane/Recovery authority 重建的 exact `SloSampleStartV1`。该入口按
