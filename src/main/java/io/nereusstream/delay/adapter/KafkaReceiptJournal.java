@@ -170,8 +170,12 @@ public final class KafkaReceiptJournal {
                 throw conflict("Kafka receipt mapping id/body conflict");
             }
             if (record.kind() == RecordKind.MAPPED) {
+                // ReceiptPosition contains a byte[] hash. The generated
+                // record equals() therefore compares that array by identity;
+                // replay identity is the canonical position bytes instead.
                 if (current.mappedRecord.position() != null
-                        && current.mappedRecord.position().equals(record.position())) {
+                        && Arrays.equals(current.mappedRecord.position().canonicalBytes(),
+                        record.position().canonicalBytes())) {
                     return;
                 }
                 throw conflict("Kafka receipt mapped record replay conflict");

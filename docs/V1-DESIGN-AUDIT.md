@@ -62,6 +62,15 @@ leaks a result-constructor exception to the caller. The strict policy path still
 derives its boundary from source time; `EmbeddedDelayServiceTest` covers the
 compatibility-path regression. This is local fail-closed evidence only.
 
+The Kafka receipt-journal replay boundary now compares reconstructed mapped
+positions by canonical bytes. This preserves the Registry requirement that
+response-loss/replay of the same durable mapping is an exact idempotent no-op;
+the generated Java equality of the embedded receipt-hash array is not used as
+an identity proof. `KafkaReceiptJournalTest`
+`reconstructedMappedRecordReplayUsesCanonicalPositionBytes` covers the decoded
+position case. It does not replace the production Kafka transaction,
+`read_committed`, LSO or retention evidence gates.
+
 The UNKNOWN-outcome audit now closes a Store-integrity edge at the same
 ownership boundary: before `PUBLISH_OUTCOME_V1(UNKNOWN)` can materialize an
 uncertain retry or update READY, the current Message Lane, durable Lane record,

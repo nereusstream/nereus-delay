@@ -62,6 +62,16 @@ the boundary from source time. `EmbeddedDelayServiceTest` covers the malformed
 absolute-boundary path. This remains local fail-closed behavior, not production
 query routing or retention authority.
 
+The local Kafka transactional receipt journal now defines mapped-record replay
+idempotence by canonical `ReceiptPosition` bytes rather than Java record object
+identity. A reconstructed position carries a copied receipt-hash array, so the
+generated array `equals()` path could falsely classify an exact decoded replay
+as a mapping conflict. `KafkaReceiptJournalTest`
+`reconstructedMappedRecordReplayUsesCanonicalPositionBytes` covers the exact
+reconstructed replay. This is local journal evidence only; Kafka
+`read_committed`/LSO/retention proof and transactional Broker authority remain
+release blockers.
+
 The source-ordered `PUBLISH_OUTCOME(UNKNOWN)` projection now verifies the
 current Message Lane identity, durable Lane presence, and exact Lane
 incarnation against the `PUBLISHING` attempt ledger before constructing any

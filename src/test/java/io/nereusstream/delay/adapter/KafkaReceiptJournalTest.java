@@ -162,6 +162,32 @@ class KafkaReceiptJournalTest {
     }
 
     @Test
+    void reconstructedMappedRecordReplayUsesCanonicalPositionBytes() {
+        final ShardId shard = shard();
+        final KafkaReceiptResource resource = resource(shard);
+        final KafkaReceiptJournal.ProducerKey producer = producer();
+        final KafkaReceiptJournal source = new KafkaReceiptJournal(shard,
+                request -> position(70), resource);
+        final KafkaReceiptJournal.JournalRecord original = source.appendNext(producer, identity(shard, 27))
+                .record();
+
+        final KafkaReceiptJournal.ReceiptPosition reconstructedPosition =
+                new KafkaReceiptJournal.ReceiptPosition(original.position().offset(),
+                        original.position().brokerLogAppendTimeEpochMs(),
+                        original.position().lastStableOffsetExclusive(),
+                        original.position().receiptRecordHash());
+        final KafkaReceiptJournal.JournalRecord reconstructed = new KafkaReceiptJournal.JournalRecord(
+                KafkaReceiptJournal.RecordKind.MAPPED, original.mapping(), reconstructedPosition);
+        final KafkaReceiptJournal recovered = new KafkaReceiptJournal(shard, request -> position(90), resource);
+
+        recovered.replay(original);
+        recovered.replay(reconstructed);
+
+        assertEquals(1, recovered.records().size());
+        assertArrayEquals(original.canonicalBytes(), recovered.records().get(0).canonicalBytes());
+    }
+
+    @Test
     void replayProjectsTypedReceiptEvidenceAndBindsReceiptIdentity() {
         final ShardId shard = shard();
         final KafkaReceiptResource resource = resource(shard);
