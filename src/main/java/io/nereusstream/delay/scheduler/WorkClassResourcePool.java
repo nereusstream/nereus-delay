@@ -71,13 +71,21 @@ public final class WorkClassResourcePool {
             throw new IllegalArgumentException("resource acquisition must contain positive records and bytes");
         }
         final HeldUsage classUsage = held.get(workClass);
-        final long nextClassRecords = Math.addExact(classUsage.records, records);
-        final long nextClassBytes = Math.addExact(classUsage.bytes, bytes);
-        final long protectedOtherRecords = protectedMinimumRecords(workClass);
-        final long protectedOtherBytes = protectedMinimumBytes(workClass);
-        if (Math.addExact(Math.addExact(usedRecords, records), protectedOtherRecords) > totalRecords
-                || Math.addExact(Math.addExact(usedBytes, bytes), protectedOtherBytes) > totalBytes) {
-            throw new IllegalStateException("work-class resource minimums leave no admissible capacity");
+        final long nextClassRecords;
+        final long nextClassBytes;
+        final long protectedOtherRecords;
+        final long protectedOtherBytes;
+        try {
+            nextClassRecords = Math.addExact(classUsage.records, records);
+            nextClassBytes = Math.addExact(classUsage.bytes, bytes);
+            protectedOtherRecords = protectedMinimumRecords(workClass);
+            protectedOtherBytes = protectedMinimumBytes(workClass);
+            if (Math.addExact(Math.addExact(usedRecords, records), protectedOtherRecords) > totalRecords
+                    || Math.addExact(Math.addExact(usedBytes, bytes), protectedOtherBytes) > totalBytes) {
+                throw new IllegalStateException("work-class resource minimums leave no admissible capacity");
+            }
+        } catch (ArithmeticException overflow) {
+            throw new IllegalStateException("work-class resource accounting overflow", overflow);
         }
         final long previousBorrowedRecords = Math.max(0,
                 classUsage.records - policy.nonBorrowableMinimumRecords());

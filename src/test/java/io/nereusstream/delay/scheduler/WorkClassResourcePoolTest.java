@@ -51,6 +51,17 @@ class WorkClassResourcePoolTest {
                 () -> pool.acquire(WorkClass.QUERY, 1, 1));
     }
 
+    @Test
+    void acquisitionArithmeticOverflowFailsClosed() {
+        final AtomicLong now = new AtomicLong(0);
+        final WorkClassResourcePool pool = new WorkClassResourcePool(policies(0, 0),
+                Long.MAX_VALUE, Long.MAX_VALUE, 10, now::get);
+        pool.acquire(WorkClass.GC, Long.MAX_VALUE, 0);
+
+        assertThrows(IllegalStateException.class,
+                () -> pool.acquire(WorkClass.GC, 1, 0));
+    }
+
     private static WorkClassResourcePool pool(final AtomicLong now,
                                               final long totalRecords,
                                               final long totalBytes,

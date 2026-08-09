@@ -1477,7 +1477,8 @@ other-native bucket；`SharedRocksDbResources` 在 JNI 创建前预留 shared ca
 并在对应 native close 后释放。`WorkClassScheduler` 对七个冻结 work class
 提供 bounded queue/turn record-byte-time caps、`LEASE_FENCE` 抢占和 stale-class
 选择；`WorkClassResourcePool` 还按 class 保护 non-borrowable record/byte
-minimum 并限制 borrowed hold time；这些仍是本地 scheduler/resource seams。
+minimum、把 acquisition checked-sum overflow 转成 closed rejection，并限制
+borrowed hold time；这些仍是本地 scheduler/resource seams。
 `WorkerRuntimeSafetyGate` 还把新鲜的 JVM/cgroup/FD/filesystem
 observation 接入一个 sticky `ACTIVE -> DRAIN_OR_MIGRATE` 门；共享资源的
 ownership/restore slots 和 embedded Claim 在门未恢复前 fail closed，只有
@@ -1731,8 +1732,8 @@ probe 异常或 envelope mismatch 都会进入 drain/migrate，并可显式关�
 `WorkerRuntimeResourceMonitorTest` 覆盖解析、envelope rejection、周期探针
 生命周期和共享资源 ownership fencing；`WorkClassSchedulerTest` 覆盖七个
 work-class 的 bounded queue/turn caps、lease/fence 抢占和 stale-class 选择。
-`WorkClassResourcePoolTest` 还覆盖 non-borrowable minimum 和 borrowed hold
-bound。每 DB 的动态 RocksDB attribution、chunk-level token reacquisition 和
+`WorkClassResourcePoolTest` 还覆盖 non-borrowable minimum、borrowed hold
+bound 和 acquisition overflow rejection。每 DB 的动态 RocksDB attribution、chunk-level token reacquisition 和
 write-time reserve admission 仍是 release gate。
 Lease validity additionally rejects negative observation times even when a
 caller reaches `OwnerLease.validAt` directly rather than through an authority
