@@ -1166,6 +1166,14 @@ evidence into a negative value. `LaneSchedulerTest.saturatesRoundGenerationBefor
 and `WorkerSchedulerTest.saturatesRoundGenerationBeforeServingAtLongMaximum`
 cover the two scheduler levels.
 
+Both scheduler restore paths now clamp a persisted Lane/Shard deficit to the
+current registered cap before exposing the in-memory projection. A stale
+snapshot from a larger historical quantum or weight therefore cannot leave an
+idle scheduler with an unbounded deficit until its next poll;
+`LaneSchedulerTest.saturatesRestoredDeficitBeforeServing` and
+`WorkerSchedulerTest.saturatesRestoredDeficitBeforeServing` assert the
+post-restore projection as well as the first service.
+
 `PersistentLaneScheduler` now computes the next ring and READY-cursor wrap
 generations as local projections and advances the in-memory counters only after
 the five-value scheduler `WriteBatch` succeeds. A failed projection write or

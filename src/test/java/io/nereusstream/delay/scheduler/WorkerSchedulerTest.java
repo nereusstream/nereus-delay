@@ -274,6 +274,7 @@ class WorkerSchedulerTest {
         worker.restore(new WorkerScheduler.WorkerSnapshot(0, 0,
                 List.of(new WorkerScheduler.ShardSnapshot(shard, 1, Long.MAX_VALUE, 0, false))));
 
+        assertEquals(40, worker.snapshot().shards().get(0).deficit());
         assertEquals(List.of(lane), worker.poll(new SchedulerBudget(1, 100, 1_000_000_000)).stream()
                 .map(ScheduleWorkItem::laneId).toList());
         assertEquals(39, worker.snapshot().shards().get(0).deficit());

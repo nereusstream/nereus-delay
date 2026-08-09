@@ -224,7 +224,10 @@ public final class WorkerScheduler {
             if (saved.deficit() < 0 || saved.lastServedRound() < 0) {
                 throw new IllegalArgumentException("invalid worker scheduler counters");
             }
-            shard.deficit = saved.deficit();
+            // Restore must publish a bounded process projection immediately;
+            // waiting for the next poll would leave an idle shard carrying an
+            // oversized historical deficit after a quantum/weight change.
+            shard.deficit = Math.min(saved.deficit(), maxDeficitBytes);
             shard.lastServedRound = saved.lastServedRound();
             shard.blocked = saved.blocked();
         }

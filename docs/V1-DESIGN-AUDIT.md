@@ -739,6 +739,11 @@ ownership authority。
 两级 scheduler 现在还对
 `weight * quantum` 与 deficit cap 做 checked arithmetic，并对运行时 deficit 累加做
 saturating arithmetic；配置、注册或恢复导致的整数溢出不会 wrap 成可调度的错误预算。
+恢复 snapshot 时也会立即把每个已注册 Lane/Shard 的 deficit 截断到当前 cap，
+所以旧 quantum/weight 配置留下的超 cap 值不会在空闲期间继续存在；
+`LaneSchedulerTest.saturatesRestoredDeficitBeforeServing` 与
+`WorkerSchedulerTest.saturatesRestoredDeficitBeforeServing` 同时检查恢复后的
+projection 和第一次 service。
 两级 cap 至少提升到当前注册的 `weight * quantum`，因此 weight 大于四时不会被
 固定 4×quantum cap 静默截成错误的长期服务比例；
 `LaneSchedulerTest.highWeightRetainsItsConfiguredDeficitQuantum` 与

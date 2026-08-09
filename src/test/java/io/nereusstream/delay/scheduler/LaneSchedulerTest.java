@@ -172,6 +172,7 @@ class LaneSchedulerTest {
         scheduler.restore(new LaneScheduler.SchedulerSnapshot(0, 0,
                 List.of(new LaneScheduler.LaneSnapshot(lane, 1, Long.MAX_VALUE, 0, 1, true))));
 
+        assertEquals(40, scheduler.snapshot().lanes().get(0).deficit());
         assertEquals(List.of(lane), scheduler.poll(new SchedulerBudget(1, 100, 1_000_000_000)).stream()
                 .map(ScheduleWorkItem::laneId).toList());
         assertEquals(39, scheduler.snapshot().lanes().get(0).deficit());

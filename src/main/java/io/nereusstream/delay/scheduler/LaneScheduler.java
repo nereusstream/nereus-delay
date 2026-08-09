@@ -373,7 +373,12 @@ public final class LaneScheduler {
             if (saved.deficit() < 0 || saved.lastServedRound() < 0) {
                 throw new IllegalArgumentException("invalid lane scheduler counters");
             }
-            lane.deficit = saved.deficit();
+            // Keep the in-memory projection bounded even when a restored
+            // snapshot contains a stale value from a larger historical
+            // quantum/weight configuration.  Polling also saturates before
+            // serving, but leaving the oversized value visible while the
+            // Lane is idle would violate the scheduler's cap invariant.
+            lane.deficit = Math.min(saved.deficit(), maxDeficitBytes);
             lane.lastServedRound = saved.lastServedRound();
         }
         cursor = ring.isEmpty() ? 0 : snapshot.cursor() % ring.size();
