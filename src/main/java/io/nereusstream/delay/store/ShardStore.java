@@ -549,15 +549,31 @@ public final class ShardStore implements AutoCloseable {
     private static void validateRestoredRecoveryState(final ShardStore staged,
                                                       final CheckpointManifest manifest) throws IOException {
         final StoreRecoveryMetadata recovery = staged.recoveryMetadata();
-        if (recovery.lineageBase() != null
-                && !Bytes.constantTimeEquals(recovery.lineageBase().recoveryLineageId(),
-                manifest.recoveryLineageId())) {
-            throw new IOException("restored recovery candidate lineage does not match checkpoint manifest");
+        if (recovery.lineageBase() != null) {
+            final RecoveryCandidateRefV1 lineageBase = recovery.lineageBase();
+            if (!Bytes.constantTimeEquals(lineageBase.recoveryLineageId(), manifest.recoveryLineageId())) {
+                throw new IOException("restored recovery candidate lineage does not match checkpoint manifest");
+            }
+            if (!Bytes.constantTimeEquals(lineageBase.checkpointId(), manifest.checkpointId())) {
+                throw new IOException("restored recovery candidate checkpoint does not match checkpoint manifest");
+            }
+            if (!Bytes.constantTimeEquals(lineageBase.manifestSha256(), manifest.manifestSha256())) {
+                throw new IOException("restored recovery candidate manifest hash does not match checkpoint manifest");
+            }
+            if (lineageBase.kind() == io.nereusstream.delay.protocol.RecoveryCandidateKindV1.LOCAL_STORE
+                    && !java.util.Arrays.equals(lineageBase.storeIncarnation(),
+                    uuidBytes(manifest.sourceStoreIncarnation()))) {
+                throw new IOException("restored local recovery candidate Store Incarnation does not match checkpoint");
+            }
         }
         if (recovery.lastObservedFloor() != null
                 && !Bytes.constantTimeEquals(recovery.lastObservedFloor().recoveryLineageId(),
                 manifest.recoveryLineageId())) {
             throw new IOException("restored Recovery Floor lineage does not match checkpoint manifest");
+        }
+        if (recovery.installState() != null && recovery.installState().checkpointId() != null
+                && !Bytes.constantTimeEquals(recovery.installState().checkpointId(), manifest.checkpointId())) {
+            throw new IOException("restored recovery install state checkpoint does not match checkpoint manifest");
         }
         if (recovery.installState() != null && recovery.lineageBase() != null
                 && !java.util.Arrays.equals(recovery.installState().checkpointId(),
