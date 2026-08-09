@@ -419,6 +419,9 @@ public final class LaneScheduler {
         if (snapshot.cursor() < 0 || snapshot.roundGeneration() < 0) {
             throw new IllegalArgumentException("invalid scheduler snapshot");
         }
+        // Validate every registered Lane before publishing any restored
+        // counter.  A malformed later entry must not leave earlier entries
+        // partially applied when restore fails closed.
         for (LaneSnapshot saved : snapshot.lanes()) {
             final LaneQueue lane = lanes.get(saved.laneId());
             if (lane == null || lane.weight != saved.weight()) {
@@ -426,6 +429,12 @@ public final class LaneScheduler {
             }
             if (saved.deficit() < 0 || saved.lastServedRound() < 0) {
                 throw new IllegalArgumentException("invalid lane scheduler counters");
+            }
+        }
+        for (LaneSnapshot saved : snapshot.lanes()) {
+            final LaneQueue lane = lanes.get(saved.laneId());
+            if (lane == null || lane.weight != saved.weight()) {
+                continue;
             }
             // Keep the in-memory projection bounded even when a restored
             // snapshot contains a stale value from a larger historical
