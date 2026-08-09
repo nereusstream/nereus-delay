@@ -1135,6 +1135,10 @@ checkpoint identity。Fresh Store 不写 synthetic candidate，目录名和 chec
 `ACTIVE` pointer 都不能替代这四项事实。缺失任一项只表示本地没有 recovery-reuse
 proof；是否仍在 current Floor ancestry 内必须由 Recovery Catalog/Oxia authority
 另行证明，不能由 Store 自己推断。
+打开已有 DB 时还必须在任何 open-phase 重写之前验证 install state 的 checkpoint
+identity 与 lineage/base 一致；没有 lineage/base 的 install state 不得携带 checkpoint
+identity。这样原始 `meta_cf/RECOVERY` 的漂移不会被 open 流程先写成新的 `OPEN`
+projection 后掩盖。
 
 `meta_cf/LANE` 的 ACTIVE branch 在 Protocol Registry 上是直接嵌套的
 `ActiveLaneStateV1`（`LaneRecordEnvelopeV1` field 10）；它与同一个 shard 的

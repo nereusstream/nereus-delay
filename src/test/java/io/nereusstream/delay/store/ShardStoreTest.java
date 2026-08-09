@@ -6,6 +6,8 @@ import io.nereusstream.delay.protocol.OwnerIdentityV1;
 import io.nereusstream.delay.protocol.RecoveryCandidateKindV1;
 import io.nereusstream.delay.protocol.RecoveryCandidateRefV1;
 import io.nereusstream.delay.protocol.RecoveryFloorRefV1;
+import io.nereusstream.delay.protocol.RecoveryInstallPhaseV1;
+import io.nereusstream.delay.protocol.RecoveryInstallStateV1;
 import io.nereusstream.delay.protocol.RecoveryPinV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
@@ -198,6 +200,29 @@ class ShardStoreTest {
                 new KafkaSourcePosition(foreignShard, "cluster", UUID.randomUUID(), 1, null, 1), 1, List.of());
         overwriteRawColumnFamilyValue(dbPath, "meta_cf", KeyCodec.metaRecovery(2),
                 ValueEnvelope.encode(1, foreignFloor.canonicalBytes()));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+            assertThrows(IllegalStateException.class, () -> ShardStore.open(config, shardId, resources));
+        }
+        assertRawRocksDbCanBeOpened(dbPath);
+    }
+
+    @Test
+    void recoveryInstallStateDriftDoesNotLeaveRocksDbOpen() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("recovery-install-drift"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 38);
+        final Path dbPath;
+        final byte[] checkpointId = bytes(57);
+        final byte[] storeIncarnation;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            dbPath = store.dbPath();
+            storeIncarnation = store.metadata().storeIncarnation();
+            store.recordRecoveryMetadata(new RecoveryCandidateRefV1(RecoveryCandidateKindV1.LOCAL_STORE,
+                    bytes(58), checkpointId, bytes(32, 59), storeIncarnation), null);
+        }
+        overwriteRawColumnFamilyValue(dbPath, "meta_cf", KeyCodec.metaRecovery(4), ValueEnvelope.encode(1,
+                new RecoveryInstallStateV1(RecoveryInstallPhaseV1.CLOSED_CLEAN,
+                        storeIncarnation, bytes(60)).canonicalBytes()));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
             assertThrows(IllegalStateException.class, () -> ShardStore.open(config, shardId, resources));
         }

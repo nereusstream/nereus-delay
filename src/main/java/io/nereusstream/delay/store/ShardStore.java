@@ -963,6 +963,13 @@ public final class ShardStore implements AutoCloseable {
         final byte[] installBytes = optionalRecoveryValue(db, metaHandle, META_RECOVERY_INSTALL_STATE);
         final RecoveryInstallStateV1 installState = installBytes == null
                 ? null : RecoveryInstallStateV1.decode(installBytes);
+        if (installState != null && lineageBase != null
+                && !java.util.Arrays.equals(installState.checkpointId(), lineageBase.checkpointId())) {
+            throw new IllegalStateException("recovery install state checkpoint does not match lineage base");
+        }
+        if (installState != null && lineageBase == null && installState.checkpointId() != null) {
+            throw new IllegalStateException("recovery install state has checkpoint without lineage base");
+        }
         if (!installMode && installState != null
                 && !java.util.Arrays.equals(installState.storeIncarnation(), metadata.storeIncarnation())) {
             throw new IllegalStateException("recovery install state store incarnation does not match DB identity");

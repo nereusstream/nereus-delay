@@ -17,7 +17,10 @@ Manifest restore now also validates the staged DB's persisted `meta/RECOVERY`
 lineage/base, observed-Floor lineage and install-state checkpoint identity
 against the manifest before install. This closes the local DB/projection splice
 boundary; `ShardStoreTest.restoreWithManifestRejectsRecoveryProjectionLineageDrift`
-covers the fail-closed path. It remains local evidence, not production catalog,
+covers the fail-closed path. Existing DB open also checks install-state/base
+checkpoint coherence before writing a new OPEN projection, with
+`ShardStoreTest.recoveryInstallStateDriftDoesNotLeaveRocksDbOpen` covering the
+native-handle cleanup path. It remains local evidence, not production catalog,
 Owner Lease/session or source-replay activation evidence.
 
 The client contract now exposes the bounded V1 query bridge through

@@ -1901,6 +1901,10 @@ observed-Floor lineage 和 install-state checkpoint identity 与 checkpoint mani
 `ShardStoreTest.restoreWithManifestRejectsRecoveryProjectionLineageDrift` 覆盖该
 fail-closed 边界。它仍不等于真实 Object Store/Oxia catalog、Owner Lease/session
 或 source replay activation 证据。
+已有 DB 在任何 open-phase 重写前也会验证 install-state checkpoint 与
+lineage/base 一致；没有 lineage/base 的 install state 不能带 checkpoint，避免
+原始投影漂移被新的 `OPEN` marker 掩盖。`ShardStoreTest.recoveryInstallStateDriftDoesNotLeaveRocksDbOpen`
+覆盖该失败清理边界。
 带 identity 的 `ShardStore.createCheckpoint(path, checkpointId)` 会先把 exact
 16-byte checkpoint identity 写入 live DB，再拍摄完整镜像；物理失败会同步恢复
 旧 projection，恢复后的 DB 因而保留它所代表的 checkpoint identity。无 identity
