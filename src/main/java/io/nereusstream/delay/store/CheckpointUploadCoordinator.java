@@ -137,6 +137,8 @@ public final class CheckpointUploadCoordinator {
                         + actualFile.name());
             }
         }
+        CheckpointControlSnapshotVerifier.validateIfPresent(checkpointDirectory, manifest.shardId(),
+                manifest.controlStateDigest());
     }
 
     private static void validatePublishedResource(final CheckpointUploadIntentV1 pending,

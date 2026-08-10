@@ -2367,7 +2367,7 @@ fail closed。无参实现仍是仅用于纯单进程测试的内存 projection�
 实现都不替代生产 Oxia 的 Owner Lease/session、lineage-head、catalog-generation
 CAS，或 Object Store 的上传、quiescence、attestation 和删除 authority。
 
-1. active DB 创建 unique local checkpoint；读取其 `meta_cf`，绑定 current lineage head/manifest hash并生成 canonical file inventory/checksum；成功创建物理 checkpoint 后立即取得一次 `TrustedUtcIntervalEvidenceV1 createdAt`，并把其 exact JSON projection 固定进 draft。此时只是 draft inventory，不是最终 manifest，但后续 retry 不得重采样或改善该时间区间。
+1. active DB 创建 unique local checkpoint；读取其 `meta_cf`，绑定 current lineage head/manifest hash，并读取 key 10 的 `CompatibleControlSnapshotV1` shard/digest（若是旧兼容 DB 则明确记录缺失），再生成 canonical file inventory/checksum；成功创建物理 checkpoint 后立即取得一次 `TrustedUtcIntervalEvidenceV1 createdAt`，并把其 exact JSON projection 固定进 draft。此时只是 draft inventory，不是最终 manifest，但后续 retry 不得重采样或改善该时间区间。
 2. Oxia CAS 创建 Registry 的 exact `CheckpointUploadIntentV1(PENDING_UPLOAD)`，固定 checkpoint/lineage/parent、upload token、Owner/Store、base catalog、Object Store Profile、`createdAt` 与 bounded upload deadline；事务比较 exact active Owner Lease/session/Store 和 base catalog。
 3. 向 immutable unique prefix 上传每个 inventory file，取得 exact object key/version/etag，逐个 HEAD/read + SHA-256 校验。
 4. 用已验证的 object identity 生成最终 JCS manifest，上传并校验 manifest 自身 exact key/version/length/SHA-256；此前不得把 draft 暴露给 catalog。
