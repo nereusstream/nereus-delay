@@ -1257,8 +1257,9 @@ GC:
 
 `ORDERED` key 中的 `deliverAt` 是严格业务顺序字段，不是 scheduler 唤醒时间。其 value 必须携 canonical `actionAt`、当前 retry eligibility 和 head-blocking state；同 Lane 的 READY key 使用 blocking head 的 `headEligibilityAt=max(actionAt,retryEligibilityAt)`。普通 managed 的 `actionAt=deliverAt`；certified Pulsar handoff 的 fixed Profile-version lead 使 `actionAt=deliverAt-handoffLead` 在该 Lane 内保持同序。V1 禁止 per-message handoff lead；若未来允许它改变上述同序关系，必须升级 key/protocol，而不能复用 V1 ORDERED layout。
 
-当前嵌入式 `DelayShard` 已将这条时间投影接入 Schedule apply：带 exact
-`ProfileCatalog` 的 `ProfileCatalogV1ScheduleResolver` 从 immutable Destination
+当前嵌入式 `DelayShard` 已将这条时间投影接入 Schedule apply：当同时提供 raw
+V1 resolver 和 exact `ProfileCatalog` 时，`DelayShard` 自动使用
+`ProfileCatalogV1ScheduleResolver`，从 immutable Destination
 Profile/Delivery Capability 推导固定 handoff 的 `actionAt`，并把它持久化到
 `MessageRecord`/`TimelineWorkRefV1`；catalog-less 或普通 managed compatibility
 path 明确归一化为 `actionAt=deliverAt`。因此 ORDERED 物理 key 仍只按业务

@@ -549,7 +549,9 @@ Oxia CAS or retained-generation policy.
 `ProfileCatalogV1ScheduleResolver` uses that seam only as a local exact-profile
 and Head prerequisite gate, and now exact-resolves the referenced Delivery
 Capability semantic with the same Adapter before delegating Lane resolution;
-missing/wrong-kind/mismatched capability is fail-closed. It does not turn a
+missing/wrong-kind/mismatched capability is fail-closed. `DelayShard` applies
+this decorator automatically when a raw resolver and exact Profile catalog are
+provided, while preserving an already decorated resolver. It does not turn a
 catalog lookup into a source position activation receipt.
 The Control Operation request union now has local canonical codecs for all
 fifteen Registry branches, including the evidence/acknowledgement matrix. It

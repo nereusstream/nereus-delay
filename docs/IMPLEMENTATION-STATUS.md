@@ -791,7 +791,10 @@ activation, retained-generation policy and Oxia authority remain external.
 `ProfileCatalogV1ScheduleResolver` can decorate the existing V1 resolver to
 fail closed with `ROUTE_SNAPSHOT_UNAVAILABLE` until the exact Destination
 semantic reference, matching credential Head, and the referenced Delivery
-Capability semantic with the same Adapter are present; shard-local source
+Capability semantic with the same Adapter are present. `DelayShard` applies
+this decorator automatically when both a raw V1 resolver and an exact Profile
+catalog are supplied, while an already decorated resolver is not wrapped
+twice; shard-local source
 activation/deprecation markers still run before this resolver gate. A missing,
 wrong-kind or adapter-mismatched capability is rejected before the delegated
 Lane projection (`ProfileCatalogV1ScheduleResolverTest.failsClosedWhenReferencedDeliveryCapabilityIsMissing`).

@@ -235,9 +235,12 @@ public final class DelayShard {
 
     /**
      * Opens a shard with an optional exact Profile semantic catalog. When
-     * supplied, Publish Admission applies validate the descriptor timing
-     * against the pinned Destination/Delivery Capability semantics; without
-     * it, only ordinary managed {@code actionAt=deliverAt} is accepted.
+     * supplied, the catalog decorates a raw V1 Schedule resolver with the
+     * exact Profile/Capability and credential-Head gate, and Publish
+     * Admission validates descriptor timing against the same semantics;
+     * callers that already pass a {@link ProfileCatalogV1ScheduleResolver}
+     * are not wrapped twice. Without a catalog, only ordinary managed
+     * {@code actionAt=deliverAt} is accepted by the local compatibility path.
      */
     public DelayShard(final ShardStore store, final DelayShardConfig config,
                       final PayloadProofTrustSet payloadProofTrustSet,
@@ -334,7 +337,9 @@ public final class DelayShard {
                 && sloObservationOutboxLimits == null ? null
                 : new SloObservationOutboxStore(store, sloObservationOutboxLimits);
         this.capacityEnvelope = capacityEnvelope;
-        this.v1ScheduleResolver = v1ScheduleResolver;
+        this.v1ScheduleResolver = profileCatalog == null || v1ScheduleResolver == null
+                || v1ScheduleResolver instanceof ProfileCatalogV1ScheduleResolver
+                ? v1ScheduleResolver : new ProfileCatalogV1ScheduleResolver(v1ScheduleResolver, profileCatalog);
         final var sourceValue = store.getValue(ColumnFamily.META, KeyCodec.metaFixed(META_APPLIED_SOURCE_POSITION), 1);
         final byte[] source = sourceValue == null ? null : sourceValue.payload();
         lastAppliedSourcePosition = source == null ? null : SourcePositionCodec.decode(source);
