@@ -2065,8 +2065,8 @@ Direct `discoverReady` 也会在返回 scheduler work 前确认对应 timeline e
 继续作为独立指针。证据为 `DelayShardTest.readyDiscoveryRejectsMissingTimelineEntry`。
 当前实现还把物理 value 边界收紧到 Registry 的 `TimelineWorkRefV1`：新的
 DUE/ORDERED 及 paired EXPIRY 写入直接保存 canonical work projection，读取时校验
-embedded timeline key，并在当前 runtime projection 存在时要求与
-`GenerationRuntimeIndexV1.timeline` byte-identical。旧 `TimelineEntry` 只作为
+embedded timeline key、rich READY 的 `max(actionAt,retryEligibility)`，并在当前
+runtime projection 存在时要求与 `GenerationRuntimeIndexV1.timeline` byte-identical。旧 `TimelineEntry` 只作为
 read-only migration seam 接受，不能再由 writer 产生；缺失 runtime projection 的
 legacy `MessageRecord` 只按 scalar schedule fields 受限读取。物理 rich value、
 `actionAt` 和 key equality 由

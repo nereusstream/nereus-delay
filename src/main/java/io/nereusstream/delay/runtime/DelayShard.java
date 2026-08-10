@@ -5853,8 +5853,12 @@ public final class DelayShard {
             if (timelineValue == null) {
                 throw new IllegalStateException("READY points to a missing timeline entry");
             }
-            validateTimelineValue(timelineValue.payload(), value.messageId(), message, timelineKey,
-                    "READY discovery");
+            final TimelineWorkRef work = validateTimelineValue(timelineValue.payload(), value.messageId(), message,
+                    timelineKey, "READY discovery");
+            if (work != null && key.nextEligibleAtEpochMs() != Math.max(work.actionAtEpochMs(),
+                    work.retryEligibilityAtEpochMs())) {
+                throw new IllegalStateException("READY eligibility disagrees with TimelineWorkRef");
+            }
             result.add(new ReadyWork(key.laneId(), value.messageId(), value.generation(),
                     key.nextEligibleAtEpochMs(), key.laneVersion(), message.orderingMode()
                     == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO));
@@ -5960,7 +5964,8 @@ public final class DelayShard {
                 throw new IllegalStateException("EXPIRY timeline does not match the current message");
             }
             validateTimelineValue(io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), 1).payload(),
-                    messageId, message, timelineKey(messageId, message), false, "EXPIRY discovery");
+                    messageId, message, timelineKey(messageId, message), message.status() == MessageStatus.SCHEDULED,
+                    "EXPIRY discovery");
             result.add(new ExpiryWork(messageId, laneId, generation, expireAt));
         }
         return List.copyOf(result);

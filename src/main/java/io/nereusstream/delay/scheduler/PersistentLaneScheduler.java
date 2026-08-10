@@ -720,22 +720,26 @@ public final class PersistentLaneScheduler {
         if (timelineBytes == null) {
             throw new IllegalStateException("READY points to a missing timeline entry: " + value.messageId());
         }
-        validateTimelineValue(ValueEnvelope.decode(timelineBytes, 1).payload(), value.messageId(), message,
-                timelineKey);
+        final TimelineWorkRef timeline = validateTimelineValue(ValueEnvelope.decode(timelineBytes, 1).payload(),
+                value.messageId(), message, timelineKey);
+        if (timeline != null && key.nextEligibleAtEpochMs() != Math.max(timeline.actionAtEpochMs(),
+                timeline.retryEligibilityAtEpochMs())) {
+            throw new IllegalStateException("READY eligibility disagrees with TimelineWorkRef: " + value.messageId());
+        }
         final long accountedBytes = Math.max(1, message.payloadLength());
         return new ReadyProjection(lane, new ScheduleWorkItem(key.laneId(), value.messageId(), value.generation(),
                 key.nextEligibleAtEpochMs(), accountedBytes), entry.key());
     }
 
-    private static void validateTimelineValue(final byte[] encodedValue, final DelayMessageId messageId,
-                                              final MessageRecord message, final byte[] expectedTimelineKey) {
+    private static TimelineWorkRef validateTimelineValue(final byte[] encodedValue, final DelayMessageId messageId,
+                                                         final MessageRecord message, final byte[] expectedTimelineKey) {
         if (encodedValue.length >= Integer.BYTES
                 && java.nio.ByteBuffer.wrap(encodedValue, 0, Integer.BYTES).getInt() == 1) {
             final TimelineEntry legacy = TimelineEntry.decode(encodedValue);
             if (!legacy.messageId().equals(messageId) || legacy.generation() != message.generation()) {
                 throw new IllegalStateException("legacy READY timeline identity mismatch: " + messageId);
             }
-            return;
+            return null;
         }
         final TimelineWorkRef work = TimelineWorkRef.decode(encodedValue);
         if (!Arrays.equals(work.encodedTimelineKey(), expectedTimelineKey)) {
@@ -751,6 +755,7 @@ public final class PersistentLaneScheduler {
                 || work.actionAtEpochMs() > message.deliverAtEpochMs())) {
             throw new IllegalStateException("READY TimelineWorkRef disagrees with legacy Message: " + messageId);
         }
+        return work;
     }
 
     private static boolean sameWork(final ScheduleWorkItem left, final ScheduleWorkItem right) {
