@@ -1037,7 +1037,10 @@ any nonterminal -> FAILED
 6. 证明 exact Broker Resource Incarnation；Kafka 开启 pinned UUID Fetch，Pulsar 认证当前 connection generation；随后捕获 typed Activation Barrier，并按 Adapter 的 inclusive/exclusive reached predicate replay。
 7. 把每个 Destination Lane 恢复为 `RECOVERING_EVIDENCE`；baseline/strong capability 分别做自己的 channel fence/evidence barrier。
 8. 复核 assignment、lease、DB/store、source continuity 和 shard invariant。
-9. CAS 同一 ephemeral lease 为 `ACTIVE_FOR_COMMANDS`，恢复 source application/query。
+9. 先确认 `meta_cf/FIXED` key 10 中的完整 `CompatibleControlSnapshotV1` 与本次
+   activation input exact match，再 CAS 同一 ephemeral lease 为
+   `ACTIVE_FOR_COMMANDS`，恢复 source application/query；缺少或漂移的 control
+   snapshot 不能打开 command gate。
 10. 每个 Lane 独立完成 evidence/capability 验证后进入 `runtimeReadiness=READY`；Scheduler 只 scan/Claim/Admission `admissionGate=OPEN && runtimeReadiness=READY` 的 Lane。
 
 某 Lane 的 target/receipt/journal 不可用只让该 Lane 留在 `RECOVERING_EVIDENCE`/`BLOCKED`，不得阻止 shard Command application 或其他健康 Lane。Shard 生命周期只使用精确状态 `ACTIVE_FOR_COMMANDS`；Lane readiness 是独立闸门，不用含混的 `ACTIVE` 同时表示两者。

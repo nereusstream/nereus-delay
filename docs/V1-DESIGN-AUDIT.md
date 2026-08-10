@@ -1942,6 +1942,12 @@ Activation of `OwnedDelayShard` now leaves the local lifecycle in
 `CATCHING_UP` while the authority performs the `ACTIVE_FOR_COMMANDS` CAS; the
 local gate opens only after the exact successor is validated. The regression is
 `OwnerLeaseTest.authorityGatedActivationKeepsLocalGateClosedDuringLeaseCas`。
+严格 V1 activation 还提供
+`OwnedDelayShard.activateForCommandsWithControlSnapshot(...)`，在 embedded 或
+authority-gated activation 前要求 `meta/FIXED` key 10 中的
+`CompatibleControlSnapshotV1` 与调用方提供的完整 snapshot exact match；缺失或
+漂移不会打开本地 command gate。旧 overload 仍是 embedded compatibility seam，证据为
+`OwnerLeaseTest.strictActivationRequiresThePersistedShardControlSnapshot`。
 `OwnedDelayShard.beginDrain(OxiaOwnerLeaseStore, nowEpochMs)` 现在对
 `ACTIVE_FOR_COMMANDS -> DRAINING` 使用同一 exact-successor CAS 规则；response
 loss 只有在 owner/epoch/token/assignment/session 完全一致且在观测时刻仍有效的

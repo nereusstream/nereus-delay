@@ -13,6 +13,7 @@ import io.nereusstream.delay.protocol.CapacityGrantV1;
 import io.nereusstream.delay.protocol.CapacityVectorV1;
 import io.nereusstream.delay.protocol.CancelCommandBodyV1;
 import io.nereusstream.delay.protocol.ClaimMaterializationV1;
+import io.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
 import io.nereusstream.delay.protocol.CommitLargeScheduleBodyV1;
 import io.nereusstream.delay.protocol.ControlRef;
 import io.nereusstream.delay.protocol.ControlTargetRefV1;
@@ -5647,6 +5648,11 @@ public final class DelayShard {
 
     public io.nereusstream.delay.protocol.ShardId shardId() {
         return store.shardId();
+    }
+
+    /** Returns the shard-bound control snapshot required by strict activation. */
+    public synchronized CompatibleControlSnapshotV1 controlSnapshot() {
+        return store.controlSnapshot();
     }
 
     public synchronized long mutationSequence() {

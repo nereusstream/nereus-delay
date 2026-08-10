@@ -2,6 +2,7 @@ package io.nereusstream.delay.ownership;
 
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.CommandCodec;
+import io.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
 import io.nereusstream.delay.protocol.PulsarActivationBarrier;
 import io.nereusstream.delay.protocol.SourceActivationBarrier;
 import io.nereusstream.delay.protocol.SourcePosition;
@@ -589,6 +590,18 @@ public final class OwnedDelayShard {
         state = ShardLifecycleState.ACTIVE_FOR_COMMANDS;
     }
 
+    /**
+     * Strict V1 activation that proves the complete shard-bound control
+     * snapshot before opening the local command gate. The legacy overload
+     * remains an embedded compatibility seam; production activation should
+     * pass the exact snapshot obtained from the authoritative control path.
+     */
+    public synchronized void activateForCommandsWithControlSnapshot(
+            final CompatibleControlSnapshotV1 expected, final long nowEpochMs) {
+        requireControlSnapshot(expected);
+        activateForCommands(nowEpochMs);
+    }
+
     /** Completes activation only after the authority CASes the same lease to ACTIVE_FOR_COMMANDS. */
     public synchronized void activateForCommands(final OxiaOwnerLeaseStore authority, final long nowEpochMs) {
         Objects.requireNonNull(authority, "authority");
@@ -620,6 +633,25 @@ public final class OwnedDelayShard {
         }
         lease = transitioned;
         state = ShardLifecycleState.ACTIVE_FOR_COMMANDS;
+    }
+
+    /** Strict V1 activation with both control-snapshot and Owner Lease CAS fences. */
+    public synchronized void activateForCommandsWithControlSnapshot(final OxiaOwnerLeaseStore authority,
+                                                                      final CompatibleControlSnapshotV1 expected,
+                                                                      final long nowEpochMs) {
+        requireControlSnapshot(expected);
+        activateForCommands(authority, nowEpochMs);
+    }
+
+    private void requireControlSnapshot(final CompatibleControlSnapshotV1 expected) {
+        Objects.requireNonNull(expected, "expected control snapshot");
+        if (!delegate.shardId().equals(expected.shard().shardId())) {
+            throw new IllegalArgumentException("control snapshot belongs to another shard");
+        }
+        final CompatibleControlSnapshotV1 persisted = delegate.controlSnapshot();
+        if (persisted == null || !persisted.equals(expected)) {
+            throw new IllegalStateException("shard control snapshot is missing or does not match activation input");
+        }
     }
 
     private void ensureActivationPreconditions(final long nowEpochMs) {

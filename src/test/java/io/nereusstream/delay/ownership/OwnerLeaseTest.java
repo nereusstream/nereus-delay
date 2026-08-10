@@ -4,15 +4,22 @@ import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.AuthorIdentity;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CanonicalProtobuf;
+import io.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.KafkaActivationBarrier;
 import io.nereusstream.delay.protocol.OrderingMode;
+import io.nereusstream.delay.protocol.ProfileKindV1;
+import io.nereusstream.delay.protocol.ProfileRefV1;
+import io.nereusstream.delay.protocol.ProtocolTupleV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.PulsarActivationBarrier;
 import io.nereusstream.delay.protocol.PulsarSourcePosition;
+import io.nereusstream.delay.protocol.PublishAdmissionBody;
+import io.nereusstream.delay.protocol.QuotaGrantRefV1;
 import io.nereusstream.delay.protocol.ScheduleIntent;
 import io.nereusstream.delay.protocol.ShardId;
+import io.nereusstream.delay.protocol.ShardSubjectV1;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.SystemMutation;
 import io.nereusstream.delay.protocol.SystemMutationType;
@@ -215,6 +222,31 @@ class OwnerLeaseTest {
             assertEquals(MessageStatus.SCHEDULED, delegate.getMessage(schedule.delayMessageId()).status());
             assertNull(delegate.getClaim(claim.claimId(), lease.ownerEpoch()));
             assertEquals(1, delegate.discoverReady(10_000, 10).size());
+        }
+    }
+
+    @Test
+    void strictActivationRequiresThePersistedShardControlSnapshot() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 42);
+        final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = authority.acquire(shardId, "worker-control-snapshot", 100, 100).orElseThrow();
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("strict-control-activation"));
+        final UUID topic = UUID.randomUUID();
+        final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster", topic, 0, null, 1_000);
+        final CompatibleControlSnapshotV1 snapshot = controlSnapshot(shardId);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            owned.markCatchingUp(new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("strict-control-assignment")),
+                    1, new KafkaActivationBarrier(shardId, "cluster", topic, 0)));
+            owned.recordCatchup(position);
+            assertThrows(IllegalStateException.class,
+                    () -> owned.activateForCommandsWithControlSnapshot(snapshot, 101));
+            assertEquals(ShardLifecycleState.CATCHING_UP, owned.state());
+
+            store.recordControlSnapshot(snapshot);
+            owned.activateForCommandsWithControlSnapshot(snapshot, 101);
+            assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, owned.state());
         }
     }
 
@@ -807,6 +839,22 @@ class OwnerLeaseTest {
             assertEquals(io.nereusstream.delay.protocol.StableCode.SCHEDULED,
                     owned.apply(command, next, 101, Long.MIN_VALUE, guard).stableCode());
         }
+    }
+
+    private static CompatibleControlSnapshotV1 controlSnapshot(final ShardId shardId) {
+        return new CompatibleControlSnapshotV1(new ShardSubjectV1(shardId),
+                List.of(new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1)),
+                List.of(new ProfileRefV1(bytes(32, 101), 1, bytes(32, 102), ProfileKindV1.DESTINATION)),
+                new QuotaGrantRefV1(bytes(32, 103), 1, new PublishAdmissionBody.ChargeVector(
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));
+    }
+
+    private static byte[] bytes(final int length, final int seed) {
+        final byte[] value = new byte[length];
+        for (int index = 0; index < length; index++) {
+            value[index] = (byte) (seed + index);
+        }
+        return value;
     }
 
     private static byte[] timeFenceBody(final ShardId shard, final long closeThrough, final int keyVersion,
