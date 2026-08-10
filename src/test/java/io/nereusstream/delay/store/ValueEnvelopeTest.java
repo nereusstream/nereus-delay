@@ -21,6 +21,16 @@ class ValueEnvelopeTest {
     }
 
     @Test
+    void decodeAnyPreservesRegisteredDiscriminatorForSharedKeyBranches() {
+        final byte[] payload = Bytes.utf8("retired-identity-branch");
+
+        final ValueEnvelope.Decoded decoded = ValueEnvelope.decodeAny(ValueEnvelope.encode(1, payload));
+
+        assertEquals(1, decoded.valueType());
+        assertArrayEquals(payload, decoded.payload());
+    }
+
+    @Test
     void unknownPayloadTypeFailsClosed() {
         assertThrows(IllegalArgumentException.class, () -> ValueEnvelope.encode(0, new byte[0]));
         assertThrows(IllegalArgumentException.class,

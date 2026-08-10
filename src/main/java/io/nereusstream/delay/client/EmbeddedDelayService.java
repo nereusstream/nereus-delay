@@ -1259,6 +1259,9 @@ public final class EmbeddedDelayService implements DelayClient {
         if (!shardId.equals(messageId.routingId().shardId())) {
             return MessageQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
         }
+        if (shard.getRetiredMessageIdentity(messageId) != null) {
+            return MessageQueryResponseV1.identityRetired();
+        }
         final MessageQuerySnapshot snapshot = shard.queryMessageSnapshot(messageId);
         if (snapshot == null) {
             return MessageQueryResponseV1.unknown(Objects.requireNonNull(unknownEligibility,
@@ -1277,6 +1280,9 @@ public final class EmbeddedDelayService implements DelayClient {
         Objects.requireNonNull(messageId, "messageId");
         if (!shardId.equals(messageId.routingId().shardId())) {
             return MessageQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
+        }
+        if (shard.getRetiredMessageIdentity(messageId) != null) {
+            return MessageQueryResponseV1.identityRetired();
         }
         final MessageQuerySnapshot snapshot = shard.queryMessageSnapshot(messageId);
         if (snapshot == null) {

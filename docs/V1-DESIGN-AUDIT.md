@@ -2,7 +2,7 @@
 
 状态：PASS / design semantics closed  
 Spec revision：`V1-FROZEN-2026-08-01`  
-审计日期：2026-08-10
+审计日期：2026-08-11
 性质：验收证据索引；不覆盖主设计、Protocol Registry 或 Accepted ADR
 
 ## 结论
@@ -216,6 +216,23 @@ non-v7/non-RFC-variant locator before it can become a `CommandId` or
 `selfRoutingIdRejectsNonUuidV7LogicalLocatorsEvenWithValidCrc` covering both
 negative vectors. Timestamp age/future-skew remains a Route policy and is not
 claimed by this byte-level evidence.
+
+The local Message identity-reclamation projection now has a closed branch
+instead of treating a reclaimed `id_cf/MESSAGE` key as absent: the same
+valueType-1 envelope carries payload version 5
+`RETIRED_IDENTITY(messageIdentityReuseUntil, retirementMutationSequence,
+appliedSourcePosition)`. `retireMessageIdentity` atomically removes bounded
+terminal generations and local DLQ export records, while every Message-range
+rebuild/close/activation scan validates and skips the branch. The query seam
+returns `IDENTITY_RETIRED`, and a same-ID first Schedule remains
+`DELAY_MESSAGE_ID_CONFLICT` while the tombstone exists. The focused evidence
+is `RetiredMessageIdentityRecordTest` plus
+`EmbeddedDelayServiceTest.retiredMessageIdentitySurvivesQueryAndFreshProcessReopen`.
+`compactRetiredMessageIdentity` is deliberately conservative: it requires a
+closed ingress deadline and a Recovery Catalog Floor coverage proof, and
+returns a non-compacting decision when either authority is unavailable. This
+is local Store evidence only; Route freshness/retention policy, Oxia CAS,
+provider quiescence and production GC remain release blockers.
 
 The Evidence Cursor audit now treats the Pulsar Attempt Journal's
 `physicalTopic` and `physicalTopicCreationTimestamp` as part of the full
@@ -785,7 +802,7 @@ close drain 以及真实 Broker response 仍属于真实适配器 release gate�
 | 关系 | V1 不变量 |
 |---|---|
 | Shard/DB | `Ingress Route Partition = ownership/ownerEpoch = one RocksDB DB = Source Position atomic commit = checkpoint/restore/delete/migration` |
-| Message runtime | 每 generation 零或一个 current TIMELINE/CLAIMED/PUBLISHING work；另有有界 canonical attempt-obligation refs |
+| Message runtime | 每 generation 零或一个 current TIMELINE/CLAIMED/PUBLISHING work；另有有界 canonical attempt-obligation refs；完整 terminal/history 回收后，`id_cf/MESSAGE` 可保留经校验的 version-5 `RETIRED_IDENTITY` branch，不计入 live runtime |
 | Attempt lookup | ref 携 exact inflight key、Owner Epoch、tag、generation、state、hash/digest；ledger 与 locator 双向一一对应 |
 | Terminal/Replay | current terminal runtime 与 terminal summary byte-equal；Replay 新 generation 从空 obligation set 开始，旧 ref 只留旧 terminal summary |
 | Retry | `BOUNDED_RETRY_POSSIBLE_DUPLICATE` 仅 unordered `BEST_EFFORT`，且 `0 < maxUncertainRetries < maxPublishAdmissions` |

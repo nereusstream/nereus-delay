@@ -1237,7 +1237,7 @@ Value envelope：`4e56 | valueType:u8 | valueVersion:u8=01 | payloadLength:u32be
 
 | `valueType` | Registered payload contexts |
 |---:|---|
-| 1 | `meta/FIXED` kinds 1--9 and 11, `id/MESSAGE`, `timeline/DUE|ORDERED|EXPIRY`, `dedupe/COMMAND`, `terminal/GENERATION` |
+| 1 | `meta/FIXED` kinds 1--9 and 11, `id/MESSAGE` (`MessageRecord` payload versions 1--4 or the `RETIRED_IDENTITY` payload version 5 branch), `timeline/DUE|ORDERED|EXPIRY`, `dedupe/COMMAND`, `terminal/GENERATION` |
 | 2 | `id/RESERVATION`, `meta/LANE` |
 | 3 | `timeline/READY`, `dedupe/POSITION` |
 | 4 | `dedupe/SYSTEM_MUTATION` (`SystemMutationResult`) |
@@ -1248,6 +1248,26 @@ Value envelope：`4e56 | valueType:u8 | valueVersion:u8=01 | payloadLength:u32be
 | 9 | `inflight/CLAIMED`, `meta/FIXED` kind 12, `meta/SLO_OUTBOX` |
 | 10 | `meta/FIXED` kind 13 |
 | 11 | `timeline/SYSTEM` close-materialization cursor |
+
+Within the `id/MESSAGE` context, payload version 5 is the compact retired
+identity branch; it is not a new value-envelope discriminator and cannot be
+used in another context:
+
+```text
+u32be(5)
+|| delayMessageId[41]
+|| messageIdentityReuseUntilEpochMs:u64be
+|| retirementMutationSequence:u64be (raw uint64 bits)
+|| lp32(appliedSourcePosition)
+```
+
+The key remains `[MESSAGE=01][v1] || delayMessageId[41]`. A current
+`MessageRecord` and a version-5 retired identity are mutually exclusive at
+that key. Readers must validate the key/value identity and source-position
+shard, treat the retired branch as non-live for runtime indexes, and expose
+the public `IDENTITY_RETIRED` query result rather than projecting `UNKNOWN`.
+The branch is removed only after the source-fence and Recovery-Floor/retention
+guards in the main design have been proven.
 
 Unknown value types, unknown/duplicate/missing CF tags, unsupported key versions,
 or a value envelope used outside its registered context fail activation or the

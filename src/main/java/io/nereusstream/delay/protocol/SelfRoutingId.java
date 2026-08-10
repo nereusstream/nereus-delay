@@ -76,6 +76,11 @@ public final class SelfRoutingId extends FixedBytes {
         return logicalId;
     }
 
+    /** Returns the unsigned 48-bit UUIDv7 creation timestamp in epoch ms. */
+    public long logicalTimestampEpochMs() {
+        return logicalId.getMostSignificantBits() >>> 16;
+    }
+
     public static long crc32c(final byte[] bytes, final int offset, final int length) {
         final java.util.zip.CRC32C crc = new java.util.zip.CRC32C();
         crc.update(bytes, offset, length);

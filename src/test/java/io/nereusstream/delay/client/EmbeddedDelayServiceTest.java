@@ -9,6 +9,7 @@ import io.nereusstream.delay.protocol.AdapterMetadataV1;
 import io.nereusstream.delay.protocol.CommandAppliedReceiptV1;
 import io.nereusstream.delay.protocol.CommandBodies;
 import io.nereusstream.delay.protocol.CommandId;
+import io.nereusstream.delay.protocol.CommandType;
 import io.nereusstream.delay.protocol.CommandQueryResult;
 import io.nereusstream.delay.protocol.CommandQueuedReceiptV1;
 import io.nereusstream.delay.protocol.ControlAuthorV1;
@@ -691,6 +692,52 @@ class EmbeddedDelayServiceTest {
             assertEquals(MessageQueryResult.UNKNOWN,
                     service.queryMessage(DelayMessageId.random(shard), publicBinding(),
                             DlqExportStateV1.NOT_CONFIGURED, null,
+                            io.nereusstream.delay.protocol.FirstScheduleEligibilityV1.NOT_PROVEN).resultKind());
+        }
+    }
+
+    @Test
+    void retiredMessageIdentitySurvivesQueryAndFreshProcessReopen() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 42);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("retired-message-query"));
+        final ScheduleIntent intent = new ScheduleIntent(
+                DestinationLaneId.derive(Bytes.utf8("retired-message-lane")), 2_000, 5_000,
+                OrderingMode.BEST_EFFORT, Bytes.utf8("retired-message"));
+        final DelayMessageId messageId;
+        try (EmbeddedDelayService service = new EmbeddedDelayService(config, shardId,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final PreparedCommand schedule = service.prepareSchedule(intent, 10_000);
+            messageId = schedule.delayMessageId();
+            service.enqueue(schedule).toCompletableFuture().join();
+            service.drain();
+            final PreparedCommand cancel = PreparedCommand.cancel(shardId, messageId, 0, 10_000);
+            service.enqueue(cancel).toCompletableFuture().join();
+            service.drain();
+
+            final long reuseUntil = messageId.routingId().logicalTimestampEpochMs()
+                    + io.nereusstream.delay.runtime.DelayShardConfig.defaults().maxMessageLifetimeMs();
+            final io.nereusstream.delay.runtime.RetiredMessageIdentityRecord retired =
+                    service.shard().retireMessageIdentity(messageId, reuseUntil);
+            assertEquals(reuseUntil, retired.messageIdentityReuseUntilEpochMs());
+            assertNull(service.shard().getMessage(messageId));
+            assertEquals(MessageQueryResult.IDENTITY_RETIRED,
+                    service.queryMessage(messageId, null, DlqExportStateV1.NOT_CONFIGURED, null,
+                            io.nereusstream.delay.protocol.FirstScheduleEligibilityV1.NOT_PROVEN).resultKind());
+
+            final PreparedCommand reused = PreparedCommand.create(shardId, CommandId.random(shardId), messageId,
+                    CommandType.SCHEDULE, 10_000, CommandBodies.schedule(intent));
+            service.enqueue(reused).toCompletableFuture().join();
+            service.drain();
+            assertEquals(io.nereusstream.delay.protocol.StableCode.DELAY_MESSAGE_ID_CONFLICT,
+                    service.shard().getCommandResult(reused.commandId()).stableCode());
+        }
+
+        try (EmbeddedDelayService reopened = new EmbeddedDelayService(config, shardId,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            assertNull(reopened.shard().getMessage(messageId));
+            assertTrue(reopened.shard().getRetiredMessageIdentity(messageId) != null);
+            assertEquals(MessageQueryResult.IDENTITY_RETIRED,
+                    reopened.queryMessage(messageId, null, DlqExportStateV1.NOT_CONFIGURED, null,
                             io.nereusstream.delay.protocol.FirstScheduleEligibilityV1.NOT_PROVEN).resultKind());
         }
     }

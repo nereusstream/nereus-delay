@@ -28,12 +28,29 @@ public final class ValueEnvelope {
         if (!isRegisteredType(expectedType)) {
             throw new IllegalArgumentException("unknown value envelope type");
         }
+        final Decoded decoded = decodeAny(encoded);
+        if (decoded.valueType() != expectedType) {
+            throw new IllegalArgumentException("value envelope type/version mismatch");
+        }
+        return decoded;
+    }
+
+    /**
+     * Decodes and validates the envelope without assuming its CF-local
+     * payload type.  Callers that share one key namespace across multiple
+     * value branches can inspect the registered discriminator and then apply
+     * the branch-specific codec.  Unknown types still fail closed.
+     */
+    public static Decoded decodeAny(final byte[] encoded) {
         if (encoded.length < PREFIX_LENGTH + 4) {
             throw new IllegalArgumentException("value envelope is truncated");
         }
         final ByteBuffer prefix = ByteBuffer.wrap(encoded, 0, PREFIX_LENGTH);
-        if (Short.toUnsignedInt(prefix.getShort()) != MAGIC || (prefix.get() & 0xff) != expectedType
-                || (prefix.get() & 0xff) != 1) {
+        if (Short.toUnsignedInt(prefix.getShort()) != MAGIC) {
+            throw new IllegalArgumentException("value envelope type/version mismatch");
+        }
+        final int valueType = prefix.get() & 0xff;
+        if (!isRegisteredType(valueType) || (prefix.get() & 0xff) != 1) {
             throw new IllegalArgumentException("value envelope type/version mismatch");
         }
         final long payloadLength = Integer.toUnsignedLong(prefix.getInt());
@@ -45,7 +62,7 @@ public final class ValueEnvelope {
         if (expectedCrc != actualCrc) {
             throw new IllegalArgumentException("value envelope CRC mismatch");
         }
-        return new Decoded(expectedType, Arrays.copyOfRange(encoded, PREFIX_LENGTH, encoded.length - 4));
+        return new Decoded(valueType, Arrays.copyOfRange(encoded, PREFIX_LENGTH, encoded.length - 4));
     }
 
     private static boolean isRegisteredType(final int valueType) {

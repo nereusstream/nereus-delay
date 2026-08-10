@@ -120,6 +120,8 @@ public final class DelayShard {
     private static final int CONTROL_RESERVE_RECOVERY_CLASS = 4;
     private static final int CONTROL_RESERVE_EMERGENCY_CLASS = 5;
     private static final int CONTROL_RESERVE_SYSTEM_WRITER_CLASS = 6;
+    /** CF-local MESSAGE payload type; current and retired branches share it. */
+    private static final int MESSAGE_VALUE_TYPE = 1;
     private static final byte INFLIGHT_CLAIMED_KIND = 1;
     private static final byte INFLIGHT_PUBLISHING_KIND = 2;
     private static final byte INFLIGHT_UNCERTAIN_KIND = 3;
@@ -824,9 +826,169 @@ public final class DelayShard {
     public synchronized MessageRecord getMessage(final DelayMessageId messageId) {
         Objects.requireNonNull(messageId, "messageId");
         requireMessageShard(messageId, "message lookup");
-        final var value = store.getValue(ColumnFamily.ID, KeyCodec.idMessage(messageId), 1);
-        return value == null ? null : validateMessageSourcePosition(messageId,
+        final var value = messageIndexValue(messageId);
+        if (value == null) {
+            return null;
+        }
+        if (RetiredMessageIdentityRecord.isEncoded(value.payload())) {
+            // The same id_cf/MESSAGE key may hold the compact identity branch;
+            // callers that need to distinguish it use getRetiredMessageIdentity.
+            RetiredMessageIdentityRecord.decode(value.payload());
+            return null;
+        }
+        return validateMessageSourcePosition(messageId,
                 MessageRecord.decode(value.payload()), "message lookup");
+    }
+
+    /** Returns the compact identity fence retained after Message history GC. */
+    public synchronized RetiredMessageIdentityRecord getRetiredMessageIdentity(
+            final DelayMessageId messageId) {
+        Objects.requireNonNull(messageId, "messageId");
+        requireMessageShard(messageId, "retired Message identity lookup");
+        final var value = messageIndexValue(messageId);
+        if (value == null || !RetiredMessageIdentityRecord.isEncoded(value.payload())) {
+            return null;
+        }
+        final RetiredMessageIdentityRecord retired = RetiredMessageIdentityRecord.decode(value.payload());
+        if (!retired.messageId().equals(messageId)) {
+            throw new IllegalStateException("retired Message key/value identity mismatch");
+        }
+        validateSourcePositionShard(retired.appliedSourcePosition(), "retired Message identity lookup");
+        return retired;
+    }
+
+    private ValueEnvelope.Decoded messageIndexValue(final DelayMessageId messageId) {
+        final byte[] raw = store.get(ColumnFamily.ID, KeyCodec.idMessage(messageId));
+        if (raw == null) {
+            return null;
+        }
+        final ValueEnvelope.Decoded value = ValueEnvelope.decodeAny(raw);
+        if (value.valueType() != MESSAGE_VALUE_TYPE) {
+            throw new IllegalStateException("MESSAGE key has an unregistered value type: "
+                    + value.valueType());
+        }
+        return value;
+    }
+
+    /**
+     * Converts a terminal Message index into the compact identity branch.
+     * This is the shard-local half of Message history GC: all terminal
+     * generations and their local DLQ outboxes are removed in the same batch,
+     * while the identity fence remains until a later Floor/time-fence proof.
+     * Provider/object-store and Recovery-Floor authority are deliberately not
+     * inferred here.
+     */
+    public synchronized RetiredMessageIdentityRecord retireMessageIdentity(
+            final DelayMessageId messageId, final long messageIdentityReuseUntilEpochMs) {
+        Objects.requireNonNull(messageId, "messageId");
+        requireMessageShard(messageId, "Message identity retirement");
+        if (messageIdentityReuseUntilEpochMs < messageId.routingId().logicalTimestampEpochMs()) {
+            throw new IllegalArgumentException("Message identity reuse deadline precedes UUIDv7 timestamp");
+        }
+        final RetiredMessageIdentityRecord alreadyRetired = getRetiredMessageIdentity(messageId);
+        if (alreadyRetired != null) {
+            if (alreadyRetired.messageIdentityReuseUntilEpochMs() != messageIdentityReuseUntilEpochMs) {
+                throw new IllegalStateException("retired Message identity deadline conflict");
+            }
+            return alreadyRetired;
+        }
+        final MessageRecord current = getMessage(messageId);
+        if (current == null) {
+            throw new IllegalStateException("cannot retire an unknown Message identity");
+        }
+        if (!isTerminalStatus(current.status())
+                || current.runtimeIndex().currentWorkKind() != CurrentSendWorkKind.NONE
+                || !current.runtimeIndex().attemptObligations().isEmpty()) {
+            throw new IllegalStateException("Message identity still has active or open-obligation state");
+        }
+        if (lastAppliedSourcePosition == null || mutationSequence == 0) {
+            throw new IllegalStateException("Message identity retirement lacks a durable source barrier");
+        }
+        final int limit = boundedLimitPlusOne(config.maxPendingMessages());
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> terminalEntries = store.scan(
+                ColumnFamily.TERMINAL, new byte[]{1, 1}, new byte[]{2, 1}, limit);
+        if (terminalEntries.size() >= limit && config.maxPendingMessages() < Integer.MAX_VALUE) {
+            throw new IllegalStateException("terminal history scan exceeded configured bound during Message retirement");
+        }
+        final List<TerminalGenerationRecord> histories = new ArrayList<>();
+        for (var entry : terminalEntries) {
+            if (entry.key().length != 2 + DelayMessageId.LENGTH + Integer.BYTES
+                    || entry.key()[0] != 1 || entry.key()[1] != 1) {
+                throw new IllegalStateException("invalid terminal key during Message identity retirement");
+            }
+            final byte[] messageBytes = Arrays.copyOfRange(entry.key(), 2, 2 + DelayMessageId.LENGTH);
+            if (!Arrays.equals(messageBytes, messageId.bytes())) {
+                continue;
+            }
+            final TerminalGenerationRecord history = TerminalGenerationRecord.decode(
+                    ValueEnvelope.decode(entry.value(), 1).payload());
+            if (!history.messageId().equals(messageId) || !history.openObligations().isEmpty()) {
+                throw new IllegalStateException("terminal history identity or obligation mismatch during retirement");
+            }
+            histories.add(history);
+        }
+        if (histories.isEmpty() || histories.stream().noneMatch(history ->
+                history.generation() == current.generation() && history.status() == current.status())) {
+            throw new IllegalStateException("current terminal Message history is missing during retirement");
+        }
+        final RetiredMessageIdentityRecord retired = new RetiredMessageIdentityRecord(messageId,
+                messageIdentityReuseUntilEpochMs, mutationSequence, lastAppliedSourcePosition.canonicalBytes());
+        store.write(batch -> {
+            for (TerminalGenerationRecord history : histories) {
+                batch.delete(ColumnFamily.TERMINAL, KeyCodec.terminalGeneration(messageId, history.generation()));
+                if (history.status() == MessageStatus.DEAD_LETTER) {
+                    final byte[] exportId = DlqExportRecord.deriveId(messageId, history.generation(),
+                            history.stateVersion());
+                    batch.delete(ColumnFamily.TERMINAL, KeyCodec.terminalDlqExport(exportId));
+                }
+            }
+            batch.delete(ColumnFamily.ID, KeyCodec.idV1ScheduleBinding(messageId));
+            batch.putValue(ColumnFamily.ID, MESSAGE_VALUE_TYPE, KeyCodec.idMessage(messageId), retired.encode());
+        });
+        return retired;
+    }
+
+    /** Result of the local necessary-condition check for deleting a retired identity. */
+    public enum MessageIdentityGcDecision {
+        NO_TOMBSTONE,
+        SOURCE_FENCE_NOT_CLOSED,
+        FLOOR_NOT_COVERING,
+        COMPACTED
+    }
+
+    /**
+     * Deletes a retired identity only after the source fence and the supplied
+     * local Recovery Catalog prove that the retirement barrier is covered.
+     * Catalog/session CAS, identity-retention policy and provider quiescence
+     * remain external gates; any authority failure returns a conservative
+     * {@link MessageIdentityGcDecision#FLOOR_NOT_COVERING} result.
+     */
+    public synchronized MessageIdentityGcDecision compactRetiredMessageIdentity(
+            final DelayMessageId messageId, final RecoveryCatalogAuthority catalog,
+            final byte[] candidateCheckpointId) {
+        Objects.requireNonNull(messageId, "messageId");
+        Objects.requireNonNull(catalog, "catalog");
+        Objects.requireNonNull(candidateCheckpointId, "candidateCheckpointId");
+        requireMessageShard(messageId, "retired Message identity compaction");
+        final RetiredMessageIdentityRecord retired = getRetiredMessageIdentity(messageId);
+        if (retired == null) {
+            return MessageIdentityGcDecision.NO_TOMBSTONE;
+        }
+        if (closedIngressDeadlineThrough < retired.messageIdentityReuseUntilEpochMs()) {
+            return MessageIdentityGcDecision.SOURCE_FENCE_NOT_CLOSED;
+        }
+        final SourcePosition retirementPosition;
+        try {
+            retirementPosition = SourcePositionCodec.decode(retired.appliedSourcePosition());
+            if (catalog.proveFloorCoverage(candidateCheckpointId, retired.retirementMutationSequence(),
+                    retirementPosition).isEmpty()) {
+                return MessageIdentityGcDecision.FLOOR_NOT_COVERING;
+            }
+        } catch (RuntimeException unavailableOrInvalidAuthority) {
+            return MessageIdentityGcDecision.FLOOR_NOT_COVERING;
+        }
+        store.write(batch -> batch.delete(ColumnFamily.ID, KeyCodec.idMessage(messageId)));
+        return MessageIdentityGcDecision.COMPACTED;
     }
 
     /** Returns the exact accepted Registry Schedule/Prepare binding, if any. */
@@ -1924,6 +2086,9 @@ public final class DelayShard {
         long pendingMessages = 0;
         long pendingBytes = 0;
         for (var entry : messages) {
+            if (isRetiredMessageEntry(entry, "lane close accounting")) {
+                continue;
+            }
             final MessageRecord stored = decodeMessageEntry(entry, "lane close accounting");
             final MessageRecord message = rollbackMessages.getOrDefault(messageIdFromEntry(entry), stored);
             if (message.laneId().equals(laneId) && isUnadmittedGeneration(message)) {
@@ -1961,8 +2126,38 @@ public final class DelayShard {
             throw new IllegalStateException("invalid MESSAGE key during " + context);
         }
         final DelayMessageId messageId = messageIdFromEntry(entry);
+        final ValueEnvelope.Decoded value = ValueEnvelope.decodeAny(entry.value());
+        if (value.valueType() != MESSAGE_VALUE_TYPE || RetiredMessageIdentityRecord.isEncoded(value.payload())) {
+            throw new IllegalStateException("retired/non-Message value encountered during " + context);
+        }
         return validateMessageSourcePosition(messageId,
-                MessageRecord.decode(ValueEnvelope.decode(entry.value(), 1).payload()), context);
+                MessageRecord.decode(value.payload()), context);
+    }
+
+    /**
+     * Validates and recognizes the compact branch while scanning the shared
+     * MESSAGE key range.  Rebuild/retirement scans must skip a tombstone as a
+     * live Message, but malformed branch bytes still fail closed.
+     */
+    private boolean isRetiredMessageEntry(
+            final io.nereusstream.delay.store.ShardStore.KeyValue entry, final String context) {
+        if (entry.key().length != 2 + DelayMessageId.LENGTH || entry.key()[0] != 1 || entry.key()[1] != 1) {
+            throw new IllegalStateException("invalid MESSAGE key during " + context);
+        }
+        final ValueEnvelope.Decoded value = ValueEnvelope.decodeAny(entry.value());
+        if (value.valueType() != MESSAGE_VALUE_TYPE) {
+            throw new IllegalStateException("MESSAGE key has an unregistered value type during " + context);
+        }
+        if (!RetiredMessageIdentityRecord.isEncoded(value.payload())) {
+            return false;
+        }
+        final RetiredMessageIdentityRecord retired = RetiredMessageIdentityRecord.decode(value.payload());
+        final DelayMessageId messageId = messageIdFromEntry(entry);
+        if (!retired.messageId().equals(messageId)) {
+            throw new IllegalStateException("retired Message key/value identity mismatch during " + context);
+        }
+        validateSourcePositionShard(retired.appliedSourcePosition(), "retired Message " + context);
+        return true;
     }
 
     private static DelayMessageId messageIdFromEntry(
@@ -2038,6 +2233,9 @@ public final class DelayShard {
             final SourcePosition closePosition) {
         final List<ClosedMessageAction> result = new ArrayList<>();
         for (var entry : entries) {
+            if (isRetiredMessageEntry(entry, "Lane close materialization")) {
+                continue;
+            }
             final DelayMessageId messageId = messageIdFromEntry(entry);
             final MessageRecord current = decodeMessageEntry(entry, "Lane close materialization");
             if (!current.laneId().equals(cursor.laneId()) || !isUnadmittedGeneration(current)) {
@@ -2153,6 +2351,9 @@ public final class DelayShard {
         for (var entry : entries) {
             if (entry.key().length != 2 + DelayMessageId.LENGTH || entry.key()[0] != 1 || entry.key()[1] != 1) {
                 throw new IllegalStateException("invalid MESSAGE key during lane Close");
+            }
+            if (isRetiredMessageEntry(entry, "lane Close")) {
+                continue;
             }
             final MessageRecord message = decodeMessageEntry(entry, "lane Close");
             if (message.laneId().equals(laneId) && !isTerminalStatus(message.status())
@@ -6423,6 +6624,12 @@ public final class DelayShard {
             return rejected(StableCode.DELAY_MESSAGE_ID_CONFLICT, sourcePosition, existing.generation(),
                     existing.stateVersion(), existing.status());
         }
+        if (getRetiredMessageIdentity(command.delayMessageId()) != null) {
+            return rejected(StableCode.DELAY_MESSAGE_ID_CONFLICT, sourcePosition, -1, 0, null);
+        }
+        if (closedIngressDeadlineThrough >= messageIdentityReuseUntil(command.delayMessageId())) {
+            return rejected(StableCode.DELAY_MESSAGE_ID_EXPIRED, sourcePosition, -1, 0, null);
+        }
         final boolean newLane = existingLane == null;
         if (newLane && quota.laneCount() >= config.maxLanes()) {
             return rejected(StableCode.DESTINATION_LANE_LIMIT_EXCEEDED, sourcePosition, -1, 0, null);
@@ -6635,6 +6842,18 @@ public final class DelayShard {
         if (deliverAt > maxDeliver || expireAt < minExpire || expireAt > maxExpire) {
             throw new WindowViolationException();
         }
+    }
+
+    /**
+     * Computes the local compatibility identity-freshness boundary.  The
+     * production Route policy may choose a stricter maximum preparation age;
+     * this embedded shard has no separate Route catalog input, so its bounded
+     * message-lifetime horizon is the only safe local upper bound.
+     */
+    private long messageIdentityReuseUntil(final DelayMessageId messageId) {
+        Objects.requireNonNull(messageId, "messageId");
+        return Math.addExact(messageId.routingId().logicalTimestampEpochMs(),
+                config.maxMessageLifetimeMs());
     }
 
     private CommandResult persistRejected(final PreparedCommand command, final SourcePosition position,
@@ -7588,6 +7807,9 @@ public final class DelayShard {
             throw new IllegalStateException("message quota rebuild exceeded configured bound");
         }
         for (var entry : messages) {
+            if (isRetiredMessageEntry(entry, "quota rebuild")) {
+                continue;
+            }
             final MessageRecord message = decodeMessageEntry(entry, "quota rebuild");
             if (isTerminalStatus(message.status())) {
                 continue;
@@ -7678,6 +7900,9 @@ public final class DelayShard {
             if (entry.key().length != 2 + DelayMessageId.LENGTH || entry.key()[0] != 1 || entry.key()[1] != 1) {
                 throw new IllegalStateException("invalid MESSAGE key while reconciling runtime indexes");
             }
+            if (isRetiredMessageEntry(entry, "runtime-index reconciliation")) {
+                continue;
+            }
             final byte[] messageBytes = Arrays.copyOfRange(entry.key(), 2, entry.key().length);
             final DelayMessageId messageId = new DelayMessageId(messageBytes);
             final MessageRecord message = decodeMessageEntry(entry, "runtime-index reconciliation");
@@ -7753,6 +7978,9 @@ public final class DelayShard {
             }
         }
         for (var entry : messageEntries) {
+            if (isRetiredMessageEntry(entry, "runtime-index reconciliation")) {
+                continue;
+            }
             final DelayMessageId messageId = new DelayMessageId(Arrays.copyOfRange(entry.key(), 2, entry.key().length));
             final MessageRecord message = messages.get(messageId);
             if (message.runtimeIndex().currentWorkKind() == CurrentSendWorkKind.CLAIMED
@@ -7916,6 +8144,9 @@ public final class DelayShard {
         for (var entry : messages) {
             if (entry.key().length != 2 + DelayMessageId.LENGTH || entry.key()[0] != 1 || entry.key()[1] != 1) {
                 throw new IllegalStateException("invalid MESSAGE key during lane retirement");
+            }
+            if (isRetiredMessageEntry(entry, "lane retirement")) {
+                continue;
             }
             final MessageRecord message = decodeMessageEntry(entry, "lane retirement");
             if (message.laneId().equals(laneId)) {
