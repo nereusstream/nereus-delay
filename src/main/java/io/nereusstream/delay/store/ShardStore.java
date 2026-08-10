@@ -332,6 +332,15 @@ public final class ShardStore implements AutoCloseable {
             prepared.recordRecoveryMetadata(installedCandidate, observedFloor);
             prepared.close();
             prepared = null;
+            // The install-mode probe above performs a WAL-synchronised
+            // metadata rewrite and may take long enough for the session-bound
+            // RecoveryPin or its Floor protection to change.  Re-read the
+            // exact pin immediately before moving the staged DB into the
+            // worker-owned incarnation namespace; a pin check from before the
+            // probe is not an installation authority.
+            if (pin != null) {
+                validateRecoveryPin(shardId, manifest, catalog, pin);
+            }
             ensureRealDirectory(activeDb.getParent());
             Files.move(stagedDb, activeDb, StandardCopyOption.ATOMIC_MOVE);
             activeDbMoved = true;
@@ -346,6 +355,13 @@ public final class ShardStore implements AutoCloseable {
                 throw new IOException("install-mode DB shard identity mismatch");
             }
             forceIncarnationBeforeActivePointer(activeDb);
+            // Keep the candidate private until the checksummed ACTIVE pointer
+            // is about to publish it.  If the pin disappeared or changed
+            // while the installed DB was being opened, fail closed and let
+            // cleanup remove the unpublished incarnation.
+            if (pin != null) {
+                validateRecoveryPin(shardId, manifest, catalog, pin);
+            }
             deleteTree(restoreRoot);
             writeActivePointer(shardRoot, storeUuid);
             return installed;

@@ -43,6 +43,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -774,7 +775,7 @@ class ShardStoreTest {
     }
 
     @Test
-    void catalogBoundRestoreRequiresPublishedFloorEligibleManifest() throws Exception {
+    void catalogBoundRestoreRejectsPinDriftBeforeActivePublication() throws Exception {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 20);
         final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("catalog-source"));
         final Path checkpoint = tempDir.resolve("catalog-checkpoint");
@@ -839,7 +840,67 @@ class ShardStoreTest {
                     restored.recoveryMetadata().lineageBase().storeIncarnation());
             assertTrue(restored.hasReusableRecoveryProof());
         }
-        catalog.releaseRecoveryPin(pin);
+        final RecoveryCatalogAuthority pinDriftingAuthority = new RecoveryCatalogAuthority() {
+            private int pinReads;
+
+            @Override
+            public RecoveryCatalog.Publication publish(final CheckpointManifest candidate,
+                                                       final long expectedCatalogGeneration) {
+                return catalog.publish(candidate, expectedCatalogGeneration);
+            }
+
+            @Override
+            public RecoveryFloor advanceFloor(final byte[] candidateCheckpointId,
+                                               final long expectedCatalogGeneration,
+                                               final byte[] evidenceCursorDigest) {
+                return catalog.advanceFloor(candidateCheckpointId, expectedCatalogGeneration, evidenceCursorDigest);
+            }
+
+            @Override
+            public Optional<CheckpointManifest> manifest(final byte[] candidateCheckpointId) {
+                return catalog.manifest(candidateCheckpointId);
+            }
+
+            @Override
+            public Optional<RecoveryFloor> currentFloor() {
+                return catalog.currentFloor();
+            }
+
+            @Override
+            public void validatePublishedRestoreCandidate(final CheckpointManifest candidate) {
+                catalog.validatePublishedRestoreCandidate(candidate);
+            }
+
+            @Override
+            public Optional<RecoveryCatalog.FloorCoverage> proveFloorCoverage(
+                    final byte[] candidateCheckpointId, final long requiredMutationSequence,
+                    final io.nereusstream.delay.protocol.SourcePosition... requiredPositions) {
+                return catalog.proveFloorCoverage(candidateCheckpointId, requiredMutationSequence, requiredPositions);
+            }
+
+            @Override
+            public Optional<RecoveryPinV1> activeRecoveryPin() {
+                // The first three reads cover admission, staged validation and
+                // the pre-rename install fence.  The fourth read simulates a
+                // session/pin change while the formally opened incarnation is
+                // being prepared for ACTIVE publication.
+                if (++pinReads == 4) {
+                    catalog.releaseRecoveryPin(pin);
+                    return Optional.empty();
+                }
+                return catalog.activeRecoveryPin();
+            }
+        };
+        final ShardStoreConfig driftingConfig = ShardStoreConfig.defaults(tempDir.resolve("pin-drift-restore"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(driftingConfig)) {
+            assertThrows(IllegalStateException.class, () -> ShardStore.restoreFromCheckpoint(
+                    driftingConfig, shardId, resources, checkpoint, manifest, pinDriftingAuthority, pin));
+        }
+        final Path driftingShardRoot = driftingConfig.rootPath().resolve("shards")
+                .resolve(shardId.routeIncarnation().uuid().toString())
+                .resolve(Integer.toUnsignedString(shardId.partition()));
+        assertFalse(Files.exists(driftingShardRoot.resolve("ACTIVE"), java.nio.file.LinkOption.NOFOLLOW_LINKS));
+        assertTrue(catalog.activeRecoveryPin().isEmpty());
         final ShardStoreConfig missingPinConfig = ShardStoreConfig.defaults(tempDir.resolve("missing-pin-restore"));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(missingPinConfig)) {
             assertThrows(IllegalStateException.class, () -> ShardStore.restoreFromCheckpoint(

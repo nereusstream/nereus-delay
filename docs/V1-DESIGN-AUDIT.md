@@ -1218,11 +1218,14 @@ protection 和同 lineage/checkpoint 的 active `RecoveryPinV1`；catalog/pin
 读取失败也 fail closed。该边界不等于 owner abandonment/lease-loss
 authority、quiescence、exact-version Object Store delete/final prefix sweep
 或 Oxia transaction。
-`ShardStore` 还提供 pin-aware restore overload：它在下载/暂存校验后、安装
-新 Store Incarnation 前 reread exact active `RecoveryPinV1`，pin 缺失或值漂移
-以及 Floor 已越过 candidate 都会 fail closed 并清理私有 `restore-tmp`。这把
-本地安装边界接上了 pin/Floor 语义，但不冒充 production Oxia 的 Owner
-Lease/session 同事务 CAS。
+`ShardStore` 还提供 pin-aware restore overload：它在下载/暂存校验后、原子
+移动新 Store Incarnation 前，以及正式打开并 fsync 新 incarnation 后、发布
+checksummed `ACTIVE` pointer 前，都会 reread exact active `RecoveryPinV1`。pin
+缺失或值漂移，以及 Floor 已越过 candidate，都会 fail closed；若新 incarnation
+已经移动但尚未发布 pointer，清理路径只删除这个未发布目录并保留原始错误。
+`ShardStoreTest.catalogBoundRestoreRejectsPinDriftBeforeActivePublication` 覆盖
+后一个 late-session-drift 窗口。这把本地安装边界接上了 pin/Floor 语义，但不
+冒充 production Oxia 的 Owner Lease/session 同事务 CAS。
 `OxiaRecoveryCatalog` 的 response boundary 现在会在 scalar/typed Floor CAS
 后 reread exact published manifest，并拒绝 lineage、manifest hash、source
 position、mutation sequence 或 typed evidence-cursor drift；typed 返回还必须
@@ -2433,7 +2436,7 @@ install-mode、normal close 与恢复候选安装时用 WAL-synchronised batch �
 并拒绝 foreign-shard Floor、LOCAL_STORE candidate/DB identity 漂移和 install-state
 Store Incarnation 漂移；restore 会为新 Store Incarnation 记录 LOCAL_STORE candidate
 及 pin 观察到的 Floor。`StoreRecoveryMetadataTest`、
-`RecoveryInstallStateV1Test` 和 `ShardStoreTest.catalogBoundRestoreRequiresPublishedFloorEligibleManifest`
+`RecoveryInstallStateV1Test` 和 `ShardStoreTest.catalogBoundRestoreRejectsPinDriftBeforeActivePublication`
 覆盖 canonical round-trip、key/value projection、reopen 与 restore。该投影只闭合
 本地 recovery-reuse facts；`hasReusableRecoveryProof()` 不证明 ancestry/Floor
 coverage，也不替代 Oxia Owner Lease/session/catalog authority。
