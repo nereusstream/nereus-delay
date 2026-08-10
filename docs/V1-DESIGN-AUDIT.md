@@ -2063,6 +2063,15 @@ source token 或 generation key 被篡改，不能使 READY 恢复成功。证�
 Direct `discoverReady` 也会在返回 scheduler work 前确认对应 timeline entry
 仍存在且 key/value identity 正确；READY projection 不能在 timeline 被删除后
 继续作为独立指针。证据为 `DelayShardTest.readyDiscoveryRejectsMissingTimelineEntry`。
+当前实现还把物理 value 边界收紧到 Registry 的 `TimelineWorkRefV1`：新的
+DUE/ORDERED 及 paired EXPIRY 写入直接保存 canonical work projection，读取时校验
+embedded timeline key，并在当前 runtime projection 存在时要求与
+`GenerationRuntimeIndexV1.timeline` byte-identical。旧 `TimelineEntry` 只作为
+read-only migration seam 接受，不能再由 writer 产生；缺失 runtime projection 的
+legacy `MessageRecord` 只按 scalar schedule fields 受限读取。物理 rich value、
+`actionAt` 和 key equality 由
+`DelayShardTest.resolvedActionAtIsEarlierThanDeliverAtButOrderedKeyKeepsBusinessVisibilityOrder`
+覆盖。
 `id_cf/V1_SCHEDULE_BINDING` 的 direct lookup 也会在读取 sidecar 前校验
 `DelayMessageId` 的 self-routing Shard；即使当前 DB 只有错挂的 sidecar，也不会
 把它暴露给 Registry 路径。证据为

@@ -1216,8 +1216,15 @@ class DelayShardTest {
             assertEquals(2_000, message.deliverAtEpochMs());
             assertEquals(1_500, message.retryEligibilityAtEpochMs());
             assertEquals(1_500, message.runtimeIndex().timeline().actionAtEpochMs());
-            assertNotNull(store.getValue(ColumnFamily.TIMELINE,
-                    KeyCodec.timelineOrdered(lane, 2_000, source.sourceOrderToken(), command.delayMessageId(), 0), 1));
+            final byte[] orderedKey = KeyCodec.timelineOrdered(lane, 2_000, source.sourceOrderToken(),
+                    command.delayMessageId(), 0);
+            final var orderedValue = store.getValue(ColumnFamily.TIMELINE, orderedKey, 1);
+            assertNotNull(orderedValue);
+            final TimelineWorkRef storedWork = TimelineWorkRef.decode(orderedValue.payload());
+            assertArrayEquals(orderedKey, storedWork.encodedTimelineKey());
+            assertEquals(1_500, storedWork.actionAtEpochMs());
+            assertEquals(1_500, storedWork.retryEligibilityAtEpochMs());
+            assertArrayEquals(message.runtimeIndex().timeline().canonicalBytes(), storedWork.canonicalBytes());
 
             shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
             assertEquals(1_500, shard.getLane(lane).nextEligibleAtEpochMs());

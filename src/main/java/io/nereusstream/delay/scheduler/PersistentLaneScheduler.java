@@ -2,6 +2,7 @@ package io.nereusstream.delay.scheduler;
 
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DestinationLaneId;
+import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.ActiveLaneStateV1;
 import io.nereusstream.delay.protocol.LaneRecordEnvelopeV1;
 import io.nereusstream.delay.protocol.OwnerIdentityV1;
@@ -12,6 +13,7 @@ import io.nereusstream.delay.runtime.MessageRecord;
 import io.nereusstream.delay.runtime.MessageStatus;
 import io.nereusstream.delay.runtime.ReadyIndexValue;
 import io.nereusstream.delay.runtime.TimelineEntry;
+import io.nereusstream.delay.runtime.TimelineWorkRef;
 import io.nereusstream.delay.store.ColumnFamily;
 import io.nereusstream.delay.store.KeyCodec;
 import io.nereusstream.delay.store.ShardStore;
@@ -718,13 +720,37 @@ public final class PersistentLaneScheduler {
         if (timelineBytes == null) {
             throw new IllegalStateException("READY points to a missing timeline entry: " + value.messageId());
         }
-        final TimelineEntry timeline = TimelineEntry.decode(ValueEnvelope.decode(timelineBytes, 1).payload());
-        if (!timeline.messageId().equals(value.messageId()) || timeline.generation() != message.generation()) {
-            throw new IllegalStateException("READY timeline identity mismatch: " + value.messageId());
-        }
+        validateTimelineValue(ValueEnvelope.decode(timelineBytes, 1).payload(), value.messageId(), message,
+                timelineKey);
         final long accountedBytes = Math.max(1, message.payloadLength());
         return new ReadyProjection(lane, new ScheduleWorkItem(key.laneId(), value.messageId(), value.generation(),
                 key.nextEligibleAtEpochMs(), accountedBytes), entry.key());
+    }
+
+    private static void validateTimelineValue(final byte[] encodedValue, final DelayMessageId messageId,
+                                              final MessageRecord message, final byte[] expectedTimelineKey) {
+        if (encodedValue.length >= Integer.BYTES
+                && java.nio.ByteBuffer.wrap(encodedValue, 0, Integer.BYTES).getInt() == 1) {
+            final TimelineEntry legacy = TimelineEntry.decode(encodedValue);
+            if (!legacy.messageId().equals(messageId) || legacy.generation() != message.generation()) {
+                throw new IllegalStateException("legacy READY timeline identity mismatch: " + messageId);
+            }
+            return;
+        }
+        final TimelineWorkRef work = TimelineWorkRef.decode(encodedValue);
+        if (!Arrays.equals(work.encodedTimelineKey(), expectedTimelineKey)) {
+            throw new IllegalStateException("READY TimelineWorkRef key mismatch: " + messageId);
+        }
+        final TimelineWorkRef current = message.runtimeIndex().timeline();
+        if (current != null && !Arrays.equals(current.canonicalBytes(), work.canonicalBytes())) {
+            throw new IllegalStateException("READY TimelineWorkRef disagrees with Message runtime: " + messageId);
+        }
+        if (current == null && (work.retryEligibilityAtEpochMs() != message.retryEligibilityAtEpochMs()
+                || work.orderedHeadBlocking()
+                != (message.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO)
+                || work.actionAtEpochMs() > message.deliverAtEpochMs())) {
+            throw new IllegalStateException("READY TimelineWorkRef disagrees with legacy Message: " + messageId);
+        }
     }
 
     private static boolean sameWork(final ScheduleWorkItem left, final ScheduleWorkItem right) {

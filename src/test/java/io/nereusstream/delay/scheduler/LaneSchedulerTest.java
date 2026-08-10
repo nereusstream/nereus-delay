@@ -12,11 +12,14 @@ import io.nereusstream.delay.protocol.SchedulerProjectionsV1;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.runtime.AdmissionGate;
+import io.nereusstream.delay.runtime.GenerationAggregateState;
+import io.nereusstream.delay.runtime.GenerationRuntimeIndex;
 import io.nereusstream.delay.runtime.LaneRecord;
 import io.nereusstream.delay.runtime.MessageRecord;
 import io.nereusstream.delay.runtime.MessageStatus;
 import io.nereusstream.delay.runtime.ReadyIndexValue;
 import io.nereusstream.delay.runtime.TimelineEntry;
+import io.nereusstream.delay.runtime.TimelineWorkRef;
 import io.nereusstream.delay.runtime.RuntimeReadiness;
 import io.nereusstream.delay.store.ColumnFamily;
 import io.nereusstream.delay.store.KeyCodec;
@@ -750,6 +753,44 @@ class LaneSchedulerTest {
             assertEquals(messageId, scheduler.poll(new SchedulerBudget(1, 1024, 1_000_000_000)).get(0).messageId());
             final SchedulerProjectionsV1.ReadyDiscoveryCursor cursor = scheduler.discoveryCursor();
             org.junit.jupiter.api.Assertions.assertArrayEquals(readyKey, cursor.lastScannedReadyKey());
+        }
+    }
+
+    @Test
+    void fencedRecoveryAcceptsCanonicalTimelineWorkRefValue() {
+        final DestinationLaneId lane = lane(8);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 8);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("ready-rich-timeline"));
+        final SourcePosition source = new KafkaSourcePosition(shardId, "cluster", UUID.randomUUID(), 4,
+                null, 1_004);
+        final LaneRecord laneRecord = new LaneRecord(lane, new byte[16], 1, 1, AdmissionGate.OPEN,
+                RuntimeReadiness.READY, 2, 1_000);
+        final DelayMessageId messageId = DelayMessageId.random(shardId);
+        final MessageRecord base = new MessageRecord(MessageStatus.SCHEDULED, 3, 4, 1_000, 9_000, lane,
+                OrderingMode.BEST_EFFORT, new byte[]{1, 2, 3}, source.canonicalBytes());
+        final byte[] timelineKey = KeyCodec.timelineDue(lane, 1_000, source.sourceOrderToken(), messageId,
+                base.generation());
+        final MessageRecord message = base.withRuntimeIndex(GenerationRuntimeIndex.timeline(
+                GenerationAggregateState.SCHEDULED, TimelineWorkRef.initial(timelineKey, 1_000, 4),
+                List.of(), 0, 0, false, 4));
+        final byte[] readyKey = KeyCodec.timelineReady(1_000, lane, laneRecord.laneVersion());
+        final ReadyIndexValue ready = new ReadyIndexValue(lane, 1_000, laneRecord.laneVersion(), messageId,
+                message.generation(), Bytes.sha256(timelineKey));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(lane),
+                        LaneRecordEnvelopeV1.active(laneRecord.encode()).canonicalBytes());
+                batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(messageId), message.encode());
+                batch.putValue(ColumnFamily.TIMELINE, 1, timelineKey,
+                        message.runtimeIndex().timeline().canonicalBytes());
+                batch.putValue(ColumnFamily.TIMELINE, 3, readyKey, ready.encode());
+            });
+            final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
+            scheduler.register(laneRecord);
+
+            assertEquals(1, scheduler.rebuildFromAuthoritativeReady(1));
+            assertEquals(messageId, scheduler.poll(new SchedulerBudget(1, 1024, 1_000_000_000)).get(0).messageId());
         }
     }
 

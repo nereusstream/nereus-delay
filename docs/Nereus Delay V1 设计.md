@@ -1269,6 +1269,15 @@ guard 和真实 Producer authority 仍必须通过 release gate。
 
 `timeline_cf/DUE|ORDERED` value 是 exact `TimelineWorkRefV1`，其 closed work kind 为 `INITIAL_SCHEDULE | DEFINITIVE_RETRY | UNCERTAIN_RETRY`，并自校验完整 encoded key/hash、`actionAt`、retry eligibility、candidate attempt number、runtime revision、semantic-work digest 与 work-instance digest。前者排除本地 runtime revision，供 source replay precondition；后者包含它，供 snapshot/Claim fencing。`UNCERTAIN_RETRY` 还必须绑定 `PINNED_POLICY` 或 exact source-ordered `CONTROL_OVERRIDE` authority；后者携 `ResolveUncertain` ControlRef/Source Position，不能成为无来源的本地 flag。`id_cf/MESSAGE` 不只保存 public aggregate state；它保存 exact `GenerationRuntimeIndexV1`：当前工作 oneof（无、timeline、Claim、PUBLISHING）、canonical `AttemptObligationRefV1` set、Admissions/uncertain-retry 计数、duplicate risk 与 digest。每个 ref 含 exact inflight encoded key/hash、ledger state、attempt/generation，所以旧 Owner ledger 可直接定位。`inflight_cf/PUBLISHING|UNCERTAIN` 每个 key 是一个独立不可变 attempt ledger，而不是 aggregate Message 状态的替代品。
 
+所有新的 DUE/ORDERED（以及同一 generation 的 EXPIRY）projection 都必须直接写入
+`TimelineWorkRefV1.canonicalBytes()`；不能再写只有 `messageId + generation` 的
+`TimelineEntry` 指针。读取时必须校验 embedded key 与 RocksDB key 一致，并在当前
+`MessageRecord` 有 runtime projection 时要求与 `GenerationRuntimeIndexV1.timeline`
+byte-identical。旧本地 DB 中的 `TimelineEntry` 只作为有界、只读的迁移兼容输入接受，
+不得作为新写入格式，也不得通过 scheduler discovery 静默升级；缺失 runtime
+projection 的旧 `MessageRecord` 只能按可验证的 scalar schedule fields 读取，后续
+source-ordered mutation 才能产生新的完整 projection。
+
 ### 10.4 单写者与 invariant
 
 Shard event loop 是唯一 writer。Scheduler 用 bounded RocksDB snapshot 读索引，Claim 前在 event loop 重新验证 exact ID locator、generation/runtime revision、Owner Lease 和 permits。

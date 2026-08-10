@@ -5,7 +5,11 @@ import io.nereusstream.delay.protocol.DelayMessageId;
 
 import java.nio.ByteBuffer;
 
-/** Current-work reference stored in timeline_cf. */
+/**
+ * Legacy message/generation pointer retained for reading pre-TimelineWorkRef
+ * local stores during migration. New timeline writes use {@link TimelineWorkRef}
+ * directly so the value carries the complete work projection.
+ */
 public record TimelineEntry(DelayMessageId messageId, int generation) {
     public TimelineEntry {
         if (generation < 0) {

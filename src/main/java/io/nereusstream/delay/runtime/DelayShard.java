@@ -1140,9 +1140,9 @@ public final class DelayShard {
             batch.delete(ColumnFamily.INFLIGHT, claim.encodedKey());
             batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(claim.delayMessageId()), revokedNext.encode());
             batch.putValue(ColumnFamily.TIMELINE, 1, claim.timelineKey(),
-                    new TimelineEntry(claim.delayMessageId(), revokedNext.generation()).encode());
+                    encodeTimelineValue(claim.delayMessageId(), revokedNext));
             batch.putValue(ColumnFamily.TIMELINE, 1, expiryKey(claim.delayMessageId(), revokedNext),
-                    new TimelineEntry(claim.delayMessageId(), revokedNext.generation()).encode());
+                    encodeTimelineValue(claim.delayMessageId(), revokedNext));
             for (LaneProjection projection : projections.values()) {
                 deleteReadyKey(batch, projection.previousLane());
                 putReadyProjection(batch, projection);
@@ -1713,12 +1713,10 @@ public final class DelayShard {
                 batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(rollback.claim().delayMessageId()),
                         rollback.nextMessage().encode());
                 batch.putValue(ColumnFamily.TIMELINE, 1, rollback.claim().timelineKey(),
-                        new TimelineEntry(rollback.claim().delayMessageId(), rollback.nextMessage().generation())
-                                .encode());
+                        encodeTimelineValue(rollback.claim().delayMessageId(), rollback.nextMessage()));
                 batch.putValue(ColumnFamily.TIMELINE, 1,
                         expiryKey(rollback.claim().delayMessageId(), rollback.nextMessage()),
-                        new TimelineEntry(rollback.claim().delayMessageId(), rollback.nextMessage().generation())
-                                .encode());
+                        encodeTimelineValue(rollback.claim().delayMessageId(), rollback.nextMessage()));
             }
             putReadyProjection(batch, projection);
             if (closeCursor != null) {
@@ -2354,9 +2352,9 @@ public final class DelayShard {
                 batch.delete(ColumnFamily.TIMELINE, expiryKey(messageId, current));
                 batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(messageId), nextForWrite.encode());
                 batch.putValue(ColumnFamily.TIMELINE, 1, timelineKey(messageId, nextForWrite),
-                        new TimelineEntry(messageId, nextForWrite.generation()).encode());
+                        encodeTimelineValue(messageId, nextForWrite));
                 batch.putValue(ColumnFamily.TIMELINE, 1, expiryKey(messageId, nextForWrite),
-                        new TimelineEntry(messageId, nextForWrite.generation()).encode());
+                        encodeTimelineValue(messageId, nextForWrite));
                 for (LaneProjection projection : projections.values()) {
                     deleteReadyKey(batch, projection.previousLane());
                     putReadyProjection(batch, projection);
@@ -2855,9 +2853,9 @@ public final class DelayShard {
         store.write(batch -> {
             batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(body.messageId()), scheduledForWrite.encode());
             batch.putValue(ColumnFamily.TIMELINE, 1, timelineKey(body.messageId(), scheduledForWrite),
-                    new TimelineEntry(body.messageId(), scheduledForWrite.generation()).encode());
+                    encodeTimelineValue(body.messageId(), scheduledForWrite));
             batch.putValue(ColumnFamily.TIMELINE, 1, expiryKey(body.messageId(), scheduledForWrite),
-                    new TimelineEntry(body.messageId(), scheduledForWrite.generation()).encode());
+                    encodeTimelineValue(body.messageId(), scheduledForWrite));
             for (LaneProjection projection : projections.values()) {
                 deleteReadyKey(batch, projection.previousLane());
                 putReadyProjection(batch, projection);
@@ -3208,9 +3206,9 @@ public final class DelayShard {
             batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(ledger.delayMessageId()),
                     scheduledForWrite.encode());
             batch.putValue(ColumnFamily.TIMELINE, 1, timelineKey(ledger.delayMessageId(), scheduledForWrite),
-                    new TimelineEntry(ledger.delayMessageId(), scheduledForWrite.generation()).encode());
+                    encodeTimelineValue(ledger.delayMessageId(), scheduledForWrite));
             batch.putValue(ColumnFamily.TIMELINE, 1, expiryKey(ledger.delayMessageId(), scheduledForWrite),
-                    new TimelineEntry(ledger.delayMessageId(), scheduledForWrite.generation()).encode());
+                    encodeTimelineValue(ledger.delayMessageId(), scheduledForWrite));
             for (LaneProjection projection : projections.values()) {
                 deleteReadyKey(batch, projection.previousLane());
                 putReadyProjection(batch, projection);
@@ -3509,9 +3507,9 @@ public final class DelayShard {
         store.write(batch -> {
             batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(body.messageId()), nextForWrite.encode());
             batch.putValue(ColumnFamily.TIMELINE, 1, timelineKey(body.messageId(), nextForWrite),
-                    new TimelineEntry(body.messageId(), nextGeneration).encode());
+                    encodeTimelineValue(body.messageId(), nextForWrite));
             batch.putValue(ColumnFamily.TIMELINE, 1, expiryKey(body.messageId(), nextForWrite),
-                    new TimelineEntry(body.messageId(), nextGeneration).encode());
+                    encodeTimelineValue(body.messageId(), nextForWrite));
             for (LaneProjection projection : projections.values()) {
                 deleteReadyKey(batch, projection.previousLane());
                 putReadyProjection(batch, projection);
@@ -4127,9 +4125,9 @@ public final class DelayShard {
             batch.delete(ColumnFamily.INFLIGHT, ledger.encodedKey());
             batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(ledger.delayMessageId()), scheduledForWrite.encode());
             batch.putValue(ColumnFamily.TIMELINE, 1, timelineKey(ledger.delayMessageId(), scheduledForWrite),
-                    new TimelineEntry(ledger.delayMessageId(), scheduledForWrite.generation()).encode());
+                    encodeTimelineValue(ledger.delayMessageId(), scheduledForWrite));
             batch.putValue(ColumnFamily.TIMELINE, 1, expiryKey(ledger.delayMessageId(), scheduledForWrite),
-                    new TimelineEntry(ledger.delayMessageId(), scheduledForWrite.generation()).encode());
+                    encodeTimelineValue(ledger.delayMessageId(), scheduledForWrite));
             for (LaneProjection projection : projections.values()) {
                 deleteReadyKey(batch, projection.previousLane());
                 putReadyProjection(batch, projection);
@@ -5066,9 +5064,9 @@ public final class DelayShard {
             batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(nextLedger.delayMessageId()), uncertainNext.encode());
             if (scheduleUncertainRetry) {
                 batch.putValue(ColumnFamily.TIMELINE, 1, timelineKey(nextLedger.delayMessageId(), uncertainNext),
-                        new TimelineEntry(nextLedger.delayMessageId(), uncertainNext.generation()).encode());
+                        encodeTimelineValue(nextLedger.delayMessageId(), uncertainNext));
                 batch.putValue(ColumnFamily.TIMELINE, 1, expiryKey(nextLedger.delayMessageId(), uncertainNext),
-                        new TimelineEntry(nextLedger.delayMessageId(), uncertainNext.generation()).encode());
+                        encodeTimelineValue(nextLedger.delayMessageId(), uncertainNext));
             }
             for (LaneProjection projection : projections.values()) {
                 deleteReadyKey(batch, projection.previousLane());
@@ -5855,10 +5853,8 @@ public final class DelayShard {
             if (timelineValue == null) {
                 throw new IllegalStateException("READY points to a missing timeline entry");
             }
-            final TimelineEntry timeline = TimelineEntry.decode(timelineValue.payload());
-            if (!timeline.messageId().equals(value.messageId()) || timeline.generation() != value.generation()) {
-                throw new IllegalStateException("READY timeline identity mismatch");
-            }
+            validateTimelineValue(timelineValue.payload(), value.messageId(), message, timelineKey,
+                    "READY discovery");
             result.add(new ReadyWork(key.laneId(), value.messageId(), value.generation(),
                     key.nextEligibleAtEpochMs(), key.laneVersion(), message.orderingMode()
                     == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO));
@@ -5953,12 +5949,7 @@ public final class DelayShard {
             if (expireAt > earliestEpochMs) {
                 break;
             }
-            final TimelineEntry value = TimelineEntry.decode(
-                    io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), 1).payload());
             final DelayMessageId messageId = new DelayMessageId(messageBytes);
-            if (!value.messageId().equals(messageId) || value.generation() != generation) {
-                throw new IllegalStateException("EXPIRY key/value identity mismatch");
-            }
             final io.nereusstream.delay.protocol.DestinationLaneId laneId =
                     new io.nereusstream.delay.protocol.DestinationLaneId(laneBytes);
             final MessageRecord message = getMessage(messageId);
@@ -5968,6 +5959,8 @@ public final class DelayShard {
                     || !Arrays.equals(entry.key(), expiryKey(messageId, message))) {
                 throw new IllegalStateException("EXPIRY timeline does not match the current message");
             }
+            validateTimelineValue(io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), 1).payload(),
+                    messageId, message, timelineKey(messageId, message), false, "EXPIRY discovery");
             result.add(new ExpiryWork(messageId, laneId, generation, expireAt));
         }
         return List.copyOf(result);
@@ -6398,12 +6391,7 @@ public final class DelayShard {
             if (eligibleAt > earliestEpochMs) {
                 break;
             }
-            final TimelineEntry value = TimelineEntry.decode(
-                    io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), 1).payload());
             final DelayMessageId messageId = new DelayMessageId(messageBytes);
-            if (!value.messageId().equals(messageId) || value.generation() != generation) {
-                throw new IllegalStateException("timeline key/value identity mismatch");
-            }
             final io.nereusstream.delay.protocol.DestinationLaneId laneId =
                     new io.nereusstream.delay.protocol.DestinationLaneId(laneBytes);
             final MessageRecord message = getMessage(messageId);
@@ -6412,6 +6400,8 @@ public final class DelayShard {
                     || !Arrays.equals(entry.key(), timelineKey(messageId, message))) {
                 throw new IllegalStateException("DUE timeline does not match the current scheduled message");
             }
+            validateTimelineValue(io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), 1).payload(),
+                    messageId, message, entry.key(), "DUE discovery");
             result.add(new TimelineWork(messageId, laneId, generation, eligibleAt, tag == 2));
             if (result.size() >= limit) {
                 return;
@@ -6751,9 +6741,9 @@ public final class DelayShard {
                 if (persistedNext.status() == MessageStatus.SCHEDULED) {
                     batch.putValue(ColumnFamily.TIMELINE, 1,
                             timelineKey(command.delayMessageId(), persistedNext),
-                            new TimelineEntry(command.delayMessageId(), persistedNext.generation()).encode());
+                            encodeTimelineValue(command.delayMessageId(), persistedNext));
                     batch.putValue(ColumnFamily.TIMELINE, 1, expiryKey(command.delayMessageId(), persistedNext),
-                            new TimelineEntry(command.delayMessageId(), persistedNext.generation()).encode());
+                            encodeTimelineValue(command.delayMessageId(), persistedNext));
                 }
             }
             if (reservation != null) {
@@ -7147,11 +7137,6 @@ public final class DelayShard {
         input.get(messageBytes);
         final int generation = input.getInt();
         final DelayMessageId messageId = new DelayMessageId(messageBytes);
-        final TimelineEntry timeline = TimelineEntry.decode(
-                io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), 1).payload());
-        if (!timeline.messageId().equals(messageId) || timeline.generation() != generation) {
-            throw new IllegalStateException("timeline key/value identity mismatch during READY rebuild");
-        }
         final MessageRecord message = getMessage(messageId);
         if (message == null || message.status() != MessageStatus.SCHEDULED || message.generation() != generation
                 || !message.laneId().equals(expectedLane)) {
@@ -7160,6 +7145,8 @@ public final class DelayShard {
         if (!Arrays.equals(key, timelineKey(messageId, message))) {
             throw new IllegalStateException("timeline key does not match the current scheduled message");
         }
+        validateTimelineValue(io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), 1).payload(),
+                messageId, message, key, "READY rebuild");
         final boolean ordered = message.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO;
         if ((tag == 2) != ordered) {
             throw new IllegalStateException("timeline namespace does not match ordering mode");
@@ -8065,6 +8052,76 @@ public final class DelayShard {
                 message.generation())
                 : KeyCodec.timelineDue(message.laneId(), eligibleAt, position.sourceOrderToken(), messageId,
                 message.generation());
+    }
+
+    /**
+     * Encodes the Registry TimelineWorkRef as the authoritative DUE/ORDERED
+     * value.  The older TimelineEntry pointer is accepted only when reading
+     * pre-migration local stores; all new writes must carry the complete work
+     * projection so actionAt/retry eligibility cannot drift from Message.
+     */
+    private byte[] encodeTimelineValue(final DelayMessageId messageId, final MessageRecord message) {
+        Objects.requireNonNull(messageId, "messageId");
+        Objects.requireNonNull(message, "message");
+        final TimelineWorkRef work = message.runtimeIndex().timeline();
+        if (work == null || message.status() != MessageStatus.SCHEDULED
+                || !Arrays.equals(work.encodedTimelineKey(), timelineKey(messageId, message))) {
+            throw new IllegalStateException("scheduled Message lacks the exact TimelineWorkRef projection");
+        }
+        return work.canonicalBytes();
+    }
+
+    /**
+     * Validates a DUE/ORDERED value against the current Message.  A v1
+     * TimelineEntry pointer is a bounded read-only migration seam; a current
+     * writer's TimelineWorkRef must byte-match the Message runtime index and
+     * the physical timeline key.
+     */
+    private TimelineWorkRef validateTimelineValue(final byte[] encodedValue, final DelayMessageId messageId,
+                                                  final MessageRecord message, final byte[] expectedTimelineKey,
+                                                  final String context) {
+        return validateTimelineValue(encodedValue, messageId, message, expectedTimelineKey, true, context);
+    }
+
+    private TimelineWorkRef validateTimelineValue(final byte[] encodedValue, final DelayMessageId messageId,
+                                                  final MessageRecord message, final byte[] expectedTimelineKey,
+                                                  final boolean requireCurrentWork, final String context) {
+        if (isLegacyTimelineEntry(encodedValue)) {
+            final TimelineEntry legacy = TimelineEntry.decode(encodedValue);
+            if (!legacy.messageId().equals(messageId) || legacy.generation() != message.generation()) {
+                throw new IllegalStateException("legacy timeline value identity mismatch during " + context);
+            }
+            return null;
+        }
+        final TimelineWorkRef work = TimelineWorkRef.decode(encodedValue);
+        if (!Arrays.equals(work.encodedTimelineKey(), expectedTimelineKey)) {
+            throw new IllegalStateException("TimelineWorkRef key mismatch during " + context);
+        }
+        if (requireCurrentWork) {
+            final TimelineWorkRef current = message.runtimeIndex().timeline();
+            if (current != null && !Arrays.equals(current.canonicalBytes(), work.canonicalBytes())) {
+                throw new IllegalStateException("TimelineWorkRef disagrees with Message runtime during " + context);
+            }
+            if (current == null) {
+                // MessageRecord versions predating GenerationRuntimeIndex can
+                // still be encountered while a local store is being migrated.
+                // The rich timeline value remains authoritative for work
+                // fields, but its projection must agree with the scalar
+                // schedule fields that are available in that legacy record.
+                if (work.retryEligibilityAtEpochMs() != message.retryEligibilityAtEpochMs()
+                        || work.orderedHeadBlocking()
+                        != (message.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO)
+                        || work.actionAtEpochMs() > message.deliverAtEpochMs()) {
+                    throw new IllegalStateException("TimelineWorkRef disagrees with legacy Message during " + context);
+                }
+            }
+        }
+        return work;
+    }
+
+    private static boolean isLegacyTimelineEntry(final byte[] encodedValue) {
+        return encodedValue.length >= Integer.BYTES
+                && ByteBuffer.wrap(encodedValue, 0, Integer.BYTES).getInt() == 1;
     }
 
     private static long timelineEligibilityAt(final MessageRecord message) {
