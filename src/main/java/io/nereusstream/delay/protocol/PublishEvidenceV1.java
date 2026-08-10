@@ -1,5 +1,6 @@
 package io.nereusstream.delay.protocol;
 
+import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
@@ -106,6 +107,37 @@ public final class PublishEvidenceV1 {
     /** Requires a definitive business outcome owned by the supplied Publish Attempt. */
     public void requireBusinessMutation(final byte[] publishAttemptId, final boolean published) {
         requireOwner(ExternalDeliveryIdentityV1.Kind.PUBLISH_ATTEMPT, publishAttemptId, published);
+    }
+
+    /**
+     * Requires the fixed early-Pulsar handoff proof to bind to its retained
+     * Publish Admission.  This is deliberately narrower than ordinary
+     * publication evidence binding: legacy opaque admissions and ordinary
+     * managed publish keep their existing compatibility projection.
+     */
+    public void requireCertifiedPulsarHandoffBinding(final PublishAdmissionBody admission) {
+        Objects.requireNonNull(admission, "admission");
+        if (evidenceKind != PublishEvidenceKindV1.PULSAR_SEND_ACK
+                || verificationStatus != EvidenceVerificationStatusV1.VERIFIED_PUBLISHED) {
+            throw new IllegalArgumentException("certified Pulsar handoff requires a verified Pulsar send ACK");
+        }
+        final List<CanonicalProtobuf.Reader.Field> fields = QueryCodecSupport.read(branch,
+                "Pulsar Send Ack evidence branch");
+        final BrokerResourceIdentityV1 target = BrokerResourceIdentityV1.decode(nested(fields, 1));
+        final ChannelResourceIdentityV1 channel = ChannelResourceIdentityV1.decode(
+                admission.channel().canonicalBytes());
+        if (channel.adapterKind() != AdapterKindV1.PULSAR || target.kind() != BrokerResourceIdentityV1.Kind.PULSAR) {
+            throw new IllegalArgumentException("certified Pulsar handoff channel/target mismatch");
+        }
+        if (!Arrays.equals(target.canonicalBytes(), channel.targetResource().canonicalBytes())) {
+            throw new IllegalArgumentException("certified Pulsar handoff target mismatch");
+        }
+        if (uint(fields, 2) != channel.physicalPartition()) {
+            throw new IllegalArgumentException("certified Pulsar handoff partition mismatch");
+        }
+        if (!MessageDigest.isEqual(fixed(fields, 10), admission.preparedPublishHash())) {
+            throw new IllegalArgumentException("certified Pulsar handoff prepared hash mismatch");
+        }
     }
 
     /** Requires a definitive DLQ outcome owned by the supplied export identity. */

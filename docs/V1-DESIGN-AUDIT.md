@@ -2106,6 +2106,12 @@ Registry 已声明的 `HANDED_OFF` 也已接入本地 status projection（追加
 `DelayShardTest` 的 source-ordered published/evidence-resolution regressions；真实
 Pulsar guard、Broker ACK authentication 和 handoff responsibility 仍是外部 release
 gate。
+在升级为 `HANDED_OFF` 前，`PublishEvidenceV1` 还逐字段校验 `PULSAR_SEND_ACK` 的
+target resource、physical partition、prepared hash 与 retained Admission 的
+`ChannelResourceIdentityV1`/prepared hash 完全一致；外部目标、分区或 payload hash
+漂移会 fail closed 为 stale。该 local binding 的回归为
+`PublishEvidenceV1Test.certifiedPulsarHandoffBindsTargetPartitionAndPreparedHashToAdmission`；
+它不替代真实 Pulsar ACK authentication、guard 和责任证明。
 `id_cf/V1_SCHEDULE_BINDING` 的 direct lookup 也会在读取 sidecar 前校验
 `DelayMessageId` 的 self-routing Shard；即使当前 DB 只有错挂的 sidecar，也不会
 把它暴露给 Registry 路径。证据为

@@ -1305,6 +1305,14 @@ Admission ledger 只能走普通 `PUBLISHED` compatibility seam，不能凭空�
 语义。两种成功终态都必须通过同一个 typed runtime/terminal projection fence，且
 仍受 `TOO_LATE` 管理语义和 terminal guard 约束。
 
+对 early `HANDED_OFF`，`PULSAR_SEND_ACK` 还必须逐字段绑定 retained
+`PublishAdmission`：证据中的 Pulsar `targetResource`、physical partition 和
+`preparedPublishHash` 必须分别与 Admission 的 `ChannelResourceIdentityV1` 和
+prepared hash canonical bytes 完全一致；任一 mismatch 都是 stale mutation，不能
+把一份属于其他目标、分区或 prepared payload 的 Broker ACK 升级为 handoff。该绑定
+只收紧 certified early handoff，普通 `PUBLISHED` 证据和旧 opaque compatibility
+路径不因此引入新的全量 evidence-binding 要求。
+
 为读取旧的 scalar-only `MessageRecord`，实现保留一个明确的 migration seam：旧值
 按 legacy v3 value 读取为 `NONE` placeholder，绝不把它当作合法 typed V1 runtime
 value；在下一次 source-ordered mutation 或 runtime replacement 前必须被完整 typed

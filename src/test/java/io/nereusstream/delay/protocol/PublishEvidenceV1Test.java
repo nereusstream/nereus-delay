@@ -101,6 +101,46 @@ class PublishEvidenceV1Test {
     }
 
     @Test
+    void certifiedPulsarHandoffBindsTargetPartitionAndPreparedHashToAdmission() {
+        final BrokerResourceIdentityV1 target = BrokerResourceIdentityV1.pulsar(
+                new PulsarBrokerResourceIdentityV1("cluster", hash("pulsar-resource"),
+                        "persistent://tenant/ns/topic", 1));
+        final PublishAdmissionBodyTest.Fixture fixture = PublishAdmissionBodyTest.Fixture.createWithProfiles(
+                new ShardId(RouteIncarnation.random(), 21),
+                new ProfileRefV1(Bytes.utf8("destination"), 1, hash("destination-hash"),
+                        ProfileKindV1.DESTINATION).canonicalBytes(),
+                new ProfileRefV1(Bytes.utf8("capability"), 2, hash("capability-hash"),
+                        ProfileKindV1.DELIVERY_CAPABILITY).canonicalBytes(),
+                target, AdapterKindV1.PULSAR, 1_500, 0);
+        final PublishAdmissionBody admission = PublishAdmissionBody.decode(fixture.body());
+        final ChannelResourceIdentityV1 channel = ChannelResourceIdentityV1.decode(
+                admission.channel().canonicalBytes());
+        final PublishEvidenceV1 evidence = PublishEvidenceV1.create(PublishEvidenceKindV1.PULSAR_SEND_ACK,
+                EvidenceVerificationStatusV1.VERIFIED_PUBLISHED,
+                pulsarAckBranch(admission, channel.targetResource(), channel.physicalPartition(),
+                        admission.preparedPublishHash()));
+
+        evidence.requireBusinessMutation(admission.publishAttemptId(), true);
+        evidence.requireCertifiedPulsarHandoffBinding(admission);
+
+        final BrokerResourceIdentityV1 foreignTarget = BrokerResourceIdentityV1.pulsar(
+                new PulsarBrokerResourceIdentityV1("cluster", hash("foreign-resource"),
+                        "persistent://tenant/ns/topic", 1));
+        assertThrows(IllegalArgumentException.class, () -> PublishEvidenceV1.create(
+                PublishEvidenceKindV1.PULSAR_SEND_ACK, EvidenceVerificationStatusV1.VERIFIED_PUBLISHED,
+                pulsarAckBranch(admission, foreignTarget, channel.physicalPartition(),
+                        admission.preparedPublishHash())).requireCertifiedPulsarHandoffBinding(admission));
+        assertThrows(IllegalArgumentException.class, () -> PublishEvidenceV1.create(
+                PublishEvidenceKindV1.PULSAR_SEND_ACK, EvidenceVerificationStatusV1.VERIFIED_PUBLISHED,
+                pulsarAckBranch(admission, channel.targetResource(), channel.physicalPartition() + 1,
+                        admission.preparedPublishHash())).requireCertifiedPulsarHandoffBinding(admission));
+        assertThrows(IllegalArgumentException.class, () -> PublishEvidenceV1.create(
+                PublishEvidenceKindV1.PULSAR_SEND_ACK, EvidenceVerificationStatusV1.VERIFIED_PUBLISHED,
+                pulsarAckBranch(admission, channel.targetResource(), channel.physicalPartition(), hash("wrong")))
+                .requireCertifiedPulsarHandoffBinding(admission));
+    }
+
+    @Test
     void operatorAttestationRequiresEvidenceVerifierProfile() {
         final byte[] attemptId = hash("operator-attempt");
         final byte[] validBranch = operatorBranch(attemptId, ProfileKindV1.EVIDENCE_VERIFIER);
@@ -129,6 +169,26 @@ class PublishEvidenceV1Test {
             CanonicalProtobuf.bytes(output, 9, hash("payload"));
             CanonicalProtobuf.uint32(output, 10, 1);
             CanonicalProtobuf.bytes(output, 11, new byte[64]);
+        });
+    }
+
+    private static byte[] pulsarAckBranch(final PublishAdmissionBody admission,
+                                          final BrokerResourceIdentityV1 target,
+                                          final long partition,
+                                          final byte[] preparedHash) {
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, target.canonicalBytes());
+            CanonicalProtobuf.uint32(output, 2, partition);
+            CanonicalProtobuf.uint64(output, 3, 17);
+            CanonicalProtobuf.uint64(output, 4, 23);
+            CanonicalProtobuf.uint32(output, 5, 0);
+            CanonicalProtobuf.uint64(output, 6, 2_001);
+            CanonicalProtobuf.bytes(output, 7, hash("producer"));
+            CanonicalProtobuf.uint64(output, 8, 42);
+            CanonicalProtobuf.bytes(output, 9,
+                    ExternalDeliveryIdentityV1.publishAttempt(admission.publishAttemptId()).canonicalBytes());
+            CanonicalProtobuf.bytes(output, 10, preparedHash);
+            CanonicalProtobuf.bytes(output, 11, hash("response"));
         });
     }
 

@@ -3880,6 +3880,7 @@ public final class DelayShard {
         if (actionAt < deliverAt
                 && channel.adapterKind() == io.nereusstream.delay.protocol.AdapterKindV1.PULSAR
                 && proof.evidenceKind() == PublishEvidenceKindV1.PULSAR_SEND_ACK) {
+            proof.requireCertifiedPulsarHandoffBinding(admission);
             return MessageStatus.HANDED_OFF;
         }
         throw new IllegalArgumentException("early Publish Outcome lacks certified Pulsar handoff evidence");

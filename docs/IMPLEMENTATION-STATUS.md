@@ -7,6 +7,16 @@ normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20�
 the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
+The certified early-Pulsar handoff projection now has a narrow evidence-binding
+fence: before a verified `PULSAR_SEND_ACK` can project local `HANDED_OFF`, its
+target resource, physical partition and prepared hash must match the retained
+`PublishAdmission` channel and prepared hash byte-for-byte. A mismatch remains
+`STALE_SYSTEM_MUTATION`; ordinary `PUBLISHED` and opaque legacy compatibility
+paths are unchanged. Local regression evidence is
+`PublishEvidenceV1Test.certifiedPulsarHandoffBindsTargetPartitionAndPreparedHashToAdmission`;
+real Broker ACK authentication and visibility-guard responsibility remain
+release blockers.
+
 The owner activation seam now persists the current `ownerEpoch` into the
 Store's monotonic `lastOpenedOwnerEpoch` metadata before either the embedded
 or authoritative path exposes `ACTIVE_FOR_COMMANDS`. A failed metadata or
