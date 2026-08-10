@@ -70,6 +70,7 @@ import io.nereusstream.delay.protocol.ShardCapacityEnvelopeV1;
 import io.nereusstream.delay.protocol.SystemMutation;
 import io.nereusstream.delay.protocol.SystemMutationBodyCodec;
 import io.nereusstream.delay.protocol.SystemMutationType;
+import io.nereusstream.delay.protocol.TimingCapabilityV1;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.protocol.V1ScheduleBinding;
 import io.nereusstream.delay.ownership.ControlTargetRegistrationAuthority;
@@ -139,6 +140,8 @@ public final class DelayShard {
     private final V1ScheduleResolver v1ScheduleResolver;
     /** Single-writer scratch; consumed by the same apply turn before the batch is written. */
     private V1ScheduleResolver.ResolvedSchedule lastResolvedSchedule;
+    /** Message identity for the single-writer Schedule projection scratch. */
+    private DelayMessageId lastResolvedScheduleMessageId;
     private V1ScheduleResolver.ResolvedPrepare lastResolvedPrepare;
     private SourcePosition lastAppliedSourcePosition;
     private long closedIngressDeadlineThrough;
@@ -469,6 +472,7 @@ public final class DelayShard {
         Objects.requireNonNull(command, "command");
         Objects.requireNonNull(sourcePosition, "sourcePosition");
         lastResolvedSchedule = null;
+        lastResolvedScheduleMessageId = null;
         lastResolvedPrepare = null;
         if (!store.shardId().equals(command.shardId()) || !store.shardId().equals(sourcePosition.shardId())) {
             throw new IllegalArgumentException("command/source position does not belong to shard");
@@ -3484,10 +3488,11 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }
+        final long actionAt = actionAtFor(body.messageId(), current, body.deliverAtEpochMs());
         MessageRecord next = new MessageRecord(MessageStatus.SCHEDULED, nextGeneration,
                 Math.addExact(current.stateVersion(), 1), body.deliverAtEpochMs(), body.expireAtEpochMs(),
                 current.laneId(), current.orderingMode(), current.payload(), sourcePosition.canonicalBytes(),
-                current.payloadReference(), body.deliverAtEpochMs());
+                current.payloadReference(), actionAt);
         next = next.withRuntimeIndex(timelineRuntimeIndex(body.messageId(), next,
                 TimelineWorkKind.INITIAL_SCHEDULE, 1, next.stateVersion(), UncertainRetryAuthority.NONE,
                 null, null));
@@ -3864,7 +3869,8 @@ public final class DelayShard {
                                                         final GenerationRuntimeIndex base,
                                                         final List<AttemptObligationRef> obligations) {
         final byte[] key = timelineKey(messageId, message);
-        final TimelineWorkRef work = new TimelineWorkRef(workKind, key, message.deliverAtEpochMs(),
+        final long actionAt = actionAtFor(messageId, message);
+        final TimelineWorkRef work = new TimelineWorkRef(workKind, key, actionAt,
                 message.retryEligibilityAtEpochMs(), candidateAttemptNo, runtimeRevision,
                 message.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO,
                 authority, control, controlPosition);
@@ -3879,6 +3885,68 @@ public final class DelayShard {
         final boolean possibleDestinationDuplicate = base != null && base.possibleDestinationDuplicate();
         return GenerationRuntimeIndex.timeline(aggregate, work, retained, admissionsUsed,
                 uncertainRetryAdmissionsUsed, possibleDestinationDuplicate, runtimeRevision);
+    }
+
+    /**
+     * Resolves the durable action boundary without changing the business
+     * meaning of {@code deliverAt}.  The optional resolver projection is used
+     * during the initial Schedule apply; later retries/recovery derive the
+     * same value from the persisted V1 Schedule binding.  Legacy messages and
+     * catalog-less embedded seams remain ordinary managed ({@code actionAt =
+     * deliverAt}).
+     */
+    private long actionAtFor(final DelayMessageId messageId, final MessageRecord message) {
+        return actionAtFor(messageId, message, message.deliverAtEpochMs());
+    }
+
+    private long actionAtFor(final DelayMessageId messageId, final MessageRecord message,
+                             final long deliverAtEpochMs) {
+        if (lastResolvedSchedule != null
+                && lastResolvedScheduleMessageId != null
+                && lastResolvedScheduleMessageId.equals(messageId)
+                && lastResolvedSchedule.laneId().equals(message.laneId())
+                && lastResolvedSchedule.actionAtEpochMs() != null) {
+            return checkedActionAt(lastResolvedSchedule.actionAtEpochMs(), deliverAtEpochMs);
+        }
+        final TimelineWorkRef existing = message.runtimeIndex().timeline();
+        if (existing != null && message.deliverAtEpochMs() == deliverAtEpochMs
+                && existing.actionAtEpochMs() <= deliverAtEpochMs) {
+            return existing.actionAtEpochMs();
+        }
+        if (profileCatalog == null) {
+            return deliverAtEpochMs;
+        }
+        final V1ScheduleBinding binding = getV1ScheduleBinding(messageId);
+        if (binding == null) {
+            return deliverAtEpochMs;
+        }
+        final ProfileRefV1 destinationRef = binding.commandType() == io.nereusstream.delay.protocol.CommandType.SCHEDULE
+                ? CommandBodies.decodeScheduleV1(binding.canonicalBody()).intent().profile()
+                : CommandBodies.decodePrepareLargeV1(binding.canonicalBody()).intentWithoutPayload().profile();
+        final ProfileSemanticEnvelopeV1 destination = profileCatalog.resolve(destinationRef);
+        if (destination == null || !(destination.body() instanceof DestinationProfileSemanticV1 body)
+                || body.adapterKind() != io.nereusstream.delay.protocol.AdapterKindV1.PULSAR
+                || body.handoffLeadMs() <= 0) {
+            return deliverAtEpochMs;
+        }
+        final ProfileSemanticEnvelopeV1 capability = profileCatalog.resolve(body.deliveryCapability());
+        if (capability == null || !(capability.body() instanceof DeliveryCapabilitySemanticV1 capabilityBody)
+                || !TimingCapabilityV1.includes(capabilityBody.timingCapabilityBits(),
+                TimingCapabilityV1.PULSAR_GUARDED_HANDOFF)) {
+            return deliverAtEpochMs;
+        }
+        try {
+            return checkedActionAt(Math.subtractExact(deliverAtEpochMs, body.handoffLeadMs()), deliverAtEpochMs);
+        } catch (ArithmeticException overflow) {
+            throw new IllegalStateException("V1 certified handoff actionAt arithmetic overflow", overflow);
+        }
+    }
+
+    private static long checkedActionAt(final long actionAtEpochMs, final long deliverAtEpochMs) {
+        if (actionAtEpochMs < 0 || actionAtEpochMs > deliverAtEpochMs) {
+            throw new IllegalStateException("V1 actionAt is outside the deliverAt boundary");
+        }
+        return actionAtEpochMs;
     }
 
     private static List<AttemptObligationRef> withoutObligation(final GenerationRuntimeIndex index,
@@ -5989,8 +6057,8 @@ public final class DelayShard {
                                                            final SourcePosition sourcePosition) {
         if (!CommandBodies.isRegistryClientBodyV1(command.canonicalBody())) {
             final var legacy = CommandBodies.decodeSchedule(command.canonicalBody());
-            return new ScheduleApplication(legacy.deliverAtEpochMs(), legacy.expireAtEpochMs(), legacy.laneId(),
-                    legacy.orderingMode(), legacy.payload(), null);
+            return new ScheduleApplication(legacy.deliverAtEpochMs(), legacy.expireAtEpochMs(),
+                    legacy.deliverAtEpochMs(), legacy.laneId(), legacy.orderingMode(), legacy.payload(), null);
         }
         final ScheduleCommandBodyV1 body = CommandBodies.decodeScheduleV1(command.canonicalBody());
         requireV1BodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
@@ -6001,8 +6069,10 @@ public final class DelayShard {
                 resolver.resolveSchedule(command.shardId(), command.delayMessageId(), body.intent(), sourcePosition),
                 "resolved Schedule projection");
         lastResolvedSchedule = resolved;
+        lastResolvedScheduleMessageId = command.delayMessageId();
         validateResolvedSchedulePayload(body.intent(), resolved);
         return new ScheduleApplication(body.intent().deliverAtEpochMs(), body.intent().expireAtEpochMs(),
+                resolved.actionAtEpochMs() == null ? body.intent().deliverAtEpochMs() : resolved.actionAtEpochMs(),
                 resolved.laneId(), body.intent().orderingMode(),
                 resolved.inlinePayload() == null ? new byte[0] : resolved.inlinePayload(),
                 resolved.payloadReference());
@@ -6219,10 +6289,15 @@ public final class DelayShard {
         }
         final PayloadReference reference = new PayloadReference(proof.objectStoreProfileHash(), proof.container(),
                 proof.objectKey(), proof.immutableObjectVersion(), proof.etag(), proof.length(), proof.payloadSha256());
+        final long actionAt = actionAtFor(command.delayMessageId(),
+                new MessageRecord(MessageStatus.SCHEDULED, 0, 1, reservation.intent().deliverAtEpochMs(),
+                        reservation.intent().expireAtEpochMs(), reservation.intent().laneId(),
+                        reservation.intent().orderingMode(), new byte[0], sourcePosition.canonicalBytes(), reference),
+                reservation.intent().deliverAtEpochMs());
         final MessageRecord message = new MessageRecord(MessageStatus.SCHEDULED, 0, 1,
                 reservation.intent().deliverAtEpochMs(), reservation.intent().expireAtEpochMs(),
                 reservation.intent().laneId(), reservation.intent().orderingMode(), new byte[0],
-                sourcePosition.canonicalBytes(), reference);
+                sourcePosition.canonicalBytes(), reference, actionAt);
         final PayloadReservation committed = new PayloadReservation(reservation.shardId(), reservation.reservationId(),
                 reservation.commandId(), reservation.delayMessageId(), reservation.commandHash(), reservation.intent(),
                 reservation.reservationExpiryEpochMs(), PayloadReservationStatus.COMMITTED,
@@ -6288,7 +6363,8 @@ public final class DelayShard {
         }
         final MessageRecord message = new MessageRecord(MessageStatus.SCHEDULED, 0, 1,
                 intent.deliverAtEpochMs(), intent.expireAtEpochMs(), intent.laneId(), intent.orderingMode(),
-                intent.payload(), sourcePosition.canonicalBytes(), intent.payloadReference());
+                intent.payload(), sourcePosition.canonicalBytes(), intent.payloadReference(),
+                intent.actionAtEpochMs());
         return applied(StableCode.SCHEDULED, sourcePosition, message);
     }
 
@@ -6439,7 +6515,8 @@ public final class DelayShard {
                 Math.incrementExact(existing.generation()), Math.incrementExact(existing.stateVersion()),
                 request.deliverAtEpochMs(), request.expireAtEpochMs(), existing.laneId(),
                 existing.orderingMode(), existing.payload(), sourcePosition.canonicalBytes(),
-                existing.payloadReference());
+                existing.payloadReference(), actionAtFor(command.delayMessageId(), existing,
+                        request.deliverAtEpochMs()));
         return applied(StableCode.SUPERSEDED, sourcePosition, replacement);
     }
 
@@ -6710,6 +6787,7 @@ public final class DelayShard {
         quota = nextQuota;
         laneQuotaUsage = projectedLaneQuota;
         lastResolvedSchedule = null;
+        lastResolvedScheduleMessageId = null;
         lastResolvedPrepare = null;
     }
 
@@ -6952,11 +7030,11 @@ public final class DelayShard {
             final io.nereusstream.delay.protocol.DestinationLaneId laneId,
             final LaneRecord previous, final LaneRecord base, final TimelineCandidate candidate,
             final LaneQuotaUsageProjection projectedLaneQuota) {
-        final long nextEligibleAt = candidate == null ? 0 : candidate.eligibleAtEpochMs();
+        final long nextEligibleAt = candidate == null ? 0 : candidate.nextEligibleAtEpochMs();
         final LaneRecord projected = base.nextEligibleAtEpochMs() == nextEligibleAt
                 ? base : base.withNextEligibleAt(nextEligibleAt);
         final ReadyIndexValue ready = projected.schedulable() && candidate != null
-                ? new ReadyIndexValue(laneId, candidate.eligibleAtEpochMs(), projected.laneVersion(),
+                ? new ReadyIndexValue(laneId, candidate.nextEligibleAtEpochMs(), projected.laneVersion(),
                 candidate.messageId(), candidate.generation(), Bytes.sha256(candidate.timelineKey())) : null;
         final LaneValue previousValue = readLaneValue(laneId);
         final PublishAdmissionBody.ChargeVector laneUsage = previousValue == null || !previousValue.isActive()
@@ -7011,7 +7089,8 @@ public final class DelayShard {
         if (includedMessage != null && includedMessage.status() == MessageStatus.SCHEDULED
                 && includedMessageId != null && includedMessage.laneId().equals(laneId)) {
             selected = new TimelineCandidate(includedMessageId, includedMessage.generation(),
-                    timelineEligibilityAt(includedMessage), timelineKey(includedMessageId, includedMessage),
+                    timelineEligibilityAt(includedMessage), headEligibilityAt(includedMessageId, includedMessage),
+                    timelineKey(includedMessageId, includedMessage),
                     includedMessage.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO);
         }
         final int candidateLimit = boundedLimitPlusOne(config.maxPendingMessages());
@@ -7080,7 +7159,13 @@ public final class DelayShard {
         if ((tag == 2) != ordered) {
             throw new IllegalStateException("timeline namespace does not match ordering mode");
         }
-        return new TimelineCandidate(messageId, generation, eligibleAt, key, ordered);
+        return new TimelineCandidate(messageId, generation, eligibleAt, headEligibilityAt(messageId, message),
+                key, ordered);
+    }
+
+    private long headEligibilityAt(final DelayMessageId messageId, final MessageRecord message) {
+        final long actionAt = actionAtFor(messageId, message);
+        return Math.max(actionAt, message.retryEligibilityAtEpochMs());
     }
 
     private static byte[] prefixUpperBound(final byte[] prefix) {
@@ -7152,7 +7237,7 @@ public final class DelayShard {
                 final var intent = decodeScheduleApplication(command, position);
                 yield new MessageRecord(MessageStatus.SCHEDULED, 0, 1, intent.deliverAtEpochMs(),
                         intent.expireAtEpochMs(), intent.laneId(), intent.orderingMode(), intent.payload(),
-                        position.canonicalBytes(), intent.payloadReference());
+                        position.canonicalBytes(), intent.payloadReference(), intent.actionAtEpochMs());
             }
             case CANCEL -> result.stableCode() == StableCode.CANCELED && prior != null
                     ? new MessageRecord(MessageStatus.CANCELED, prior.generation(),
@@ -8115,9 +8200,13 @@ public final class DelayShard {
     }
 
     private record TimelineCandidate(DelayMessageId messageId, int generation, long eligibleAtEpochMs,
-                                     byte[] timelineKey, boolean ordered) implements Comparable<TimelineCandidate> {
+                                     long nextEligibleAtEpochMs, byte[] timelineKey, boolean ordered)
+            implements Comparable<TimelineCandidate> {
         private TimelineCandidate {
             timelineKey = Bytes.copy(timelineKey);
+            if (eligibleAtEpochMs < 0 || nextEligibleAtEpochMs < 0) {
+                throw new IllegalArgumentException("timeline candidate times must be non-negative");
+            }
         }
 
         @Override
@@ -8193,6 +8282,7 @@ public final class DelayShard {
     }
 
     private record ScheduleApplication(long deliverAtEpochMs, long expireAtEpochMs,
+                                       long actionAtEpochMs,
                                        io.nereusstream.delay.protocol.DestinationLaneId laneId,
                                        io.nereusstream.delay.protocol.OrderingMode orderingMode,
                                        byte[] payload, PayloadReference payloadReference) {
@@ -8200,7 +8290,8 @@ public final class DelayShard {
             Objects.requireNonNull(laneId, "laneId");
             Objects.requireNonNull(orderingMode, "orderingMode");
             Objects.requireNonNull(payload, "payload");
-            if (deliverAtEpochMs < 0 || expireAtEpochMs < deliverAtEpochMs
+            if (deliverAtEpochMs < 0 || expireAtEpochMs < deliverAtEpochMs || actionAtEpochMs < 0
+                    || actionAtEpochMs > deliverAtEpochMs
                     || payloadReference != null && payload.length != 0) {
                 throw new IllegalArgumentException("invalid resolved Schedule projection");
             }

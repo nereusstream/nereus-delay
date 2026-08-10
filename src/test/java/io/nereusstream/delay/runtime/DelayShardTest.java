@@ -1178,6 +1178,110 @@ class DelayShardTest {
     }
 
     @Test
+    void resolvedActionAtIsEarlierThanDeliverAtButOrderedKeyKeepsBusinessVisibilityOrder() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("resolved-action-at"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 86);
+        final byte[] tuple = Bytes.utf8("resolved-action-at-lane");
+        final DestinationLaneId lane = DestinationLaneId.derive(tuple);
+        final ProfileRefV1 profile = new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 86),
+                ProfileKindV1.DESTINATION);
+        final ScheduleIntentV1 intent = ScheduleIntentV1.create(profile,
+                new io.nereusstream.delay.protocol.RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 87)),
+                2_000, 5_000, io.nereusstream.delay.protocol.DeliveryMode.MANAGED,
+                OrderingMode.DELIVERY_TIME_FIFO, Bytes.utf8("order"), Bytes.utf8("payload"), null,
+                io.nereusstream.delay.protocol.AdapterMetadataV1.kafka(
+                        new io.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())), null, null);
+        final PreparedCommand command = PreparedCommand.scheduleV1(shardId, intent, 9_000);
+        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+            @Override
+            public ResolvedSchedule resolveSchedule(final ShardId shard, final DelayMessageId messageId,
+                                                     final ScheduleIntentV1 scheduleIntent,
+                                                     final SourcePosition source) {
+                return new ResolvedSchedule(lane, tuple, scheduleIntent.inlinePayload(), null, 1_500L);
+            }
+
+            @Override
+            public ResolvedPrepare resolvePrepare(final ShardId shard, final DelayMessageId messageId,
+                                                  final PrepareLargeScheduleBodyV1 body,
+                                                  final SourcePosition source) {
+                return new ResolvedPrepare(lane, tuple);
+            }
+        };
+        final KafkaSourcePosition source = position(shardId, 0, 1_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver);
+            assertEquals(StableCode.SCHEDULED, shard.apply(command, source).stableCode());
+            final MessageRecord message = shard.getMessage(command.delayMessageId());
+            assertEquals(2_000, message.deliverAtEpochMs());
+            assertEquals(1_500, message.retryEligibilityAtEpochMs());
+            assertEquals(1_500, message.runtimeIndex().timeline().actionAtEpochMs());
+            assertNotNull(store.getValue(ColumnFamily.TIMELINE,
+                    KeyCodec.timelineOrdered(lane, 2_000, source.sourceOrderToken(), command.delayMessageId(), 0), 1));
+
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            assertEquals(1_500, shard.getLane(lane).nextEligibleAtEpochMs());
+            assertEquals(0, shard.discoverReady(1_499, 10).size());
+            assertEquals(1, shard.discoverReady(1_500, 10).size());
+            assertNotNull(store.getValue(ColumnFamily.TIMELINE,
+                    KeyCodec.timelineReady(1_500, lane, shard.getLane(lane).laneVersion()), 3));
+        }
+    }
+
+    @Test
+    void resolvedActionAtScratchIsBoundToTheScheduleMessageDuringReadyProjection() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("resolved-action-at-scratch"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 87);
+        final byte[] tuple = Bytes.utf8("resolved-action-at-scratch-lane");
+        final DestinationLaneId lane = DestinationLaneId.derive(tuple);
+        final ProfileRefV1 profile = new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 88),
+                ProfileKindV1.DESTINATION);
+        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+            @Override
+            public ResolvedSchedule resolveSchedule(final ShardId shard, final DelayMessageId messageId,
+                                                     final ScheduleIntentV1 scheduleIntent,
+                                                     final SourcePosition source) {
+                final long actionAt = scheduleIntent.deliverAtEpochMs() == 2_000 ? 1_500 : 900;
+                return new ResolvedSchedule(lane, tuple, scheduleIntent.inlinePayload(), null, actionAt);
+            }
+
+            @Override
+            public ResolvedPrepare resolvePrepare(final ShardId shard, final DelayMessageId messageId,
+                                                  final PrepareLargeScheduleBodyV1 body,
+                                                  final SourcePosition source) {
+                return new ResolvedPrepare(lane, tuple);
+            }
+        };
+        final ScheduleIntentV1 firstIntent = ScheduleIntentV1.create(profile,
+                new io.nereusstream.delay.protocol.RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 89)),
+                1_000, 5_000, io.nereusstream.delay.protocol.DeliveryMode.MANAGED,
+                OrderingMode.DELIVERY_TIME_FIFO, Bytes.utf8("first"), Bytes.utf8("payload-1"), null,
+                io.nereusstream.delay.protocol.AdapterMetadataV1.kafka(
+                        new io.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())), null, null);
+        final ScheduleIntentV1 secondIntent = ScheduleIntentV1.create(profile,
+                new io.nereusstream.delay.protocol.RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 89)),
+                2_000, 5_000, io.nereusstream.delay.protocol.DeliveryMode.MANAGED,
+                OrderingMode.DELIVERY_TIME_FIFO, Bytes.utf8("second"), Bytes.utf8("payload-2"), null,
+                io.nereusstream.delay.protocol.AdapterMetadataV1.kafka(
+                        new io.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())), null, null);
+        final PreparedCommand first = PreparedCommand.scheduleV1(shardId, firstIntent, 9_000);
+        final PreparedCommand second = PreparedCommand.scheduleV1(shardId, secondIntent, 9_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver);
+            assertEquals(StableCode.SCHEDULED, shard.apply(first, position(shardId, 0, 500)).stableCode());
+            assertEquals(StableCode.SCHEDULED, shard.apply(second, position(shardId, 1, 600)).stableCode());
+
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            assertEquals(900, shard.getLane(lane).nextEligibleAtEpochMs());
+            assertEquals(0, shard.discoverReady(899, 10).size());
+            final var ready = shard.discoverReady(900, 10);
+            assertEquals(1, ready.size());
+            assertEquals(first.delayMessageId(), ready.get(0).messageId());
+        }
+    }
+
+    @Test
     void scheduleBindingLookupRejectsForeignMessageShard() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("binding-foreign-shard"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 84);

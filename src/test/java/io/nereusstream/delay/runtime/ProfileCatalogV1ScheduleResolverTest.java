@@ -18,6 +18,8 @@ import io.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
+import io.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
+import io.nereusstream.delay.protocol.PulsarMetadataV1;
 import io.nereusstream.delay.protocol.RetryPolicyRefV1;
 import io.nereusstream.delay.protocol.ScheduleIntentV1;
 import io.nereusstream.delay.protocol.ShardId;
@@ -25,12 +27,14 @@ import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.TargetPartitionHashInputV1;
 import io.nereusstream.delay.protocol.TargetPartitionPolicyV1;
+import io.nereusstream.delay.protocol.TimingCapabilityV1;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -50,7 +54,10 @@ class ProfileCatalogV1ScheduleResolverTest {
         final V1ScheduleResolver.ResolvedSchedule result = resolver.resolveSchedule(shard, message, intent,
                 null);
 
-        assertEquals(delegate.schedule, result);
+        assertEquals(delegate.schedule.laneId(), result.laneId());
+        assertArrayEquals(delegate.schedule.canonicalLaneTuple(), result.canonicalLaneTuple());
+        assertArrayEquals(delegate.schedule.inlinePayload(), result.inlinePayload());
+        assertEquals(10L, result.actionAtEpochMs());
         assertTrue(delegate.scheduleCalled);
     }
 
@@ -99,6 +106,23 @@ class ProfileCatalogV1ScheduleResolverTest {
         assertEquals(StableCode.ROUTE_SNAPSHOT_UNAVAILABLE, exception.stableCode());
     }
 
+    @Test
+    void derivesCertifiedPulsarActionAtFromImmutableProfileAndCapability() {
+        final int version = 5;
+        final ProfileSemanticEnvelopeV1 capability = pulsarCapability(version);
+        final ProfileSemanticEnvelopeV1 destination = pulsarSemantic(version, capability);
+        final ProfileCatalogV1ScheduleResolver resolver = new ProfileCatalogV1ScheduleResolver(
+                new RecordingResolver(), new StubProfileCatalog(destination, true, capability));
+        final ScheduleIntentV1 intent = ScheduleIntentV1.create(destination.ref(),
+                new RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 8)), 2_000, 5_000,
+                DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, new byte[0], Bytes.utf8("payload"), null,
+                AdapterMetadataV1.pulsar(new PulsarMetadataV1(null, null, null, List.of())), null, null);
+
+        final V1ScheduleResolver.ResolvedSchedule result = resolver.resolveSchedule(null, null, intent, null);
+
+        assertEquals(1_500L, result.actionAtEpochMs());
+    }
+
     private static ScheduleIntentV1 intent(final ProfileRefV1 profile) {
         return ScheduleIntentV1.create(profile, new RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 3)),
                 10, 100, DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, new byte[0], Bytes.utf8("payload"),
@@ -124,6 +148,27 @@ class ProfileCatalogV1ScheduleResolverTest {
                 null, 0, 0, 0, 0, bytes(32, version + 2), bytes(32, version + 3), 0, 0);
         return new ProfileSemanticEnvelopeV1(ProfileKindV1.DELIVERY_CAPABILITY, Bytes.utf8("capability"), version,
                 body);
+    }
+
+    private static ProfileSemanticEnvelopeV1 pulsarCapability(final int version) {
+        final DeliveryCapabilitySemanticV1 body = new DeliveryCapabilitySemanticV1(
+                AdapterKindV1.PULSAR, io.nereusstream.delay.protocol.OutcomeCapabilityV1.AT_LEAST_ONCE,
+                TimingCapabilityV1.ORDINARY_MANAGED | TimingCapabilityV1.PULSAR_GUARDED_HANDOFF,
+                null, 0, 0, 0, 0, bytes(32, version + 2), bytes(32, version + 3), 0, 0);
+        return new ProfileSemanticEnvelopeV1(ProfileKindV1.DELIVERY_CAPABILITY, Bytes.utf8("capability"), version,
+                body);
+    }
+
+    private static ProfileSemanticEnvelopeV1 pulsarSemantic(final int version,
+                                                              final ProfileSemanticEnvelopeV1 capability) {
+        final DestinationProfileSemanticV1 body = new DestinationProfileSemanticV1(
+                AdapterKindV1.PULSAR,
+                BrokerResourceIdentityV1.pulsar(new PulsarBrokerResourceIdentityV1("cluster", bytes(32, version),
+                        "persistent://tenant/ns/topic", 1)),
+                1, TargetPartitionPolicyV1.HASH_ONLY, TargetPartitionHashInputV1.ORDERING_KEY, List.of(),
+                capability.ref(), 1, 500, 100, bytes(32, version + 4), 1_000, 128, 512, 1,
+                Bytes.utf8("pulsar-destination"), 0, 0, 1, bytes(32, version + 5));
+        return new ProfileSemanticEnvelopeV1(ProfileKindV1.DESTINATION, Bytes.utf8("destination"), version, body);
     }
 
     private static byte[] bytes(final int length, final int seed) {
@@ -168,9 +213,20 @@ class ProfileCatalogV1ScheduleResolverTest {
 
         private StubProfileCatalog(final ProfileSemanticEnvelopeV1 semantic, final boolean available,
                                     final boolean capabilityAvailable) {
+            this(semantic, available, capabilityAvailable, capability(Math.toIntExact(semantic.version())));
+        }
+
+        private StubProfileCatalog(final ProfileSemanticEnvelopeV1 semantic, final boolean available,
+                                    final ProfileSemanticEnvelopeV1 capability) {
+            this(semantic, available, true, capability);
+        }
+
+        private StubProfileCatalog(final ProfileSemanticEnvelopeV1 semantic, final boolean available,
+                                    final boolean capabilityAvailable,
+                                    final ProfileSemanticEnvelopeV1 capability) {
             this.semantic = semantic;
             this.available = available;
-            this.capability = capability(Math.toIntExact(semantic.version()));
+            this.capability = capability;
             this.capabilityAvailable = capabilityAvailable;
         }
 

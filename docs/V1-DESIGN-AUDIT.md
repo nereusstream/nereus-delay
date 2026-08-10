@@ -1449,6 +1449,19 @@ Destination/Delivery Capability Profile、Broker visibility guard 或发布 auth
 `DestinationAdapterTest.pulsarDefaultTimingPolicyRejectsEarlyActionBeforeTransport` 和
 `DestinationAdapterTest.pulsarCertifiedHandoffRequiresTheExactFixedLead` 覆盖了该局部边界。
 
+`DelayShard` 的 Schedule projection 现在也保留了同一条 immutable timing 关系：
+`ProfileCatalogV1ScheduleResolver` 从 exact Destination Profile/Delivery Capability
+推导固定 Pulsar handoff 的 `actionAt`，`MessageRecord` 和
+`TimelineWorkRef` 持久化该值，`TimelineCandidate` 的 READY projection 使用
+`max(actionAt,retryEligibility)`，而 `ORDERED` key 继续使用业务 `deliverAt`。
+catalog-less、普通 managed 和旧 embedded resolver 仍明确归一化为
+`actionAt=deliverAt`；`ProfileCatalogV1ScheduleResolverTest`
+`derivesCertifiedPulsarActionAtFromImmutableProfileAndCapability` 与
+`DelayShardTest.resolvedActionAtIsEarlierThanDeliverAtButOrderedKeyKeepsBusinessVisibilityOrder`
+、`DelayShardTest.resolvedActionAtScratchIsBoundToTheScheduleMessageDuringReadyProjection`
+覆盖本地 projection。该项不替代 authenticated Profile publication、Broker
+visibility guard 或真实 Producer/target timing evidence。
+
 本地 `DestinationPhysicalAdmission`/`BoundedDestinationPublishAdapter` 现在把
 target 请求的 physical request/byte charge 作为显式 reservation：Worker 和 target
 cluster hard cap、每 Lane cap 以及所有其它 READY Lane 的 committed minimum 都在

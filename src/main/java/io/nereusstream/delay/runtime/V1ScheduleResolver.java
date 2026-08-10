@@ -29,9 +29,25 @@ public interface V1ScheduleResolver {
     ResolvedPrepare resolvePrepare(ShardId shardId, DelayMessageId messageId,
                                    PrepareLargeScheduleBodyV1 body, SourcePosition sourcePosition);
 
-    /** Resolved ordinary Schedule projection used by the legacy local index. */
+    /**
+     * Resolved Schedule projection used by the local index.
+     *
+     * <p>{@code deliverAt} remains in the immutable wire intent and means the
+     * earliest consumer visibility time.  A resolver that has the pinned
+     * Destination Profile may additionally return the earlier certified
+     * handoff {@code actionAt}; a null value is the legacy ordinary-managed
+     * compatibility form and is normalized to {@code deliverAt} by the shard.
+     * The optional field is deliberately kept out of the Client Command body:
+     * it is derived from the immutable Profile/Capability snapshot.</p>
+     */
     record ResolvedSchedule(DestinationLaneId laneId, byte[] canonicalLaneTuple,
-                            byte[] inlinePayload, PayloadReference payloadReference) {
+                            byte[] inlinePayload, PayloadReference payloadReference,
+                            Long actionAtEpochMs) {
+        public ResolvedSchedule(final DestinationLaneId laneId, final byte[] canonicalLaneTuple,
+                                final byte[] inlinePayload, final PayloadReference payloadReference) {
+            this(laneId, canonicalLaneTuple, inlinePayload, payloadReference, null);
+        }
+
         public ResolvedSchedule {
             Objects.requireNonNull(laneId, "laneId");
             canonicalLaneTuple = canonicalTuple(canonicalLaneTuple);
@@ -45,6 +61,10 @@ public interface V1ScheduleResolver {
             }
             if (inlinePayload != null) {
                 inlinePayload = Bytes.copy(inlinePayload);
+            }
+            if (actionAtEpochMs != null && (actionAtEpochMs < 0)) {
+                throw new V1CommandResolutionException(io.nereusstream.delay.protocol.StableCode.INVALID_COMMAND,
+                        "resolved Schedule actionAt must be non-negative");
             }
         }
 

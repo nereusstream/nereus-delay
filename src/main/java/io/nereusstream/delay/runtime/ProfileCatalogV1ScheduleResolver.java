@@ -12,6 +12,7 @@ import io.nereusstream.delay.protocol.ScheduleIntentV1;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.StableCode;
+import io.nereusstream.delay.protocol.TimingCapabilityV1;
 
 import java.util.Objects;
 
@@ -38,8 +39,21 @@ public final class ProfileCatalogV1ScheduleResolver implements V1ScheduleResolve
     public ResolvedSchedule resolveSchedule(final ShardId shardId, final DelayMessageId messageId,
                                             final ScheduleIntentV1 intent,
                                             final SourcePosition sourcePosition) {
-        requireDestinationProfile(intent.profile());
-        return delegate.resolveSchedule(shardId, messageId, intent, sourcePosition);
+        final DestinationProfileSemanticV1 destination = requireDestinationProfile(intent.profile());
+        final ProfileSemanticEnvelopeV1 capabilityEnvelope = profileCatalog.resolve(destination.deliveryCapability());
+        final DeliveryCapabilitySemanticV1 capability = capabilityEnvelope == null
+                || !(capabilityEnvelope.body() instanceof DeliveryCapabilitySemanticV1 value)
+                ? null : value;
+        final ResolvedSchedule resolved = Objects.requireNonNull(
+                delegate.resolveSchedule(shardId, messageId, intent, sourcePosition),
+                "resolved Schedule projection");
+        final long expectedActionAt = expectedActionAt(intent.deliverAtEpochMs(), destination, capability);
+        if (resolved.actionAtEpochMs() != null && resolved.actionAtEpochMs() != expectedActionAt) {
+            throw new V1CommandResolutionException(StableCode.INVALID_COMMAND,
+                    "resolved Schedule actionAt does not match the immutable Destination Profile");
+        }
+        return new ResolvedSchedule(resolved.laneId(), resolved.canonicalLaneTuple(), resolved.inlinePayload(),
+                resolved.payloadReference(), expectedActionAt);
     }
 
     @Override
@@ -50,7 +64,7 @@ public final class ProfileCatalogV1ScheduleResolver implements V1ScheduleResolve
         return delegate.resolvePrepare(shardId, messageId, body, sourcePosition);
     }
 
-    private void requireDestinationProfile(final ProfileRefV1 reference) {
+    private DestinationProfileSemanticV1 requireDestinationProfile(final ProfileRefV1 reference) {
         if (reference.profileKind() != ProfileKindV1.DESTINATION) {
             throw unavailable("V1 Schedule requires a Destination Profile");
         }
@@ -71,6 +85,30 @@ public final class ProfileCatalogV1ScheduleResolver implements V1ScheduleResolve
                 || deliveryCapability.adapterKind() != destination.adapterKind()) {
             throw unavailable("Delivery Capability semantic or adapter binding is unavailable");
         }
+        return destination;
+    }
+
+    private static long expectedActionAt(final long deliverAt,
+                                         final DestinationProfileSemanticV1 destination,
+                                         final DeliveryCapabilitySemanticV1 capability) {
+        if (destination.adapterKind() == io.nereusstream.delay.protocol.AdapterKindV1.PULSAR
+                && destination.handoffLeadMs() > 0
+                && capability != null
+                && TimingCapabilityV1.includes(capability.timingCapabilityBits(),
+                TimingCapabilityV1.PULSAR_GUARDED_HANDOFF)) {
+            try {
+                final long actionAt = Math.subtractExact(deliverAt, destination.handoffLeadMs());
+                if (actionAt < 0) {
+                    throw new V1CommandResolutionException(StableCode.INVALID_DELIVERY_WINDOW,
+                            "certified handoff actionAt underflows deliverAt");
+                }
+                return actionAt;
+            } catch (ArithmeticException overflow) {
+                throw new V1CommandResolutionException(StableCode.INVALID_DELIVERY_WINDOW,
+                        "certified handoff actionAt arithmetic overflow");
+            }
+        }
+        return deliverAt;
     }
 
     private static V1CommandResolutionException unavailable(final String message) {
