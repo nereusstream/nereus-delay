@@ -315,6 +315,9 @@ public final class GenerationRuntimeIndex {
                 if (workKind == TimelineWorkKind.UNCERTAIN_RETRY && !hasUncertain) {
                     throw new IllegalArgumentException("UNCERTAIN_RETRY timeline lacks an UNCERTAIN obligation");
                 }
+                if (hasUncertain && workKind != TimelineWorkKind.UNCERTAIN_RETRY) {
+                    throw new IllegalArgumentException("UNCERTAIN obligation requires UNCERTAIN_RETRY timeline");
+                }
                 if (!hasUncertain) {
                     final GenerationAggregateState expected = workKind == TimelineWorkKind.INITIAL_SCHEDULE
                             ? GenerationAggregateState.SCHEDULED : GenerationAggregateState.RETRY_WAIT;

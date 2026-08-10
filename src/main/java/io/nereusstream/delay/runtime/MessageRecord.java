@@ -55,6 +55,7 @@ public record MessageRecord(
         Objects.requireNonNull(payload, "payload");
         Objects.requireNonNull(scheduleSourcePosition, "scheduleSourcePosition");
         Objects.requireNonNull(runtimeIndex, "runtimeIndex");
+        validateRuntimeProjection(status, runtimeIndex);
         if (generation < 0 || stateVersion < 0 || deliverAtEpochMs < 0 || expireAtEpochMs < deliverAtEpochMs
                 || retryEligibilityAtEpochMs < 0 || retryEligibilityAtEpochMs > expireAtEpochMs) {
             throw new IllegalArgumentException("invalid message record");
@@ -225,6 +226,53 @@ public record MessageRecord(
     private static GenerationRuntimeIndex legacyRuntimeIndex(final MessageStatus status, final long stateVersion) {
         return GenerationRuntimeIndex.legacyNone(GenerationAggregateState.fromMessageStatus(status),
                 Math.max(1, stateVersion));
+    }
+
+    private static void validateRuntimeProjection(final MessageStatus status,
+                                                   final GenerationRuntimeIndex runtimeIndex) {
+        if (runtimeIndex.isLegacyCompatibility()) {
+            return;
+        }
+        final GenerationAggregateState aggregate = runtimeIndex.aggregateState();
+        final CurrentSendWorkKind currentWork = runtimeIndex.currentWorkKind();
+        switch (status) {
+            case SCHEDULED -> {
+                if ((currentWork != CurrentSendWorkKind.TIMELINE
+                        && !(currentWork == CurrentSendWorkKind.NONE
+                        && aggregate == GenerationAggregateState.UNCERTAIN))
+                        || (aggregate != GenerationAggregateState.SCHEDULED
+                        && aggregate != GenerationAggregateState.RETRY_WAIT
+                        && aggregate != GenerationAggregateState.UNCERTAIN)) {
+                    throw new IllegalArgumentException("SCHEDULED Message disagrees with runtime projection");
+                }
+            }
+            case CLAIMED -> {
+                if (currentWork != CurrentSendWorkKind.CLAIMED
+                        || (aggregate != GenerationAggregateState.CLAIMED
+                        && aggregate != GenerationAggregateState.UNCERTAIN)) {
+                    throw new IllegalArgumentException("CLAIMED Message disagrees with runtime projection");
+                }
+            }
+            case PUBLISHING -> {
+                if (currentWork != CurrentSendWorkKind.PUBLISHING
+                        || (aggregate != GenerationAggregateState.PUBLISHING
+                        && aggregate != GenerationAggregateState.UNCERTAIN)) {
+                    throw new IllegalArgumentException("PUBLISHING Message disagrees with runtime projection");
+                }
+            }
+            case UNCERTAIN -> {
+                if ((currentWork != CurrentSendWorkKind.NONE && currentWork != CurrentSendWorkKind.TIMELINE)
+                        || aggregate != GenerationAggregateState.UNCERTAIN) {
+                    throw new IllegalArgumentException("UNCERTAIN Message disagrees with runtime projection");
+                }
+            }
+            case CANCELED, SUPERSEDED, PUBLISHED, EXPIRED, DEAD_LETTER -> {
+                if (currentWork != CurrentSendWorkKind.NONE
+                        || aggregate != GenerationAggregateState.fromMessageStatus(status)) {
+                    throw new IllegalArgumentException("terminal Message disagrees with runtime projection");
+                }
+            }
+        }
     }
 
     private static byte[] readBytes(final ByteBuffer input, final int length) {

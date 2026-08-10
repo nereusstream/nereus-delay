@@ -2089,8 +2089,13 @@ control/evidence authority。
 send work。`GenerationRuntimeIndexTest.runtimeIndexFencesAggregateAndCurrentWorkProjectionDrift`
 覆盖 drift vectors。为兼容旧 scalar-only `MessageRecord`，读取路径保留显式 legacy
 v3 placeholder；它不是 canonical V1 runtime value，下一次 typed mutation 必须替换，
-而 v4 decoder 会拒绝同形的 `NONE + non-terminal` projection。这个兼容 seam 只解决
-本地历史值迁移，不降低新写入或 source-ordered recovery 的 fail-closed 要求。
+而 v4 decoder 会拒绝同形的 `NONE + non-terminal` projection。唯一保留的 typed
+管理投影是旧 UNCERTAIN obligation 撤销 current work 后的
+`SCHEDULED + NONE + UNCERTAIN`，它仍由 TOO_LATE gate 保护。这个兼容 seam 只解决
+本地历史值迁移，不降低新写入或 source-ordered recovery 的 fail-closed 要求。带有
+旧 UNCERTAIN obligation 的 current timeline 还必须是 `UNCERTAIN_RETRY`；typed
+`MessageRecord` 同时拒绝 status 与 aggregate/current-work 不一致的 v4 projection，
+`MessageRecordTest.typedRuntimeCannotDisagreeWithMessageStatus` 覆盖 terminal drift。
 `id_cf/V1_SCHEDULE_BINDING` 的 direct lookup 也会在读取 sidecar 前校验
 `DelayMessageId` 的 self-routing Shard；即使当前 DB 只有错挂的 sidecar，也不会
 把它暴露给 Registry 路径。证据为

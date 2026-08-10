@@ -1283,9 +1283,14 @@ source-ordered mutation 才能产生新的完整 projection。
 `UNCERTAIN` attempt obligations，`TIMELINE` 必须与 `INITIAL_SCHEDULE`/
 `DEFINITIVE_RETRY`/`UNCERTAIN_RETRY` 及 aggregate 状态相容，`CLAIMED`/
 `PUBLISHING` 也必须分别有对应的 current-work identity；任一 UNCERTAIN obligation
-都要求 aggregate 为 `UNCERTAIN`。Terminal generation 可以保留 open obligations，
+都要求 aggregate 为 `UNCERTAIN`，并且只能由 `UNCERTAIN_RETRY` timeline 作为当前
+可逆 work。Terminal generation 可以保留 open obligations，
 但不能再有 current send work。这样 `id_cf/MESSAGE` 的 scalar status 与 runtime
-projection 不会各自表达另一套生命周期。
+ projection 不会各自表达另一套生命周期；typed `MessageRecord` 还必须让 status
+ 与这两个 runtime 投影字段保持允许的对应关系。为保留旧 UNCERTAIN obligation
+ 在撤销 current work 后的本地管理语义，`SCHEDULED + NONE + UNCERTAIN` 是显式
+ 允许的兼容投影；它仍然不能被当作可调度 work，Cancel/Reschedule 必须返回
+ `TOO_LATE`，而不是重新 materialize 一个 Claim 或 retry。
 
 为读取旧的 scalar-only `MessageRecord`，实现保留一个明确的 migration seam：旧值
 按 legacy v3 value 读取为 `NONE` placeholder，绝不把它当作合法 typed V1 runtime

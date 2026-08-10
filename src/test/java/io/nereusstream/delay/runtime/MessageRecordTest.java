@@ -47,4 +47,14 @@ class MessageRecordTest {
         assertEquals(4, ByteBuffer.wrap(typed.encode()).getInt());
         assertEquals(typed, MessageRecord.decode(typed.encode()));
     }
+
+    @Test
+    void typedRuntimeCannotDisagreeWithMessageStatus() {
+        final MessageRecord base = new MessageRecord(MessageStatus.SCHEDULED, 0, 1,
+                2_000, 5_000, DestinationLaneId.derive(Bytes.utf8("message-record-status-fence")),
+                OrderingMode.BEST_EFFORT, Bytes.utf8("payload"), Bytes.utf8("source-position"));
+        final GenerationRuntimeIndex terminal = GenerationRuntimeIndex.none(
+                GenerationAggregateState.PUBLISHED, java.util.List.of(), 1, 0, false, 2);
+        assertThrows(IllegalArgumentException.class, () -> base.withRuntimeIndex(terminal));
+    }
 }

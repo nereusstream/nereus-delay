@@ -115,6 +115,9 @@ class GenerationRuntimeIndexTest {
                 () -> new GenerationRuntimeIndex(GenerationAggregateState.SCHEDULED,
                         CurrentSendWorkKind.TIMELINE, initial, null, null, List.of(uncertain), 1, 0,
                         false, 7));
+        assertThrows(IllegalArgumentException.class,
+                () -> GenerationRuntimeIndex.timeline(GenerationAggregateState.UNCERTAIN, initial,
+                        List.of(uncertain), 1, 0, false, 7));
         final GenerationRuntimeIndex noCurrentWork = GenerationRuntimeIndex.none(
                 GenerationAggregateState.UNCERTAIN, List.of(uncertain), 1, 0, false, 7);
         assertEquals(GenerationAggregateState.UNCERTAIN, noCurrentWork.aggregateState());
