@@ -31,6 +31,7 @@ public final class GenerationRuntimeIndex {
     private final boolean possibleDestinationDuplicate;
     private final long runtimeRevision;
     private final byte[] runtimeDigest;
+    private final boolean legacyCompatibility;
 
     public GenerationRuntimeIndex(final GenerationAggregateState aggregateState,
                                   final CurrentSendWorkKind currentWorkKind,
@@ -38,6 +39,17 @@ public final class GenerationRuntimeIndex {
                                   final byte[] publishAttemptId, final List<AttemptObligationRef> obligations,
                                   final int admissionsUsed, final int uncertainRetryAdmissionsUsed,
                                   final boolean possibleDestinationDuplicate, final long runtimeRevision) {
+        this(aggregateState, currentWorkKind, timeline, claimId, publishAttemptId, obligations, admissionsUsed,
+                uncertainRetryAdmissionsUsed, possibleDestinationDuplicate, runtimeRevision, false);
+    }
+
+    private GenerationRuntimeIndex(final GenerationAggregateState aggregateState,
+                                   final CurrentSendWorkKind currentWorkKind,
+                                   final TimelineWorkRef timeline, final byte[] claimId,
+                                   final byte[] publishAttemptId, final List<AttemptObligationRef> obligations,
+                                   final int admissionsUsed, final int uncertainRetryAdmissionsUsed,
+                                   final boolean possibleDestinationDuplicate, final long runtimeRevision,
+                                   final boolean legacyCompatibility) {
         this.aggregateState = Objects.requireNonNull(aggregateState, "aggregateState");
         this.currentWorkKind = Objects.requireNonNull(currentWorkKind, "currentWorkKind");
         this.timeline = timeline;
@@ -52,6 +64,7 @@ public final class GenerationRuntimeIndex {
         this.uncertainRetryAdmissionsUsed = uncertainRetryAdmissionsUsed;
         this.possibleDestinationDuplicate = possibleDestinationDuplicate;
         this.runtimeRevision = runtimeRevision;
+        this.legacyCompatibility = legacyCompatibility;
         validateCurrentWork();
         this.runtimeDigest = computeRuntimeDigest();
     }
@@ -68,6 +81,17 @@ public final class GenerationRuntimeIndex {
         if (!Bytes.constantTimeEquals(this.runtimeDigest, runtimeDigest)) {
             throw new IllegalArgumentException("generation runtime digest mismatch");
         }
+    }
+
+    /**
+     * Compatibility-only scalar MessageRecord placeholder. It is never a
+     * valid typed V1 runtime value and is replaced before a new MessageRecord
+     * is persisted; canonical decode intentionally does not enable this flag.
+     */
+    static GenerationRuntimeIndex legacyNone(final GenerationAggregateState aggregateState,
+                                              final long runtimeRevision) {
+        return new GenerationRuntimeIndex(aggregateState, CurrentSendWorkKind.NONE, null, null, null, List.of(),
+                0, 0, false, runtimeRevision, true);
     }
 
     public static GenerationRuntimeIndex timeline(final GenerationAggregateState aggregateState,
@@ -167,6 +191,10 @@ public final class GenerationRuntimeIndex {
         return Bytes.copy(runtimeDigest);
     }
 
+    boolean isLegacyCompatibility() {
+        return legacyCompatibility;
+    }
+
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
             writeFieldsOneToSeventeen(output);
@@ -263,6 +291,46 @@ public final class GenerationRuntimeIndex {
                         .count();
                 if (matches != 1) {
                     throw new IllegalArgumentException("PUBLISHING current work lacks one matching obligation");
+                }
+            }
+        }
+        if (terminal || (legacyCompatibility && currentWorkKind == CurrentSendWorkKind.NONE
+                && attemptObligations.isEmpty())) {
+            return;
+        }
+        final boolean hasUncertain = attemptObligations.stream()
+                .anyMatch(ref -> ref.ledgerState() == AttemptLedgerState.UNCERTAIN);
+        if (hasUncertain && aggregateState != GenerationAggregateState.UNCERTAIN) {
+            throw new IllegalArgumentException("non-terminal uncertain obligation requires UNCERTAIN aggregate");
+        }
+        switch (currentWorkKind) {
+            case NONE -> {
+                if (!hasUncertain || attemptObligations.stream()
+                        .anyMatch(ref -> ref.ledgerState() != AttemptLedgerState.UNCERTAIN)) {
+                    throw new IllegalArgumentException("non-terminal NONE work requires only UNCERTAIN obligations");
+                }
+            }
+            case TIMELINE -> {
+                final TimelineWorkKind workKind = timeline.workKind();
+                if (workKind == TimelineWorkKind.UNCERTAIN_RETRY && !hasUncertain) {
+                    throw new IllegalArgumentException("UNCERTAIN_RETRY timeline lacks an UNCERTAIN obligation");
+                }
+                if (!hasUncertain) {
+                    final GenerationAggregateState expected = workKind == TimelineWorkKind.INITIAL_SCHEDULE
+                            ? GenerationAggregateState.SCHEDULED : GenerationAggregateState.RETRY_WAIT;
+                    if (aggregateState != expected) {
+                        throw new IllegalArgumentException("timeline work and aggregate state disagree");
+                    }
+                }
+            }
+            case CLAIMED -> {
+                if (!hasUncertain && aggregateState != GenerationAggregateState.CLAIMED) {
+                    throw new IllegalArgumentException("CLAIMED work and aggregate state disagree");
+                }
+            }
+            case PUBLISHING -> {
+                if (!hasUncertain && aggregateState != GenerationAggregateState.PUBLISHING) {
+                    throw new IllegalArgumentException("PUBLISHING work and aggregate state disagree");
                 }
             }
         }

@@ -94,6 +94,32 @@ class GenerationRuntimeIndexTest {
                 () -> GenerationRuntimeIndex.publishing(firstId, List.of(first, first), 2, 1, false, 9));
     }
 
+    @Test
+    void runtimeIndexFencesAggregateAndCurrentWorkProjectionDrift() {
+        final byte[] key = timelineKey(100, 0);
+        final TimelineWorkRef initial = TimelineWorkRef.initial(key, 100, 7);
+        assertThrows(IllegalArgumentException.class,
+                () -> new GenerationRuntimeIndex(GenerationAggregateState.SCHEDULED,
+                        CurrentSendWorkKind.NONE, null, null, null, List.of(), 0, 0, false, 7));
+        final GenerationRuntimeIndex scheduled = new GenerationRuntimeIndex(GenerationAggregateState.SCHEDULED,
+                CurrentSendWorkKind.TIMELINE, initial, null, null, List.of(), 0, 0, false, 7);
+        assertEquals(GenerationAggregateState.SCHEDULED, scheduled.aggregateState());
+        assertThrows(IllegalArgumentException.class,
+                () -> new GenerationRuntimeIndex(GenerationAggregateState.RETRY_WAIT,
+                        CurrentSendWorkKind.TIMELINE, initial, null, null, List.of(), 0, 0, false, 7));
+
+        final byte[] uncertainId = Bytes.sha256(Bytes.utf8("uncertain"));
+        final AttemptObligationRef uncertain = new AttemptObligationRef(uncertainId, 0,
+                AttemptLedgerState.UNCERTAIN, KeyCodec.inflight((byte) 3, 1, uncertainId));
+        assertThrows(IllegalArgumentException.class,
+                () -> new GenerationRuntimeIndex(GenerationAggregateState.SCHEDULED,
+                        CurrentSendWorkKind.TIMELINE, initial, null, null, List.of(uncertain), 1, 0,
+                        false, 7));
+        final GenerationRuntimeIndex noCurrentWork = GenerationRuntimeIndex.none(
+                GenerationAggregateState.UNCERTAIN, List.of(uncertain), 1, 0, false, 7);
+        assertEquals(GenerationAggregateState.UNCERTAIN, noCurrentWork.aggregateState());
+    }
+
     private static byte[] timelineKey(final long eligibleAt, final int generation) {
         return KeyCodec.timelineDue(new DestinationLaneId(new byte[32]), eligibleAt,
                 Bytes.concat(new byte[]{1}, new byte[8]),

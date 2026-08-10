@@ -7,7 +7,6 @@ import io.nereusstream.delay.protocol.PayloadReference;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
-import java.util.List;
 import java.util.Objects;
 
 /** Durable current-generation projection stored in id_cf/MESSAGE. */
@@ -115,9 +114,12 @@ public record MessageRecord(
     public byte[] encode() {
         final byte[] reference = payloadReference == null ? new byte[0] : payloadReference.encode();
         final byte[] runtime = runtimeIndex.canonicalBytes();
+        final boolean legacy = runtimeIndex.isLegacyCompatibility();
+        final int version = legacy ? 3 : 4;
         final ByteBuffer result = ByteBuffer.allocate(4 + 1 + 4 + 8 + 8 + 8 + 8 + 32 + 1 + 1 + 4
-                + scheduleSourcePosition.length + 4 + payload.length + 4 + reference.length + 4 + runtime.length);
-        result.putInt(4).put((byte) status.wireValue()).putInt(generation).putLong(stateVersion)
+                + scheduleSourcePosition.length + 4 + payload.length + 4 + reference.length
+                + (legacy ? 0 : 4 + runtime.length));
+        result.putInt(version).put((byte) status.wireValue()).putInt(generation).putLong(stateVersion)
                 .putLong(deliverAtEpochMs).putLong(expireAtEpochMs).putLong(retryEligibilityAtEpochMs)
                 .put(laneId.bytes()).put((byte) orderingMode.wireValue())
                 .put((byte) (payloadReference == null ? 1 : 2))
@@ -127,7 +129,9 @@ public record MessageRecord(
         } else {
             result.putInt(0).putInt(reference.length).put(reference);
         }
-        result.putInt(runtime.length).put(runtime);
+        if (!legacy) {
+            result.putInt(runtime.length).put(runtime);
+        }
         return result.array();
     }
 
@@ -219,8 +223,8 @@ public record MessageRecord(
     }
 
     private static GenerationRuntimeIndex legacyRuntimeIndex(final MessageStatus status, final long stateVersion) {
-        return GenerationRuntimeIndex.none(GenerationAggregateState.fromMessageStatus(status), List.of(), 0, 0,
-                false, Math.max(1, stateVersion));
+        return GenerationRuntimeIndex.legacyNone(GenerationAggregateState.fromMessageStatus(status),
+                Math.max(1, stateVersion));
     }
 
     private static byte[] readBytes(final ByteBuffer input, final int length) {

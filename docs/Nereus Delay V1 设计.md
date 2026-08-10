@@ -1278,6 +1278,22 @@ byte-identical。旧本地 DB 中的 `TimelineEntry` 只作为有界、只读的
 projection 的旧 `MessageRecord` 只能按可验证的 scalar schedule fields 读取，后续
 source-ordered mutation 才能产生新的完整 projection。
 
+`GenerationRuntimeIndexV1` 的 canonical v4 projection 还必须让 public aggregate
+与 current work oneof 一致：非 terminal generation 的 `NONE` 只能表示全量
+`UNCERTAIN` attempt obligations，`TIMELINE` 必须与 `INITIAL_SCHEDULE`/
+`DEFINITIVE_RETRY`/`UNCERTAIN_RETRY` 及 aggregate 状态相容，`CLAIMED`/
+`PUBLISHING` 也必须分别有对应的 current-work identity；任一 UNCERTAIN obligation
+都要求 aggregate 为 `UNCERTAIN`。Terminal generation 可以保留 open obligations，
+但不能再有 current send work。这样 `id_cf/MESSAGE` 的 scalar status 与 runtime
+projection 不会各自表达另一套生命周期。
+
+为读取旧的 scalar-only `MessageRecord`，实现保留一个明确的 migration seam：旧值
+按 legacy v3 value 读取为 `NONE` placeholder，绝不把它当作合法 typed V1 runtime
+value；在下一次 source-ordered mutation 或 runtime replacement 前必须被完整 typed
+projection 替换，新的写入只能使用 v4。canonical `GenerationRuntimeIndexV1` decoder
+不接受这种 placeholder，因此伪造的 v4 `NONE + non-terminal aggregate` 会 fail
+closed。
+
 TimelineWorkRef 的物理时间也必须与 key 一致：DUE key 的 eligibility 字段严格等于
 `max(actionAt,retryEligibilityAt)`；ORDERED key 仍按业务 `deliverAt` 排序，但不得早于
 value 中的 head eligibility。`UNCERTAIN_RETRY` 只能属于 unordered Lane，不能把 ordered

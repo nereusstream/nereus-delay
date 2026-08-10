@@ -2082,6 +2082,15 @@ legacy `MessageRecord` 只按 scalar schedule fields 受限读取。物理 rich 
 decode；`GenerationRuntimeIndexTest.controlOverrideTimelineRequiresCanonicalTypedNestedValues`
 覆盖 malformed control/source bytes。这个 codec fence 不替代 authenticated
 control/evidence authority。
+同一 runtime projection 现在还校验 aggregate status 与 current-work oneof 的
+一致性：非 terminal `NONE` 只能带完整 UNCERTAIN obligation set，timeline work
+必须与其 work kind/aggregate 相容，且任何 UNCERTAIN obligation 都把 aggregate
+固定为 `UNCERTAIN`；terminal branch 可以保留 open obligation，但不能保留 current
+send work。`GenerationRuntimeIndexTest.runtimeIndexFencesAggregateAndCurrentWorkProjectionDrift`
+覆盖 drift vectors。为兼容旧 scalar-only `MessageRecord`，读取路径保留显式 legacy
+v3 placeholder；它不是 canonical V1 runtime value，下一次 typed mutation 必须替换，
+而 v4 decoder 会拒绝同形的 `NONE + non-terminal` projection。这个兼容 seam 只解决
+本地历史值迁移，不降低新写入或 source-ordered recovery 的 fail-closed 要求。
 `id_cf/V1_SCHEDULE_BINDING` 的 direct lookup 也会在读取 sidecar 前校验
 `DelayMessageId` 的 self-routing Shard；即使当前 DB 只有错挂的 sidecar，也不会
 把它暴露给 Registry 路径。证据为
