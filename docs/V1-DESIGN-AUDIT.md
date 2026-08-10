@@ -2071,7 +2071,7 @@ read-only migration seam 接受，不能再由 writer 产生；缺失 runtime pr
 legacy `MessageRecord` 只按 scalar schedule fields 受限读取。物理 rich value、
 `actionAt` 和 key equality 由
 `DelayShardTest.resolvedActionAtIsEarlierThanDeliverAtButOrderedKeyKeepsBusinessVisibilityOrder`
-覆盖。
+和 `LaneSchedulerTest.fencedRecoveryAcceptsCanonicalTimelineWorkRefValue` 覆盖。
 `id_cf/V1_SCHEDULE_BINDING` 的 direct lookup 也会在读取 sidecar 前校验
 `DelayMessageId` 的 self-routing Shard；即使当前 DB 只有错挂的 sidecar，也不会
 把它暴露给 Registry 路径。证据为
