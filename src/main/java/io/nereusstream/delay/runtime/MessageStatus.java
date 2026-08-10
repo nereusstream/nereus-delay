@@ -10,7 +10,9 @@ public enum MessageStatus {
     EXPIRED(7),
     DEAD_LETTER(8),
     /** Local current-generation projection for a reversible inflight Claim. */
-    CLAIMED(9);
+    CLAIMED(9),
+    /** Broker-durable responsibility accepted before the business deliverAt. */
+    HANDED_OFF(10);
 
     private final int wireValue;
 

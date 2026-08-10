@@ -266,7 +266,7 @@ public record MessageRecord(
                     throw new IllegalArgumentException("UNCERTAIN Message disagrees with runtime projection");
                 }
             }
-            case CANCELED, SUPERSEDED, PUBLISHED, EXPIRED, DEAD_LETTER -> {
+            case CANCELED, SUPERSEDED, PUBLISHED, HANDED_OFF, EXPIRED, DEAD_LETTER -> {
                 if (currentWork != CurrentSendWorkKind.NONE
                         || aggregate != GenerationAggregateState.fromMessageStatus(status)) {
                     throw new IllegalArgumentException("terminal Message disagrees with runtime projection");

@@ -40,6 +40,7 @@ public enum GenerationAggregateState {
             case PUBLISHING -> PUBLISHING;
             case UNCERTAIN -> UNCERTAIN;
             case PUBLISHED -> PUBLISHED;
+            case HANDED_OFF -> HANDED_OFF;
             case CANCELED -> CANCELED;
             case EXPIRED -> EXPIRED;
             case DEAD_LETTER -> DEAD_LETTER;

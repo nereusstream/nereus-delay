@@ -2096,6 +2096,16 @@ v3 placeholder；它不是 canonical V1 runtime value，下一次 typed mutation
 旧 UNCERTAIN obligation 的 current timeline 还必须是 `UNCERTAIN_RETRY`；typed
 `MessageRecord` 同时拒绝 status 与 aggregate/current-work 不一致的 v4 projection，
 `MessageRecordTest.typedRuntimeCannotDisagreeWithMessageStatus` 覆盖 terminal drift。
+Registry 已声明的 `HANDED_OFF` 也已接入本地 status projection（追加 wire value 10，
+不重排既有 status）：固定 early Pulsar handoff 的 Admission 只有在证据 kind 为
+`PULSAR_SEND_ACK` 时才从 wire success `PUBLISHED` 派生为 terminal
+`HANDED_OFF`；ordinary managed 和 opaque legacy Admission 仍为 `PUBLISHED`。两种
+终态共用 `GenerationAggregateState`/v4 runtime/terminal summary fence，early timing
+与证据不匹配会持久化 `STALE_SYSTEM_MUTATION`，不会静默接受为普通 publish。覆盖为
+`MessageRecordTest.handedOffStatusUsesTheRegisteredTerminalAggregateProjection` 及
+`DelayShardTest` 的 source-ordered published/evidence-resolution regressions；真实
+Pulsar guard、Broker ACK authentication 和 handoff responsibility 仍是外部 release
+gate。
 `id_cf/V1_SCHEDULE_BINDING` 的 direct lookup 也会在读取 sidecar 前校验
 `DelayMessageId` 的 self-routing Shard；即使当前 DB 只有错挂的 sidecar，也不会
 把它暴露给 Registry 路径。证据为

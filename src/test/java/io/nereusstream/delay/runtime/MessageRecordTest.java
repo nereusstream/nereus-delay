@@ -57,4 +57,18 @@ class MessageRecordTest {
                 GenerationAggregateState.PUBLISHED, java.util.List.of(), 1, 0, false, 2);
         assertThrows(IllegalArgumentException.class, () -> base.withRuntimeIndex(terminal));
     }
+
+    @Test
+    void handedOffStatusUsesTheRegisteredTerminalAggregateProjection() {
+        final MessageRecord base = new MessageRecord(MessageStatus.HANDED_OFF, 0, 1,
+                2_000, 5_000, DestinationLaneId.derive(Bytes.utf8("message-record-handed-off")),
+                OrderingMode.BEST_EFFORT, Bytes.utf8("payload"), Bytes.utf8("source-position"));
+        final MessageRecord handedOff = base.withRuntimeIndex(GenerationRuntimeIndex.none(
+                GenerationAggregateState.HANDED_OFF, java.util.List.of(), 1, 0, false, 2));
+        final MessageRecord decoded = MessageRecord.decode(handedOff.encode());
+
+        assertEquals(MessageStatus.HANDED_OFF, decoded.status());
+        assertEquals(GenerationAggregateState.HANDED_OFF, decoded.runtimeIndex().aggregateState());
+        assertEquals(handedOff, decoded);
+    }
 }

@@ -1292,6 +1292,19 @@ source-ordered mutation 才能产生新的完整 projection。
  允许的兼容投影；它仍然不能被当作可调度 work，Cancel/Reschedule 必须返回
  `TOO_LATE`，而不是重新 materialize 一个 Claim 或 retry。
 
+`HANDED_OFF` 是与 Registry `MessageGenerationStateV1.HANDED_OFF` 对齐的本地
+terminal status（追加 wire value，不重排既有 status）。它只表示经过固定
+Pulsar handoff `actionAt < deliverAt` 的 Admission 已由已验证的
+`PULSAR_SEND_ACK` 证明 Broker durable responsibility；它不表示 consumer 已处理。
+普通 managed publish 以及无法提供该 handoff 证明的兼容 Admission 仍投影为
+`PUBLISHED`。`PUBLISH_OUTCOME_V1`/`EVIDENCE_RESOLUTION_V1` 的 wire
+`PublishSideEffectV1.PUBLISHED` 不增加新的分支，source-ordered apply 根据保留的
+Admission timing、channel adapter 和证据 kind 选择 `PUBLISHED` 或 `HANDED_OFF`；
+证明缺失或 early timing 与证据不匹配时 fail closed 为 stale mutation。旧 opaque
+Admission ledger 只能走普通 `PUBLISHED` compatibility seam，不能凭空获得 handoff
+语义。两种成功终态都必须通过同一个 typed runtime/terminal projection fence，且
+仍受 `TOO_LATE` 管理语义和 terminal guard 约束。
+
 为读取旧的 scalar-only `MessageRecord`，实现保留一个明确的 migration seam：旧值
 按 legacy v3 value 读取为 `NONE` placeholder，绝不把它当作合法 typed V1 runtime
 value；在下一次 source-ordered mutation 或 runtime replacement 前必须被完整 typed

@@ -15,6 +15,7 @@ import io.nereusstream.delay.protocol.CancelCommandBodyV1;
 import io.nereusstream.delay.protocol.ClaimMaterializationV1;
 import io.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
 import io.nereusstream.delay.protocol.CommitLargeScheduleBodyV1;
+import io.nereusstream.delay.protocol.ChannelResourceIdentityV1;
 import io.nereusstream.delay.protocol.ControlRef;
 import io.nereusstream.delay.protocol.ControlTargetRefV1;
 import io.nereusstream.delay.protocol.DestinationLaneId;
@@ -35,6 +36,8 @@ import io.nereusstream.delay.protocol.PayloadProofTrustSetControlState;
 import io.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
 import io.nereusstream.delay.protocol.PayloadProofTrustSetSemanticV1;
 import io.nereusstream.delay.protocol.PayloadReference;
+import io.nereusstream.delay.protocol.PublishEvidenceKindV1;
+import io.nereusstream.delay.protocol.PublishEvidenceV1;
 import io.nereusstream.delay.protocol.ProfileAcceptanceV1;
 import io.nereusstream.delay.protocol.ProfileBindingActivatePayloadV1;
 import io.nereusstream.delay.protocol.ProfileBindingControlState;
@@ -2483,9 +2486,10 @@ public final class DelayShard {
             final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, code,
                     sourcePosition.canonicalBytes());
             try {
-                applyPublishedPublishOutcome(ledger, sourcePosition, result, MessageStatus.PUBLISHING);
+                applyPublishedPublishOutcome(ledger, sourcePosition, result, MessageStatus.PUBLISHING,
+                        publishedStatusForOutcome(ledger, outcome));
                 return result;
-            } catch (IllegalStateException exception) {
+            } catch (IllegalStateException | IllegalArgumentException exception) {
                 return persistSystemResultByResult(result, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
             }
         }
@@ -2733,9 +2737,10 @@ public final class DelayShard {
                 resolution.stableCode(), sourcePosition.canonicalBytes());
         if (resolution.sideEffect() == 1) {
             try {
-                applyPublishedPublishOutcome(ledger, sourcePosition, result, MessageStatus.UNCERTAIN);
+                applyPublishedPublishOutcome(ledger, sourcePosition, result, MessageStatus.UNCERTAIN,
+                        publishedStatusForOutcome(ledger, resolution));
                 return result;
-            } catch (IllegalStateException exception) {
+            } catch (IllegalStateException | IllegalArgumentException exception) {
                 return persistSystemResultByResult(result, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
             }
         }
@@ -2903,9 +2908,10 @@ public final class DelayShard {
         final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, StableCode.OK,
                 sourcePosition.canonicalBytes());
         try {
-            applyPublishedPublishOutcome(ledger, sourcePosition, result, MessageStatus.UNCERTAIN);
+            applyPublishedPublishOutcome(ledger, sourcePosition, result, MessageStatus.UNCERTAIN,
+                    publishedStatusForEvidence(body.evidence(), ledger));
             return result;
-        } catch (IllegalStateException exception) {
+        } catch (IllegalStateException | IllegalArgumentException exception) {
             return persistSystemResultByResult(result, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
         }
     }
@@ -3437,6 +3443,7 @@ public final class DelayShard {
         if (current.status() != MessageStatus.DEAD_LETTER) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     current.status() == MessageStatus.PUBLISHED
+                            || current.status() == MessageStatus.HANDED_OFF
                             ? StableCode.ALREADY_PUBLISHED : StableCode.TOO_LATE);
         }
         final TerminalGenerationRecord summary = getTerminalGeneration(body.messageId(), body.expectedGeneration());
@@ -3824,8 +3831,58 @@ public final class DelayShard {
 
     private static boolean isTerminalStatus(final MessageStatus status) {
         return status == MessageStatus.CANCELED || status == MessageStatus.SUPERSEDED
-                || status == MessageStatus.PUBLISHED || status == MessageStatus.EXPIRED
+                || status == MessageStatus.PUBLISHED || status == MessageStatus.HANDED_OFF
+                || status == MessageStatus.EXPIRED
                 || status == MessageStatus.DEAD_LETTER;
+    }
+
+    /**
+     * Selects the success terminal projection from the immutable Admission
+     * timing and the verified evidence branch.  The wire outcome intentionally
+     * keeps {@code PublishSideEffectV1.PUBLISHED} as the only success branch;
+     * {@code HANDED_OFF} is a local aggregate projection for a certified
+     * Pulsar handoff (fixed early {@code actionAt} plus a Broker send ACK).
+     */
+    private static MessageStatus publishedStatusForOutcome(final PublishAttemptLedger ledger,
+                                                            final PublishOutcomeBody outcome) {
+        return publishedStatusForEvidence(outcome.evidence(), ledger);
+    }
+
+    private static MessageStatus publishedStatusForEvidence(final byte[] evidence,
+                                                             final PublishAttemptLedger ledger) {
+        if (evidence == null || evidence.length == 0) {
+            // The direct embedded helper has no wire evidence and represents
+            // the historical ordinary-managed success API.
+            return MessageStatus.PUBLISHED;
+        }
+        final PublishEvidenceV1 proof = PublishEvidenceV1.decode(evidence);
+        final PublishAdmissionBody admission;
+        try {
+            admission = PublishAdmissionBody.decode(ledger.admissionBytes());
+        } catch (IllegalArgumentException legacyAdmission) {
+            // Older embedded fixtures retained an opaque admission token and
+            // therefore cannot prove a timing-policy handoff. Preserve their
+            // ordinary PUBLISHED compatibility projection; a bytes-shaped
+            // canonical Admission must still fail closed when malformed.
+            final byte[] encoded = ledger.admissionBytes();
+            if (encoded.length != 0 && (encoded[0] & 0xff) == 0x0a) {
+                throw legacyAdmission;
+            }
+            return MessageStatus.PUBLISHED;
+        }
+        final long actionAt = admission.descriptor().actionAtEpochMs();
+        final long deliverAt = admission.descriptor().deliverAtEpochMs();
+        if (actionAt == deliverAt) {
+            return MessageStatus.PUBLISHED;
+        }
+        final ChannelResourceIdentityV1 channel = ChannelResourceIdentityV1.decode(
+                admission.channel().canonicalBytes());
+        if (actionAt < deliverAt
+                && channel.adapterKind() == io.nereusstream.delay.protocol.AdapterKindV1.PULSAR
+                && proof.evidenceKind() == PublishEvidenceKindV1.PULSAR_SEND_ACK) {
+            return MessageStatus.HANDED_OFF;
+        }
+        throw new IllegalArgumentException("early Publish Outcome lacks certified Pulsar handoff evidence");
     }
 
     private static boolean isTerminalAggregateState(final GenerationAggregateState state) {
@@ -5129,13 +5186,18 @@ public final class DelayShard {
         if (ledger == null || ledger.state() != AttemptLedgerState.PUBLISHING) {
             throw new IllegalStateException("published outcome requires a PUBLISHING ledger");
         }
-        return applyPublishedPublishOutcome(ledger, sourcePosition, systemResult, MessageStatus.PUBLISHING);
+        return applyPublishedPublishOutcome(ledger, sourcePosition, systemResult, MessageStatus.PUBLISHING,
+                MessageStatus.PUBLISHED);
     }
 
     private MessageRecord applyPublishedPublishOutcome(final PublishAttemptLedger ledger,
                                                        final SourcePosition sourcePosition,
                                                        final SystemMutationResult systemResult,
-                                                       final MessageStatus expectedMessageStatus) {
+                                                       final MessageStatus expectedMessageStatus,
+                                                       final MessageStatus terminalStatus) {
+        if (terminalStatus != MessageStatus.PUBLISHED && terminalStatus != MessageStatus.HANDED_OFF) {
+            throw new IllegalArgumentException("published outcome must select a success terminal status");
+        }
         requirePublishAttemptLane(ledger, "published outcome");
         final MessageRecord current = getMessage(ledger.delayMessageId());
         if (current == null || current.generation() < ledger.generation()) {
@@ -5148,7 +5210,8 @@ public final class DelayShard {
                 && ledger.state() == AttemptLedgerState.UNCERTAIN
                 && current.runtimeIndex().aggregateState() == GenerationAggregateState.UNCERTAIN
                 && current.runtimeIndex().attemptObligations().contains(ledger.obligationRef())) {
-            return settleVerifiedPublishedUncertainGeneration(ledger, current, sourcePosition, systemResult);
+            return settleVerifiedPublishedUncertainGeneration(ledger, current, sourcePosition, systemResult,
+                    terminalStatus);
         }
         if (isTerminalStatus(current.status())) {
             return settleTerminalObligation(ledger, current, sourcePosition, systemResult, true);
@@ -5156,17 +5219,18 @@ public final class DelayShard {
         if (current.status() != expectedMessageStatus) {
             throw new IllegalStateException("published outcome is stale for the current message");
         }
-        MessageRecord next = new MessageRecord(MessageStatus.PUBLISHED, current.generation(),
+        MessageRecord next = new MessageRecord(terminalStatus, current.generation(),
                 Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
                 current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
                 current.payloadReference(), current.retryEligibilityAtEpochMs());
-        next = next.withRuntimeIndex(GenerationRuntimeIndex.none(GenerationAggregateState.PUBLISHED,
+        next = next.withRuntimeIndex(GenerationRuntimeIndex.none(
+                GenerationAggregateState.fromMessageStatus(terminalStatus),
                 withoutObligation(current.runtimeIndex(), ledger.publishAttemptId()),
                 current.runtimeIndex().admissionsUsed(), current.runtimeIndex().uncertainRetryAdmissionsUsed(),
                 current.runtimeIndex().possibleDestinationDuplicate(), next.stateVersion()));
         final MessageRecord publishedNext = next;
         final TerminalGenerationRecord terminal = new TerminalGenerationRecord(ledger.delayMessageId(),
-                ledger.generation(), MessageStatus.PUBLISHED, StableCode.OK, next.stateVersion(),
+                ledger.generation(), terminalStatus, StableCode.OK, next.stateVersion(),
                 sourcePosition.canonicalBytes(), next.runtimeIndex().possibleDestinationDuplicate(),
                 next.runtimeIndex().attemptObligations());
         final OutcomeReserveUsage nextOutcomeReserve = releasedOutcomeReserve(ledger);
@@ -5213,7 +5277,11 @@ public final class DelayShard {
     private MessageRecord settleVerifiedPublishedUncertainGeneration(final PublishAttemptLedger ledger,
                                                                       final MessageRecord current,
                                                                       final SourcePosition sourcePosition,
-                                                                      final SystemMutationResult systemResult) {
+                                                                      final SystemMutationResult systemResult,
+                                                                      final MessageStatus terminalStatus) {
+        if (terminalStatus != MessageStatus.PUBLISHED && terminalStatus != MessageStatus.HANDED_OFF) {
+            throw new IllegalArgumentException("uncertain success must select a success terminal status");
+        }
         final List<AttemptObligationRef> remaining = withoutObligation(current.runtimeIndex(),
                 ledger.publishAttemptId());
         final boolean duplicate = true;
@@ -5274,15 +5342,15 @@ public final class DelayShard {
             throw new IllegalStateException("unsupported current work for uncertain success");
         }
 
-        final MessageRecord next = new MessageRecord(MessageStatus.PUBLISHED, current.generation(),
+        final MessageRecord next = new MessageRecord(terminalStatus, current.generation(),
                 Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
                 current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
                 current.payloadReference(), current.retryEligibilityAtEpochMs()).withRuntimeIndex(
-                GenerationRuntimeIndex.none(GenerationAggregateState.PUBLISHED, remaining,
+                GenerationRuntimeIndex.none(GenerationAggregateState.fromMessageStatus(terminalStatus), remaining,
                         current.runtimeIndex().admissionsUsed(), current.runtimeIndex().uncertainRetryAdmissionsUsed(),
                         duplicate, Math.addExact(current.stateVersion(), 1)));
         final TerminalGenerationRecord terminal = new TerminalGenerationRecord(ledger.delayMessageId(),
-                ledger.generation(), MessageStatus.PUBLISHED, StableCode.OK, next.stateVersion(),
+                ledger.generation(), terminalStatus, StableCode.OK, next.stateVersion(),
                 sourcePosition.canonicalBytes(), duplicate, remaining);
         final ShardQuota nextQuota = quota.removeSchedule(current.payloadLength());
         LaneQuotaUsageProjection nextLaneQuota = removeScheduleQuotaUsage(current, nextQuota);
@@ -6472,7 +6540,8 @@ public final class DelayShard {
                             existing.orderingMode(), existing.payload(), existing.scheduleSourcePosition(),
                             existing.payloadReference(), existing.retryEligibilityAtEpochMs()));
             case CANCELED -> applied(StableCode.ALREADY_CANCELED, sourcePosition, existing);
-            case PUBLISHED, PUBLISHING, UNCERTAIN -> applied(StableCode.TOO_LATE, sourcePosition, existing);
+            case PUBLISHED, HANDED_OFF, PUBLISHING, UNCERTAIN -> applied(StableCode.TOO_LATE, sourcePosition,
+                    existing);
             default -> applied(StableCode.TOO_LATE, sourcePosition, existing);
         };
     }
