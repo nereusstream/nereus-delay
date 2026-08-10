@@ -228,6 +228,8 @@ returns `IDENTITY_RETIRED`, and a same-ID first Schedule remains
 `DELAY_MESSAGE_ID_CONFLICT` while the tombstone exists. The focused evidence
 is `RetiredMessageIdentityRecordTest` plus
 `EmbeddedDelayServiceTest.retiredMessageIdentitySurvivesQueryAndFreshProcessReopen`.
+The positive delete/reuse boundary is also covered by
+`DelayShardTest.retiredMessageIdentityCompactsOnlyAfterFenceAndFloorThenExpiresOldId`.
 `compactRetiredMessageIdentity` is deliberately conservative: it requires a
 closed ingress deadline and a Recovery Catalog Floor coverage proof, and
 returns a non-compacting decision when either authority is unavailable. This

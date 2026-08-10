@@ -11,6 +11,7 @@ import io.nereusstream.delay.protocol.CapacityVectorV1;
 import io.nereusstream.delay.protocol.ClaimResultBody;
 import io.nereusstream.delay.protocol.CommittedPayloadDescriptorV1;
 import io.nereusstream.delay.protocol.CommandId;
+import io.nereusstream.delay.protocol.CommandBodies;
 import io.nereusstream.delay.protocol.ControlAuthorV1;
 import io.nereusstream.delay.protocol.ControlOperationRequestV1;
 import io.nereusstream.delay.protocol.ControlRef;
@@ -79,7 +80,9 @@ import io.nereusstream.delay.protocol.SystemMutationType;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.ownership.InMemoryControlTargetRegistrationAuthority;
 import io.nereusstream.delay.store.ColumnFamily;
+import io.nereusstream.delay.store.CheckpointManifest;
 import io.nereusstream.delay.store.KeyCodec;
+import io.nereusstream.delay.store.RecoveryCatalog;
 import io.nereusstream.delay.store.RecoveryFloor;
 import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.ShardStoreConfig;
@@ -1766,6 +1769,68 @@ class DelayShardTest {
             assertEquals(StableCode.CANCELED, terminal.terminalCode());
             assertTrue(terminal.terminal());
             assertEquals(PayloadAvailability.INLINE_RETAINED, terminal.payloadAvailability());
+        }
+    }
+
+    @Test
+    void retiredMessageIdentityCompactsOnlyAfterFenceAndFloorThenExpiresOldId() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("retired-message-compaction"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 29);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("retired-message-compaction-lane"));
+        final io.nereusstream.delay.protocol.ScheduleIntent intent =
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("retired-message-compaction"));
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId, intent, 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final KafkaSourcePosition cancelPosition = position(shardId, 1, 1_001);
+        final KafkaSourcePosition fencePosition = position(shardId, 2, 1_002);
+        final KafkaSourcePosition reusePosition = position(shardId, 3, 1_003);
+        final long reuseUntil = Math.addExact(schedule.delayMessageId().routingId().logicalTimestampEpochMs(),
+                DelayShardConfig.defaults().maxMessageLifetimeMs());
+        final TrustedUtcIntervalEvidence fenceProof = new TrustedUtcIntervalEvidence(
+                reuseUntil, reuseUntil, TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                Bytes.utf8("retired-message-fence-clock"), 1, 1, 1,
+                Bytes.sha256(Bytes.utf8("retired-message-fence-proof")), 0, null);
+        final int keyVersion = 7;
+        final byte[] fenceId = Bytes.sha256(Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                shardId.routeIncarnation().bytes(), Bytes.u32be(shardId.partition()), Bytes.i64be(reuseUntil),
+                Bytes.u32be(keyVersion), Bytes.lp32(fenceProof.canonicalBytes()));
+        final byte[] fenceBody = timeFenceBody(shardId, reuseUntil, keyVersion, fenceId,
+                Long.MAX_VALUE, fenceProof.canonicalBytes());
+        final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = keyPairGenerator.generateKeyPair();
+        final AuthorIdentity fenceAuthor = AuthorIdentity.fence(Bytes.utf8("retired-message-fence-writer"), keyVersion);
+        final SystemMutation fenceMutation = SystemMutation.signed(shardId, SystemMutationType.TIME_FENCE,
+                Long.MAX_VALUE, fenceId, fenceBody, fenceAuthor.canonicalBytes(), keyVersion, keyPair.getPrivate());
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            assertEquals(StableCode.CANCELED,
+                    shard.apply(PreparedCommand.cancel(shardId, schedule.delayMessageId(), 0, 9_000),
+                            cancelPosition).stableCode());
+            shard.retireMessageIdentity(schedule.delayMessageId(), reuseUntil);
+
+            final RecoveryCatalog catalog = new RecoveryCatalog();
+            assertEquals(DelayShard.MessageIdentityGcDecision.SOURCE_FENCE_NOT_CLOSED,
+                    shard.compactRetiredMessageIdentity(schedule.delayMessageId(), catalog, bytes(16, 1)));
+            assertEquals(StableCode.OK,
+                    shard.applySystemMutation(fenceMutation, fencePosition, keyPair.getPublic()).stableCode());
+
+            final CheckpointManifest manifest = retiredIdentityCoverageManifest(shardId, cancelPosition, 2);
+            catalog.publish(manifest, 0);
+            catalog.advanceFloor(manifest.checkpointId(), 1, Bytes.sha256(Bytes.utf8("retired-message-floor")));
+            assertEquals(DelayShard.MessageIdentityGcDecision.COMPACTED,
+                    shard.compactRetiredMessageIdentity(schedule.delayMessageId(), catalog, manifest.checkpointId()));
+            assertNull(shard.getMessage(schedule.delayMessageId()));
+            assertNull(shard.getRetiredMessageIdentity(schedule.delayMessageId()));
+
+            final PreparedCommand reused = PreparedCommand.create(shardId, CommandId.random(shardId),
+                    schedule.delayMessageId(), io.nereusstream.delay.protocol.CommandType.SCHEDULE, Long.MAX_VALUE,
+                    CommandBodies.schedule(intent));
+            assertEquals(StableCode.DELAY_MESSAGE_ID_EXPIRED,
+                    shard.apply(reused, reusePosition).stableCode());
         }
     }
 
@@ -7047,6 +7112,27 @@ class DelayShardTest {
                 SloPopulationV1.ALL_ACCEPTED, SloThresholdDirectionV1.AT_MOST,
                 SloThresholdUnitV1.MILLISECONDS, 1_000, 99, 100, 60_000, 1,
                 List.of(), 1, Bytes.sha256(Bytes.utf8("due-admission-slo-envelope")));
+    }
+
+    private static CheckpointManifest retiredIdentityCoverageManifest(final ShardId shard,
+                                                                       final KafkaSourcePosition position,
+                                                                       final long mutationSequence) {
+        final byte[] checkpointId = java.util.Arrays.copyOf(
+                Bytes.sha256(Bytes.utf8("retired-identity-checkpoint")), 16);
+        final byte[] lineageId = java.util.Arrays.copyOf(
+                Bytes.sha256(Bytes.utf8("retired-identity-lineage")), 16);
+        final CheckpointManifest.FileEntry file = new CheckpointManifest.FileEntry(
+                "CURRENT", 1, Bytes.sha256(Bytes.utf8("retired-identity-file")),
+                Bytes.utf8("object/current"), Bytes.utf8("version"), null);
+        return new CheckpointManifest(checkpointId, lineageId, 0, null, null,
+                new CheckpointManifest.CreatedBy(Bytes.sha256(Bytes.utf8("deployment")),
+                        Bytes.sha256(Bytes.utf8("worker")), 1),
+                new CheckpointManifest.CreatedAt(position.brokerPersistenceTimeEpochMs(),
+                        position.brokerPersistenceTimeEpochMs(), "CERTIFIED_HOST_CLOCK",
+                        Bytes.sha256(Bytes.utf8("checkpoint-clock")), 1, position.offset(), position.offset(),
+                        Bytes.sha256(Bytes.utf8("checkpoint-time-proof")), 0, null), shard,
+                Bytes.sha256(Bytes.utf8("db-identity")), UUID.randomUUID(), 1, mutationSequence, position,
+                new byte[32], new byte[32], List.of(file));
     }
 
     private static byte[] bytes(final int length, final int value) {

@@ -25,7 +25,9 @@ separate Route catalog, its local compatibility horizon is checked addition
 of UUIDv7 time plus `DelayShardConfig.maxMessageLifetimeMs`; production Route
 policy and UUID age/future-skew evidence remain release gates. Focused local
 evidence is `RetiredMessageIdentityRecordTest` and
-`EmbeddedDelayServiceTest.retiredMessageIdentitySurvivesQueryAndFreshProcessReopen`.
+`EmbeddedDelayServiceTest.retiredMessageIdentitySurvivesQueryAndFreshProcessReopen`,
+plus the positive fence/Floor/delete/reuse boundary in
+`DelayShardTest.retiredMessageIdentityCompactsOnlyAfterFenceAndFloorThenExpiresOldId`.
 
 The certified early-Pulsar handoff projection now has a narrow evidence-binding
 fence: before a verified `PULSAR_SEND_ACK` can project local `HANDED_OFF`, its
