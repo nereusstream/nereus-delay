@@ -1122,6 +1122,54 @@ class ShardStoreTest {
     }
 
     @Test
+    void restoreWithManifestRejectsControlStateDigestDrift() throws Exception {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 41);
+        final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("control-manifest-source"));
+        final Path checkpoint = tempDir.resolve("control-manifest-checkpoint");
+        final byte[] checkpointId = bytes(90);
+        final KafkaSourcePosition appliedPosition = new KafkaSourcePosition(
+                shardId, "cluster", UUID.randomUUID(), 6, null, 1_006);
+        final CompatibleControlSnapshotV1 snapshot = new CompatibleControlSnapshotV1(
+                new ShardSubjectV1(shardId),
+                List.of(new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1)),
+                List.of(new ProfileRefV1(bytes(32, 91), 1, bytes(32, 92), ProfileKindV1.DESTINATION)),
+                new QuotaGrantRefV1(bytes(32, 93), 1, new PublishAdmissionBody.ChargeVector(
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));
+        final byte[] dbIdentity;
+        final UUID sourceStoreIncarnation;
+        final long mutationSequence;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(sourceConfig);
+             ShardStore store = ShardStore.open(sourceConfig, shardId, resources)) {
+            dbIdentity = store.metadata().dbIdentity();
+            sourceStoreIncarnation = store.metadata().storeIncarnationUuid();
+            store.recordControlSnapshot(snapshot);
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(3), appliedPosition.canonicalBytes());
+                batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(5), Bytes.u64be(7));
+            });
+            store.createCheckpoint(checkpoint, checkpointId);
+            mutationSequence = store.shardMutationSequence();
+        }
+        final List<CheckpointManifest.FileEntry> files = CheckpointFileInventory.collect(checkpoint).stream()
+                .map(file -> new CheckpointManifest.FileEntry(file.name(), file.length(), file.checksum(),
+                        Bytes.utf8("object/" + file.name()), Bytes.utf8("version"), null))
+                .toList();
+        final CheckpointManifest manifest = new CheckpointManifest(checkpointId, bytes(94), 0, null, null,
+                new CheckpointManifest.CreatedBy(bytes(95), bytes(96), 1),
+                new CheckpointManifest.CreatedAt(1_000, 1_000, "CERTIFIED_HOST_CLOCK", bytes(97), 1, 0, 0,
+                        Bytes.sha256(Bytes.utf8("evidence")), 0, null), shardId, dbIdentity, sourceStoreIncarnation,
+                1, mutationSequence, appliedPosition, new byte[32], new byte[32], files);
+
+        final ShardStoreConfig restoreConfig = ShardStoreConfig.defaults(tempDir.resolve("control-manifest-restore"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(restoreConfig)) {
+            final IllegalStateException failure = assertThrows(IllegalStateException.class,
+                    () -> ShardStore.restoreFromCheckpoint(restoreConfig, shardId, resources, checkpoint, manifest));
+            assertNotNull(failure.getCause());
+            assertTrue(failure.getCause().getMessage().contains("control snapshot"));
+        }
+    }
+
+    @Test
     void restoreWithManifestRejectsRecoveryProjectionLineageDrift() throws Exception {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 37);
         final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("recovery-manifest-source"));

@@ -2367,6 +2367,12 @@ recovery projection 拼接；`ShardStoreTest.restoreWithManifestRejectsRecoveryP
 `ShardStoreTest.restoreWithManifestRejectsRecoveryProjectionManifestHashDrift` 覆盖
 这些 fail-closed 边界。它仍不等于真实 Object Store/Oxia catalog、Owner
 Lease/session 或 source replay activation 证据。
+同一 staged restore 边界现在还会在物理 DB 已有 `meta/FIXED` key 10 时，把
+`CompatibleControlSnapshotV1.snapshotDigest` 与 manifest 的
+`controlStateDigest` 做 exact 比较；不一致会在 install 前 fail closed。
+缺少 key 10 的旧本地 DB 仍保留为兼容 seam，但不能据此证明 V1
+`ACTIVE_FOR_COMMANDS` 的 control prerequisite，回归为
+`ShardStoreTest.restoreWithManifestRejectsControlStateDigestDrift`。
 已有 DB 在任何 open-phase 重写前也会验证 install-state checkpoint 与
 lineage/base 一致；没有 lineage/base 的 install state 不能带 checkpoint，避免
 原始投影漂移被新的 `OPEN` marker 掩盖。`ShardStoreTest.recoveryInstallStateDriftDoesNotLeaveRocksDbOpen`

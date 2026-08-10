@@ -2129,10 +2129,16 @@ image's persisted `lastCheckpointId`, `appliedShardLogPosition`,
 `shardMutationSequence` and typed evidence-cursor projection against the exact
 manifest values before install. A complete file inventory with a mismatched
 runtime state is therefore rejected rather than restored as if it represented
-that manifest. `ShardStoreTest.restoreWithManifestRejectsRuntimeStateDrift`
-and `ShardStoreTest.catalogBoundRestoreRequiresPublishedFloorEligibleManifest`
-cover the rejection and matching paths; source replay after restore and the
-external catalog/object-store authority remain release blockers.
+that manifest. If the staged image contains the fixed-key
+`CompatibleControlSnapshotV1`, restore also compares its canonical digest with
+`CheckpointManifest.controlStateDigest` and rejects a mismatch before install;
+an image without key 10 remains only a legacy local compatibility seam and
+cannot prove the V1 `ACTIVE_FOR_COMMANDS` control prerequisite. The focused
+regression is `ShardStoreTest.restoreWithManifestRejectsControlStateDigestDrift`;
+`ShardStoreTest.restoreWithManifestRejectsRuntimeStateDrift` and
+`ShardStoreTest.catalogBoundRestoreRequiresPublishedFloorEligibleManifest`
+cover the other rejection and matching paths. Source replay after restore and
+the external catalog/object-store authority remain release blockers.
 
 `EvidenceCursorV1` now also exposes the Registry cursor identity and
 same-generation dominance rules: Kafka requires non-regressing offset/LSO/time
