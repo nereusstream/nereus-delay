@@ -1057,6 +1057,20 @@ Physical CF set is exactly `default` plus seven application CFs. `default` has n
 Closed subtype bytes used below:
 
 - `meta/FIXED fixedKeyKind`: 1 store/schema format, 2 shard/Route/DB/Store identities, 3 applied Source Position, 4 ingress-fence state, 5 shard mutation sequence, 6 evidence cursor array, 7 checkpoint identity, 8 last-opened Owner, 9 clean/unclean marker, 10 compatible control snapshot, 11 next Claim sequence, 12 Payload Proof Trust-Set control state, 13 Profile binding control state.
+
+`meta/FIXED` key 10 is a `CompatibleControlSnapshotV1` carried in the fixed-key
+ValueEnvelope type 1. Its canonical fields are: 1 schema version=1; 2
+`ShardSubjectV1 shard`; repeated 3 `ProtocolTupleV1` strictly canonical-byte
+sorted/unique; repeated 4 `ProfileRefV1` strictly sorted by
+`(profile_id,version)` and unique; 5 initial `QuotaGrantRefV1`; 6 snapshot
+digest[32]. Field 6 is
+`SHA-256("nereus-delay-compatible-control-snapshot-v1\\0" || canonicalProtobuf(fields 1-5))`.
+The tuple list is non-empty and bounded; the profile list and canonical bytes
+are bounded. Open/restore must decode the complete value, verify the digest,
+and require field 2 to equal the DB's `meta/FIXED` shard identity. The local
+projection records the exact control input used for activation; it does not
+replace Oxia's authoritative Route/Profile/grant catalog or its session-bound
+lease checks.
 - `meta/QUOTA quotaClass`: 1 grant identity/version, 2 aggregate usage vector, 3 per-Lane usage, 4 retained/object usage, 5 grandfathered transfer state.
 - `meta/SCHEDULER schedulerKeyKind`: 1 ready-discovery cursor, 2 active-ring descriptor, 3 capped deficits, 4 round generation, 5 last-served map.
 - `meta/CONTROL_RESERVE reserveClass`: 1 grant identity/digest, 2 charged outcome, 3 non-outcome/fence, 4 recovery working, 5 emergency headroom, 6 Broker system-writer reservation.

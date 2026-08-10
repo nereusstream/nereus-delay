@@ -989,7 +989,7 @@ Recovery Set span
 
 路径 component 使用统一安全编码，不拼接未校验业务字符串。
 
-Route、Profile、Retry Policy、capability prerequisite 和 grant 都是 immutable version；lifecycle/blocked/desired state 是分离的 versioned record。Worker 只有在取得完整兼容 control snapshot、验证所有已 pin version 可读取，并把 snapshot identity 写入 shard DB 后才能进入 `ACTIVE_FOR_COMMANDS`。Watch 只作刷新提示；cache miss 不等于 `DESTINATION_NOT_FOUND`，无法向 Oxia 证明 authoritative absence 时停在当前 Source Position。
+Route、Profile、Retry Policy、capability prerequisite 和 grant 都是 immutable version；lifecycle/blocked/desired state 是分离的 versioned record。Worker 只有在取得完整兼容 control snapshot、验证所有已 pin version 可读取，并把 snapshot identity 写入 shard DB 后才能进入 `ACTIVE_FOR_COMMANDS`。本地 `meta_cf/FIXED` key 10 持久 canonical `CompatibleControlSnapshotV1`，绑定 shard subject、ProtocolTuple/Profile/initial grant 集合和 digest；打开或恢复时必须逐项严格解码、校验 digest 并确认 shard identity 一致。该本地 projection 只记录已取得的 control input，不替代 Oxia authoritative catalog、session-bound Owner Lease 或版本读取证明。Watch 只作刷新提示；cache miss 不等于 `DESTINATION_NOT_FOUND`，无法向 Oxia 证明 authoritative absence 时停在当前 Source Position。
 
 ### 9.1 双闸门
 

@@ -2322,7 +2322,13 @@ source-ordered history 的 Shard，并再次确认 key 3 的 applied Position；
 `lastOpenedOwnerEpoch` 和 `cleanCloseMarker`；key 4 的单一
 `IngressFenceState` 同时承载 close deadline 与 proof identity，避免 DelayShard
 与 Store projection 争用同一 fixed key；不再把这些字段打包写入已经保留给
-compatible control snapshot 的 key 10。打开时逐项严格解码并清除 clean marker，
+compatible control snapshot 的 key 10。key 10 现在由 canonical
+`CompatibleControlSnapshotV1` 占用，严格绑定 shard subject、ProtocolTuple/Profile/
+initial grant 集合及 digest；打开/恢复时逐项解码、校验 digest 和 shard identity，
+并由 `CompatibleControlSnapshotV1Test`、
+`ShardStoreTest.compatibleControlSnapshotIsPersistedAndRevalidatedForItsShard` 覆盖。
+该 projection 只证明本地已取得的 control input，不替代 Oxia catalog/session
+和版本读取 authority。打开时逐项严格解码并清除 clean marker，
 正常 close 通过同步 WriteBatch 写回 marker；fence/checkpoint/owner/evidence 更新也
 沿用同一 WAL-sync 边界。`StoreRuntimeMetadataTest` 和
 `ShardStoreTest.malformedRuntimeMetadataDoesNotLeaveRocksDbOpen` 覆盖注册 key、

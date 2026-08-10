@@ -1,6 +1,7 @@
 package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
 import io.nereusstream.delay.protocol.EvidenceCursorV1;
 import io.nereusstream.delay.protocol.RecoveryCandidateRefV1;
 import io.nereusstream.delay.protocol.RecoveryFloorRefV1;
@@ -109,6 +110,7 @@ public final class ShardStore implements AutoCloseable {
     private boolean writeOutcomeUncertain;
     private StoreRuntimeMetadata runtimeMetadata;
     private StoreRecoveryMetadata recoveryMetadata;
+    private CompatibleControlSnapshotV1 controlSnapshot;
     private long closedIngressDeadlineThrough;
 
     /**
@@ -134,6 +136,7 @@ public final class ShardStore implements AutoCloseable {
                         final Map<ColumnFamily, ColumnFamilyHandle> handles, final StoreMetadata metadata,
                         final boolean ownsShardSlot, final StoreRuntimeMetadata runtimeMetadata,
                         final StoreRecoveryMetadata recoveryMetadata,
+                        final CompatibleControlSnapshotV1 controlSnapshot,
                         final long closedIngressDeadlineThrough) {
         this.config = config;
         this.shardId = shardId;
@@ -150,6 +153,7 @@ public final class ShardStore implements AutoCloseable {
         this.closedColumnFamilyOptions = new boolean[columnFamilyOptions.size()];
         this.runtimeMetadata = runtimeMetadata;
         this.recoveryMetadata = recoveryMetadata;
+        this.controlSnapshot = controlSnapshot;
         this.closedIngressDeadlineThrough = closedIngressDeadlineThrough;
     }
 
@@ -895,8 +899,12 @@ public final class ShardStore implements AutoCloseable {
             if (format == null || format.length != Integer.BYTES || Bytes.readU32be(format, 0) != 1) {
                 throw new IllegalStateException("missing or unsupported store format marker");
             }
-            if (db.get(handles.get(ColumnFamily.META), KeyCodec.metaFixed(META_CONTROL_SNAPSHOT)) != null) {
-                throw new IllegalStateException("meta/FIXED control snapshot is not supported by this store version");
+            final byte[] controlSnapshotBytes = optionalFixedValue(db, handles.get(ColumnFamily.META),
+                    META_CONTROL_SNAPSHOT);
+            final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshotBytes == null ? null
+                    : CompatibleControlSnapshotV1.decode(controlSnapshotBytes);
+            if (controlSnapshot != null && !shardId.equals(controlSnapshot.shard().shardId())) {
+                throw new IllegalStateException("persisted control snapshot belongs to another shard");
             }
             validateFixedMetadata(db, handles.get(ColumnFamily.META), shardId);
             final RuntimeMetadataRead runtimeRead = readRuntimeMetadata(db, handles.get(ColumnFamily.META));
@@ -919,7 +927,7 @@ public final class ShardStore implements AutoCloseable {
             }
             final ShardStore result = new ShardStore(config, shardId, dbPath, resources, db, dbOptions,
                     openedHandles.get(0), cfOptions, handles, metadata, ownsShardSlot, runtimeMetadata,
-                    recoveryMetadata, closedIngressDeadlineThrough);
+                    recoveryMetadata, controlSnapshot, closedIngressDeadlineThrough);
             resources.registerPhysicalUsage(shardId, result.physicalUsageSource);
             keepOpen = true;
             return result;
@@ -1393,6 +1401,21 @@ public final class ShardStore implements AutoCloseable {
         return recoveryMetadata;
     }
 
+    /** Returns the last complete compatible control snapshot persisted in this shard DB. */
+    public synchronized CompatibleControlSnapshotV1 controlSnapshot() {
+        return controlSnapshot;
+    }
+
+    /** Persists a shard-bound compatible control snapshot in a synchronous WriteBatch. */
+    public synchronized void recordControlSnapshot(final CompatibleControlSnapshotV1 next) {
+        ensureOpen();
+        Objects.requireNonNull(next, "next");
+        if (!shardId.equals(next.shard().shardId())) {
+            throw new IllegalArgumentException("control snapshot belongs to another shard");
+        }
+        write(batch -> batch.putControlSnapshot(next));
+    }
+
     /**
      * Returns whether this DB contains the minimum local facts needed before
      * an external catalog can consider local recovery reuse.  The catalog must
@@ -1525,7 +1548,8 @@ public final class ShardStore implements AutoCloseable {
         ensureOpen();
         Objects.requireNonNull(operation, "operation");
         try (WriteBatch batch = new WriteBatch(); WriteOptions writeOptions = new WriteOptions().setSync(true)) {
-            final Batch pending = new Batch(this, batch, handles, closedIngressDeadlineThrough, runtimeMetadata);
+            final Batch pending = new Batch(this, batch, handles, closedIngressDeadlineThrough, runtimeMetadata,
+                    controlSnapshot);
             operation.apply(pending);
             try {
                 db.write(writeOptions, batch);
@@ -1541,6 +1565,9 @@ public final class ShardStore implements AutoCloseable {
             }
             if (pending.recoveryMetadata != null) {
                 recoveryMetadata = pending.recoveryMetadata;
+            }
+            if (pending.controlSnapshot != null) {
+                controlSnapshot = pending.controlSnapshot;
             }
             try {
                 closedIngressDeadlineThrough = readIngressFenceState(db, handles.get(ColumnFamily.META))
@@ -1895,19 +1922,23 @@ public final class ShardStore implements AutoCloseable {
         private final WriteBatch batch;
         private final Map<ColumnFamily, ColumnFamilyHandle> handles;
         private final StoreRuntimeMetadata currentRuntimeMetadata;
+        private final CompatibleControlSnapshotV1 currentControlSnapshot;
         private StoreRuntimeMetadata runtimeMetadata;
         private StoreRecoveryMetadata recoveryMetadata;
+        private CompatibleControlSnapshotV1 controlSnapshot;
         private long closedIngressDeadlineThrough;
 
         private Batch(final ShardStore owner, final WriteBatch batch,
                       final Map<ColumnFamily, ColumnFamilyHandle> handles,
                       final long closedIngressDeadlineThrough,
-                      final StoreRuntimeMetadata currentRuntimeMetadata) {
+                      final StoreRuntimeMetadata currentRuntimeMetadata,
+                      final CompatibleControlSnapshotV1 currentControlSnapshot) {
             this.owner = Objects.requireNonNull(owner, "owner");
             this.batch = batch;
             this.handles = handles;
             this.closedIngressDeadlineThrough = closedIngressDeadlineThrough;
             this.currentRuntimeMetadata = currentRuntimeMetadata;
+            this.currentControlSnapshot = currentControlSnapshot;
         }
 
         /** Returns whether this batch belongs to the supplied open ShardStore. */
@@ -1942,6 +1973,24 @@ public final class ShardStore implements AutoCloseable {
             }
             ShardStore.putRecoveryMetadata(batch, handle(ColumnFamily.META), next);
             recoveryMetadata = next;
+        }
+
+        /** Adds the complete compatible control snapshot to this atomic batch. */
+        public void putControlSnapshot(final CompatibleControlSnapshotV1 next) throws RocksDBException {
+            Objects.requireNonNull(next, "next");
+            if (!owner.shardId.equals(next.shard().shardId())) {
+                throw new IllegalArgumentException("control snapshot belongs to another shard");
+            }
+            if (controlSnapshot != null) {
+                throw new IllegalStateException("control snapshot may be written once per batch");
+            }
+            if (currentControlSnapshot != null
+                    && !Bytes.constantTimeEquals(currentControlSnapshot.snapshotDigest(), next.snapshotDigest())) {
+                throw new IllegalStateException("control snapshot identity cannot change in place");
+            }
+            batch.put(handle(ColumnFamily.META), KeyCodec.metaFixed(META_CONTROL_SNAPSHOT),
+                    ValueEnvelope.encode(META_FIXED_VALUE_TYPE, next.canonicalBytes()));
+            controlSnapshot = next;
         }
 
         /** Advances the source-ordered ingress fence in the same atomic WriteBatch. */

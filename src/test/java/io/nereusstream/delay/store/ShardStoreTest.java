@@ -1,8 +1,14 @@
 package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.OwnerIdentityV1;
+import io.nereusstream.delay.protocol.ProfileKindV1;
+import io.nereusstream.delay.protocol.ProfileRefV1;
+import io.nereusstream.delay.protocol.ProtocolTupleV1;
+import io.nereusstream.delay.protocol.PublishAdmissionBody;
+import io.nereusstream.delay.protocol.QuotaGrantRefV1;
 import io.nereusstream.delay.protocol.RecoveryCandidateKindV1;
 import io.nereusstream.delay.protocol.RecoveryCandidateRefV1;
 import io.nereusstream.delay.protocol.RecoveryFloorRefV1;
@@ -285,6 +291,42 @@ class ShardStoreTest {
                 ValueEnvelope.encode(1, Bytes.utf8("wrong-control-type")));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
             assertThrows(IllegalArgumentException.class, () -> ShardStore.open(config, shardId, resources));
+        }
+        assertRawRocksDbCanBeOpened(dbPath);
+    }
+
+    @Test
+    void compatibleControlSnapshotIsPersistedAndRevalidatedForItsShard() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("control-snapshot"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 39);
+        final CompatibleControlSnapshotV1 snapshot = new CompatibleControlSnapshotV1(
+                new ShardSubjectV1(shardId),
+                List.of(new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1)),
+                List.of(new ProfileRefV1(bytes(32, 61), 1, bytes(32, 62), ProfileKindV1.DESTINATION)),
+                new QuotaGrantRefV1(bytes(32, 63), 1, new PublishAdmissionBody.ChargeVector(
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));
+        final Path dbPath;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            dbPath = store.dbPath();
+            assertNull(store.controlSnapshot());
+            store.recordControlSnapshot(snapshot);
+            assertEquals(snapshot, store.controlSnapshot());
+            assertArrayEquals(snapshot.canonicalBytes(), store.getValue(ColumnFamily.META,
+                    KeyCodec.metaFixed(10), 1).payload());
+        }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore reopened = ShardStore.open(config, shardId, resources)) {
+            assertEquals(snapshot, reopened.controlSnapshot());
+        }
+        final ShardId foreignShard = new ShardId(RouteIncarnation.random(), 40);
+        final CompatibleControlSnapshotV1 foreign = new CompatibleControlSnapshotV1(
+                new ShardSubjectV1(foreignShard), snapshot.protocolTuples(), snapshot.profiles(),
+                snapshot.initialQuotaGrant());
+        overwriteRawColumnFamilyValue(dbPath, "meta_cf", KeyCodec.metaFixed(10),
+                ValueEnvelope.encode(1, foreign.canonicalBytes()));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+            assertThrows(IllegalStateException.class, () -> ShardStore.open(config, shardId, resources));
         }
         assertRawRocksDbCanBeOpened(dbPath);
     }
