@@ -2,6 +2,7 @@ package io.nereusstream.delay.runtime;
 
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CanonicalProtobuf;
+import io.nereusstream.delay.protocol.DelayMessageId;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -64,6 +65,7 @@ public final class TimelineWorkRef {
                 && (candidateAttemptNo != 1 || retryEligibilityAtEpochMs != actionAtEpochMs)) {
             throw new IllegalArgumentException("initial schedule has invalid attempt or retry eligibility");
         }
+        validatePhysicalEligibility();
         this.semanticWorkDigest = computeSemanticDigest(this.workKind, this.encodedTimelineKey,
                 this.actionAtEpochMs, this.retryEligibilityAtEpochMs, this.candidateAttemptNo,
                 this.orderedHeadBlocking, this.uncertainRetryAuthority, this.uncertainRetryControl,
@@ -295,12 +297,50 @@ public final class TimelineWorkRef {
         if (workKind == TimelineWorkKind.UNCERTAIN_RETRY && uncertainRetryAuthority == UncertainRetryAuthority.NONE) {
             throw new IllegalArgumentException("uncertain retry requires an authority");
         }
+        if (workKind == TimelineWorkKind.UNCERTAIN_RETRY && orderedHeadBlocking) {
+            throw new IllegalArgumentException("uncertain retry cannot block an ordered head");
+        }
+    }
+
+    /**
+     * Keeps the physical timeline key and rich value on the same eligibility
+     * boundary.  DUE keys are ordered by the maximum of the action and retry
+     * gates; ORDERED keys retain business deliverAt as their ordering time but
+     * must not precede the value's eligibility gate.
+     */
+    private void validatePhysicalEligibility() {
+        final long keyTime = timelineKeyTime(encodedTimelineKey);
+        final long minimumEligibility = Math.max(actionAtEpochMs, retryEligibilityAtEpochMs);
+        if (!orderedHeadBlocking && keyTime != minimumEligibility) {
+            throw new IllegalArgumentException("DUE timeline key does not equal rich eligibility");
+        }
+        if (orderedHeadBlocking && keyTime < minimumEligibility) {
+            throw new IllegalArgumentException("ORDERED timeline key precedes rich eligibility");
+        }
+    }
+
+    private static long timelineKeyTime(final byte[] key) {
+        if (key.length < 2 + 32 + Long.BYTES || (key[0] != 1 && key[0] != 2) || key[1] != 1) {
+            throw new IllegalArgumentException("timeline key is truncated");
+        }
+        // KeyCodec uses unsigned big-endian u64 for the physical timestamp;
+        // V1 time values are non-negative and therefore fit Java's signed
+        // long domain here.
+        return java.nio.ByteBuffer.wrap(key, 2 + 32, Long.BYTES).getLong();
     }
 
     private static byte[] requireTimelineKey(final byte[] value) {
         Objects.requireNonNull(value, "encodedTimelineKey");
         if (value.length < 2 || (value[0] != 1 && value[0] != 2) || value[1] != 1) {
             throw new IllegalArgumentException("timeline key is not a V1 DUE/ORDERED key");
+        }
+        final int tokenOffset = 2 + 32 + Long.BYTES;
+        final int tokenLength = value.length > tokenOffset && value[tokenOffset] == 1 ? 9
+                : value.length > tokenOffset && value[tokenOffset] == 2 ? 21 : -1;
+        final int expectedLength = tokenLength < 0 ? -1
+                : tokenOffset + tokenLength + DelayMessageId.LENGTH + Integer.BYTES;
+        if (value.length != expectedLength) {
+            throw new IllegalArgumentException("timeline key is not a complete V1 DUE/ORDERED key");
         }
         return Bytes.copy(value);
     }

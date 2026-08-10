@@ -1278,6 +1278,12 @@ byte-identical。旧本地 DB 中的 `TimelineEntry` 只作为有界、只读的
 projection 的旧 `MessageRecord` 只能按可验证的 scalar schedule fields 读取，后续
 source-ordered mutation 才能产生新的完整 projection。
 
+TimelineWorkRef 的物理时间也必须与 key 一致：DUE key 的 eligibility 字段严格等于
+`max(actionAt,retryEligibilityAt)`；ORDERED key 仍按业务 `deliverAt` 排序，但不得早于
+value 中的 head eligibility。`UNCERTAIN_RETRY` 只能属于 unordered Lane，不能把 ordered
+head 当作可重试 work。这样 action gate 不会因为 DUE key 只编码 retry 时间而被提前扫描；
+该关系由 `TimelineWorkRef` 构造/解码和 scheduler rebuild 同时校验。
+
 ### 10.4 单写者与 invariant
 
 Shard event loop 是唯一 writer。Scheduler 用 bounded RocksDB snapshot 读索引，Claim 前在 event loop 重新验证 exact ID locator、generation/runtime revision、Owner Lease 和 permits。

@@ -30,6 +30,25 @@ class GenerationRuntimeIndexTest {
     }
 
     @Test
+    void timelineWorkFencesPhysicalEligibilityAndOrderedUncertainRetry() {
+        final byte[] dueAtTwoHundred = timelineKey(200, 0);
+        final TimelineWorkRef due = new TimelineWorkRef(TimelineWorkKind.DEFINITIVE_RETRY,
+                dueAtTwoHundred, 100, 200, 2, 7, false, UncertainRetryAuthority.NONE, null, null);
+        assertEquals(due, TimelineWorkRef.decode(due.canonicalBytes()));
+        assertThrows(IllegalArgumentException.class,
+                () -> new TimelineWorkRef(TimelineWorkKind.DEFINITIVE_RETRY, timelineKey(100, 0),
+                        100, 200, 2, 7, false, UncertainRetryAuthority.NONE, null, null));
+
+        final byte[] orderedAtOneHundred = orderedTimelineKey(100, 0);
+        assertThrows(IllegalArgumentException.class,
+                () -> new TimelineWorkRef(TimelineWorkKind.DEFINITIVE_RETRY, orderedAtOneHundred,
+                        200, 200, 2, 7, true, UncertainRetryAuthority.NONE, null, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> new TimelineWorkRef(TimelineWorkKind.UNCERTAIN_RETRY, orderedAtOneHundred,
+                        100, 100, 2, 7, true, UncertainRetryAuthority.PINNED_POLICY, null, null));
+    }
+
+    @Test
     void runtimeIndexRoundTripsRepeatedObligationsInCanonicalOrder() {
         final byte[] firstId = Bytes.sha256(Bytes.utf8("attempt-1"));
         final byte[] secondId = Bytes.sha256(Bytes.utf8("attempt-2"));
@@ -51,6 +70,14 @@ class GenerationRuntimeIndexTest {
 
     private static byte[] timelineKey(final long eligibleAt, final int generation) {
         return KeyCodec.timelineDue(new DestinationLaneId(new byte[32]), eligibleAt,
+                Bytes.concat(new byte[]{1}, new byte[8]),
+                io.nereusstream.delay.protocol.DelayMessageId.random(
+                        new io.nereusstream.delay.protocol.ShardId(
+                                new io.nereusstream.delay.protocol.RouteIncarnation(new byte[16]), 0)), generation);
+    }
+
+    private static byte[] orderedTimelineKey(final long deliverAt, final int generation) {
+        return KeyCodec.timelineOrdered(new DestinationLaneId(new byte[32]), deliverAt,
                 Bytes.concat(new byte[]{1}, new byte[8]),
                 io.nereusstream.delay.protocol.DelayMessageId.random(
                         new io.nereusstream.delay.protocol.ShardId(

@@ -704,9 +704,12 @@ public final class PersistentLaneScheduler {
                 || !message.laneId().equals(key.laneId())) {
             throw new IllegalStateException("READY points to a non-current scheduled message: " + value.messageId());
         }
+        final TimelineWorkRef currentWork = message.runtimeIndex().timeline();
         final long timelineEligibleAt = message.orderingMode()
                 == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO
-                ? message.deliverAtEpochMs() : message.retryEligibilityAtEpochMs();
+                ? message.deliverAtEpochMs()
+                : Math.max(currentWork == null ? message.deliverAtEpochMs() : currentWork.actionAtEpochMs(),
+                message.retryEligibilityAtEpochMs());
         final byte[] timelineKey = message.orderingMode()
                 == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO
                 ? KeyCodec.timelineOrdered(message.laneId(), timelineEligibleAt,

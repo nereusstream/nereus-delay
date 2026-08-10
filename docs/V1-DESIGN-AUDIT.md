@@ -2072,6 +2072,12 @@ legacy `MessageRecord` 只按 scalar schedule fields 受限读取。物理 rich 
 `actionAt` 和 key equality 由
 `DelayShardTest.resolvedActionAtIsEarlierThanDeliverAtButOrderedKeyKeepsBusinessVisibilityOrder`
 和 `LaneSchedulerTest.fencedRecoveryAcceptsCanonicalTimelineWorkRefValue` 覆盖。
+同一边界现在也约束物理时间：DUE key 的时间必须严格等于
+`max(actionAt,retryEligibilityAt)`，ORDERED key 不能早于 rich eligibility，且
+`UNCERTAIN_RETRY` 不能进入 ordered namespace；`DelayShard.timelineKey`、
+`PersistentLaneScheduler` rebuild 与 `TimelineWorkRef` 构造/解码使用同一规则。
+`GenerationRuntimeIndexTest.timelineWorkFencesPhysicalEligibilityAndOrderedUncertainRetry`
+覆盖不一致 key、过早 ORDERED key 和 ordered uncertain retry 的 fail-closed 分支。
 `id_cf/V1_SCHEDULE_BINDING` 的 direct lookup 也会在读取 sidecar 前校验
 `DelayMessageId` 的 self-routing Shard；即使当前 DB 只有错挂的 sidecar，也不会
 把它暴露给 Registry 路径。证据为

@@ -7089,7 +7089,8 @@ public final class DelayShard {
         if (includedMessage != null && includedMessage.status() == MessageStatus.SCHEDULED
                 && includedMessageId != null && includedMessage.laneId().equals(laneId)) {
             selected = new TimelineCandidate(includedMessageId, includedMessage.generation(),
-                    timelineEligibilityAt(includedMessage), headEligibilityAt(includedMessageId, includedMessage),
+                    timelineEligibilityAt(includedMessageId, includedMessage),
+                    headEligibilityAt(includedMessageId, includedMessage),
                     timelineKey(includedMessageId, includedMessage),
                     includedMessage.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO);
         }
@@ -8050,7 +8051,7 @@ public final class DelayShard {
     }
 
     private byte[] timelineKey(final DelayMessageId messageId, final MessageRecord message) {
-        final long eligibleAt = timelineEligibilityAt(message);
+        final long eligibleAt = timelineEligibilityAt(messageId, message);
         final SourcePosition position = SourcePositionCodec.decode(message.scheduleSourcePosition());
         return message.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO
                 ? KeyCodec.timelineOrdered(message.laneId(), eligibleAt, position.sourceOrderToken(), messageId,
@@ -8129,9 +8130,11 @@ public final class DelayShard {
                 && ByteBuffer.wrap(encodedValue, 0, Integer.BYTES).getInt() == 1;
     }
 
-    private static long timelineEligibilityAt(final MessageRecord message) {
-        return message.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO
-                ? message.deliverAtEpochMs() : message.retryEligibilityAtEpochMs();
+    private long timelineEligibilityAt(final DelayMessageId messageId, final MessageRecord message) {
+        if (message.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO) {
+            return message.deliverAtEpochMs();
+        }
+        return Math.max(actionAtFor(messageId, message), message.retryEligibilityAtEpochMs());
     }
 
     private byte[] expiryKey(final DelayMessageId messageId, final MessageRecord message) {
