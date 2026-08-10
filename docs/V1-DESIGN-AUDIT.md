@@ -2078,6 +2078,10 @@ legacy `MessageRecord` 只按 scalar schedule fields 受限读取。物理 rich 
 `PersistentLaneScheduler` rebuild 与 `TimelineWorkRef` 构造/解码使用同一规则。
 `GenerationRuntimeIndexTest.timelineWorkFencesPhysicalEligibilityAndOrderedUncertainRetry`
 覆盖不一致 key、过早 ORDERED key 和 ordered uncertain retry 的 fail-closed 分支。
+`CONTROL_OVERRIDE` 的 nested ControlRef/Source Position 也经过 canonical typed
+decode；`GenerationRuntimeIndexTest.controlOverrideTimelineRequiresCanonicalTypedNestedValues`
+覆盖 malformed control/source bytes。这个 codec fence 不替代 authenticated
+control/evidence authority。
 `id_cf/V1_SCHEDULE_BINDING` 的 direct lookup 也会在读取 sidecar 前校验
 `DelayMessageId` 的 self-routing Shard；即使当前 DB 只有错挂的 sidecar，也不会
 把它暴露给 Registry 路径。证据为

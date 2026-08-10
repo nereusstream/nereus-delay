@@ -2,7 +2,9 @@ package io.nereusstream.delay.runtime;
 
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CanonicalProtobuf;
+import io.nereusstream.delay.protocol.ControlRef;
 import io.nereusstream.delay.protocol.DelayMessageId;
+import io.nereusstream.delay.protocol.SourcePositionCodec;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -14,8 +16,9 @@ import java.util.Objects;
  *
  * <p>The semantic digest intentionally excludes {@code runtimeRevision}; the instance
  * digest includes it and fences one local runtime snapshot.  Control references and
- * source positions are retained as canonical nested bytes until their dedicated V1
- * codecs are wired into the runtime state machine.</p>
+ * source positions are retained as canonical nested bytes after strict typed decode;
+ * the external operation/evidence authority is still checked by the source mutation
+ * path.</p>
  */
 public final class TimelineWorkRef {
     public static final int HASH_LENGTH = 32;
@@ -293,6 +296,14 @@ public final class TimelineWorkRef {
         if (uncertainRetryAuthority == UncertainRetryAuthority.CONTROL_OVERRIDE
                 && (uncertainRetryControl.length == 0 || uncertainRetryControlPosition.length == 0)) {
             throw new IllegalArgumentException("control retry requires control and source position");
+        }
+        if (uncertainRetryAuthority == UncertainRetryAuthority.CONTROL_OVERRIDE) {
+            final ControlRef controlRef = ControlRef.decode(uncertainRetryControl);
+            final var sourcePosition = SourcePositionCodec.decode(uncertainRetryControlPosition);
+            if (!Arrays.equals(uncertainRetryControl, controlRef.canonicalBytes())
+                    || !Arrays.equals(uncertainRetryControlPosition, sourcePosition.canonicalBytes())) {
+                throw new IllegalArgumentException("control retry nested values are not canonical");
+            }
         }
         if (workKind == TimelineWorkKind.UNCERTAIN_RETRY && uncertainRetryAuthority == UncertainRetryAuthority.NONE) {
             throw new IllegalArgumentException("uncertain retry requires an authority");

@@ -1283,6 +1283,9 @@ TimelineWorkRef 的物理时间也必须与 key 一致：DUE key 的 eligibility
 value 中的 head eligibility。`UNCERTAIN_RETRY` 只能属于 unordered Lane，不能把 ordered
 head 当作可重试 work。这样 action gate 不会因为 DUE key 只编码 retry 时间而被提前扫描；
 该关系由 `TimelineWorkRef` 构造/解码和 scheduler rebuild 同时校验。
+`CONTROL_OVERRIDE` 的嵌套 `ControlRefV1` 与 `SourcePositionV1` 也必须先通过各自
+canonical codec；这只是 value 完整性校验，不替代 source-ordered mutation 的
+authenticated control/evidence authority。
 
 ### 10.4 单写者与 invariant
 

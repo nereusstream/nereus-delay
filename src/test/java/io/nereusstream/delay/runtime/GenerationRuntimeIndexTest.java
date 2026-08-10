@@ -1,11 +1,14 @@
 package io.nereusstream.delay.runtime;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.ControlRef;
 import io.nereusstream.delay.protocol.DestinationLaneId;
+import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.store.KeyCodec;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -46,6 +49,29 @@ class GenerationRuntimeIndexTest {
         assertThrows(IllegalArgumentException.class,
                 () -> new TimelineWorkRef(TimelineWorkKind.UNCERTAIN_RETRY, orderedAtOneHundred,
                         100, 100, 2, 7, true, UncertainRetryAuthority.PINNED_POLICY, null, null));
+    }
+
+    @Test
+    void controlOverrideTimelineRequiresCanonicalTypedNestedValues() {
+        final var shard = new io.nereusstream.delay.protocol.ShardId(
+                new io.nereusstream.delay.protocol.RouteIncarnation(new byte[16]), 0);
+        final KafkaSourcePosition source = new KafkaSourcePosition(shard, "cluster", UUID.randomUUID(), 4,
+                null, 1_000);
+        final ControlRef control = new ControlRef(Bytes.sha256(Bytes.utf8("operation")),
+                Bytes.sha256(Bytes.utf8("request")), 3);
+        final byte[] key = timelineKey(1_000, 0);
+        final TimelineWorkRef valid = new TimelineWorkRef(TimelineWorkKind.UNCERTAIN_RETRY, key,
+                900, 1_000, 2, 7, false, UncertainRetryAuthority.CONTROL_OVERRIDE,
+                control.canonicalBytes(), source.canonicalBytes());
+        assertEquals(valid, TimelineWorkRef.decode(valid.canonicalBytes()));
+        assertThrows(IllegalArgumentException.class,
+                () -> new TimelineWorkRef(TimelineWorkKind.UNCERTAIN_RETRY, key, 900, 1_000, 2, 7,
+                        false, UncertainRetryAuthority.CONTROL_OVERRIDE, Bytes.utf8("not-control"),
+                        source.canonicalBytes()));
+        assertThrows(IllegalArgumentException.class,
+                () -> new TimelineWorkRef(TimelineWorkKind.UNCERTAIN_RETRY, key, 900, 1_000, 2, 7,
+                        false, UncertainRetryAuthority.CONTROL_OVERRIDE, control.canonicalBytes(),
+                        Bytes.concat(source.canonicalBytes(), new byte[]{0})));
     }
 
     @Test
