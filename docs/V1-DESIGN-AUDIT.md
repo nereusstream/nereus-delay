@@ -38,6 +38,15 @@ and native-close rules. The focused regression is
 This remains local fail-closed evidence; external source quiescence, Oxia
 release and fresh-incarnation recovery are release gates.
 
+The drain durability audit now also covers `flushAndSync()`: native,
+JNI/runtime and fatal failures mark the Store `writeOutcomeUncertain` before the
+exception escapes. The shard remains `DRAINING`; a later retry must enter the
+uncertain-Store branch and perform only local fencing, native close and exact
+lease release, never reuse that incarnation or rerun Claim/callback/checkpoint
+work. `ShardStoreTest.flushAndSyncFailureFencesStoreUntilReopen` is the local
+regression. Device/WAL durability and external source/Oxia recovery evidence
+remain release gates.
+
 The Kafka receipt and Pulsar Attempt Journal mapping-before-send seams now
 reject a target sender that returns `null CompletionStage` with a typed
 integrity/divergence failure. The mapping is already durable and remains the

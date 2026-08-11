@@ -430,6 +430,24 @@ class ShardStoreTest {
     }
 
     @Test
+    void flushAndSyncFailureFencesStoreUntilReopen() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("flush-sync-failure"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 37);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final ShardStore.FlushSyncOperation failure = () -> {
+                throw new RocksDBException("synthetic flush failure");
+            };
+            final IllegalStateException exception = assertThrows(IllegalStateException.class,
+                    () -> store.flushAndSync(failure));
+            assertEquals("RocksDB flush/sync failed", exception.getMessage());
+            assertTrue(store.isWriteOutcomeUncertain());
+            assertThrows(IllegalStateException.class,
+                    () -> store.get(ColumnFamily.META, KeyCodec.metaFixed(1)));
+        }
+    }
+
+    @Test
     void openRejectsSymbolicShardPathAncestors() throws Exception {
         final RouteIncarnation routeIncarnation = RouteIncarnation.random();
         final ShardId shardId = new ShardId(routeIncarnation, 24);

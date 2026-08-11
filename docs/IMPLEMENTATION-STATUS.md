@@ -34,6 +34,15 @@ therefore cannot leave an unproven native commit boundary behind an
 covers this ordering. This is local fail-closed evidence; source quiescence,
 Oxia release and fresh-incarnation recovery remain release gates.
 
+The drain durability boundary now treats a native/JNI/runtime/fatal failure from
+`ShardStore.flushAndSync()` as an unproven Store outcome. The Store marks
+`writeOutcomeUncertain` before propagating the failure, so a retry cannot reuse
+the same incarnation for source or ownership decisions; `ShardStoreTest`
+`flushAndSyncFailureFencesStoreUntilReopen` covers the local fence. The
+coordinator keeps the shard `DRAINING` and the next retry performs only the
+uncertain-Store fence/close/exact-lease-release path. Real WAL/device durability,
+source quiescence and fresh-incarnation recovery remain release gates.
+
 The local Kafka receipt and Pulsar Attempt Journal mapping-before-send seams now
 fail closed when an injected target sender returns a `null CompletionStage`.
 That malformed result is not a non-persistence proof: the exact durable mapping

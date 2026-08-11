@@ -1702,13 +1702,41 @@ public final class ShardStore implements AutoCloseable {
 
     /** Flushes all column families and synchronizes the WAL before a drain/close boundary. */
     public synchronized void flushAndSync() {
+        flushAndSync(this::flushAndSyncNative);
+    }
+
+    /** Applies the same durability fencing to a supplied native flush action. */
+    synchronized void flushAndSync(final FlushSyncOperation operation) {
         ensureOpen();
+        Objects.requireNonNull(operation, "operation");
+        try {
+            operation.run();
+        } catch (RocksDBException exception) {
+            // Flush/sync is the drain durability boundary.  A native failure
+            // does not prove whether the pending memtable/WAL bytes reached
+            // durable storage, so the current Store incarnation must not be
+            // reused for another source or ownership decision.
+            writeOutcomeUncertain = true;
+            throw new IllegalStateException("RocksDB flush/sync failed", exception);
+        } catch (RuntimeException | Error exception) {
+            // JNI/runtime/fatal failures have the same unknown durability
+            // boundary, including failures while closing FlushOptions after a
+            // native flush or WAL sync call.
+            writeOutcomeUncertain = true;
+            throw exception;
+        }
+    }
+
+    private void flushAndSyncNative() throws RocksDBException {
         try (FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
             db.flush(flushOptions);
             db.syncWal();
-        } catch (RocksDBException exception) {
-            throw new IllegalStateException("RocksDB flush/sync failed", exception);
         }
+    }
+
+    @FunctionalInterface
+    interface FlushSyncOperation {
+        void run() throws RocksDBException;
     }
 
     public synchronized Path createCheckpoint(final Path checkpointPath) {

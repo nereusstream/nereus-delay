@@ -1030,6 +1030,12 @@ Command/Claim/Admission authority，再调用 source/scheduler stop callback。�
 callback 只是编排通知，失败不能让一个提交边界不确定的 Store 继续保持
 `ACTIVE_FOR_COMMANDS`；随后仍须按可重试的 close/release 顺序处理原 lease。
 
+Drain 的 `flush/sync` 失败也属于未确认的 durability boundary：Store 必须在
+异常向外传播前标记 `writeOutcomeUncertain`，不能把这次失败当成“尚未发生写入”
+而继续复用同一 Store。编排器保持本地 shard 为 `DRAINING`；后续 drain retry
+走上述 uncertain-Store 分支，先 fencing 本地 authority，再按 exact Store/lease
+identity 执行可重试 close/release。
+
 激活阶段写入 `lastOpenedOwnerEpoch` 或重排恢复 Claim 后，在本地 Store
 projection 过程中出现 `RocksDbWriteFailure`、其它 `RuntimeException` 或 fatal
 `Error`，也必须在向外抛出前把 Owner 置为 `FENCED`，且不得执行后续的
@@ -1088,6 +1094,10 @@ planned drain：
 3. 在 lease 有效期内有界等待已 admitted callback；
 4. flush/sync DB；如提交 source hint，必须只提交不超过该次 flush 已持久化的
    `appliedShardLogPosition`，并在 transport callback 返回后重新确认 lease；
+   flush/sync 的 native、JNI/runtime 或 fatal failure 都必须把 Store 标记为
+   `writeOutcomeUncertain` 并停止该 incarnation 的后续复用；本地状态保留
+   `DRAINING`，由下一次 drain 只执行 fencing、close 和 exact lease release
+   retry，不得重新执行 Claim revoke、callback poll 或 checkpoint；
 5. 可选 final checkpoint；若编排器已取得该 manifest 的 16-byte `checkpointId`，
    必须把 identity 传入物理 checkpoint primitive，使完整镜像中的
    `lastCheckpointId` 与该产物绑定；
