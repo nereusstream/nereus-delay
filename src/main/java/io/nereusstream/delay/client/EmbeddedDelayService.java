@@ -654,9 +654,14 @@ public final class EmbeddedDelayService implements DelayClient {
         if (payloadObjectStore == null) {
             return CompletableFuture.completedFuture(payloadStoreUnavailableForUpload(nowEpochMs));
         }
-        if (kind == null || receipt == null || bindPayloadReceipt(receipt) == null) {
+        if (kind == null || receipt == null) {
             return CompletableFuture.completedFuture(payloadUploadError(
                     PayloadUploadHandleOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED));
+        }
+        final PayloadReceiptBinding binding = bindPayloadReceipt(receipt);
+        if (binding.status() != PayloadReceiptBindingStatus.BOUND) {
+            return CompletableFuture.completedFuture(payloadUploadError(
+                    binding.uploadOutcome()));
         }
         return CompletableFuture.completedFuture(payloadObjectStore.issueUploadHandle(receipt, kind, nowEpochMs));
     }
@@ -669,9 +674,14 @@ public final class EmbeddedDelayService implements DelayClient {
         if (payloadObjectStore == null) {
             return CompletableFuture.completedFuture(payloadStoreUnavailableForAttestation(nowEpochMs));
         }
-        if (receipt == null || handle == null || bindPayloadReceipt(receipt) == null) {
+        if (receipt == null || handle == null) {
             return CompletableFuture.completedFuture(payloadAttestationError(
                     PayloadAttestationOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED));
+        }
+        final PayloadReceiptBinding binding = bindPayloadReceipt(receipt);
+        if (binding.status() != PayloadReceiptBindingStatus.BOUND) {
+            return CompletableFuture.completedFuture(payloadAttestationError(
+                    binding.attestationOutcome()));
         }
         return CompletableFuture.completedFuture(payloadObjectStore.attest(receipt, handle, nowEpochMs));
     }
@@ -737,19 +747,57 @@ public final class EmbeddedDelayService implements DelayClient {
     }
 
     /** Registers and validates the exact durable reservation before Object Store authority is used. */
-    private PayloadReservation bindPayloadReceipt(final PayloadReservationReceiptV1 receipt) {
+    private PayloadReceiptBinding bindPayloadReceipt(final PayloadReservationReceiptV1 receipt) {
+        if (!shardId.equals(receipt.shardId())) {
+            return PayloadReceiptBinding.notFound();
+        }
         try {
-            if (!shardId.equals(receipt.shardId())) {
-                return null;
-            }
             final PayloadReservation reservation = shard.getReservation(receipt.reservationId());
             if (reservation == null) {
-                return null;
+                return PayloadReceiptBinding.notFound();
             }
             payloadObjectStore.register(reservation);
-            return payloadObjectStore.reservationReceipt(reservation).equals(receipt) ? reservation : null;
-        } catch (RuntimeException mismatch) {
-            return null;
+            return payloadObjectStore.reservationReceipt(reservation).equals(receipt)
+                    ? PayloadReceiptBinding.bound() : PayloadReceiptBinding.notFound();
+        } catch (RuntimeException integrityFailure) {
+            // A shard read, local adapter registration or service-owned receipt
+            // projection failure is not evidence that the object is absent.
+            // Keep the closed API fail-closed as INTEGRITY_ERROR; external
+            // provider/credential outages are mapped by the real adapter to
+            // OBJECT_STORE_UNAVAILABLE_RETRYABLE before this local seam.
+            return PayloadReceiptBinding.integrityError();
+        }
+    }
+
+    private enum PayloadReceiptBindingStatus {
+        BOUND,
+        NOT_FOUND_OR_NOT_AUTHORIZED,
+        INTEGRITY_ERROR
+    }
+
+    private record PayloadReceiptBinding(PayloadReceiptBindingStatus status) {
+        private static PayloadReceiptBinding bound() {
+            return new PayloadReceiptBinding(PayloadReceiptBindingStatus.BOUND);
+        }
+
+        private static PayloadReceiptBinding notFound() {
+            return new PayloadReceiptBinding(PayloadReceiptBindingStatus.NOT_FOUND_OR_NOT_AUTHORIZED);
+        }
+
+        private static PayloadReceiptBinding integrityError() {
+            return new PayloadReceiptBinding(PayloadReceiptBindingStatus.INTEGRITY_ERROR);
+        }
+
+        private PayloadUploadHandleOutcomeV1 uploadOutcome() {
+            return status == PayloadReceiptBindingStatus.INTEGRITY_ERROR
+                    ? PayloadUploadHandleOutcomeV1.INTEGRITY_ERROR
+                    : PayloadUploadHandleOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED;
+        }
+
+        private PayloadAttestationOutcomeV1 attestationOutcome() {
+            return status == PayloadReceiptBindingStatus.INTEGRITY_ERROR
+                    ? PayloadAttestationOutcomeV1.INTEGRITY_ERROR
+                    : PayloadAttestationOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED;
         }
     }
 

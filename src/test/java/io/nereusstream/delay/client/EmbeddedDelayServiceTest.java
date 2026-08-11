@@ -44,6 +44,7 @@ import io.nereusstream.delay.protocol.PayloadProofVerifierKeyV1;
 import io.nereusstream.delay.protocol.PayloadReservationReceiptV1;
 import io.nereusstream.delay.protocol.PayloadAttestationOutcomeV1;
 import io.nereusstream.delay.protocol.PayloadAttestationResponseV1;
+import io.nereusstream.delay.protocol.OpaquePayloadUploadHandleV1;
 import io.nereusstream.delay.protocol.PayloadUploadHandleOutcomeV1;
 import io.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
 import io.nereusstream.delay.protocol.UploadHandleKindV1;
@@ -282,6 +283,54 @@ class EmbeddedDelayServiceTest {
                     handle.issued(), 1_102).toCompletableFuture().join();
             assertEquals(PayloadAttestationOutcomeV1.ATTESTED, attestation.outcome());
             assertEquals(EnqueueStatus.QUEUED, queued.status());
+        }
+    }
+
+    @Test
+    void payloadFacadeMapsLocalReservationBindingFailureAsIntegrityError() throws Exception {
+        final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final PayloadProofTrustSetSemanticV1 reservationTrustSet = payloadTrustSet(keyPair);
+        final PayloadProofTrustSetSemanticV1 adapterTrustSet = new PayloadProofTrustSetSemanticV1(10,
+                List.of(PayloadProofVerifierKeyV1.fromPublicKey(7, keyPair.getPublic(), 0, 9_000)));
+        final ProfileSemanticEnvelopeV1 profile = payloadObjectStoreProfile();
+        final InMemoryPayloadObjectStore mismatchedAdapter = new InMemoryPayloadObjectStore(profile,
+                Bytes.sha256(Bytes.utf8("tenant")), adapterTrustSet, 7, keyPair.getPrivate());
+        final InMemoryPayloadObjectStore receiptProjector = new InMemoryPayloadObjectStore(profile,
+                Bytes.sha256(Bytes.utf8("tenant")), reservationTrustSet, 7, keyPair.getPrivate());
+        final byte[] payload = new byte[(1 << 20) + 1];
+        payload[0] = 1;
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 28);
+        final LargeScheduleIntent intent = new LargeScheduleIntent(
+                DestinationLaneId.derive(Bytes.utf8("payload-binding-failure-lane")), 2_000, 5_000,
+                OrderingMode.BEST_EFFORT, payload.length, Bytes.sha256(payload), 4_000,
+                reservationTrustSet.version());
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("payload-binding-failure")), shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC),
+                EmbeddedDelayServiceConfig.defaults(), mismatchedAdapter)) {
+            final PreparedCommand prepare = service.prepareLargeSchedule(intent, 10_000);
+            final EnqueueOutcome queued = service.enqueue(prepare).toCompletableFuture().join();
+            assertEquals(StableCode.OK, service.awaitApplied(queued.receipt()).toCompletableFuture().join().stableCode());
+            final byte[] reservationId = Bytes.sha256(Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                    prepare.commandId().bytes(), prepare.delayMessageId().bytes(), prepare.commandHash());
+            final var reservation = service.shard().getReservation(reservationId);
+            receiptProjector.register(reservation);
+            final PayloadReservationReceiptV1 receipt = receiptProjector.reservationReceipt(reservation);
+
+            final PayloadUploadHandleResponseV1 handle = service.issuePayloadUploadHandle(receipt,
+                    UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_100).toCompletableFuture().join();
+            assertEquals(PayloadUploadHandleOutcomeV1.INTEGRITY_ERROR, handle.outcome());
+            assertEquals(StableCode.INTEGRITY_ERROR, handle.error().code());
+            final PayloadAttestationResponseV1 attestation = service.attestPayloadUpload(receipt, null, 1_100)
+                    .toCompletableFuture().join();
+            assertEquals(PayloadAttestationOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED, attestation.outcome());
+
+            final PayloadAttestationResponseV1 attestationWithHandle = service.attestPayloadUpload(receipt,
+                    OpaquePayloadUploadHandleV1.create(receipt.reservationId(), profile.ref(),
+                            UploadHandleKindV1.OPAQUE_SINGLE_PUT, 2_000, Bytes.utf8("handle")), 1_100)
+                    .toCompletableFuture().join();
+            assertEquals(PayloadAttestationOutcomeV1.INTEGRITY_ERROR, attestationWithHandle.outcome());
+            assertEquals(StableCode.INTEGRITY_ERROR, attestationWithHandle.error().code());
         }
     }
 

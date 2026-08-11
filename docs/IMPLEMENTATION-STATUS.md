@@ -18,6 +18,17 @@ must stop at the position.  `DelayShardTest.controlRegistrationAuthorityFailureR
 covers the local boundary; Oxia response classification and durable source
 replay remain external release gates.
 
+The receipt-bound payload facade now distinguishes a caller-visible missing or
+foreign reservation from a local shard/adapter binding failure.  A missing
+reservation, shard mismatch or service-owned receipt mismatch remains the
+non-enumerating `NOT_FOUND_OR_NOT_AUTHORIZED` branch, while a RocksDB read,
+local Object Store registration or receipt-projection exception is projected as
+closed `INTEGRITY_ERROR` rather than being misreported as object absence.
+`EmbeddedDelayServiceTest.payloadFacadeMapsLocalReservationBindingFailureAsIntegrityError`
+covers a pinned trust-set mismatch in the deterministic adapter.  Real
+provider/credential unavailability still belongs to the external adapter's
+`OBJECT_STORE_UNAVAILABLE_RETRYABLE` branch.
+
 The uncertain-Store drain path now applies the source/scheduler stop fence even
 when a caller started native Store close before the coordinator observed the
 unproven write boundary.  External close is not evidence of source quiescence:

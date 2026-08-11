@@ -22,6 +22,16 @@ local regression is
 Production Oxia response classification and source replay authority remain
 release gates.
 
+The receipt-bound payload audit now separates a non-enumerating reservation
+denial from local binding integrity failure.  Unknown/foreign shard or
+service-owned receipt mismatch remains `NOT_FOUND_OR_NOT_AUTHORIZED`; a shard
+read, deterministic adapter registration or service-owned receipt projection
+exception is returned as closed `INTEGRITY_ERROR` instead of falsely proving
+object absence.  `EmbeddedDelayServiceTest.payloadFacadeMapsLocalReservationBindingFailureAsIntegrityError`
+covers the pinned trust-set mismatch vector.  A real provider or credential
+failure must still be projected by the external adapter as
+`OBJECT_STORE_UNAVAILABLE_RETRYABLE`.
+
 The uncertain-Store drain audit now also covers the race where native Store
 close was started by another caller before the coordinator observed the
 unproven write boundary.  An already-started close does not prove source or
