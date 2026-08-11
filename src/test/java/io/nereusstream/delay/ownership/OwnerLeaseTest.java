@@ -226,6 +226,53 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void activationFatalAuthorityFailureFencesTheLocalOwnerGate() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 190);
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = backend.acquire(shardId, "worker-fatal-activation", 100, 100).orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(
+                new ErrorTransitionOwnerLeaseStore(backend));
+        final UUID topic = UUID.randomUUID();
+        final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster", topic, 0, null, 1_000);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("fatal-activation"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            owned.markCatchingUp(new SourceAssignment(shardId,
+                    Bytes.sha256(Bytes.utf8("fatal-activation-assignment")), 1,
+                    new KafkaActivationBarrier(shardId, "cluster", topic, 0)));
+            owned.recordCatchup(position);
+
+            assertThrows(AssertionError.class, () -> owned.activateForCommands(authority, 101));
+            assertEquals(ShardLifecycleState.FENCED, owned.state());
+        }
+    }
+
+    @Test
+    void drainFatalAuthorityFailureFencesTheLocalOwnerGate() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 191);
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = backend.acquire(shardId, "worker-fatal-drain", 100, 100).orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(
+                new ErrorTransitionOwnerLeaseStore(backend));
+        final UUID topic = UUID.randomUUID();
+        final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster", topic, 0, null, 1_000);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("fatal-drain"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            owned.markCatchingUp(new SourceAssignment(shardId,
+                    Bytes.sha256(Bytes.utf8("fatal-drain-assignment")), 1,
+                    new KafkaActivationBarrier(shardId, "cluster", topic, 0)));
+            owned.recordCatchup(position);
+            owned.activateForCommands(new OxiaOwnerLeaseStore(backend), 101);
+
+            assertThrows(AssertionError.class, () -> owned.beginDrain(authority, 101));
+            assertEquals(ShardLifecycleState.FENCED, owned.state());
+        }
+    }
+
+    @Test
     void strictActivationRequiresThePersistedShardControlSnapshot() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 42);
         final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
@@ -908,6 +955,41 @@ class OwnerLeaseTest {
         public Optional<OwnerLease> transition(final OwnerLease expected, final ShardLifecycleState nextState) {
             stateAtTransition.set(observedShard.get().state());
             return delegate.transition(expected, nextState);
+        }
+
+        @Override
+        public Optional<OwnerLease> current(final ShardId shardId) {
+            return delegate.current(shardId);
+        }
+    }
+
+    private static final class ErrorTransitionOwnerLeaseStore implements OwnerLeaseStore {
+        private final InMemoryOwnerLeaseStore delegate;
+
+        private ErrorTransitionOwnerLeaseStore(final InMemoryOwnerLeaseStore delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public Optional<OwnerLease> acquire(final ShardId shardId, final String ownerId,
+                                            final long nowEpochMs, final long leaseDurationMs) {
+            return delegate.acquire(shardId, ownerId, nowEpochMs, leaseDurationMs);
+        }
+
+        @Override
+        public Optional<OwnerLease> renew(final OwnerLease expected, final long nowEpochMs,
+                                          final long leaseDurationMs) {
+            return delegate.renew(expected, nowEpochMs, leaseDurationMs);
+        }
+
+        @Override
+        public boolean release(final OwnerLease expected) {
+            return delegate.release(expected);
+        }
+
+        @Override
+        public Optional<OwnerLease> transition(final OwnerLease expected, final ShardLifecycleState nextState) {
+            throw new AssertionError("simulated fatal Oxia transition failure");
         }
 
         @Override

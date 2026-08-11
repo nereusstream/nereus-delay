@@ -1649,6 +1649,13 @@ public final class ShardStore implements AutoCloseable {
                 // WAL.  Require a fresh reopen before another source record.
                 writeOutcomeUncertain = true;
                 throw new RocksDbWriteFailure("RocksDB write failed", exception);
+            } catch (RuntimeException | Error exception) {
+                // A JNI/runtime/fatal failure from the native write has the
+                // same unknown commit boundary as RocksDBException.  Fence
+                // the Store before propagating the original unchecked
+                // failure; only a fresh incarnation may inspect the result.
+                writeOutcomeUncertain = true;
+                throw exception;
             }
             if (pending.runtimeMetadata != null) {
                 runtimeMetadata = pending.runtimeMetadata;
@@ -1662,7 +1669,7 @@ public final class ShardStore implements AutoCloseable {
             try {
                 closedIngressDeadlineThrough = readIngressFenceState(db, handles.get(ColumnFamily.META))
                         .closedThroughEpochMs();
-            } catch (RocksDBException | RuntimeException exception) {
+            } catch (RocksDBException | RuntimeException | Error exception) {
                 // The WriteBatch has already returned successfully.  A
                 // native/read/decoding failure here leaves commit status and
                 // the in-memory fence projection unprovable, so continuing

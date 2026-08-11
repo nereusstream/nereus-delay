@@ -3115,6 +3115,18 @@ original failure remains primary and rollback failures are retained as
 suppressed diagnostics. This is local scheduler consistency evidence only and
 does not replace process supervision, Store re-open or authoritative placement.
 
+The Store/owner gate now closes the corresponding fatal native boundary. A
+runtime/JNI `Error` from the RocksDB write call or its post-write ingress-fence
+verification marks the Store `WRITE_OUTCOME_UNCERTAIN`; the original `Error`
+is rethrown and a fresh Store incarnation is required before replay. Direct
+owner apply, Command/System Mutation/mixed replay and Claim-recovery
+activation map that failure to `FENCED`, while Oxia activation and drain CAS
+`Error` escapes also fence the local owner view. The deterministic authority
+vectors are `OwnerLeaseTest.activationFatalAuthorityFailureFencesTheLocalOwnerGate`
+and `OwnerLeaseTest.drainFatalAuthorityFailureFencesTheLocalOwnerGate`.
+This closes only the local fail-closed edge; it does not prove process-fatal
+JVM/native recovery or production Oxia/source quiescence.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

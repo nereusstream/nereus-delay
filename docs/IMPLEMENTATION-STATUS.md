@@ -3283,6 +3283,20 @@ never durably written after a JVM/native failure. The focused scheduler suite
 continues to pass; process supervision and a fresh Store incarnation remain
 the recovery boundary for unrecoverable native failures.
 
+`ShardStore.write` now fences the Store when the native `db.write` boundary
+throws a runtime/JNI `Error`, not only when RocksDB returns its checked native
+failure. A post-write ingress-fence reread/decoding `Error` is likewise marked
+`WRITE_OUTCOME_UNCERTAIN`; the original failure is rethrown and no later
+source record may use the in-memory projection before a fresh Store reopen.
+`OwnedDelayShard` maps the same fatal boundary to local `FENCED` across direct
+apply, Command/System Mutation/mixed replay and Claim-recovery activation, and
+also fences when the Oxia activation or drain transition throws an `Error`.
+`OwnerLeaseTest.activationFatalAuthorityFailureFencesTheLocalOwnerGate` and
+`OwnerLeaseTest.drainFatalAuthorityFailureFencesTheLocalOwnerGate` cover the
+authority-side fatal fence. This is local fail-closed evidence only; process
+supervision, native recovery and production Oxia/source orchestration remain
+release blockers.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

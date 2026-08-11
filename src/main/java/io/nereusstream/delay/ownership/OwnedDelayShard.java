@@ -67,6 +67,13 @@ public final class OwnedDelayShard {
             // physical record until a fresh Store incarnation is opened.
             state = ShardLifecycleState.FENCED;
             throw failure;
+        } catch (Error failure) {
+            // JNI/native fatal failures have the same owner-authority
+            // consequence as a typed storage failure.  The Store fences its
+            // write outcome; close this local gate before rethrowing so a
+            // caller cannot admit another command on an uncertain image.
+            state = ShardLifecycleState.FENCED;
+            throw failure;
         }
     }
 
@@ -281,6 +288,9 @@ public final class OwnedDelayShard {
             } catch (ShardStore.RocksDbWriteFailure failure) {
                 state = ShardLifecycleState.FENCED;
                 throw failure;
+            } catch (Error failure) {
+                state = ShardLifecycleState.FENCED;
+                throw failure;
             }
             // Advance the caller-owned cursor only after the shard WriteBatch
             // has returned successfully.  A validation or storage failure
@@ -446,6 +456,9 @@ public final class OwnedDelayShard {
                 } catch (ShardStore.RocksDbWriteFailure failure) {
                     state = ShardLifecycleState.FENCED;
                     throw failure;
+                } catch (Error failure) {
+                    state = ShardLifecycleState.FENCED;
+                    throw failure;
                 }
                 lastCatchupPosition = position;
                 results.add(SourceReplayOutcome.command(position, replayCommandResultAt(position, result)));
@@ -454,6 +467,9 @@ public final class OwnedDelayShard {
                 try {
                     result = delegate.applySystemMutation(mutationRecord.mutation(), position, verificationKey);
                 } catch (ShardStore.RocksDbWriteFailure failure) {
+                    state = ShardLifecycleState.FENCED;
+                    throw failure;
+                } catch (Error failure) {
                     state = ShardLifecycleState.FENCED;
                     throw failure;
                 }
@@ -586,6 +602,9 @@ public final class OwnedDelayShard {
         } catch (ShardStore.RocksDbWriteFailure failure) {
             state = ShardLifecycleState.FENCED;
             throw failure;
+        } catch (Error failure) {
+            state = ShardLifecycleState.FENCED;
+            throw failure;
         }
         state = ShardLifecycleState.ACTIVE_FOR_COMMANDS;
     }
@@ -623,7 +642,7 @@ public final class OwnedDelayShard {
         try {
             transitioned = authority.transitionOrRead(lease, ShardLifecycleState.ACTIVE_FOR_COMMANDS)
                     .orElseThrow(() -> new IllegalStateException("owner lease activation CAS was lost"));
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | Error failure) {
             state = ShardLifecycleState.FENCED;
             throw failure;
         }
@@ -699,7 +718,7 @@ public final class OwnedDelayShard {
         try {
             transitioned = authority.transitionOrRead(lease, ShardLifecycleState.DRAINING)
                     .orElseThrow(() -> new IllegalStateException("owner lease drain CAS was lost"));
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | Error failure) {
             state = ShardLifecycleState.FENCED;
             throw failure;
         }
