@@ -624,9 +624,10 @@ covers the matching branch. This closes the local cross-projection fence; it
 does not claim full typed runtime cutover or external revision authority.
 The same activation fence recomputes typed `encoded_ready_key` from the exact
 Lane ID, `laneVersion` and `nextEligibleAt` and rejects a key whose fields or
-gate/readiness branch do not match; `DelayShardTest.typedActiveLaneStateRejectsReadyKeyDriftBeforeActivation`
-covers the drift path. This is key-identity evidence only; physical READY
-existence, certificate authority and scheduler recovery remain separate gates.
+gate/readiness branch do not match; the direct constructor fence is covered by
+`DelayShardTest.typedActiveLaneStateRejectsReadyKeyDriftAtConstruction`. This
+is key-identity evidence only; physical READY existence, certificate authority
+and scheduler recovery remain separate gates.
 For the typed projection, READY also requires `earliest_action_at` and
 `next_eligible_at`; the exact candidate action boundary is refreshed together
 with field 16 and the READY key instead of retaining a stale field-15 value,

@@ -722,6 +722,12 @@ class DelayShardTest {
                 () -> typedReadyLaneState(shardId, Bytes.utf8("wrong-ready-key")));
     }
 
+    /** Compatibility name retained for the implementation-status matrix. */
+    @Test
+    void typedActiveLaneStateRejectsReadyKeyDriftBeforeActivation() {
+        typedActiveLaneStateRejectsReadyKeyDriftAtConstruction();
+    }
+
     @Test
     void typedReadyProjectionRefreshesEarliestActionBoundaryFromCurrentHead() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("typed-lane-state-action-boundary"));
