@@ -11,6 +11,16 @@ V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障
 
 **Open semantic questions: none.**
 
+The uncertain-Store drain audit now also covers the race where native Store
+close was started by another caller before the coordinator observed the
+unproven write boundary.  An already-started close does not prove source or
+scheduler quiescence: the coordinator still fences the local Owner and invokes
+`stopSourceAndScheduling` exactly once, retaining that completion across
+retryable close/release teardown.  The regression is
+`OwnerDrainCoordinatorTest.uncertainStoreWithExternalCloseStillStopsSourceBeforeRelease`.
+This remains local evidence; external source quiescence and Oxia lease release
+are still release gates.
+
 The Owner replay audit now covers the previously asymmetric pure System
 Mutation path: Command, System Mutation and mixed replay all fence the local
 Owner on `RocksDbWriteFailure` or fatal `Error` before rethrowing, and retain the

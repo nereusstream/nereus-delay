@@ -1046,6 +1046,10 @@ Mutation 和 mixed replay 在每个 bounded turn 开始及每条 record 前读�
 Command/Claim/Admission authority，再调用 source/scheduler stop callback。该
 callback 只是编排通知，失败不能让一个提交边界不确定的 Store 继续保持
 `ACTIVE_FOR_COMMANDS`；随后仍须按可重试的 close/release 顺序处理原 lease。
+即使 Store 已被其它 teardown 调用方提前标记为 `closeStarted` 或完成 native
+close，也不能把它当成 source/scheduler 已停止的证明；协调器仍必须执行一次
+stop callback，并在 close/release 重试期间保留该 callback 已完成的标记，不能
+因重复 drain 而重复停止或跳过停止。
 
 Drain 的 `flush/sync` 失败也属于未确认的 durability boundary：Store 必须在
 异常向外传播前标记 `writeOutcomeUncertain`，不能把这次失败当成“尚未发生写入”

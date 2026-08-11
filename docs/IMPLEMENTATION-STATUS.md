@@ -7,6 +7,16 @@ normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20�
 the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
+The uncertain-Store drain path now applies the source/scheduler stop fence even
+when a caller started native Store close before the coordinator observed the
+unproven write boundary.  External close is not evidence of source quiescence:
+the coordinator fences the local Owner, invokes `stopSourceAndScheduling` once,
+and retains that completion across close/release retries.  The focused
+regression is
+`OwnerDrainCoordinatorTest.uncertainStoreWithExternalCloseStillStopsSourceBeforeRelease`.
+This is local ordering evidence; production source quiescence and Oxia lease
+authority remain release gates.
+
 The local Owner replay gate now applies the same fencing rule to the pure
 System Mutation path as to Command and mixed replay: a `RocksDbWriteFailure` or
 fatal `Error` from delegate application moves the Owner to `FENCED` before the

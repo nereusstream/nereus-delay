@@ -100,6 +100,41 @@ class OwnerDrainCoordinatorTest {
     }
 
     @Test
+    void uncertainStoreWithExternalCloseStillStopsSourceBeforeRelease() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 60);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("drain-uncertain-external-close"));
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease acquired = backend.acquire(shardId, "worker-uncertain-external-close", 100, 500)
+                .orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+            final ShardStore store = ShardStore.open(config, shardId, resources);
+            try {
+                final OwnedDelayShard owned = activeOwnedShard(store, acquired, authority, shardId);
+                assertThrows(ShardStore.RocksDbWriteFailure.class,
+                        () -> store.write(batch -> batch.put(ColumnFamily.META, KeyCodec.metaFixed(4),
+                                Bytes.utf8("malformed-ingress-fence"))));
+                // Simulate a caller that began native teardown before the drain
+                // coordinator observed the uncertain write boundary.
+                store.close();
+                final AtomicInteger stopCalls = new AtomicInteger();
+                final OwnerDrainCoordinator coordinator = new OwnerDrainCoordinator(owned, store, resources,
+                        authority);
+
+                coordinator.drain(new OwnerDrainCoordinator.DrainRequest(5_000, 0, null), () -> 101,
+                        stopCalls::incrementAndGet);
+
+                assertEquals(1, stopCalls.get());
+                assertEquals(ShardLifecycleState.FENCED, owned.state());
+                assertTrue(store.isClosed());
+                assertTrue(backend.current(shardId).isEmpty());
+            } finally {
+                store.close();
+            }
+        }
+    }
+
+    @Test
     void uncertainStoreFencesBeforeStopCallbackFailureCanEscape() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 58);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("drain-uncertain-callback"));

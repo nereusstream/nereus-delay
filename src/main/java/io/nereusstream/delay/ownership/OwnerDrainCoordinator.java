@@ -80,11 +80,14 @@ public final class OwnerDrainCoordinator {
                 // must not leave an uncertain Store behind an
                 // ACTIVE_FOR_COMMANDS owner. Preserve the retry branch's
                 // once-only stop callback when the shard was already draining.
-                final boolean stopSource = !store.isCloseStarted()
-                        && ownedShard.state() != ShardLifecycleState.DRAINING;
                 ownedShard.fence();
-                if (stopSource) {
+                // An external native close does not prove that the source and
+                // scheduler have stopped.  Keep the same once-only callback
+                // fence for every uncertain-Store retry, regardless of which
+                // caller started Store teardown.
+                if (!externalCloseStopCompleted) {
                     callbacks.stopSourceAndScheduling();
+                    externalCloseStopCompleted = true;
                 }
                 if (!store.isClosed()) {
                     store.close();
