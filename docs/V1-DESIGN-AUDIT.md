@@ -36,6 +36,13 @@ non-negative observation-time rule; the no-adapter regression also covers that
 branch, while the deterministic adapter's direct typed seam is covered by
 `InMemoryPayloadObjectStoreTest.negativeObservationTimeReturnsTypedIntegrityOutcome`.
 
+The Message Query audit now maps local snapshot/read and public binding/DLQ
+projection failures to closed `INTEGRITY_ERROR` responses instead of leaking
+exceptional Futures; cross-shard identity remains the explicit
+`RECEIPT_MISMATCH` branch.  `EmbeddedDelayServiceTest.messageQueryMapsPublicProjectionDriftToClosedIntegrityError`
+covers both facade overloads, while the direct projector remains a throwing
+internal validation seam.
+
 The uncertain-Store drain audit now also covers the race where native Store
 close was started by another caller before the coordinator observed the
 unproven write boundary.  An already-started close does not prove source or

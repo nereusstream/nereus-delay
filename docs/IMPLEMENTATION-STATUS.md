@@ -33,6 +33,14 @@ Object Store authority; the negative-time branches are covered by
 `EmbeddedDelayServiceTest.payloadClientWithoutLocalObjectStoreReturnsTypedRetryableOutcome`
 and `InMemoryPayloadObjectStoreTest.negativeObservationTimeReturnsTypedIntegrityOutcome`.
 
+The embedded Message Query bridge now keeps the closed response union intact
+when a durable snapshot/read or caller-supplied binding/DLQ projection cannot
+be proven: those failures return `INTEGRITY_ERROR`, while a cross-shard
+message identity remains `RECEIPT_MISMATCH`.  The regression
+`EmbeddedDelayServiceTest.messageQueryMapsPublicProjectionDriftToClosedIntegrityError`
+covers both public query overloads; the projector's direct throwing seam stays
+an internal validation boundary.
+
 The uncertain-Store drain path now applies the source/scheduler stop fence even
 when a caller started native Store close before the coordinator observed the
 unproven write boundary.  External close is not evidence of source quiescence:

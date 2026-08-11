@@ -1315,15 +1315,24 @@ public final class EmbeddedDelayService implements DelayClient {
         if (!shardId.equals(messageId.routingId().shardId())) {
             return MessageQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
         }
-        if (shard.getRetiredMessageIdentity(messageId) != null) {
-            return MessageQueryResponseV1.identityRetired();
+        try {
+            if (shard.getRetiredMessageIdentity(messageId) != null) {
+                return MessageQueryResponseV1.identityRetired();
+            }
+            final MessageQuerySnapshot snapshot = shard.queryMessageSnapshot(messageId);
+            if (snapshot == null) {
+                return MessageQueryResponseV1.unknown(Objects.requireNonNull(unknownEligibility,
+                        "unknownEligibility"));
+            }
+            return BoundedLocalQueryProjector.message(snapshot, binding, evidence);
+        } catch (RuntimeException invalidProjection) {
+            // A durable snapshot/read or caller-supplied public projection
+            // mismatch is not a reason to leak an exceptional Future.  The
+            // closed query union must preserve the shard's fail-closed
+            // integrity boundary; cross-shard identity was handled above as
+            // RECEIPT_MISMATCH.
+            return MessageQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
         }
-        final MessageQuerySnapshot snapshot = shard.queryMessageSnapshot(messageId);
-        if (snapshot == null) {
-            return MessageQueryResponseV1.unknown(Objects.requireNonNull(unknownEligibility,
-                    "unknownEligibility"));
-        }
-        return BoundedLocalQueryProjector.message(snapshot, binding, evidence);
     }
 
     /** Projects a local message snapshot after the caller supplies policy inputs. */
@@ -1337,15 +1346,21 @@ public final class EmbeddedDelayService implements DelayClient {
         if (!shardId.equals(messageId.routingId().shardId())) {
             return MessageQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
         }
-        if (shard.getRetiredMessageIdentity(messageId) != null) {
-            return MessageQueryResponseV1.identityRetired();
+        try {
+            if (shard.getRetiredMessageIdentity(messageId) != null) {
+                return MessageQueryResponseV1.identityRetired();
+            }
+            final MessageQuerySnapshot snapshot = shard.queryMessageSnapshot(messageId);
+            if (snapshot == null) {
+                return MessageQueryResponseV1.unknown(Objects.requireNonNull(unknownEligibility,
+                        "unknownEligibility"));
+            }
+            return BoundedLocalQueryProjector.message(snapshot, binding, dlqExportState, evidence);
+        } catch (RuntimeException invalidProjection) {
+            // Keep the message response closed when a local read or the
+            // supplied public DLQ/binding projection cannot be proven.
+            return MessageQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
         }
-        final MessageQuerySnapshot snapshot = shard.queryMessageSnapshot(messageId);
-        if (snapshot == null) {
-            return MessageQueryResponseV1.unknown(Objects.requireNonNull(unknownEligibility,
-                    "unknownEligibility"));
-        }
-        return BoundedLocalQueryProjector.message(snapshot, binding, dlqExportState, evidence);
     }
 
     /**

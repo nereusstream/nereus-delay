@@ -36,6 +36,7 @@ import io.nereusstream.delay.protocol.ForceCheckpointRequestV1;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.PublicDestinationBindingViewV1;
 import io.nereusstream.delay.protocol.MessageQueryResult;
+import io.nereusstream.delay.protocol.MessageQueryResponseV1;
 import io.nereusstream.delay.protocol.MessagePreconditionV1;
 import io.nereusstream.delay.protocol.PayloadCommitProofV1;
 import io.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
@@ -752,6 +753,31 @@ class EmbeddedDelayServiceTest {
                     service.queryMessage(DelayMessageId.random(shard), publicBinding(),
                             DlqExportStateV1.NOT_CONFIGURED, null,
                             io.nereusstream.delay.protocol.FirstScheduleEligibilityV1.NOT_PROVEN).resultKind());
+        }
+    }
+
+    @Test
+    void messageQueryMapsPublicProjectionDriftToClosedIntegrityError() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 29);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("message-query-projection")), shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final PreparedCommand command = service.prepareSchedule(new ScheduleIntent(
+                    DestinationLaneId.derive(Bytes.utf8("message-query-lane")), 2_000, 5_000,
+                    OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+            service.enqueue(command).toCompletableFuture().join();
+            service.drain();
+
+            final MessageQueryResponseV1 response = service.getMessage(command.delayMessageId(), publicBinding(),
+                    DlqExportStateV1.PUBLISHED, null,
+                    io.nereusstream.delay.protocol.FirstScheduleEligibilityV1.NOT_PROVEN)
+                    .toCompletableFuture().join();
+            assertEquals(MessageQueryResult.INTEGRITY_ERROR, response.resultKind());
+            assertEquals(StableCode.INTEGRITY_ERROR, response.error().code());
+            final MessageQueryResponseV1 missingBinding = service.queryMessage(command.delayMessageId(), null, null,
+                    io.nereusstream.delay.protocol.FirstScheduleEligibilityV1.NOT_PROVEN);
+            assertEquals(MessageQueryResult.INTEGRITY_ERROR, missingBinding.resultKind());
+            assertEquals(StableCode.INTEGRITY_ERROR, missingBinding.error().code());
         }
     }
 
