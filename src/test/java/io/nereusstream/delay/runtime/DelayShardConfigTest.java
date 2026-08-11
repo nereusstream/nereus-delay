@@ -49,4 +49,13 @@ class DelayShardConfigTest {
                 10_000, 1, 20_000, 10, 100, 4, 3, 100, 10_000,
                 3, 1, 2_000, 4_000, 0, 20_000, 40_000, 20_000, 100, -1));
     }
+
+    @Test
+    void strictPreMarginConstructorRemainsSourceCompatible() {
+        final DelayShardConfig config = new DelayShardConfig(
+                10_000, 1, 20_000, 10, 100, 4, 3, 100, 10_000,
+                3, 1, 2_000, 4_000, 0, 20_000, 40_000, 20_000, 100);
+
+        assertEquals(0, config.timeFenceSafetyMarginMs());
+    }
 }

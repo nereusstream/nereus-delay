@@ -86,6 +86,24 @@ public record DelayShardConfig(
                 maximumAdmissionMutationEnqueueAgeMs, 0, 0, 0, 0);
     }
 
+    /** Compatibility constructor for the strict pre-time-fence-margin shape. */
+    public DelayShardConfig(final long maxDelayHorizonMs, final long minDeliveryWindowMs,
+                            final long maxMessageLifetimeMs, final long maxPendingMessages,
+                            final long maxPendingBytes, final long maxLanes,
+                            final long inlinePayloadThresholdBytes, final long maxPayloadBytes,
+                            final long maxReservationTtlMs, final int maxPublishAdmissions,
+                            final int maxUncertainRetries, final long maxOutcomeReserveBytes,
+                            final long maxOutcomeReserveRecords, final long maxIngressBrokerTimestampDivergenceMs,
+                            final long maximumAdmissionMutationEnqueueAgeMs, final long commandRetryWindowMs,
+                            final long maximumPreparationAgeMs, final long maximumUuidFutureSkewMs) {
+        this(maxDelayHorizonMs, minDeliveryWindowMs, maxMessageLifetimeMs, maxPendingMessages,
+                maxPendingBytes, maxLanes, inlinePayloadThresholdBytes, maxPayloadBytes,
+                maxReservationTtlMs, maxPublishAdmissions, maxUncertainRetries, maxOutcomeReserveBytes,
+                maxOutcomeReserveRecords, maxIngressBrokerTimestampDivergenceMs,
+                maximumAdmissionMutationEnqueueAgeMs, commandRetryWindowMs, maximumPreparationAgeMs,
+                maximumUuidFutureSkewMs, 0);
+    }
+
     public DelayShardConfig {
         if (maxDelayHorizonMs < 0 || minDeliveryWindowMs < 0 || maxMessageLifetimeMs < 0
                 || maxPendingMessages <= 0 || maxPendingBytes <= 0 || maxLanes <= 0
