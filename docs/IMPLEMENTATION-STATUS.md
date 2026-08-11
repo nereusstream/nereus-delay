@@ -1952,7 +1952,11 @@ attempt; `CheckpointSchedulerTest` covers reconstructed-handle, stale-claim
 and shard-only paths. Jitter percentage calculation divides before multiplying,
 so a valid percentage of a near-maximum interval does not fail on an
 intermediate `long` overflow; `CheckpointSchedulerTest.largeIntervalJitterUsesCheckedWideArithmetic`
-covers the accepted boundary and the rejected jitter span. It is only a local
+covers the accepted boundary and the rejected jitter span. Completion timestamps
+before the claimed `dueAt` are rejected before clearing the in-flight marker, so a
+misordered callback cannot move the next schedule backwards;
+`CheckpointSchedulerTest.completionBeforeClaimDueFailsClosedAndKeepsClaimInFlight`
+covers that fence. It is only a local
 worker scheduling primitive;
 checkpoint manifests, upload intents and Oxia catalog publication remain the
 durability authority.

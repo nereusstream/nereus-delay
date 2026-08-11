@@ -2477,6 +2477,10 @@ completion time 使下一次 due 超出非负 `int64` epoch 域时，next-due �
 算术异常永久占用 scheduler 状态。该边界只影响本地错峰时间，不产生 checkpoint
 manifest、Upload Intent 或恢复 authority 结论。
 
+完成回调的 `completedAt` 不能早于该 claim 返回时携带的 `dueAt`。这种时间倒退
+不是有效的调度证据，必须在清除 in-flight claim 前拒绝并保留原 claim，避免迟到或
+乱序回调把下一次 due 推回过去并形成立即重复领取。
+
 `ShardStore.createCheckpoint` 必须先取得 Worker 级 checkpoint-create slot，
 再把本次固定的 `checkpointId` 写入 live Store 的 runtime metadata 并创建物理镜像。
 create slot 已满时必须在任何 metadata WriteBatch 之前拒绝；不能先写入身份再依赖

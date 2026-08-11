@@ -110,6 +110,14 @@ public final class CheckpointScheduler {
         if (!state.inFlight() || state.claim() != claimed) {
             throw new IllegalStateException("checkpoint claim is no longer current: " + claimed.shardId());
         }
+        if (completedAtEpochMs < claimed.dueAtEpochMs()) {
+            // A completion timestamp before the claimed due time cannot be a
+            // valid observation for a task returned by claimDue. Reject it
+            // before clearing the in-flight marker; otherwise a stale or
+            // misordered callback could move the next schedule backwards and
+            // create an unbounded immediate-claim loop.
+            throw new IllegalArgumentException("checkpoint completion precedes its claim due time");
+        }
         final long due = nextDue(completedAtEpochMs, claimed.shardId());
         states.put(claimed.shardId(), new State(due, null, false));
         return due;

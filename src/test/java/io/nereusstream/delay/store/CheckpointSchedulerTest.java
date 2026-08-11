@@ -91,6 +91,18 @@ class CheckpointSchedulerTest {
     }
 
     @Test
+    void completionBeforeClaimDueFailsClosedAndKeepsClaimInFlight() {
+        final CheckpointScheduler scheduler = new CheckpointScheduler(100, 0, 1);
+        final ShardId shard = new ShardId(RouteIncarnation.fromUuid(new java.util.UUID(17, 18)), 0);
+        scheduler.register(shard, 0);
+
+        final CheckpointScheduler.ScheduledCheckpoint claim = scheduler.claimDue(100, 1).get(0);
+        assertThrows(IllegalArgumentException.class, () -> scheduler.complete(claim, 99));
+        assertTrue(scheduler.isInFlight(shard));
+        assertNotEquals(0, scheduler.complete(claim, 100));
+    }
+
+    @Test
     void valueEqualReconstructedClaimCannotCompleteTheInFlightAttempt() {
         final CheckpointScheduler scheduler = new CheckpointScheduler(100, 0, 1);
         final ShardId shard = new ShardId(RouteIncarnation.fromUuid(new java.util.UUID(11, 12)), 0);

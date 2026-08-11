@@ -38,6 +38,15 @@ and native-close rules. The focused regression is
 This remains local fail-closed evidence; external source quiescence, Oxia
 release and fresh-incarnation recovery are release gates.
 
+The checkpoint scheduler audit also rejects a time-reversed completion: a
+`completedAt` earlier than the exact claim's `dueAt` is not allowed to clear the
+in-flight marker or reschedule the shard. This prevents stale callback timestamps
+from moving the next due time backwards; the claim remains retryable and the
+focused regression is
+`CheckpointSchedulerTest.completionBeforeClaimDueFailsClosedAndKeepsClaimInFlight`.
+The scheduler remains process-local; durable upload/catalog publication is still
+external authority.
+
 The drain durability audit now also covers `flushAndSync()`: native,
 JNI/runtime and fatal failures mark the Store `writeOutcomeUncertain` before the
 exception escapes. The shard remains `DRAINING`; a later retry must enter the
