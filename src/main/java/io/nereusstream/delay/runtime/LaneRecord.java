@@ -26,6 +26,9 @@ public record LaneRecord(
         if (laneControlVersion <= 0 || laneVersion < 0 || weight <= 0 || nextEligibleAtEpochMs < 0) {
             throw new IllegalArgumentException("invalid lane record");
         }
+        if (runtimeReadiness == RuntimeReadiness.READY && admissionGate != AdmissionGate.OPEN) {
+            throw new IllegalArgumentException("READY lane must have an OPEN admission gate");
+        }
         laneIncarnation = Bytes.copy(laneIncarnation);
     }
 

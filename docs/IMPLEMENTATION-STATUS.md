@@ -3097,6 +3097,10 @@ it does not replace source-ordered readiness authority or real adapter evidence.
 transition would bypass evidence/capability reacquisition and is rejected;
 repeating the same readiness value is an idempotent local no-op. The focused
 regression is `LaneRecordTest.runtimeReadinessMustPassThroughRecoveryBeforeBecomingReadyAgain`.
+The legacy `LaneRecord` constructor now applies the same cross-axis fence as the
+typed `ActiveLaneStateV1` constructor: a direct projection cannot persist
+`runtimeReadiness=READY` behind a non-`OPEN` admission gate. The direct-construction
+regression is `LaneRecordTest.directProjectionCannotPersistReadyLaneBehindAClosedAdmissionGate`.
 This is a local lifecycle fence and does not prove the external activator's
 evidence or Owner/Oxia readiness authority.
 

@@ -55,4 +55,14 @@ class LaneRecordTest {
         assertEquals(RuntimeReadiness.READY, recovering.withReadiness(RuntimeReadiness.READY).runtimeReadiness());
         assertEquals(recovering, recovering.withReadiness(RuntimeReadiness.RECOVERING_EVIDENCE));
     }
+
+    @Test
+    void directProjectionCannotPersistReadyLaneBehindAClosedAdmissionGate() {
+        final DestinationLaneId lane = new DestinationLaneId(new byte[32]);
+
+        assertThrows(IllegalArgumentException.class, () -> new LaneRecord(lane, new byte[16], 1, 0,
+                AdmissionGate.ADMIN_PAUSED, RuntimeReadiness.READY, 1, 0));
+        assertThrows(IllegalArgumentException.class, () -> new LaneRecord(lane, new byte[16], 1, 0,
+                AdmissionGate.CLOSED, RuntimeReadiness.READY, 1, 0));
+    }
 }

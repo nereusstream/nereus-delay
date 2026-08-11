@@ -2949,6 +2949,9 @@ and `BLOCKED -> RECOVERING_EVIDENCE`. A capability-blocked Lane can therefore
 never be marked READY without an intervening evidence-recovery state; same-state
 updates are idempotent and do not advance `laneVersion`. Covered by
 `LaneRecordTest.runtimeReadinessMustPassThroughRecoveryBeforeBecomingReadyAgain`.
+The legacy runtime constructor applies the matching cross-axis invariant and
+rejects a direct `READY` projection with a non-`OPEN` admission gate; this is
+covered by `LaneRecordTest.directProjectionCannotPersistReadyLaneBehindAClosedAdmissionGate`.
 This closes only the local state-machine fence; activator evidence and external
 readiness authority remain release gates.
 
