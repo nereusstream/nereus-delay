@@ -128,7 +128,7 @@ public final class InMemoryPayloadObjectStore {
             // forward.  This lets a previously issued receipt resolve to
             // EXPIRED/ABANDONED/CLOSED instead of being misclassified as an
             // integrity failure after a source-ordered state transition.
-            previous.reservation = reservation;
+            previous.reservation = reservation.withReceiptAnchor(previous.receiptAnchor);
         }
     }
 
@@ -549,7 +549,7 @@ public final class InMemoryPayloadObjectStore {
 
         private ReservationState(final PayloadReservation reservation) {
             this.reservation = reservation;
-            this.receiptAnchor = reservation;
+            this.receiptAnchor = reservation.receiptAnchor();
         }
 
         private boolean matches(final OpaquePayloadUploadHandleV1 handle, final long nowEpochMs) {

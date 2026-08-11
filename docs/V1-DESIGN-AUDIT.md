@@ -1097,14 +1097,18 @@ The positive local reserve-to-handle-to-attestation path is covered by
 `EmbeddedDelayServiceTest.receiptBoundPayloadFacadeRereadsTheShardReservation`.
 The local adapter now keeps the first registered Prepare reservation as the
 immutable receipt anchor while accepting only the same reservation identity's
-legal source-ordered lifecycle advance. A receipt observed before a later
-`ABANDONED`/`EXPIRED` transition therefore reaches the corresponding typed
-closed outcome instead of being reported as `INTEGRITY_ERROR`; arbitrary
-identity/state drift remains rejected. The focused evidence is
+legal source-ordered lifecycle advance. The shard-local reservation value
+persists the anchor state version and Source Position, with a strict legacy-v1
+decode/upgrade path, so a newly constructed adapter reconstructs the original
+receipt after reopening a `COMMITTED`, `ABANDONED` or materialized `EXPIRED`
+value. A receipt observed before a later lifecycle transition therefore reaches
+the corresponding typed closed outcome instead of being reported as
+`INTEGRITY_ERROR`; arbitrary identity/state drift remains rejected. The
+focused evidence is
 `InMemoryPayloadObjectStoreTest.receiptAnchorSurvivesSourceOrderedReservationLifecycleTransitions`
 and `EmbeddedDelayServiceTest.payloadFacadeMapsSourceOrderedReservationCloseToTypedOutcome`.
-This is bounded to an adapter that has observed the Prepare anchor; durable
-cross-restart reservation binding and external Object Store/Oxia authority
+This closes only the local durable binding projection; source-position trust
+authority, external Object Store/Oxia binding and guarded object retention
 remain release gates.
 Terminal generation history uses the same guarded reads for source and
 obligation framing in both legacy and v2 branches; the local prefix evidence

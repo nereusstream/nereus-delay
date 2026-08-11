@@ -201,14 +201,19 @@ class InMemoryPayloadObjectStoreTest {
         final byte[] commitPosition = new KafkaSourcePosition(reservation.shardId(), "embedded",
                 UUID.nameUUIDFromBytes(Bytes.utf8("payload-commit-source")), 2, null, 1_100)
                 .canonicalBytes();
-        final PayloadReservation committed = new PayloadReservation(reservation.shardId(),
-                reservation.reservationId(), reservation.commandId(), reservation.delayMessageId(),
-                reservation.commandHash(), reservation.intent(), reservation.reservationExpiryEpochMs(),
-                PayloadReservationStatus.COMMITTED, reservation.stateVersion() + 1, commitPosition,
-                committedPayload);
+        final PayloadReservation committed = reservation.withLifecycle(PayloadReservationStatus.COMMITTED,
+                reservation.stateVersion() + 1, commitPosition, committedPayload);
         store.register(committed);
         assertEquals(PayloadUploadHandleOutcomeV1.RESERVATION_CLOSED,
                 store.issueUploadHandle(receipt, UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_100).outcome());
+
+        final InMemoryPayloadObjectStore reopened = new InMemoryPayloadObjectStore(profile,
+                Bytes.sha256(Bytes.utf8("tenant")), trust, 7, keyPair.getPrivate());
+        final PayloadReservation reopenedReservation = PayloadReservation.decode(committed.encode());
+        reopened.register(reopenedReservation);
+        assertEquals(receipt, reopened.reservationReceipt(reopenedReservation));
+        assertEquals(PayloadUploadHandleOutcomeV1.RESERVATION_CLOSED,
+                reopened.issueUploadHandle(receipt, UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_100).outcome());
 
         final PayloadReference foreignPayload = new PayloadReference(profile.semanticHash(), Bytes.utf8("foreign"),
                 objectKey, committedPayload.immutableObjectVersion(), committedPayload.etag(), payload.length,

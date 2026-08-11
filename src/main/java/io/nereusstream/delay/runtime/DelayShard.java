@@ -1555,9 +1555,7 @@ public final class DelayShard {
                 || closedIngressDeadlineThrough < current.reservationExpiryEpochMs()) {
             return effectiveReservation(current);
         }
-        final PayloadReservation expired = new PayloadReservation(current.shardId(), current.reservationId(),
-                current.commandId(), current.delayMessageId(), current.commandHash(), current.intent(),
-                current.reservationExpiryEpochMs(), PayloadReservationStatus.EXPIRED,
+        final PayloadReservation expired = current.withLifecycle(PayloadReservationStatus.EXPIRED,
                 Math.addExact(current.stateVersion(), 1), current.sourcePosition(), null);
         final ShardQuota nextQuota = quota.removeReservation(current.intent().expectedPayloadLength());
         final LaneQuotaUsageProjection nextLaneQuota = removeReservationQuotaUsage(current, nextQuota);
@@ -2392,11 +2390,8 @@ public final class DelayShard {
                     || reservation.status() != PayloadReservationStatus.RESERVED) {
                 continue;
             }
-            final PayloadReservation closed = new PayloadReservation(reservation.shardId(),
-                    reservation.reservationId(), reservation.commandId(), reservation.delayMessageId(),
-                    reservation.commandHash(), reservation.intent(), reservation.reservationExpiryEpochMs(),
-                    PayloadReservationStatus.ABANDONED, Math.addExact(reservation.stateVersion(), 1),
-                    closePosition.canonicalBytes(), null);
+            final PayloadReservation closed = reservation.withLifecycle(PayloadReservationStatus.ABANDONED,
+                    Math.addExact(reservation.stateVersion(), 1), closePosition.canonicalBytes(), null);
             result.add(new ClosedReservationAction(reservation, closed));
         }
         return List.copyOf(result);
@@ -6824,10 +6819,8 @@ public final class DelayShard {
                 reservation.intent().deliverAtEpochMs(), reservation.intent().expireAtEpochMs(),
                 reservation.intent().laneId(), reservation.intent().orderingMode(), new byte[0],
                 sourcePosition.canonicalBytes(), reference, actionAt);
-        final PayloadReservation committed = new PayloadReservation(reservation.shardId(), reservation.reservationId(),
-                reservation.commandId(), reservation.delayMessageId(), reservation.commandHash(), reservation.intent(),
-                reservation.reservationExpiryEpochMs(), PayloadReservationStatus.COMMITTED,
-                Math.addExact(reservation.stateVersion(), 1), reservation.sourcePosition(), reference);
+        final PayloadReservation committed = reservation.withLifecycle(PayloadReservationStatus.COMMITTED,
+                Math.addExact(reservation.stateVersion(), 1), sourcePosition.canonicalBytes(), reference);
         final ShardQuota nextQuota = quota.commitReservation(reference.length());
         final CommandResult result = applied(StableCode.SCHEDULED, sourcePosition, message);
         persistMutation(command, sourcePosition, result, message, committed, nextQuota);
@@ -7279,9 +7272,7 @@ public final class DelayShard {
         if (current == null || current.status() != PayloadReservationStatus.RESERVED) {
             return null;
         }
-        return new PayloadReservation(current.shardId(), current.reservationId(), current.commandId(),
-                current.delayMessageId(), current.commandHash(), current.intent(), current.reservationExpiryEpochMs(),
-                PayloadReservationStatus.ABANDONED, Math.addExact(current.stateVersion(), 1),
+        return current.withLifecycle(PayloadReservationStatus.ABANDONED, Math.addExact(current.stateVersion(), 1),
                 position.canonicalBytes(), null);
     }
 
@@ -7981,10 +7972,8 @@ public final class DelayShard {
                 || closedIngressDeadlineThrough < reservation.reservationExpiryEpochMs()) {
             return reservation;
         }
-        return new PayloadReservation(reservation.shardId(), reservation.reservationId(), reservation.commandId(),
-                reservation.delayMessageId(), reservation.commandHash(), reservation.intent(),
-                reservation.reservationExpiryEpochMs(), PayloadReservationStatus.EXPIRED,
-                reservation.stateVersion(), reservation.sourcePosition(), null);
+        return reservation.withLifecycle(PayloadReservationStatus.EXPIRED, reservation.stateVersion(),
+                reservation.sourcePosition(), null);
     }
 
     /**

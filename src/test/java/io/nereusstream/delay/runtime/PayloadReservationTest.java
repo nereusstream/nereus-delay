@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class PayloadReservationTest {
@@ -34,6 +35,26 @@ class PayloadReservationTest {
                     "truncated payload reservation length=" + length);
         }
         assertArrayEquals(encoded, PayloadReservation.decode(encoded).encode());
+    }
+
+    @Test
+    void legacyReservationValueUpgradesToCurrentReceiptAnchorProjection() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 0);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("payload-reservation-legacy"));
+        final LargeScheduleIntent intent = new LargeScheduleIntent(lane, 2_000, 5_000,
+                OrderingMode.BEST_EFFORT, 7, Bytes.sha256(Bytes.utf8("payload")), 1_000, 1);
+        final PayloadReservation reservation = new PayloadReservation(shardId, new byte[32],
+                CommandId.random(shardId), DelayMessageId.random(shardId), Bytes.sha256(Bytes.utf8("command")),
+                intent, 4_000, PayloadReservationStatus.RESERVED, 1, new byte[]{1}, null);
+        final byte[] current = reservation.encode();
+        final int anchorBytes = Long.BYTES + Integer.BYTES + reservation.receiptAnchorSourcePosition().length;
+        final byte[] legacy = Arrays.copyOf(current, current.length - anchorBytes);
+        legacy[3] = 1;
+
+        final PayloadReservation upgraded = PayloadReservation.decode(legacy);
+        assertEquals(reservation.stateVersion(), upgraded.receiptAnchorStateVersion());
+        assertArrayEquals(reservation.sourcePosition(), upgraded.receiptAnchorSourcePosition());
+        assertArrayEquals(current, upgraded.encode());
     }
 
     @Test

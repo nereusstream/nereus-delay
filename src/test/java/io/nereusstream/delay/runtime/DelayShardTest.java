@@ -3127,12 +3127,15 @@ class DelayShardTest {
                     keyPair.getPrivate());
             final PreparedCommand commit = PreparedCommand.commitLargeV1(shardId, prepare.delayMessageId(),
                     reservationId, proof, 9_000);
+            final KafkaSourcePosition commitPosition = position(shardId, 3, 1_003);
             assertEquals(StableCode.SCHEDULED,
-                    shard.apply(commit, position(shardId, 3, 1_003)).stableCode());
+                    shard.apply(commit, commitPosition).stableCode());
             final MessageRecord message = shard.getMessage(prepare.delayMessageId());
             assertNotNull(message.payloadReference());
             assertEquals(8, message.payloadLength());
-            assertEquals(PayloadReservationStatus.COMMITTED, shard.getReservation(reservationId).status());
+            final PayloadReservation committed = shard.getReservation(reservationId);
+            assertEquals(PayloadReservationStatus.COMMITTED, committed.status());
+            assertArrayEquals(commitPosition.canonicalBytes(), committed.sourcePosition());
             assertEquals(1, shard.quota().pendingMessages());
             assertEquals(0, shard.quota().reservationMessages());
         }

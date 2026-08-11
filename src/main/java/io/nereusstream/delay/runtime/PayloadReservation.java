@@ -24,7 +24,12 @@ public record PayloadReservation(
         PayloadReservationStatus status,
         long stateVersion,
         byte[] sourcePosition,
-        PayloadReference committedPayload) {
+        PayloadReference committedPayload,
+        long receiptAnchorStateVersion,
+        byte[] receiptAnchorSourcePosition) {
+    private static final int LEGACY_VERSION = 1;
+    private static final int VERSION = 2;
+
     public PayloadReservation {
         Objects.requireNonNull(shardId, "shardId");
         Bytes.requireLength(reservationId, 32, "reservationId");
@@ -34,7 +39,11 @@ public record PayloadReservation(
         Objects.requireNonNull(intent, "intent");
         Objects.requireNonNull(status, "status");
         Bytes.requireLength(sourcePosition, sourcePosition.length, "sourcePosition");
-        if (reservationExpiryEpochMs < 0 || stateVersion <= 0 || sourcePosition.length == 0) {
+        Bytes.requireLength(receiptAnchorSourcePosition, receiptAnchorSourcePosition.length,
+                "receiptAnchorSourcePosition");
+        if (reservationExpiryEpochMs < 0 || stateVersion <= 0 || sourcePosition.length == 0
+                || receiptAnchorStateVersion <= 0 || receiptAnchorStateVersion > stateVersion
+                || receiptAnchorSourcePosition.length == 0) {
             throw new IllegalArgumentException("invalid payload reservation");
         }
         if (!commandId.routingId().shardId().equals(shardId)
@@ -55,6 +64,22 @@ public record PayloadReservation(
         reservationId = Bytes.copy(reservationId);
         commandHash = Bytes.copy(commandHash);
         sourcePosition = Bytes.copy(sourcePosition);
+        receiptAnchorSourcePosition = Bytes.copy(receiptAnchorSourcePosition);
+    }
+
+    /**
+     * Compatibility constructor for callers that construct a fresh Prepare
+     * reservation or a local test projection without an explicit anchor. The
+     * current state is the only safe anchor in that case; durable Shard
+     * transitions use {@link #withLifecycle} and retain the original anchor.
+     */
+    public PayloadReservation(final ShardId shardId, final byte[] reservationId, final CommandId commandId,
+                              final DelayMessageId delayMessageId, final byte[] commandHash,
+                              final LargeScheduleIntent intent, final long reservationExpiryEpochMs,
+                              final PayloadReservationStatus status, final long stateVersion,
+                              final byte[] sourcePosition, final PayloadReference committedPayload) {
+        this(shardId, reservationId, commandId, delayMessageId, commandHash, intent, reservationExpiryEpochMs,
+                status, stateVersion, sourcePosition, committedPayload, stateVersion, sourcePosition);
     }
 
     @Override
@@ -72,17 +97,70 @@ public record PayloadReservation(
         return Bytes.copy(sourcePosition);
     }
 
+    @Override
+    public byte[] receiptAnchorSourcePosition() {
+        return Bytes.copy(receiptAnchorSourcePosition);
+    }
+
+    /** Returns the immutable Prepare projection used to issue a receipt. */
+    public PayloadReservation receiptAnchor() {
+        return new PayloadReservation(shardId, reservationId, commandId, delayMessageId, commandHash, intent,
+                reservationExpiryEpochMs, PayloadReservationStatus.RESERVED, receiptAnchorStateVersion,
+                receiptAnchorSourcePosition, null, receiptAnchorStateVersion, receiptAnchorSourcePosition);
+    }
+
+    /**
+     * Creates a lifecycle projection while retaining the original Prepare
+     * receipt anchor. The source/state transition itself remains caller-owned.
+     */
+    public PayloadReservation withLifecycle(final PayloadReservationStatus nextStatus, final long nextStateVersion,
+                                            final byte[] nextSourcePosition, final PayloadReference nextPayload) {
+        return new PayloadReservation(shardId, reservationId, commandId, delayMessageId, commandHash, intent,
+                reservationExpiryEpochMs, nextStatus, nextStateVersion, nextSourcePosition, nextPayload,
+                receiptAnchorStateVersion, receiptAnchorSourcePosition);
+    }
+
+    /** Rebinds only the internal receipt anchor while preserving this state. */
+    public PayloadReservation withReceiptAnchor(final PayloadReservation anchor) {
+        Objects.requireNonNull(anchor, "anchor");
+        if (!sameReservationIdentity(anchor)) {
+            throw new IllegalArgumentException("receipt anchor does not match reservation identity");
+        }
+        return new PayloadReservation(shardId, reservationId, commandId, delayMessageId, commandHash, intent,
+                reservationExpiryEpochMs, status, stateVersion, sourcePosition, committedPayload,
+                anchor.receiptAnchorStateVersion, anchor.receiptAnchorSourcePosition);
+    }
+
+    private boolean sameReservationIdentity(final PayloadReservation other) {
+        return shardId.equals(other.shardId)
+                && Arrays.equals(reservationId, other.reservationId)
+                && commandId.equals(other.commandId)
+                && delayMessageId.equals(other.delayMessageId)
+                && Arrays.equals(commandHash, other.commandHash)
+                && intent.equals(other.intent)
+                && reservationExpiryEpochMs == other.reservationExpiryEpochMs;
+    }
+
     public byte[] encode() {
+        return encode(VERSION);
+    }
+
+    private byte[] encode(final int version) {
         final byte[] payload = committedPayload == null ? new byte[0] : committedPayload.encode();
-        return Bytes.concat(Bytes.u32be(1), shardId.routeIncarnation().bytes(), Bytes.u32beBits(shardId.partition()),
+        final byte[] base = Bytes.concat(Bytes.u32be(version), shardId.routeIncarnation().bytes(),
+                Bytes.u32beBits(shardId.partition()),
                 reservationId, commandId.bytes(), delayMessageId.bytes(), commandHash, intent.canonicalBytes(),
                 Bytes.u64be(reservationExpiryEpochMs), Bytes.u8(status.wireValue()), Bytes.u64be(stateVersion),
                 Bytes.lp32(sourcePosition), Bytes.u8(committedPayload == null ? 0 : 1), Bytes.lp32(payload));
+        return version == LEGACY_VERSION ? base
+                : Bytes.concat(base, Bytes.u64be(receiptAnchorStateVersion),
+                Bytes.lp32(receiptAnchorSourcePosition));
     }
 
     public static PayloadReservation decode(final byte[] encoded) {
         final ByteBuffer input = ByteBuffer.wrap(encoded);
-        if (readInt(input, "version") != 1) {
+        final int version = readInt(input, "version");
+        if (version != LEGACY_VERSION && version != VERSION) {
             throw new IllegalArgumentException("unsupported payload reservation version");
         }
         final RouteIncarnation route = new RouteIncarnation(readFixed(input, 16));
@@ -103,12 +181,22 @@ public record PayloadReservation(
             throw new IllegalArgumentException("invalid committed payload presence");
         }
         final PayloadReference payload = hasPayload == 0 ? null : PayloadReference.decode(payloadBytes);
+        final long receiptAnchorStateVersion;
+        final byte[] receiptAnchorSourcePosition;
+        if (version == VERSION) {
+            receiptAnchorStateVersion = readLong(input, "receiptAnchorStateVersion");
+            receiptAnchorSourcePosition = readLp32(input);
+        } else {
+            receiptAnchorStateVersion = stateVersion;
+            receiptAnchorSourcePosition = source;
+        }
         if (input.hasRemaining()) {
             throw new IllegalArgumentException("payload reservation has trailing bytes");
         }
         final PayloadReservation result = new PayloadReservation(new ShardId(route, partition), reservationId,
-                commandId, messageId, commandHash, intent, expiry, status, stateVersion, source, payload);
-        if (!Arrays.equals(encoded, result.encode())) {
+                commandId, messageId, commandHash, intent, expiry, status, stateVersion, source, payload,
+                receiptAnchorStateVersion, receiptAnchorSourcePosition);
+        if (!Arrays.equals(encoded, result.encode(version))) {
             throw new IllegalArgumentException("non-canonical payload reservation");
         }
         return result;
