@@ -378,6 +378,13 @@ executor runs the task and then throws a fatal `Error` while returning from
 `execute`, a later delegate completion still releases the retained zombie
 charge instead of leaving an unowned reservation behind. The regression is
 `BoundedDestinationPublishAdapterTest.executorFatalAfterAcceptedTaskRetainsUntilDelegateCompletion`.
+When a delegate completion is observed, the wrapper now releases the physical
+reservation before completing the logical `PublishCall` outcome. This keeps
+`activeRequests`/byte accounting drained at the point callers observe a
+completed result, including the callback-registration race where the callback
+was installed before registration reported failure. The ordering is covered by
+`BoundedDestinationPublishAdapterTest.blockingDelegateCallDoesNotBlockHealthyLane`;
+the release remains idempotent for the already-armed outcome observer.
 Production executor admission and target ownership evidence remain external
 release gates.
 
@@ -3204,6 +3211,11 @@ Asynchronous delegate and callback-registration `Error` paths complete
 available; focused coverage is in
 `BoundedDestinationPublishAdapterTest.asynchronousDelegateErrorCompletesUnknownBeforeFatalFailureEscapes`
 and `BoundedDestinationPublishAdapterTest.asynchronousCallbackRegistrationErrorCompletesUnknownBeforeFatalFailureEscapes`.
+Observed delegate completion releases the physical reservation before the
+logical outcome is completed, so a caller that sees a completed result also
+sees drained local admission accounting; the healthy-lane regression
+`BoundedDestinationPublishAdapterTest.blockingDelegateCallDoesNotBlockHealthyLane`
+covers this ordering.
 
 | Area | Status | Evidence |
 |---|---|---|

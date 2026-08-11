@@ -1982,6 +1982,9 @@ Lane/Adapter executor（默认构造器使用 Java 21 virtual-thread executor）
 adapter 上一个永久阻塞的同步 metadata/send 调用不会阻塞另一个健康 Lane，且
 `blockingDelegateCallDoesNotBlockHealthyLane` 覆盖了该隔离边界；executor 拒绝会在
 delegate 尚未取得 ownership 前归一化为 `UNKNOWN` 并释放 reservation。Pinned
+delegate completion 现在先释放 physical reservation，再完成逻辑 outcome，因而
+调用方观察到完成结果时，`activeRequests`/byte accounting 已经同步收敛；同一
+回归也覆盖 callback-registration 已安装后报告失败的幂等 release race。
 如果执行器已经接受任务后在内联 delegate 或回调路径抛出 fatal `Error`，wrapper
 通过 task-start 围栏保留该未知 physical charge；不能把这种 accepted-task failure
 误判为 pre-ownership rejection。回归证据为

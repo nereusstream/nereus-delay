@@ -257,15 +257,16 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
         try {
             registerCompletion(raw, (value, error) -> {
                 completionObserved.set(true);
+                // Publish the physical completion before completing the
+                // logical outcome. Callers that observe a completed outcome
+                // must also observe that the lane admission has drained;
+                // otherwise an otherwise healthy lane can transiently look
+                // blocked behind a stale active-request charge. The release
+                // is idempotent, so this also closes the race where callback
+                // registration threw after installing the callback and the
+                // outcome observer is still armed.
+                reservation.release();
                 outcome.complete(error == null && value != null ? value : completedUnknownValue());
-                if (retainPhysicalCharge.get()) {
-                    // Registration may have thrown after installing the
-                    // callback. In that race the outcome callback was
-                    // already completed while release was intentionally
-                    // suppressed; the observed delegate completion now
-                    // makes the physical charge releasable.
-                    reservation.release();
-                }
             });
         } catch (RuntimeException registrationFailure) {
             // A custom CompletionStage may reject both callback-registration
