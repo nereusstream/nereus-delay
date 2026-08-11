@@ -1261,6 +1261,15 @@ foreign-Shard values before they can become source-order, receipt or GC
 anchors. `PayloadReservationTest.sourcePositionsMustBeCanonicalAndBelongToReservationShard`
 covers the malformed and cross-Shard fences; this remains local binding
 evidence, not authenticated ingress/source authority.
+The same source boundary now covers the durable Message, terminal-generation
+and publish-attempt values: their source-position fields are decoded with
+`SourcePositionCodec` and re-encoded to exact canonical bytes before the value
+can be persisted. Existing `DelayShard` reads still apply the separate
+current-Shard identity fence, while adapter Journal positions are not Source
+Positions and remain opaque bounded evidence. The focused regressions are
+`MessageRecordTest.sourcePositionMustBeCanonicalBeforeMessageValueConstruction`,
+`TerminalGenerationRecordTest.sourcePositionMustBeCanonicalBeforeTerminalValueConstruction`
+and `PublishAttemptLedgerTest.sourcePositionMustBeCanonicalBeforeAttemptValueConstruction`.
 Its `COMMITTED` branch also rejects a payload reference whose length or
 SHA-256 differs from the Prepare intent, so a damaged durable value cannot
 cross the reservation-to-message boundary as a false object binding. The

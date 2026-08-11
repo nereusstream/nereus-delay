@@ -52,6 +52,18 @@ malformed, foreign-Shard and canonical round-trip cases. This is local durable
 binding evidence only; authenticated source assignment and external receipt/
 Object Store authority remain release gates.
 
+The same pre-persistence canonical Source Position fence now applies to
+`MessageRecord.scheduleSourcePosition`, `TerminalGenerationRecord`'s applied
+position and `PublishAttemptLedger.sourcePosition`: construction and decode
+run `SourcePositionCodec` and retain only exact canonical bytes, so malformed
+or non-canonical values cannot enter `id_cf`, `terminal_cf` or `inflight_cf`.
+`DelayShard` continues to validate the decoded position against its current
+Shard when reading key/value projections; journal-position bytes remain a
+separate adapter-local evidence field. Focused coverage is
+`MessageRecordTest.sourcePositionMustBeCanonicalBeforeMessageValueConstruction`,
+`TerminalGenerationRecordTest.sourcePositionMustBeCanonicalBeforeTerminalValueConstruction`
+and `PublishAttemptLedgerTest.sourcePositionMustBeCanonicalBeforeAttemptValueConstruction`.
+
 The local `TIME_FENCE_V1` apply path now carries an explicit
 `DelayShardConfig.timeFenceSafetyMarginMs` input and checks the Trusted-UTC
 proof with checked addition before advancing the ingress watermark. A proof one
