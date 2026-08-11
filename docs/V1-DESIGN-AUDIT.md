@@ -3025,6 +3025,13 @@ the original failure remains visible and restore stays fail-closed. This is
 local checkpoint-resource evidence only, not proof of external checkpoint
 publication or provider recovery.
 
+The owner-drain retry branches now preserve the same rule for a JVM/native
+`Error` as for a runtime close failure. A failed Store close keeps local state
+`DRAINING`, does not release the identity-bound Oxia lease, and can be retried
+without replaying Claim revocation, callback polling, flush or checkpoint
+steps. This is local drain sequencing evidence; external source quiescence,
+lease CAS and callback/evidence authority remain release gates.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

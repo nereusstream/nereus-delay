@@ -3181,6 +3181,13 @@ Options object is attempted independently for both runtime failures and
 retained. This keeps checkpoint identity validation from leaking a temporary
 native handle before the real Store restore path begins.
 
+`OwnerDrainCoordinator` now catches both runtime teardown failures and
+`Error` in its normal and retry-only Store-close branches. The coordinator
+still leaves the shard in `DRAINING`, keeps the exact Oxia lease unreleased
+until Store closure is confirmed, and exposes the original failure so the same
+coordinator can retry native/slot teardown; no Claim revoke, callback poll,
+flush or final checkpoint is repeated on the retry branch.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

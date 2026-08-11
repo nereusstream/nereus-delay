@@ -109,18 +109,18 @@ public final class OwnerDrainCoordinator {
                 // callback polling, flush or checkpoint logic: those paths
                 // are correctly fenced after closeStarted, and replaying them
                 // would turn a close retry into a new drain decision.
-                RuntimeException closeFailure = null;
+                Throwable closeFailure = null;
                 try {
                     store.close();
                     storeClosed = true;
-                } catch (RuntimeException failure) {
+                } catch (RuntimeException | Error failure) {
                     closeFailure = failure;
                 }
                 if (closeFailure != null) {
                     // Keep local state DRAINING so this exact coordinator can
                     // retry without releasing the authoritative lease while
                     // native teardown remains unconfirmed.
-                    throw closeFailure;
+                    throwUnchecked(closeFailure);
                 }
                 ensureLeaseStillDraining(expectedLease, request, clock);
                 releaseExactLease(ownedShard.lease());
@@ -170,11 +170,11 @@ public final class OwnerDrainCoordinator {
             pendingRevokedClaims = revokedClaims;
             pendingCallbackPolls = callbackPolls;
             pendingFinalCheckpoint = finalCheckpoint;
-            RuntimeException closeFailure = null;
+            Throwable closeFailure = null;
             try {
                 store.close();
                 storeClosed = true;
-            } catch (RuntimeException failure) {
+            } catch (RuntimeException | Error failure) {
                 closeFailure = failure;
             }
             if (closeFailure != null) {
@@ -182,7 +182,7 @@ public final class OwnerDrainCoordinator {
                 // owning its files.  Keep the authoritative lease in
                 // DRAINING for a visible retry; releasing it here could let a
                 // new owner open the same shard while this DB is still live.
-                throw closeFailure;
+                throwUnchecked(closeFailure);
             }
             // A drain callback may renew the same lease while it waits for
             // an in-flight attempt.  Release the exact current lease
@@ -252,6 +252,16 @@ public final class OwnerDrainCoordinator {
             throw new IllegalArgumentException("drain clock returned a negative time");
         }
         return now;
+    }
+
+    private static void throwUnchecked(final Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error errorFailure) {
+            throw errorFailure;
+        }
+        throw new IllegalStateException("unexpected checked teardown failure", failure);
     }
 
     public record DrainRequest(long deadlineEpochMs, int maxCallbackPolls, Path finalCheckpointPath,
