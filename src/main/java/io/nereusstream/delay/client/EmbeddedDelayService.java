@@ -1171,7 +1171,9 @@ public final class EmbeddedDelayService implements DelayClient {
                                                          final CommandResultRetentionPolicy retentionPolicy,
                                                          final PublicDestinationBindingViewV1 binding) {
         ensureOpen();
-        Objects.requireNonNull(receipt, "receipt");
+        if (receipt == null) {
+            return CommandQueryResponseV1.error(StableCode.INVALID_RECEIPT, null);
+        }
         if (!isEmbeddedReceipt(receipt)) {
             return CommandQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
         }
@@ -1182,7 +1184,12 @@ public final class EmbeddedDelayService implements DelayClient {
             return CommandQueryResponseV1.resultEvidenceExpired();
         }
         final SourcePosition awaited = receipt.sourcePosition();
-        final SourcePosition current = shard.lastAppliedSourcePosition();
+        final SourcePosition current;
+        try {
+            current = shard.lastAppliedSourcePosition();
+        } catch (RuntimeException invalidDurableRead) {
+            return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+        }
         if (current == null) {
             return CommandQueryResponseV1.pending(new io.nereusstream.delay.protocol.PendingCommandViewV1(
                     awaited, null, safeRetryAt(nowEpochMs)));
@@ -1202,16 +1209,31 @@ public final class EmbeddedDelayService implements DelayClient {
         } catch (IllegalArgumentException mismatch) {
             return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
         }
-        if (!shard.matchesCommandPosition(receipt.command().commandId(), awaited)) {
-            return CommandQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
-        }
-        final CommandResult result = shard.getCommandResult(receipt.command().commandId());
-        if (result == null) {
+        try {
+            if (!shard.matchesCommandPosition(receipt.command().commandId(), awaited)) {
+                return CommandQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
+            }
+            final CommandResult result = shard.getCommandResult(receipt.command().commandId());
+            if (result == null) {
+                return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+            }
+            if (!shard.matchesCommandHash(receipt.command().commandId(), receipt.command().commandHash())) {
+                return CommandQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
+            }
+            return projectCommandResult(result, nowEpochMs, fullResultRetainUntilEpochMs,
+                    retentionPolicy, binding);
+        } catch (RuntimeException invalidDurableRead) {
+            // A local POSITION/result read failure is not evidence of a
+            // receipt mismatch.  Keep the closed query union fail-closed.
             return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
         }
-        if (!shard.matchesCommandHash(receipt.command().commandId(), receipt.command().commandHash())) {
-            return CommandQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
-        }
+    }
+
+    private CommandQueryResponseV1 projectCommandResult(final CommandResult result,
+                                                         final long nowEpochMs,
+                                                         final Long fullResultRetainUntilEpochMs,
+                                                         final CommandResultRetentionPolicy retentionPolicy,
+                                                         final PublicDestinationBindingViewV1 binding) {
         final SourcePosition appliedPosition;
         final long retentionBoundary;
         try {

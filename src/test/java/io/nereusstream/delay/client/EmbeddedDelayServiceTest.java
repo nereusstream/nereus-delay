@@ -753,6 +753,9 @@ class EmbeddedDelayServiceTest {
                     service.queryMessage(DelayMessageId.random(shard), publicBinding(),
                             DlqExportStateV1.NOT_CONFIGURED, null,
                             io.nereusstream.delay.protocol.FirstScheduleEligibilityV1.NOT_PROVEN).resultKind());
+            assertEquals(CommandQueryResult.INVALID_RECEIPT,
+                    service.getCommandResult(null, now, 10_000, publicBinding())
+                            .toCompletableFuture().join().resultKind());
         }
     }
 

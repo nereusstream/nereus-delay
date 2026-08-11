@@ -43,6 +43,12 @@ exceptional Futures; cross-shard identity remains the explicit
 covers both facade overloads, while the direct projector remains a throwing
 internal validation seam.
 
+The Command Query audit now keeps the same response boundary: null locators are
+`INVALID_RECEIPT`, local POSITION/result/projection failures are
+`INTEGRITY_ERROR`, and a proved command identity/position/hash mismatch remains
+`RECEIPT_MISMATCH`.  This closes exceptional-Future leakage without changing
+pending, barrier or retention semantics.
+
 The uncertain-Store drain audit now also covers the race where native Store
 close was started by another caller before the coordinator observed the
 unproven write boundary.  An already-started close does not prove source or

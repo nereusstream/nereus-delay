@@ -41,6 +41,12 @@ message identity remains `RECEIPT_MISMATCH`.  The regression
 covers both public query overloads; the projector's direct throwing seam stays
 an internal validation boundary.
 
+The Command Query bridge now applies the same closed-union rule to its local
+POSITION/result reads: a null receipt returns `INVALID_RECEIPT`, while a
+RocksDB/read or projection exception returns `INTEGRITY_ERROR`; a proven
+command/position/hash mismatch remains `RECEIPT_MISMATCH`.  The null-receipt
+regression is included in `EmbeddedDelayServiceTest.embeddedQueryUsesQueuedReceiptAsSourceBarrier`.
+
 The uncertain-Store drain path now applies the source/scheduler stop fence even
 when a caller started native Store close before the coordinator observed the
 unproven write boundary.  External close is not evidence of source quiescence:
