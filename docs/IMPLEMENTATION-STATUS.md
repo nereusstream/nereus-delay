@@ -137,6 +137,13 @@ cannot be counted as zero bytes.
 `ShardStoreTest.physicalUsageFailsClosedOnADeceptiveSymbolicFile` covers the
 local monitor boundary; process-wide disk/quota authority remains external.
 
+ACTIVE pointer publication now writes the fixed `ACTIVE.tmp` path through a
+`NOFOLLOW_LINKS` channel and forces the exact bytes before atomic rename. A
+raced replacement of the prechecked temporary path cannot redirect pointer
+contents through a symlink; the existing
+`ShardStoreTest.checkpointAndActivePointerTemporaryPathsRejectSymbolicLinks`
+regression covers the fail-closed temporary boundary.
+
 `OxiaRealRecoveryAuthoritySmokeTest` now exercises both single-record recovery
 authorities against a real Oxia endpoint when
 `NEREUS_DELAY_OXIA_ENDPOINT=host:port` is set: Recovery Catalog publication,

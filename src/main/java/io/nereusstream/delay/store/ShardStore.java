@@ -27,6 +27,7 @@ import org.rocksdb.WriteOptions;
 import org.rocksdb.Checkpoint;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
@@ -795,9 +796,12 @@ public final class ShardStore implements AutoCloseable {
                 && !Files.isRegularFile(temporary, java.nio.file.LinkOption.NOFOLLOW_LINKS))) {
             throw new IOException("ACTIVE.tmp must be a regular non-symbolic file: " + temporary);
         }
-        Files.write(temporary, encoded, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING,
-                StandardOpenOption.WRITE);
-        try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.WRITE)) {
+        try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)) {
+            final ByteBuffer buffer = ByteBuffer.wrap(encoded);
+            while (buffer.hasRemaining()) {
+                channel.write(buffer);
+            }
             channel.force(true);
         }
         Files.move(temporary, shardRoot.resolve("ACTIVE"), StandardCopyOption.ATOMIC_MOVE,

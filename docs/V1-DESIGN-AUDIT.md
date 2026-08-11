@@ -103,6 +103,12 @@ therefore fences usage evidence instead of being silently omitted. The focused r
 `ShardStoreTest.physicalUsageFailsClosedOnADeceptiveSymbolicFile`; process-wide
 disk/quota authority remains an external gate.
 
+ACTIVE pointer publication now writes the fixed `ACTIVE.tmp` path through a
+`NOFOLLOW_LINKS` channel, forces the exact pointer bytes, and only then performs
+the atomic rename. A raced replacement cannot redirect the pointer write via a
+symlink; the focused temporary-path regression is
+`ShardStoreTest.checkpointAndActivePointerTemporaryPathsRejectSymbolicLinks`.
+
 The Control target-registration audit now separates an authoritative binding
 mismatch from an unavailable registry boundary.  Missing registration remains
 an explicit `UNAUTHORIZED_SYSTEM_MUTATION` position result, but a lookup or
