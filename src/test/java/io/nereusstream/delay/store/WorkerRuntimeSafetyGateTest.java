@@ -32,7 +32,7 @@ class WorkerRuntimeSafetyGateTest {
     }
 
     @Test
-    void stagedEnvelopeFencesOwnershipBeforeActivation() {
+    void stagedEnvelopeRequiresExplicitDrainTransition() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("staged"));
         final WorkerResourceEnvelope envelope = envelope(700L * 1024 * 1024);
         final WorkerRuntimeResourceObservation healthy = observation(128L * 1024 * 1024);
@@ -45,6 +45,9 @@ class WorkerRuntimeSafetyGateTest {
         assertThrows(IllegalStateException.class,
                 () -> gate.activateAfterDrain(0, 0, true, healthy));
 
+        assertThrows(IllegalStateException.class,
+                () -> gate.activateAfterDrain(0, 0, false, healthy));
+        gate.beginDrainOrMigrate();
         gate.activateAfterDrain(0, 0, false, healthy);
         assertEquals(WorkerRuntimeSafetyGate.State.ACTIVE, gate.state());
     }

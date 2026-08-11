@@ -123,6 +123,9 @@ public final class WorkerRuntimeSafetyGate {
         if (state == State.ACTIVE) {
             throw new IllegalStateException("Worker runtime safety gate is already ACTIVE");
         }
+        if (state != State.DRAIN_OR_MIGRATE) {
+            throw new IllegalStateException("Worker runtime safety gate must enter DRAIN_OR_MIGRATE before activation");
+        }
         if (ownedShardDbs != 0 || openShardDbs != 0 || transitionInFlight) {
             throw new IllegalStateException("cannot activate a Worker envelope before drain completes");
         }

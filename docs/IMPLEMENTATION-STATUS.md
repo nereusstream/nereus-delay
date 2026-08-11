@@ -2005,9 +2005,12 @@ wiring. `WorkerRuntimeSafetyGate` now provides the explicit
 sticky `ACTIVE -> DRAIN_OR_MIGRATE` transition for a failed fresh observation,
 plus `STAGED -> DRAIN_OR_MIGRATE -> ACTIVE` only after the old DB/ownership
 boundary is empty; shared shard acquisition/restore slots and the embedded
-Claim helper consult the gate before admitting new work. Parser, envelope and
-gate regressions are covered by `WorkerRuntimeResourceProbeTest`,
-`WorkerRuntimeSafetyGateTest` and `WorkerResourceEnvelopeTest`. This remains an
+Claim helper consult the gate before admitting new work. Direct activation from
+`STAGED` is rejected until the caller explicitly enters `DRAIN_OR_MIGRATE`;
+`WorkerRuntimeSafetyGateTest.stagedEnvelopeRequiresExplicitDrainTransition`
+covers that lifecycle fence. Parser, envelope and gate regressions are covered
+by `WorkerRuntimeResourceProbeTest`, `WorkerRuntimeSafetyGateTest` and
+`WorkerResourceEnvelopeTest`. This remains an
 explicit probe/wiring seam. `WorkerRuntimeResourceMonitor` now supplies a
 daemon, fixed-delay runtime probe that can be started after startup validation;
 probe exceptions and envelope mismatches call the same sticky safety gate,

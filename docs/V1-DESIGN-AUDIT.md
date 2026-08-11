@@ -1965,7 +1965,10 @@ borrowed hold time；这些仍是本地 scheduler/resource seams。`WorkClassSch
 `WorkerRuntimeSafetyGate` 还把新鲜的 JVM/cgroup/FD/filesystem
 observation 接入一个 sticky `ACTIVE -> DRAIN_OR_MIGRATE` 门；共享资源的
 ownership/restore slots 和 embedded Claim 在门未恢复前 fail closed，只有
-显式 empty-drain activation 才能重新开放。`WorkerRuntimeResourceMonitor`
+显式 empty-drain activation 才能重新开放。Staged envelope 也必须先显式
+进入 `DRAIN_OR_MIGRATE`，不能从 `STAGED` 直接激活；
+`WorkerRuntimeSafetyGateTest.stagedEnvelopeRequiresExplicitDrainTransition`
+覆盖该状态栅栏。`WorkerRuntimeResourceMonitor`
 现在提供可关闭的 fixed-delay envelope probe scheduler，并把 probe 异常和
 envelope mismatch 路由回同一个 sticky gate；`WorkerRocksDbUsageMonitor`
 覆盖了本地 per-DB physical usage observation，但不提供 WriteBatch 的
