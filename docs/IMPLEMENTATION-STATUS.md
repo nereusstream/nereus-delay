@@ -25,8 +25,8 @@ guarded send evidence required by V1.  These source inspections keep the
 Kafka/Pulsar rows below as release blockers until concrete pinned transports
 and real-broker evidence are added.
 
-After the terminal-Lane reservation/Commit and publish-charge ordering fixes
-(`c619b38`, `f771f64`), the repository
+After the terminal-Lane reservation/Commit, publish-charge ordering and typed
+READY recovery fencing fixes (`c619b38`, `f771f64`, `3527c89`), the repository
 verification command `./gradlew clean check --rerun-tasks --console=plain`
 passed on 2026-08-12. The five opt-in real-Oxia methods remained skipped because
 `NEREUS_DELAY_OXIA_ENDPOINT` was not configured; this local PASS does not close

@@ -22,7 +22,7 @@ resource-incarnation and send-evidence contract.  Consequently the audit's
 Kafka/Pulsar real-service gate remains open until pinned transports, response
 classification, source assignment/barrier proof and real-broker tests exist.
 
-The post-`f771f64` local verification `./gradlew clean check --rerun-tasks
+The post-`3527c89` local verification `./gradlew clean check --rerun-tasks
 --console=plain` passed on 2026-08-12. Five opt-in real-Oxia methods were
 skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is repository
 evidence only and does not change the external transport/Oxia/Object Store,
