@@ -398,6 +398,7 @@ public final class DelayShard {
         if (!Arrays.equals(laneQuotaUsage.canonicalBytes(), rebuiltLaneQuota.canonicalBytes())) {
             throw new IllegalStateException("persisted per-Lane quota projection disagrees with runtime state");
         }
+        validateTypedActiveLaneQuotaProjection(persistedLaneQuota);
         final var aggregateQuotaValue = store.getValue(ColumnFamily.META,
                 KeyCodec.metaQuota(META_QUOTA_AGGREGATE_USAGE), 7);
         CapacityVectorV1 persistedQuotaAggregate = null;
@@ -451,6 +452,47 @@ public final class DelayShard {
             throw new IllegalStateException("persisted outcome reserve projections disagree");
         }
         validateRuntimeObligationIndexes();
+    }
+
+    /**
+     * Fences the typed ACTIVE Lane projection against the Registry class-3
+     * quota map before activation.  The typed state's field 14 is a durable
+     * mirror of the exact (Lane ID, incarnation) entry; opening a typed Lane
+     * without that map or with a different usage vector would make recovery
+     * depend on an unproven projection, so the shard fails closed.
+     */
+    private void validateTypedActiveLaneQuotaProjection(final LaneQuotaUsageProjection persistedLaneQuota) {
+        final long configuredLimit = Math.max(config.maxPendingMessages(), config.maxLanes());
+        final int limit = boundedLimitPlusOne(configuredLimit);
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> laneEntries = store.scan(ColumnFamily.META,
+                new byte[]{2, 1}, new byte[]{3, 1}, limit);
+        if (laneEntries.size() >= limit && configuredLimit < Integer.MAX_VALUE) {
+            throw new IllegalStateException("typed Lane quota validation exceeded configured bound");
+        }
+        for (var entry : laneEntries) {
+            final byte[] key = entry.key();
+            if (key.length != 2 + DestinationLaneId.LENGTH || key[0] != 2 || key[1] != 1) {
+                throw new IllegalStateException("invalid Lane key during typed quota validation");
+            }
+            final DestinationLaneId laneId = new DestinationLaneId(
+                    Arrays.copyOfRange(key, 2, key.length));
+            final LaneValue value = decodeLaneValue(ValueEnvelope.decode(entry.value(), 2).payload());
+            if (!value.isActive() || value.typedActiveState() == null) {
+                continue;
+            }
+            if (persistedLaneQuota == null) {
+                throw new IllegalStateException("typed ACTIVE Lane is missing the class-3 quota map");
+            }
+            final ActiveLaneStateV1 state = value.typedActiveState();
+            if (!state.laneId().equals(laneId)) {
+                throw new IllegalStateException("typed Lane key/value identity mismatch during quota validation");
+            }
+            final PublishAdmissionBody.ChargeVector projectedUsage = persistedLaneQuota.usageFor(
+                    state.laneId(), state.laneIncarnation());
+            if (!state.laneUsage().equals(projectedUsage)) {
+                throw new IllegalStateException("typed Lane usage disagrees with the class-3 quota map");
+            }
+        }
     }
 
     /**

@@ -652,8 +652,13 @@ class DelayShardTest {
                 null, null, null);
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
-            store.write(batch -> batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(lane),
-                    LaneRecordEnvelopeV1.active(state).canonicalBytes()));
+            final byte[] laneQuota = LaneQuotaUsageProjection.empty()
+                    .ensureLane(lane, state.laneIncarnation(), 1).canonicalBytes();
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(lane),
+                        LaneRecordEnvelopeV1.active(state).canonicalBytes());
+                batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(3), laneQuota);
+            });
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
 
             assertEquals(lane, shard.getLane(lane).laneId());
@@ -670,6 +675,43 @@ class DelayShardTest {
             assertArrayEquals(state.canonicalLaneTuple(), next.canonicalLaneTuple());
             assertArrayEquals(state.laneIncarnation(), next.laneIncarnation());
             assertEquals(state.laneUsage(), next.laneUsage());
+        }
+    }
+
+    @Test
+    void typedActiveLaneStateRequiresPersistedPerLaneQuotaProjection() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("typed-lane-state-missing-quota"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 82);
+        final ActiveLaneStateV1 state = typedActiveLaneState(zeroChargeVector());
+        final DestinationLaneId lane = state.laneId();
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(lane),
+                    LaneRecordEnvelopeV1.active(state).canonicalBytes()));
+
+            assertThrows(IllegalStateException.class, () -> new DelayShard(store, DelayShardConfig.defaults()));
+        }
+    }
+
+    @Test
+    void typedActiveLaneStateRejectsUsageDriftFromPerLaneQuotaProjection() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("typed-lane-state-quota-drift"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 83);
+        final PublishAdmissionBody.ChargeVector driftedUsage = new PublishAdmissionBody.ChargeVector(
+                1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0);
+        final ActiveLaneStateV1 state = typedActiveLaneState(driftedUsage);
+        final DestinationLaneId lane = state.laneId();
+        final byte[] laneQuota = LaneQuotaUsageProjection.empty()
+                .ensureLane(lane, state.laneIncarnation(), 1).canonicalBytes();
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(lane),
+                        LaneRecordEnvelopeV1.active(state).canonicalBytes());
+                batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(3), laneQuota);
+            });
+
+            assertThrows(IllegalStateException.class, () -> new DelayShard(store, DelayShardConfig.defaults()));
         }
     }
 
@@ -7344,6 +7386,18 @@ class DelayShardTest {
         final byte[] result = new byte[length];
         java.util.Arrays.fill(result, (byte) value);
         return result;
+    }
+
+    private static ActiveLaneStateV1 typedActiveLaneState(final PublishAdmissionBody.ChargeVector usage) {
+        final ProfileRefV1 destination = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2),
+                ProfileKindV1.DESTINATION);
+        final ProfileRefV1 capability = new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4),
+                ProfileKindV1.DELIVERY_CAPABILITY);
+        final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
+        return new ActiveLaneStateV1(DestinationLaneId.derive(tuple), bytes(16, 5), AdmissionGate.OPEN,
+                RuntimeReadiness.BLOCKED, LaneRuntimeBlockReasonV1.CAPABILITY, 1, 1, destination, capability,
+                tuple, 1, usage, null, null, LaneCircuitStateV1.CLOSED, 0, 0, 0, 0,
+                null, null, null);
     }
 
     private static PublishAdmissionBody.ChargeVector zeroChargeVector() {

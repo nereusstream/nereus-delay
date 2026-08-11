@@ -391,6 +391,12 @@ reason/READY key/certificate or out-of-range compatibility field fails closed;
 there is no silent downgrade to the legacy adapter. This is still local typed
 runtime evidence; complete Profile/Lane activation, quota authority and Oxia
 ownership remain release evidence.
+Before activation, every typed ACTIVE Lane now also has to carry field-14
+`lane_usage` byte-equal to the matching `(laneId, laneIncarnation)` entry in the
+persisted class-3 `meta_cf/QUOTA` map. Missing-map and usage-drift cases fail
+closed, and the focused `DelayShardTest` regressions cover both branches; this
+closes the local state/map projection fence without claiming typed runtime cutover
+or external revision authority.
 
 The nested `ChargeVectorV1` now preserves the complete raw `uint64` domain at
 the wire boundary. Its embedded signed-capacity projection is guarded
@@ -1966,7 +1972,11 @@ charge 的 legacy/synthetic ledger 按一个 durable record 计数，canonical a
 中的 field-8 attempt bytes 则保留；若运行时发现旧 map 缺失对应 ledger，释放路径
 会先从 durable ledger 重建再在同一批次修复。`LaneQuotaUsageProjectionTest` 与
 `DelayShardTest` 覆盖 checked arithmetic、Claim/admission、close/terminal/replay/
-retirement 路径和 reopen fence。execution beyond local attempt bytes、retained、
+retirement 路径和 reopen fence。Typed ACTIVE Lane activation now also checks
+field-14 `lane_usage` byte equality against the matching class-3 map entry;
+missing-map and usage-drift cases fail closed, while the typed-state and map
+updates remain coupled in the same source-ordered batch. This closes the local
+state/map projection fence. execution beyond local attempt bytes、retained、
 evidence 与外部 adapter 维度仍未接入，因此这是 map 的 local compatibility subset，
 不是完整 ActiveLaneState、grant revision coupling、Route Broker authority 或多
 shard placement proof。退休前会扫描完整 17 维 usage vector；即使未来投影开始

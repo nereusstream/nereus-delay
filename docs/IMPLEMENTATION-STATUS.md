@@ -614,6 +614,14 @@ missing BLOCKED reason, READY key/certificate or out-of-range local field fails
 closed instead of downgrading the value. `DelayShardTest.typedActiveLaneStateIsReadAndUpdatedWithoutLegacyDowngrade`
 covers reopen/read and same-key update. The typed state remains a local
 persistence/runtime bridge until full Lane/Profile/Oxia activation is available.
+Activation now also requires every typed ACTIVE state's field-14 `lane_usage`
+to be byte-equal to the matching `(laneId, laneIncarnation)` entry in the
+persisted class-3 `meta_cf/QUOTA` map; a missing map or usage drift fails closed
+before the shard becomes active. `DelayShardTest.typedActiveLaneStateRequiresPersistedPerLaneQuotaProjection`
+and `DelayShardTest.typedActiveLaneStateRejectsUsageDriftFromPerLaneQuotaProjection`
+cover the two rejection branches, while the existing typed reopen/update test
+covers the matching branch. This closes the local cross-projection fence; it
+does not claim full typed runtime cutover or external revision authority.
 The typed state and terminal-guard constructors now also parse the
 Registry-shaped canonical Lane tuple and require exact byte projection of both
 immutable Profile slots; malformed tuple structure or Profile id/version/hash
@@ -795,7 +803,12 @@ reservation and Lane-cardinality counts. A present aggregate that disagrees with
 durable state fails activation; a legacy store with no aggregate is backfilled in
 memory until its next source-ordered mutation. Legacy or synthetic ledgers with a
 zero field-7 charge are conservatively counted as one durable inflight record, while
-canonical field-8 attempt bytes are retained when available. Execution beyond those
+canonical field-8 attempt bytes are retained when available. Typed ACTIVE Lane
+activation additionally checks field-14 `lane_usage` byte equality against the
+matching class-3 map entry; a missing map or usage drift fails closed, and the
+typed-state and class-3 writes remain coupled in the same source-ordered batch.
+This closes the local cross-projection fence, while full typed runtime cutover,
+revision authority and external placement remain release blockers. Execution beyond those
 local attempt bytes, retained, evidence and external-adapter dimensions remain zero in
 this subset, so full ActiveLaneState/grant authority and Route Broker placement are
 still release blockers. Lane retirement now releases both per-Lane cardinality slots
