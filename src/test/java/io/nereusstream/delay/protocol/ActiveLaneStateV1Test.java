@@ -49,6 +49,10 @@ class ActiveLaneStateV1Test {
                 DestinationLaneId.derive(tuple), bytes(16, 2), AdmissionGate.OPEN, RuntimeReadiness.READY,
                 null, 1, 1, destination, capability, tuple, 1, charge(), 100L, 200L,
                 LaneCircuitStateV1.CLOSED, 0, 0, 0, 0, Bytes.utf8("ready"), validCertificate, null));
+        assertThrows(IllegalArgumentException.class, () -> new ActiveLaneStateV1(
+                DestinationLaneId.derive(tuple), bytes(16, 3), AdmissionGate.ADMIN_PAUSED,
+                RuntimeReadiness.READY, null, 1, 1, destination, capability, tuple, 1, charge(), 100L, 200L,
+                LaneCircuitStateV1.CLOSED, 0, 0, 0, 0, Bytes.utf8("ready"), validCertificate, null));
         final ActiveLaneStateV1 state = new ActiveLaneStateV1(
                 DestinationLaneId.derive(tuple), bytes(16, 3), AdmissionGate.OPEN, RuntimeReadiness.READY,
                 null, 1, 1, destination, capability, tuple, 1, charge(), 100L, 200L,

@@ -638,6 +638,8 @@ incarnation to byte-match the active state, with the drift regression in
 Its typed `next_eligible_at` projection also cannot precede the retained
 action, open-circuit, Lane backoff or executor retry gate; an early value fails
 closed in `ActiveLaneStateV1Test.rejectsTupleIdentityAndCircuitInvariantViolations`.
+The typed constructor also rejects `READY` paired with any non-`OPEN` admission
+gate, before key/certificate projection can reach persistence.
 The typed state and terminal-guard constructors now also parse the
 Registry-shaped canonical Lane tuple and require exact byte projection of both
 immutable Profile slots; malformed tuple structure or Profile id/version/hash

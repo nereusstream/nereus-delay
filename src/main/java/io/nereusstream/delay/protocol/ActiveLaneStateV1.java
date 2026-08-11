@@ -111,6 +111,9 @@ public final class ActiveLaneStateV1 {
         }
         this.encodedReadyKey = optionalBytes(encodedReadyKey, "encodedReadyKey");
         this.readyKeySha256 = this.encodedReadyKey == null ? null : Bytes.sha256(this.encodedReadyKey);
+        if (runtimeReadiness == RuntimeReadiness.READY && admissionGate != AdmissionGate.OPEN) {
+            throw new IllegalArgumentException("READY Lane must have an OPEN admission gate");
+        }
         if (runtimeReadiness == RuntimeReadiness.READY
                 && (earliestActionAtEpochMs == null || nextEligibleAtEpochMs == null
                 || encodedReadyKey == null || readyCertificate == null)) {
