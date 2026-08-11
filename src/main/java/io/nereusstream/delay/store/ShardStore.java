@@ -1637,10 +1637,12 @@ public final class ShardStore implements AutoCloseable {
     public synchronized void write(final BatchOperation operation) {
         ensureOpen();
         Objects.requireNonNull(operation, "operation");
+        boolean nativeWriteAttempted = false;
         try (WriteBatch batch = new WriteBatch(); WriteOptions writeOptions = new WriteOptions().setSync(true)) {
             final Batch pending = new Batch(this, batch, handles, closedIngressDeadlineThrough, runtimeMetadata,
                     controlSnapshot);
             operation.apply(pending);
+            nativeWriteAttempted = true;
             try {
                 db.write(writeOptions, batch);
             } catch (RocksDBException exception) {
@@ -1683,7 +1685,18 @@ public final class ShardStore implements AutoCloseable {
             // failed before db.write was issued.  No native commit is
             // possible in that case, so do not poison an otherwise usable
             // Store merely because validation code surfaced RocksDBException.
+            if (nativeWriteAttempted) {
+                writeOutcomeUncertain = true;
+            }
             throw new RocksDbWriteFailure("RocksDB write failed", exception);
+        } catch (RuntimeException | Error exception) {
+            // A fatal/runtime failure while closing the native batch/options
+            // can occur after db.write returned.  Preserve the same unknown
+            // commit boundary instead of leaving a live Store usable.
+            if (nativeWriteAttempted) {
+                writeOutcomeUncertain = true;
+            }
+            throw exception;
         }
     }
 

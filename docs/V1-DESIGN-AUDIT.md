@@ -3116,9 +3116,10 @@ suppressed diagnostics. This is local scheduler consistency evidence only and
 does not replace process supervision, Store re-open or authoritative placement.
 
 The Store/owner gate now closes the corresponding fatal native boundary. A
-runtime/JNI `Error` from the RocksDB write call or its post-write ingress-fence
-verification marks the Store `WRITE_OUTCOME_UNCERTAIN`; the original `Error`
-is rethrown and a fresh Store incarnation is required before replay. Direct
+runtime/JNI `Error` from the RocksDB write call, post-write ingress-fence
+verification, or the native WriteBatch/WriteOptions teardown after a write
+attempt marks the Store `WRITE_OUTCOME_UNCERTAIN`; the original `Error` is
+re-thrown and a fresh Store incarnation is required before replay. Direct
 owner apply, Command/System Mutation/mixed replay and Claim-recovery
 activation map that failure to `FENCED`, while Oxia activation and drain CAS
 `Error` escapes also fence the local owner view. The deterministic authority

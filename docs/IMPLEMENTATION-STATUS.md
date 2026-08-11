@@ -3283,9 +3283,10 @@ never durably written after a JVM/native failure. The focused scheduler suite
 continues to pass; process supervision and a fresh Store incarnation remain
 the recovery boundary for unrecoverable native failures.
 
-`ShardStore.write` now fences the Store when the native `db.write` boundary
-throws a runtime/JNI `Error`, not only when RocksDB returns its checked native
-failure. A post-write ingress-fence reread/decoding `Error` is likewise marked
+`ShardStore.write` now fences the Store when the native `db.write` boundary or
+the subsequent WriteBatch/WriteOptions teardown throws a runtime/JNI `Error`,
+not only when RocksDB returns its checked native failure. A post-write
+ingress-fence reread/decoding `Error` is likewise marked
 `WRITE_OUTCOME_UNCERTAIN`; the original failure is rethrown and no later
 source record may use the in-memory projection before a fresh Store reopen.
 `OwnedDelayShard` maps the same fatal boundary to local `FENCED` across direct
