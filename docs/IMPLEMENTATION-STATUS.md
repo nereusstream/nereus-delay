@@ -7,6 +7,15 @@ normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20�
 the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
+The local Owner replay gate now applies the same fencing rule to the pure
+System Mutation path as to Command and mixed replay: a `RocksDbWriteFailure` or
+fatal `Error` from delegate application moves the Owner to `FENCED` before the
+failure escapes, without advancing the source cursor or `lastCatchupPosition`.
+`OwnerLeaseTest.fatalSystemMutationReplayFencesOwnerAndRetainsSourceCursor`
+covers a fatal control-registration boundary. This is local fail-closed evidence;
+fresh Store-incarnation recovery, source continuity and Oxia ownership remain
+release gates.
+
 The local Kafka receipt and Pulsar Attempt Journal mapping-before-send seams now
 fail closed when an injected target sender returns a `null CompletionStage`.
 That malformed result is not a non-persistence proof: the exact durable mapping

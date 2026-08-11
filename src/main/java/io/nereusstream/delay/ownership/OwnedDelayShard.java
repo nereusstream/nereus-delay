@@ -379,6 +379,13 @@ public final class OwnedDelayShard {
             } catch (ShardStore.RocksDbWriteFailure failure) {
                 state = ShardLifecycleState.FENCED;
                 throw failure;
+            } catch (Error failure) {
+                // A fatal dependency/JNI failure has the same owner-authority
+                // consequence as an uncertain native WriteBatch: the source
+                // record must remain available for a fresh Store incarnation,
+                // and this Owner must not continue from an unproven image.
+                state = ShardLifecycleState.FENCED;
+                throw failure;
             }
             records.next();
             lastCatchupPosition = position;

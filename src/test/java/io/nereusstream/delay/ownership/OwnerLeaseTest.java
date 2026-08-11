@@ -5,6 +5,7 @@ import io.nereusstream.delay.protocol.AuthorIdentity;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CanonicalProtobuf;
 import io.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
+import io.nereusstream.delay.protocol.ControlRef;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.KafkaActivationBarrier;
@@ -607,6 +608,65 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void fatalSystemMutationReplayFencesOwnerAndRetainsSourceCursor() throws Exception {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 130);
+        final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = authority.acquire(shardId, "worker-fatal-system-replay", 100, 100).orElseThrow();
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("fatal-system-replay"));
+        final UUID topic = UUID.randomUUID();
+        final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster", topic, 0, null, 1_000);
+        final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 1);
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("fatal-system-replay-lane"));
+        final ControlRef controlRef = new ControlRef(Bytes.sha256(Bytes.utf8("fatal-system-replay-operation")),
+                Bytes.sha256(Bytes.utf8("fatal-system-replay-request")), 0);
+        final byte[] mutationBody = lanePauseBody(shardId, controlRef, lane, bytes(16, 131));
+        final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.APPLY_SHARD_CONTROL,
+                9_000, controlRef.logicalOperationIdentity(8), mutationBody,
+                AuthorIdentity.control(Bytes.sha256(Bytes.utf8("fatal-system-replay-actor")),
+                        Bytes.sha256(Bytes.utf8("fatal-system-replay-roles")),
+                        Bytes.sha256(Bytes.utf8("fatal-system-replay-scope"))).canonicalBytes(),
+                1, keyPair.getPrivate());
+        final ControlTargetRegistrationAuthority fatalAuthority = new ControlTargetRegistrationAuthority() {
+            @Override
+            public RegistrationResult register(final io.nereusstream.delay.protocol.PreparedControlOperationV1 prepared) {
+                throw new AssertionError("control registration write failed fatally");
+            }
+
+            @Override
+            public Optional<io.nereusstream.delay.protocol.PreparedControlOperationV1> find(
+                    final byte[] operationId) {
+                throw new AssertionError("control registration read failed fatally");
+            }
+
+            @Override
+            public void validateMutation(
+                    final io.nereusstream.delay.protocol.PreparedControlOperationV1 prepared,
+                    final io.nereusstream.delay.protocol.ControlTargetRefV1 target,
+                    final SystemMutation requested) {
+                throw new AssertionError("control registration validation failed fatally");
+            }
+        };
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard delegate = new DelayShard(store, DelayShardConfig.defaults(), null, null, null, null,
+                    null, fatalAuthority);
+            final OwnedDelayShard owned = new OwnedDelayShard(delegate, lease);
+            owned.markCatchingUp(new SourceAssignment(shardId,
+                    Bytes.sha256(Bytes.utf8("assignment-fatal-system-replay")), 1, barrier));
+            final SourceReplayMutation replay = new SourceReplayMutation(mutation, position, null, null);
+            final SourceReplayCursor<SourceReplayMutation> cursor = SourceReplayCursor.of(List.of(replay).iterator());
+
+            assertThrows(AssertionError.class, () -> owned.replaySystemMutationsTurn(cursor, keyPair.getPublic(),
+                    101, ReplayTurnBudget.unbounded()));
+            assertEquals(ShardLifecycleState.FENCED, owned.state());
+            assertEquals(replay, cursor.peek());
+            assertNull(owned.lastCatchupPosition());
+        }
+    }
+
+    @Test
     void mixedCatchupReplayKeepsCommandAndSystemMutationInOneSourceOrder() throws Exception {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 14);
         final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
@@ -918,6 +978,38 @@ class OwnerLeaseTest {
             CanonicalProtobuf.uint32(output, 11, keyVersion);
             CanonicalProtobuf.bytes(output, 12, proofId);
             CanonicalProtobuf.bytes(output, 13, proof);
+        });
+    }
+
+    private static byte[] lanePauseBody(final ShardId shard, final ControlRef controlRef,
+                                        final DestinationLaneId lane, final byte[] laneIncarnation) {
+        final byte[] subject = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());
+            CanonicalProtobuf.uint32(output, 2, shard.partition());
+        });
+        final byte[] laneTarget = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, lane.bytes());
+            CanonicalProtobuf.bytes(output, 2, laneIncarnation);
+            CanonicalProtobuf.int64(output, 3, 1);
+        });
+        final byte[] payload = CanonicalProtobuf.message(output -> {
+            final byte[] branch = CanonicalProtobuf.message(branchOutput -> {
+                CanonicalProtobuf.bytes(branchOutput, 1, laneTarget);
+                CanonicalProtobuf.bytes(branchOutput, 2,
+                        CanonicalProtobuf.message(reasonOutput -> CanonicalProtobuf.uint32(reasonOutput, 1, 1)));
+            });
+            CanonicalProtobuf.bytes(output, 8, branch);
+        });
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, subject);
+            CanonicalProtobuf.uint32(output, 2, SystemMutationType.APPLY_SHARD_CONTROL.wireValue());
+            CanonicalProtobuf.int64(output, 3, 9_000);
+            CanonicalProtobuf.bytes(output, 10, controlRef.canonicalBytes());
+            CanonicalProtobuf.uint32(output, 11, 8);
+            CanonicalProtobuf.uint32(output, 12, 1);
+            CanonicalProtobuf.bytes(output, 13, Bytes.sha256(Bytes.utf8("fatal-system-replay-semantic")));
+            CanonicalProtobuf.int64(output, 14, 1);
+            CanonicalProtobuf.bytes(output, 15, payload);
         });
     }
 

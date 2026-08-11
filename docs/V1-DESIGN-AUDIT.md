@@ -11,6 +11,14 @@ V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障
 
 **Open semantic questions: none.**
 
+The Owner replay audit now covers the previously asymmetric pure System
+Mutation path: Command, System Mutation and mixed replay all fence the local
+Owner on `RocksDbWriteFailure` or fatal `Error` before rethrowing, and retain the
+source record/cursor for a fresh Store incarnation. The focused regression is
+`OwnerLeaseTest.fatalSystemMutationReplayFencesOwnerAndRetainsSourceCursor`.
+This closes only the local owner gate; source continuity, fresh-incarnation
+recovery and Oxia lease authority remain release gates.
+
 The Kafka receipt and Pulsar Attempt Journal mapping-before-send seams now
 reject a target sender that returns `null CompletionStage` with a typed
 integrity/divergence failure. The mapping is already durable and remains the

@@ -1019,6 +1019,12 @@ any nonterminal -> FAILED
 
 `FENCED` 表示 assignment/lease/guard 已关闭且本 Worker 零 mutation/publication authority；它是可重新分配的 transition stop。`FAILED` 只用于已证明的 source gap、store/catalog integrity failure 或无法自动恢复的 protocol invariant；原因与 repair operation 持久化在 Oxia shard status/audit，未经显式修复不能自动回 ACTIVE。
 
+任何 Source replay 分支（Command、System Mutation 或 mixed replay）在本地
+Store/Delegate 应用抛出 `RocksDbWriteFailure` 或 fatal `Error` 时，都必须先把
+Owner 置为 `FENCED` 再重新抛出；不能把该异常转换成业务 rejection，也不能推进
+Source cursor 或 `lastCatchupPosition`。原始 record 必须保留给新 Store
+incarnation 校验和重放，直到提交边界被重新证明。
+
 状态、暂停 overlay 与失败原因是三个闭合维度，禁止把 reason 当成临时新增 lifecycle state：
 
 | 维度 | V1 closed values / 语义 |
