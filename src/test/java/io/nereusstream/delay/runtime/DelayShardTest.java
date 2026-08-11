@@ -3086,6 +3086,58 @@ class DelayShardTest {
     }
 
     @Test
+    void largePayloadCommitCannotResurrectTerminalLaneGuard() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("terminal-commit-reservation"));
+        final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4,
+                3, 100, 10_000);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 75);
+        final KafkaSourcePosition source = position(shardId, 0, 1_000);
+        final ProfileRefV1 destination = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2),
+                ProfileKindV1.DESTINATION);
+        final ProfileRefV1 capability = new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4),
+                ProfileKindV1.DELIVERY_CAPABILITY);
+        final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
+        final DestinationLaneId lane = DestinationLaneId.derive(tuple);
+        final LargeScheduleIntent intent = new LargeScheduleIntent(lane, 2_000, 5_000,
+                OrderingMode.BEST_EFFORT, 8, Bytes.sha256(Bytes.utf8("terminal-commit-payload")),
+                4_000, 9);
+        final PreparedCommand prepare = PreparedCommand.prepareLarge(shardId, intent, 9_000);
+        final byte[] reservationId = Bytes.sha256(Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                prepare.commandId().bytes(), prepare.delayMessageId().bytes(), prepare.commandHash());
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final PayloadProofTrustSet trustSet = new PayloadProofTrustSet(9, Map.of(2, keyPair.getPublic()));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, shardConfig, trustSet);
+            assertEquals(StableCode.OK, shard.apply(prepare, source).stableCode());
+            final LaneRecord closed = shard.updateLaneGate(lane, 1, AdmissionGate.CLOSED);
+            final LaneTerminalGuardV1 guard = new LaneTerminalGuardV1(closed.laneIncarnation(),
+                    closed.laneControlVersion(), source, destination, capability, tuple, bytes(32, 6), 1);
+            final LaneRetirementProgressV1 progress = new LaneRetirementProgressV1(bytes(32, 6), 1, source);
+            assertThrows(IllegalStateException.class,
+                    () -> shard.retireLaneWithTerminalGuard(lane, closed.laneControlVersion(), progress, guard));
+
+            // Simulate the externally proven terminal replacement so this
+            // branch is exercised independently of the local retirement scan.
+            store.write(batch -> batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(lane),
+                    LaneRecordEnvelopeV1.terminal(guard).canonicalBytes()));
+            final PayloadCommitProof proof = PayloadCommitProof.signed(9, 2,
+                    shardId.routeIncarnation().bytes(), shardId.partition(), prepare.delayMessageId(), reservationId,
+                    Bytes.sha256(Bytes.utf8("terminal-commit-profile")), Bytes.utf8("bucket"),
+                    Bytes.utf8("terminal-commit-key"), Bytes.utf8("v1"), new byte[0], intent.expectedPayloadLength(),
+                    intent.payloadSha256(), 5_000, keyPair.getPrivate());
+            final PreparedCommand commit = PreparedCommand.commitLarge(shardId, prepare.delayMessageId(), proof,
+                    9_000);
+            assertEquals(StableCode.LANE_TERMINALLY_CLOSED,
+                    shard.apply(commit, position(shardId, 1, 1_001)).stableCode());
+            assertNull(shard.getMessage(prepare.delayMessageId()));
+            assertEquals(guard, shard.getLaneTerminalGuard(lane));
+            assertEquals(PayloadReservationStatus.RESERVED, shard.getReservation(reservationId).status());
+        }
+    }
+
+    @Test
     void hardQuotaRejectsNewScheduleAndReleasesOnCancel() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("quota"));
         final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 1, 3, 1,

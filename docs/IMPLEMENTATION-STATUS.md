@@ -169,6 +169,17 @@ retirement is not a new source-ordered management CAS. `LaneRecordTest` covers
 the retained control version; the durable retirement method already applies
 the same rule and still requires the external Floor/adapter proof.
 
+The terminal-guard path now also scans the bounded reservation namespace before
+replacing an active Lane, so an unmaterialized `RESERVED`/`COMMITTED` payload
+reservation cannot be bypassed by physical retirement. Large-payload Commit
+checks the same-key `RETIRED` guard before lifecycle/proof handling and returns
+`LANE_TERMINALLY_CLOSED` without projecting a Message or rewriting the compact
+terminal value as ACTIVE. `DelayShardTest.largePayloadCommitCannotResurrectTerminalLaneGuard`
+covers both the local retirement fence and the stale-Commit branch. This is
+local state-machine evidence only; close-cursor completion, Recovery Floor,
+adapter quiescence and authenticated terminal-guard authority remain release
+gates.
+
 `OxiaRealRecoveryAuthoritySmokeTest` now exercises both single-record recovery
 authorities against a real Oxia endpoint when
 `NEREUS_DELAY_OXIA_ENDPOINT=host:port` is set: Recovery Catalog publication,

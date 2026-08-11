@@ -129,6 +129,15 @@ The local `LaneRecord` compatibility transition also retains the Close
 projection. This prevents physical retirement from creating a synthetic
 source-ordered management version; `LaneRecordTest` covers the invariant.
 
+The terminal-guard audit now includes active payload reservations: the bounded
+retirement proof refuses to install a guard while a `RESERVED` or `COMMITTED`
+reservation still names the Lane. A stale large-payload Commit observes an
+already installed same-key terminal guard before inspecting reservation state,
+returns `LANE_TERMINALLY_CLOSED`, and cannot recreate an ACTIVE Lane value.
+`DelayShardTest.largePayloadCommitCannotResurrectTerminalLaneGuard` is the
+focused regression. This closes a local resurrection path; external close
+materialization, Floor/retention and adapter authority remain release gates.
+
 The Control target-registration audit now separates an authoritative binding
 mismatch from an unavailable registry boundary.  Missing registration remains
 an explicit `UNAUTHORIZED_SYSTEM_MUTATION` position result, but a lookup or

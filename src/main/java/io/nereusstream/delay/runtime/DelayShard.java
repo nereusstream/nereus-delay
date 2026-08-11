@@ -6846,6 +6846,13 @@ public final class DelayShard {
         if (reservationLane == null) {
             throw new IllegalStateException("large payload commit references a reservation on a missing Lane");
         }
+        // A terminal guard is the irreversible identity fence for the old
+        // Lane tuple.  Check it before the reservation lifecycle: a stale
+        // RESERVED/COMMITTED value must never project a new Message and
+        // resurrect the compact terminal key as an ACTIVE Lane value.
+        if (reservationLane.admissionGate() == AdmissionGate.RETIRED) {
+            return persistRejected(command, sourcePosition, StableCode.LANE_TERMINALLY_CLOSED);
+        }
         if (reservationLane.admissionGate() == AdmissionGate.CLOSED
                 && storedReservation.status() == PayloadReservationStatus.RESERVED) {
             return persistRejected(command, sourcePosition, StableCode.PAYLOAD_RESERVATION_CLOSED);
@@ -8533,6 +8540,19 @@ public final class DelayShard {
             }
             final MessageRecord message = decodeMessageEntry(entry, "lane retirement");
             if (message.laneId().equals(laneId)) {
+                return true;
+            }
+        }
+        final List<io.nereusstream.delay.store.ShardStore.KeyValue> reservations = store.scan(ColumnFamily.ID,
+                new byte[]{2, 1}, new byte[]{3, 1}, limit);
+        if (reservations.size() >= limit && config.maxPendingMessages() < Integer.MAX_VALUE) {
+            throw new IllegalStateException("reservation scan exceeded configured bound during lane retirement");
+        }
+        for (var entry : reservations) {
+            final PayloadReservation reservation = decodeReservationEntry(entry, "lane retirement");
+            if (reservation.intent().laneId().equals(laneId)
+                    && (reservation.status() == PayloadReservationStatus.RESERVED
+                    || reservation.status() == PayloadReservationStatus.COMMITTED)) {
                 return true;
             }
         }
