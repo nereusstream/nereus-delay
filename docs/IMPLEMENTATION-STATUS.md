@@ -70,7 +70,12 @@ successor reread. `OxiaSyncControlOperationBackendTest` covers idempotent
 registration, revision/state fencing, retention-bound query, reopen and
 response-loss behavior. This is only the durable record surface: authenticated
 scope/actor authorization, source-ordered routing, session ownership and
-production Oxia service evidence remain release gates.
+production Oxia service evidence remain release gates. The opt-in
+`OxiaRealControlAuthoritySmokeTest` additionally passed real Oxia
+register/advance/query/reopen for Control Operation state and immutable
+Prepared Control target registration on 2026-08-12 against source
+`a45e38cf2b8c815499fda4c1b59e017db769142f`; authorization, source ordering and
+mutation transaction semantics remain outside this single-record evidence.
 
 Checkpoint Upload Intent now has an exact-authority interface shared by the
 local store, `CheckpointUploadCoordinator` and

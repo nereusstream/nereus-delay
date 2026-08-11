@@ -856,6 +856,9 @@ corruption、same-ID/different-bytes 和 operation-ID drift 均 fail closed。
 record surface 的 deterministic seam、reopen、冲突和损坏边界。这只闭合
 per-operation registration record，不等于 actor/target authorization、target
 existence、source-ordered mutation transaction 或 production transport。
+`OxiaRealControlAuthoritySmokeTest` 同时在真实服务上验证了该 immutable
+registration 的首次写入、精确重开读取；它仍不构成 target existence 或
+authenticated mutation authority 证据。
 `ControlSystemMutationFactoryV1` now centralizes the signed envelope and
 logical-identity derivation, while operation-specific body encoding and
 service-key trust remain outside this local seam.
@@ -2933,6 +2936,11 @@ malformed record、identity drift、非法 state/target transition 都 fail clos
 deterministic seam、reopen、revision/retention fence、corruption 和 response-loss。
 这只是 per-operation durable record CAS，不等于 actor/scope authorization、
 source-ordered routing、session ownership 或生产 Oxia service/chaos evidence。
+`OxiaRealControlAuthoritySmokeTest` 在 2026-08-12 对 Oxia source
+`a45e38cf2b8c815499fda4c1b59e017db769142f` 的真实 endpoint 通过了
+Control Operation register/advance/query/reopen 和 immutable Prepared target
+registration/reopen；这扩大了 single-record service evidence，但不改变上述
+生产授权、source ordering、mutation transaction 和 chaos gates。
 `EmbeddedDelayService` 已将该 seam 暴露为本地 register/advance/query 入口，便于
 conformance tests 验证 register 和 exact advance response-loss 后的精确 receipt
 重读；`OxiaControlOperationAuthority.advance` 不接受更高或不同状态的后续
