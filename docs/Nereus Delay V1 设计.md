@@ -1959,6 +1959,10 @@ Baseline 只弱化重复/outcome 保证，不弱化资源身份：Kafka baseline
 append/position 尚未确认时，unresolved lower sequence 继续阻塞，不能释放后续 sequence。该
 position 只用于本地 shard recovery cursor 与 replay projection，不替代同一 Kafka transaction、
 `read_committed` LSO/Fetch 或 retention proof，也不把本地 seam 伪装成 Broker authority。
+如果 target transaction sender 返回 `null CompletionStage`，这不是 non-publication proof；调用方必须把它
+作为未知结果进入 evidence/UNKNOWN 路径，保留该 mapping 的 unresolved lower-sequence fence，不能释放
+sequence、伪造失败或推进后续 Admission。Journal seam 应以 typed integrity/divergence failure fail closed，
+而不是泄漏未分类的空指针异常。
 
 Strong Lane/receipt/channel slot 数受 shard 和 Worker hard limit；K 耗尽时的新 ordered/strong Schedule 被确定性拒绝。一个 Lane 的 unresolved transaction 最多推进/阻塞它自己的 receipt partition LSO，不能阻塞健康 Lane 的证据重放。
 
@@ -2007,6 +2011,8 @@ journal Broker entry timestamp / guarded Source Position
 2. 先向 Attempt Journal append canonical `MAPPED`；response unknown 只原样重试 mapping，绝不调用业务 target。
 3. Broker ACK 后把 journal Source Position 写入 DB 并再次复核 lease/attempt。
 4. 只有此后才调用 target Producer。
+   target sender 返回 null stage、同步异常或无法观察 completion 都不构成 non-publication proof；exact
+   mapping 继续保持 unresolved，调用方必须按 `UNKNOWN`/evidence 处理。
 5. definitive non-publication 后先保持该 attempt 为 `PUBLISHING(retirementPending=true)`，durable append `RETIRED_NOT_PUBLISHED` 并把其 journal position 写回 DB；只有随后才能进入 `RETRY_WAIT`/terminal，且未来新的 Admission 才能分配下一个 sequence。
 
 Journal duplicate 的 same ID/hash 是 no-op，different hash 是 integrity failure。每个 mapping 绑定 exact attempt；同一 generation 的不同 Admission 不能复用旧 mapping。恢复在取得 lease 后先用 `ExclusiveWithFencing` 建立 journal writer，fence 旧 Owner 的 late append；reader 的每次 initial connect/reconnect 使用 `PULSAR_SUBSCRIBE_RESOURCE_GUARD_V1` 对 exact physical Journal ManagedLedger token/creation identity 做 pre-subscribe 验证，再捕获 batch-aware last MessageId。随后按 batch-aware contiguous-applied cursor 重放到此 barrier，重建 sequence→attempt/generation 映射，再查询 exact physical Producer：

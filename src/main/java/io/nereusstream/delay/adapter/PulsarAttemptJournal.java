@@ -448,7 +448,15 @@ public final class PulsarAttemptJournal {
                 throw conflict("target SEND has no exact durable non-retired mapping");
             }
         }
-        return sender.send(mapping);
+        final CompletionStage<T> result = sender.send(mapping);
+        if (result == null) {
+            // A null stage is not evidence of non-publication. Keep the exact
+            // mapped attempt unresolved and force the caller through its
+            // UNKNOWN/evidence path instead of leaking an untyped NPE.
+            throw new JournalException(StableCode.PULSAR_EVIDENCE_DIVERGENCE,
+                    "target sender returned no CompletionStage");
+        }
+        return result;
     }
 
     private AppendResult appendMappedInternal(final Mapping mapping) {

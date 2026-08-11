@@ -180,6 +180,22 @@ class PulsarAttemptJournalTest {
     }
 
     @Test
+    void nullTargetStageFailsClosedAndKeepsTheMappedAttemptUnresolved() {
+        final ShardId shard = shard();
+        final PulsarAttemptJournal journal = new PulsarAttemptJournal(shard, request -> position(23));
+        final PulsarAttemptJournal.ProducerKey producer = producer();
+        final PulsarAttemptJournal.Mapping mapping = journal.appendNext(producer, identity(shard, 23))
+                .record().mapping();
+
+        final PulsarAttemptJournal.JournalException failure = assertThrows(
+                PulsarAttemptJournal.JournalException.class,
+                () -> journal.sendAfterMapped(mapping, ignored -> null));
+        assertEquals(StableCode.PULSAR_EVIDENCE_DIVERGENCE, failure.stableCode());
+        assertArrayEquals(mapping.mappingId(), journal.unresolved(producer).orElseThrow().mappingId());
+        assertEquals(1, journal.records().size());
+    }
+
+    @Test
     void recoveryAndBrokerEvidenceFailClosedOnDivergence() {
         final ShardId shard = shard();
         final AtomicLong entry = new AtomicLong(7);

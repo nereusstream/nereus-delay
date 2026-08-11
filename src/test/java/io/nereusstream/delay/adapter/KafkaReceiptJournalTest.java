@@ -66,6 +66,23 @@ class KafkaReceiptJournalTest {
     }
 
     @Test
+    void nullTargetStageFailsClosedAndKeepsTheMappedAttemptUnresolved() {
+        final ShardId shard = shard();
+        final KafkaReceiptResource resource = resource(shard);
+        final KafkaReceiptJournal journal = new KafkaReceiptJournal(shard, request -> position(23), resource);
+        final KafkaReceiptJournal.ProducerKey producer = producer();
+        final KafkaReceiptJournal.Mapping mapping = journal.appendNext(producer, identity(shard, 23))
+                .record().mapping();
+
+        final KafkaReceiptJournal.JournalException failure = assertThrows(
+                KafkaReceiptJournal.JournalException.class,
+                () -> journal.sendAfterMapped(mapping, ignored -> null));
+        assertEquals(StableCode.INTEGRITY_ERROR, failure.stableCode());
+        assertArrayEquals(mapping.mappingId(), journal.unresolved(producer).orElseThrow().mappingId());
+        assertEquals(1, journal.records().size());
+    }
+
+    @Test
     void unresolvedLowerSequenceBlocksUntilRetirement() {
         final ShardId shard = shard();
         final AtomicLong offset = new AtomicLong(1);

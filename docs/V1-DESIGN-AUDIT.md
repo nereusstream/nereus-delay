@@ -11,6 +11,19 @@ V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障
 
 **Open semantic questions: none.**
 
+The Kafka receipt and Pulsar Attempt Journal mapping-before-send seams now
+reject a target sender that returns `null CompletionStage` with a typed
+integrity/divergence failure. The mapping is already durable and remains the
+unresolved lower-sequence fence; the malformed stage cannot be treated as a
+non-persistence proof, release the next sequence, or leak an unclassified
+`NullPointerException`. Focused evidence is
+`KafkaReceiptJournalTest.nullTargetStageFailsClosedAndKeepsTheMappedAttemptUnresolved`
+and
+`PulsarAttemptJournalTest.nullTargetStageFailsClosedAndKeepsTheMappedAttemptUnresolved`.
+This is local transport-SPI evidence only; the production caller still must
+classify the physical operation as UNKNOWN/evidence-pending until Broker
+completion or a certified teardown proof exists.
+
 The local activation path now records the current `ownerEpoch` in the
 Store's non-decreasing `lastOpenedOwnerEpoch` projection before opening the
 Command gate, for both embedded and authoritative activation. A failed
