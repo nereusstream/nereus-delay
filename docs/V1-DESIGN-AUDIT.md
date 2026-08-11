@@ -264,7 +264,9 @@ capacity-gated Admission all restore the canonical `sourceTimelineWork`
 retained by the Claim. This keeps an early `actionAt` and retry eligibility
 stable without depending on a process-local resolver/catalog, while source
 work kind, encoded key and retry gate are checked before persistence. The
-focused regression is
+shared action resolver consults that live Claim before opaque open-attempt or
+Profile fallback, covering evidence settlement that converts a claimed
+uncertain retry into a definitive retry. The focused regression is
 `DelayShardTest.sourceOrderedLanePauseRestoresClaimPinnedActionAtWithoutResolver`;
 legacy Claims without the optional source projection remain compatibility-only.
 This is local rollback/projection evidence, not external Owner or control

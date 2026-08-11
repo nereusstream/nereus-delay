@@ -58,6 +58,9 @@ replay-stable timeline projection whenever a `CLAIMED` message returns to
 same checked restore helper as explicit `revokeClaim`, preserving the pinned
 `actionAt`, retry gate, work kind, candidate attempt and uncertain-retry
 authority even when the current Worker has no Profile Catalog or resolver.
+The shared `actionAt` resolver also consults a live Claim before open-attempt
+or Profile fallback, so evidence settlement that converts a claimed uncertain
+retry into a definitive retry cannot depend on an opaque older ledger.
 The helper rejects a source-work/key/retry-gate mismatch before the batch, and
 legacy Claims without a source projection retain only their documented
 compatibility fallback. `DelayShardTest.sourceOrderedLanePauseRestoresClaimPinnedActionAtWithoutResolver`

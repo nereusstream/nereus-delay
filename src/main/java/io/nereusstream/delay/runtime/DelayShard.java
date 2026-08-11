@@ -4231,6 +4231,10 @@ public final class DelayShard {
                 && existing.actionAtEpochMs() <= deliverAtEpochMs) {
             return existing.actionAtEpochMs();
         }
+        final Long claimedActionAt = actionAtFromLiveClaim(messageId, message, deliverAtEpochMs);
+        if (claimedActionAt != null) {
+            return claimedActionAt;
+        }
         final Long admittedActionAt = actionAtFromOpenAdmission(messageId, message, deliverAtEpochMs);
         if (admittedActionAt != null) {
             return admittedActionAt;
@@ -4262,6 +4266,35 @@ public final class DelayShard {
         } catch (ArithmeticException overflow) {
             throw new IllegalStateException("V1 certified handoff actionAt arithmetic overflow", overflow);
         }
+    }
+
+    /**
+     * Recovers the immutable action boundary retained by a live Claim.  A
+     * CLAIMED Message intentionally has no current TimelineWorkRef, and an
+     * older open Admission may be opaque or may be the obligation currently
+     * being settled; the Claim snapshot remains the exact local source for
+     * rollback/retry projection in either case.
+     */
+    private Long actionAtFromLiveClaim(final DelayMessageId messageId, final MessageRecord message,
+                                       final long deliverAtEpochMs) {
+        if (message.status() != MessageStatus.CLAIMED
+                && message.runtimeIndex().currentWorkKind() != CurrentSendWorkKind.CLAIMED) {
+            return null;
+        }
+        final ClaimRecord claim = findClaimForMessage(messageId);
+        if (claim == null || claim.generation() != message.generation()) {
+            return null;
+        }
+        final byte[] sourceTimelineWork = claim.sourceTimelineWork();
+        if (sourceTimelineWork.length == 0) {
+            return null;
+        }
+        final TimelineWorkRef sourceWork = TimelineWorkRef.decode(sourceTimelineWork);
+        if (!Arrays.equals(sourceWork.encodedTimelineKey(), claim.timelineKey())
+                || sourceWork.retryEligibilityAtEpochMs() != message.retryEligibilityAtEpochMs()) {
+            throw new IllegalStateException("live Claim source timeline does not match current Message");
+        }
+        return checkedActionAt(sourceWork.actionAtEpochMs(), deliverAtEpochMs);
     }
 
     /**
