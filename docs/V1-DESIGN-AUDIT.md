@@ -2116,6 +2116,14 @@ lease 的 expiry checked-add 也在 epoch 写入之前执行，时间溢出不�
 候选 lease 的 owner/context 校验同样先于 epoch/lease map 更新，非法身份输入不会
 消耗 fencing epoch，证据为 `OwnerLeaseTest.invalidAcquireValueDoesNotConsumeOwnerEpoch`；
 真实 Oxia sequence allocation 仍由外部 authority 负责。
+`PersistentOwnerLeaseStore` 现在把同一边界扩展到一个 crash-durable 的本地
+conformance projection：每个 shard 保留已消费的 epoch history，lease 的
+assignment/session context、lifecycle、expiry 和 token 通过 canonical bounded
+snapshot、checksum、atomic rename、directory fsync 及 JVM/on-disk lock 一起恢复。
+`PersistentOwnerLeaseStoreTest` 覆盖 reopen、过期接管、stale release、context/shard
+identity drift 和 corruption fail-closed。它只证明本地重启/response-loss 的投影
+一致性，不能替代 Oxia session/ephemeral ownership、cross-worker CAS 或 production
+assignment authority。
 Activation 的本地 Oxia adapter 还会在 CAS response loss 后仅接受同一
 fencing/assignment/session identity 的 exact `ACTIVE_FOR_COMMANDS` 重读；
 `transitionOrRead` 在 lifecycle graph 禁止的请求上不会执行重读，因此

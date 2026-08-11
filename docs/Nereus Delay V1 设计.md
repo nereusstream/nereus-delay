@@ -1071,6 +1071,13 @@ control snapshot 或 lease-validity 等激活前置条件时，才保留 `CATCHI
 
 某 Lane 的 target/receipt/journal 不可用只让该 Lane 留在 `RECOVERING_EVIDENCE`/`BLOCKED`，不得阻止 shard Command application 或其他健康 Lane。Shard 生命周期只使用精确状态 `ACTIVE_FOR_COMMANDS`；Lane readiness 是独立闸门，不用含混的 `ACTIVE` 同时表示两者。
 
+嵌入式/一致性测试可以使用 `PersistentOwnerLeaseStore` 验证 Owner Lease
+在进程重启、response loss 和本地 CAS 竞争下的 exact identity、epoch history
+与 lifecycle projection；这只是本地 crash-durable projection，不是 Oxia 的
+session-bound ephemeral record、跨 Worker ownership 或 production CAS。生产接管
+仍必须执行本节定义的 Oxia lease/session 流程，不能把本地文件成功误当成
+`ACTIVE_FOR_COMMANDS` 的外部 authority proof。
+
 ### 9.3 Lease guard
 
 Worker 使用 Oxia session activity + monotonic local deadline 建立比 server session timeout 更保守的 lease guard。以下任一情况先关闭 shard event gate：
