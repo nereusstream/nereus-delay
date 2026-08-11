@@ -3155,7 +3155,9 @@ terminalization `firstExportAt`, checked deadline, physical-attempt budget,
 possible-duplicate permission and deterministic next-retry jitter before the
 outbox WriteBatch. Catalog-less and legacy bindings remain structural-only
 compatibility seams; policy publication, target evidence and provider
-ownership are still release blockers.
+ownership are still release blockers. `DlqExportApplyTest`
+`catalogBackedDlqOutcomeRecomputesPinnedPolicyBeforePersisting` covers exact
+ref rejection followed by a valid source-ordered outcome.
 
 `ResourceRetireIntentBody` 的 outcome-aware delete-evidence seam 已对 `PAYLOAD_OBJECT` 和 `CHECKPOINT` 闭合了精确身份证明：`DELETED` 必须携带 retire intent 中的 immutable version，并在 payload identity 存在 pinned etag 时同时携带该 etag；`ALREADY_ABSENT` 仍禁止任何 identity 字段。同一校验也在 `ResourceDeleteConfirmedRecord` 构造/解码时执行，因此损坏的本地 tombstone 不会绕过 GC guard。这个本地回归不取代真实 provider delete attestation、Oxia CAS、Floor barrier 或 external GC orchestration。
 

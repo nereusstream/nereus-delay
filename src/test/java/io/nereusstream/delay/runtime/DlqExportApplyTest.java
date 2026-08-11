@@ -1,20 +1,31 @@
 package io.nereusstream.delay.runtime;
 
 import io.nereusstream.delay.protocol.AuthorIdentity;
+import io.nereusstream.delay.protocol.AdapterMetadataV1;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CanonicalProtobuf;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DestinationLaneId;
+import io.nereusstream.delay.protocol.DeliveryMode;
+import io.nereusstream.delay.protocol.DlqExportModeV1;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
+import io.nereusstream.delay.protocol.KafkaMetadataV1;
 import io.nereusstream.delay.protocol.OrderingMode;
+import io.nereusstream.delay.protocol.PreparedCommand;
+import io.nereusstream.delay.protocol.ProfileKindV1;
+import io.nereusstream.delay.protocol.ProfileRefV1;
+import io.nereusstream.delay.protocol.RetryPolicySemanticV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
+import io.nereusstream.delay.protocol.ScheduleIntentV1;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.SystemMutation;
 import io.nereusstream.delay.protocol.SystemMutationType;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
+import io.nereusstream.delay.protocol.UncertainPolicyV1;
+import io.nereusstream.delay.protocol.V1ScheduleBinding;
 import io.nereusstream.delay.store.ColumnFamily;
 import io.nereusstream.delay.store.KeyCodec;
 import io.nereusstream.delay.store.ShardStore;
@@ -26,6 +37,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 
@@ -96,6 +108,75 @@ class DlqExportApplyTest {
     }
 
     @Test
+    void catalogBackedDlqOutcomeRecomputesPinnedPolicyBeforePersisting() throws Exception {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 11);
+        final byte[] laneTuple = Bytes.utf8("catalog-backed-dlq-lane");
+        final DestinationLaneId lane = DestinationLaneId.derive(laneTuple);
+        final KafkaSourcePosition terminalSource = new KafkaSourcePosition(shardId, "dlq-test",
+                java.util.UUID.randomUUID(), 20, null, 2_000);
+        final RetryPolicySemanticV1 policy = new RetryPolicySemanticV1(Bytes.utf8("catalog-dlq-policy"), 1,
+                100, 1_000, 3, 4_000, UncertainPolicyV1.HOLD_FOR_EVIDENCE, 0,
+                DlqExportModeV1.BASELINE_AT_LEAST_ONCE, 100, 500, 3, 1_000, true, nonZero(32, 41));
+        final ProfileRefV1 profile = new ProfileRefV1(Bytes.utf8("catalog-dlq-profile"), 1,
+                nonZero(32, 42), ProfileKindV1.DESTINATION);
+        final ScheduleIntentV1 intent = ScheduleIntentV1.create(profile, policy.ref(), 2_000, 5_000,
+                DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, laneTuple, Bytes.utf8("payload"), null,
+                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())), null, null);
+        final PreparedCommand schedule = PreparedCommand.scheduleV1(shardId, intent, 9_000);
+        final DelayMessageId messageId = schedule.delayMessageId();
+        final V1ScheduleBinding binding = V1ScheduleBinding.fromCommand(schedule, lane, laneTuple);
+        final byte[] envelopeHash = Bytes.sha256(Bytes.utf8("catalog-dlq-envelope"));
+        final MessageRecord dead = new MessageRecord(MessageStatus.DEAD_LETTER, 0, 7, 1_000, 5_000, lane,
+                OrderingMode.BEST_EFFORT, Bytes.utf8("payload"), terminalSource.canonicalBytes())
+                .withRuntimeIndex(GenerationRuntimeIndex.none(GenerationAggregateState.DEAD_LETTER, List.of(),
+                        0, 0, false, 7));
+        final TerminalGenerationRecord terminal = new TerminalGenerationRecord(messageId, 0,
+                MessageStatus.DEAD_LETTER, StableCode.CLAIM_PERMANENT_FAILURE, 7,
+                terminalSource.canonicalBytes(), false);
+        final DlqExportRecord pending = DlqExportRecord.pending(messageId, 0, 7, envelopeHash,
+                terminalSource.canonicalBytes());
+        final byte[] body = resultBody(shardId, messageId, pending, envelopeHash, chargeVector(), policy.ref().canonicalBytes());
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final AuthorIdentity service = AuthorIdentity.service(Bytes.sha256(Bytes.utf8("catalog-dlq-service")),
+                Bytes.sha256(Bytes.utf8("catalog-dlq-run")), 1);
+        final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.DLQ_EXPORT_RESULT,
+                10_000, io.nereusstream.delay.protocol.DlqExportResultBody.decode(body).logicalOperationIdentity(),
+                body, service.canonicalBytes(), 1, keyPair.getPrivate());
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("catalog-dlq-apply"));
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(messageId), dead.encode());
+                batch.putValue(ColumnFamily.ID, 4, KeyCodec.idV1ScheduleBinding(messageId), binding.encode());
+                batch.putValue(ColumnFamily.TERMINAL, 1, KeyCodec.terminalGeneration(messageId, 0), terminal.encode());
+                batch.putValue(ColumnFamily.TERMINAL, DlqExportRecord.VALUE_TYPE,
+                        KeyCodec.terminalDlqExport(pending.dlqExportId()), pending.encode());
+            });
+            final InMemoryRetryPolicyCatalog catalog = new InMemoryRetryPolicyCatalog();
+            catalog.publish(policy, terminalSource);
+            final DelayShard delayShard = new DelayShard(store, DelayShardConfig.defaults(), null, null, null, null,
+                    catalog);
+            final byte[] wrongBody = resultBody(shardId, messageId, pending, envelopeHash, chargeVector());
+            final SystemMutation wrongMutation = SystemMutation.signed(shardId,
+                    SystemMutationType.DLQ_EXPORT_RESULT, 10_000,
+                    io.nereusstream.delay.protocol.DlqExportResultBody.decode(wrongBody)
+                            .logicalOperationIdentity(), wrongBody, service.canonicalBytes(), 1,
+                    keyPair.getPrivate());
+            final SystemMutationResult rejected = delayShard.applySystemMutation(wrongMutation,
+                    sourceAfter(terminalSource), keyPair.getPublic());
+            assertEquals(ApplyStatus.REJECTED, rejected.applyStatus());
+            assertEquals(StableCode.INTEGRITY_ERROR, rejected.stableCode());
+            final SystemMutationResult result = delayShard.applySystemMutation(mutation,
+                    sourceAfterTwice(terminalSource), keyPair.getPublic());
+            assertEquals(ApplyStatus.APPLIED, result.applyStatus());
+            assertEquals(StableCode.OK, result.stableCode());
+            assertEquals(DlqExportStateV1.PUBLISHED, delayShard.getDlqExportRecord(messageId, 0).state());
+        }
+    }
+
+    @Test
     void preservesUnknownStableCodeWhenApplyingExportOutcome() throws Exception {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 10);
         final DelayMessageId messageId = DelayMessageId.random(shardId);
@@ -159,6 +240,12 @@ class DlqExportApplyTest {
     private static byte[] resultBody(final ShardId shardId, final DelayMessageId messageId,
                                      final DlqExportRecord pending, final byte[] envelopeHash,
                                      final byte[] transfer) {
+        return resultBody(shardId, messageId, pending, envelopeHash, transfer, retryPolicyRef());
+    }
+
+    private static byte[] resultBody(final ShardId shardId, final DelayMessageId messageId,
+                                     final DlqExportRecord pending, final byte[] envelopeHash,
+                                     final byte[] transfer, final byte[] retryPolicyRef) {
         final TrustedUtcIntervalEvidence observed = new TrustedUtcIntervalEvidence(2_001, 2_001,
                 TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("clock"), 1, 1, 1,
                 Bytes.sha256(Bytes.utf8("clock-proof")), 0, null);
@@ -182,7 +269,7 @@ class DlqExportApplyTest {
             CanonicalProtobuf.bytes(output, 19, evidence(pending.dlqExportId()));
             CanonicalProtobuf.bytes(output, 20, transfer);
             CanonicalProtobuf.bytes(output, 21, observed.canonicalBytes());
-            CanonicalProtobuf.bytes(output, 22, retryDecision());
+            CanonicalProtobuf.bytes(output, 22, retryDecision(retryPolicyRef));
             CanonicalProtobuf.uint32(output, 23, DlqExportStateV1.PUBLISHED.wireValue());
             CanonicalProtobuf.uint32(output, 24, 1);
         });
@@ -250,9 +337,13 @@ class DlqExportApplyTest {
     }
 
     private static byte[] retryDecision() {
+        return retryDecision(retryPolicyRef());
+    }
+
+    private static byte[] retryDecision(final byte[] retryPolicyRef) {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, 1);
-            CanonicalProtobuf.bytes(output, 2, retryPolicyRef());
+            CanonicalProtobuf.bytes(output, 2, retryPolicyRef);
             CanonicalProtobuf.uint32(output, 3, 1);
             CanonicalProtobuf.uint64(output, 4, 2_000);
             CanonicalProtobuf.uint64(output, 5, 3_000);
@@ -285,5 +376,13 @@ class DlqExportApplyTest {
             CanonicalProtobuf.uint64Bits(output, 2, 1);
             CanonicalProtobuf.bytes(output, 3, Bytes.sha256(Bytes.utf8("policy-hash")));
         });
+    }
+
+    private static byte[] nonZero(final int length, final int seed) {
+        final byte[] value = new byte[length];
+        for (int index = 0; index < length; index++) {
+            value[index] = (byte) (seed + index);
+        }
+        return value;
     }
 }

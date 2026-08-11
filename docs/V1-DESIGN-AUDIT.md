@@ -2006,6 +2006,8 @@ catalog rechecks the `DLQ_EXPORT` domain, pinned ref, terminalization
 `firstExportAt`, checked deadline, physical-attempt budget, duplicate permission
 and deterministic next-retry jitter before persisting the outbox transition;
 catalog-less and legacy bindings remain structural compatibility seams.
+`DlqExportApplyTest.catalogBackedDlqOutcomeRecomputesPinnedPolicyBeforePersisting`
+covers the exact-ref rejection followed by a valid source-ordered outcome.
 
 The business `PublishOutcomeBody` retry decoder applies the same exact
 `RetryDecisionV1` field sequence and first-attempt/deadline interval fence as
