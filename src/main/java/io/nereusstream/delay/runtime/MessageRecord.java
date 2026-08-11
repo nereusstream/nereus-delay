@@ -4,6 +4,7 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.OrderingMode;
 import io.nereusstream.delay.protocol.PayloadReference;
+import io.nereusstream.delay.protocol.SourcePositionCodec;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
@@ -67,7 +68,7 @@ public record MessageRecord(
             // Empty inline payloads are valid; the branch is intentionally explicit for readability.
         }
         payload = Bytes.copy(payload);
-        scheduleSourcePosition = Bytes.copy(scheduleSourcePosition);
+        scheduleSourcePosition = SourcePositionCodec.decode(scheduleSourcePosition).canonicalBytes();
     }
 
     @Override

@@ -3,6 +3,7 @@ package io.nereusstream.delay.runtime;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DestinationLaneId;
+import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.store.KeyCodec;
 
 import java.nio.ByteBuffer;
@@ -109,7 +110,7 @@ public final class PublishAttemptLedger {
         this.state = Objects.requireNonNull(state, "state");
         this.outcomeBytes = optional(outcomeBytes);
         this.evidenceBytes = optional(evidenceBytes);
-        this.sourcePosition = nonEmpty(sourcePosition, "sourcePosition");
+        this.sourcePosition = SourcePositionCodec.decode(sourcePosition).canonicalBytes();
         if (sequenceId < ABSENT_SEQUENCE_ID) {
             throw new IllegalArgumentException("invalid Attempt Journal sequence ID");
         }

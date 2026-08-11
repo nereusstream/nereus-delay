@@ -2,11 +2,15 @@ package io.nereusstream.delay.runtime;
 
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DestinationLaneId;
+import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.OrderingMode;
+import io.nereusstream.delay.protocol.RouteIncarnation;
+import io.nereusstream.delay.protocol.ShardId;
 import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -16,7 +20,7 @@ class MessageRecordTest {
     void decodeRejectsEveryCanonicalPrefixTruncationAsValidationError() {
         final MessageRecord record = new MessageRecord(MessageStatus.SCHEDULED, 0, 1,
                 2_000, 5_000, DestinationLaneId.derive(Bytes.utf8("message-record-truncation")),
-                OrderingMode.BEST_EFFORT, Bytes.utf8("payload"), Bytes.utf8("source-position"));
+                OrderingMode.BEST_EFFORT, Bytes.utf8("payload"), sourcePosition());
         final byte[] encoded = record.encode();
 
         for (int length = 0; length < encoded.length; length++) {
@@ -30,7 +34,7 @@ class MessageRecordTest {
     void scalarMessageRecordUsesLegacyVersionUntilTypedRuntimeReplacesIt() {
         final MessageRecord legacy = new MessageRecord(MessageStatus.SCHEDULED, 0, 1,
                 2_000, 5_000, DestinationLaneId.derive(Bytes.utf8("message-record-legacy")),
-                OrderingMode.BEST_EFFORT, Bytes.utf8("payload"), Bytes.utf8("source-position"));
+                OrderingMode.BEST_EFFORT, Bytes.utf8("payload"), sourcePosition());
         assertEquals(3, ByteBuffer.wrap(legacy.encode()).getInt());
         assertEquals(legacy, MessageRecord.decode(legacy.encode()));
         assertEquals(3, ByteBuffer.wrap(MessageRecord.decode(legacy.encode()).encode()).getInt());
@@ -53,7 +57,7 @@ class MessageRecordTest {
         final int highBit = (int) 0x8000_0000L;
         final MessageRecord record = new MessageRecord(MessageStatus.SCHEDULED, highBit, 1,
                 2_000, 5_000, DestinationLaneId.derive(Bytes.utf8("message-record-high-bit")),
-                OrderingMode.BEST_EFFORT, Bytes.utf8("payload"), Bytes.utf8("source-position"));
+                OrderingMode.BEST_EFFORT, Bytes.utf8("payload"), sourcePosition());
 
         final MessageRecord decoded = MessageRecord.decode(record.encode());
         assertEquals(highBit, decoded.generation());
@@ -64,7 +68,7 @@ class MessageRecordTest {
     void typedRuntimeCannotDisagreeWithMessageStatus() {
         final MessageRecord base = new MessageRecord(MessageStatus.SCHEDULED, 0, 1,
                 2_000, 5_000, DestinationLaneId.derive(Bytes.utf8("message-record-status-fence")),
-                OrderingMode.BEST_EFFORT, Bytes.utf8("payload"), Bytes.utf8("source-position"));
+                OrderingMode.BEST_EFFORT, Bytes.utf8("payload"), sourcePosition());
         final GenerationRuntimeIndex terminal = GenerationRuntimeIndex.none(
                 GenerationAggregateState.PUBLISHED, java.util.List.of(), 1, 0, false, 2);
         assertThrows(IllegalArgumentException.class, () -> base.withRuntimeIndex(terminal));
@@ -74,7 +78,7 @@ class MessageRecordTest {
     void handedOffStatusUsesTheRegisteredTerminalAggregateProjection() {
         final MessageRecord base = new MessageRecord(MessageStatus.HANDED_OFF, 0, 1,
                 2_000, 5_000, DestinationLaneId.derive(Bytes.utf8("message-record-handed-off")),
-                OrderingMode.BEST_EFFORT, Bytes.utf8("payload"), Bytes.utf8("source-position"));
+                OrderingMode.BEST_EFFORT, Bytes.utf8("payload"), sourcePosition());
         final MessageRecord handedOff = base.withRuntimeIndex(GenerationRuntimeIndex.none(
                 GenerationAggregateState.HANDED_OFF, java.util.List.of(), 1, 0, false, 2));
         final MessageRecord decoded = MessageRecord.decode(handedOff.encode());
@@ -82,5 +86,17 @@ class MessageRecordTest {
         assertEquals(MessageStatus.HANDED_OFF, decoded.status());
         assertEquals(GenerationAggregateState.HANDED_OFF, decoded.runtimeIndex().aggregateState());
         assertEquals(handedOff, decoded);
+    }
+
+    @Test
+    void sourcePositionMustBeCanonicalBeforeMessageValueConstruction() {
+        assertThrows(IllegalArgumentException.class, () -> new MessageRecord(MessageStatus.SCHEDULED, 0, 1,
+                2_000, 5_000, DestinationLaneId.derive(Bytes.utf8("message-record-source-fence")),
+                OrderingMode.BEST_EFFORT, Bytes.utf8("payload"), Bytes.utf8("not-a-source-position")));
+    }
+
+    private static byte[] sourcePosition() {
+        return new KafkaSourcePosition(new ShardId(RouteIncarnation.random(), 0), "test",
+                UUID.randomUUID(), 0, null, 1_000).canonicalBytes();
     }
 }

@@ -2,6 +2,7 @@ package io.nereusstream.delay.runtime;
 
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DelayMessageId;
+import io.nereusstream.delay.protocol.SourcePositionCodec;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -41,7 +42,7 @@ public record TerminalGenerationRecord(
                 || status == MessageStatus.CLAIMED || status == MessageStatus.PUBLISHING) {
             throw new IllegalArgumentException("invalid terminal generation record");
         }
-        appliedSourcePosition = Bytes.copy(appliedSourcePosition);
+        appliedSourcePosition = SourcePositionCodec.decode(appliedSourcePosition).canonicalBytes();
         final List<AttemptObligationRef> sorted = new ArrayList<>(openObligations);
         sorted.sort(TerminalGenerationRecord::compareObligations);
         for (int index = 0; index < sorted.size(); index++) {
