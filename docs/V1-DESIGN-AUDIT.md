@@ -88,6 +88,14 @@ This removes the remaining local root-initialization path that could have
 followed an intermediate symlink; production Oxia/session fencing remains an
 external release gate.
 
+Crash-durable state reads now bind the bounded size check and byte read to one
+`NOFOLLOW_LINKS` file handle. Recovery Catalog, Upload Intent, SLO Collector,
+Control Operation, Owner Lease and the shard `ACTIVE` pointer no longer use a
+path check followed by `Files.readAllBytes`; symlink/directory replacement,
+disappearance, size change and short reads fail closed. The focused helper
+regression is `LocalStatePathGuardTest`. This is local physical-file evidence,
+not external Oxia/Object Store authority or process-recovery evidence.
+
 The Control target-registration audit now separates an authoritative binding
 mismatch from an unavailable registry boundary.  Missing registration remains
 an explicit `UNAUTHORIZED_SYSTEM_MUTATION` position result, but a lookup or

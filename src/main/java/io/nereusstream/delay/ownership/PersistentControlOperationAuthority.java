@@ -156,18 +156,12 @@ public final class PersistentControlOperationAuthority implements ControlOperati
     }
 
     private State readIfPresent(final Path statePath, final byte[] operationId) throws IOException {
-        if (!Files.exists(statePath, LinkOption.NOFOLLOW_LINKS)) {
+        final byte[] encoded = LocalStatePathGuard.readRegularFileNoFollow(statePath,
+                HEADER_LENGTH + (long) MAX_COMPONENT_BYTES * 2 + DIGEST_LENGTH,
+                "control operation state");
+        if (encoded == null) {
             return null;
         }
-        rejectSymbolicLink(statePath, "control operation state");
-        if (!Files.isRegularFile(statePath, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IOException("control operation state is not a regular file: " + statePath);
-        }
-        final long length = Files.size(statePath);
-        if (length > HEADER_LENGTH + (long) MAX_COMPONENT_BYTES * 2 + DIGEST_LENGTH) {
-            throw new IOException("control operation state exceeds bounded size: " + statePath);
-        }
-        final byte[] encoded = Files.readAllBytes(statePath);
         return decode(encoded, operationId, statePath);
     }
 

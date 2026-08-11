@@ -808,7 +808,11 @@ public final class ShardStore implements AutoCloseable {
     }
 
     private static UUID readActivePointer(final Path pointer) throws IOException {
-        final byte[] encoded = Files.readAllBytes(pointer);
+        final byte[] encoded = LocalStatePathGuard.readRegularFileNoFollow(pointer, 4L + 16 + 4,
+                "ACTIVE pointer");
+        if (encoded == null) {
+            throw new IOException("ACTIVE pointer disappeared while being read: " + pointer);
+        }
         if (encoded.length != 4 + 16 + 4) {
             throw new IOException("invalid ACTIVE pointer length");
         }

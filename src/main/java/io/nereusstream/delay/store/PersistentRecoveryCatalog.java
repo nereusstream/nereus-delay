@@ -17,7 +17,6 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
-import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
@@ -191,18 +190,12 @@ public final class PersistentRecoveryCatalog implements RecoveryCatalogAuthority
     }
 
     private RecoveryCatalog load() throws IOException {
-        if (!Files.exists(stateFile, LinkOption.NOFOLLOW_LINKS)) {
+        final byte[] encoded = LocalStatePathGuard.readRegularFileNoFollow(stateFile, MAX_STATE_BYTES,
+                "Recovery Catalog state");
+        if (encoded == null) {
             return new RecoveryCatalog();
         }
-        rejectSymbolicLink(stateFile, "Recovery Catalog state");
-        if (!Files.isRegularFile(stateFile, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IOException("Recovery Catalog state is not a regular file: " + stateFile);
-        }
-        final long length = Files.size(stateFile);
-        if (length > MAX_STATE_BYTES) {
-            throw new IOException("Recovery Catalog state exceeds bounded size: " + stateFile);
-        }
-        return RecoveryCatalog.fromSnapshot(decodeState(Files.readAllBytes(stateFile)));
+        return RecoveryCatalog.fromSnapshot(decodeState(encoded));
     }
 
     private void persist(final RecoveryCatalog.Snapshot snapshot) throws IOException {

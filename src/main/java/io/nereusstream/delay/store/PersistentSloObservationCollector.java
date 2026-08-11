@@ -12,7 +12,6 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
-import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
@@ -117,17 +116,12 @@ public final class PersistentSloObservationCollector {
     }
 
     private SloObservationCollector load() throws IOException {
-        if (!Files.exists(stateFile, LinkOption.NOFOLLOW_LINKS)) {
+        final byte[] encoded = LocalStatePathGuard.readRegularFileNoFollow(stateFile, MAX_STATE_BYTES,
+                "SLO collector state");
+        if (encoded == null) {
             return new SloObservationCollector(limits);
         }
-        rejectSymbolicLink(stateFile, "SLO collector state");
-        if (!Files.isRegularFile(stateFile, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IOException("SLO collector state is not a regular file: " + stateFile);
-        }
-        if (Files.size(stateFile) > MAX_STATE_BYTES) {
-            throw new IOException("SLO collector state exceeds bounded size: " + stateFile);
-        }
-        return decodeState(Files.readAllBytes(stateFile));
+        return decodeState(encoded);
     }
 
     private SloObservationCollector rebuild(final List<SloObservationOutboxV1> values) {

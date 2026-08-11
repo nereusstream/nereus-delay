@@ -120,6 +120,15 @@ and `PersistentOwnerLeaseStoreTest.rejectsSymbolicParentComponentBeforeCreatingL
 This keeps all crash-durable local authority projections on one physical path
 policy; it remains an embedded seam, not production Oxia authority.
 
+Crash-durable state reads now use one bounded `NOFOLLOW_LINKS` file handle for
+the size check and byte read instead of checking a path and reopening it with
+`Files.readAllBytes`. Recovery Catalog, Upload Intent, SLO Collector, Control
+Operation and Owner Lease projections share this helper; the shard `ACTIVE`
+pointer uses it as well. A symlink, directory, disappearance, size change or
+short read fails closed. `LocalStatePathGuardTest` covers the bounded read and
+target-type fences. This closes the local state-file check-then-open window
+only; it does not replace external authority or process supervision.
+
 `OxiaRealRecoveryAuthoritySmokeTest` now exercises both single-record recovery
 authorities against a real Oxia endpoint when
 `NEREUS_DELAY_OXIA_ENDPOINT=host:port` is set: Recovery Catalog publication,

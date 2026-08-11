@@ -12,7 +12,6 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
-import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
@@ -200,18 +199,13 @@ public final class CheckpointUploadIntentStore implements CheckpointUploadIntent
             return current;
         }
         ensureParentDirectory();
-        if (!Files.exists(stateFile, LinkOption.NOFOLLOW_LINKS)) {
+        final byte[] encoded = LocalStatePathGuard.readRegularFileNoFollow(stateFile,
+                HEADER_LENGTH + (long) MAX_INTENT_BYTES + DIGEST_LENGTH,
+                "checkpoint upload intent state");
+        if (encoded == null) {
             return null;
         }
-        rejectSymbolicLink(stateFile, "checkpoint upload intent state");
-        if (!Files.isRegularFile(stateFile, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IOException("checkpoint upload intent state is not a regular file: " + stateFile);
-        }
-        final long fileLength = Files.size(stateFile);
-        if (fileLength > HEADER_LENGTH + MAX_INTENT_BYTES + DIGEST_LENGTH) {
-            throw new IOException("checkpoint upload intent state exceeds bounded size: " + stateFile);
-        }
-        return decode(Files.readAllBytes(stateFile));
+        return decode(encoded);
     }
 
     private void writeCurrent(final CheckpointUploadIntentV1 next) throws IOException {

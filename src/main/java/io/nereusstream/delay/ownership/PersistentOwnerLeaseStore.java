@@ -193,18 +193,12 @@ public final class PersistentOwnerLeaseStore implements OwnerLeaseStore {
 
     private State load(final ShardId shardId) throws IOException {
         final Path statePath = statePath(shardId);
-        if (!Files.exists(statePath, LinkOption.NOFOLLOW_LINKS)) {
+        final byte[] encoded = LocalStatePathGuard.readRegularFileNoFollow(statePath, MAX_STATE_BYTES,
+                "owner lease state");
+        if (encoded == null) {
             return new State(shardId, 0, null);
         }
-        rejectSymbolicLink(statePath, "owner lease state");
-        if (!Files.isRegularFile(statePath, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IOException("owner lease state is not a regular file: " + statePath);
-        }
-        final long length = Files.size(statePath);
-        if (length > MAX_STATE_BYTES) {
-            throw new IOException("owner lease state exceeds bounded size: " + statePath);
-        }
-        return decodeState(Files.readAllBytes(statePath), shardId, statePath);
+        return decodeState(encoded, shardId, statePath);
     }
 
     private void persist(final State state) throws IOException {
