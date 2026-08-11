@@ -221,6 +221,37 @@ class OwnerDrainCoordinatorTest {
     }
 
     @Test
+    void externallyStartedStoreCloseEntersDrainAndReleasesTheMatchingLease() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 59);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("drain-external-close"));
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease acquired = backend.acquire(shardId, "worker-external-close", 100, 500).orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+            final ShardStore store = ShardStore.open(config, shardId, resources);
+            final OwnedDelayShard owned = activeOwnedShard(store, acquired, authority, shardId);
+            try {
+                store.close();
+                final AtomicInteger stopCalls = new AtomicInteger();
+                final OwnerDrainCoordinator coordinator = new OwnerDrainCoordinator(owned, store, resources, authority);
+
+                final OwnerDrainCoordinator.DrainResult result = coordinator.drain(
+                        new OwnerDrainCoordinator.DrainRequest(5_000, 0, null), () -> 101,
+                        stopCalls::incrementAndGet);
+
+                assertEquals(0, result.revokedClaims());
+                assertEquals(0, result.callbackPolls());
+                assertEquals(1, stopCalls.get());
+                assertEquals(ShardLifecycleState.FENCED, owned.state());
+                assertTrue(store.isClosed());
+                assertTrue(backend.current(shardId).isEmpty());
+            } finally {
+                store.close();
+            }
+        }
+    }
+
+    @Test
     void storeCloseFailureLeavesDrainingStateForRetryableTeardown() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 53);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("drain-close-retry"));

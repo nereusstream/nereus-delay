@@ -2115,6 +2115,12 @@ exact lease release move the shard to `FENCED`. The deterministic
 `OwnerDrainCoordinatorTest.storeCloseFailureLeavesDrainingStateForRetryableTeardown`
 and `OwnerDrainCoordinatorTest.unconfirmedLeaseReleaseKeepsClosedDrainRetryable`
 regressions cover these boundaries.
+If Store teardown was started externally while the Owner was still
+`ACTIVE_FOR_COMMANDS`, the coordinator now performs the matching authority
+transition to `DRAINING`, invokes the stop callback, and enters the same
+close/release-only retry branch instead of throwing forever with the lease held.
+`OwnerDrainCoordinatorTest.externallyStartedStoreCloseEntersDrainAndReleasesTheMatchingLease`
+covers the local emergency-drain path.
 Callback quiescence and source hint commit remain caller/transport boundaries;
 timeout leaves the DB and lease in visible `DRAINING` for a safe retry rather
 than claiming completion. `OwnerDrainCoordinatorTest` covers success and

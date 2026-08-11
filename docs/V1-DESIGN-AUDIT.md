@@ -2390,6 +2390,13 @@ Claim revoke、callback poll、flush 或 checkpoint，也不会在 DB 未确认�
 完整关闭并确认 exact lease release 后才进入 `FENCED`。`OwnerDrainCoordinatorTest`
 `storeCloseFailureLeavesDrainingStateForRetryableTeardown` 与
 `unconfirmedLeaseReleaseKeepsClosedDrainRetryable` 覆盖这两个边界。
+外部先启动 Store close 的路径现在也会闭合：若 Owner 仍为
+`ACTIVE_FOR_COMMANDS`，先完成同一 identity 的 `DRAINING` CAS、停止
+source/scheduling，再只重试 Store close 与 exact release，不会留下 active local gate
+和无法释放的 lease。`OwnerDrainCoordinatorTest`
+`externallyStartedStoreCloseEntersDrainAndReleasesTheMatchingLease` 覆盖该本地
+emergency-drain 路径；source quiescence、Oxia CAS 与 fresh-incarnation recovery
+仍是 release gate。
 callback/source quiescence 仍由调用方和真实 transport 提供，超时保持
 `DRAINING` 而不伪造成功。`OwnerDrainCoordinatorTest` 覆盖成功与 deadline
 失败边界。

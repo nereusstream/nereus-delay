@@ -29,6 +29,7 @@ public final class OwnerDrainCoordinator {
     private int pendingRevokedClaims;
     private int pendingCallbackPolls;
     private Path pendingFinalCheckpoint;
+    private boolean externalCloseStopCompleted;
 
     public OwnerDrainCoordinator(final OwnedDelayShard ownedShard, final ShardStore store,
                                  final SharedRocksDbResources resources, final OxiaOwnerLeaseStore authority) {
@@ -110,8 +111,21 @@ public final class OwnerDrainCoordinator {
                 return new DrainResult(pendingRevokedClaims, pendingCallbackPolls, pendingFinalCheckpoint);
             }
             if (store.isCloseStarted()) {
-                if (ownedShard.state() != ShardLifecycleState.DRAINING) {
-                    throw new IllegalStateException("Store close already started outside draining state");
+                if (ownedShard.state() == ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
+                    // A caller may have started Store teardown outside this
+                    // coordinator.  Close the owner gate through the same
+                    // authority CAS before treating the already-started
+                    // Store as an emergency drain; otherwise the local Owner
+                    // would remain ACTIVE while its DB is fenced.
+                    ownedShard.beginDrain(authority, startNow);
+                    externalCloseStopCompleted = false;
+                } else if (ownedShard.state() != ShardLifecycleState.DRAINING) {
+                    throw new IllegalStateException("Store close already started outside drain lifecycle");
+                }
+                ensureLeaseStillDraining(expectedLease, request, clock);
+                if (!externalCloseStopCompleted) {
+                    callbacks.stopSourceAndScheduling();
+                    externalCloseStopCompleted = true;
                 }
                 // A previous attempt fenced Store operations but failed during
                 // retryable native/slot teardown.  Do not rerun Claim revoke,
