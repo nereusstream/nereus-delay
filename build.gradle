@@ -26,6 +26,10 @@ dependencies {
     testImplementation platform('org.junit:junit-bom:5.13.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    // Oxia's structured logger discovers a backend only when a real client is opened.
+    // Keep the default library surface backend-neutral, but make the opt-in real-service
+    // test runnable from Gradle without relying on a host application's logging setup.
+    testRuntimeOnly 'org.slf4j:slf4j-simple:2.0.17'
 }
 
 tasks.withType(JavaCompile).configureEach {

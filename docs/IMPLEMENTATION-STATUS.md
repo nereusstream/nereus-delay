@@ -22,8 +22,15 @@ record, allocates it with version CAS, creates the lease as an Oxia ephemeral
 record, binds context-bound acquisition to Oxia session/client metadata, and
 uses version CAS for renew, lifecycle transition, and release. Epoch gaps after
 a lost race are intentional and safe; reuse is never allowed. The deterministic
-record surface is covered by `OxiaSyncOwnerLeaseBackendTest`. Real Oxia
-service/session, authenticated assignment publication, response-loss and
+record surface is covered by `OxiaSyncOwnerLeaseBackendTest`. An opt-in
+`OxiaRealServiceSmokeTest` can now run the same boundary against a real Oxia
+gRPC service (`NEREUS_DELAY_OXIA_ENDPOINT=host:port ./gradlew test
+--tests io.nereusstream.delay.ownership.OxiaRealServiceSmokeTest
+--rerun-tasks`); on 2026-08-12 it passed against the standalone Oxia source at
+`a45e38cf2b8c815499fda4c1b59e017db769142f`, covering durable epoch CAS,
+ephemeral-session creation/removal, renew, lifecycle transition, release and
+reacquisition with an incremented epoch. The test is skipped when no endpoint
+is configured. Authenticated assignment publication, response-loss and
 multi-worker chaos evidence remain release gates.
 
 The Recovery Catalog now also has a concrete single-record Oxia CAS backend in
