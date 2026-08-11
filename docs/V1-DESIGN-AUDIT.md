@@ -2984,6 +2984,13 @@ from leaving phantom Worker capacity. This remains local teardown evidence;
 fresh-incarnation recovery and production process supervision are external
 release gates.
 
+The checkpoint-create rollback boundary now also fences the Store when the
+compensating runtime-metadata WriteBatch fails. The original checkpoint
+failure remains primary, but subsequent operations require a fresh Store
+incarnation rather than trusting an in-memory `lastCheckpointId` projection
+whose durable state is uncertain. This closes the local compensation fence;
+catalog publication and restart orchestration remain external release gates.
+
 Restore failure cleanup now applies the same conservative rule to `Error`
 escapes from Store teardown as to ordinary retryable close failures: the exact
 Store is retried once, its directory remains preserved while teardown is

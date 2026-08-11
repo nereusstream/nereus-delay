@@ -3136,6 +3136,13 @@ cannot strand the Worker capacity envelope. This is teardown accounting only;
 it does not turn a failed native process into a safe retry without a fresh
 Store incarnation.
 
+Checkpoint compensation now fails closed if restoring the prior runtime
+metadata after a physical snapshot failure itself cannot be proven: the Store
+enters `WRITE_OUTCOME_UNCERTAIN` and rejects subsequent operations until a
+fresh incarnation reopens the durable projection. A failed checkpoint can no
+longer leave an unverified `lastCheckpointId` projection available to later
+source application.
+
 Restore cleanup now treats both runtime/native exceptions and `Error` escapes
 from a staged or installed Store close as unconfirmed teardown: it records the
 failure, retries the exact close boundary once, and leaves the private

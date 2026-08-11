@@ -1711,6 +1711,13 @@ public final class ShardStore implements AutoCloseable {
                 try {
                     persistRuntimeMetadata(previousMetadata);
                 } catch (RuntimeException rollbackFailure) {
+                    // The checkpoint image failed after its identity was
+                    // written, and the compensating metadata batch is not
+                    // provable.  Continuing with this live Store could make
+                    // the in-memory checkpoint projection disagree with the
+                    // durable image, so require a fresh incarnation just as
+                    // for any other committed-but-unverifiable WriteBatch.
+                    writeOutcomeUncertain = true;
                     exception.addSuppressed(rollbackFailure);
                 }
             }
