@@ -3018,6 +3018,13 @@ owned executor before `CloseGuard` exposes the failure for a later retry. This
 keeps the local fenced-but-retryable contract aligned across Store, Worker and
 client seams; it does not claim external Producer/Broker quiescence.
 
+The pre-restore control-snapshot verifier now also aggregates `RuntimeException`
+and `Error` across every read-only Column Family handle and Options close. A
+failed verifier teardown no longer prevents later handles from being attempted;
+the original failure remains visible and restore stays fail-closed. This is
+local checkpoint-resource evidence only, not proof of external checkpoint
+publication or provider recovery.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

@@ -86,23 +86,23 @@ final class CheckpointControlSnapshotVerifier {
                 throw new IllegalArgumentException("cannot open checkpoint RocksDB read-only", failure);
             }
         } finally {
-            RuntimeException cleanupFailure = null;
+            Throwable cleanupFailure = null;
             for (ColumnFamilyHandle handle : handles) {
                 try {
                     handle.close();
-                } catch (RuntimeException failure) {
+                } catch (RuntimeException | Error failure) {
                     cleanupFailure = append(cleanupFailure, failure);
                 }
             }
             for (ColumnFamilyOptions options : columnFamilyOptions) {
                 try {
                     options.close();
-                } catch (RuntimeException failure) {
+                } catch (RuntimeException | Error failure) {
                     cleanupFailure = append(cleanupFailure, failure);
                 }
             }
             if (cleanupFailure != null) {
-                throw cleanupFailure;
+                throwUnchecked(cleanupFailure);
             }
         }
     }
@@ -121,11 +121,21 @@ final class CheckpointControlSnapshotVerifier {
         }
     }
 
-    private static RuntimeException append(final RuntimeException current, final RuntimeException next) {
+    private static Throwable append(final Throwable current, final Throwable next) {
         if (current == null) {
             return next;
         }
         current.addSuppressed(next);
         return current;
+    }
+
+    private static void throwUnchecked(final Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error errorFailure) {
+            throw errorFailure;
+        }
+        throw new IllegalStateException("unexpected checked teardown failure", failure);
     }
 }

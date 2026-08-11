@@ -3174,6 +3174,13 @@ JVM/native `Error` interrupts one teardown item. This is still local lifecycle
 evidence; it does not attest Broker-side producer quiescence or recovery from
 a process-fatal condition.
 
+`CheckpointControlSnapshotVerifier` now applies the same restore-side cleanup
+rule to its read-only RocksDB probe: every opened Column Family handle and
+Options object is attempted independently for both runtime failures and
+`Error`, with the first failure rethrown after all cleanup diagnostics are
+retained. This keeps checkpoint identity validation from leaking a temporary
+native handle before the real Store restore path begins.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
