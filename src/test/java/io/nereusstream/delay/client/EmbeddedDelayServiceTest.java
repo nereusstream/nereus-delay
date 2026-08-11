@@ -245,6 +245,14 @@ class EmbeddedDelayServiceTest {
             assertEquals(PayloadAttestationOutcomeV1.OBJECT_STORE_UNAVAILABLE_RETRYABLE,
                     attestation.outcome());
             assertEquals(StableCode.OBJECT_STORE_UNAVAILABLE_RETRYABLE, attestation.error().code());
+            final PayloadUploadHandleResponseV1 negativeHandle = service.issuePayloadUploadHandle(null,
+                    UploadHandleKindV1.OPAQUE_SINGLE_PUT, -1).toCompletableFuture().join();
+            assertEquals(PayloadUploadHandleOutcomeV1.INTEGRITY_ERROR, negativeHandle.outcome());
+            assertEquals(StableCode.INTEGRITY_ERROR, negativeHandle.error().code());
+            final PayloadAttestationResponseV1 negativeAttestation = service.attestPayloadUpload(null, null, -1)
+                    .toCompletableFuture().join();
+            assertEquals(PayloadAttestationOutcomeV1.INTEGRITY_ERROR, negativeAttestation.outcome());
+            assertEquals(StableCode.INTEGRITY_ERROR, negativeAttestation.error().code());
         }
     }
 

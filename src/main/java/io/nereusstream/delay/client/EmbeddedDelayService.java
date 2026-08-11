@@ -649,8 +649,12 @@ public final class EmbeddedDelayService implements DelayClient {
 
     @Override
     public synchronized CompletionStage<PayloadUploadHandleResponseV1> issuePayloadUploadHandle(
-            final PayloadReservationReceiptV1 receipt, final UploadHandleKindV1 kind, final long nowEpochMs) {
+        final PayloadReservationReceiptV1 receipt, final UploadHandleKindV1 kind, final long nowEpochMs) {
         ensureOpen();
+        if (nowEpochMs < 0) {
+            return CompletableFuture.completedFuture(payloadUploadError(
+                    PayloadUploadHandleOutcomeV1.INTEGRITY_ERROR));
+        }
         if (payloadObjectStore == null) {
             return CompletableFuture.completedFuture(payloadStoreUnavailableForUpload(nowEpochMs));
         }
@@ -671,6 +675,10 @@ public final class EmbeddedDelayService implements DelayClient {
             final PayloadReservationReceiptV1 receipt, final OpaquePayloadUploadHandleV1 handle,
             final long nowEpochMs) {
         ensureOpen();
+        if (nowEpochMs < 0) {
+            return CompletableFuture.completedFuture(payloadAttestationError(
+                    PayloadAttestationOutcomeV1.INTEGRITY_ERROR));
+        }
         if (payloadObjectStore == null) {
             return CompletableFuture.completedFuture(payloadStoreUnavailableForAttestation(nowEpochMs));
         }

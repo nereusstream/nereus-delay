@@ -30,7 +30,10 @@ exception is returned as closed `INTEGRITY_ERROR` instead of falsely proving
 object absence.  `EmbeddedDelayServiceTest.payloadFacadeMapsLocalReservationBindingFailureAsIntegrityError`
 covers the pinned trust-set mismatch vector.  A real provider or credential
 failure must still be projected by the external adapter as
-`OBJECT_STORE_UNAVAILABLE_RETRYABLE`.
+`OBJECT_STORE_UNAVAILABLE_RETRYABLE`.  Negative `nowEpochMs` is rejected before
+adapter authority as closed `INTEGRITY_ERROR`, preserving the main design's
+non-negative observation-time rule; the no-adapter regression also covers that
+branch.
 
 The uncertain-Store drain audit now also covers the race where native Store
 close was started by another caller before the coordinator observed the
