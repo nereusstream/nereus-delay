@@ -1264,13 +1264,45 @@ public final class DelayShard {
                 || current.stateVersion() != claim.runtimeRevision()) {
             throw new IllegalStateException("Claim does not match current CLAIMED message");
         }
+        final ClaimResultBody.ClaimPrecondition precondition =
+                ClaimResultBody.decodePrecondition(claim.preconditionBytes());
+        final TimelineWorkKind workKind = TimelineWorkKind.fromWire(precondition.sourceWorkKind());
+        final MessageRecord revokedNext = restoreClaimedMessageToTimeline(claim, current, workKind);
+        final LaneQuotaUsageProjection nextLaneQuota = removeClaimQuotaUsage(claim);
+        final SourcePosition schedulePosition = SourcePositionCodec.decode(current.scheduleSourcePosition());
+        final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
+                schedulePosition, claim.delayMessageId(), current, revokedNext, null, nextLaneQuota);
+        store.write(batch -> {
+            batch.delete(ColumnFamily.INFLIGHT, claim.encodedKey());
+            batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(claim.delayMessageId()), revokedNext.encode());
+            batch.putValue(ColumnFamily.TIMELINE, 1, claim.timelineKey(),
+                    encodeTimelineValue(claim.delayMessageId(), revokedNext));
+            batch.putValue(ColumnFamily.TIMELINE, 1, expiryKey(claim.delayMessageId(), revokedNext),
+                    encodeTimelineValue(claim.delayMessageId(), revokedNext));
+            for (LaneProjection projection : projections.values()) {
+                deleteReadyKey(batch, projection.previousLane());
+                putReadyProjection(batch, projection);
+            }
+            persistQuota(batch, quota, nextLaneQuota);
+        });
+        laneQuotaUsage = nextLaneQuota;
+        return revokedNext;
+    }
+
+    /**
+     * Restores a CLAIMED message from the exact timeline snapshot retained by
+     * its Claim.  The Claim's source work is the only replay-stable authority
+     * while the current runtime branch carries only the Claim identity; using
+     * a fresh compatibility MessageRecord would otherwise lose an early
+     * actionAt when the resolver/catalog is unavailable during rollback.
+     */
+    private MessageRecord restoreClaimedMessageToTimeline(final ClaimRecord claim,
+                                                           final MessageRecord current,
+                                                           final TimelineWorkKind workKind) {
         MessageRecord next = new MessageRecord(MessageStatus.SCHEDULED, current.generation(),
                 Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
                 current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
                 current.payloadReference(), current.retryEligibilityAtEpochMs());
-        final ClaimResultBody.ClaimPrecondition precondition =
-                ClaimResultBody.decodePrecondition(claim.preconditionBytes());
-        final TimelineWorkKind workKind = TimelineWorkKind.fromWire(precondition.sourceWorkKind());
         final byte[] sourceTimelineWork = claim.sourceTimelineWork();
         if (workKind == TimelineWorkKind.UNCERTAIN_RETRY && sourceTimelineWork.length == 0) {
             throw new IllegalStateException("legacy Claim lacks UNCERTAIN_RETRY source work projection");
@@ -1281,6 +1313,13 @@ public final class DelayShard {
                     UncertainRetryAuthority.NONE, null, null, current.runtimeIndex()));
         } else {
             final TimelineWorkRef priorWork = TimelineWorkRef.decode(sourceTimelineWork);
+            if (priorWork.workKind() != workKind
+                    || !Arrays.equals(priorWork.encodedTimelineKey(), claim.timelineKey())) {
+                throw new IllegalStateException("Claim source timeline does not match its precondition");
+            }
+            if (priorWork.retryEligibilityAtEpochMs() != current.retryEligibilityAtEpochMs()) {
+                throw new IllegalStateException("Claim source timeline retry gate does not match current Message");
+            }
             final TimelineWorkRef restoredWork = new TimelineWorkRef(priorWork.workKind(),
                     priorWork.encodedTimelineKey(), priorWork.actionAtEpochMs(),
                     priorWork.retryEligibilityAtEpochMs(), priorWork.candidateAttemptNo(), next.stateVersion(),
@@ -1296,25 +1335,9 @@ public final class DelayShard {
                     current.runtimeIndex().uncertainRetryAdmissionsUsed(),
                     current.runtimeIndex().possibleDestinationDuplicate(), next.stateVersion()));
         }
-        final MessageRecord revokedNext = next;
-        final LaneQuotaUsageProjection nextLaneQuota = removeClaimQuotaUsage(claim);
-        final SourcePosition schedulePosition = SourcePositionCodec.decode(current.scheduleSourcePosition());
-        final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
-                schedulePosition, claim.delayMessageId(), current, next, null, nextLaneQuota);
-        store.write(batch -> {
-            batch.delete(ColumnFamily.INFLIGHT, claim.encodedKey());
-            batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(claim.delayMessageId()), revokedNext.encode());
-            batch.putValue(ColumnFamily.TIMELINE, 1, claim.timelineKey(),
-                    encodeTimelineValue(claim.delayMessageId(), revokedNext));
-            batch.putValue(ColumnFamily.TIMELINE, 1, expiryKey(claim.delayMessageId(), revokedNext),
-                    encodeTimelineValue(claim.delayMessageId(), revokedNext));
-            for (LaneProjection projection : projections.values()) {
-                deleteReadyKey(batch, projection.previousLane());
-                putReadyProjection(batch, projection);
-            }
-            persistQuota(batch, quota, nextLaneQuota);
-        });
-        laneQuotaUsage = nextLaneQuota;
+        if (!Arrays.equals(claim.timelineKey(), timelineKey(claim.delayMessageId(), next))) {
+            throw new IllegalStateException("Claim timeline key is not reversible");
+        }
         return next;
     }
 
@@ -2044,18 +2067,8 @@ public final class DelayShard {
             }
             final ClaimResultBody.ClaimPrecondition precondition =
                     ClaimResultBody.decodePrecondition(claim.preconditionBytes());
-            final TimelineWorkKind workKind = switch (precondition.sourceWorkKind()) {
-                case 1 -> TimelineWorkKind.INITIAL_SCHEDULE;
-                case 2 -> TimelineWorkKind.DEFINITIVE_RETRY;
-                default -> throw new IllegalStateException("Claim source work is not reversible");
-            };
-            MessageRecord next = new MessageRecord(MessageStatus.SCHEDULED, current.generation(),
-                    Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
-                    current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
-                    current.payloadReference(), current.retryEligibilityAtEpochMs());
-            next = next.withRuntimeIndex(timelineRuntimeIndex(claim.delayMessageId(), next, workKind,
-                    Math.addExact(current.runtimeIndex().admissionsUsed(), 1), next.stateVersion(),
-                    UncertainRetryAuthority.NONE, null, null, current.runtimeIndex()));
+            final TimelineWorkKind workKind = TimelineWorkKind.fromWire(precondition.sourceWorkKind());
+            final MessageRecord next = restoreClaimedMessageToTimeline(claim, current, workKind);
             if (!Arrays.equals(claim.timelineKey(), timelineKey(claim.delayMessageId(), next))) {
                 throw new IllegalStateException("Claim timeline key is not reversible");
             }
@@ -2531,13 +2544,17 @@ public final class DelayShard {
                     body.claimPrecondition().canonicalBytes());
             final TimelineWorkKind workKind = TimelineWorkKind.fromWire(
                     precondition.sourceWorkKind());
-            next = new MessageRecord(MessageStatus.SCHEDULED, current.generation(),
-                    Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
-                    current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
-                    current.payloadReference(), current.retryEligibilityAtEpochMs());
-            next = next.withRuntimeIndex(timelineRuntimeIndex(messageId, next, workKind,
-                    Math.addExact(current.runtimeIndex().admissionsUsed(), 1), next.stateVersion(),
-                    UncertainRetryAuthority.NONE, null, null, current.runtimeIndex()));
+            if (claim != null) {
+                next = restoreClaimedMessageToTimeline(claim, current, workKind);
+            } else {
+                next = new MessageRecord(MessageStatus.SCHEDULED, current.generation(),
+                        Math.addExact(current.stateVersion(), 1), current.deliverAtEpochMs(), current.expireAtEpochMs(),
+                        current.laneId(), current.orderingMode(), current.payload(), current.scheduleSourcePosition(),
+                        current.payloadReference(), current.retryEligibilityAtEpochMs());
+                next = next.withRuntimeIndex(timelineRuntimeIndex(messageId, next, workKind,
+                        Math.addExact(current.runtimeIndex().admissionsUsed(), 1), next.stateVersion(),
+                        UncertainRetryAuthority.NONE, null, null, current.runtimeIndex()));
+            }
         }
         final LaneQuotaUsageProjection nextLaneQuota = revokeClaim && claim != null
                 ? removeClaimQuotaUsage(claim) : laneQuotaUsage;

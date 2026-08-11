@@ -52,6 +52,18 @@ retry, and fresh-process reopen. This is shard-local evidence; production
 Profile/Admission authority and Broker handoff certification remain release
 gates.
 
+Claim rollback now uses the Claim's retained `sourceTimelineWork` as the
+replay-stable timeline projection whenever a `CLAIMED` message returns to
+`SCHEDULED`. Lane Pause/Close and capacity-gated `PUBLISH_ADMISSION` share the
+same checked restore helper as explicit `revokeClaim`, preserving the pinned
+`actionAt`, retry gate, work kind, candidate attempt and uncertain-retry
+authority even when the current Worker has no Profile Catalog or resolver.
+The helper rejects a source-work/key/retry-gate mismatch before the batch, and
+legacy Claims without a source projection retain only their documented
+compatibility fallback. `DelayShardTest.sourceOrderedLanePauseRestoresClaimPinnedActionAtWithoutResolver`
+covers the early-action Pause path; real Owner/Lane control authority and
+cross-process replay remain release gates.
+
 The certified early-Pulsar handoff projection now has a narrow evidence-binding
 fence: before a verified `PULSAR_SEND_ACK` can project local `HANDED_OFF`, its
 target resource, physical partition and prepared hash must match the retained

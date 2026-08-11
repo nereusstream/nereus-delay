@@ -258,6 +258,18 @@ which verifies the early-action value through uncertain retry and fresh-process
 reopen. This is local state-projection evidence, not production
 Profile/Admission or Broker handoff authority.
 
+The Claim rollback audit now covers every local path that reconstructs a
+timeline after `CLAIMED`: explicit revoke, source-ordered Lane Pause/Close and
+capacity-gated Admission all restore the canonical `sourceTimelineWork`
+retained by the Claim. This keeps an early `actionAt` and retry eligibility
+stable without depending on a process-local resolver/catalog, while source
+work kind, encoded key and retry gate are checked before persistence. The
+focused regression is
+`DelayShardTest.sourceOrderedLanePauseRestoresClaimPinnedActionAtWithoutResolver`;
+legacy Claims without the optional source projection remain compatibility-only.
+This is local rollback/projection evidence, not external Owner or control
+authority.
+
 The Evidence Cursor audit now treats the Pulsar Attempt Journal's
 `physicalTopic` and `physicalTopicCreationTimestamp` as part of the full
 stream identity. `EvidenceCursorV1.sameIdentity` and `dominates` reject a

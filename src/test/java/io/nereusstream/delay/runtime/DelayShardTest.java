@@ -2192,6 +2192,74 @@ class DelayShardTest {
     }
 
     @Test
+    void sourceOrderedLanePauseRestoresClaimPinnedActionAtWithoutResolver() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("lane-control-action-at"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 90);
+        final byte[] tuple = Bytes.utf8("source-ordered-lane-control-action-at");
+        final DestinationLaneId lane = DestinationLaneId.derive(tuple);
+        final ProfileRefV1 profile = new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 94),
+                ProfileKindV1.DESTINATION);
+        final ScheduleIntentV1 intent = ScheduleIntentV1.create(profile,
+                new io.nereusstream.delay.protocol.RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 95)),
+                2_000, 5_000, io.nereusstream.delay.protocol.DeliveryMode.MANAGED,
+                OrderingMode.BEST_EFFORT, Bytes.utf8("ordering"), Bytes.utf8("lane-control-action-at"), null,
+                io.nereusstream.delay.protocol.AdapterMetadataV1.kafka(
+                        new io.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())), null, null);
+        final PreparedCommand schedule = PreparedCommand.scheduleV1(shardId, intent, 9_000);
+        final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
+        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+            @Override
+            public ResolvedSchedule resolveSchedule(final ShardId shard, final DelayMessageId messageId,
+                                                     final ScheduleIntentV1 scheduleIntent,
+                                                     final SourcePosition source) {
+                return new ResolvedSchedule(lane, tuple, scheduleIntent.inlinePayload(), null, 1_500L);
+            }
+
+            @Override
+            public ResolvedPrepare resolvePrepare(final ShardId shard, final DelayMessageId messageId,
+                                                  final PrepareLargeScheduleBodyV1 body,
+                                                  final SourcePosition source) {
+                return new ResolvedPrepare(lane, tuple);
+            }
+        };
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final AuthorIdentity owner = AuthorIdentity.owner(Bytes.utf8("lane-control-action-at-deployment"),
+                Bytes.utf8("lane-control-action-at-worker"), 7,
+                Bytes.sha256(Bytes.utf8("lane-control-action-at-fence")));
+        final AuthorIdentity control = AuthorIdentity.control(Bytes.sha256(Bytes.utf8("lane-control-action-at-actor")),
+                Bytes.sha256(Bytes.utf8("lane-control-action-at-roles")),
+                Bytes.sha256(Bytes.utf8("lane-control-action-at-scope")));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver);
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, schedulePosition).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final ClaimRecord claim = shard.claimForPublish(schedule.delayMessageId(), owner, 2_500,
+                    new byte[0], chargeVector());
+
+            final LaneRecord beforePause = shard.getLane(lane);
+            final ControlRef pauseRef = new ControlRef(Bytes.sha256(Bytes.utf8("lane-control-action-at-pause-op")),
+                    Bytes.sha256(Bytes.utf8("lane-control-action-at-pause-request")), 1);
+            final byte[] pauseBody = applyShardControlBody(shardId, pauseRef, 8, lane,
+                    beforePause.laneIncarnation(), beforePause.laneControlVersion());
+            final SystemMutation pause = SystemMutation.signed(shardId, SystemMutationType.APPLY_SHARD_CONTROL,
+                    9_000, pauseRef.logicalOperationIdentity(8), pauseBody, control.canonicalBytes(), 1,
+                    keyPair.getPrivate());
+            assertEquals(StableCode.OK, shard.applySystemMutation(pause,
+                    position(shardId, 1, 1_001), keyPair.getPublic()).stableCode());
+
+            final MessageRecord restored = shard.getMessage(schedule.delayMessageId());
+            assertEquals(MessageStatus.SCHEDULED, restored.status());
+            assertEquals(1_500, restored.retryEligibilityAtEpochMs());
+            assertEquals(1_500, restored.runtimeIndex().timeline().actionAtEpochMs());
+            assertArrayEquals(claim.timelineKey(), restored.runtimeIndex().timeline().encodedTimelineKey());
+            assertArrayEquals(KeyCodec.timelineDue(lane, 1_500, schedulePosition.sourceOrderToken(),
+                    schedule.delayMessageId(), 0), restored.runtimeIndex().timeline().encodedTimelineKey());
+        }
+    }
+
+    @Test
     void configuredControlRegistrationRejectsUnregisteredMarkerBeforeHandler() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("unregistered-control-marker"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 66);
