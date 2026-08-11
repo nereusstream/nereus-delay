@@ -23,7 +23,7 @@ import java.util.Objects;
  */
 public final class CheckpointUploadCoordinator {
     private final SharedRocksDbResources resources;
-    private final CheckpointUploadIntentStore intentStore;
+    private final CheckpointUploadIntentAuthority intentStore;
     private final CheckpointManifestLimits limits;
 
     public CheckpointUploadCoordinator(final SharedRocksDbResources resources,
@@ -31,9 +31,22 @@ public final class CheckpointUploadCoordinator {
         this(resources, intentStore, CheckpointManifestLimits.unbounded());
     }
 
+    /** Creates a coordinator over any exact upload-intent CAS authority. */
+    public CheckpointUploadCoordinator(final SharedRocksDbResources resources,
+                                       final CheckpointUploadIntentAuthority intentStore) {
+        this(resources, intentStore, CheckpointManifestLimits.unbounded());
+    }
+
     /** Creates an upload coordinator with explicit finite inventory limits. */
     public CheckpointUploadCoordinator(final SharedRocksDbResources resources,
                                        final CheckpointUploadIntentStore intentStore,
+                                       final CheckpointManifestLimits limits) {
+        this(resources, (CheckpointUploadIntentAuthority) intentStore, limits);
+    }
+
+    /** Creates an upload coordinator with explicit finite inventory limits. */
+    public CheckpointUploadCoordinator(final SharedRocksDbResources resources,
+                                       final CheckpointUploadIntentAuthority intentStore,
                                        final CheckpointManifestLimits limits) {
         this.resources = Objects.requireNonNull(resources, "resources");
         this.intentStore = Objects.requireNonNull(intentStore, "intentStore");
@@ -68,7 +81,7 @@ public final class CheckpointUploadCoordinator {
         if (nowEpochMs >= pending.uploadDeadlineEpochMs()) {
             throw new IllegalStateException("checkpoint upload intent deadline has expired");
         }
-        final var current = intentStore.current();
+        final var current = intentStore.current(pending);
         if (current.isEmpty() || !current.orElseThrow().equals(pending)) {
             throw new IllegalStateException("checkpoint upload intent is not the current exact pending value");
         }

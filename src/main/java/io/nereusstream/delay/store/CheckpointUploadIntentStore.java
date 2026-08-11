@@ -28,7 +28,7 @@ import java.util.Optional;
  * semantics for local tests and embedded orchestration; it does not upload,
  * publish, delete or attest an Object Store object.</p>
  */
-public final class CheckpointUploadIntentStore {
+public final class CheckpointUploadIntentStore implements CheckpointUploadIntentAuthority {
     private static final int MAGIC = 0x4E435549; // N C U I
     private static final int FORMAT_VERSION = 1;
     private static final int HEADER_LENGTH = Integer.BYTES * 3;
@@ -175,6 +175,15 @@ public final class CheckpointUploadIntentStore {
     /** Returns the current local projection, if an intent has been created. */
     public synchronized Optional<CheckpointUploadIntentV1> current() {
         return withExclusiveLock(() -> Optional.ofNullable(readCurrent()));
+    }
+
+    @Override
+    public synchronized Optional<CheckpointUploadIntentV1> current(final CheckpointUploadIntentV1 identity) {
+        Objects.requireNonNull(identity, "identity");
+        return withExclusiveLock(() -> {
+            final CheckpointUploadIntentV1 existing = readCurrent();
+            return existing == null || !existing.equals(identity) ? Optional.empty() : Optional.of(existing);
+        });
     }
 
     private void requireExpectedPending(final CheckpointUploadIntentV1 expectedPending,

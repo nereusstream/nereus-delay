@@ -1462,6 +1462,15 @@ idempotency 与本地 PENDING_UPLOAD -> PUBLISHED/REAPING revision CAS 投影。
 directory-fsync 的 state file，并用 JVM/on-disk lock 保护跨实例 CAS；重启、
 exact PUBLISHED reread 和损坏状态 fail-closed 已由
 `CheckpointUploadIntentStoreTest` 覆盖。无参构造仍只是内存 projection。
+`CheckpointUploadIntentAuthority` 现在把 local store、upload coordinator 与
+`OxiaSyncCheckpointUploadIntentBackend` 统一到同一 value-transition surface；
+后者以 shard/checkpoint identity 为 key，把完整 intent 放进一个 canonical
+Oxia record，用 version CAS 完成 PENDING_UPLOAD -> PUBLISHED/REAPING，并在
+response loss 后只接受 exact successor reread。`OxiaSyncCheckpointUploadIntentBackendTest`
+覆盖 pending/published/reaping、deadline、reopen、corruption 和 response-loss。
+这闭合的是 per-intent durable CAS，不等于 Owner Lease/session、catalog
+publication、Object Store attestation、owner-abandonment 或 reaping/quiescence
+的跨 record authority。
 `PersistentRecoveryCatalog(Path)` 现在把同一 shard 的已发布 manifest、immutable
 manifest-object identity、scalar/typed Floor 和 active Recovery Pin 保存为排序的
 canonical snapshot，并用 checksum、临时文件、atomic rename、directory fsync 与
