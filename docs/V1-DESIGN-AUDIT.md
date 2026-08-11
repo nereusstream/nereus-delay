@@ -3095,6 +3095,20 @@ rejoins the ring. The one-visit starvation regression is
 This is local scheduler evidence only; placement and Owner/Oxia authority
 remain release gates.
 
+`WorkerScheduler.poll` now also rolls back the complete bounded outer turn:
+the snapshot covers the outer ring/cursor, Shard deficit and round/recovery
+state, and every registered shard's inner scheduler counters; heads removed by
+the turn are requeued in reverse order. If a later local clock, selection or
+checked-arithmetic check fails after an inner head has been removed, the exact
+two-level FIFO/fairness projection is restored before the exception is returned.
+The focused evidence is
+`WorkerSchedulerTest.clockFailureAfterAHeadWasSelectedRollsBackTheWholeWorkerPoll`.
+`LaneScheduler.poll` independently restores its removed heads and inner
+counters before propagating an exception, so an outer caller never relies on a
+partially returned inner list for correctness.
+This closes a local process-state loss path only; it does not replace Trusted
+UTC, Owner/Oxia fencing or production placement evidence.
+
 The process-local scheduler now mirrors that graph: `markReady` cannot bypass
 `RECOVERING_EVIDENCE`, and `PersistentLaneScheduler` rolls back the exact
 readiness enum after a failed projection write instead of restoring only a

@@ -10,6 +10,7 @@ import io.nereusstream.delay.runtime.RuntimeReadiness;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -170,6 +171,35 @@ class WorkerSchedulerTest {
         worker.offer(new ScheduleWorkItem(smallLane, DelayMessageId.random(smallShard), 2, 1_001, 1));
         assertEquals(List.of(smallLane), worker.poll(1_001, budget).stream()
                 .map(ScheduleWorkItem::laneId).toList());
+    }
+
+    @Test
+    void clockFailureAfterAHeadWasSelectedRollsBackTheWholeWorkerPoll() {
+        final AtomicInteger calls = new AtomicInteger();
+        final WorkerScheduler worker = new WorkerScheduler(10, 4, () -> {
+            if (calls.incrementAndGet() <= 3) {
+                return 0;
+            }
+            throw new IllegalStateException("worker clock failure");
+        });
+        final ShardId shard = shard(34);
+        final DestinationLaneId lane = lane(34);
+        final LaneScheduler laneScheduler = LaneScheduler.defaults();
+        worker.registerShard(shard, 1, laneScheduler);
+        worker.registerLane(shard, laneRecord(lane));
+        final ScheduleWorkItem first = item(shard, lane, 1);
+        worker.offer(first);
+        worker.offer(item(shard, lane, 2));
+        final WorkerScheduler.WorkerSnapshot workerBefore = worker.snapshot();
+        final LaneScheduler.SchedulerSnapshot laneBefore = laneScheduler.snapshot();
+
+        assertThrows(IllegalStateException.class,
+                () -> worker.poll(new SchedulerBudget(10, 100, 1_000_000_000)));
+
+        assertEquals(workerBefore, worker.snapshot());
+        assertEquals(laneBefore, laneScheduler.snapshot());
+        assertEquals(2, laneScheduler.pendingItems(lane));
+        assertEquals(first, laneScheduler.pendingHead(lane));
     }
 
     @Test

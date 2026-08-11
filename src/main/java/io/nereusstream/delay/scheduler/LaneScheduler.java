@@ -121,6 +121,7 @@ public final class LaneScheduler {
                                                 final boolean onePerLane,
                                                 final long dueThroughEpochMs) {
         Objects.requireNonNull(budget, "budget");
+        final SchedulerSnapshot before = snapshot();
         final long started = System.nanoTime();
         final List<ScheduleWorkItem> result = new ArrayList<>();
         final Set<DestinationLaneId> servedThisPoll = new HashSet<>();
@@ -130,38 +131,47 @@ public final class LaneScheduler {
         if (ringSize == 0) {
             return result;
         }
-        final long ringVisitLimit = boundedRingVisitLimit(ringSize);
-        while (visits < ringVisitLimit && result.size() < Math.min(maxVisitMessages, budget.maxMessages())
-                && bytes < budget.maxBytes() && System.nanoTime() - started < budget.maxElapsedNanos()) {
-            final DestinationLaneId id = ring.get(cursor % ringSize);
-            cursor = (cursor + 1) % ringSize;
-            visits++;
-            if (excludedLanes.contains(id) || (onePerLane && !servedThisPoll.add(id))) {
-                continue;
+        try {
+            final long ringVisitLimit = boundedRingVisitLimit(ringSize);
+            while (visits < ringVisitLimit && result.size() < Math.min(maxVisitMessages, budget.maxMessages())
+                    && bytes < budget.maxBytes() && System.nanoTime() - started < budget.maxElapsedNanos()) {
+                final DestinationLaneId id = ring.get(cursor % ringSize);
+                cursor = (cursor + 1) % ringSize;
+                visits++;
+                if (excludedLanes.contains(id) || (onePerLane && !servedThisPoll.add(id))) {
+                    continue;
+                }
+                final LaneQueue lane = lanes.get(id);
+                if (lane == null || !lane.schedulable() || lane.queue.isEmpty()) {
+                    servedThisPoll.remove(id);
+                    continue;
+                }
+                final ScheduleWorkItem head = lane.queue.peekFirst();
+                if (head.eligibleAtEpochMs() > dueThroughEpochMs) {
+                    continue;
+                }
+                final long increment = checkedWeightIncrement(lane.weight);
+                lane.deficit = Math.min(saturatingAdd(lane.deficit, increment),
+                        Math.max(maxDeficitBytes, head.accountedBytes()));
+                if (head.accountedBytes() > lane.deficit || head.accountedBytes() > budget.maxBytes() - bytes) {
+                    continue;
+                }
+                lane.queue.removeFirst();
+                lane.deficit -= head.accountedBytes();
+                roundGeneration = nextRoundGeneration(roundGeneration);
+                lane.lastServedRound = roundGeneration;
+                result.add(head);
+                bytes = Math.addExact(bytes, head.accountedBytes());
             }
-            final LaneQueue lane = lanes.get(id);
-            if (lane == null || !lane.schedulable() || lane.queue.isEmpty()) {
-                servedThisPoll.remove(id);
-                continue;
+            return List.copyOf(result);
+        } catch (RuntimeException | Error failure) {
+            for (int index = result.size() - 1; index >= 0; index--) {
+                final ScheduleWorkItem item = result.get(index);
+                requireLane(item.laneId()).queue.addFirst(item);
             }
-            final ScheduleWorkItem head = lane.queue.peekFirst();
-            if (head.eligibleAtEpochMs() > dueThroughEpochMs) {
-                continue;
-            }
-            final long increment = checkedWeightIncrement(lane.weight);
-            lane.deficit = Math.min(saturatingAdd(lane.deficit, increment),
-                    Math.max(maxDeficitBytes, head.accountedBytes()));
-            if (head.accountedBytes() > lane.deficit || head.accountedBytes() > budget.maxBytes() - bytes) {
-                continue;
-            }
-            lane.queue.removeFirst();
-            lane.deficit -= head.accountedBytes();
-            roundGeneration = nextRoundGeneration(roundGeneration);
-            lane.lastServedRound = roundGeneration;
-            result.add(head);
-            bytes = Math.addExact(bytes, head.accountedBytes());
+            restore(before);
+            throw failure;
         }
-        return result;
     }
 
     private static void requireDueThrough(final long dueThroughEpochMs) {

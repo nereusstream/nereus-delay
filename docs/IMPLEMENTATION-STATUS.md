@@ -3276,6 +3276,20 @@ budget instead of merely skipping a blocked entry after spending a visit on it.
 `WorkerSchedulerTest.blockedShardLeavesOuterRingBeforeAOneVisitBudgetCanStarveHealthyWork`
 covers the fairness boundary. Placement/ownership authority remains external.
 
+`WorkerScheduler.poll` now treats the complete bounded outer turn as one local
+mutation boundary. Its pre-poll snapshot includes the outer ring/cursor,
+Shard fairness counters and recovery-first-pass set plus every registered
+shard's inner scheduler counters, while the heads removed during this turn are
+requeued in reverse order on failure. If a later local clock, selection or
+checked-arithmetic failure occurs after an inner head was removed, the exact
+two-level projection is restored before the exception is rethrown; the caller
+never observes a partially returned result. The regression is
+`WorkerSchedulerTest.clockFailureAfterAHeadWasSelectedRollsBackTheWholeWorkerPoll`.
+`LaneScheduler.poll` itself applies the same lightweight rollback to its own
+removed heads and inner counters before propagating an exception.
+This is elapsed-time/process-state evidence only and does not provide Trusted
+UTC, Owner or Oxia authority.
+
 Shared Worker resource teardown now treats runtime-monitor shutdown as a
 retryable close item rather than an escape hatch: if either monitor reports a
 runtime failure, the shared RateLimiter, WriteBufferManager, block cache and

@@ -1756,6 +1756,19 @@ preemption-debt projection，再把原异常返回；不能因为异常发生在
 之后就丢失该 task，调用方也不能拿到一个未返回的部分结果。时钟的 monotonic
 high-water 可以保留为保守观测，但不能把未返回的 poll 记成已服务。
 
+Worker 外层 bounded poll 也必须是一个完整的进程内 mutation boundary：它除了外层
+ring、cursor、Shard deficit、last-served、round generation 与 recovery-first-pass
+集合，还必须保存每个已注册 shard 的 inner cursor、inner deficit 和 inner round
+snapshot，并记录本轮实际取出的 heads。若首个或后续 shard 的 Lane head 已被
+inner poll 取出，而下一次本地时钟、selection 或 checked arithmetic 检查失败，必须
+按取出顺序逆序把这些 heads 放回对应 Lane FIFO，再恢复两级公平计数和外层 ring；
+不能把一个没有返回给调用方的 shard work 当成已服务。`WorkerSchedulerTest`
+`clockFailureAfterAHeadWasSelectedRollsBackTheWholeWorkerPoll` 是该本地回归证据。
+`LaneScheduler` 的 inner poll 也会在自身异常时按同一逆序规则恢复已取出的
+Lane heads 和 inner counters，避免外层无法获得返回列表时出现局部丢失。
+这里的 clock 只用于 bounded elapsed-time guard；它不替代 Trusted UTC、Owner 或
+Oxia authority。
+
 READY recovery 的全量 queue replacement 也必须先验证并组装所有 item，再清理旧 queue；未知 Lane、非 schedulable Lane、null 或其它 malformed item 只能在原 projection 仍完整时 fail closed，不能留下部分重建的 FIFO。
 
 这里的 `eligible` 必须按本轮 trusted due-through 重新计算：只有存在

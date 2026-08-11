@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.LongSupplier;
 
 /**
  * Bounded outer DRR over shard-local Lane schedulers. A blocked shard only
@@ -23,6 +24,7 @@ public final class WorkerScheduler {
     private final long quantumBytes;
     private long maxDeficitBytes;
     private final int maxVisitShards;
+    private final LongSupplier clockNanos;
     private final Map<ShardId, ShardQueue> shards = new HashMap<>();
     private final List<ShardId> ring = new ArrayList<>();
     private final Set<ShardId> recoveryServed = new HashSet<>();
@@ -31,12 +33,17 @@ public final class WorkerScheduler {
     private boolean recoveryFirstPass = true;
 
     public WorkerScheduler(final long quantumBytes, final int maxVisitShards) {
+        this(quantumBytes, maxVisitShards, System::nanoTime);
+    }
+
+    WorkerScheduler(final long quantumBytes, final int maxVisitShards, final LongSupplier clockNanos) {
         if (quantumBytes <= 0 || maxVisitShards <= 0) {
             throw new IllegalArgumentException("worker scheduler limits must be positive");
         }
         this.quantumBytes = quantumBytes;
         this.maxDeficitBytes = checkedDeficitCap(quantumBytes);
         this.maxVisitShards = maxVisitShards;
+        this.clockNanos = Objects.requireNonNull(clockNanos, "clockNanos");
     }
 
     public static WorkerScheduler defaults() {
@@ -83,63 +90,136 @@ public final class WorkerScheduler {
                                                      final SchedulerBudget budget) {
         requireDueThrough(dueThroughEpochMs);
         Objects.requireNonNull(budget, "budget");
-        final long started = System.nanoTime();
+        final PollSnapshot before = pollSnapshot();
         final List<ScheduleWorkItem> result = new ArrayList<>();
-        long bytes = 0;
-        int visits = 0;
-        if (ring.isEmpty()) {
-            return result;
-        }
-        final long visitLimit = boundedVisitLimit(maxVisitShards, ring.size());
-        while (visits < visitLimit
-                && result.size() < budget.maxMessages() && bytes < budget.maxBytes()
-                && System.nanoTime() - started < budget.maxElapsedNanos()) {
-            final ShardQueue shard = shards.get(ring.get(cursor % ring.size()));
-            cursor = (cursor + 1) % ring.size();
-            visits++;
-            if (shard == null || !shard.schedulable(dueThroughEpochMs)) {
-                continue;
+        try {
+            final long started = readClock();
+            long bytes = 0;
+            int visits = 0;
+            if (ring.isEmpty()) {
+                return result;
             }
-            final boolean firstPassVisit = recoveryFirstPass;
-            final Set<ShardId> eligible = firstPassVisit
-                    ? eligibleShards(dueThroughEpochMs, budget.maxBytes()) : Set.of();
-            if (firstPassVisit && recoveryServed.contains(shard.shardId)) {
-                continue;
-            }
-            shard.deficit = Math.min(saturatingAdd(shard.deficit, checkedWeightIncrement(shard.weight)),
-                    Math.max(maxDeficitBytes, 1));
-            final long remainingBytes = budget.maxBytes() - bytes;
-            final long shardHeadBytes = shard.scheduler.minimumSchedulableHeadBytes(dueThroughEpochMs);
-            final long deficitOrHead = Math.max(shard.deficit, shardHeadBytes);
-            final long shardBudgetBytes = Math.min(remainingBytes, deficitOrHead);
-            if (shardBudgetBytes <= 0) {
-                continue;
-            }
-            final int visitMaxMessages = firstPassVisit ? 1 : budget.maxMessages() - result.size();
-            final List<ScheduleWorkItem> visit = shard.scheduler.poll(dueThroughEpochMs, new SchedulerBudget(
-                    visitMaxMessages, shardBudgetBytes,
-                    Math.max(1, budget.maxElapsedNanos() - (System.nanoTime() - started))));
-            if (visit.isEmpty()) {
-                continue;
-            }
-            long visitBytes = 0;
-            for (ScheduleWorkItem item : visit) {
-                result.add(item);
-                visitBytes = Math.addExact(visitBytes, item.accountedBytes());
-            }
-            shard.deficit = Math.max(0, shard.deficit - visitBytes);
-            roundGeneration = nextRoundGeneration(roundGeneration);
-            shard.lastServedRound = roundGeneration;
-            bytes = Math.addExact(bytes, visitBytes);
-            if (firstPassVisit) {
-                recoveryServed.add(shard.shardId);
-                if (recoveryServed.containsAll(eligibleShards(dueThroughEpochMs, budget.maxBytes()))) {
-                    recoveryFirstPass = false;
-                    recoveryServed.clear();
+            final long visitLimit = boundedVisitLimit(maxVisitShards, ring.size());
+            while (visits < visitLimit
+                    && result.size() < budget.maxMessages() && bytes < budget.maxBytes()
+                    && elapsedSince(started, readClock()) < budget.maxElapsedNanos()) {
+                final ShardQueue shard = shards.get(ring.get(cursor % ring.size()));
+                cursor = (cursor + 1) % ring.size();
+                visits++;
+                if (shard == null || !shard.schedulable(dueThroughEpochMs)) {
+                    continue;
+                }
+                final boolean firstPassVisit = recoveryFirstPass;
+                final Set<ShardId> eligible = firstPassVisit
+                        ? eligibleShards(dueThroughEpochMs, budget.maxBytes()) : Set.of();
+                if (firstPassVisit && recoveryServed.contains(shard.shardId)) {
+                    continue;
+                }
+                shard.deficit = Math.min(saturatingAdd(shard.deficit, checkedWeightIncrement(shard.weight)),
+                        Math.max(maxDeficitBytes, 1));
+                final long remainingBytes = budget.maxBytes() - bytes;
+                final long shardHeadBytes = shard.scheduler.minimumSchedulableHeadBytes(dueThroughEpochMs);
+                final long deficitOrHead = Math.max(shard.deficit, shardHeadBytes);
+                final long shardBudgetBytes = Math.min(remainingBytes, deficitOrHead);
+                if (shardBudgetBytes <= 0) {
+                    continue;
+                }
+                final int visitMaxMessages = firstPassVisit ? 1 : budget.maxMessages() - result.size();
+                final long elapsed = elapsedSince(started, readClock());
+                final List<ScheduleWorkItem> visit = shard.scheduler.poll(dueThroughEpochMs, new SchedulerBudget(
+                        visitMaxMessages, shardBudgetBytes,
+                        Math.max(1, budget.maxElapsedNanos() - elapsed)));
+                if (visit.isEmpty()) {
+                    continue;
+                }
+                long visitBytes = 0;
+                for (ScheduleWorkItem item : visit) {
+                    result.add(item);
+                    visitBytes = Math.addExact(visitBytes, item.accountedBytes());
+                }
+                shard.deficit = Math.max(0, shard.deficit - visitBytes);
+                roundGeneration = nextRoundGeneration(roundGeneration);
+                shard.lastServedRound = roundGeneration;
+                bytes = Math.addExact(bytes, visitBytes);
+                if (firstPassVisit) {
+                    recoveryServed.add(shard.shardId);
+                    if (recoveryServed.containsAll(eligibleShards(dueThroughEpochMs, budget.maxBytes()))) {
+                        recoveryFirstPass = false;
+                        recoveryServed.clear();
+                    }
                 }
             }
+            return result;
+        } catch (RuntimeException | Error failure) {
+            // A bounded outer poll is one process-state mutation boundary. If
+            // a later clock, arithmetic, or Lane poll check fails after a
+            // shard head was removed, restore every inner queue and both
+            // fairness projections before rethrowing. The caller receives no
+            // partially consumed result list.
+            try {
+                restorePollSnapshot(before, result);
+            } catch (RuntimeException | Error restoreFailure) {
+                failure.addSuppressed(restoreFailure);
+            }
+            throw failure;
         }
-        return result;
+    }
+
+    private long readClock() {
+        return clockNanos.getAsLong();
+    }
+
+    private static long elapsedSince(final long started, final long now) {
+        try {
+            return Math.subtractExact(now, started);
+        } catch (ArithmeticException overflow) {
+            return Long.MAX_VALUE;
+        }
+    }
+
+    private PollSnapshot pollSnapshot() {
+        final Map<ShardId, ShardPollSnapshot> shardSnapshots = new HashMap<>();
+        for (Map.Entry<ShardId, ShardQueue> entry : shards.entrySet()) {
+            final ShardQueue shard = entry.getValue();
+            shardSnapshots.put(entry.getKey(), new ShardPollSnapshot(shard.scheduler.snapshot(),
+                    shard.deficit, shard.lastServedRound, shard.blocked));
+        }
+        return new PollSnapshot(List.copyOf(ring), cursor, roundGeneration, recoveryFirstPass,
+                Set.copyOf(recoveryServed), Map.copyOf(shardSnapshots));
+    }
+
+    private void restorePollSnapshot(final PollSnapshot snapshot, final List<ScheduleWorkItem> consumed) {
+        if (!shards.keySet().equals(snapshot.shards().keySet())) {
+            throw new IllegalStateException("worker scheduler registration changed during poll");
+        }
+        for (int index = consumed.size() - 1; index >= 0; index--) {
+            final ScheduleWorkItem item = consumed.get(index);
+            final ShardId shardId = item.messageId().routingId().shardId();
+            final ShardQueue shard = shards.get(shardId);
+            if (shard == null) {
+                throw new IllegalStateException("worker scheduler shard disappeared during poll");
+            }
+            shard.scheduler.requeueFirst(item);
+        }
+        for (Map.Entry<ShardId, ShardPollSnapshot> entry : snapshot.shards().entrySet()) {
+            final ShardQueue shard = shards.get(entry.getKey());
+            final ShardPollSnapshot saved = entry.getValue();
+            shard.scheduler.restore(saved.scheduler());
+        }
+        ring.clear();
+        ring.addAll(snapshot.ring());
+        cursor = snapshot.cursor();
+        roundGeneration = snapshot.roundGeneration();
+        recoveryFirstPass = snapshot.recoveryFirstPass();
+        recoveryServed.clear();
+        recoveryServed.addAll(snapshot.recoveryServed());
+        for (Map.Entry<ShardId, ShardPollSnapshot> entry : snapshot.shards().entrySet()) {
+            final ShardQueue shard = shards.get(entry.getKey());
+            final ShardPollSnapshot saved = entry.getValue();
+            shard.deficit = saved.deficit();
+            shard.lastServedRound = saved.lastServedRound();
+            shard.blocked = saved.blocked();
+        }
     }
 
     private static void requireDueThrough(final long dueThroughEpochMs) {
@@ -357,6 +437,15 @@ public final class WorkerScheduler {
                 throw new IllegalArgumentException("invalid shard scheduler snapshot");
             }
         }
+    }
+
+    private record PollSnapshot(List<ShardId> ring, int cursor, long roundGeneration,
+                                boolean recoveryFirstPass, Set<ShardId> recoveryServed,
+                                Map<ShardId, ShardPollSnapshot> shards) {
+    }
+
+    private record ShardPollSnapshot(LaneScheduler.SchedulerSnapshot scheduler,
+                                     long deficit, long lastServedRound, boolean blocked) {
     }
 
     private static final class ShardQueue {
