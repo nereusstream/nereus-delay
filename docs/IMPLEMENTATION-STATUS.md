@@ -25,6 +25,12 @@ guarded send evidence required by V1.  These source inspections keep the
 Kafka/Pulsar rows below as release blockers until concrete pinned transports
 and real-broker evidence are added.
 
+After the terminal-Lane reservation/Commit fix (`c619b38`), the repository
+verification command `./gradlew clean check --rerun-tasks --console=plain`
+passed on 2026-08-12. The five opt-in real-Oxia methods remained skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was not configured; this local PASS does not close
+the real-service, transport, Object Store, chaos or benchmark release gates.
+
 The local `TIME_FENCE_V1` apply path now carries an explicit
 `DelayShardConfig.timeFenceSafetyMarginMs` input and checks the Trusted-UTC
 proof with checked addition before advancing the ingress watermark. A proof one
