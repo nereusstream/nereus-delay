@@ -85,7 +85,7 @@ public final class ResourceGcGuard {
         final Optional<RecoveryFloor> currentFloor;
         try {
             currentFloor = Objects.requireNonNull(catalog.currentFloor(), "currentFloor");
-        } catch (RuntimeException exception) {
+        } catch (RuntimeException | Error exception) {
             return Decision.FLOOR_SOURCE_OR_SEQUENCE_NOT_COVERING;
         }
         final Decision scalar = evaluate(intent, confirmation, currentFloor.orElse(null));
@@ -112,7 +112,7 @@ public final class ResourceGcGuard {
                     .isPresent()
                     ? Decision.SOURCE_AND_SEQUENCE_COVERED
                     : Decision.FLOOR_SOURCE_OR_SEQUENCE_NOT_COVERING;
-        } catch (RuntimeException exception) {
+        } catch (RuntimeException | Error exception) {
             return Decision.FLOOR_SOURCE_OR_SEQUENCE_NOT_COVERING;
         }
     }
@@ -132,7 +132,7 @@ public final class ResourceGcGuard {
         final Optional<RecoveryPinV1> active;
         try {
             active = Objects.requireNonNull(catalog.activeRecoveryPin(), "activeRecoveryPin");
-        } catch (RuntimeException exception) {
+        } catch (RuntimeException | Error exception) {
             return Decision.RECOVERY_PIN_STATE_UNAVAILABLE;
         }
         if (active.isPresent() && checkpointIdentityMatchesPin(intent.resourceIdentity(), active.orElseThrow())) {

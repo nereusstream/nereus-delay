@@ -33,6 +33,22 @@ class CheckpointReapingGuardTest {
     }
 
     @Test
+    void failsClosedWhenCatalogReadThrowsFatalError() {
+        final CheckpointUploadIntentV1 pending = pending();
+        assertEquals(CheckpointReapingGuard.Decision.CATALOG_STATE_UNAVAILABLE,
+                CheckpointReapingGuard.evaluate(pending, evidence(5_000),
+                        authority(null, new AssertionError("catalog read failed fatally"))));
+    }
+
+    @Test
+    void failsClosedWhenRecoveryPinReadThrowsFatalError() {
+        final CheckpointUploadIntentV1 pending = pending();
+        assertEquals(CheckpointReapingGuard.Decision.RECOVERY_PIN_STATE_UNAVAILABLE,
+                CheckpointReapingGuard.evaluate(pending, evidence(5_000),
+                        authority(null, null, new AssertionError("pin read failed fatally"))));
+    }
+
+    @Test
     void activeRecoveryPinBlocksReapingAndUnpinnedCatalogAllowsIt() {
         final CheckpointUploadIntentV1 pending = pending();
         final RecoveryPinV1 pin = pin(pending);
@@ -76,6 +92,16 @@ class CheckpointReapingGuardTest {
     }
 
     private static RecoveryCatalogAuthority authority(final RecoveryPinV1 pin, final boolean failCatalog) {
+        return authority(pin, failCatalog
+                ? new IllegalStateException("catalog read unavailable") : null, null);
+    }
+
+    private static RecoveryCatalogAuthority authority(final RecoveryPinV1 pin, final Throwable catalogFailure) {
+        return authority(pin, catalogFailure, null);
+    }
+
+    private static RecoveryCatalogAuthority authority(final RecoveryPinV1 pin, final Throwable catalogFailure,
+                                                      final Throwable pinFailure) {
         return new RecoveryCatalogAuthority() {
             @Override
             public RecoveryCatalog.Publication publish(final CheckpointManifest manifest,
@@ -91,8 +117,8 @@ class CheckpointReapingGuardTest {
 
             @Override
             public Optional<CheckpointManifest> manifest(final byte[] checkpointId) {
-                if (failCatalog) {
-                    throw new IllegalStateException("catalog read unavailable");
+                if (catalogFailure != null) {
+                    throwUnchecked(catalogFailure);
                 }
                 return Optional.empty();
             }
@@ -116,9 +142,22 @@ class CheckpointReapingGuardTest {
 
             @Override
             public Optional<RecoveryPinV1> activeRecoveryPin() {
+                if (pinFailure != null) {
+                    throwUnchecked(pinFailure);
+                }
                 return Optional.ofNullable(pin);
             }
         };
+    }
+
+    private static void throwUnchecked(final Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error errorFailure) {
+            throw errorFailure;
+        }
+        throw new AssertionError("unexpected test failure type", failure);
     }
 
     private static TrustedUtcIntervalEvidence evidence(final long time) {

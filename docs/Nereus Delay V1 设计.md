@@ -2290,7 +2290,7 @@ then compact completion tombstone
 protection set、applied mutation sequence 和 applied Source Position；只比较 mutation
 identity/resource hash/version 的字段子集不足以授权 tombstone compaction。
 
-删除 payload 还要求无 active read/publish、Dead Letter replay deadline 已由 TIME_FENCE 关闭，并且所有 DLQ Export obligation 已成为 `PUBLISHED` 或由闭合 policy 证明的 `FAILED_PERMANENT`。V1 没有无 mutation 来源的手工 `ABANDONED` 捷径。DLQ outbox 固定 canonical export envelope；若 envelope 引用 payload/object/binding，则 terminal、exact bytes/reference 和 charge 全部保留到 export completion mutation 被 descendant Floor 包含。终态只释放 active backlog quota；physical retained bytes 到实际 GC 后才释放。
+删除 payload 还要求无 active read/publish、Dead Letter replay deadline 已由 TIME_FENCE 关闭，并且所有 DLQ Export obligation 已成为 `PUBLISHED` 或由闭合 policy 证明的 `FAILED_PERMANENT`。V1 没有无 mutation 来源的手工 `ABANDONED` 捷径。DLQ outbox 固定 canonical export envelope；若 envelope 引用 payload/object/binding，则 terminal、exact bytes/reference 和 charge 全部保留到 export completion mutation 被 descendant Floor 包含。终态只释放 active backlog quota；physical retained bytes 到实际 GC 后才释放。GC 对 catalog/Floor/Recovery Pin 的读取若返回异常（含 fatal `Error`）也必须 fail closed，不得把异常当作“没有保护”。
 
 取消、Close 或过期一个 `PAYLOAD_RESERVED` 不会立即使已签发 upload handle 失效于 Object Store。Reservation tombstone、object-byte quota 与 GC task 至少保留到 `closedIngressDeadlineThrough >= uploadDeadline`，再等待配置的 upload credential/request quiescence horizon、abort exact multipart upload，并做最后一次 exact version-aware HEAD/delete。只有该 `RESOURCE_DELETE_CONFIRMED_V1` 被应用后才结束；`HEAD not found` 后到达的旧 PUT 不能成为无主对象。
 
@@ -2454,7 +2454,7 @@ CAS，或 Object Store 的上传、quiescence、attestation 和删除 authority�
 6. 单个 Oxia transaction/CAS 比较 intent state/revision/token、Owner Lease/session、lineage head 与 base catalog，做 `PENDING_UPLOAD -> PUBLISHED` 并把 exact manifest object identity/version/length/hash 加入 Recovery Set；reaper 只能竞争 `PENDING_UPLOAD -> REAPING`，两者互斥。
 7. CAS response loss 用 exact checkpoint ID/token reread；只有与最终 manifest byte-equal 的 `PUBLISHED` 是成功。
 
-上传未 catalog publish 的对象不是 recovery state，只是 orphan candidate。只有赢得 `REAPING` CAS 的 reaper 才可删除；仅 upload deadline 到达、callback 丢失或 watch 缺失都不够。旧 Owner 主动 abandon，或其 exact Owner Lease/session 已不再 current 且 Trusted UTC 越过 deadline，才可竞争该 CAS。`REAPING` 永久禁止后来 publish；reaper 还必须等待 `checkpointUploadRequestQuiescenceHorizon`、证明旧 Owner local guard 与 provider-owned request horizon 已关闭、确认无 active `RecoveryPinV1`/`PUBLISHED` catalog protection，再对 unique checkpoint prefix 做 exact-version delete 和 final empty-prefix sweep。这样旧 SDK/provider 的 late PUT 不能在一次 `HEAD not found` 后制造无主对象。
+上传未 catalog publish 的对象不是 recovery state，只是 orphan candidate。只有赢得 `REAPING` CAS 的 reaper 才可删除；仅 upload deadline 到达、callback 丢失或 watch 缺失都不够。旧 Owner 主动 abandon，或其 exact Owner Lease/session 已不再 current 且 Trusted UTC 越过 deadline，才可竞争该 CAS。`REAPING` 永久禁止后来 publish；reaper 还必须等待 `checkpointUploadRequestQuiescenceHorizon`、证明旧 Owner local guard 与 provider-owned request horizon 已关闭、确认无 active `RecoveryPinV1`/`PUBLISHED` catalog protection，再对 unique checkpoint prefix 做 exact-version delete 和 final empty-prefix sweep。任何 catalog、Floor 或 Recovery Pin 读取异常（包括适配器/进程边界抛出的 fatal `Error`）都只能解释为保护状态不可用，必须保持 `PENDING_UPLOAD` 或保留 GC tombstone，不能继续回收。这样旧 SDK/provider 的 late PUT 不能在一次 `HEAD not found` 后制造无主对象。
 
 ### 16.3 Recovery Set / Floor
 

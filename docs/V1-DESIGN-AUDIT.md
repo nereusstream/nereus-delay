@@ -32,6 +32,18 @@ evidence is `BoundedDestinationPublishAdapterTest.fatalExecutorRejectionReleases
 Production executor admission and target ownership remain external release
 gates.
 
+The local checkpoint reaping and resource-GC guards now classify fatal `Error`
+from catalog/Floor/RecoveryPin reads the same as an unavailable authority
+response. They return the existing protection decisions and cannot authorize
+reaping or tombstone compaction after a broken read boundary. Focused evidence
+is `CheckpointReapingGuardTest.failsClosedWhenCatalogReadThrowsFatalError`,
+`CheckpointReapingGuardTest.failsClosedWhenRecoveryPinReadThrowsFatalError`,
+`ResourceGcGuardTest.checkpointGcFailsClosedWhenRecoveryFloorReadThrowsFatalError`,
+`ResourceGcGuardTest.checkpointGcFailsClosedWhenFloorCoverageThrowsFatalError`
+and `ResourceGcGuardTest.checkpointGcFailsClosedWhenRecoveryPinReadThrowsFatalError`.
+This remains local fail-closed evidence; Oxia CAS, provider ownership and
+quiescence are external release gates.
+
 The local activation path now records the current `ownerEpoch` in the
 Store's non-decreasing `lastOpenedOwnerEpoch` projection before opening the
 Command gate, for both embedded and authoritative activation. A failed
@@ -1303,7 +1315,7 @@ closed，且 evidence 的 earliest trusted time 必须达到 upload deadline；
 deadline 前的 reaper 证据不会推进状态。新增的
 `CheckpointReapingGuard` 在进入 REAPING 前还检查 published catalog
 protection 和同 lineage/checkpoint 的 active `RecoveryPinV1`；catalog/pin
-读取失败也 fail closed。该边界不等于 owner abandonment/lease-loss
+读取失败（包括 fatal `Error`）也 fail closed。该边界不等于 owner abandonment/lease-loss
 authority、quiescence、exact-version Object Store delete/final prefix sweep
 或 Oxia transaction。
 `ShardStore` 还提供 pin-aware restore overload：它在下载/暂存校验后、原子

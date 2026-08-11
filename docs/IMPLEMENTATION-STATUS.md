@@ -27,6 +27,18 @@ is `BoundedDestinationPublishAdapterTest.fatalExecutorRejectionReleasesPhysicalC
 Production executor admission and target ownership evidence remain external
 release gates.
 
+The local checkpoint reaping and resource-GC safety predicates now also treat a
+fatal `Error` while reading catalog/Floor/RecoveryPin authority as unavailable
+protection state. They return the existing fail-closed decisions instead of
+allowing a caller to interpret a broken authority boundary as safe to reap or
+compact. `CheckpointReapingGuardTest.failsClosedWhenCatalogReadThrowsFatalError`,
+`CheckpointReapingGuardTest.failsClosedWhenRecoveryPinReadThrowsFatalError`,
+`ResourceGcGuardTest.checkpointGcFailsClosedWhenRecoveryFloorReadThrowsFatalError`,
+`ResourceGcGuardTest.checkpointGcFailsClosedWhenFloorCoverageThrowsFatalError`
+and `ResourceGcGuardTest.checkpointGcFailsClosedWhenRecoveryPinReadThrowsFatalError`
+cover the local boundary. Oxia CAS, provider ownership and quiescence remain
+external release gates.
+
 The shard-local identity-reclamation seam now has an explicit compact branch:
 `DelayShard.retireMessageIdentity(...)` removes every bounded terminal
 generation and local DLQ export for a fully terminal Message in one
@@ -2245,9 +2257,10 @@ deadline leaves the intent PENDING. Owner abandonment/lease-loss authority,
 provider quiescence and deletion remain external blockers. The guarded
 `beginReaping(..., RecoveryCatalogAuthority)` overload additionally refuses a
 published catalog entry, an active pin protecting the same lineage/checkpoint,
-or an unavailable catalog/pin read; `CheckpointReapingGuardTest` covers the
-fail-closed branches. This is still a local necessary-condition projection,
-not the atomic Oxia reaper CAS or provider-owned request horizon.
+or an unavailable catalog/pin read (including a fatal `Error` from that
+authority boundary); `CheckpointReapingGuardTest` covers the fail-closed
+branches. This is still a local necessary-condition projection, not the atomic
+Oxia reaper CAS or provider-owned request horizon.
 embedded `RecoveryCatalog` now selects and validates a published floor-eligible
 ancestry before local restore. Upload-intent catalog projection also accepts
 an exact same-checkpoint/manifest/object-identity reread after publication

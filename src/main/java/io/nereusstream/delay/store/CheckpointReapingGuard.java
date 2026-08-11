@@ -47,13 +47,13 @@ public final class CheckpointReapingGuard {
             if (catalog.manifest(pending.checkpointId()).isPresent()) {
                 return Decision.PUBLISHED_CATALOG_PROTECTION;
             }
-        } catch (RuntimeException exception) {
+        } catch (RuntimeException | Error exception) {
             return Decision.CATALOG_STATE_UNAVAILABLE;
         }
         final Optional<RecoveryPinV1> active;
         try {
             active = Objects.requireNonNull(catalog.activeRecoveryPin(), "activeRecoveryPin");
-        } catch (RuntimeException exception) {
+        } catch (RuntimeException | Error exception) {
             return Decision.RECOVERY_PIN_STATE_UNAVAILABLE;
         }
         if (active.isPresent() && protectsPending(active.orElseThrow(), pending)) {
