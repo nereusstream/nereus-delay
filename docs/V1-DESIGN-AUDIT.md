@@ -52,6 +52,13 @@ entries address the same immutable object. The focused regressions are
 `CheckpointManifestTest.checksumWithConflictingLengthsIsRejectedButSameLengthReuseIsAllowed`;
 provider upload/attestation and catalog publication remain external gates.
 
+The checkpoint inventory audit now binds length and SHA-256 to one
+`NOFOLLOW_LINKS` file channel instead of checking a path and reopening it for
+the hash. A path replacement cannot redirect the checksum read to a symlink,
+and a length change during hashing fails closed. The existing regression is
+`CheckpointManifestTest.inventoryRejectsSymlinkedCheckpointFiles`; provider
+immutability and external attestation remain release gates.
+
 The physical checkpoint boundary now also covers directory creation before the
 RocksDB checkpoint/copy call: checkpoint parent, `checkpoint-tmp`, restore
 staging descendants and the installed parent are created one component at a

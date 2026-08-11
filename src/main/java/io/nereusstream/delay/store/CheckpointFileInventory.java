@@ -3,10 +3,12 @@ package io.nereusstream.delay.store;
 import io.nereusstream.delay.protocol.Bytes;
 
 import java.io.IOException;
-import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.text.Normalizer;
@@ -61,7 +63,8 @@ public record CheckpointFileInventory(String name, long length, byte[] checksum)
                 }
                 final String name = canonicalName(checkpointRoot.relativize(path).toString()
                         .replace(path.getFileSystem().getSeparator(), "/"));
-                final long length = Files.size(path);
+                final HashedFile file = sha256(path);
+                final long length = file.length();
                 limits.validateFile(name, length);
                 try {
                     totalBytes = Math.addExact(totalBytes, length);
@@ -71,7 +74,7 @@ public record CheckpointFileInventory(String name, long length, byte[] checksum)
                 if (totalBytes > limits.maxTotalFileBytes()) {
                     throw new IllegalArgumentException("checkpoint total file bytes exceed configured bound");
                 }
-                result.add(new CheckpointFileInventory(name, length, sha256(path)));
+                result.add(new CheckpointFileInventory(name, length, file.checksum()));
             }
             return result.stream().sorted((left, right) -> compareCanonicalNames(left.name(), right.name())).toList();
         } catch (IOException exception) {
@@ -94,24 +97,46 @@ public record CheckpointFileInventory(String name, long length, byte[] checksum)
         return Integer.compare(leftBytes.length, rightBytes.length);
     }
 
-    /** Streams the file so inventory creation cannot allocate an SST-sized byte array. */
-    private static byte[] sha256(final Path path) throws IOException {
+    /**
+     * Opens the file once with NOFOLLOW_LINKS and hashes that same handle, so
+     * a check-then-open symlink race cannot redirect inventory reads. The
+     * length is taken from the handle and must remain stable for the scan.
+     */
+    private static HashedFile sha256(final Path path) throws IOException {
         final MessageDigest digest;
         try {
             digest = MessageDigest.getInstance("SHA-256");
         } catch (NoSuchAlgorithmException impossible) {
             throw new AssertionError(impossible);
         }
-        final byte[] buffer = new byte[64 * 1024];
-        try (InputStream input = Files.newInputStream(path)) {
-            int read;
-            while ((read = input.read(buffer)) >= 0) {
-                if (read != 0) {
-                    digest.update(buffer, 0, read);
-                }
+        try (FileChannel input = FileChannel.open(path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)) {
+            if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
+                throw new IOException("checkpoint file is not a regular file: " + path);
             }
+            final long length = input.size();
+            final ByteBuffer buffer = ByteBuffer.allocate(64 * 1024);
+            long consumed = 0;
+            while (consumed < length) {
+                buffer.clear();
+                buffer.limit((int) Math.min(buffer.capacity(), length - consumed));
+                final int read = input.read(buffer);
+                if (read < 0) {
+                    throw new IOException("checkpoint file truncated while hashing: " + path);
+                }
+                if (read == 0) {
+                    continue;
+                }
+                digest.update(buffer.array(), 0, read);
+                consumed += read;
+            }
+            if (input.size() != length) {
+                throw new IOException("checkpoint file changed while hashing: " + path);
+            }
+            return new HashedFile(length, digest.digest());
         }
-        return digest.digest();
+    }
+
+    private record HashedFile(long length, byte[] checksum) {
     }
 
     private static String canonicalName(final String value) {

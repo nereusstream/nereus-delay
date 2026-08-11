@@ -81,6 +81,14 @@ and `CheckpointManifestTest.checksumWithConflictingLengthsIsRejectedButSameLengt
 cover the boundary. Object Store publication and immutable provider attestation
 remain external release gates.
 
+Checkpoint file inventory now opens each regular file once with
+`NOFOLLOW_LINKS`, hashes that same channel and verifies the channel length is
+stable for the scan. This closes the check-then-open symlink replacement window
+between the physical-file test and checksum read; the existing
+`CheckpointManifestTest.inventoryRejectsSymlinkedCheckpointFiles` regression
+continues to cover the fail-closed boundary. This is local checkpoint
+integrity evidence and does not replace provider immutability or attestation.
+
 The shard checkpoint/restore filesystem paths now use the same component-by-
 component real-directory guard before creating `checkpoint-tmp`, `restore-tmp`,
 staged DB descendants, or the final checkpoint parent. The guard starts at the
