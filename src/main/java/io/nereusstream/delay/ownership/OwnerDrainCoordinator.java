@@ -73,10 +73,18 @@ public final class OwnerDrainCoordinator {
                 // then release only an authority lease with the same fencing
                 // identity. The branch remains retryable across native close
                 // failure and response-loss lease release.
-                if (!store.isCloseStarted() && ownedShard.state() != ShardLifecycleState.DRAINING) {
+                // The Store has already crossed an unproven native commit
+                // boundary. Close the local command gate before invoking any
+                // best-effort source/scheduler callback: a callback failure
+                // must not leave an uncertain Store behind an
+                // ACTIVE_FOR_COMMANDS owner. Preserve the retry branch's
+                // once-only stop callback when the shard was already draining.
+                final boolean stopSource = !store.isCloseStarted()
+                        && ownedShard.state() != ShardLifecycleState.DRAINING;
+                ownedShard.fence();
+                if (stopSource) {
                     callbacks.stopSourceAndScheduling();
                 }
-                ownedShard.fence();
                 if (!store.isClosed()) {
                     store.close();
                     storeClosed = true;

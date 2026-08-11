@@ -100,6 +100,32 @@ class OwnerDrainCoordinatorTest {
     }
 
     @Test
+    void uncertainStoreFencesBeforeStopCallbackFailureCanEscape() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 58);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("drain-uncertain-callback"));
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease acquired = backend.acquire(shardId, "worker-uncertain-callback", 100, 500).orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = activeOwnedShard(store, acquired, authority, shardId);
+            assertThrows(ShardStore.RocksDbWriteFailure.class,
+                    () -> store.write(batch -> batch.put(ColumnFamily.META, KeyCodec.metaFixed(4),
+                            Bytes.utf8("malformed-ingress-fence"))));
+            final IllegalStateException callbackFailure = new IllegalStateException("source stop failed");
+            final OwnerDrainCoordinator coordinator = new OwnerDrainCoordinator(owned, store, resources, authority);
+
+            assertThrows(IllegalStateException.class, () -> coordinator.drain(
+                    new OwnerDrainCoordinator.DrainRequest(5_000, 0, null), () -> 101,
+                    () -> { throw callbackFailure; }));
+
+            assertEquals(ShardLifecycleState.FENCED, owned.state());
+            assertTrue(backend.current(shardId).isPresent());
+            assertFalse(store.isClosed());
+        }
+    }
+
+    @Test
     void uncertainStoreNeverReleasesAReplacementOwnerLease() throws Exception {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 57);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("drain-uncertain-replacement"));

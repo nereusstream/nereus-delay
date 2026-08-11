@@ -28,6 +28,16 @@ An unreached source barrier, missing control snapshot or expired lease remains a
 precondition failure in `CATCHING_UP` (or the existing lease fence), not a
 post-start Store failure.
 
+The owner-drain audit now closes the uncertain-Store callback ordering gap:
+when a native commit boundary is already unproven, the local Owner is fenced
+before `stopSourceAndScheduling` is invoked. A callback `RuntimeException` or
+fatal `Error` can no longer leave that Store under an
+`ACTIVE_FOR_COMMANDS` gate; teardown retains the existing retryable exact-lease
+and native-close rules. The focused regression is
+`OwnerDrainCoordinatorTest.uncertainStoreFencesBeforeStopCallbackFailureCanEscape`.
+This remains local fail-closed evidence; external source quiescence, Oxia
+release and fresh-incarnation recovery are release gates.
+
 The Kafka receipt and Pulsar Attempt Journal mapping-before-send seams now
 reject a target sender that returns `null CompletionStage` with a typed
 integrity/divergence failure. The mapping is already durable and remains the

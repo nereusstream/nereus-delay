@@ -26,6 +26,14 @@ an unreached source barrier still remain `CATCHING_UP`; they are not Store
 activation failures. External lease/session and recovery authority remain
 release blockers.
 
+The uncertain-Store drain branch now fences the local Owner before invoking the
+source/scheduler stop callback. A callback `RuntimeException` or fatal `Error`
+therefore cannot leave an unproven native commit boundary behind an
+`ACTIVE_FOR_COMMANDS` gate; the exact Store/lease teardown remains retryable.
+`OwnerDrainCoordinatorTest.uncertainStoreFencesBeforeStopCallbackFailureCanEscape`
+covers this ordering. This is local fail-closed evidence; source quiescence,
+Oxia release and fresh-incarnation recovery remain release gates.
+
 The local Kafka receipt and Pulsar Attempt Journal mapping-before-send seams now
 fail closed when an injected target sender returns a `null CompletionStage`.
 That malformed result is not a non-persistence proof: the exact durable mapping

@@ -1025,6 +1025,11 @@ Owner 置为 `FENCED` 再重新抛出；不能把该异常转换成业务 reject
 Source cursor 或 `lastCatchupPosition`。原始 record 必须保留给新 Store
 incarnation 校验和重放，直到提交边界被重新证明。
 
+如果 Store 已标记为 `writeOutcomeUncertain`，Owner drain 必须先关闭本地
+Command/Claim/Admission authority，再调用 source/scheduler stop callback。该
+callback 只是编排通知，失败不能让一个提交边界不确定的 Store 继续保持
+`ACTIVE_FOR_COMMANDS`；随后仍须按可重试的 close/release 顺序处理原 lease。
+
 激活阶段写入 `lastOpenedOwnerEpoch` 或重排恢复 Claim 后，在本地 Store
 projection 过程中出现 `RocksDbWriteFailure`、其它 `RuntimeException` 或 fatal
 `Error`，也必须在向外抛出前把 Owner 置为 `FENCED`，且不得执行后续的
