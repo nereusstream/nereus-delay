@@ -11,6 +11,17 @@ V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障
 
 **Open semantic questions: none.**
 
+The 2026-08-12 transport-source check is intentionally recorded as blocker
+evidence rather than a PASS claim.  Kafka source
+`76f62f3b83e882105219b6c7687dbde594a8b8a2` exposes Produce v13 topic-ID wire
+fields and Nereus broker-side exact-topic-ID checks, but its stock producer
+path remains name-keyed and may emit a zero UUID before metadata is available.
+Pulsar source `11d7ab15291ca4bbc9cc29dedd7878c4e1311ec9` exposes broker-side
+Nereus topic-open/write-fence hooks, but not the Delay client-side guarded
+resource-incarnation and send-evidence contract.  Consequently the audit's
+Kafka/Pulsar real-service gate remains open until pinned transports, response
+classification, source assignment/barrier proof and real-broker tests exist.
+
 The Recovery Pin persistence audit now preserves the intended historical
 protection window: creating a session-bound pin records the exact Floor it
 observed, but later Floor advancement must not make a still-active pin

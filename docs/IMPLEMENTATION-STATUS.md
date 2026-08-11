@@ -7,6 +7,24 @@ normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20�
 the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
+The locally available broker source trees were inspected on 2026-08-12 as
+evidence for the remaining transport gate, not as a substitute for a Delay
+transport implementation.  The locked Kafka checkout
+`/Users/liusinan/apps/ideaproject/nereusstream/kafka` is at
+`76f62f3b83e882105219b6c7687dbde594a8b8a2`; its `ProduceRequest` schema
+supports topic-ID-only version 13, and its Nereus broker log requires an exact
+non-zero topic ID.  Its producer `Sender` still obtains IDs from ordinary
+name-keyed metadata and falls back to the zero UUID when metadata is absent;
+the Delay project therefore has no safe pinned request transport merely by
+using stock `KafkaProducer`.  The locked Pulsar checkout
+`/Users/liusinan/apps/ideaproject/nereusstream/pulsar` is at
+`11d7ab15291ca4bbc9cc29dedd7878c4e1311ec9`; it contains broker-side Nereus
+topic-open and write-fence integration, but no client-side Delay adapter that
+returns the authenticated physical topic incarnation/creation identity and
+guarded send evidence required by V1.  These source inspections keep the
+Kafka/Pulsar rows below as release blockers until concrete pinned transports
+and real-broker evidence are added.
+
 The local `TIME_FENCE_V1` apply path now carries an explicit
 `DelayShardConfig.timeFenceSafetyMarginMs` input and checks the Trusted-UTC
 proof with checked addition before advancing the ingress watermark. A proof one
