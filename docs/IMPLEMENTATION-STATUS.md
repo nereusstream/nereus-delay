@@ -2660,7 +2660,9 @@ RetryPolicy/Profile binding, replay-window/fence proofs, Oxia target
 registration and full DLQ/replay retention remain pending.
 
 The local `TIME_FENCE_V1` increment now validates the exact proof ID, fence key
-version and Trusted-UTC lower bound, monotonically persists
+version and the configured `DelayShardConfig.timeFenceSafetyMarginMs` Trusted-UTC
+lower bound (`proof.earliestEpochMs >= checkedAdd(closeThrough, margin)`),
+monotonically persists
 `closedIngressDeadlineThrough`, and rejects later commands at the position level
 without overwriting an existing command identity/result. The POSITION audit now
 also makes an exact replay of a fence rejection or command-ID conflict

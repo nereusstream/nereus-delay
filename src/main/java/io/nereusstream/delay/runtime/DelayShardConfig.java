@@ -19,7 +19,8 @@ public record DelayShardConfig(
         long maximumAdmissionMutationEnqueueAgeMs,
         long commandRetryWindowMs,
         long maximumPreparationAgeMs,
-        long maximumUuidFutureSkewMs) {
+        long maximumUuidFutureSkewMs,
+        long timeFenceSafetyMarginMs) {
     /**
      * Compatibility constructor for the pre-retry-policy embedded config.
      * The safety cap follows the shard's pending-message bound until a pinned
@@ -34,7 +35,7 @@ public record DelayShardConfig(
                 maxPendingBytes, maxLanes, inlinePayloadThresholdBytes, maxPayloadBytes,
                 maxReservationTtlMs, boundedAdmissionCap(maxPendingMessages), 0,
                 defaultOutcomeReserveBytes(maxPendingBytes), defaultOutcomeReserveRecords(
-                        boundedAdmissionCap(maxPendingMessages)), 0, maxMessageLifetimeMs, 0, 0, 0);
+                        boundedAdmissionCap(maxPendingMessages)), 0, maxMessageLifetimeMs, 0, 0, 0, 0);
     }
 
     /** Compatibility constructor for callers that already specify admission budgets. */
@@ -48,7 +49,7 @@ public record DelayShardConfig(
                 maxPendingBytes, maxLanes, inlinePayloadThresholdBytes, maxPayloadBytes,
                 maxReservationTtlMs, maxPublishAdmissions, maxUncertainRetries,
                 defaultOutcomeReserveBytes(maxPendingBytes), defaultOutcomeReserveRecords(maxPublishAdmissions), 0,
-                maxMessageLifetimeMs, 0, 0, 0);
+                maxMessageLifetimeMs, 0, 0, 0, 0);
     }
 
     /** Compatibility constructor for callers that specify the complete pre-broker-time config. */
@@ -62,7 +63,7 @@ public record DelayShardConfig(
         this(maxDelayHorizonMs, minDeliveryWindowMs, maxMessageLifetimeMs, maxPendingMessages,
                 maxPendingBytes, maxLanes, inlinePayloadThresholdBytes, maxPayloadBytes,
                 maxReservationTtlMs, maxPublishAdmissions, maxUncertainRetries, maxOutcomeReserveBytes,
-                maxOutcomeReserveRecords, 0, maxMessageLifetimeMs, 0, 0, 0);
+                maxOutcomeReserveRecords, 0, maxMessageLifetimeMs, 0, 0, 0, 0);
     }
 
     /**
@@ -82,7 +83,7 @@ public record DelayShardConfig(
                 maxPendingBytes, maxLanes, inlinePayloadThresholdBytes, maxPayloadBytes,
                 maxReservationTtlMs, maxPublishAdmissions, maxUncertainRetries, maxOutcomeReserveBytes,
                 maxOutcomeReserveRecords, maxIngressBrokerTimestampDivergenceMs,
-                maximumAdmissionMutationEnqueueAgeMs, 0, 0, 0);
+                maximumAdmissionMutationEnqueueAgeMs, 0, 0, 0, 0);
     }
 
     public DelayShardConfig {
@@ -93,7 +94,8 @@ public record DelayShardConfig(
                 || maxUncertainRetries >= maxPublishAdmissions || maxOutcomeReserveBytes <= 0
                 || maxOutcomeReserveRecords <= 0 || maxIngressBrokerTimestampDivergenceMs < 0
                 || maximumAdmissionMutationEnqueueAgeMs < 0 || commandRetryWindowMs < 0
-                || maximumPreparationAgeMs < 0 || maximumUuidFutureSkewMs < 0) {
+                || maximumPreparationAgeMs < 0 || maximumUuidFutureSkewMs < 0
+                || timeFenceSafetyMarginMs < 0) {
             throw new IllegalArgumentException("timing limits must be non-negative");
         }
         final boolean strictIdentityPolicy = commandRetryWindowMs != 0 || maximumPreparationAgeMs != 0

@@ -2694,7 +2694,14 @@ public final class DelayShard {
         final byte[] proofId = fixedBodyBytes(field(fields, 12), 12, SystemMutation.HASH_LENGTH);
         final TrustedUtcIntervalEvidence proof = TrustedUtcIntervalEvidence.decode(
                 bytesBody(field(fields, 13), 13));
-        if (fenceKeyVersion != mutation.signingKeyVersion() || proof.earliestEpochMs() < closeThrough) {
+        final long minimumProofEarliest;
+        try {
+            minimumProofEarliest = Math.addExact(closeThrough, config.timeFenceSafetyMarginMs());
+        } catch (ArithmeticException overflow) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
+        if (fenceKeyVersion != mutation.signingKeyVersion() || proof.earliestEpochMs() < minimumProofEarliest) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }

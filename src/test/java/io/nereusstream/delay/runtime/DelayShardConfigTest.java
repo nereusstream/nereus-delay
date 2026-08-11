@@ -22,10 +22,10 @@ class DelayShardConfigTest {
     void strictIdentityPolicyRequiresCommandAndPreparationWindowsTogether() {
         assertThrows(IllegalArgumentException.class, () -> new DelayShardConfig(
                 10_000, 1, 20_000, 10, 100, 4, 3, 100, 10_000,
-                3, 1, 2_000, 4_000, 0, 20_000, 40_000, 0, 100));
+                3, 1, 2_000, 4_000, 0, 20_000, 40_000, 0, 100, 0));
         assertThrows(IllegalArgumentException.class, () -> new DelayShardConfig(
                 10_000, 1, 20_000, 10, 100, 4, 3, 100, 10_000,
-                3, 1, 2_000, 4_000, 0, 20_000, 0, 20_000, 100));
+                3, 1, 2_000, 4_000, 0, 20_000, 0, 20_000, 100, 0));
     }
 
     @Test
@@ -36,5 +36,17 @@ class DelayShardConfigTest {
         assertThrows(IllegalArgumentException.class, () -> new DelayShardConfig(
                 10_000, 1, 20_000, 10, 100, 4, 3, 100, 10_000,
                 3, 1, 2_000, 4_000, 0, -1));
+    }
+
+    @Test
+    void carriesAndValidatesTimeFenceSafetyMargin() {
+        final DelayShardConfig config = new DelayShardConfig(
+                10_000, 1, 20_000, 10, 100, 4, 3, 100, 10_000,
+                3, 1, 2_000, 4_000, 0, 20_000, 40_000, 20_000, 100, 500);
+
+        assertEquals(500, config.timeFenceSafetyMarginMs());
+        assertThrows(IllegalArgumentException.class, () -> new DelayShardConfig(
+                10_000, 1, 20_000, 10, 100, 4, 3, 100, 10_000,
+                3, 1, 2_000, 4_000, 0, 20_000, 40_000, 20_000, 100, -1));
     }
 }

@@ -2738,9 +2738,11 @@ initial grant 集合及 digest；打开/恢复时逐项解码、校验 digest �
 沿用同一 WAL-sync 边界。`StoreRuntimeMetadataTest` 和
 `ShardStoreTest.malformedRuntimeMetadataDoesNotLeaveRocksDbOpen` 覆盖注册 key、
 codec、生命周期与失败清理。该投影只证明本地 Store 事实，不能替代 Oxia
-lease/catalog 或真实 Broker fence authority。`TIME_FENCE` 的 verified proof ID
-现在与 mutation result/source position 在同一 batch 原子落盘，重开回归也验证该
-proof identity。
+lease/catalog 或真实 Broker fence authority。`TIME_FENCE` 的 apply 还会读取
+`DelayShardConfig.timeFenceSafetyMarginMs`，以 checked-add 后的
+`proof.earliestEpochMs` 下界拒绝不足余量的 proof；verified proof ID 现在与
+mutation result/source position 在同一 batch 原子落盘，重开回归也验证该 proof
+identity。
 `meta/RECOVERY` 的四个注册 key 现在也有独立的本地投影：key 1 持久
 `RecoveryCandidateRefV1` lineage/base，key 2 持久完整 typed `RecoveryFloorRefV1`，
 key 3 持久与 Floor generation 绑定的 raw `uint64` catalog generation，key 4 持久

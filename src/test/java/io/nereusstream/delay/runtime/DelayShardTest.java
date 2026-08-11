@@ -121,7 +121,7 @@ class DelayShardTest {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 63);
         final DelayShardConfig config = new DelayShardConfig(
                 10_000, 1, 20_000, 10, 100, 4, 3, 100, 10_000,
-                3, 1, 2_000, 4_000, 0, 20_000, 40_000, 20_000, 100);
+                3, 1, 2_000, 4_000, 0, 20_000, 40_000, 20_000, 100, 0);
         final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("strict-identity-lane"));
         final CommandId validCommandId = CommandId.random(shardId);
         final long brokerTime = validCommandId.routingId().logicalTimestampEpochMs();
@@ -6553,6 +6553,54 @@ class DelayShardTest {
             final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults());
             assertEquals(closeThrough, reopened.closedIngressDeadlineThrough());
             assertArrayEquals(proofId, store.runtimeMetadata().lastIngressFenceProofId());
+        }
+    }
+
+    @Test
+    void timeFenceRequiresConfiguredSafetyMarginAtTheExactBoundary() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("time-fence-safety-margin"));
+        final DelayShardConfig shardConfig = new DelayShardConfig(
+                10_000, 1, 20_000, 10, 100, 4, 3, 100, 10_000,
+                3, 1, 2_000, 4_000, 0, 20_000, 0, 0, 0, 500);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 35);
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final int keyVersion = 7;
+        final long closeThrough = 3_000;
+        final AuthorIdentity fence = AuthorIdentity.fence(Bytes.utf8("fence-writer"), keyVersion);
+
+        final TrustedUtcIntervalEvidence belowMargin = new TrustedUtcIntervalEvidence(3_499, 3_499,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("fence-clock"), 1, 10, 10,
+                Bytes.sha256(Bytes.utf8("fence-proof-below-margin")), 0, null);
+        final byte[] belowMarginId = Bytes.sha256(Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                shardId.routeIncarnation().bytes(), Bytes.u32be(shardId.partition()), Bytes.i64be(closeThrough),
+                Bytes.u32be(keyVersion), Bytes.lp32(belowMargin.canonicalBytes()));
+        final SystemMutation belowMarginMutation = SystemMutation.signed(shardId, SystemMutationType.TIME_FENCE,
+                9_000, belowMarginId,
+                timeFenceBody(shardId, closeThrough, keyVersion, belowMarginId, belowMargin.canonicalBytes()),
+                fence.canonicalBytes(), keyVersion, keyPair.getPrivate());
+
+        final TrustedUtcIntervalEvidence atMargin = new TrustedUtcIntervalEvidence(3_500, 3_500,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("fence-clock"), 1, 11, 11,
+                Bytes.sha256(Bytes.utf8("fence-proof-at-margin")), 0, null);
+        final byte[] atMarginId = Bytes.sha256(Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                shardId.routeIncarnation().bytes(), Bytes.u32be(shardId.partition()), Bytes.i64be(closeThrough),
+                Bytes.u32be(keyVersion), Bytes.lp32(atMargin.canonicalBytes()));
+        final SystemMutation atMarginMutation = SystemMutation.signed(shardId, SystemMutationType.TIME_FENCE,
+                9_000, atMarginId,
+                timeFenceBody(shardId, closeThrough, keyVersion, atMarginId, atMargin.canonicalBytes()),
+                fence.canonicalBytes(), keyVersion, keyPair.getPrivate());
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, shardConfig);
+            assertEquals(StableCode.UNAUTHORIZED_SYSTEM_MUTATION,
+                    shard.applySystemMutation(belowMarginMutation, position(shardId, 0, 2_000),
+                            keyPair.getPublic()).stableCode());
+            assertEquals(StableCode.OK,
+                    shard.applySystemMutation(atMarginMutation, position(shardId, 1, 2_001),
+                            keyPair.getPublic()).stableCode());
+            assertEquals(closeThrough, shard.closedIngressDeadlineThrough());
         }
     }
 
