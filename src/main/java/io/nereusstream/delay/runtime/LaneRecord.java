@@ -68,11 +68,34 @@ public record LaneRecord(
 
     public LaneRecord withGate(final AdmissionGate nextGate) {
         Objects.requireNonNull(nextGate, "nextGate");
-        if (nextGate == AdmissionGate.OPEN && admissionGate != AdmissionGate.ADMIN_PAUSED) {
-            throw new IllegalStateException("only ADMIN_PAUSED can resume to OPEN");
-        }
-        if (nextGate == AdmissionGate.RETIRED && admissionGate != AdmissionGate.CLOSED) {
-            throw new IllegalStateException("only CLOSED can become RETIRED");
+        switch (nextGate) {
+            case OPEN -> {
+                if (admissionGate != AdmissionGate.ADMIN_PAUSED) {
+                    throw new IllegalStateException("only ADMIN_PAUSED can resume to OPEN");
+                }
+            }
+            case ADMIN_PAUSED -> {
+                if (admissionGate != AdmissionGate.OPEN) {
+                    throw new IllegalStateException("only OPEN can become ADMIN_PAUSED");
+                }
+            }
+            case ORDERING_BROKEN -> {
+                if (admissionGate != AdmissionGate.OPEN && admissionGate != AdmissionGate.ADMIN_PAUSED) {
+                    throw new IllegalStateException("only OPEN or ADMIN_PAUSED can break ordering");
+                }
+            }
+            case CLOSED -> {
+                if (admissionGate != AdmissionGate.OPEN && admissionGate != AdmissionGate.ADMIN_PAUSED
+                        && admissionGate != AdmissionGate.ORDERING_BROKEN) {
+                    throw new IllegalStateException("only an active or ordering-broken lane can close");
+                }
+            }
+            case RETIRED -> {
+                if (admissionGate != AdmissionGate.CLOSED) {
+                    throw new IllegalStateException("only CLOSED can become RETIRED");
+                }
+            }
+            case ABSENT -> throw new IllegalArgumentException("LaneRecord cannot use ABSENT gate");
         }
         return new LaneRecord(laneId, laneIncarnation, nextVersion(laneControlVersion, "laneControlVersion"),
                 nextVersion(laneVersion, "laneVersion"),

@@ -651,6 +651,15 @@ and `LaneTerminalGuardV1Test.guardRejectsProfileProjectionDrift` cover the two
 typed branches. This is local canonical-shape evidence only; resolver/catalog,
 Profile activation and Oxia ownership authority remain outside the codec.
 
+`LaneRecord.withGate` now encodes the frozen Lane lifecycle instead of allowing
+the generic local gate helper to reopen an ordering-broken or closed Lane:
+`OPEN` may pause/break/close, `ADMIN_PAUSED` may resume/break/close,
+`ORDERING_BROKEN` may only close, and `CLOSED` may only enter the separate
+terminal-guard retirement path. `LaneRecordTest.controlTransitionsAreExplicitAndIrreversibleWhereRequired`
+covers the illegal `ORDERING_BROKEN -> ADMIN_PAUSED/OPEN` and
+`CLOSED -> OPEN` attempts. Source-ordered control authority and Oxia retirement
+remain external release gates.
+
 The nested Registry `ChargeVectorV1` codec now preserves all seventeen raw
 `uint64` fields, including high-bit values, through canonical encode/decode.
 Before the embedded runtime performs signed capacity or Outcome Reserve

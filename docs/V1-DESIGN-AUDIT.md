@@ -391,6 +391,14 @@ reason/READY key/certificate or out-of-range compatibility field fails closed;
 there is no silent downgrade to the legacy adapter. This is still local typed
 runtime evidence; complete Profile/Lane activation, quota authority and Oxia
 ownership remain release evidence.
+
+The local `LaneRecord.withGate` transition helper now matches the frozen
+irreversibility graph: `ORDERING_BROKEN` can only move to `CLOSED`, and a
+`CLOSED` Lane cannot be reopened through the generic gate API. The focused
+`LaneRecordTest.controlTransitionsAreExplicitAndIrreversibleWhereRequired`
+regression covers the former reopen paths. This is a local lifecycle fence;
+source-ordered control authorization and external terminal-guard retirement
+remain release evidence.
 Before activation, every typed ACTIVE Lane now also has to carry field-14
 `lane_usage` byte-equal to the matching `(laneId, laneIncarnation)` entry in the
 persisted class-3 `meta_cf/QUOTA` map. Missing-map and usage-drift cases fail

@@ -21,6 +21,9 @@ class LaneRecordTest {
         assertEquals(AdmissionGate.CLOSED, closed.admissionGate());
         final LaneRecord retired = closed.retire();
         assertEquals(AdmissionGate.RETIRED, retired.admissionGate());
+        assertThrows(IllegalStateException.class, () -> broken.withGate(AdmissionGate.ADMIN_PAUSED));
+        assertThrows(IllegalStateException.class, () -> broken.withGate(AdmissionGate.OPEN));
+        assertThrows(IllegalStateException.class, () -> closed.withGate(AdmissionGate.OPEN));
         assertThrows(IllegalStateException.class, retired::resumeByAdmin);
         assertThrows(IllegalStateException.class, closed::breakOrdering);
     }
