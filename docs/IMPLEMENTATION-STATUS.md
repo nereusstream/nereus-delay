@@ -3220,6 +3220,16 @@ suppressed diagnostic evidence instead of masking the original failure. This
 is local resource-lifecycle evidence only; it does not replace process
 supervision or external checkpoint/download authority.
 
+`OwnerDrainCoordinator` now finalizes its local boundaries independently:
+successful Store/lease completion attempts the local fence, shard drain-attempt
+release and Worker drain-slot release even when an earlier finalizer throws.
+The first drain/lease failure remains primary and later fence/slot failures are
+suppressed; when the drain body succeeds, a finalizer failure is surfaced
+instead of returning a result with unconfirmed capacity. The owner remains
+retryable whenever teardown or lease release is not proven. This is local
+drain-lifecycle evidence only; Oxia CAS, source quiescence and callback
+authority remain external release gates.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

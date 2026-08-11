@@ -57,6 +57,7 @@ public final class OwnerDrainCoordinator {
         boolean shardDrainAcquired = false;
         boolean storeClosed = false;
         boolean leaseReleased = false;
+        Throwable primaryFailure = null;
         try {
             if (!ownedShard.tryAcquireDrainAttempt()) {
                 throw new IllegalStateException("owner drain is already in progress for this shard");
@@ -191,6 +192,9 @@ public final class OwnerDrainCoordinator {
             releaseExactLease(ownedShard.lease());
             leaseReleased = true;
             return new DrainResult(revokedClaims, callbackPolls, finalCheckpoint);
+        } catch (RuntimeException | Error failure) {
+            primaryFailure = failure;
+            throw failure;
         } finally {
             // A successfully closed Store is not enough to make the local
             // owner terminal: if lease release was not confirmed, the exact
@@ -198,13 +202,33 @@ public final class OwnerDrainCoordinator {
             // the retry branch reject the still-held lease and leak it in
             // Oxia.  A confirmed release (or an earlier lease-loss check)
             // is what permits the terminal local fence.
+            Throwable cleanupFailure = null;
             if (storeClosed && leaseReleased) {
-                ownedShard.fence();
+                try {
+                    ownedShard.fence();
+                } catch (RuntimeException | Error failure) {
+                    cleanupFailure = appendCleanupFailure(cleanupFailure, failure);
+                }
             }
             if (shardDrainAcquired) {
-                ownedShard.releaseDrainAttempt();
+                try {
+                    ownedShard.releaseDrainAttempt();
+                } catch (RuntimeException | Error failure) {
+                    cleanupFailure = appendCleanupFailure(cleanupFailure, failure);
+                }
             }
-            resources.releaseDrainSlot();
+            try {
+                resources.releaseDrainSlot();
+            } catch (RuntimeException | Error failure) {
+                cleanupFailure = appendCleanupFailure(cleanupFailure, failure);
+            }
+            if (cleanupFailure != null) {
+                if (primaryFailure != null && cleanupFailure != primaryFailure) {
+                    primaryFailure.addSuppressed(cleanupFailure);
+                } else if (primaryFailure == null) {
+                    throwUnchecked(cleanupFailure);
+                }
+            }
         }
     }
 
@@ -262,6 +286,19 @@ public final class OwnerDrainCoordinator {
             throw errorFailure;
         }
         throw new IllegalStateException("unexpected checked teardown failure", failure);
+    }
+
+    private static Throwable appendCleanupFailure(final Throwable first, final Throwable failure) {
+        if (failure == null) {
+            return first;
+        }
+        if (first == null) {
+            return failure;
+        }
+        if (failure != first) {
+            first.addSuppressed(failure);
+        }
+        return first;
     }
 
     public record DrainRequest(long deadlineEpochMs, int maxCallbackPolls, Path finalCheckpointPath,
