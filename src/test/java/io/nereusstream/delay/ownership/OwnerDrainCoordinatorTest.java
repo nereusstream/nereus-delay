@@ -303,22 +303,27 @@ class OwnerDrainCoordinatorTest {
             // retryable slot-release failure that a worker can observe during
             // a real resource race.
             resources.releaseDbSlot();
+            final AtomicInteger stopCalls = new AtomicInteger();
             assertThrows(IllegalStateException.class, () -> coordinator.drain(
-                    new OwnerDrainCoordinator.DrainRequest(5_000, 0, null), () -> 101, () -> { }));
+                    new OwnerDrainCoordinator.DrainRequest(5_000, 0, null), () -> 101,
+                    stopCalls::incrementAndGet));
             assertEquals(ShardLifecycleState.DRAINING, owned.state());
             assertTrue(backend.current(shardId).isPresent());
             assertTrue(store.isCloseStarted());
             assertFalse(store.isClosed());
+            assertEquals(1, stopCalls.get());
 
             // Restore the test slot accounting and retry only the teardown;
             // no Claims/callbacks/flush decisions are replayed.
             resources.acquireDbSlot();
             final OwnerDrainCoordinator.DrainResult result = coordinator.drain(
-                    new OwnerDrainCoordinator.DrainRequest(5_000, 0, null), () -> 101, () -> { });
+                    new OwnerDrainCoordinator.DrainRequest(5_000, 0, null), () -> 101,
+                    stopCalls::incrementAndGet);
             assertEquals(0, result.revokedClaims());
             assertEquals(ShardLifecycleState.FENCED, owned.state());
             assertTrue(store.isClosed());
             assertTrue(backend.current(shardId).isEmpty());
+            assertEquals(1, stopCalls.get());
         }
     }
 

@@ -155,6 +155,7 @@ public final class OwnerDrainCoordinator {
             }
             if (ownedShard.state() == ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
                 callbacks.stopSourceAndScheduling();
+                externalCloseStopCompleted = true;
                 ownedShard.beginDrain(authority, startNow);
             } else if (ownedShard.state() != ShardLifecycleState.DRAINING) {
                 throw new IllegalStateException("owner drain requires an active or already draining shard");

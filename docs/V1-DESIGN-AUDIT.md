@@ -16,8 +16,12 @@ close was started by another caller before the coordinator observed the
 unproven write boundary.  An already-started close does not prove source or
 scheduler quiescence: the coordinator still fences the local Owner and invokes
 `stopSourceAndScheduling` exactly once, retaining that completion across
-retryable close/release teardown.  The regression is
+retryable close/release teardown.  The normal ACTIVE-to-DRAINING path records
+the same completion before its authority CAS, so a later close/release retry
+cannot invoke the callback a second time.  The regression is
 `OwnerDrainCoordinatorTest.uncertainStoreWithExternalCloseStillStopsSourceBeforeRelease`.
+The normal close-retry count is covered by
+`OwnerDrainCoordinatorTest.storeCloseFailureLeavesDrainingStateForRetryableTeardown`.
 This remains local evidence; external source quiescence and Oxia lease release
 are still release gates.
 

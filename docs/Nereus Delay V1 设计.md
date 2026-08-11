@@ -1050,6 +1050,9 @@ callback 只是编排通知，失败不能让一个提交边界不确定的 Stor
 close，也不能把它当成 source/scheduler 已停止的证明；协调器仍必须执行一次
 stop callback，并在 close/release 重试期间保留该 callback 已完成的标记，不能
 因重复 drain 而重复停止或跳过停止。
+正常 `ACTIVE_FOR_COMMANDS -> DRAINING` 路径也必须在 callback 成功后记录同一
+完成标记，再执行 authority CAS；若 CAS、flush、close 或 release 失败，后续
+retry 只能复用该标记，不能再次调用 stop callback。
 
 Drain 的 `flush/sync` 失败也属于未确认的 durability boundary：Store 必须在
 异常向外传播前标记 `writeOutcomeUncertain`，不能把这次失败当成“尚未发生写入”

@@ -11,9 +11,14 @@ The uncertain-Store drain path now applies the source/scheduler stop fence even
 when a caller started native Store close before the coordinator observed the
 unproven write boundary.  External close is not evidence of source quiescence:
 the coordinator fences the local Owner, invokes `stopSourceAndScheduling` once,
-and retains that completion across close/release retries.  The focused
+and retains that completion across close/release retries.  The normal
+`ACTIVE_FOR_COMMANDS -> DRAINING` path records the same completion before its
+authority CAS, so a later close/release retry cannot invoke the callback again.
+The focused
 regression is
 `OwnerDrainCoordinatorTest.uncertainStoreWithExternalCloseStillStopsSourceBeforeRelease`.
+The retry-count assertion is also covered by
+`OwnerDrainCoordinatorTest.storeCloseFailureLeavesDrainingStateForRetryableTeardown`.
 This is local ordering evidence; production source quiescence and Oxia lease
 authority remain release gates.
 
