@@ -2183,6 +2183,13 @@ was selected, the exact turn projection is restored instead of dropping a task
 whose result was never returned. `WorkClassSchedulerTest.clockFailureAfterAHeadWasSelectedRollsBackTheWholePoll`
 covers this rollback; the monotonic clock high-water may remain conservative,
 but an interrupted poll is not recorded as served.
+`LaneScheduler` now owns the same injected monotonic/non-negative clock guard
+and reads it before removing a head; `LaneSchedulerTest.clockRegressionAfterAHeadWasSelectedRollsBackTheWholeLanePoll`
+covers the regression rollback. `WorkerScheduler` rejects negative or backward
+samples at the outer boundary, and `PersistentLaneScheduler` applies the guard
+to bounded READY discovery before decoding or advancing its cursor. These are
+local elapsed-time guards only; Trusted UTC and production Owner/Oxia clocks
+remain release authorities.
 `WorkClassResourcePool`
 additionally protects other classes' non-borrowable record/byte minima and
 bounds borrowed lease holds, covered by `WorkClassSchedulerTest` and

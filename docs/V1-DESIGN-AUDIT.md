@@ -3113,6 +3113,15 @@ The focused evidence is
 `LaneScheduler.poll` independently restores its removed heads and inner
 counters before propagating an exception, so an outer caller never relies on a
 partially returned inner list for correctness.
+All three local scheduler layers now use a monotonic, non-negative injected
+clock guard: `LaneScheduler` reads it before head removal, `WorkerScheduler`
+fences a backward/negative outer sample, and `PersistentLaneScheduler` applies
+the same rule before decoding or advancing a bounded READY discovery cursor.
+`LaneSchedulerTest.clockRegressionAfterAHeadWasSelectedRollsBackTheWholeLanePoll`
+and `WorkerSchedulerTest.clockRegressionAfterAHeadWasSelectedRollsBackTheWholeWorkerPoll`
+cover the rollback boundary. This remains an elapsed-time safety check only;
+Trusted UTC, Owner/Oxia and production scheduler timing authority remain
+release gates.
 This closes a local process-state loss path only; it does not replace Trusted
 UTC, Owner/Oxia fencing or production placement evidence.
 

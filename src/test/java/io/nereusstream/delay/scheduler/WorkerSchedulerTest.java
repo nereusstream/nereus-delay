@@ -203,6 +203,31 @@ class WorkerSchedulerTest {
     }
 
     @Test
+    void clockRegressionAfterAHeadWasSelectedRollsBackTheWholeWorkerPoll() {
+        final AtomicInteger calls = new AtomicInteger();
+        final WorkerScheduler worker = new WorkerScheduler(10, 4, () ->
+                calls.incrementAndGet() <= 3 ? 0 : -1);
+        final ShardId shard = shard(35);
+        final DestinationLaneId lane = lane(35);
+        final LaneScheduler laneScheduler = LaneScheduler.defaults();
+        worker.registerShard(shard, 1, laneScheduler);
+        worker.registerLane(shard, laneRecord(lane));
+        final ScheduleWorkItem first = item(shard, lane, 1);
+        worker.offer(first);
+        worker.offer(item(shard, lane, 2));
+        final WorkerScheduler.WorkerSnapshot workerBefore = worker.snapshot();
+        final LaneScheduler.SchedulerSnapshot laneBefore = laneScheduler.snapshot();
+
+        assertThrows(IllegalStateException.class,
+                () -> worker.poll(new SchedulerBudget(10, 100, 1_000_000_000)));
+
+        assertEquals(workerBefore, worker.snapshot());
+        assertEquals(laneBefore, laneScheduler.snapshot());
+        assertEquals(2, laneScheduler.pendingItems(lane));
+        assertEquals(first, laneScheduler.pendingHead(lane));
+    }
+
+    @Test
     void emptyShardDoesNotConsumeOuterDeficitVisit() {
         final ShardId emptyShard = shard(5);
         final ShardId healthyShard = shard(6);

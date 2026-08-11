@@ -1776,8 +1776,13 @@ inner poll 取出，而下一次本地时钟、selection 或 checked arithmetic 
 `clockFailureAfterAHeadWasSelectedRollsBackTheWholeWorkerPoll` 是该本地回归证据。
 `LaneScheduler` 的 inner poll 也会在自身异常时按同一逆序规则恢复已取出的
 Lane heads 和 inner counters，避免外层无法获得返回列表时出现局部丢失。
-这里的 clock 只用于 bounded elapsed-time guard；它不替代 Trusted UTC、Owner 或
-Oxia authority。
+三层本地 scheduler（`LaneScheduler`、`PersistentLaneScheduler` READY discovery、
+`WorkerScheduler`）的 monotonic clock provider 都必须拒绝负值和回拨样本；
+READY discovery 在解码前遇到时钟异常时不得推进 cursor 或 offer，Lane/Worker
+poll 在异常时恢复整轮 projection。`LaneSchedulerTest.clockRegressionAfterAHeadWasSelectedRollsBackTheWholeLanePoll`
+和 `WorkerSchedulerTest.clockRegressionAfterAHeadWasSelectedRollsBackTheWholeWorkerPoll`
+是该 guard 的本地回归证据。这里的 clock 只用于 bounded elapsed-time guard；它不替代
+Trusted UTC、Owner 或 Oxia authority。
 
 READY recovery 的全量 queue replacement 也必须先验证并组装所有 item，再清理旧 queue；未知 Lane、非 schedulable Lane、null 或其它 malformed item 只能在原 projection 仍完整时 fail closed，不能留下部分重建的 FIFO。
 

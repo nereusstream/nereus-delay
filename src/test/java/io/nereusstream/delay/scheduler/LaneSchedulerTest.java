@@ -33,6 +33,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -102,6 +103,26 @@ class LaneSchedulerTest {
         assertEquals(List.of(lane), scheduler.poll(2_000,
                 new SchedulerBudget(1, 1024, 1_000_000_000)).stream()
                 .map(ScheduleWorkItem::laneId).toList());
+    }
+
+    @Test
+    void clockRegressionAfterAHeadWasSelectedRollsBackTheWholeLanePoll() {
+        final AtomicInteger calls = new AtomicInteger();
+        final LaneScheduler scheduler = new LaneScheduler(10, 64, () ->
+                calls.incrementAndGet() <= 3 ? 0 : -1);
+        final DestinationLaneId lane = lane(53);
+        scheduler.register(record(lane, 1));
+        final ScheduleWorkItem first = item(lane, 1);
+        scheduler.offer(first);
+        scheduler.offer(item(lane, 2));
+        final LaneScheduler.SchedulerSnapshot before = scheduler.snapshot();
+
+        assertThrows(IllegalStateException.class,
+                () -> scheduler.poll(new SchedulerBudget(10, 100, 1_000_000_000)));
+
+        assertEquals(before, scheduler.snapshot());
+        assertEquals(2, scheduler.pendingItems(lane));
+        assertEquals(first, scheduler.pendingHead(lane));
     }
 
     @Test

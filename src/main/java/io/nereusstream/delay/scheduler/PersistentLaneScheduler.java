@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.LongSupplier;
 
 /**
  * Durable fairness wrapper for a shard-local {@link LaneScheduler}.
@@ -42,6 +43,9 @@ public final class PersistentLaneScheduler {
     private final ShardStore store;
     private final LaneScheduler delegate;
     private final OwnerIdentityV1 owner;
+    private final LongSupplier clockNanos;
+    private long lastClockNanos;
+    private boolean clockInitialized;
     private final Map<DestinationLaneId, LaneRecord> registered = new HashMap<>();
     private final PersistedState persisted;
     private final Set<DestinationLaneId> recoveryServed = new HashSet<>();
@@ -54,14 +58,20 @@ public final class PersistentLaneScheduler {
     private boolean persistedRestored;
 
     public PersistentLaneScheduler(final ShardStore store, final LaneScheduler delegate) {
-        this(store, delegate, defaultOwner(store));
+        this(store, delegate, defaultOwner(store), System::nanoTime);
     }
 
     public PersistentLaneScheduler(final ShardStore store, final LaneScheduler delegate,
                                    final OwnerIdentityV1 owner) {
+        this(store, delegate, owner, System::nanoTime);
+    }
+
+    PersistentLaneScheduler(final ShardStore store, final LaneScheduler delegate,
+                             final OwnerIdentityV1 owner, final LongSupplier clockNanos) {
         this.store = Objects.requireNonNull(store, "store");
         this.delegate = Objects.requireNonNull(delegate, "delegate");
         this.owner = Objects.requireNonNull(owner, "owner");
+        this.clockNanos = Objects.requireNonNull(clockNanos, "clockNanos");
         this.persisted = load(store);
         this.ringGeneration = persisted == null ? 0 : persisted.activeRing().ringGeneration();
         this.lastScannedReadyKey = persisted == null ? null : persisted.discovery().lastScannedReadyKey();
@@ -238,7 +248,7 @@ public final class PersistentLaneScheduler {
         final RuntimeSnapshot before = runtimeSnapshot();
         final List<ScheduleWorkItem> offered = new ArrayList<>();
         try {
-            final long startedNanos = System.nanoTime();
+            final long startedNanos = readClock();
             final ReadyScan readyScan = scanReadyEntries(budget.maxMessages());
             final List<ShardStore.KeyValue> entries = readyScan.entries();
             final List<ReadyProjection> projections = new ArrayList<>();
@@ -246,7 +256,7 @@ public final class PersistentLaneScheduler {
             long scannedBytes = 0;
             byte[] lastEligibleReadyKey = null;
             for (ShardStore.KeyValue entry : entries) {
-                if (System.nanoTime() - startedNanos >= budget.maxElapsedNanos()) {
+                if (elapsedSince(startedNanos, readClock()) >= budget.maxElapsedNanos()) {
                     break;
                 }
                 final long entryBytes = Math.addExact(entry.key().length, entry.value().length);
@@ -446,6 +456,24 @@ public final class PersistentLaneScheduler {
     private static void requireDueThrough(final long dueThroughEpochMs) {
         if (dueThroughEpochMs < 0) {
             throw new IllegalArgumentException("scheduler due-through time must be non-negative");
+        }
+    }
+
+    private long readClock() {
+        final long now = clockNanos.getAsLong();
+        if (now < 0 || (clockInitialized && now < lastClockNanos)) {
+            throw new IllegalStateException("persistent scheduler clock must be monotonic and non-negative");
+        }
+        lastClockNanos = now;
+        clockInitialized = true;
+        return now;
+    }
+
+    private static long elapsedSince(final long start, final long end) {
+        try {
+            return Math.subtractExact(end, start);
+        } catch (ArithmeticException overflow) {
+            return Long.MAX_VALUE;
         }
     }
 

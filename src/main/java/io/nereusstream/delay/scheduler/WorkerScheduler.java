@@ -25,6 +25,8 @@ public final class WorkerScheduler {
     private long maxDeficitBytes;
     private final int maxVisitShards;
     private final LongSupplier clockNanos;
+    private long lastClockNanos;
+    private boolean clockInitialized;
     private final Map<ShardId, ShardQueue> shards = new HashMap<>();
     private final List<ShardId> ring = new ArrayList<>();
     private final Set<ShardId> recoveryServed = new HashSet<>();
@@ -166,7 +168,13 @@ public final class WorkerScheduler {
     }
 
     private long readClock() {
-        return clockNanos.getAsLong();
+        final long now = clockNanos.getAsLong();
+        if (now < 0 || (clockInitialized && now < lastClockNanos)) {
+            throw new IllegalStateException("worker scheduler clock must be monotonic and non-negative");
+        }
+        lastClockNanos = now;
+        clockInitialized = true;
+        return now;
     }
 
     private static long elapsedSince(final long started, final long now) {

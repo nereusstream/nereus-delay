@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.LongSupplier;
 
 /**
  * Destination-Lane weighted deficit round robin. Lane circuit/failure state is
@@ -28,18 +29,26 @@ public final class LaneScheduler {
     private final long quantumBytes;
     private long maxDeficitBytes;
     private final int maxVisitMessages;
+    private final LongSupplier clockNanos;
+    private long lastClockNanos;
+    private boolean clockInitialized;
     private final Map<DestinationLaneId, LaneQueue> lanes = new HashMap<>();
     private final List<DestinationLaneId> ring = new ArrayList<>();
     private int cursor;
     private long roundGeneration;
 
     public LaneScheduler(final long quantumBytes, final int maxVisitMessages) {
+        this(quantumBytes, maxVisitMessages, System::nanoTime);
+    }
+
+    LaneScheduler(final long quantumBytes, final int maxVisitMessages, final LongSupplier clockNanos) {
         if (quantumBytes <= 0 || maxVisitMessages <= 0) {
             throw new IllegalArgumentException("scheduler limits must be positive");
         }
         this.quantumBytes = quantumBytes;
         this.maxDeficitBytes = checkedDeficitCap(quantumBytes);
         this.maxVisitMessages = maxVisitMessages;
+        this.clockNanos = Objects.requireNonNull(clockNanos, "clockNanos");
     }
 
     public static LaneScheduler defaults() {
@@ -122,7 +131,7 @@ public final class LaneScheduler {
                                                 final long dueThroughEpochMs) {
         Objects.requireNonNull(budget, "budget");
         final SchedulerSnapshot before = snapshot();
-        final long started = System.nanoTime();
+        final long started = readClock();
         final List<ScheduleWorkItem> result = new ArrayList<>();
         final Set<DestinationLaneId> servedThisPoll = new HashSet<>();
         long bytes = 0;
@@ -134,7 +143,7 @@ public final class LaneScheduler {
         try {
             final long ringVisitLimit = boundedRingVisitLimit(ringSize);
             while (visits < ringVisitLimit && result.size() < Math.min(maxVisitMessages, budget.maxMessages())
-                    && bytes < budget.maxBytes() && System.nanoTime() - started < budget.maxElapsedNanos()) {
+                    && bytes < budget.maxBytes() && elapsedSince(started, readClock()) < budget.maxElapsedNanos()) {
                 final DestinationLaneId id = ring.get(cursor % ringSize);
                 cursor = (cursor + 1) % ringSize;
                 visits++;
@@ -156,6 +165,10 @@ public final class LaneScheduler {
                 if (head.accountedBytes() > lane.deficit || head.accountedBytes() > budget.maxBytes() - bytes) {
                     continue;
                 }
+                // Read the service timestamp before removing the queue head.
+                // A clock regression or invalid sample must fail closed before
+                // any fairness projection can make the head look served.
+                readClock();
                 lane.queue.removeFirst();
                 lane.deficit -= head.accountedBytes();
                 roundGeneration = nextRoundGeneration(roundGeneration);
@@ -177,6 +190,24 @@ public final class LaneScheduler {
     private static void requireDueThrough(final long dueThroughEpochMs) {
         if (dueThroughEpochMs < 0) {
             throw new IllegalArgumentException("scheduler due-through time must be non-negative");
+        }
+    }
+
+    private long readClock() {
+        final long now = clockNanos.getAsLong();
+        if (now < 0 || (clockInitialized && now < lastClockNanos)) {
+            throw new IllegalStateException("lane scheduler clock must be monotonic and non-negative");
+        }
+        lastClockNanos = now;
+        clockInitialized = true;
+        return now;
+    }
+
+    private static long elapsedSince(final long start, final long end) {
+        try {
+            return Math.subtractExact(end, start);
+        } catch (ArithmeticException overflow) {
+            return Long.MAX_VALUE;
         }
     }
 
