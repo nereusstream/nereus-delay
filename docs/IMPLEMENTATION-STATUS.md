@@ -64,6 +64,15 @@ separate adapter-local evidence field. Focused coverage is
 `TerminalGenerationRecordTest.sourcePositionMustBeCanonicalBeforeTerminalValueConstruction`
 and `PublishAttemptLedgerTest.sourcePositionMustBeCanonicalBeforeAttemptValueConstruction`.
 
+The post-GC `RetiredMessageIdentityRecord` now applies the same canonical
+decode before persisting its retained source anchor. Its Shard identity is
+still checked by `DelayShard` when the compact identity is read, so a malformed
+or foreign source cannot authorize Message identity reuse. The focused
+coverage is `RetiredMessageIdentityRecordTest`, including canonical round-trip,
+malformed-source and trailing-byte rejection. This remains local retention
+evidence; Recovery-Floor and Route identity-retention authority remain release
+gates.
+
 The local `TIME_FENCE_V1` apply path now carries an explicit
 `DelayShardConfig.timeFenceSafetyMarginMs` input and checks the Trusted-UTC
 proof with checked addition before advancing the ingress watermark. A proof one

@@ -1270,6 +1270,12 @@ Positions and remain opaque bounded evidence. The focused regressions are
 `MessageRecordTest.sourcePositionMustBeCanonicalBeforeMessageValueConstruction`,
 `TerminalGenerationRecordTest.sourcePositionMustBeCanonicalBeforeTerminalValueConstruction`
 and `PublishAttemptLedgerTest.sourcePositionMustBeCanonicalBeforeAttemptValueConstruction`.
+The compact post-GC `RetiredMessageIdentityRecord` now applies the same
+canonical decode before retaining its source anchor; `DelayShard` still checks
+that decoded anchor against the current Shard before exposing identity-reuse
+state. `RetiredMessageIdentityRecordTest` covers canonical round-trip and
+malformed/trailing-byte rejection. This is local retention evidence only;
+Recovery-Floor and Route identity-retention authority remain release gates.
 Its `COMMITTED` branch also rejects a payload reference whose length or
 SHA-256 differs from the Prepare intent, so a damaged durable value cannot
 cross the reservation-to-message boundary as a false object binding. The
