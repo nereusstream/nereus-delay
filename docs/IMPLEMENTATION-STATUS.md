@@ -2989,7 +2989,10 @@ covers payload optional-etag handling, typed Broker/channel/shard identities,
 raw unsigned Kafka/Pulsar fields and branch rejection, while
 `KafkaReceiptResource.protocolResource()` exposes the slot geometry through the
 same Registry identity and `PulsarJournalResource.protocolResource()` exposes
-the Journal resource/generation identity. This remains a local identity codec;
+the Journal resource/generation identity. `PulsarJournalResource` now preserves
+the complete raw `uint32` physical-partition bit pattern instead of rejecting a
+Java signed high bit; `PulsarAttemptJournalTest.journalResourcePreservesUnsignedPhysicalPartitionBits`
+covers the typed projection and canonical decode. This remains a local identity codec;
 slot allocation, retirement authority and Broker/Oxia ownership are still
 external.
 `PublishAdmissionBody`'s nested ProfileRef and Broker-resource validators now

@@ -20,9 +20,10 @@ public record PulsarJournalResource(
         authenticatedClusterId = canonicalText(authenticatedClusterId, "authenticatedClusterId");
         physicalTopic = canonicalText(physicalTopic, "physicalTopic");
         Bytes.requireLength(resourceIncarnation, 32, "resourceIncarnation");
-        if (partition < 0) {
-            throw new IllegalArgumentException("partition must be non-negative");
-        }
+        // The Registry encodes physical partitions as uint32. Keep the
+        // complete raw bit pattern here; a Java signed high bit is not an
+        // invalid partition and must round-trip through the typed Journal
+        // resource projection just like other V1 uint32 fields.
         resourceIncarnation = Bytes.copy(resourceIncarnation);
     }
 

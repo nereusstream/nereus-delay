@@ -682,7 +682,9 @@ canonical codec and exact `ResourceKind` wrapper; `ExternalResourceBranchTest`
 covers the newly added payload/DLQ/lane/local-store values as well as raw
 unsigned Kafka/Pulsar fields. `KafkaReceiptResource` and
 `PulsarJournalResource` project their physical identities into the same typed
-Registry branches. This closes only the local resource-value boundary, not slot
+Registry branches, and the Journal resource preserves high-bit physical
+partition values as raw `uint32` rather than applying a Java signed-range
+check. This closes only the local resource-value boundary, not slot
 allocation, external retirement, Broker evidence or Oxia ownership.
 
 Payload-proof trust-set semantic/reference versions now also preserve complete

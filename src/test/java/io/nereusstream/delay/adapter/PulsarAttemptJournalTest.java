@@ -442,6 +442,16 @@ class PulsarAttemptJournalTest {
         assertArrayEquals(resource.exactResourceCanonicalBytes(Long.MIN_VALUE), identity.canonicalBytes());
     }
 
+    @Test
+    void journalResourcePreservesUnsignedPhysicalPartitionBits() {
+        final PulsarJournalResource resource = new PulsarJournalResource("cluster", bytes(32, 22),
+                "persistent://nereus/system/attempt-journal-high-bit", Long.MIN_VALUE, Integer.MIN_VALUE);
+
+        final PulsarJournalGenerationResourceV1 typed = resource.protocolResource(1);
+        assertEquals(Integer.MIN_VALUE, typed.partition());
+        assertEquals(typed, PulsarJournalGenerationResourceV1.decode(typed.canonicalBytes()));
+    }
+
     private static PulsarAttemptJournal.JournalPosition position(final long entryId) {
         return new PulsarAttemptJournal.JournalPosition(1, entryId, 0, 1, 1_000);
     }
