@@ -2,7 +2,7 @@
 
 状态：PASS / design semantics closed  
 Spec revision：`V1-FROZEN-2026-08-01`  
-审计日期：2026-08-11
+审计日期：2026-08-12
 性质：验收证据索引；不覆盖主设计、Protocol Registry 或 Accepted ADR
 
 ## 结论
