@@ -1878,6 +1878,71 @@ class DelayShardTest {
     }
 
     @Test
+    void catalogBackedRegistryScheduleRejectsBeforeFirstProfileActivationMarker() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("profile-binding-requires-initial-marker"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 38);
+        final ProfileRefV1 profile = new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 38),
+                ProfileKindV1.DESTINATION);
+        final ScheduleIntentV1 intent = ScheduleIntentV1.create(profile,
+                new io.nereusstream.delay.protocol.RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 39)),
+                2_000, 5_000, io.nereusstream.delay.protocol.DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT,
+                Bytes.utf8("ordering"), Bytes.utf8("pre-marker"), null,
+                io.nereusstream.delay.protocol.AdapterMetadataV1.kafka(
+                        new io.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())), null, null);
+        final PreparedCommand command = PreparedCommand.scheduleV1(shardId, intent, 9_000);
+        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+            @Override
+            public ResolvedSchedule resolveSchedule(final ShardId shard, final DelayMessageId messageId,
+                                                     final ScheduleIntentV1 schedule,
+                                                     final SourcePosition sourcePosition) {
+                throw new AssertionError("resolver must not run before Profile activation");
+            }
+
+            @Override
+            public ResolvedPrepare resolvePrepare(final ShardId shard, final DelayMessageId messageId,
+                                                  final PrepareLargeScheduleBodyV1 body,
+                                                  final SourcePosition sourcePosition) {
+                throw new AssertionError("resolver must not run before Profile activation");
+            }
+        };
+        final ProfileCatalog catalog = new ProfileCatalog() {
+            @Override
+            public io.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1 resolve(
+                    final ProfileRefV1 reference) {
+                return null;
+            }
+
+            @Override
+            public io.nereusstream.delay.protocol.CredentialBindingV1 resolveBinding(final ProfileRefV1 reference,
+                                                                                       final long generation) {
+                return null;
+            }
+
+            @Override
+            public io.nereusstream.delay.protocol.CredentialBindingHeadV1 resolveHead(
+                    final ProfileRefV1 reference) {
+                return null;
+            }
+
+            @Override
+            public io.nereusstream.delay.protocol.CredentialBindingProtectionV1 resolveProtection(
+                    final ProfileRefV1 reference, final long generation) {
+                return null;
+            }
+        };
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver,
+                    null, null, null, catalog);
+            assertEquals(StableCode.PROFILE_VERSION_NOT_ACTIVE_AT_SOURCE_POSITION,
+                    shard.apply(command, position(shardId, 0, 1_000)).stableCode());
+            assertNull(shard.getMessage(command.delayMessageId()));
+            assertEquals(0, shard.profileBindingControlState().activations().size());
+        }
+    }
+
+    @Test
     void registryCommittedScheduleResolverPreservesOptionalEtag() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("registry-committed-schedule"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 33);

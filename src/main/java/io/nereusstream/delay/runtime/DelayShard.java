@@ -2118,7 +2118,17 @@ public final class DelayShard {
 
     private void requireProfileFirstBinding(final ProfileRefV1 profile, final SourcePosition sourcePosition) {
         if (!profileBindingControlState.hasMarkers()) {
-            return;
+            // A catalog-backed V1 path is the production-shaped seam: it must
+            // not infer that an empty marker projection means "all Profiles
+            // are active". The activation target set is source ordered and a
+            // new Route cannot admit tenant bindings until its first marker
+            // has been durably applied. Constructors without a Profile
+            // catalog remain the explicitly bounded legacy compatibility path.
+            if (profileCatalog == null) {
+                return;
+            }
+            throw new V1CommandResolutionException(StableCode.PROFILE_VERSION_NOT_ACTIVE_AT_SOURCE_POSITION,
+                    "Profile activation markers are not applied for this Route");
         }
         final ProfileAcceptanceV1 acceptance = profileBindingControlState.firstBindingAcceptance(profile,
                 sourcePosition);

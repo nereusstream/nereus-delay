@@ -1507,9 +1507,11 @@ V1 必须经过显式 `V1ScheduleResolver`，校验 tuple 派生 Lane、payload 
 仍是本地 authority seam，不等于 Profile/Policy/Oxia/真实 Adapter 已接入。
 `ProfileBindingActivatePayloadV1`/`ProfileNewBindingClosePayloadV1` 和
 `ProfileBindingControlState` 现在也提供了 source-ordered first-binding marker
-投影；当 shard 已有 Profile marker 时，V1 Schedule/Prepare 会在 resolver 前
-按 activation/close 边界返回对应稳定码，marker 与 System Mutation result
-在同一 WriteBatch 持久化并可在 reopen 后恢复。`InMemoryProfileCatalog` 现在
+投影；catalog-backed V1 路径在尚未应用首个 Profile activation marker 时就
+会 fail closed，已有 Profile marker 时则在 resolver 前按 activation/close
+边界返回对应稳定码，marker 与 System Mutation result 在同一 WriteBatch
+持久化并可在 reopen 后恢复。没有 Profile catalog 的旧构造器仍是显式的
+legacy compatibility seam。`InMemoryProfileCatalog` 现在
 提供 exact immutable semantic/binding/head/protection lookup；签名 control
 target、source-ordered activation routing、历史 binding retention 与 provider
 verification 仍是 release blocker。
