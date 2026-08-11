@@ -716,6 +716,26 @@ class DelayShardTest {
     }
 
     @Test
+    void typedActiveLaneStateRejectsReadyKeyDriftBeforeActivation() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("typed-lane-state-ready-drift"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 84);
+        final ActiveLaneStateV1 state = typedReadyLaneState(shardId, Bytes.utf8("wrong-ready-key"));
+        final DestinationLaneId lane = state.laneId();
+        final byte[] laneQuota = LaneQuotaUsageProjection.empty()
+                .ensureLane(lane, state.laneIncarnation(), 1).canonicalBytes();
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(lane),
+                        LaneRecordEnvelopeV1.active(state).canonicalBytes());
+                batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(3), laneQuota);
+            });
+
+            assertThrows(IllegalStateException.class, () -> new DelayShard(store, DelayShardConfig.defaults()));
+        }
+    }
+
+    @Test
     void laneLookupRejectsKeyValueIdentityMismatch() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("lane-key-mismatch"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 57);
@@ -7398,6 +7418,19 @@ class DelayShardTest {
                 RuntimeReadiness.BLOCKED, LaneRuntimeBlockReasonV1.CAPABILITY, 1, 1, destination, capability,
                 tuple, 1, usage, null, null, LaneCircuitStateV1.CLOSED, 0, 0, 0, 0,
                 null, null, null);
+    }
+
+    private static ActiveLaneStateV1 typedReadyLaneState(final ShardId shardId, final byte[] encodedReadyKey) {
+        final ProfileRefV1 destination = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2),
+                ProfileKindV1.DESTINATION);
+        final ProfileRefV1 capability = new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4),
+                ProfileKindV1.DELIVERY_CAPABILITY);
+        final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
+        final byte[] certificate = PublishAdmissionBody.decode(Fixture.create(shardId).body())
+                .readyCertificate().canonicalBytes();
+        return new ActiveLaneStateV1(DestinationLaneId.derive(tuple), bytes(16, 5), AdmissionGate.OPEN,
+                RuntimeReadiness.READY, null, 1, 1, destination, capability, tuple, 1, zeroChargeVector(),
+                null, 200L, LaneCircuitStateV1.CLOSED, 0, 0, 0, 0, encodedReadyKey, certificate, null);
     }
 
     private static PublishAdmissionBody.ChargeVector zeroChargeVector() {

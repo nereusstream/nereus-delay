@@ -397,6 +397,11 @@ persisted class-3 `meta_cf/QUOTA` map. Missing-map and usage-drift cases fail
 closed, and the focused `DelayShardTest` regressions cover both branches; this
 closes the local state/map projection fence without claiming typed runtime cutover
 or external revision authority.
+Activation also recomputes typed `encoded_ready_key` from the Lane ID,
+`laneVersion` and `nextEligibleAt`, rejecting a key whose fields or gate/readiness
+branch drift. `DelayShardTest.typedActiveLaneStateRejectsReadyKeyDriftBeforeActivation`
+covers that local identity fence; it does not prove physical READY existence,
+certificate authority or scheduler recovery.
 
 The nested `ChargeVectorV1` now preserves the complete raw `uint64` domain at
 the wire boundary. Its embedded signed-capacity projection is guarded

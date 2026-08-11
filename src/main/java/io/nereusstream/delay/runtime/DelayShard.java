@@ -492,6 +492,30 @@ public final class DelayShard {
             if (!state.laneUsage().equals(projectedUsage)) {
                 throw new IllegalStateException("typed Lane usage disagrees with the class-3 quota map");
             }
+            validateTypedReadyKey(state);
+        }
+    }
+
+    /** Ensures typed READY metadata is the exact key derived from its Lane state. */
+    private static void validateTypedReadyKey(final ActiveLaneStateV1 state) {
+        final byte[] encodedReadyKey = state.encodedReadyKey();
+        if (encodedReadyKey == null) {
+            return;
+        }
+        if (state.admissionGate() != AdmissionGate.OPEN || state.runtimeReadiness() != RuntimeReadiness.READY
+                || state.nextEligibleAtEpochMs() == null) {
+            throw new IllegalStateException("typed READY key is present for a non-schedulable Lane state");
+        }
+        final byte[] expected = KeyCodec.timelineReady(state.nextEligibleAtEpochMs(), state.laneId(),
+                state.laneVersion());
+        if (!Arrays.equals(encodedReadyKey, expected)) {
+            throw new IllegalStateException("typed READY key disagrees with Lane state");
+        }
+        final ReadyKey decoded = decodeReadyKey(encodedReadyKey);
+        if (!decoded.laneId().equals(state.laneId())
+                || decoded.laneVersion() != state.laneVersion()
+                || decoded.nextEligibleAtEpochMs() != state.nextEligibleAtEpochMs()) {
+            throw new IllegalStateException("typed READY key fields disagree with Lane state");
         }
     }
 

@@ -622,6 +622,11 @@ and `DelayShardTest.typedActiveLaneStateRejectsUsageDriftFromPerLaneQuotaProject
 cover the two rejection branches, while the existing typed reopen/update test
 covers the matching branch. This closes the local cross-projection fence; it
 does not claim full typed runtime cutover or external revision authority.
+The same activation fence recomputes typed `encoded_ready_key` from the exact
+Lane ID, `laneVersion` and `nextEligibleAt` and rejects a key whose fields or
+gate/readiness branch do not match; `DelayShardTest.typedActiveLaneStateRejectsReadyKeyDriftBeforeActivation`
+covers the drift path. This is key-identity evidence only; physical READY
+existence, certificate authority and scheduler recovery remain separate gates.
 The typed state and terminal-guard constructors now also parse the
 Registry-shaped canonical Lane tuple and require exact byte projection of both
 immutable Profile slots; malformed tuple structure or Profile id/version/hash
