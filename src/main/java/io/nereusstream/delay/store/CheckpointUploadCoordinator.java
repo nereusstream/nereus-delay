@@ -26,22 +26,10 @@ public final class CheckpointUploadCoordinator {
     private final CheckpointUploadIntentAuthority intentStore;
     private final CheckpointManifestLimits limits;
 
-    public CheckpointUploadCoordinator(final SharedRocksDbResources resources,
-                                       final CheckpointUploadIntentStore intentStore) {
-        this(resources, intentStore, CheckpointManifestLimits.unbounded());
-    }
-
     /** Creates a coordinator over any exact upload-intent CAS authority. */
     public CheckpointUploadCoordinator(final SharedRocksDbResources resources,
                                        final CheckpointUploadIntentAuthority intentStore) {
         this(resources, intentStore, CheckpointManifestLimits.unbounded());
-    }
-
-    /** Creates an upload coordinator with explicit finite inventory limits. */
-    public CheckpointUploadCoordinator(final SharedRocksDbResources resources,
-                                       final CheckpointUploadIntentStore intentStore,
-                                       final CheckpointManifestLimits limits) {
-        this(resources, (CheckpointUploadIntentAuthority) intentStore, limits);
     }
 
     /** Creates an upload coordinator with explicit finite inventory limits. */
