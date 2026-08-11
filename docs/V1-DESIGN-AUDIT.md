@@ -1491,6 +1491,16 @@ Publication 及 upload-intent publication 返回的可选 Floor 也会绑定到�
 manifest、同一 shard，并要求 Floor catalog generation 不晚于 publication
 generation；因此 catalog publication response 不能夹带另一条 shard 或更高代的
 伪造 Floor。这仍只是 adapter response fence。
+现在 `OxiaSyncRecoveryCatalogBackend` 把单 shard 的 manifest、immutable
+manifest-resource、scalar/typed Floor 投影编码为一个 bounded canonical Oxia
+record，并用单次 version CAS 做 publication/Floor mutation；response loss 只有
+在 exact snapshot reread 后才会被视为成功，malformed/non-canonical snapshot
+会 fail closed。`OxiaSyncRecoveryCatalogBackendTest` 覆盖真实 Oxia Java client
+record surface 的 deterministic seam、reopen、corruption 和 response-loss
+边界。这闭合的是 catalog/Floor 单 record CAS，不等于 upload-intent 与 catalog
+的跨 record transaction，也不等于 Owner Lease/session-bound RecoveryPin；这两类
+能力仍由 backend 明确拒绝，真实 Oxia service/session、multi-worker 和
+Object Store publication evidence 仍是 release gates。
 这仍不是 Oxia 的 Owner Lease/session、lineage-head、catalog-generation
 transaction，也不执行 Object Store upload/attestation/delete。现有 `DelayShard` 仍
 通过兼容 `LaneRecord` 写入 ACTIVE 分支，因此这不被误报为已经完成 full

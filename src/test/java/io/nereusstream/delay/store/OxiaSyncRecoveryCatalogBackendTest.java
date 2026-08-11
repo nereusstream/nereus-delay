@@ -1,0 +1,161 @@
+package io.nereusstream.delay.store;
+
+import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.EvidenceCursorV1;
+import io.nereusstream.delay.protocol.KafkaSourcePosition;
+import io.nereusstream.delay.protocol.RouteIncarnation;
+import io.nereusstream.delay.protocol.ShardId;
+import io.oxia.client.api.GetResult;
+import io.oxia.client.api.PutResult;
+import io.oxia.client.api.Version;
+import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
+import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
+import io.oxia.client.api.options.PutOption;
+import io.oxia.client.api.options.defs.OptionVersionId;
+import org.junit.jupiter.api.Test;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+class OxiaSyncRecoveryCatalogBackendTest {
+    private static final CheckpointManifestLimits LIMITS = new CheckpointManifestLimits(
+            100, Long.MAX_VALUE, Long.MAX_VALUE, 4_096, 1 << 20, 100, 4_096);
+
+    @Test
+    void storesOneCanonicalSnapshotAndReopensItThroughRealCasSurface() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final OxiaSyncRecoveryCatalogBackend backend = new OxiaSyncRecoveryCatalogBackend(records, "delay/shard",
+                LIMITS);
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
+        final CheckpointManifest manifest = manifest(shard, id16(1), id16(2), 0, 10, 10, null);
+
+        assertEquals(1, backend.publish(manifest, 0).catalogGeneration());
+        assertEquals(1, records.putCount);
+        assertArrayEquals(manifest.canonicalJsonBytes(),
+                backend.manifest(manifest.checkpointId()).orElseThrow().canonicalJsonBytes());
+
+        final RecoveryFloor floor = backend.advanceFloor(manifest.checkpointId(), 1, id32(3));
+        assertEquals(2, floor.catalogGeneration());
+        final var typed = backend.advanceFloor(manifest.checkpointId(), 2, java.util.List.<EvidenceCursorV1>of());
+        assertEquals(3, typed.catalogGeneration());
+
+        final OxiaSyncRecoveryCatalogBackend reopened = new OxiaSyncRecoveryCatalogBackend(records, "delay/shard",
+                LIMITS);
+        assertArrayEquals(floor.checkpointId(), reopened.currentFloor().orElseThrow().checkpointId());
+        assertEquals(typed, reopened.currentFloorRef().orElseThrow());
+        assertArrayEquals(manifest.canonicalJsonBytes(),
+                reopened.manifest(manifest.checkpointId()).orElseThrow().canonicalJsonBytes());
+    }
+
+    @Test
+    void exactRereadConvertsResponseLossIntoSuccess() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final OxiaSyncRecoveryCatalogBackend backend = new OxiaSyncRecoveryCatalogBackend(records, "delay/lost",
+                LIMITS);
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 5);
+        final CheckpointManifest manifest = manifest(shard, id16(4), id16(5), 0, 1, 1, null);
+
+        records.failNextPutAfterCommit = true;
+        assertEquals(manifest, backend.publish(manifest, 0).manifest());
+        assertArrayEquals(manifest.canonicalJsonBytes(),
+                backend.manifest(manifest.checkpointId()).orElseThrow().canonicalJsonBytes());
+    }
+
+    @Test
+    void malformedRemoteSnapshotFailsClosedBeforeAnyCatalogProjection() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final OxiaSyncRecoveryCatalogBackend backend = new OxiaSyncRecoveryCatalogBackend(records, "delay/bad",
+                LIMITS);
+        records.putRaw("delay/bad/catalog", new byte[]{0x08, 0x02});
+
+        assertThrows(IllegalArgumentException.class, backend::currentFloor);
+    }
+
+    @Test
+    void uploadIntentAndPinTransactionAreNotPretendedToBeSingleRecordCas() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final OxiaSyncRecoveryCatalogBackend backend = new OxiaSyncRecoveryCatalogBackend(records, "delay/strict",
+                LIMITS);
+        assertThrows(UnsupportedOperationException.class,
+                () -> backend.publishUploadedCheckpoint(null, null, 0));
+    }
+
+    private static CheckpointManifest manifest(final ShardId shard, final byte[] lineage,
+                                               final byte[] checkpointId, final long lineageGeneration,
+                                               final long offset, final long mutationSequence,
+                                               final CheckpointManifest.ParentCheckpoint parent) {
+        final KafkaSourcePosition position = new KafkaSourcePosition(shard, "cluster", UUID.randomUUID(), offset,
+                null, 1_000 + offset);
+        final CheckpointManifest.FileEntry file = new CheckpointManifest.FileEntry("CURRENT", 1, id32(20),
+                Bytes.utf8("object/current"), Bytes.utf8("version"), null);
+        return new CheckpointManifest(checkpointId, lineage, lineageGeneration, parent, null,
+                new CheckpointManifest.CreatedBy(id32(21), id32(22), 1),
+                new CheckpointManifest.CreatedAt(1_000, 1_001, "CERTIFIED_HOST_CLOCK", id32(23), 1,
+                        offset, offset, id32(24), 0, null), shard, id32(25), UUID.randomUUID(), 1,
+                mutationSequence, position, id32(26), id32(27), java.util.List.of(), java.util.List.of(file));
+    }
+
+    private static byte[] id16(final int value) {
+        final byte[] bytes = new byte[16];
+        bytes[15] = (byte) value;
+        return bytes;
+    }
+
+    private static byte[] id32(final int value) {
+        final byte[] bytes = new byte[32];
+        bytes[31] = (byte) value;
+        return bytes;
+    }
+
+    private static final class FakeRecordClient implements OxiaSyncRecoveryCatalogBackend.RecordClient {
+        private final Map<String, GetResult> records = new HashMap<>();
+        private long nextVersion = 1;
+        private int putCount;
+        private boolean failNextPutAfterCommit;
+
+        @Override
+        public GetResult get(final String key) {
+            return records.get(key);
+        }
+
+        @Override
+        public PutResult put(final String key, final byte[] value, final Set<PutOption> options)
+                throws UnexpectedVersionIdException, KeyAlreadyExistsException {
+            final GetResult current = records.get(key);
+            final OptionVersionId condition = options.stream()
+                    .filter(OptionVersionId.class::isInstance)
+                    .map(OptionVersionId.class::cast)
+                    .findFirst().orElse(null);
+            if (condition != null) {
+                if (condition.versionId() == OptionVersionId.KEY_NOT_EXISTS && current != null) {
+                    throw new KeyAlreadyExistsException(key);
+                }
+                if (condition.versionId() != OptionVersionId.KEY_NOT_EXISTS
+                        && (current == null || current.version().versionId() != condition.versionId())) {
+                    throw new UnexpectedVersionIdException(key,
+                            current == null ? OptionVersionId.KEY_NOT_EXISTS : current.version().versionId());
+                }
+            }
+            final Version version = new Version(nextVersion++, 0, 0, 1, Optional.empty(), Optional.empty());
+            records.put(key, new GetResult(key, Bytes.copy(value), version));
+            putCount++;
+            if (failNextPutAfterCommit) {
+                failNextPutAfterCommit = false;
+                throw new IllegalStateException("simulated response loss");
+            }
+            return new PutResult(key, version);
+        }
+
+        private void putRaw(final String key, final byte[] value) {
+            final Version version = new Version(nextVersion++, 0, 0, 1, Optional.empty(), Optional.empty());
+            records.put(key, new GetResult(key, Bytes.copy(value), version));
+        }
+    }
+}
