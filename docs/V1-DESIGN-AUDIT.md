@@ -675,6 +675,11 @@ and the ordering/overflow helper covered by `UnsignedInt32Test`. The legacy
 documented compatibility boundary; applied results use the presence of
 `stateVersion/messageStatus` to distinguish a real all-ones generation from
 that absence sentinel (`DurableResultTest.appliedCommandResultPreservesMaxUint32GenerationAndProjectsIt`).
+The same raw-bit rule now covers `RetryDecisionV1.completed_attempt_no` and
+the DLQ physical attempt in both outcome codecs: values above `0xffffffff` are
+rejected, high-bit values round-trip, and DLQ PENDING/UNCERTAIN transitions
+use an unsigned checked successor/comparison rather than signed arithmetic
+(`PublishOutcomeBodyTest`, `DlqExportResultBodyTest`, `DelayShardTest`).
 
 The `ExactResourceIdentityV1` retirement projection now applies the same
 branch-specific Object Store Profile fence as the committed/checkpoint

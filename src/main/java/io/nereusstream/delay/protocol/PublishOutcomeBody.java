@@ -240,6 +240,14 @@ public final class PublishOutcomeBody {
         return field.unsignedValue();
     }
 
+    private static long uint32(final CanonicalProtobuf.Reader.Field field, final int number) {
+        final long value = unsigned(field, number);
+        if (value > 0xffff_ffffL) {
+            throw new IllegalArgumentException("Publish Outcome uint32 field exceeds unsigned range: " + number);
+        }
+        return value;
+    }
+
     private static int intValue(final CanonicalProtobuf.Reader.Field field, final int number) {
         final long value = unsigned(field, number);
         if (value > Integer.MAX_VALUE) {
@@ -357,7 +365,7 @@ public final class PublishOutcomeBody {
             final byte[] policyBytes = nested(field(fields, 2), 2);
             validateRetryPolicyRef(policyBytes);
             final RetryPolicyRefV1 policy = RetryPolicyRefV1.decode(policyBytes);
-            final long completed = unsigned(field(fields, 3), 3);
+            final long completed = uint32(field(fields, 3), 3);
             final long first = unsigned(field(fields, 4), 4);
             final long deadline = unsigned(field(fields, 5), 5);
             if (deadline < first) {

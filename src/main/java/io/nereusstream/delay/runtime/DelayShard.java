@@ -2920,7 +2920,7 @@ public final class DelayShard {
         final RetryPolicySemanticV1 policy = retryPolicyFor(ledger.delayMessageId(), current, sourcePosition);
         if (policy == null || !decision.policy().matches(policy)
                 || decision.retryDomain() != RetryJitterV1.MESSAGE_PUBLISH
-                || decision.completedAttemptNo() != ledger.attemptNo()
+                || decision.completedAttemptNo() != UnsignedInt32.toLong(ledger.attemptNo())
                 || decision.firstAttemptAt() >= current.expireAtEpochMs()) {
             throw new IllegalArgumentException("RetryDecision does not match the pinned Retry Policy");
         }
@@ -4496,14 +4496,14 @@ public final class DelayShard {
         }
         if (compareGeneration(current.generation(), ledger.generation()) > 0) {
             final PublishOutcomeBody.RetryDecision retryDecision = outcome.retryDecision();
-            if (retryDecision.completedAttemptNo() != ledger.attemptNo()) {
+            if (retryDecision.completedAttemptNo() != UnsignedInt32.toLong(ledger.attemptNo())) {
                 return persistSystemResultByResult(systemResult, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
             }
             settleHistoricalTerminalObligation(ledger, sourcePosition, systemResult, false);
             return systemResult;
         }
         if (isTerminalStatus(current.status())) {
-            if (outcome.retryDecision().completedAttemptNo() != ledger.attemptNo()) {
+            if (outcome.retryDecision().completedAttemptNo() != UnsignedInt32.toLong(ledger.attemptNo())) {
                 return persistSystemResultByResult(systemResult, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
             }
             settleTerminalObligation(ledger, current, sourcePosition, systemResult, false);
@@ -4513,7 +4513,7 @@ public final class DelayShard {
             return persistSystemResultByResult(systemResult, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
         }
         final PublishOutcomeBody.RetryDecision retryDecision = outcome.retryDecision();
-        if (retryDecision.completedAttemptNo() != ledger.attemptNo()
+        if (retryDecision.completedAttemptNo() != UnsignedInt32.toLong(ledger.attemptNo())
                 || retryDecision.retryDeadline() > current.expireAtEpochMs()
                 || retryDecision.firstAttemptAt() > retryDecision.retryDeadline()
                 || retryDecision.hasNextRetryAt()
@@ -4788,7 +4788,7 @@ public final class DelayShard {
         try {
             validateDlqExportAttempt(current, body);
             final int nextAttempt = body.resultingState() == DlqExportStateV1.PENDING
-                    ? Math.addExact(body.physicalAttemptNo(), 1) : body.physicalAttemptNo();
+                    ? UnsignedInt32.successor(body.physicalAttemptNo()) : body.physicalAttemptNo();
             final DlqExportRecord next = new DlqExportRecord(current.dlqExportId(), messageId,
                     current.generation(), current.terminalRevision(), current.exportEnvelopeHash(),
                     current.retainedCharge(), body.resultingState(), nextAttempt, sourcePosition.canonicalBytes());
@@ -4817,7 +4817,7 @@ public final class DelayShard {
                 throw new IllegalStateException("terminal DLQ export cannot accept another attempt outcome");
             }
             final int expectedAttempt = current.state() == DlqExportStateV1.UNCERTAIN
-                    ? Math.addExact(current.physicalAttemptNo(), 1) : current.physicalAttemptNo();
+                    ? UnsignedInt32.successor(current.physicalAttemptNo()) : current.physicalAttemptNo();
             if (body.physicalAttemptNo() != expectedAttempt) {
                 throw new IllegalStateException("DLQ export attempt number is not the checked successor");
             }
@@ -4826,7 +4826,7 @@ public final class DelayShard {
                     && current.state() != DlqExportStateV1.PENDING) {
                 throw new IllegalStateException("evidence resolution has no open DLQ export state");
             }
-            if (body.physicalAttemptNo() > current.physicalAttemptNo()) {
+            if (UnsignedInt32.compare(body.physicalAttemptNo(), current.physicalAttemptNo()) > 0) {
                 throw new IllegalStateException("DLQ evidence names an unknown physical attempt");
             }
         }

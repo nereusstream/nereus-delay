@@ -87,6 +87,38 @@ class PublishOutcomeBodyTest {
     }
 
     @Test
+    void acceptsHighBitRetryDecisionAttemptNumber() {
+        final ShardId shard = shard();
+        final byte[] attempt = Bytes.sha256(Bytes.utf8("high-bit-completed-attempt"));
+        final byte[] evidence = evidence(attempt, true);
+        final byte[] retry = retryDecisionWithCompletedAttempt(1, StableCode.OK, null, 0x8000_0000L);
+        final byte[] body = PublishOutcomeBody.encodeInitial(shard, 9_000, attempt, 1, 0, StableCode.OK,
+                evidence, charge().canonicalBytes(), observedAt(), retry);
+
+        assertEquals(0x8000_0000L, PublishOutcomeBody.decode(body).retryDecision().completedAttemptNo());
+    }
+
+    @Test
+    void rejectsRetryDecisionAttemptAboveUint32Range() {
+        final ShardId shard = shard();
+        final byte[] attempt = Bytes.sha256(Bytes.utf8("overflow-completed-attempt"));
+        final byte[] evidence = evidence(attempt, true);
+        final byte[] retry = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint32(output, 1, 1);
+            CanonicalProtobuf.bytes(output, 2, retryPolicyRef());
+            CanonicalProtobuf.uint64(output, 3, 0x1_0000_0000L);
+            CanonicalProtobuf.int64(output, 4, 2_000);
+            CanonicalProtobuf.int64(output, 5, 5_000);
+            CanonicalProtobuf.uint32(output, 7, 1);
+            CanonicalProtobuf.uint32(output, 8, StableCode.OK.wireValue());
+            CanonicalProtobuf.uint32(output, 9, 1);
+        });
+
+        assertThrows(IllegalArgumentException.class, () -> PublishOutcomeBody.encodeInitial(shard, 9_000,
+                attempt, 1, 0, StableCode.OK, evidence, charge().canonicalBytes(), observedAt(), retry));
+    }
+
+    @Test
     void rejectsRetryDecisionUnknownFieldAndOutOfWindowNextAt() {
         final ShardId shard = shard();
         final byte[] attempt = Bytes.sha256(Bytes.utf8("retry-shape-attempt"));
@@ -133,6 +165,14 @@ class PublishOutcomeBodyTest {
         return new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     }
 
+    private static byte[] retryPolicyRef() {
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, Bytes.utf8("policy"));
+            CanonicalProtobuf.uint64Bits(output, 2, 1);
+            CanonicalProtobuf.bytes(output, 3, Bytes.sha256(Bytes.utf8("policy-hash")));
+        });
+    }
+
     private static byte[] retryDecision(final int kind, final StableCode stableCode, final Long nextRetryAt) {
         return retryDecision(kind, stableCode, nextRetryAt, 1);
     }
@@ -145,6 +185,20 @@ class PublishOutcomeBodyTest {
     private static byte[] retryDecision(final int kind, final StableCode stableCode, final Long nextRetryAt,
                                         final long policyVersion, final long firstAttemptAt,
                                         final long retryDeadline) {
+        return retryDecisionWithCompletedAttempt(kind, stableCode, nextRetryAt, 1, policyVersion,
+                firstAttemptAt, retryDeadline);
+    }
+
+    private static byte[] retryDecisionWithCompletedAttempt(final int kind, final StableCode stableCode,
+                                                            final Long nextRetryAt, final long completedAttemptNo) {
+        return retryDecisionWithCompletedAttempt(kind, stableCode, nextRetryAt, completedAttemptNo, 1,
+                2_000, 5_000);
+    }
+
+    private static byte[] retryDecisionWithCompletedAttempt(final int kind, final StableCode stableCode,
+                                                            final Long nextRetryAt, final long completedAttemptNo,
+                                                            final long policyVersion, final long firstAttemptAt,
+                                                            final long retryDeadline) {
         final byte[] policy = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, Bytes.utf8("policy"));
             CanonicalProtobuf.uint64Bits(output, 2, policyVersion);
@@ -153,7 +207,7 @@ class PublishOutcomeBodyTest {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, kind);
             CanonicalProtobuf.bytes(output, 2, policy);
-            CanonicalProtobuf.uint32(output, 3, 1);
+            CanonicalProtobuf.uint32(output, 3, completedAttemptNo);
             CanonicalProtobuf.int64(output, 4, firstAttemptAt);
             CanonicalProtobuf.int64(output, 5, retryDeadline);
             if (nextRetryAt != null) {

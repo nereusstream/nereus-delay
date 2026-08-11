@@ -227,7 +227,7 @@ public final class DlqExportResultBody {
             throw new IllegalArgumentException("invalid retry decision kind");
         }
         RetryPolicyRefV1.decode(nested(field(fields, 2), 2));
-        unsigned(field(fields, 3), 3);
+        uint32(field(fields, 3), 3);
         final long firstAttemptAt = unsigned(field(fields, 4), 4);
         final long retryDeadline = unsigned(field(fields, 5), 5);
         if (retryDeadline < firstAttemptAt) {
@@ -284,6 +284,14 @@ public final class DlqExportResultBody {
             throw new IllegalArgumentException("invalid DLQ export scalar field " + number);
         }
         return field.unsignedValue();
+    }
+
+    private static long uint32(final CanonicalProtobuf.Reader.Field field, final int number) {
+        final long value = unsigned(field, number);
+        if (value > 0xffff_ffffL) {
+            throw new IllegalArgumentException("DLQ export uint32 field exceeds unsigned range: " + number);
+        }
+        return value;
     }
 
     private static long rawUint64(final CanonicalProtobuf.Reader.Field field, final int number) {
