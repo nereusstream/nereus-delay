@@ -3091,6 +3091,22 @@ runtime/JVM failures remain primary after rollback. This closes local
 projection/read-after-failed-write drift only; external authority and fresh
 process recovery remain release gates.
 
+The local ingress implementation now has an explicit strict identity-policy
+mode aligned with the main design's first-seen UUID/Broker checks. With a
+configured Route snapshot, a Command's `retryUntil` is byte/value-bound to its
+UUIDv7 timestamp and fixed retry window; first-seen Command and initial Schedule
+Message identities are checked with checked lower/upper bounds around the
+authoritative Broker persistence time. Invalid timing/identity input receives
+an atomic `INVALID_COMMAND` result and cannot create Message state, while
+existing dedupe records retain the prior conflict/no-op semantics. The local
+compatibility constructors intentionally disable this mode until authenticated
+Route policy is present, so they are not production ingress evidence. The
+focused evidence is
+`DelayShardTest.strictFirstSeenIdentityTimingBindsRetryDeadlineAndUuidAge` and
+`DelayShardConfigTest.strictIdentityPolicyRequiresCommandAndPreparationWindowsTogether`;
+Route policy publication, Broker-time authority and real transport integration
+remain release gates.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

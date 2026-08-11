@@ -13,6 +13,19 @@ class DelayShardConfigTest {
 
         assertEquals(0, config.maxIngressBrokerTimestampDivergenceMs());
         assertEquals(20_000, config.maximumAdmissionMutationEnqueueAgeMs());
+        assertEquals(0, config.commandRetryWindowMs());
+        assertEquals(0, config.maximumPreparationAgeMs());
+        assertEquals(0, config.maximumUuidFutureSkewMs());
+    }
+
+    @Test
+    void strictIdentityPolicyRequiresCommandAndPreparationWindowsTogether() {
+        assertThrows(IllegalArgumentException.class, () -> new DelayShardConfig(
+                10_000, 1, 20_000, 10, 100, 4, 3, 100, 10_000,
+                3, 1, 2_000, 4_000, 0, 20_000, 40_000, 0, 100));
+        assertThrows(IllegalArgumentException.class, () -> new DelayShardConfig(
+                10_000, 1, 20_000, 10, 100, 4, 3, 100, 10_000,
+                3, 1, 2_000, 4_000, 0, 20_000, 0, 20_000, 100));
     }
 
     @Test

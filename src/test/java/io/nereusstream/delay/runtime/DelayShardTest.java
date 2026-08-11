@@ -115,6 +115,64 @@ class DelayShardTest {
     Path tempDir;
 
     @Test
+    void strictFirstSeenIdentityTimingBindsRetryDeadlineAndUuidAge() {
+        final ShardStoreConfig storage = ShardStoreConfig.defaults(tempDir.resolve("strict-identity-timing"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 63);
+        final DelayShardConfig config = new DelayShardConfig(
+                10_000, 1, 20_000, 10, 100, 4, 3, 100, 10_000,
+                3, 1, 2_000, 4_000, 0, 20_000, 40_000, 20_000, 100);
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("strict-identity-lane"));
+        final CommandId validCommandId = CommandId.random(shardId);
+        final long brokerTime = validCommandId.routingId().logicalTimestampEpochMs();
+        final DelayMessageId validMessageId = DelayMessageId.random(shardId);
+        final long validRetryUntil = Math.addExact(validCommandId.routingId().logicalTimestampEpochMs(),
+                config.commandRetryWindowMs());
+        final io.nereusstream.delay.protocol.ScheduleIntent validIntent =
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, brokerTime + 1_000,
+                        brokerTime + 5_000, OrderingMode.BEST_EFFORT, Bytes.utf8("strict-identity"));
+        final PreparedCommand valid = PreparedCommand.create(shardId, validCommandId, validMessageId,
+                io.nereusstream.delay.protocol.CommandType.SCHEDULE, validRetryUntil,
+                CommandBodies.schedule(validIntent));
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(storage);
+             ShardStore store = ShardStore.open(storage, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, config);
+            assertEquals(StableCode.SCHEDULED, shard.apply(valid, position(shardId, 0, brokerTime)).stableCode());
+
+            final CommandId driftedCommandId = CommandId.random(shardId);
+            final long driftedRetryUntil = Math.addExact(
+                    driftedCommandId.routingId().logicalTimestampEpochMs(), config.commandRetryWindowMs() + 1);
+            final PreparedCommand driftedDeadline = PreparedCommand.create(shardId, driftedCommandId,
+                    validMessageId, io.nereusstream.delay.protocol.CommandType.SCHEDULE, driftedRetryUntil,
+                    CommandBodies.schedule(validIntent));
+            assertEquals(StableCode.INVALID_COMMAND,
+                    shard.apply(driftedDeadline, position(shardId, 1, brokerTime + 1)).stableCode());
+            assertEquals(MessageStatus.SCHEDULED, shard.getMessage(validMessageId).status());
+
+            final long oldTime = brokerTime - config.maximumPreparationAgeMs() - 1;
+            final CommandId oldCommandId = new CommandId(selfRoutingBytes(shardId, oldTime, 7));
+            final DelayMessageId oldCommandMessageId = DelayMessageId.random(shardId);
+            final PreparedCommand oldCommand = PreparedCommand.create(shardId, oldCommandId,
+                    oldCommandMessageId, io.nereusstream.delay.protocol.CommandType.SCHEDULE,
+                    Math.addExact(oldTime, config.commandRetryWindowMs()), CommandBodies.schedule(validIntent));
+            assertEquals(StableCode.INVALID_COMMAND,
+                    shard.apply(oldCommand, position(shardId, 2, brokerTime + 2)).stableCode());
+            assertNull(shard.getMessage(oldCommandMessageId));
+
+            final CommandId currentCommandId = CommandId.random(shardId);
+            final long currentRetryUntil = Math.addExact(currentCommandId.routingId().logicalTimestampEpochMs(),
+                    config.commandRetryWindowMs());
+            final DelayMessageId oldMessageId = new DelayMessageId(selfRoutingBytes(shardId, oldTime, 8));
+            final PreparedCommand oldMessage = PreparedCommand.create(shardId, currentCommandId, oldMessageId,
+                    io.nereusstream.delay.protocol.CommandType.SCHEDULE, currentRetryUntil,
+                    CommandBodies.schedule(validIntent));
+            assertEquals(StableCode.INVALID_COMMAND,
+                    shard.apply(oldMessage, position(shardId, 3, brokerTime + 3)).stableCode());
+            assertNull(shard.getMessage(oldMessageId));
+        }
+    }
+
+    @Test
     void acceptsCompleteUnsignedPersistedShardSequences() {
         for (final int metadataKey : List.of(5, 11)) {
             final ShardStoreConfig config = ShardStoreConfig.defaults(
@@ -7445,6 +7503,20 @@ class DelayShardTest {
         final byte[] result = new byte[length];
         java.util.Arrays.fill(result, (byte) value);
         return result;
+    }
+
+    private static byte[] selfRoutingBytes(final ShardId shardId, final long timestamp, final int randomSeed) {
+        if (timestamp < 0 || timestamp >= (1L << 48)) {
+            throw new IllegalArgumentException("test UUIDv7 timestamp is outside the 48-bit range");
+        }
+        final byte[] prefix = new byte[37];
+        final ByteBuffer buffer = ByteBuffer.wrap(prefix);
+        buffer.put((byte) 1);
+        buffer.put(shardId.routeIncarnation().bytes());
+        buffer.putInt(shardId.partition());
+        buffer.putLong((timestamp << 16) | 0x7000L | (randomSeed & 0x0fffL));
+        buffer.putLong(0x8000_0000_0000_0000L | (randomSeed & 0x3fff_ffff_ffff_ffffL));
+        return Bytes.concat(prefix, Bytes.crc32cbe(prefix));
     }
 
     private static ActiveLaneStateV1 typedActiveLaneState(final PublishAdmissionBody.ChargeVector usage) {

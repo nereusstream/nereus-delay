@@ -16,7 +16,10 @@ public record DelayShardConfig(
         long maxOutcomeReserveBytes,
         long maxOutcomeReserveRecords,
         long maxIngressBrokerTimestampDivergenceMs,
-        long maximumAdmissionMutationEnqueueAgeMs) {
+        long maximumAdmissionMutationEnqueueAgeMs,
+        long commandRetryWindowMs,
+        long maximumPreparationAgeMs,
+        long maximumUuidFutureSkewMs) {
     /**
      * Compatibility constructor for the pre-retry-policy embedded config.
      * The safety cap follows the shard's pending-message bound until a pinned
@@ -31,7 +34,7 @@ public record DelayShardConfig(
                 maxPendingBytes, maxLanes, inlinePayloadThresholdBytes, maxPayloadBytes,
                 maxReservationTtlMs, boundedAdmissionCap(maxPendingMessages), 0,
                 defaultOutcomeReserveBytes(maxPendingBytes), defaultOutcomeReserveRecords(
-                        boundedAdmissionCap(maxPendingMessages)), 0, maxMessageLifetimeMs);
+                        boundedAdmissionCap(maxPendingMessages)), 0, maxMessageLifetimeMs, 0, 0, 0);
     }
 
     /** Compatibility constructor for callers that already specify admission budgets. */
@@ -45,7 +48,7 @@ public record DelayShardConfig(
                 maxPendingBytes, maxLanes, inlinePayloadThresholdBytes, maxPayloadBytes,
                 maxReservationTtlMs, maxPublishAdmissions, maxUncertainRetries,
                 defaultOutcomeReserveBytes(maxPendingBytes), defaultOutcomeReserveRecords(maxPublishAdmissions), 0,
-                maxMessageLifetimeMs);
+                maxMessageLifetimeMs, 0, 0, 0);
     }
 
     /** Compatibility constructor for callers that specify the complete pre-broker-time config. */
@@ -59,7 +62,27 @@ public record DelayShardConfig(
         this(maxDelayHorizonMs, minDeliveryWindowMs, maxMessageLifetimeMs, maxPendingMessages,
                 maxPendingBytes, maxLanes, inlinePayloadThresholdBytes, maxPayloadBytes,
                 maxReservationTtlMs, maxPublishAdmissions, maxUncertainRetries, maxOutcomeReserveBytes,
-                maxOutcomeReserveRecords, 0, maxMessageLifetimeMs);
+                maxOutcomeReserveRecords, 0, maxMessageLifetimeMs, 0, 0, 0);
+    }
+
+    /**
+     * Compatibility constructor for callers that specify the complete
+     * pre-broker-time config. Strict command-identity timing is disabled until
+     * the Route supplies its immutable ingress policy.
+     */
+    public DelayShardConfig(final long maxDelayHorizonMs, final long minDeliveryWindowMs,
+                            final long maxMessageLifetimeMs, final long maxPendingMessages,
+                            final long maxPendingBytes, final long maxLanes,
+                            final long inlinePayloadThresholdBytes, final long maxPayloadBytes,
+                            final long maxReservationTtlMs, final int maxPublishAdmissions,
+                            final int maxUncertainRetries, final long maxOutcomeReserveBytes,
+                            final long maxOutcomeReserveRecords, final long maxIngressBrokerTimestampDivergenceMs,
+                            final long maximumAdmissionMutationEnqueueAgeMs) {
+        this(maxDelayHorizonMs, minDeliveryWindowMs, maxMessageLifetimeMs, maxPendingMessages,
+                maxPendingBytes, maxLanes, inlinePayloadThresholdBytes, maxPayloadBytes,
+                maxReservationTtlMs, maxPublishAdmissions, maxUncertainRetries, maxOutcomeReserveBytes,
+                maxOutcomeReserveRecords, maxIngressBrokerTimestampDivergenceMs,
+                maximumAdmissionMutationEnqueueAgeMs, 0, 0, 0);
     }
 
     public DelayShardConfig {
@@ -69,8 +92,15 @@ public record DelayShardConfig(
                 || maxPublishAdmissions <= 0 || maxUncertainRetries < 0
                 || maxUncertainRetries >= maxPublishAdmissions || maxOutcomeReserveBytes <= 0
                 || maxOutcomeReserveRecords <= 0 || maxIngressBrokerTimestampDivergenceMs < 0
-                || maximumAdmissionMutationEnqueueAgeMs < 0) {
+                || maximumAdmissionMutationEnqueueAgeMs < 0 || commandRetryWindowMs < 0
+                || maximumPreparationAgeMs < 0 || maximumUuidFutureSkewMs < 0) {
             throw new IllegalArgumentException("timing limits must be non-negative");
+        }
+        final boolean strictIdentityPolicy = commandRetryWindowMs != 0 || maximumPreparationAgeMs != 0
+                || maximumUuidFutureSkewMs != 0;
+        if (strictIdentityPolicy && (commandRetryWindowMs <= 0 || maximumPreparationAgeMs <= 0)) {
+            throw new IllegalArgumentException(
+                    "strict identity policy requires positive command retry and preparation windows");
         }
         if (maxDelayHorizonMs > maxMessageLifetimeMs) {
             throw new IllegalArgumentException("delay horizon cannot exceed message lifetime");

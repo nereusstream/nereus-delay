@@ -622,6 +622,11 @@ public final class DelayShard {
             persistPositionOnly(command, sourcePosition);
             return prior.result();
         }
+        try {
+            validateFirstSeenCommandIdentity(command, sourcePosition);
+        } catch (ArithmeticException | IllegalArgumentException exception) {
+            return persistRejected(command, sourcePosition, StableCode.INVALID_COMMAND);
+        }
         if (sourcePosition.brokerPersistenceTimeEpochMs() > command.retryUntilEpochMs()) {
             return persistRejected(command, sourcePosition, StableCode.COMMAND_RETRY_WINDOW_EXPIRED);
         }
@@ -6839,6 +6844,7 @@ public final class DelayShard {
         if (getRetiredMessageIdentity(command.delayMessageId()) != null) {
             return rejected(StableCode.DELAY_MESSAGE_ID_CONFLICT, sourcePosition, -1, 0, null);
         }
+        validateFirstSeenMessageIdentity(command.delayMessageId(), sourcePosition);
         if (closedIngressDeadlineThrough >= messageIdentityReuseUntil(command.delayMessageId())) {
             return rejected(StableCode.DELAY_MESSAGE_ID_EXPIRED, sourcePosition, -1, 0, null);
         }
@@ -7064,8 +7070,48 @@ public final class DelayShard {
      */
     private long messageIdentityReuseUntil(final DelayMessageId messageId) {
         Objects.requireNonNull(messageId, "messageId");
-        return Math.addExact(messageId.routingId().logicalTimestampEpochMs(),
-                config.maxMessageLifetimeMs());
+        final long freshnessWindow = config.maximumPreparationAgeMs() > 0
+                ? config.maximumPreparationAgeMs() : config.maxMessageLifetimeMs();
+        return Math.addExact(messageId.routingId().logicalTimestampEpochMs(), freshnessWindow);
+    }
+
+    /**
+     * Applies the Route-provided first-seen identity policy when configured.
+     * Existing embedded constructors intentionally leave this policy disabled
+     * because they have no authenticated Route snapshot; production activation
+     * must provide all three strict identity bounds.
+     */
+    private void validateFirstSeenCommandIdentity(final PreparedCommand command,
+                                                   final SourcePosition sourcePosition) {
+        if (config.commandRetryWindowMs() == 0) {
+            return;
+        }
+        final long commandTime = command.commandId().routingId().logicalTimestampEpochMs();
+        final long expectedRetryUntil = Math.addExact(commandTime, config.commandRetryWindowMs());
+        if (command.retryUntilEpochMs() != expectedRetryUntil) {
+            throw new IllegalArgumentException("retryUntil is not bound to command UUIDv7 time");
+        }
+        validateFirstSeenIdentityTimestamp(commandTime, sourcePosition.brokerPersistenceTimeEpochMs(),
+                "commandId");
+    }
+
+    private void validateFirstSeenMessageIdentity(final DelayMessageId messageId,
+                                                   final SourcePosition sourcePosition) {
+        if (config.commandRetryWindowMs() == 0) {
+            return;
+        }
+        validateFirstSeenIdentityTimestamp(messageId.routingId().logicalTimestampEpochMs(),
+                sourcePosition.brokerPersistenceTimeEpochMs(), "delayMessageId");
+    }
+
+    private void validateFirstSeenIdentityTimestamp(final long identityTime,
+                                                    final long brokerPersistenceTime,
+                                                    final String identityName) {
+        final long lowerBound = Math.subtractExact(brokerPersistenceTime, config.maximumPreparationAgeMs());
+        final long upperBound = Math.addExact(brokerPersistenceTime, config.maximumUuidFutureSkewMs());
+        if (identityTime < lowerBound || identityTime > upperBound) {
+            throw new IllegalArgumentException(identityName + " UUIDv7 time is outside first-seen Broker window");
+        }
     }
 
     private CommandResult persistRejected(final PreparedCommand command, final SourcePosition position,

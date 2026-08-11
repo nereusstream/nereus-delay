@@ -3255,6 +3255,24 @@ original type after rollback. This prevents a surviving local process from
 serving a projection that was never durably published; process restart remains
 the recovery boundary for unrecoverable native failures.
 
+The strict first-seen ingress identity seam now closes the UUID/Broker timing
+boundary from the V1 design when a Route policy is supplied to
+`DelayShardConfig`: `retryUntil` must equal the Command UUIDv7 timestamp plus
+the configured command retry window, and both the first-seen `commandId` and a
+new Schedule's `delayMessageId` must fall within the checked
+`[brokerPersistedAt - maximumPreparationAge, brokerPersistedAt +
+maximumUuidFutureSkew]` interval. A drifted deadline or out-of-window identity
+is persisted as `INVALID_COMMAND` before any business mutation; an existing
+dedupe identity continues to use its original conflict/no-op rules. The
+configured preparation window also drives `messageIdentityReuseUntil`. Legacy
+embedded constructors leave these three Route-owned bounds at zero because
+they have no authenticated Route policy snapshot; production activation must
+use the strict fields rather than treating that compatibility seam as ingress
+authority. `DelayShardTest.strictFirstSeenIdentityTimingBindsRetryDeadlineAndUuidAge`
+and `DelayShardConfigTest.strictIdentityPolicyRequiresCommandAndPreparationWindowsTogether`
+cover the local boundary. Route publication, authoritative Broker timestamp,
+and production ingress wiring remain release blockers.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
