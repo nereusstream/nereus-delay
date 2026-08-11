@@ -125,6 +125,18 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void renewalCannotRewindAConcurrentLifecycleTransition() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 23);
+        final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
+        final OwnerLease acquiring = authority.acquire(shard, "worker-state-fence", 100, 100).orElseThrow();
+        final OwnerLease restoring = authority.transition(acquiring, ShardLifecycleState.RESTORING).orElseThrow();
+
+        assertTrue(authority.renew(acquiring, 110, 100).isEmpty());
+        assertEquals(ShardLifecycleState.RESTORING, authority.current(shard).orElseThrow().state());
+        assertTrue(authority.renew(restoring, 110, 100).isPresent());
+    }
+
+    @Test
     void ownerEpochSuccessorUsesTheCompleteUnsignedDomain() {
         assertEquals(Long.MIN_VALUE, InMemoryOwnerLeaseStore.nextEpoch(Long.MAX_VALUE));
         assertEquals(-2L, InMemoryOwnerLeaseStore.nextEpoch(-3L));

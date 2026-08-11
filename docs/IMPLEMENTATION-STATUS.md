@@ -238,6 +238,11 @@ live expiry backwards, and a rejected shorter renewal leaves the current lease
 unchanged. `OwnerLeaseTest.renewalCannotMoveTheLiveExpiryBackwards` covers the
 local CAS parity; Oxia session/ephemeral-record authority remains an external
 release gate.
+The same in-memory CAS now rejects a renewal carrying a stale lifecycle state
+after a concurrent `ACQUIRING -> RESTORING` transition, so renewal cannot
+rewrite the current state backward; `OwnerLeaseTest.renewalCannotRewindAConcurrentLifecycleTransition`
+covers the fence. Persistent local projection and Oxia production CAS keep the
+same state-preservation requirement.
 
 Open publish-attempt lookup and listing now bound Attempt-only scans by the
 maximum of `maxPendingMessages` and `maxOutcomeReserveRecords`. This preserves

@@ -56,7 +56,7 @@ public final class InMemoryOwnerLeaseStore implements OwnerLeaseStore {
                                                     final long leaseDurationMs) {
         validateDuration(nowEpochMs, leaseDurationMs);
         final OwnerLease current = leases.get(expected.shardId());
-        if (!same(current, expected) || !current.validAt(nowEpochMs)) {
+        if (!same(current, expected) || current.state() != expected.state() || !current.validAt(nowEpochMs)) {
             return Optional.empty();
         }
         final OwnerLease next = new OwnerLease(expected.shardId(), expected.ownerId(), expected.ownerEpoch(),

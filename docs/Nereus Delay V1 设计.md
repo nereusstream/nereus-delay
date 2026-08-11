@@ -1002,6 +1002,10 @@ Shard mutation/publish 同时要求：
 
 `ownerEpoch` 从 Oxia monotonic sequence 分配，允许有 gap。canonical lease 是 single-holder ephemeral record，包含 shard、worker/process run、epoch、random fencing digest、assignment identity、state 和 session identity。
 
+Renewal CAS 必须保留 exact fencing/assignment/session identity 与当前
+lifecycle state；旧 Owner 携带的 stale state 不能通过续租把状态投影回退，expiry
+也只能单调延长。response loss 只能 reread 同一 identity、同一 state 的 successor。
+
 ### 9.2 接管
 
 ```text

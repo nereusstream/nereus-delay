@@ -2106,6 +2106,9 @@ Owner Lease 的本地 CAS 投影现在还按 V1 lifecycle graph 拒绝回退状�
 跳转、fence 和 fenced recycle 都保留。续租响应若改变期望的 lifecycle
 state 也会 fail closed，即使 fencing/assignment/session identity 相同，避免
 把状态漂移误当作成功续租。真实 Oxia ephemeral session/CAS 仍未完成。
+内存 authority 也在同一 CAS 边界拒绝携带 stale lifecycle state 的 renewal；
+若已有 `ACQUIRING -> RESTORING` successor，旧 lease 不能把它续租写回
+`ACQUIRING`，证据为 `OwnerLeaseTest.renewalCannotRewindAConcurrentLifecycleTransition`。
 内存 Owner Lease 测试 authority 的 epoch successor 也按完整 raw
 `uint64` 域递增：`0x7fff... -> 0x8000...` 合法，只有全 1 值耗尽时
 fail closed；这与 `OwnerIdentityV1`、Store runtime metadata 和 inflight key
