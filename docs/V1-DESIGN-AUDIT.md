@@ -96,10 +96,10 @@ disappearance, size change and short reads fail closed. The focused helper
 regression is `LocalStatePathGuardTest`. This is local physical-file evidence,
 not external Oxia/Object Store authority or process-recovery evidence.
 
-The per-shard RocksDB physical-usage probe now rejects symbolic links and
-non-regular entries under the DB path, and observes each file size through one
-`NOFOLLOW_LINKS` handle. A deceptive or raced entry therefore fences usage
-evidence instead of being silently omitted. The focused regression is
+The per-shard RocksDB physical-usage probe now rejects a symbolic-link DB root,
+symbolic links and non-regular entries under the DB path, and observes each
+file size through one `NOFOLLOW_LINKS` handle. A deceptive or raced entry
+therefore fences usage evidence instead of being silently omitted. The focused regression is
 `ShardStoreTest.physicalUsageFailsClosedOnADeceptiveSymbolicFile`; process-wide
 disk/quota authority remains an external gate.
 

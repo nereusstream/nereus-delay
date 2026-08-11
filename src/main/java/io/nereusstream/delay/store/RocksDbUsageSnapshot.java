@@ -50,6 +50,10 @@ public record RocksDbUsageSnapshot(
             throw new IllegalStateException("cannot inspect a closed RocksDB");
         }
         try {
+            if (Files.isSymbolicLink(dbPath)
+                    || !Files.isDirectory(dbPath, LinkOption.NOFOLLOW_LINKS)) {
+                throw new IllegalStateException("RocksDB usage root must be a real directory: " + dbPath);
+            }
             long liveSstBytes = 0;
             int liveSstFiles = 0;
             int l0Files = 0;
