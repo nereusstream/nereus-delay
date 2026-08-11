@@ -63,7 +63,7 @@ public final class ClaimRecord {
                        final byte[] timelineKey, final long runtimeRevision, final byte[] instanceDigest,
                        final byte[] sourceTimelineWork) {
         this.delayMessageId = Objects.requireNonNull(delayMessageId, "delayMessageId");
-        if (generation < 0 || ownerEpoch == 0 || claimSequence == 0 || laneControlVersion <= 0
+        if (ownerEpoch == 0 || claimSequence == 0 || laneControlVersion <= 0
                 || runtimeLaneVersion < 0 || runtimeRevision <= 0) {
             throw new IllegalArgumentException("invalid Claim record numeric fields");
         }
@@ -221,7 +221,7 @@ public final class ClaimRecord {
 
     public byte[] encode() {
         final int version = sourceTimelineWork.length == 0 ? 1 : 2;
-        final byte[] base = Bytes.concat(Bytes.u32be(version), delayMessageId.bytes(), Bytes.u32be(generation), claimId,
+        final byte[] base = Bytes.concat(Bytes.u32be(version), delayMessageId.bytes(), Bytes.u32beBits(generation), claimId,
                 Bytes.u64beBits(ownerEpoch), Bytes.u64beBits(claimSequence), laneId.bytes(), laneIncarnation,
                 Bytes.u64be(laneControlVersion), Bytes.u64be(runtimeLaneVersion), Bytes.lp32(ownerIdentity),
                 storeIncarnation, Bytes.lp32(preconditionBytes), Bytes.lp32(timelineKey),
@@ -351,11 +351,7 @@ public final class ClaimRecord {
 
     private static int readU32Int(final ByteBuffer input, final String name) {
         requireRemaining(input, Integer.BYTES);
-        final long value = Integer.toUnsignedLong(input.getInt());
-        if (value > Integer.MAX_VALUE) {
-            throw new IllegalArgumentException(name + " exceeds Java int range");
-        }
-        return (int) value;
+        return input.getInt();
     }
 
     private static long readU64(final ByteBuffer input, final String name) {

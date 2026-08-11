@@ -61,6 +61,23 @@ class PublishAttemptLedgerTest {
     }
 
     @Test
+    void v1LedgerPreservesHighBitGenerationAndAttemptBits() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 0);
+        final int highBit = (int) 0x8000_0000L;
+        final PublishAttemptLedger ledger = PublishAttemptLedger.publishing(
+                DelayMessageId.random(shardId), highBit, Bytes.sha256(Bytes.utf8("high-bit-attempt")),
+                Bytes.sha256(Bytes.utf8("high-bit-claim")), 1, highBit,
+                DestinationLaneId.derive(Bytes.utf8("high-bit-lane")), new byte[16], new byte[]{1}, new byte[16],
+                Bytes.sha256(Bytes.utf8("high-bit-prepared")), canonicalAdmissionBytes(), new byte[]{3});
+
+        final PublishAttemptLedger decoded = PublishAttemptLedger.decode(ledger.encode());
+        assertEquals(highBit, decoded.generation());
+        assertEquals(0x8000_0000L, Integer.toUnsignedLong(decoded.generation()));
+        assertEquals(highBit, decoded.attemptNo());
+        assertEquals(0x8000_0000L, Integer.toUnsignedLong(decoded.attemptNo()));
+    }
+
+    @Test
     void v3LedgerPersistsJournalMappingAndRetirementLifecycle() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 0);
         final PublishAttemptLedger base = PublishAttemptLedger.publishingWithRetryWindow(

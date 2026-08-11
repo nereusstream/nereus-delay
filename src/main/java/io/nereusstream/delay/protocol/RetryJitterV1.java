@@ -26,12 +26,13 @@ public final class RetryJitterV1 {
      * multiplication is used.
      */
     public static long delayMs(final int retryDomain, final DelayMessageId messageId,
-                               final int generation, final long attemptNo, final long maxBackoffMs) {
+                               final long generation, final long attemptNo, final long maxBackoffMs) {
         if (retryDomain != MESSAGE_PUBLISH && retryDomain != DLQ_EXPORT) {
             throw new IllegalArgumentException("unsupported retry domain: " + retryDomain);
         }
         Objects.requireNonNull(messageId, "messageId");
-        if (generation < 0 || attemptNo <= 0 || attemptNo > 0xffff_ffffL || maxBackoffMs < 0) {
+        if (generation < 0 || generation > 0xffff_ffffL
+                || attemptNo <= 0 || attemptNo > 0xffff_ffffL || maxBackoffMs < 0) {
             throw new IllegalArgumentException("invalid retry jitter inputs");
         }
         final byte[] digest = Bytes.sha256(DOMAIN, Bytes.u8(retryDomain), messageId.bytes(),

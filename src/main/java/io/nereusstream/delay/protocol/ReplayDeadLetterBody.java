@@ -25,7 +25,7 @@ public final class ReplayDeadLetterBody {
                                  final byte[] acknowledgementHash) {
         this.controlRef = Objects.requireNonNull(controlRef, "controlRef");
         this.messageId = Objects.requireNonNull(messageId, "messageId");
-        if (expectedGeneration < 0 || expectedStateVersion < 0 || deliverAtEpochMs < 0
+        if (expectedStateVersion < 0 || deliverAtEpochMs < 0
                 || expireAtEpochMs < deliverAtEpochMs) {
             throw new IllegalArgumentException("invalid Dead Letter replay timing/precondition");
         }
@@ -60,7 +60,7 @@ public final class ReplayDeadLetterBody {
         if (!messageId.routingId().shardId().equals(shardId)) {
             throw new IllegalArgumentException("replay messageId does not belong to shard");
         }
-        if (retryUntilEpochMs < 0 || expectedGeneration < 0 || expectedStateVersion < 0
+        if (retryUntilEpochMs < 0 || expectedStateVersion < 0
                 || deliverAtEpochMs < 0 || expireAtEpochMs < deliverAtEpochMs) {
             throw new IllegalArgumentException("invalid replay mutation timing/precondition");
         }
@@ -77,7 +77,7 @@ public final class ReplayDeadLetterBody {
             CanonicalProtobuf.int64(output, 3, retryUntilEpochMs);
             CanonicalProtobuf.bytes(output, 10, controlRef.canonicalBytes());
             CanonicalProtobuf.bytes(output, 11, messageId.bytes());
-            CanonicalProtobuf.uint32(output, 12, expectedGeneration);
+            CanonicalProtobuf.uint32Bits(output, 12, expectedGeneration);
             CanonicalProtobuf.uint64(output, 13, expectedStateVersion);
             CanonicalProtobuf.int64(output, 14, deliverAtEpochMs);
             CanonicalProtobuf.int64(output, 15, expireAtEpochMs);
@@ -100,7 +100,7 @@ public final class ReplayDeadLetterBody {
         if (!subjectShard.equals(messageId.routingId().shardId())) {
             throw new IllegalArgumentException("replay messageId does not belong to body shard");
         }
-        final int generation = intValue(field(fields, 12), 12);
+        final int generation = QueryCodecSupport.uint32Bits(field(fields, 12), 12);
         final long stateVersion = unsigned(field(fields, 13), 13);
         final long deliverAt = unsigned(field(fields, 14), 14);
         final long expireAt = unsigned(field(fields, 15), 15);

@@ -76,6 +76,27 @@ class KeyCodecTest {
     }
 
     @Test
+    void timelineAndTerminalKeysPreserveUnsignedGenerationBits() {
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("high-bit-generation-lane"));
+        final io.nereusstream.delay.protocol.ShardId shard =
+                new io.nereusstream.delay.protocol.ShardId(
+                        io.nereusstream.delay.protocol.RouteIncarnation.random(), 0);
+        final io.nereusstream.delay.protocol.DelayMessageId messageId =
+                io.nereusstream.delay.protocol.DelayMessageId.random(shard);
+        final int highBit = (int) 0x8000_0000L;
+
+        final byte[] sourceOrderToken = new byte[9];
+        sourceOrderToken[0] = 1;
+        assertArrayEquals(Bytes.concat(new byte[]{1, 1}, lane.bytes(), Bytes.u64be(1_000),
+                        sourceOrderToken, messageId.bytes(), Bytes.u32beBits(highBit)),
+                KeyCodec.timelineDue(lane, 1_000, sourceOrderToken, messageId, highBit));
+        assertArrayEquals(Bytes.concat(new byte[]{4, 1}, Bytes.u64be(2_000), lane.bytes(), messageId.bytes(),
+                        Bytes.u32beBits(highBit)), KeyCodec.timelineExpiry(2_000, lane, messageId, highBit));
+        assertArrayEquals(Bytes.concat(new byte[]{1, 1}, messageId.bytes(), Bytes.u32beBits(highBit)),
+                KeyCodec.terminalGeneration(messageId, highBit));
+    }
+
+    @Test
     void remainingRegisteredKeyNamespacesRejectInvalidComponents() {
         final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("lane"));
         final byte[] resourceId = Bytes.sha256(Bytes.utf8("protected-resource"));

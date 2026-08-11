@@ -35,7 +35,7 @@ public record PulsarDestinationRequest(
         Bytes.requireLength(resourceIncarnation, 32, "resourceIncarnation");
         Bytes.requireLength(laneIncarnation, 16, "laneIncarnation");
         Bytes.requireLength(publishAttemptId, 32, "publishAttemptId");
-        if (generation < 0 || actionAtEpochMs < 0 || deliverAtEpochMs < actionAtEpochMs) {
+        if (actionAtEpochMs < 0 || deliverAtEpochMs < actionAtEpochMs) {
             throw new IllegalArgumentException("invalid Pulsar destination request");
         }
         resourceIncarnation = Bytes.copy(resourceIncarnation);

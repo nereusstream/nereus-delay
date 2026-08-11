@@ -173,13 +173,14 @@ class ProtocolCodecTest {
         final KafkaSourcePosition current = new KafkaSourcePosition(shard, "cluster-query", topic, 10, 2, 1_000);
         final KafkaSourcePosition awaited = new KafkaSourcePosition(shard, "cluster-query", topic, 11, 2, 1_001);
         final PublicDestinationBindingViewV1 binding = publicBinding();
+        final int highBitGeneration = (int) 0x8000_0000L;
 
         final PendingCommandViewV1 pendingView = new PendingCommandViewV1(awaited, current, 2_000);
         assertEquals(CommandQueryResponseV1.pending(pendingView),
                 CommandQueryResponseV1.decode(CommandQueryResponseV1.pending(pendingView).canonicalBytes()));
 
         final PublicCommandResultV1 appliedView = new PublicCommandResultV1(CommandApplyStatusV1.APPLIED,
-                StableCode.OK, awaited, 0, 1L, binding, 3_000);
+                StableCode.OK, awaited, highBitGeneration, 1L, binding, 3_000);
         final PublicCommandResultV1 rejectedView = new PublicCommandResultV1(CommandApplyStatusV1.REJECTED,
                 StableCode.INVALID_COMMAND, awaited, null, null, null, 3_000);
         assertEquals(CommandQueryResponseV1.applied(appliedView),
@@ -204,11 +205,12 @@ class ProtocolCodecTest {
 
         final ReservedMessageViewV1 reserved = new ReservedMessageViewV1(new byte[32], 1,
                 PayloadReservationStateV1.PAYLOAD_RESERVED, 4_000, binding);
-        final ActiveMessageViewV1 active = new ActiveMessageViewV1(0, 2, MessageGenerationStateV1.UNCERTAIN,
+        final ActiveMessageViewV1 active = new ActiveMessageViewV1(highBitGeneration, 2,
+                MessageGenerationStateV1.UNCERTAIN,
                 1_000, 5_000, binding, PayloadAvailabilityV1.INLINE_RETAINED, true);
         final PublicEvidenceRefV1 evidence = new PublicEvidenceRefV1(PublishEvidenceKindV1.KAFKA_PRODUCE_ACK,
                 Bytes.sha256(Bytes.utf8("evidence")), EvidenceVerificationStatusV1.VERIFIED_PUBLISHED);
-        final TerminalMessageViewV1 terminal = new TerminalMessageViewV1(0, 3,
+        final TerminalMessageViewV1 terminal = new TerminalMessageViewV1(highBitGeneration, 3,
                 MessageGenerationStateV1.PUBLISHED, StableCode.OK, binding, PayloadAvailabilityV1.INLINE_RETAINED,
                 DlqExportStateV1.NOT_CONFIGURED, false, evidence);
         assertEquals(MessageQueryResponseV1.reserved(reserved),
@@ -245,7 +247,8 @@ class ProtocolCodecTest {
                 new CommandQueuedReceiptV1.KafkaQueuedAck("cluster-applied", topic, shard.partition(), 10, 1, 1_000,
                         Bytes.sha256(Bytes.utf8("ack"))), 2_000, attempt);
         final CommandAppliedReceiptV1 applied = CommandAppliedReceiptV1.create(queued,
-                CommandApplyStatusV1.APPLIED, StableCode.OK, appliedPosition, 0, 1L, publicBinding(), 3_000);
+                CommandApplyStatusV1.APPLIED, StableCode.OK, appliedPosition, (int) 0x8000_0000L, 1L,
+                publicBinding(), 3_000);
 
         assertEquals(applied, CommandAppliedReceiptV1.decodeFrame(applied.frame()));
         assertEquals(ReceiptKind.COMMAND_APPLIED, ReceiptFrame.decode(applied.frame()).kind());

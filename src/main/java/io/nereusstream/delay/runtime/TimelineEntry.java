@@ -11,14 +11,8 @@ import java.nio.ByteBuffer;
  * directly so the value carries the complete work projection.
  */
 public record TimelineEntry(DelayMessageId messageId, int generation) {
-    public TimelineEntry {
-        if (generation < 0) {
-            throw new IllegalArgumentException("generation must be non-negative");
-        }
-    }
-
     public byte[] encode() {
-        return Bytes.concat(Bytes.u32be(1), messageId.bytes(), Bytes.u32be(generation));
+        return Bytes.concat(Bytes.u32be(1), messageId.bytes(), Bytes.u32beBits(generation));
     }
 
     public static TimelineEntry decode(final byte[] bytes) {

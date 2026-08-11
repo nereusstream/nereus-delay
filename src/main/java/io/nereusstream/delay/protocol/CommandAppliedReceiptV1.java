@@ -36,9 +36,6 @@ public final class CommandAppliedReceiptV1 {
         this.applyStatus = Objects.requireNonNull(applyStatus, "applyStatus");
         this.stableCode = Objects.requireNonNull(stableCode, "stableCode");
         this.appliedSourcePosition = Objects.requireNonNull(appliedSourcePosition, "appliedSourcePosition");
-        if (generation != null && generation < 0) {
-            throw new IllegalArgumentException("generation must be non-negative");
-        }
         if (stateVersion != null && stateVersion <= 0) {
             throw new IllegalArgumentException("stateVersion must be positive when present");
         }
@@ -102,7 +99,7 @@ public final class CommandAppliedReceiptV1 {
         PublicDestinationBindingViewV1 binding = null;
         while (index < fields.size() - 2) {
             switch (fields.get(index).number()) {
-                case 6 -> generation = QueryCodecSupport.uint32(fields.get(index++), 6);
+                case 6 -> generation = QueryCodecSupport.uint32Bits(fields.get(index++), 6);
                 case 7 -> stateVersion = QueryCodecSupport.uint(fields.get(index++), 7);
                 case 8 -> binding = PublicDestinationBindingViewV1.decode(
                         QueryCodecSupport.nested(fields.get(index++), 8));
@@ -173,7 +170,7 @@ public final class CommandAppliedReceiptV1 {
             CanonicalProtobuf.uint32(output, 4, stableCode.wireValue());
             CanonicalProtobuf.bytes(output, 5, QueryCodecSupport.encodeSourcePosition(appliedSourcePosition));
             if (generation != null) {
-                CanonicalProtobuf.uint32(output, 6, generation);
+                CanonicalProtobuf.uint32Bits(output, 6, generation);
             }
             if (stateVersion != null) {
                 CanonicalProtobuf.uint64(output, 7, stateVersion);
@@ -223,7 +220,7 @@ public final class CommandAppliedReceiptV1 {
             CanonicalProtobuf.uint32(output, 4, stableCode.wireValue());
             CanonicalProtobuf.bytes(output, 5, QueryCodecSupport.encodeSourcePosition(appliedPosition));
             if (generation != null) {
-                CanonicalProtobuf.uint32(output, 6, generation);
+                CanonicalProtobuf.uint32Bits(output, 6, generation);
             }
             if (stateVersion != null) {
                 CanonicalProtobuf.uint64(output, 7, stateVersion);

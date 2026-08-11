@@ -733,7 +733,7 @@ public final class PulsarAttemptJournal {
                                   byte[] sourcePosition) {
         public AttemptIdentity {
             Objects.requireNonNull(delayMessageId, "delayMessageId");
-            if (generation < 0 || guardedBrokerTimestampEpochMs < 0) {
+            if (guardedBrokerTimestampEpochMs < 0) {
                 throw new IllegalArgumentException("invalid Attempt Journal mapping identity");
             }
             Bytes.requireLength(publishAttemptId, HASH_LENGTH, "publishAttemptId");

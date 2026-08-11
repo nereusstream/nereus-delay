@@ -71,7 +71,7 @@ public final class ClaimResultBody {
                 SystemMutationBodyCodec.fields(SystemMutationType.CLAIM_RESULT, canonicalBody);
         final byte[] claimId = fixed(field(fields, 10), 10, HASH_LENGTH);
         final byte[] messageId = fixed(field(fields, 11), 11, MESSAGE_ID_LENGTH);
-        final int generation = intValue(field(fields, 12), 12);
+        final int generation = uint32Bits(field(fields, 12), 12);
         final byte[] laneId = fixed(field(fields, 13), 13, HASH_LENGTH);
         final byte[] laneIncarnation = fixed(field(fields, 14), 14, INCARNATION_LENGTH);
         final ClaimPrecondition precondition = decodePrecondition(nested(field(fields, 15), 15));
@@ -159,7 +159,7 @@ public final class ClaimResultBody {
         }
         validateChargeVector(nested(field(fields, 12), 12));
         final ClaimPrecondition result = new ClaimPrecondition(encoded, fixed(field(fields, 1), 1, HASH_LENGTH),
-                fixed(field(fields, 2), 2, MESSAGE_ID_LENGTH), intValue(field(fields, 3), 3),
+                fixed(field(fields, 2), 2, MESSAGE_ID_LENGTH), uint32Bits(field(fields, 3), 3),
                 bodyUnsigned(field(fields, 4), 4), fixed(field(fields, 5), 5, HASH_LENGTH),
                 fixed(field(fields, 6), 6, INCARNATION_LENGTH), bodyUnsigned(field(fields, 7), 7),
                 bodyUnsigned(field(fields, 8), 8), fixed(field(fields, 9), 9, HASH_LENGTH), materialization,
@@ -241,6 +241,14 @@ public final class ClaimResultBody {
         final long value = bodyUnsigned(field, number);
         if (value > Integer.MAX_VALUE) {
             throw new IllegalArgumentException("Claim Result uint32 exceeds runtime range: " + number);
+        }
+        return (int) value;
+    }
+
+    private static int uint32Bits(final CanonicalProtobuf.Reader.Field field, final int number) {
+        final long value = bodyUnsigned(field, number);
+        if (value > 0xffff_ffffL) {
+            throw new IllegalArgumentException("Claim Result uint32 is outside its wire range: " + number);
         }
         return (int) value;
     }

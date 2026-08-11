@@ -40,7 +40,7 @@ public record DlqExportRecord(
     public DlqExportRecord {
         requireNonZero(dlqExportId, "dlqExportId");
         Objects.requireNonNull(messageId, "messageId");
-        if (generation < 0 || terminalRevision == 0) {
+        if (terminalRevision == 0) {
             throw new IllegalArgumentException("invalid DLQ export generation/revision");
         }
         Bytes.requireLength(exportEnvelopeHash, HASH_LENGTH, "exportEnvelopeHash");
@@ -50,7 +50,7 @@ public record DlqExportRecord(
             throw new IllegalArgumentException("NOT_CONFIGURED DLQ export cannot retain a charge");
         }
         if (state == DlqExportStateV1.NOT_CONFIGURED && physicalAttemptNo != 0
-                || state != DlqExportStateV1.NOT_CONFIGURED && physicalAttemptNo <= 0) {
+                || state != DlqExportStateV1.NOT_CONFIGURED && physicalAttemptNo == 0) {
             throw new IllegalArgumentException("DLQ export physical attempt does not match state");
         }
         Objects.requireNonNull(appliedSourcePosition, "appliedSourcePosition");
@@ -79,7 +79,7 @@ public record DlqExportRecord(
                                                 final byte[] appliedSourcePosition) {
         final byte[] id = deriveId(messageId, generation, terminalRevision);
         return new DlqExportRecord(id, messageId, generation, terminalRevision,
-                Bytes.sha256(ENVELOPE_DOMAIN, id, messageId.bytes(), Bytes.u32be(generation),
+                Bytes.sha256(ENVELOPE_DOMAIN, id, messageId.bytes(), Bytes.u32beBits(generation),
                         Bytes.u64beBits(terminalRevision)), emptyChargeCanonical(), DlqExportStateV1.NOT_CONFIGURED, 0,
                 appliedSourcePosition);
     }
@@ -104,10 +104,10 @@ public record DlqExportRecord(
     public static byte[] deriveId(final DelayMessageId messageId, final int generation,
                                   final long terminalRevision) {
         Objects.requireNonNull(messageId, "messageId");
-        if (generation < 0 || terminalRevision == 0) {
+        if (terminalRevision == 0) {
             throw new IllegalArgumentException("invalid DLQ export identity values");
         }
-        return Bytes.sha256(ID_DOMAIN, messageId.bytes(), Bytes.u32be(generation),
+        return Bytes.sha256(ID_DOMAIN, messageId.bytes(), Bytes.u32beBits(generation),
                 Bytes.u64beBits(terminalRevision));
     }
 
@@ -131,10 +131,10 @@ public record DlqExportRecord(
     }
 
     public byte[] encode() {
-        return Bytes.concat(Bytes.u32be(VERSION), dlqExportId, messageId.bytes(), Bytes.u32be(generation),
+        return Bytes.concat(Bytes.u32be(VERSION), dlqExportId, messageId.bytes(), Bytes.u32beBits(generation),
                 Bytes.u64beBits(terminalRevision), exportEnvelopeHash, Bytes.lp32(retainedCharge),
                 Bytes.u8(state.wireValue()),
-                Bytes.u32be(physicalAttemptNo), Bytes.lp32(appliedSourcePosition));
+                Bytes.u32beBits(physicalAttemptNo), Bytes.lp32(appliedSourcePosition));
     }
 
     public static DlqExportRecord decode(final byte[] encoded) {
@@ -188,9 +188,9 @@ public record DlqExportRecord(
     }
 
     private byte[] encodeLegacy() {
-        return Bytes.concat(Bytes.u32be(LEGACY_VERSION), dlqExportId, messageId.bytes(), Bytes.u32be(generation),
+        return Bytes.concat(Bytes.u32be(LEGACY_VERSION), dlqExportId, messageId.bytes(), Bytes.u32beBits(generation),
                 Bytes.u64beBits(terminalRevision), exportEnvelopeHash, Bytes.u8(state.wireValue()),
-                Bytes.u32be(physicalAttemptNo), Bytes.lp32(appliedSourcePosition));
+                Bytes.u32beBits(physicalAttemptNo), Bytes.lp32(appliedSourcePosition));
     }
 
     private static byte[] emptyChargeCanonical() {
@@ -200,11 +200,7 @@ public record DlqExportRecord(
 
     private static int readU32(final ByteBuffer input, final String name) {
         requireRemaining(input, 4);
-        final long value = Integer.toUnsignedLong(input.getInt());
-        if (value > Integer.MAX_VALUE) {
-            throw new IllegalArgumentException(name + " exceeds supported range");
-        }
-        return (int) value;
+        return input.getInt();
     }
 
     private static long readU64(final ByteBuffer input, final String name) {

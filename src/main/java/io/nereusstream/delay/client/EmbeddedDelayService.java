@@ -1316,7 +1316,7 @@ public final class EmbeddedDelayService implements DelayClient {
         final CommandApplyStatusV1 status = result.applyStatus() == ApplyStatus.APPLIED
                 ? CommandApplyStatusV1.APPLIED : CommandApplyStatusV1.REJECTED;
         final SourcePosition appliedPosition = SourcePositionCodec.decode(result.appliedSourcePosition());
-        final Integer generation = status == CommandApplyStatusV1.APPLIED && result.generation() >= 0
+        final Integer generation = status == CommandApplyStatusV1.APPLIED && result.hasGeneration()
                 ? result.generation() : null;
         final Long stateVersion = status == CommandApplyStatusV1.APPLIED && result.stateVersion() > 0
                 ? result.stateVersion() : null;

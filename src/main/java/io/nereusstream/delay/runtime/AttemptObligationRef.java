@@ -27,9 +27,6 @@ public final class AttemptObligationRef {
     public AttemptObligationRef(final byte[] publishAttemptId, final int generation,
                                 final AttemptLedgerState ledgerState, final byte[] encodedInflightKey) {
         Bytes.requireLength(publishAttemptId, HASH_LENGTH, "publishAttemptId");
-        if (generation < 0) {
-            throw new IllegalArgumentException("generation must be non-negative");
-        }
         this.publishAttemptId = Bytes.copy(publishAttemptId);
         this.generation = generation;
         this.ledgerState = java.util.Objects.requireNonNull(ledgerState, "ledgerState");
@@ -84,7 +81,7 @@ public final class AttemptObligationRef {
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, publishAttemptId);
-            CanonicalProtobuf.uint32(output, 2, generation);
+            CanonicalProtobuf.uint32Bits(output, 2, generation);
             CanonicalProtobuf.uint32(output, 3, ledgerState.wireValue());
             CanonicalProtobuf.bytes(output, 4, encodedInflightKey);
             CanonicalProtobuf.bytes(output, 5, inflightKeySha256);
@@ -98,10 +95,7 @@ public final class AttemptObligationRef {
             throw new IllegalArgumentException("attempt obligation fields are incomplete or unknown");
         }
         final byte[] id = fixed(fields.get(0), 1, HASH_LENGTH);
-        final long generation = varint(fields.get(1), 2);
-        if (generation > Integer.MAX_VALUE) {
-            throw new IllegalArgumentException("attempt generation exceeds Java int range");
-        }
+        final long generation = uint32(fields.get(1), 2);
         final AttemptLedgerState state = AttemptLedgerState.fromWire(varint(fields.get(2), 3));
         final byte[] key = bytes(fields.get(3), 4);
         final byte[] keyHash = fixed(fields.get(4), 5, HASH_LENGTH);
@@ -118,7 +112,7 @@ public final class AttemptObligationRef {
                                  final byte[] key, final byte[] keyHash) {
         final byte[] fields = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, id);
-            CanonicalProtobuf.uint32(output, 2, generation);
+            CanonicalProtobuf.uint32Bits(output, 2, generation);
             CanonicalProtobuf.uint32(output, 3, state.wireValue());
             CanonicalProtobuf.bytes(output, 4, key);
             CanonicalProtobuf.bytes(output, 5, keyHash);
@@ -139,6 +133,14 @@ public final class AttemptObligationRef {
             throw new IllegalArgumentException("invalid attempt obligation varint field " + number);
         }
         return field.unsignedValue();
+    }
+
+    private static long uint32(final CanonicalProtobuf.Reader.Field field, final int number) {
+        final long value = varint(field, number);
+        if (value > 0xffff_ffffL) {
+            throw new IllegalArgumentException("attempt obligation uint32 field is outside its wire range: " + number);
+        }
+        return value;
     }
 
     private static byte[] bytes(final CanonicalProtobuf.Reader.Field field, final int number) {

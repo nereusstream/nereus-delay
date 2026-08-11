@@ -50,9 +50,6 @@ public final class PublishAdmissionBody {
         this.laneId = fixed(laneId, HASH_LENGTH, "destinationLaneId");
         this.laneIncarnation = fixed(laneIncarnation, INCARNATION_LENGTH, "laneIncarnation");
         this.messageId = fixed(messageId, MESSAGE_ID_LENGTH, "delayMessageId");
-        if (generation < 0) {
-            throw new IllegalArgumentException("generation must be non-negative");
-        }
         this.generation = generation;
         this.publishAttemptId = fixed(publishAttemptId, HASH_LENGTH, "publishAttemptId");
         this.preparedPublishHash = fixed(preparedPublishHash, HASH_LENGTH, "preparedPublishHash");
@@ -73,10 +70,7 @@ public final class PublishAdmissionBody {
         final byte[] owner = nested(field(fields, 10), 10);
         final AuthorIdentity ownerIdentity = AuthorIdentity.decode(owner);
         ownerIdentity.requireFor(SystemMutationType.PUBLISH_ADMISSION);
-        final long generation = unsigned(field(fields, 16), 16);
-        if (generation > Integer.MAX_VALUE) {
-            throw new IllegalArgumentException("generation exceeds the runtime range");
-        }
+        final int generation = QueryCodecSupport.uint32Bits(field(fields, 16), 16);
         final byte[] reserveCharge = nested(field(fields, 19), 19);
         validateChargeVector(reserveCharge);
         final Channel channel = decodeChannel(nested(field(fields, 21), 21));
@@ -89,7 +83,7 @@ public final class PublishAdmissionBody {
         SystemMutationBodyCodec.requireMessageShard(fields, new DelayMessageId(messageId), "Publish Admission");
         return new PublishAdmissionBody(owner, bytes(field(fields, 11), 11), bytes(field(fields, 12), 12),
                 bytes(field(fields, 13), 13), bytes(field(fields, 14), 14), messageId,
-                (int) generation, bytes(field(fields, 17), 17), bytes(field(fields, 18), 18), reserveCharge,
+                generation, bytes(field(fields, 17), 17), bytes(field(fields, 18), 18), reserveCharge,
                 bytes(field(fields, 20), 20), channel, descriptor, certificate, decision, claim);
     }
 
@@ -390,8 +384,8 @@ public final class PublishAdmissionBody {
         final PreparedPublishDescriptorV1 typed = PreparedPublishDescriptorV1.decode(encoded);
         return new Descriptor(encoded, typed.preparedPublishHash(), typed.destinationLaneId().bytes(),
                 typed.laneIncarnation(), typed.channel().canonicalBytes(), typed.messageId().bytes(),
-                runtimeUint32(typed.generation(), "descriptor generation"), typed.publishAttemptId(),
-                runtimeUint32(typed.attemptNo(), "descriptor attemptNo"),
+                rawUint32(typed.generation(), "descriptor generation"), typed.publishAttemptId(),
+                rawUint32(typed.attemptNo(), "descriptor attemptNo"),
                 typed.destinationProfile().canonicalBytes(), typed.capabilityProfile().canonicalBytes(),
                 typed.targetResource().canonicalBytes(), typed.payload().canonicalBytes(),
                 typed.businessMetadata().canonicalBytes(), typed.deliverAtEpochMs(), typed.expireAtEpochMs(),
@@ -483,7 +477,8 @@ public final class PublishAdmissionBody {
         AuthorIdentity.decode(owner).requireFor(SystemMutationType.PUBLISH_ADMISSION);
         validateChargeVector(nested(field(fields, 12), 12));
         return new ClaimPrecondition(encoded, bytes(field(fields, 1), 1), bytes(field(fields, 2), 2),
-                intValue(field(fields, 3), 3), bytes(field(fields, 5), 5), bytes(field(fields, 6), 6), owner,
+                QueryCodecSupport.uint32Bits(field(fields, 3), 3), bytes(field(fields, 5), 5),
+                bytes(field(fields, 6), 6), owner,
                 bytes(field(fields, 15), 15), materialization);
     }
 
@@ -703,6 +698,13 @@ public final class PublishAdmissionBody {
     private static int runtimeUint32(final long value, final String name) {
         if (value < 0 || value > Integer.MAX_VALUE) {
             throw new IllegalArgumentException(name + " exceeds runtime range");
+        }
+        return (int) value;
+    }
+
+    private static int rawUint32(final long value, final String name) {
+        if (value < 0 || value > 0xffff_ffffL) {
+            throw new IllegalArgumentException(name + " is outside uint32 range");
         }
         return (int) value;
     }

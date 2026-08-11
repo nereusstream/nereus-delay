@@ -56,7 +56,7 @@ public record MessageRecord(
         Objects.requireNonNull(scheduleSourcePosition, "scheduleSourcePosition");
         Objects.requireNonNull(runtimeIndex, "runtimeIndex");
         validateRuntimeProjection(status, runtimeIndex);
-        if (generation < 0 || stateVersion < 0 || deliverAtEpochMs < 0 || expireAtEpochMs < deliverAtEpochMs
+        if (stateVersion < 0 || deliverAtEpochMs < 0 || expireAtEpochMs < deliverAtEpochMs
                 || retryEligibilityAtEpochMs < 0 || retryEligibilityAtEpochMs > expireAtEpochMs) {
             throw new IllegalArgumentException("invalid message record");
         }

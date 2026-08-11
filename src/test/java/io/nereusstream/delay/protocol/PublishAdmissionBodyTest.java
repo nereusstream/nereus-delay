@@ -41,18 +41,21 @@ public class PublishAdmissionBodyTest {
     }
 
     @Test
-    void rejectsDescriptorHighBitUint32AtTheSignedRuntimeProjection() {
+    void preservesHighBitUint32GenerationAndAttemptBits() {
         final Fixture fixture = Fixture.create(new ShardId(RouteIncarnation.random(), 18));
 
-        final IllegalArgumentException generation = assertThrows(IllegalArgumentException.class,
-                () -> PublishAdmissionBody.decode(tamperDescriptorScalar(fixture.body(), 12,
-                        0x8000_0000L)));
-        assertEquals("descriptor generation exceeds runtime range", generation.getMessage());
+        final byte[] generationBody = tamperOuterAndClaimGeneration(
+                tamperDescriptorScalar(fixture.body(), 12, 0x8000_0000L), 0x8000_0000L);
+        final PublishAdmissionBody generation = PublishAdmissionBody.decode(generationBody);
+        assertEquals(Integer.MIN_VALUE, generation.generation());
+        assertEquals(0x8000_0000L, Integer.toUnsignedLong(generation.generation()));
+        assertEquals(Integer.MIN_VALUE, generation.descriptor().generation());
+        assertEquals(Integer.MIN_VALUE, generation.claimPrecondition().generation());
 
-        final IllegalArgumentException attempt = assertThrows(IllegalArgumentException.class,
-                () -> PublishAdmissionBody.decode(tamperDescriptorScalar(fixture.body(), 14,
-                        0x8000_0000L)));
-        assertEquals("descriptor attemptNo exceeds runtime range", attempt.getMessage());
+        final PublishAdmissionBody attempt = PublishAdmissionBody.decode(
+                tamperDescriptorScalar(fixture.body(), 14, 0x8000_0000L));
+        assertEquals(Integer.MIN_VALUE, attempt.descriptor().attemptNo());
+        assertEquals(0x8000_0000L, Integer.toUnsignedLong(attempt.descriptor().attemptNo()));
     }
 
     @Test
@@ -424,6 +427,49 @@ public class PublishAdmissionBodyTest {
                     CanonicalProtobuf.uint64(output, field.number(), field.unsignedValue());
                 } else {
                     CanonicalProtobuf.bytes(output, field.number(), field.rawValue());
+                }
+            }
+        });
+    }
+
+    private static byte[] tamperOuterAndClaimGeneration(final byte[] body, final long value) {
+        final List<CanonicalProtobuf.Reader.Field> outerFields = readFields(body);
+        final byte[] claim = outerFields.stream().filter(field -> field.number() == 25)
+                .findFirst().orElseThrow().rawValue();
+        final List<CanonicalProtobuf.Reader.Field> claimFields = readFields(claim);
+        final byte[] materialization = claimFields.stream().filter(field -> field.number() == 10)
+                .findFirst().orElseThrow().rawValue();
+        final byte[] driftedMaterialization = CanonicalProtobuf.message(output -> {
+            for (CanonicalProtobuf.Reader.Field field : readFields(materialization)) {
+                if (field.number() == 6) {
+                    CanonicalProtobuf.uint32(output, 6, value);
+                } else {
+                    writeField(output, field);
+                }
+            }
+        });
+        final byte[] driftedClaim = CanonicalProtobuf.message(output -> {
+            for (CanonicalProtobuf.Reader.Field field : claimFields) {
+                if (field.number() == 3) {
+                    CanonicalProtobuf.uint32(output, 3, value);
+                } else if (field.number() == 10) {
+                    CanonicalProtobuf.bytes(output, 10, driftedMaterialization);
+                } else if (field.number() == 11) {
+                    CanonicalProtobuf.bytes(output, 11, Bytes.sha256(
+                            Bytes.utf8("nereus-delay-claim-materialization-v1\0"), driftedMaterialization));
+                } else {
+                    writeField(output, field);
+                }
+            }
+        });
+        return CanonicalProtobuf.message(output -> {
+            for (CanonicalProtobuf.Reader.Field field : outerFields) {
+                if (field.number() == 16) {
+                    CanonicalProtobuf.uint32(output, 16, value);
+                } else if (field.number() == 25) {
+                    CanonicalProtobuf.bytes(output, 25, driftedClaim);
+                } else {
+                    writeField(output, field);
                 }
             }
         });

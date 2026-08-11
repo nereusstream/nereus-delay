@@ -20,9 +20,6 @@ public final class PublicCommandResultV1 implements QueryResponseBranchV1 {
         this.status = Objects.requireNonNull(status, "status");
         this.stableCode = Objects.requireNonNull(stableCode, "stableCode");
         this.appliedSourcePosition = Objects.requireNonNull(appliedSourcePosition, "appliedSourcePosition");
-        if (generation != null && generation < 0) {
-            throw new IllegalArgumentException("generation must be non-negative");
-        }
         if (stateVersion != null && stateVersion <= 0) {
             throw new IllegalArgumentException("stateVersion must be positive when present");
         }
@@ -76,7 +73,7 @@ public final class PublicCommandResultV1 implements QueryResponseBranchV1 {
             CanonicalProtobuf.uint32(output, 2, stableCode.wireValue());
             CanonicalProtobuf.bytes(output, 3, QueryCodecSupport.encodeSourcePosition(appliedSourcePosition));
             if (generation != null) {
-                CanonicalProtobuf.uint32(output, 4, generation);
+                CanonicalProtobuf.uint32Bits(output, 4, generation);
             }
             if (stateVersion != null) {
                 CanonicalProtobuf.uint64(output, 5, stateVersion);
@@ -101,7 +98,7 @@ public final class PublicCommandResultV1 implements QueryResponseBranchV1 {
         Long stateVersion = null;
         PublicDestinationBindingViewV1 binding = null;
         if (index < fields.size() - 1 && fields.get(index).number() == 4) {
-            generation = QueryCodecSupport.uint32(fields.get(index++), 4);
+            generation = QueryCodecSupport.uint32Bits(fields.get(index++), 4);
         }
         if (index < fields.size() - 1 && fields.get(index).number() == 5) {
             stateVersion = QueryCodecSupport.uint(fields.get(index++), 5);

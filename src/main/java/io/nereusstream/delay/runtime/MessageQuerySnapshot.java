@@ -38,7 +38,7 @@ public record MessageQuerySnapshot(
         Objects.requireNonNull(state, "state");
         Objects.requireNonNull(payloadAvailability, "payloadAvailability");
         Objects.requireNonNull(dlqExportState, "dlqExportState");
-        if (generation < 0 || stateVersion < 0 || deliverAtEpochMs < 0
+        if (stateVersion < 0 || deliverAtEpochMs < 0
                 || expireAtEpochMs < deliverAtEpochMs) {
             throw new IllegalArgumentException("invalid message query snapshot");
         }

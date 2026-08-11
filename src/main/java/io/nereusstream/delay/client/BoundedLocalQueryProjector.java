@@ -37,7 +37,7 @@ public final class BoundedLocalQueryProjector {
             case APPLIED -> CommandApplyStatusV1.APPLIED;
             case REJECTED -> CommandApplyStatusV1.REJECTED;
         };
-        final Integer generation = result.generation() < 0 ? null : result.generation();
+        final Integer generation = result.hasGeneration() ? result.generation() : null;
         final Long stateVersion = result.stateVersion() <= 0 ? null : result.stateVersion();
         if (generation == null && (stateVersion != null || binding != null)) {
             throw new IllegalArgumentException("Command result lacks a real Message generation");

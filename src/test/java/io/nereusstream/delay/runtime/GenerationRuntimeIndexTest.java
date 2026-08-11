@@ -95,6 +95,15 @@ class GenerationRuntimeIndexTest {
     }
 
     @Test
+    void attemptObligationPreservesUnsignedGenerationBits() {
+        final byte[] attemptId = Bytes.sha256(Bytes.utf8("attempt-high-bit-generation"));
+        final AttemptObligationRef reference = new AttemptObligationRef(attemptId, Integer.MIN_VALUE,
+                AttemptLedgerState.PUBLISHING, KeyCodec.inflight((byte) 2, 1, attemptId));
+
+        assertEquals(reference, AttemptObligationRef.decode(reference.canonicalBytes()));
+    }
+
+    @Test
     void runtimeIndexFencesAggregateAndCurrentWorkProjectionDrift() {
         final byte[] key = timelineKey(100, 0);
         final TimelineWorkRef initial = TimelineWorkRef.initial(key, 100, 7);

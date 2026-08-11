@@ -83,7 +83,7 @@ public final class PublishAttemptLedger {
                                  final long sequenceId, final boolean mappingDurable,
                                  final byte[] journalPosition, final boolean retirementPending) {
         this.delayMessageId = Objects.requireNonNull(delayMessageId, "delayMessageId");
-        if (generation < 0 || ownerEpoch == 0 || attemptNo <= 0) {
+        if (ownerEpoch == 0 || attemptNo == 0) {
             throw new IllegalArgumentException("invalid publish attempt generation/owner/attempt");
         }
         this.generation = generation;
@@ -361,8 +361,8 @@ public final class PublishAttemptLedger {
                 ? Bytes.concat(Bytes.u64beBits(sequenceId), Bytes.u8(journalFlags()), Bytes.lp32(journalPosition))
                 : new byte[0];
         return Bytes.concat(Bytes.u32be(version), delayMessageId.bytes(),
-                Bytes.u32be(generation), publishAttemptId,
-                claimId, Bytes.u64beBits(ownerEpoch), Bytes.u32be(attemptNo), laneId.bytes(), laneIncarnation,
+                Bytes.u32beBits(generation), publishAttemptId,
+                claimId, Bytes.u64beBits(ownerEpoch), Bytes.u32beBits(attemptNo), laneId.bytes(), laneIncarnation,
                 retryWindow, Bytes.lp32(ownerIdentity), storeIncarnation, preparedPublishHash,
                 Bytes.lp32(admissionBytes),
                 new byte[]{(byte) state.wireValue()}, Bytes.lp32(outcomeBytes), Bytes.lp32(evidenceBytes),
@@ -492,11 +492,7 @@ public final class PublishAttemptLedger {
 
     private static int readU32Int(final ByteBuffer input, final String name) {
         requireRemaining(input, Integer.BYTES);
-        final long value = Integer.toUnsignedLong(input.getInt());
-        if (value > Integer.MAX_VALUE) {
-            throw new IllegalArgumentException(name + " exceeds Java int range");
-        }
-        return (int) value;
+        return input.getInt();
     }
 
     private static long readU64(final ByteBuffer input, final String name) {

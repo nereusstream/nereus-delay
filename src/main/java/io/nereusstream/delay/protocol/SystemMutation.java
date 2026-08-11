@@ -259,24 +259,21 @@ public final class SystemMutation {
     /** Computes the logical identity for one numbered DLQ export physical attempt. */
     public static byte[] computeDlqExportAttemptLogicalIdentity(final byte[] dlqExportId,
                                                                   final int physicalAttemptNo) {
-        if (physicalAttemptNo <= 0) {
+        if (physicalAttemptNo == 0) {
             throw new IllegalArgumentException("physicalAttemptNo must be positive");
         }
         return Bytes.sha256(Bytes.utf8("nereus-delay-dlq-export-attempt-logical-id-v1\0"),
-                fixed(dlqExportId, HASH_LENGTH, "dlqExportId"), Bytes.u32be(physicalAttemptNo));
+                fixed(dlqExportId, HASH_LENGTH, "dlqExportId"), Bytes.u32beBits(physicalAttemptNo));
     }
 
     /** Computes the logical identity for one generation-expiry decision. */
     public static byte[] computeExpiryLogicalIdentity(final byte[] messageId, final int generation,
                                                       final long expireAtEpochMs) {
-        if (generation < 0) {
-            throw new IllegalArgumentException("generation must be non-negative");
-        }
         if (expireAtEpochMs < 0) {
             throw new IllegalArgumentException("expireAtEpochMs must be non-negative");
         }
         return Bytes.sha256(Bytes.utf8("nereus-delay-expiry-logical-id-v1"),
-                fixed(messageId, DelayMessageId.LENGTH, "messageId"), Bytes.u32be(generation),
+                fixed(messageId, DelayMessageId.LENGTH, "messageId"), Bytes.u32beBits(generation),
                 Bytes.i64be(expireAtEpochMs));
     }
 

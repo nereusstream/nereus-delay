@@ -19,7 +19,7 @@ public record ReadyIndexValue(DestinationLaneId laneId, long nextEligibleAtEpoch
     private static final int VERSION = 1;
 
     public ReadyIndexValue {
-        if (nextEligibleAtEpochMs < 0 || laneVersion < 0 || generation < 0) {
+        if (nextEligibleAtEpochMs < 0 || laneVersion < 0) {
             throw new IllegalArgumentException("invalid READY value");
         }
         Bytes.requireLength(timelineKeySha256, 32, "timelineKeySha256");

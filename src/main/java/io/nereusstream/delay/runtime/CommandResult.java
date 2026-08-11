@@ -20,7 +20,7 @@ public record CommandResult(
         Objects.requireNonNull(applyStatus, "applyStatus");
         Objects.requireNonNull(stableCode, "stableCode");
         Objects.requireNonNull(appliedSourcePosition, "appliedSourcePosition");
-        if (generation < -1 || stateVersion < 0) {
+        if ((generation < -1 && stateVersion == 0 && messageStatus == null) || stateVersion < 0) {
             throw new IllegalArgumentException("invalid command result");
         }
         // A durable result is only meaningful when its source-order anchor is
@@ -34,6 +34,11 @@ public record CommandResult(
     @Override
     public byte[] appliedSourcePosition() {
         return Bytes.copy(appliedSourcePosition);
+    }
+
+    /** Whether this applied result carries a real Message generation projection. */
+    public boolean hasGeneration() {
+        return applyStatus == ApplyStatus.APPLIED && (stateVersion > 0 || messageStatus != null);
     }
 
     public byte[] encode() {

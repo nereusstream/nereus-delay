@@ -79,6 +79,15 @@ class RetryPolicySemanticV1Test {
         assertEquals(0, zeroBackoff.retryBackoffCap(0xffff_ffffL));
     }
 
+    @Test
+    void jitterAcceptsUnsignedHighBitGenerationAndAttemptBits() {
+        final DelayMessageId messageId = DelayMessageId.random(new ShardId(RouteIncarnation.random(), 9));
+        final long expected = RetryJitterV1.delayMs(RetryJitterV1.MESSAGE_PUBLISH, messageId,
+                0x8000_0000L, 0x8000_0000L, 10_000);
+        assertEquals(expected, RetryJitterV1.delayMs(RetryJitterV1.MESSAGE_PUBLISH, messageId,
+                0x8000_0000L, 0x8000_0000L, 10_000));
+    }
+
     private static byte[] bytes(final int length, final int seed) {
         final byte[] value = new byte[length];
         for (int index = 0; index < length; index++) {

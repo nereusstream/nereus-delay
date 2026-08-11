@@ -32,7 +32,7 @@ public record KafkaDestinationRequest(
         Objects.requireNonNull(adapterMetadata, "adapterMetadata");
         Bytes.requireLength(laneIncarnation, 16, "laneIncarnation");
         Bytes.requireLength(publishAttemptId, 32, "publishAttemptId");
-        if (generation < 0 || actionAtEpochMs < 0 || deliverAtEpochMs < actionAtEpochMs) {
+        if (actionAtEpochMs < 0 || deliverAtEpochMs < actionAtEpochMs) {
             throw new IllegalArgumentException("invalid Kafka destination request");
         }
         // Kafka V1 has no certified delayed-handoff branch.  An early

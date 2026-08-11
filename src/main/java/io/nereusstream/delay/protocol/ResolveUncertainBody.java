@@ -30,9 +30,6 @@ public final class ResolveUncertainBody {
         Bytes.requireLength(laneIncarnation, LANE_INCARNATION_LENGTH, "laneIncarnation");
         this.laneIncarnation = Bytes.copy(laneIncarnation);
         this.messageId = Objects.requireNonNull(messageId, "messageId");
-        if (generation < 0) {
-            throw new IllegalArgumentException("generation must be non-negative");
-        }
         this.generation = generation;
         Bytes.requireLength(publishAttemptId, ControlRef.HASH_LENGTH, "publishAttemptId");
         this.publishAttemptId = Bytes.copy(publishAttemptId);
@@ -92,7 +89,7 @@ public final class ResolveUncertainBody {
             CanonicalProtobuf.bytes(output, 11, laneId.bytes());
             CanonicalProtobuf.bytes(output, 12, laneBytes);
             CanonicalProtobuf.bytes(output, 13, messageId.bytes());
-            CanonicalProtobuf.uint32(output, 14, generation);
+            CanonicalProtobuf.uint32Bits(output, 14, generation);
             CanonicalProtobuf.bytes(output, 15, attempt);
             CanonicalProtobuf.uint32(output, 16, resolutionKind);
             if (evidenceBytes.length != 0) {
@@ -120,7 +117,7 @@ public final class ResolveUncertainBody {
         if (!subjectShard.equals(messageId.routingId().shardId())) {
             throw new IllegalArgumentException("uncertain resolution messageId does not belong to body shard");
         }
-        final int generation = intValue(field(fields, 14), 14);
+        final int generation = QueryCodecSupport.uint32Bits(field(fields, 14), 14);
         final byte[] publishAttemptId = fixed(field(fields, 15), 15, ControlRef.HASH_LENGTH);
         final int kind = intValue(field(fields, 16), 16);
         final byte[] evidence = optionalNested(fields, 17);

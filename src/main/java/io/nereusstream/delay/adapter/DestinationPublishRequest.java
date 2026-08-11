@@ -24,7 +24,7 @@ public record DestinationPublishRequest(
         Bytes.requireLength(publishAttemptId, 32, "publishAttemptId");
         Objects.requireNonNull(payload, "payload");
         Objects.requireNonNull(adapterMetadata, "adapterMetadata");
-        if (generation < 0 || actionAtEpochMs < 0 || deliverAtEpochMs < actionAtEpochMs) {
+        if (actionAtEpochMs < 0 || deliverAtEpochMs < actionAtEpochMs) {
             throw new IllegalArgumentException("invalid destination publish timing or generation");
         }
         laneIncarnation = Bytes.copy(laneIncarnation);

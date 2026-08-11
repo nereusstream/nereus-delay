@@ -15,7 +15,7 @@ public final class MessageControlResultV1 {
                                   final MessageGenerationStateV1 state, final StableCode stableCode,
                                   final PublicEvidenceRefV1 evidence) {
         this.messageId = Objects.requireNonNull(messageId, "messageId");
-        if (generation < 0 || stateVersion < 0) {
+        if (stateVersion < 0) {
             throw new IllegalArgumentException("invalid Message control generation/state version");
         }
         this.generation = generation;
@@ -52,7 +52,7 @@ public final class MessageControlResultV1 {
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, messageId.bytes());
-            CanonicalProtobuf.uint32(output, 2, generation);
+            CanonicalProtobuf.uint32Bits(output, 2, generation);
             CanonicalProtobuf.uint64(output, 3, stateVersion);
             CanonicalProtobuf.uint32(output, 4, state.wireValue());
             CanonicalProtobuf.uint32(output, 5, stableCode.wireValue());
@@ -74,7 +74,7 @@ public final class MessageControlResultV1 {
         }
         final MessageControlResultV1 result = new MessageControlResultV1(
                 new DelayMessageId(QueryCodecSupport.fixed(fields.get(0), 1, DelayMessageId.LENGTH)),
-                QueryCodecSupport.uint32(fields.get(1), 2), QueryCodecSupport.uint(fields.get(2), 3),
+                QueryCodecSupport.uint32Bits(fields.get(1), 2), QueryCodecSupport.uint(fields.get(2), 3),
                 MessageGenerationStateV1.fromWire(QueryCodecSupport.uint(fields.get(3), 4)),
                 StableCode.fromWire(QueryCodecSupport.uint32(fields.get(4), 5)),
                 fields.size() == 6 ? PublicEvidenceRefV1.decode(QueryCodecSupport.nested(fields.get(5), 6)) : null);

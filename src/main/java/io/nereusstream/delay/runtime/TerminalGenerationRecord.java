@@ -37,7 +37,7 @@ public record TerminalGenerationRecord(
         Objects.requireNonNull(terminalCode, "terminalCode");
         Objects.requireNonNull(appliedSourcePosition, "appliedSourcePosition");
         Objects.requireNonNull(openObligations, "openObligations");
-        if (generation < 0 || stateVersion < 0 || status == MessageStatus.SCHEDULED
+        if (stateVersion < 0 || status == MessageStatus.SCHEDULED
                 || status == MessageStatus.CLAIMED || status == MessageStatus.PUBLISHING) {
             throw new IllegalArgumentException("invalid terminal generation record");
         }
@@ -71,7 +71,7 @@ public record TerminalGenerationRecord(
         final byte[] encodedObligations = Bytes.concat(openObligations.stream()
                 .map(obligation -> Bytes.lp32(obligation.canonicalBytes()))
                 .toArray(byte[][]::new));
-        return Bytes.concat(Bytes.u32be(VERSION), messageId.bytes(), Bytes.u32be(generation),
+        return Bytes.concat(Bytes.u32be(VERSION), messageId.bytes(), Bytes.u32beBits(generation),
                 new byte[]{(byte) status.wireValue()}, Bytes.u32be(terminalCode.wireValue()),
                 Bytes.u64be(stateVersion), new byte[]{(byte) (possibleDestinationDuplicate ? 1 : 0)},
                 Bytes.lp32(appliedSourcePosition), Bytes.u32be(openObligations.size()), encodedObligations);

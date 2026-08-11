@@ -75,6 +75,7 @@ import io.nereusstream.delay.protocol.SystemMutationBodyCodec;
 import io.nereusstream.delay.protocol.SystemMutationType;
 import io.nereusstream.delay.protocol.TimingCapabilityV1;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
+import io.nereusstream.delay.protocol.UnsignedInt32;
 import io.nereusstream.delay.protocol.V1ScheduleBinding;
 import io.nereusstream.delay.ownership.ControlTargetRegistrationAuthority;
 import io.nereusstream.delay.store.ColumnFamily;
@@ -1128,9 +1129,6 @@ public final class DelayShard {
     /** Returns the durable local DLQ export outbox for one terminal generation. */
     public synchronized DlqExportRecord getDlqExportRecord(final DelayMessageId messageId, final int generation) {
         Objects.requireNonNull(messageId, "messageId");
-        if (generation < 0) {
-            throw new IllegalArgumentException("generation must be non-negative");
-        }
         final TerminalGenerationRecord terminal = getTerminalGeneration(messageId, generation);
         if (terminal == null || terminal.status() != MessageStatus.DEAD_LETTER) {
             return null;
@@ -1259,7 +1257,7 @@ public final class DelayShard {
         final byte[] claimId = Bytes.sha256(Bytes.utf8("nereus-delay-claim-id-v1\0"),
                 store.metadata().storeIncarnation(), Bytes.u64beBits(owner.generation()),
                 Bytes.u64beBits(nextClaimSequence),
-                messageId.bytes(), Bytes.u32be(current.generation()), Bytes.u64be(lane.laneVersion()));
+                messageId.bytes(), Bytes.u32beBits(current.generation()), Bytes.u64be(lane.laneVersion()));
         final TimelineWorkRef currentTimeline = current.runtimeIndex().timeline();
         final int workKind = currentTimeline != null
                 && Arrays.equals(currentTimeline.encodedTimelineKey(), timelineKey)
@@ -2937,7 +2935,7 @@ public final class DelayShard {
         if (decision.hasNextRetryAt()) {
             final long backoffCap = policy.retryBackoffCap(decision.completedAttemptNo());
             final long jitter = RetryJitterV1.delayMs(RetryJitterV1.MESSAGE_PUBLISH, ledger.delayMessageId(),
-                    ledger.generation(), decision.completedAttemptNo(), backoffCap);
+                    UnsignedInt32.toLong(ledger.generation()), decision.completedAttemptNo(), backoffCap);
             final long expectedNext = Math.addExact(outcome.observedAt().latestEpochMs(), jitter);
             if (decision.nextRetryAt() != expectedNext || expectedNext > decision.retryDeadline()) {
                 throw new IllegalArgumentException("RetryDecision next retry does not match deterministic jitter");
@@ -3099,7 +3097,7 @@ public final class DelayShard {
         }
         if (current.generation() != body.generation()) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
-                    current.generation() > body.generation()
+                    compareGeneration(current.generation(), body.generation()) > 0
                             ? StableCode.GENERATION_SUPERSEDED : StableCode.STALE_SYSTEM_MUTATION);
         }
         if (!current.laneId().equals(body.laneId())
@@ -3199,7 +3197,7 @@ public final class DelayShard {
         if (current == null) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.TOO_LATE);
         }
-        if (current.generation() < body.generation()) {
+        if (compareGeneration(current.generation(), body.generation()) < 0) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }
@@ -3216,7 +3214,7 @@ public final class DelayShard {
         if (current.generation() == body.generation() && !current.laneId().equals(body.laneId())) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.TOO_LATE);
         }
-        if (current.generation() > body.generation()) {
+        if (compareGeneration(current.generation(), body.generation()) > 0) {
             final TerminalGenerationRecord summary = getTerminalGeneration(body.messageId(), body.generation());
             if (summary == null || !summary.openObligations().contains(ledger.obligationRef())) {
                 return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
@@ -3249,7 +3247,7 @@ public final class DelayShard {
         if (current == null) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.TOO_LATE);
         }
-        if (current.generation() < body.generation()) {
+        if (compareGeneration(current.generation(), body.generation()) < 0) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
         }
@@ -3266,7 +3264,7 @@ public final class DelayShard {
         if (current.generation() == body.generation() && !current.laneId().equals(body.laneId())) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.TOO_LATE);
         }
-        if (current.generation() > body.generation()) {
+        if (compareGeneration(current.generation(), body.generation()) > 0) {
             final TerminalGenerationRecord summary = getTerminalGeneration(body.messageId(), body.generation());
             if (summary == null || !summary.openObligations().contains(ledger.obligationRef())) {
                 return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
@@ -3659,7 +3657,7 @@ public final class DelayShard {
         }
         if (current.generation() != body.generation()) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
-                    current.generation() > body.generation()
+                    compareGeneration(current.generation(), body.generation()) > 0
                             ? StableCode.GENERATION_SUPERSEDED : StableCode.STALE_SYSTEM_MUTATION);
         }
         if (!current.laneId().equals(body.laneId()) || current.status() != MessageStatus.UNCERTAIN
@@ -3751,7 +3749,7 @@ public final class DelayShard {
         }
         if (current.generation() != body.expectedGeneration()) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
-                    current.generation() > body.expectedGeneration()
+                    compareGeneration(current.generation(), body.expectedGeneration()) > 0
                             ? StableCode.GENERATION_SUPERSEDED : StableCode.STALE_SYSTEM_MUTATION);
         }
         if (current.stateVersion() != body.expectedStateVersion()) {
@@ -3811,7 +3809,7 @@ public final class DelayShard {
                 Math.max(1, nextQuota.usageRevision()));
         final int nextGeneration;
         try {
-            nextGeneration = Math.addExact(current.generation(), 1);
+            nextGeneration = UnsignedInt32.successor(current.generation());
         } catch (ArithmeticException exception) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
@@ -3881,7 +3879,7 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.NOT_FOUND);
         }
         if (current.generation() != body.generation()) {
-            final StableCode code = current.generation() > body.generation()
+            final StableCode code = compareGeneration(current.generation(), body.generation()) > 0
                     ? StableCode.GENERATION_SUPERSEDED : StableCode.STALE_SYSTEM_MUTATION;
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, code);
         }
@@ -4493,10 +4491,10 @@ public final class DelayShard {
         requirePublishAttemptLane(ledger, "not-published outcome");
         final MessageRecord current = getMessage(ledger.delayMessageId());
         if (ledger.state() != expectedLedgerState || current == null
-                || current.generation() < ledger.generation()) {
+                || compareGeneration(current.generation(), ledger.generation()) < 0) {
             return persistSystemResultByResult(systemResult, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
         }
-        if (current.generation() > ledger.generation()) {
+        if (compareGeneration(current.generation(), ledger.generation()) > 0) {
             final PublishOutcomeBody.RetryDecision retryDecision = outcome.retryDecision();
             if (retryDecision.completedAttemptNo() != ledger.attemptNo()) {
                 return persistSystemResultByResult(systemResult, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
@@ -4601,7 +4599,7 @@ public final class DelayShard {
             throw new IllegalStateException("definitive retry cannot bypass an older UNCERTAIN obligation");
         }
         scheduled = scheduled.withRuntimeIndex(timelineRuntimeIndex(ledger.delayMessageId(), scheduled,
-                TimelineWorkKind.DEFINITIVE_RETRY, Math.addExact(ledger.attemptNo(), 1), scheduled.stateVersion(),
+                TimelineWorkKind.DEFINITIVE_RETRY, UnsignedInt32.successor(ledger.attemptNo()), scheduled.stateVersion(),
                 UncertainRetryAuthority.NONE, null, null, current.runtimeIndex(), remainingObligations));
         final MessageRecord scheduledForWrite = scheduled;
         final Map<io.nereusstream.delay.protocol.DestinationLaneId, LaneRecord> laneOverrides = new HashMap<>();
@@ -4663,7 +4661,7 @@ public final class DelayShard {
         final DelayMessageId messageId = new DelayMessageId(fixedBodyBytes(field(fields, 10), 10,
                 DelayMessageId.LENGTH));
         SystemMutationBodyCodec.requireMessageShard(fields, messageId, "Expire Generation");
-        final int generation = bodyInt(field(fields, 11), 11);
+        final int generation = bodyUint32Bits(field(fields, 11), 11);
         final long expireAt = bodyNonNegative(field(fields, 12), 12);
         if (!Bytes.constantTimeEquals(mutation.logicalOperationIdentity(),
                 SystemMutation.computeExpiryLogicalIdentity(messageId, generation, expireAt))) {
@@ -4678,7 +4676,7 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.NOT_FOUND);
         }
         if (current.generation() != generation) {
-            final StableCode code = current.generation() > generation
+            final StableCode code = compareGeneration(current.generation(), generation) > 0
                     ? StableCode.GENERATION_SUPERSEDED : StableCode.STALE_SYSTEM_MUTATION;
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, code);
         }
@@ -5484,10 +5482,10 @@ public final class DelayShard {
             throw new IllegalStateException("unknown outcome requires a PUBLISHING ledger");
         }
         final MessageRecord current = getMessage(currentLedger.delayMessageId());
-        if (current == null || current.generation() < currentLedger.generation()) {
+        if (current == null || compareGeneration(current.generation(), currentLedger.generation()) < 0) {
             throw new IllegalStateException("unknown outcome is stale for the current message");
         }
-        if (current.generation() > currentLedger.generation()) {
+        if (compareGeneration(current.generation(), currentLedger.generation()) > 0) {
             return settleHistoricalUnknownObligation(currentLedger, canonicalOutcome, evidence, sourcePosition,
                     systemResult);
         }
@@ -5639,10 +5637,10 @@ public final class DelayShard {
         }
         requirePublishAttemptLane(ledger, "published outcome");
         final MessageRecord current = getMessage(ledger.delayMessageId());
-        if (current == null || current.generation() < ledger.generation()) {
+        if (current == null || compareGeneration(current.generation(), ledger.generation()) < 0) {
             throw new IllegalStateException("published outcome is stale for the current message");
         }
-        if (current.generation() > ledger.generation()) {
+        if (compareGeneration(current.generation(), ledger.generation()) > 0) {
             return settleHistoricalTerminalObligation(ledger, sourcePosition, systemResult, true);
         }
         if (expectedMessageStatus == MessageStatus.UNCERTAIN
@@ -7043,7 +7041,7 @@ public final class DelayShard {
         validateWindow(request.deliverAtEpochMs(), request.expireAtEpochMs(),
                 sourcePosition.brokerPersistenceTimeEpochMs());
         final MessageRecord replacement = new MessageRecord(MessageStatus.SCHEDULED,
-                Math.incrementExact(existing.generation()), Math.incrementExact(existing.stateVersion()),
+                UnsignedInt32.successor(existing.generation()), Math.incrementExact(existing.stateVersion()),
                 request.deliverAtEpochMs(), request.expireAtEpochMs(), existing.laneId(),
                 existing.orderingMode(), existing.payload(), sourcePosition.canonicalBytes(),
                 existing.payloadReference(), actionAtFor(command.delayMessageId(), existing,
@@ -7084,8 +7082,8 @@ public final class DelayShard {
     }
 
     private static boolean matchesPrecondition(final Long expectedGeneration, final Long expectedStateVersion,
-                                               final long generation, final long stateVersion) {
-        return (expectedGeneration == null || expectedGeneration == generation)
+                                               final int generation, final long stateVersion) {
+        return (expectedGeneration == null || expectedGeneration == Integer.toUnsignedLong(generation))
                 && (expectedStateVersion == null || expectedStateVersion == stateVersion);
     }
 
@@ -7861,7 +7859,7 @@ public final class DelayShard {
         // otherwise the later persistMutation() normalization would silently
         // erase a certified early handoff on a same-deliverAt Reschedule.
         final long actionAt = actionAtFor(command.delayMessageId(), prior, values.deliverAtEpochMs());
-        return new MessageRecord(MessageStatus.SCHEDULED, Math.incrementExact(prior.generation()),
+        return new MessageRecord(MessageStatus.SCHEDULED, UnsignedInt32.successor(prior.generation()),
                 Math.incrementExact(prior.stateVersion()),
                 values.deliverAtEpochMs(), values.expireAtEpochMs(), prior.laneId(), prior.orderingMode(),
                 prior.payload(), position.canonicalBytes(), prior.payloadReference(), actionAt);
@@ -8615,7 +8613,7 @@ public final class DelayShard {
         final byte[] encoded = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, claimId);
             CanonicalProtobuf.bytes(output, 2, messageId.bytes());
-            CanonicalProtobuf.uint32(output, 3, current.generation());
+            CanonicalProtobuf.uint32Bits(output, 3, current.generation());
             CanonicalProtobuf.int64(output, 4, current.stateVersion());
             CanonicalProtobuf.bytes(output, 5, current.laneId().bytes());
             CanonicalProtobuf.bytes(output, 6, lane.laneIncarnation());
@@ -8997,13 +8995,17 @@ public final class DelayShard {
         return Integer.compare(left.length, right.length);
     }
 
+    private static int compareGeneration(final int left, final int right) {
+        return UnsignedInt32.compare(left, right);
+    }
+
     public record TimelineWork(DelayMessageId messageId,
                                io.nereusstream.delay.protocol.DestinationLaneId laneId,
                                int generation, long eligibleAtEpochMs, boolean ordered) {
         public TimelineWork {
             Objects.requireNonNull(messageId, "messageId");
             Objects.requireNonNull(laneId, "laneId");
-            if (generation < 0 || eligibleAtEpochMs < 0) {
+            if (eligibleAtEpochMs < 0) {
                 throw new IllegalArgumentException("invalid timeline work");
             }
         }
@@ -9015,7 +9017,7 @@ public final class DelayShard {
         public ReadyWork {
             Objects.requireNonNull(laneId, "laneId");
             Objects.requireNonNull(messageId, "messageId");
-            if (generation < 0 || nextEligibleAtEpochMs < 0 || laneVersion < 0) {
+            if (nextEligibleAtEpochMs < 0 || laneVersion < 0) {
                 throw new IllegalArgumentException("invalid READY work");
             }
         }
@@ -9027,7 +9029,7 @@ public final class DelayShard {
         public ExpiryWork {
             Objects.requireNonNull(messageId, "messageId");
             Objects.requireNonNull(laneId, "laneId");
-            if (generation < 0 || expireAtEpochMs < 0) {
+            if (expireAtEpochMs < 0) {
                 throw new IllegalArgumentException("invalid expiry work");
             }
         }

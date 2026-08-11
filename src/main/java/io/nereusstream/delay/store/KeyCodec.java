@@ -50,23 +50,23 @@ public final class KeyCodec {
                                      final byte[] sourceOrderToken, final DelayMessageId messageId,
                                      final int generation) {
         Objects.requireNonNull(sourceOrderToken, "sourceOrderToken");
-        if (eligibleAtEpochMs < 0 || generation < 0) {
+        if (eligibleAtEpochMs < 0) {
             throw new IllegalArgumentException("invalid timeline key values");
         }
         validateSourceOrderToken(sourceOrderToken);
         return Bytes.concat(new byte[]{1, 1}, laneId.bytes(), Bytes.u64be(eligibleAtEpochMs), sourceOrderToken,
-                messageId.bytes(), Bytes.u32be(generation));
+                messageId.bytes(), Bytes.u32beBits(generation));
     }
 
     public static byte[] timelineOrdered(final DestinationLaneId laneId, final long deliverAtEpochMs,
                                          final byte[] sourceOrderToken, final DelayMessageId messageId,
                                          final int generation) {
-        if (deliverAtEpochMs < 0 || generation < 0) {
+        if (deliverAtEpochMs < 0) {
             throw new IllegalArgumentException("invalid timeline key values");
         }
         validateSourceOrderToken(sourceOrderToken);
         return Bytes.concat(new byte[]{2, 1}, laneId.bytes(), Bytes.u64be(deliverAtEpochMs), sourceOrderToken,
-                messageId.bytes(), Bytes.u32be(generation));
+                messageId.bytes(), Bytes.u32beBits(generation));
     }
 
     public static byte[] timelineReady(final long nextEligibleAtEpochMs, final DestinationLaneId laneId,
@@ -80,11 +80,11 @@ public final class KeyCodec {
 
     public static byte[] timelineExpiry(final long expireAtEpochMs, final DestinationLaneId laneId,
                                         final DelayMessageId messageId, final int generation) {
-        if (expireAtEpochMs < 0 || generation < 0) {
+        if (expireAtEpochMs < 0) {
             throw new IllegalArgumentException("invalid expiry key values");
         }
         return Bytes.concat(new byte[]{4, 1}, Bytes.u64be(expireAtEpochMs), laneId.bytes(), messageId.bytes(),
-                Bytes.u32be(generation));
+                Bytes.u32beBits(generation));
     }
 
     public static byte[] reservationExpiry(final long expireAtEpochMs, final byte[] reservationId) {
@@ -130,10 +130,7 @@ public final class KeyCodec {
 
     public static byte[] terminalGeneration(final DelayMessageId messageId, final int generation) {
         Objects.requireNonNull(messageId, "messageId");
-        if (generation < 0) {
-            throw new IllegalArgumentException("generation must be non-negative");
-        }
-        return Bytes.concat(new byte[]{1, 1}, messageId.bytes(), Bytes.u32be(generation));
+        return Bytes.concat(new byte[]{1, 1}, messageId.bytes(), Bytes.u32beBits(generation));
     }
 
     /** Stable terminal_cf/DLQ_EXPORT locator: {@code 02 01 | dlqExportId[32]}. */

@@ -15,9 +15,8 @@ public record ScheduleWorkItem(
     public ScheduleWorkItem {
         Objects.requireNonNull(laneId, "laneId");
         Objects.requireNonNull(messageId, "messageId");
-        if (generation < 0 || eligibleAtEpochMs < 0 || accountedBytes <= 0) {
+        if (eligibleAtEpochMs < 0 || accountedBytes <= 0) {
             throw new IllegalArgumentException("invalid scheduler work item");
         }
     }
 }
-

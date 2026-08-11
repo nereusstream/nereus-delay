@@ -11,7 +11,9 @@ import org.junit.jupiter.api.Test;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DurableResultTest {
     @Test
@@ -26,6 +28,16 @@ class DurableResultTest {
         assertThrows(IllegalArgumentException.class,
                 () -> new CommandResult(ApplyStatus.REJECTED, StableCode.INVALID_COMMAND,
                         -1, 0, null, Bytes.concat(source, new byte[]{0})));
+    }
+
+    @Test
+    void appliedCommandResultPreservesMaxUint32GenerationAndProjectsIt() {
+        final byte[] source = sourcePosition().canonicalBytes();
+        final CommandResult result = new CommandResult(ApplyStatus.APPLIED, StableCode.OK,
+                -1, 1, MessageStatus.SCHEDULED, source);
+
+        assertTrue(result.hasGeneration());
+        assertEquals(result, CommandResult.decode(result.encode()));
     }
 
     @Test

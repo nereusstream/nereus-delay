@@ -21,7 +21,7 @@ public final class TerminalMessageViewV1 implements QueryResponseBranchV1 {
                                  final DlqExportStateV1 dlqExportState,
                                  final boolean possibleDestinationDuplicate,
                                  final PublicEvidenceRefV1 evidence) {
-        if (generation < 0 || stateVersion <= 0) {
+        if (stateVersion <= 0) {
             throw new IllegalArgumentException("invalid terminal message view numbers");
         }
         if (state == null || !state.terminal()) {
@@ -76,7 +76,7 @@ public final class TerminalMessageViewV1 implements QueryResponseBranchV1 {
 
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.uint32(output, 1, generation);
+            CanonicalProtobuf.uint32Bits(output, 1, generation);
             CanonicalProtobuf.uint64(output, 2, stateVersion);
             CanonicalProtobuf.uint32(output, 3, state.wireValue());
             CanonicalProtobuf.uint32(output, 4, terminalCode.wireValue());
@@ -103,7 +103,7 @@ public final class TerminalMessageViewV1 implements QueryResponseBranchV1 {
         final PublicEvidenceRefV1 evidence = fields.size() == 9
                 ? PublicEvidenceRefV1.decode(QueryCodecSupport.nested(fields.get(8), 9)) : null;
         final TerminalMessageViewV1 result = new TerminalMessageViewV1(
-                QueryCodecSupport.uint32(fields.get(0), 1),
+                QueryCodecSupport.uint32Bits(fields.get(0), 1),
                 QueryCodecSupport.uint(fields.get(1), 2),
                 MessageGenerationStateV1.fromWire(QueryCodecSupport.uint(fields.get(2), 3)),
                 StableCode.fromWire(QueryCodecSupport.uint32(fields.get(3), 4)),

@@ -19,7 +19,7 @@ public final class ActiveMessageViewV1 implements QueryResponseBranchV1 {
                                final PublicDestinationBindingViewV1 binding,
                                final PayloadAvailabilityV1 payloadAvailability,
                                final boolean possibleDestinationDuplicate) {
-        if (generation < 0 || stateVersion <= 0 || deliverAtEpochMs < 0 || expireAtEpochMs < deliverAtEpochMs) {
+        if (stateVersion <= 0 || deliverAtEpochMs < 0 || expireAtEpochMs < deliverAtEpochMs) {
             throw new IllegalArgumentException("invalid active message view numbers");
         }
         if (state == null || !state.active()) {
@@ -69,7 +69,7 @@ public final class ActiveMessageViewV1 implements QueryResponseBranchV1 {
 
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.uint32(output, 1, generation);
+            CanonicalProtobuf.uint32Bits(output, 1, generation);
             CanonicalProtobuf.uint64(output, 2, stateVersion);
             CanonicalProtobuf.uint32(output, 3, state.wireValue());
             CanonicalProtobuf.int64(output, 4, deliverAtEpochMs);
@@ -84,7 +84,7 @@ public final class ActiveMessageViewV1 implements QueryResponseBranchV1 {
         final List<CanonicalProtobuf.Reader.Field> fields = QueryCodecSupport.read(encoded, "ActiveMessageViewV1");
         QueryCodecSupport.requireNumbers(fields, new int[]{1, 2, 3, 4, 5, 6, 7, 8}, "ActiveMessageViewV1");
         final ActiveMessageViewV1 result = new ActiveMessageViewV1(
-                QueryCodecSupport.uint32(fields.get(0), 1),
+                QueryCodecSupport.uint32Bits(fields.get(0), 1),
                 QueryCodecSupport.uint(fields.get(1), 2),
                 MessageGenerationStateV1.fromWire(QueryCodecSupport.uint(fields.get(2), 3)),
                 QueryCodecSupport.uint(fields.get(3), 4),

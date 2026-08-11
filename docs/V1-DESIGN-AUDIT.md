@@ -659,13 +659,22 @@ nonnegative timing constraints and domain-separated digest. `ClaimResultBody`,
 these types, while `ClaimRecord` exposes the typed projection only after its
 durable Claim precondition has passed. This is stronger local codec evidence,
 not proof of Profile/catalog, Object Store, Adapter or Producer authority.
-The canonical typed descriptor therefore keeps the full uint32 generation and
-attempt range, but the compatibility `PublishAdmissionBody.Descriptor` remains a
-signed-int runtime projection. High-bit values are rejected with a stable
-`IllegalArgumentException` before the narrowing
-(`PublishAdmissionBodyTest.rejectsDescriptorHighBitUint32AtTheSignedRuntimeProjection`);
-widening that projection requires the corresponding Message/ledger/key/runtime
-migration and is not inferred from the wire codec alone.
+The canonical typed descriptor and its compatibility `PublishAdmissionBody.Descriptor`
+now retain the complete raw uint32 generation/attempt bit patterns. The local
+Message, Claim, ledger, timeline/terminal key, Adapter request, retry-jitter and
+public Message/Command view projections use the same raw-bit representation;
+generation ordering is explicitly unsigned and checked successors fence the
+all-ones value instead of wrapping. Focused coverage includes
+`PublishAdmissionBodyTest.preservesHighBitUint32GenerationAndAttemptBits`,
+`PublishAttemptLedgerTest.v1LedgerPreservesHighBitGenerationAndAttemptBits`,
+`MessageRecordTest.scalarMessageRecordPreservesHighBitGenerationBits` and
+`KeyCodecTest.timelineAndTerminalKeysPreserveUnsignedGenerationBits`, with
+`GenerationRuntimeIndexTest.attemptObligationPreservesUnsignedGenerationBits`
+and the ordering/overflow helper covered by `UnsignedInt32Test`. The legacy
+`CommandResult` rejected-result absence sentinel remains a separately
+documented compatibility boundary; applied results use the presence of
+`stateVersion/messageStatus` to distinguish a real all-ones generation from
+that absence sentinel (`DurableResultTest.appliedCommandResultPreservesMaxUint32GenerationAndProjectsIt`).
 
 The `ExactResourceIdentityV1` retirement projection now applies the same
 branch-specific Object Store Profile fence as the committed/checkpoint

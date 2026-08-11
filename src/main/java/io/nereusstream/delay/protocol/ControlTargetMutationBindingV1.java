@@ -152,7 +152,8 @@ public final class ControlTargetMutationBindingV1 {
                                              final ReplayDeadLetterBody body) {
         final ReplayDeadLetterRequestV1 expected = branch(request, ReplayDeadLetterRequestV1.class);
         final ControlMessageTargetV1 message = target.message();
-        if (!body.messageId().equals(message.messageId()) || body.expectedGeneration() != message.expectedGeneration()
+        if (!body.messageId().equals(message.messageId())
+                || Integer.toUnsignedLong(body.expectedGeneration()) != message.expectedGeneration()
                 || body.expectedStateVersion() != message.expectedStateVersion()
                 || body.deliverAtEpochMs() != expected.deliverAt() || body.expireAtEpochMs() != expected.expireAt()
                 || !Arrays.equals(body.retryPolicy(), expected.retryPolicy().canonicalBytes())
@@ -170,7 +171,8 @@ public final class ControlTargetMutationBindingV1 {
                                               final ResolveUncertainBody body) {
         final ResolveUncertainRequestV1 expected = branch(request, ResolveUncertainRequestV1.class);
         final ControlMessageTargetV1 message = target.message();
-        if (!body.messageId().equals(message.messageId()) || body.generation() != message.expectedGeneration()
+        if (!body.messageId().equals(message.messageId())
+                || Integer.toUnsignedLong(body.generation()) != message.expectedGeneration()
                 || !Arrays.equals(body.publishAttemptId(), message.publishAttemptId())
                 || body.resolutionKind() != expected.resolutionKind().wireValue()
                 || body.allowPossibleDuplicate() != expected.allowPossibleDuplicate()

@@ -1143,7 +1143,7 @@ class DelayShardTest {
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
             assertEquals(StableCode.SCHEDULED,
                     shard.apply(generationSchedule, generationSchedulePosition).stableCode());
-            final MessageRecord exhausted = new MessageRecord(MessageStatus.SCHEDULED, Integer.MAX_VALUE, 1,
+            final MessageRecord exhausted = new MessageRecord(MessageStatus.SCHEDULED, -1, 1,
                     2_000, 5_000, generationLane, OrderingMode.BEST_EFFORT, Bytes.utf8("generation-overflow"),
                     generationSchedulePosition.canonicalBytes());
             store.write(batch -> {
@@ -1156,7 +1156,7 @@ class DelayShardTest {
             });
 
             final PreparedCommand reschedule = PreparedCommand.reschedule(generationShardId,
-                    generationSchedule.delayMessageId(), Integer.MAX_VALUE, 3_000, 6_000, 9_000);
+                    generationSchedule.delayMessageId(), -1, 3_000, 6_000, 9_000);
             assertEquals(StableCode.INVALID_COMMAND,
                     shard.apply(reschedule, generationReschedulePosition).stableCode());
             assertEquals(exhausted, shard.getMessage(generationSchedule.delayMessageId()));

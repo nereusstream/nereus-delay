@@ -38,7 +38,7 @@ public final class DlqExportResultBody {
                                 final DlqExportStateV1 resultingState, final int physicalAttemptNo) {
         this.dlqExportId = fixed(dlqExportId, "dlqExportId");
         this.messageId = fixed(messageId, DelayMessageId.LENGTH, "messageId");
-        if (generation < 0 || terminalRevision == 0) {
+        if (terminalRevision == 0) {
             throw new IllegalArgumentException("invalid DLQ export generation/revision");
         }
         this.generation = generation;
@@ -59,7 +59,7 @@ public final class DlqExportResultBody {
         this.observedAt = Objects.requireNonNull(observedAt, "observedAt");
         this.retryDecision = copy(retryDecision);
         this.resultingState = Objects.requireNonNull(resultingState, "resultingState");
-        if (resultingState == DlqExportStateV1.NOT_CONFIGURED || physicalAttemptNo <= 0) {
+        if (resultingState == DlqExportStateV1.NOT_CONFIGURED || physicalAttemptNo == 0) {
             throw new IllegalArgumentException("DLQ export result cannot target NOT_CONFIGURED or attempt zero");
         }
         this.physicalAttemptNo = physicalAttemptNo;
@@ -70,7 +70,7 @@ public final class DlqExportResultBody {
                 SystemMutationType.DLQ_EXPORT_RESULT, canonicalBody);
         final byte[] exportId = fixed(field(fields, 10), 10, HASH_LENGTH);
         final byte[] messageId = fixed(field(fields, 11), 11, DelayMessageId.LENGTH);
-        final int generation = boundedInt(unsigned(field(fields, 12), 12), "generation");
+        final int generation = QueryCodecSupport.uint32Bits(field(fields, 12), 12);
         final long terminalRevision = rawUint64(field(fields, 13), 13);
         if (terminalRevision == 0) {
             throw new IllegalArgumentException("terminal revision must be non-zero");
@@ -89,7 +89,7 @@ public final class DlqExportResultBody {
         final byte[] retryDecision = nested(field(fields, 22), 22);
         final RetryShape retry = validateRetryDecision(retryDecision);
         final DlqExportStateV1 resultingState = DlqExportStateV1.fromWire(unsigned(field(fields, 23), 23));
-        final int physicalAttemptNo = boundedInt(unsigned(field(fields, 24), 24), "physicalAttemptNo");
+        final int physicalAttemptNo = QueryCodecSupport.uint32Bits(field(fields, 24), 24);
         validateCombination(eventKind, sideEffect, disposition, stableCode, evidence, resultingState, retry);
         SystemMutationBodyCodec.requireMessageShard(fields, new DelayMessageId(messageId), "DLQ export result");
         final DlqExportResultBody result = new DlqExportResultBody(exportId, messageId, generation,

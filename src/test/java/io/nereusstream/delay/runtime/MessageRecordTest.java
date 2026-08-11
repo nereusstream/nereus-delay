@@ -49,6 +49,18 @@ class MessageRecordTest {
     }
 
     @Test
+    void scalarMessageRecordPreservesHighBitGenerationBits() {
+        final int highBit = (int) 0x8000_0000L;
+        final MessageRecord record = new MessageRecord(MessageStatus.SCHEDULED, highBit, 1,
+                2_000, 5_000, DestinationLaneId.derive(Bytes.utf8("message-record-high-bit")),
+                OrderingMode.BEST_EFFORT, Bytes.utf8("payload"), Bytes.utf8("source-position"));
+
+        final MessageRecord decoded = MessageRecord.decode(record.encode());
+        assertEquals(highBit, decoded.generation());
+        assertEquals(0x8000_0000L, Integer.toUnsignedLong(decoded.generation()));
+    }
+
+    @Test
     void typedRuntimeCannotDisagreeWithMessageStatus() {
         final MessageRecord base = new MessageRecord(MessageStatus.SCHEDULED, 0, 1,
                 2_000, 5_000, DestinationLaneId.derive(Bytes.utf8("message-record-status-fence")),
