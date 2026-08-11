@@ -3107,6 +3107,14 @@ focused evidence is
 Route policy publication, Broker-time authority and real transport integration
 remain release gates.
 
+The persistent Lane scheduler now applies the same Throwable-level rollback
+boundary to restore/discovery/poll/readiness/unregister operations. An
+`Error` no longer leaves the process-local ring, queue, deficit, discovery
+cursor or readiness projection ahead of the last durable scheduler batch; the
+original failure remains primary and rollback failures are retained as
+suppressed diagnostics. This is local scheduler consistency evidence only and
+does not replace process supervision, Store re-open or authoritative placement.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

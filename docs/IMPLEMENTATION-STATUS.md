@@ -3273,6 +3273,16 @@ and `DelayShardConfigTest.strictIdentityPolicyRequiresCommandAndPreparationWindo
 cover the local boundary. Route publication, authoritative Broker timestamp,
 and production ingress wiring remain release blockers.
 
+`PersistentLaneScheduler` now treats an `Error` during restore, READY discovery,
+poll, readiness transition or terminal unregister the same as a runtime
+projection failure: it restores the exact scheduler snapshot, queue/ring,
+discovery cursor, fairness counters and readiness projection before rethrowing
+the original failure, while rollback diagnostics are suppressed onto it. This
+keeps a surviving process from serving an in-memory Lane schedule that was
+never durably written after a JVM/native failure. The focused scheduler suite
+continues to pass; process supervision and a fresh Store incarnation remain
+the recovery boundary for unrecoverable native failures.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

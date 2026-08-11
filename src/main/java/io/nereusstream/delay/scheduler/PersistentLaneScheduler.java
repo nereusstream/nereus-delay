@@ -134,7 +134,7 @@ public final class PersistentLaneScheduler {
             recoveryServed.clear();
             discoveredHeads.clear();
             persistedRestored = true;
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | Error failure) {
             rollbackRuntime(before, List.of(), List.of(), null, failure, null);
             throw failure;
         }
@@ -196,7 +196,7 @@ public final class PersistentLaneScheduler {
             }
             persist();
             return byLane.size();
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | Error failure) {
             rollbackRuntime(before, List.of(), List.of(), null, failure, queuesBefore);
             throw failure;
         }
@@ -322,7 +322,7 @@ public final class PersistentLaneScheduler {
                 persist(nextWrapGeneration);
             }
             return List.copyOf(toOffer);
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | Error failure) {
             rollbackRuntime(before, List.of(), offered, null, failure, null);
             throw failure;
         }
@@ -367,7 +367,7 @@ public final class PersistentLaneScheduler {
             }
             persist();
             return result;
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | Error failure) {
             rollbackRuntime(before, result, List.of(), null, failure, null);
             throw failure;
         }
@@ -414,7 +414,7 @@ public final class PersistentLaneScheduler {
                                  final List<ScheduleWorkItem> polled,
                                  final List<ScheduleWorkItem> offered,
                                  final DestinationLaneId restoreLaneId,
-                                 final RuntimeException original,
+                                 final Throwable original,
                                  final Map<DestinationLaneId, List<ScheduleWorkItem>> queueSnapshot) {
         try {
             if (!offered.isEmpty()) {
@@ -438,7 +438,7 @@ public final class PersistentLaneScheduler {
             recoveryServed.clear();
             recoveryServed.addAll(snapshot.recoveryServed());
             delegate.restoreReadiness(snapshot.readiness());
-        } catch (RuntimeException rollbackFailure) {
+        } catch (RuntimeException | Error rollbackFailure) {
             original.addSuppressed(rollbackFailure);
         }
     }
@@ -458,7 +458,7 @@ public final class PersistentLaneScheduler {
             recoveryFirstPass = true;
             recoveryServed.clear();
             persist();
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | Error failure) {
             rollbackRuntime(before, List.of(), List.of(), laneId, failure, null);
             throw failure;
         }
@@ -473,7 +473,7 @@ public final class PersistentLaneScheduler {
             recoveryFirstPass = true;
             recoveryServed.clear();
             persist();
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | Error failure) {
             rollbackRuntime(before, List.of(), List.of(), laneId, failure, null);
             throw failure;
         }
@@ -488,7 +488,7 @@ public final class PersistentLaneScheduler {
             recoveryFirstPass = true;
             recoveryServed.clear();
             persist();
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | Error failure) {
             rollbackRuntime(before, List.of(), List.of(), laneId, failure, null);
             throw failure;
         }
@@ -522,7 +522,7 @@ public final class PersistentLaneScheduler {
             recoveryServed.remove(laneId);
             discoveredHeads.remove(laneId);
             persist();
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | Error failure) {
             // A failed WriteBatch must not leave this in-memory registry
             // ahead of the durable scheduler projection.  The terminal Lane
             // has no pending queue by contract, so its registration and
