@@ -43,6 +43,14 @@ coordinator keeps the shard `DRAINING` and the next retry performs only the
 uncertain-Store fence/close/exact-lease-release path. Real WAL/device durability,
 source quiescence and fresh-incarnation recovery remain release gates.
 
+The process-local `CheckpointScheduler` now saturates a next-due epoch at
+`Long.MAX_VALUE` when interval/jitter/completion arithmetic would overflow, then
+clears the exact completed claim. `CheckpointSchedulerTest`
+`completionAtEpochBoundarySaturatesWithoutStrandingClaim` covers the boundary;
+without it, a valid near-epoch-end completion could leave an in-flight claim that
+no later callback could release. This remains only a local scheduling safeguard;
+durable Upload Intent/Catalog and checkpoint timing evidence remain external.
+
 The local Kafka receipt and Pulsar Attempt Journal mapping-before-send seams now
 fail closed when an injected target sender returns a `null CompletionStage`.
 That malformed result is not a non-persistence proof: the exact durable mapping

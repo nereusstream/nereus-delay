@@ -2699,6 +2699,12 @@ checkpoint manifest、Upload Intent 或 Oxia catalog authority。
 覆盖可接受的最大 jitter span 和应拒绝的更大 span。该证据仍只属于本地
 错峰调度器，不替代真实 Worker checkpoint/capacity/chaos 证据。
 
+同一 scheduler 的 next-due 计算现在对 interval、jitter 和完成时间的
+`int64` 边界采用饱和：不可表示的 future due 固定为 `Long.MAX_VALUE`，并
+清除已经完成的 in-flight claim，避免异常路径把本地 claim 永久卡住。
+`CheckpointSchedulerTest.completionAtEpochBoundarySaturatesWithoutStrandingClaim`
+覆盖该回归；这仍不代表 durable Upload Intent/Catalog 的时间 authority。
+
 查询层也已补齐 `CheckpointSummaryV1`/`CheckpointCatalogResultV1` 的
 canonical checkpoint-catalog projection，包含 shard identity、Floor identity
 和严格排序的 summary array；它仍只是 public query value codec，不代表

@@ -55,6 +55,27 @@ class CheckpointSchedulerTest {
     }
 
     @Test
+    void completionAtEpochBoundarySaturatesWithoutStrandingClaim() {
+        final CheckpointScheduler scheduler = new CheckpointScheduler(Long.MAX_VALUE, 0, 1);
+        final ShardId shard = new ShardId(RouteIncarnation.fromUuid(new java.util.UUID(13, 14)), 0);
+        scheduler.register(shard, 0);
+
+        final CheckpointScheduler.ScheduledCheckpoint claim = scheduler.claimDue(Long.MAX_VALUE, 1).get(0);
+        assertEquals(Long.MAX_VALUE, scheduler.complete(claim, Long.MAX_VALUE));
+        assertFalse(scheduler.isInFlight(shard));
+    }
+
+    @Test
+    void maximumIntervalWithJitterStillRegistersEveryShard() {
+        final RouteIncarnation route = RouteIncarnation.fromUuid(new java.util.UUID(15, 16));
+        for (int partition = 0; partition < 256; partition++) {
+            final CheckpointScheduler scheduler = new CheckpointScheduler(Long.MAX_VALUE, 50, 1);
+            final ShardId shard = new ShardId(route, partition);
+            assertDoesNotThrow(() -> scheduler.register(shard, 0));
+        }
+    }
+
+    @Test
     void lateCompletionFromAnEarlierClaimCannotRescheduleANewerClaim() {
         final CheckpointScheduler scheduler = new CheckpointScheduler(100, 0, 1);
         final ShardId shard = new ShardId(RouteIncarnation.fromUuid(new java.util.UUID(7, 8)), 0);

@@ -140,8 +140,22 @@ public final class CheckpointScheduler {
     }
 
     private long nextDue(final long baseEpochMs, final ShardId shardId) {
-        final long delay = Math.addExact(intervalMs, jitterOffsetMs(shardId));
-        return Math.addExact(baseEpochMs, delay);
+        final long delay;
+        try {
+            // The jitter range is strictly smaller than the interval, so a
+            // negative offset cannot underflow. A positive offset may make a
+            // legal near-Long.MAX interval unrepresentable; saturate that
+            // process-local time instead of leaving a completed claim stuck
+            // in-flight after an arithmetic exception.
+            delay = Math.addExact(intervalMs, jitterOffsetMs(shardId));
+        } catch (ArithmeticException overflow) {
+            return Long.MAX_VALUE;
+        }
+        return saturatingAdd(baseEpochMs, delay);
+    }
+
+    private static long saturatingAdd(final long left, final long right) {
+        return left > Long.MAX_VALUE - right ? Long.MAX_VALUE : left + right;
     }
 
     private long jitterOffsetMs(final ShardId shardId) {

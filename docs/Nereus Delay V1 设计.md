@@ -2460,6 +2460,12 @@ fail closed，不能重置较新的 checkpoint attempt 的 next-due 时间，也
 attempt 当成当前 attempt 完成。scheduler 重启或状态丢失不改变恢复正确性，必须
 回到 durable Upload Intent/Catalog 状态重新竞争。
 
+Scheduler 的 process-local epoch 算术也必须保持有界：当 interval、jitter 或
+completion time 使下一次 due 超出非负 `int64` epoch 域时，next-due 饱和为
+`Long.MAX_VALUE` 并清除当前 in-flight claim；不能让一个已经完成的 claim 因
+算术异常永久占用 scheduler 状态。该边界只影响本地错峰时间，不产生 checkpoint
+manifest、Upload Intent 或恢复 authority 结论。
+
 `ShardStore.createCheckpoint` 必须先取得 Worker 级 checkpoint-create slot，
 再把本次固定的 `checkpointId` 写入 live Store 的 runtime metadata 并创建物理镜像。
 create slot 已满时必须在任何 metadata WriteBatch 之前拒绝；不能先写入身份再依赖
