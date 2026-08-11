@@ -3150,6 +3150,30 @@ failure, retries the exact close boundary once, and leaves the private
 known closed. The original restore failure remains the surfaced cause, so an
 unrecoverable JVM/native path cannot turn into an unsafe directory deletion.
 
+The Store teardown boundary now applies that same rule to every native close
+and capacity transition: default and named Column Family handles, RocksDB,
+options, physical-usage registration, DB slots, owned-shard slots and
+acquisition slots are attempted independently, and a `RuntimeException` or
+`Error` is retained for a later retry without releasing an unfinished native
+capacity. Shared Worker resources likewise continue monitor, RateLimiter,
+WriteBufferManager, block-cache and native-reservation teardown after an
+`Error`, and only mark the Worker closed after all required pieces succeed.
+The restore entrypoint routes post-download-slot `Error` failures through its
+existing conservative cleanup, while a failed open releases every slot it
+actually acquired and preserves secondary cleanup failures as suppressed
+diagnostics. This is local fail-closed lifecycle evidence; it does not replace
+process supervision or fresh-incarnation recovery after a fatal JVM condition.
+
+The same typed failure aggregation now reaches the embedded facade and local
+adapter wrappers: `EmbeddedDelayService` still attempts the Store and shared
+Worker close after a submission-adapter `Error`, while
+`PreparedSubmissionAdapter` and `BoundedDestinationPublishAdapter` attempt
+both delegate/native teardown and owned-executor shutdown before rethrowing
+the first failure. Their `CloseGuard` therefore remains retryable even when a
+JVM/native `Error` interrupts one teardown item. This is still local lifecycle
+evidence; it does not attest Broker-side producer quiescence or recovery from
+a process-fatal condition.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

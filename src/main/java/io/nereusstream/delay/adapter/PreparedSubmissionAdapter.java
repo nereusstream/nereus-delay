@@ -169,24 +169,40 @@ public final class PreparedSubmissionAdapter implements AutoCloseable {
     @Override
     public void close() {
         closeGuard.close(() -> {
-            RuntimeException failure = null;
+            Throwable failure = null;
             try {
                 managedIngress.close();
-            } catch (RuntimeException exception) {
-                failure = exception;
+            } catch (RuntimeException | Error exception) {
+                failure = appendCloseFailure(failure, exception);
             }
             try {
                 nativeSubmission.close();
-            } catch (RuntimeException exception) {
-                if (failure == null) {
-                    failure = exception;
-                } else {
-                    failure.addSuppressed(exception);
-                }
+            } catch (RuntimeException | Error exception) {
+                failure = appendCloseFailure(failure, exception);
             }
             if (failure != null) {
-                throw failure;
+                throwUnchecked(failure);
             }
         });
+    }
+
+    private static Throwable appendCloseFailure(final Throwable first, final Throwable failure) {
+        if (first == null) {
+            return failure;
+        }
+        if (failure != first) {
+            first.addSuppressed(failure);
+        }
+        return first;
+    }
+
+    private static void throwUnchecked(final Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error errorFailure) {
+            throw errorFailure;
+        }
+        throw new IllegalStateException("unexpected checked teardown failure", failure);
     }
 }

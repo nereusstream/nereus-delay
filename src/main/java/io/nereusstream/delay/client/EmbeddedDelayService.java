@@ -167,7 +167,7 @@ public final class EmbeddedDelayService implements DelayClient {
         final ShardStore openedStore;
         try {
             openedStore = ShardStore.open(storeConfig, shardId, openedResources);
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | Error failure) {
             closeAfterConstructionFailure(failure, null, openedResources);
             throw failure;
         }
@@ -197,7 +197,7 @@ public final class EmbeddedDelayService implements DelayClient {
             controlOperationAuthority = openedControlOperationAuthority;
             controlTargetRegistrationAuthority = openedControlTargetRegistrationAuthority;
             shard = openedShard;
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | Error failure) {
             closeAfterConstructionFailure(failure, openedStore, openedResources);
             throw failure;
         }
@@ -209,19 +209,19 @@ public final class EmbeddedDelayService implements DelayClient {
      * fail-closed startup outcome; it must not strand the RocksDB handle,
      * ownership slot, or shared native resources needed by the next retry.
      */
-    private static void closeAfterConstructionFailure(final RuntimeException failure,
+    private static void closeAfterConstructionFailure(final Throwable failure,
                                                       final ShardStore openedStore,
                                                       final SharedRocksDbResources openedResources) {
         try {
             if (openedStore != null) {
                 openedStore.close();
             }
-        } catch (RuntimeException closeFailure) {
+        } catch (RuntimeException | Error closeFailure) {
             failure.addSuppressed(closeFailure);
         }
         try {
             openedResources.close();
-        } catch (RuntimeException closeFailure) {
+        } catch (RuntimeException | Error closeFailure) {
             failure.addSuppressed(closeFailure);
         }
     }
@@ -1390,36 +1390,48 @@ public final class EmbeddedDelayService implements DelayClient {
             // Store/Worker close failure must leave this state retryable.
             closeStarted = true;
         }
-        RuntimeException closeFailure = null;
+        Throwable closeFailure = null;
         if (preparedSubmissionAdapter != null) {
             try {
                 preparedSubmissionAdapter.close();
-            } catch (RuntimeException exception) {
-                closeFailure = exception;
+            } catch (RuntimeException | Error exception) {
+                closeFailure = appendCloseFailure(closeFailure, exception);
             }
         }
         try {
             store.close();
-        } catch (RuntimeException exception) {
-            if (closeFailure == null) {
-                closeFailure = exception;
-            } else {
-                closeFailure.addSuppressed(exception);
-            }
+        } catch (RuntimeException | Error exception) {
+            closeFailure = appendCloseFailure(closeFailure, exception);
         }
         try {
             resources.close();
-        } catch (RuntimeException exception) {
-            if (closeFailure == null) {
-                closeFailure = exception;
-            } else {
-                closeFailure.addSuppressed(exception);
-            }
+        } catch (RuntimeException | Error exception) {
+            closeFailure = appendCloseFailure(closeFailure, exception);
         }
         if (closeFailure != null) {
-            throw closeFailure;
+            throwUnchecked(closeFailure);
         }
         closed = true;
+    }
+
+    private static Throwable appendCloseFailure(final Throwable first, final Throwable failure) {
+        if (first == null) {
+            return failure;
+        }
+        if (failure != first) {
+            first.addSuppressed(failure);
+        }
+        return first;
+    }
+
+    private static void throwUnchecked(final Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error errorFailure) {
+            throw errorFailure;
+        }
+        throw new IllegalStateException("unexpected checked teardown failure", failure);
     }
 
     private synchronized void ensureOpen() {

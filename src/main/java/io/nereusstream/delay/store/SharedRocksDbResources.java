@@ -496,11 +496,11 @@ public final class SharedRocksDbResources implements AutoCloseable {
             throw new IllegalStateException("cannot close shared RocksDB resources while work is in flight");
         }
         closeStarted = true;
-        RuntimeException closeFailure = null;
+        Throwable closeFailure = null;
         if (runtimeResourceMonitor != null) {
             try {
                 runtimeResourceMonitor.close();
-            } catch (RuntimeException failure) {
+            } catch (RuntimeException | Error failure) {
                 // Monitor teardown is part of the Worker close boundary, but
                 // it must not prevent the native resource attempts below.
                 // A failed executor shutdown is retryable just like a failed
@@ -511,7 +511,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
         if (rocksDbUsageMonitor != null) {
             try {
                 rocksDbUsageMonitor.close();
-            } catch (RuntimeException failure) {
+            } catch (RuntimeException | Error failure) {
                 closeFailure = appendCloseFailure(closeFailure, failure);
             }
         }
@@ -523,7 +523,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
             try {
                 rateLimiter.close();
                 rateLimiterClosed = true;
-            } catch (RuntimeException failure) {
+            } catch (RuntimeException | Error failure) {
                 closeFailure = appendCloseFailure(closeFailure, failure);
             }
         }
@@ -531,7 +531,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
             try {
                 writeBufferManager.close();
                 writeBufferManagerClosed = true;
-            } catch (RuntimeException failure) {
+            } catch (RuntimeException | Error failure) {
                 closeFailure = appendCloseFailure(closeFailure, failure);
             }
         }
@@ -539,7 +539,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
                 && !sharedWriteBufferReservation.isReleased()) {
             try {
                 sharedWriteBufferReservation.close();
-            } catch (RuntimeException failure) {
+            } catch (RuntimeException | Error failure) {
                 closeFailure = appendCloseFailure(closeFailure, failure);
             }
         }
@@ -547,7 +547,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
             try {
                 blockCache.close();
                 blockCacheClosed = true;
-            } catch (RuntimeException failure) {
+            } catch (RuntimeException | Error failure) {
                 closeFailure = appendCloseFailure(closeFailure, failure);
             }
         }
@@ -555,7 +555,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
                 && !sharedBlockCacheReservation.isReleased()) {
             try {
                 sharedBlockCacheReservation.close();
-            } catch (RuntimeException failure) {
+            } catch (RuntimeException | Error failure) {
                 closeFailure = appendCloseFailure(closeFailure, failure);
             }
         }
@@ -567,12 +567,11 @@ public final class SharedRocksDbResources implements AutoCloseable {
             closed.set(true);
         }
         if (closeFailure != null) {
-            throw closeFailure;
+            throwUnchecked(closeFailure);
         }
     }
 
-    private static RuntimeException appendCloseFailure(final RuntimeException first,
-                                                       final RuntimeException failure) {
+    private static Throwable appendCloseFailure(final Throwable first, final Throwable failure) {
         if (first == null) {
             return failure;
         }
@@ -580,6 +579,16 @@ public final class SharedRocksDbResources implements AutoCloseable {
             first.addSuppressed(failure);
         }
         return first;
+    }
+
+    private static void throwUnchecked(final Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error errorFailure) {
+            throw errorFailure;
+        }
+        throw new IllegalStateException("unexpected checked teardown failure", failure);
     }
 
     private void ensureOpen() {

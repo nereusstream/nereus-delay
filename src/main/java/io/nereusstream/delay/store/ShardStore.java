@@ -381,6 +381,17 @@ public final class ShardStore implements AutoCloseable {
             cleanupFailedRestore(restoreRoot, activeDb, shardRoot, storeUuid, activeDbMoved, staged, prepared,
                     installed, exception);
             throw new IllegalStateException("cannot restore shard checkpoint", exception);
+        } catch (Error exception) {
+            // Native/JVM errors are still allowed to escape, but once the
+            // download slot has been acquired they must pass through the same
+            // directory-safety cleanup.  Otherwise an unpublished incarnation
+            // can retain an open handle while restore-tmp is removed by a
+            // later repair attempt.
+            if (downloadSlotAcquired) {
+                cleanupFailedRestore(restoreRoot, activeDb, shardRoot, storeUuid, activeDbMoved, staged, prepared,
+                        installed, exception);
+            }
+            throw exception;
         } finally {
             if (downloadSlotAcquired) {
                 resources.releaseCheckpointDownloadSlot();
@@ -782,15 +793,33 @@ public final class ShardStore implements AutoCloseable {
             return opened;
         } catch (IOException | RocksDBException | RuntimeException | Error exception) {
             // The DB slot is acquired after the owned slot.  Release only the
-            // slots that this invocation actually acquired.
+            // slots that this invocation actually acquired, but keep trying
+            // after a failed release so one broken semaphore transition does
+            // not strand the other worker capacities.
+            Throwable cleanupFailure = null;
             if (dbSlotAcquired) {
-                resources.releaseDbSlot();
+                try {
+                    resources.releaseDbSlot();
+                } catch (RuntimeException | Error failure) {
+                    cleanupFailure = appendCloseFailure(cleanupFailure, failure);
+                }
             }
             if (ownedSlotAcquired) {
-                resources.releaseOwnedShardSlot(shardId);
+                try {
+                    resources.releaseOwnedShardSlot(shardId);
+                } catch (RuntimeException | Error failure) {
+                    cleanupFailure = appendCloseFailure(cleanupFailure, failure);
+                }
             }
             if (acquireSlotAcquired) {
-                resources.releaseShardAcquireSlot();
+                try {
+                    resources.releaseShardAcquireSlot();
+                } catch (RuntimeException | Error failure) {
+                    cleanupFailure = appendCloseFailure(cleanupFailure, failure);
+                }
+            }
+            if (cleanupFailure != null && cleanupFailure != exception) {
+                exception.addSuppressed(cleanupFailure);
             }
             throw exception;
         }
@@ -840,11 +869,11 @@ public final class ShardStore implements AutoCloseable {
         final RocksDB db;
         try {
             db = RocksDB.open(dbOptions, dbPath.toString(), descriptors, openedHandles);
-        } catch (RocksDBException exception) {
-            RuntimeException cleanupFailure = closeQuietly(cfOptions);
+        } catch (RocksDBException | RuntimeException | Error exception) {
+            Throwable cleanupFailure = closeQuietly(cfOptions);
             try {
                 dbOptions.close();
-            } catch (RuntimeException closeException) {
+            } catch (RuntimeException | Error closeException) {
                 cleanupFailure = appendCloseFailure(cleanupFailure, closeException);
             }
             if (cleanupFailure != null) {
@@ -957,12 +986,12 @@ public final class ShardStore implements AutoCloseable {
             throw exception;
         } finally {
             if (!keepOpen) {
-                final RuntimeException cleanupFailure = closeHandles(db, openedHandles, cfOptions, dbOptions);
+                final Throwable cleanupFailure = closeHandles(db, openedHandles, cfOptions, dbOptions);
                 if (cleanupFailure != null) {
                     if (primaryFailure != null) {
                         primaryFailure.addSuppressed(cleanupFailure);
                     } else {
-                        throw cleanupFailure;
+                        throwUnchecked(cleanupFailure);
                     }
                 }
             }
@@ -1306,38 +1335,38 @@ public final class ShardStore implements AutoCloseable {
                 .setWriteBufferSize(maxWriteBufferBytesPerDb);
     }
 
-    private static RuntimeException closeQuietly(final List<ColumnFamilyOptions> options) {
-        RuntimeException failure = null;
+    private static Throwable closeQuietly(final List<ColumnFamilyOptions> options) {
+        Throwable failure = null;
         for (ColumnFamilyOptions option : options) {
             try {
                 option.close();
-            } catch (RuntimeException closeException) {
+            } catch (RuntimeException | Error closeException) {
                 failure = appendCloseFailure(failure, closeException);
             }
         }
         return failure;
     }
 
-    private static RuntimeException closeHandles(final RocksDB db, final List<ColumnFamilyHandle> handles,
-                                                 final List<ColumnFamilyOptions> options, final DBOptions dbOptions) {
-        RuntimeException failure = null;
+    private static Throwable closeHandles(final RocksDB db, final List<ColumnFamilyHandle> handles,
+                                          final List<ColumnFamilyOptions> options, final DBOptions dbOptions) {
+        Throwable failure = null;
         for (ColumnFamilyHandle handle : handles) {
             try {
                 handle.close();
-            } catch (RuntimeException closeException) {
+            } catch (RuntimeException | Error closeException) {
                 failure = appendCloseFailure(failure, closeException);
             }
         }
         try {
             db.close();
-        } catch (RuntimeException closeException) {
+        } catch (RuntimeException | Error closeException) {
             failure = appendCloseFailure(failure, closeException);
         }
-        final RuntimeException optionsFailure = closeQuietly(options);
+        final Throwable optionsFailure = closeQuietly(options);
         failure = appendCloseFailure(failure, optionsFailure);
         try {
             dbOptions.close();
-        } catch (RuntimeException closeException) {
+        } catch (RuntimeException | Error closeException) {
             failure = appendCloseFailure(failure, closeException);
         }
         return failure;
@@ -1348,7 +1377,7 @@ public final class ShardStore implements AutoCloseable {
             try {
                 opened.close();
                 return;
-            } catch (RuntimeException cleanupException) {
+            } catch (RuntimeException | Error cleanupException) {
                 failure.addSuppressed(cleanupException);
             }
         }
@@ -1770,7 +1799,7 @@ public final class ShardStore implements AutoCloseable {
         if (closed.get()) {
             return;
         }
-        RuntimeException closeFailure = null;
+        Throwable closeFailure = null;
         if (!cleanCloseAttempted) {
             cleanCloseAttempted = true;
             if (!writeOutcomeUncertain) {
@@ -1789,7 +1818,7 @@ public final class ShardStore implements AutoCloseable {
                         batch.putRuntimeMetadata(cleanRuntime);
                         batch.putRecoveryMetadata(cleanRecovery);
                     });
-                } catch (RuntimeException exception) {
+                } catch (RuntimeException | Error exception) {
                     closeFailure = appendCloseFailure(closeFailure, exception);
                 }
             }
@@ -1802,12 +1831,16 @@ public final class ShardStore implements AutoCloseable {
         // when an earlier JNI close reports a runtime failure.  Losing the
         // release in that path would permanently consume maxOpenShardDbs or
         // maxOwnedShards and make a healthy worker reject future ownership.
-        resources.unregisterPhysicalUsage(shardId, physicalUsageSource);
+        try {
+            resources.unregisterPhysicalUsage(shardId, physicalUsageSource);
+        } catch (RuntimeException | Error failure) {
+            closeFailure = appendCloseFailure(closeFailure, failure);
+        }
         if (!defaultColumnFamilyClosed) {
             try {
                 defaultColumnFamilyHandle.close();
                 defaultColumnFamilyClosed = true;
-            } catch (RuntimeException failure) {
+            } catch (RuntimeException | Error failure) {
                 closeFailure = appendCloseFailure(closeFailure, failure);
             }
         }
@@ -1818,7 +1851,7 @@ public final class ShardStore implements AutoCloseable {
             try {
                 handles.get(family).close();
                 closedColumnFamilyHandles.add(family);
-            } catch (RuntimeException failure) {
+            } catch (RuntimeException | Error failure) {
                 closeFailure = appendCloseFailure(closeFailure, failure);
             }
         }
@@ -1826,7 +1859,7 @@ public final class ShardStore implements AutoCloseable {
             try {
                 db.close();
                 dbClosed = true;
-            } catch (RuntimeException failure) {
+            } catch (RuntimeException | Error failure) {
                 closeFailure = appendCloseFailure(closeFailure, failure);
             }
         }
@@ -1837,7 +1870,7 @@ public final class ShardStore implements AutoCloseable {
             try {
                 columnFamilyOptions.get(index).close();
                 closedColumnFamilyOptions[index] = true;
-            } catch (RuntimeException failure) {
+            } catch (RuntimeException | Error failure) {
                 closeFailure = appendCloseFailure(closeFailure, failure);
             }
         }
@@ -1845,7 +1878,7 @@ public final class ShardStore implements AutoCloseable {
             try {
                 dbOptions.close();
                 dbOptionsClosed = true;
-            } catch (RuntimeException failure) {
+            } catch (RuntimeException | Error failure) {
                 closeFailure = appendCloseFailure(closeFailure, failure);
             }
         }
@@ -1858,15 +1891,15 @@ public final class ShardStore implements AutoCloseable {
                 try {
                     resources.releaseDbSlot();
                     dbSlotReleased = true;
-                } catch (RuntimeException failure) {
+                } catch (RuntimeException | Error failure) {
                     closeFailure = appendCloseFailure(closeFailure, failure);
                 }
             }
-            if (dbSlotReleased && ownsShardSlot && !ownedShardSlotReleased) {
+            if (ownsShardSlot && !ownedShardSlotReleased) {
                 try {
                     resources.releaseOwnedShardSlot(shardId);
                     ownedShardSlotReleased = true;
-                } catch (RuntimeException failure) {
+                } catch (RuntimeException | Error failure) {
                     closeFailure = appendCloseFailure(closeFailure, failure);
                 }
             }
@@ -1878,7 +1911,7 @@ public final class ShardStore implements AutoCloseable {
             closed.set(true);
         }
         if (closeFailure != null) {
-            throw closeFailure;
+            throwUnchecked(closeFailure);
         }
     }
 
@@ -1896,8 +1929,7 @@ public final class ShardStore implements AutoCloseable {
                 && closedColumnFamilyHandles.size() == ColumnFamily.values().length && allOptionsClosed();
     }
 
-    private static RuntimeException appendCloseFailure(final RuntimeException first,
-                                                       final RuntimeException failure) {
+    private static Throwable appendCloseFailure(final Throwable first, final Throwable failure) {
         if (failure == null) {
             return first;
         }
@@ -1908,6 +1940,16 @@ public final class ShardStore implements AutoCloseable {
             first.addSuppressed(failure);
         }
         return first;
+    }
+
+    private static void throwUnchecked(final Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error errorFailure) {
+            throw errorFailure;
+        }
+        throw new IllegalStateException("unexpected checked teardown failure", failure);
     }
 
     private void ensureOpen() {

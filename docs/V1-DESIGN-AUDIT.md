@@ -2998,6 +2998,26 @@ unconfirmed, and the original restore failure is kept as the primary error.
 This closes the local directory-safety edge only; process supervision and
 fresh-incarnation recovery remain external release gates.
 
+The Store close/open boundary now aggregates both runtime failures and JVM/JNI
+`Error` escapes across every teardown item. Handles, RocksDB, options, usage
+registration and each Worker slot are attempted independently; a failed DB
+slot release no longer suppresses the owned-shard or acquisition-slot release,
+and the Store remains retryable until native teardown plus all capacity
+transitions are confirmed. Shared Worker resource close follows the same
+policy for monitors, RateLimiter, WriteBufferManager, block cache and native
+reservations. Restore failures that occur after download admission now enter
+the existing directory-preserving cleanup even when the primary exception is
+an `Error`. This closes local lifecycle accounting only; it is not evidence of
+safe recovery from a process-fatal JVM/native condition.
+
+The embedded facade and local adapter wrappers now preserve the same
+independent-close rule for `Error` as for runtime failures. The facade attempts
+submission adapter, Store and shared Worker teardown in sequence, and the
+prepared/bounded wrappers attempt both their delegate/native resource and
+owned executor before `CloseGuard` exposes the failure for a later retry. This
+keeps the local fenced-but-retryable contract aligned across Store, Worker and
+client seams; it does not claim external Producer/Broker quiescence.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
