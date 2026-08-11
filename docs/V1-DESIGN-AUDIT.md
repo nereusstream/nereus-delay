@@ -1308,7 +1308,8 @@ adapter/resource/ordering 不一致时 fail closed。新增的
 `earliest_action_at`、`next_eligible_at`、exact key 和 certificate；候选 head 的
 action boundary 会随同 field 16/key 在同一 Lane value 中更新，不再沿用旧 field 15。
 READY discovery 也会把这两个时间与当前 `TimelineWorkRef` 交叉校验；不一致时
-fail closed。这只证明 shard-local projection 与 Registry 字段的一致性，不证明
+fail closed；`PersistentLaneScheduler` 的 fenced recovery 也执行同一交叉校验，
+避免调度器恢复路径绕过 typed Lane projection。这只证明 shard-local projection 与 Registry 字段的一致性，不证明
 physical READY 恢复、certificate authority 或外部 Profile/Oxia revision authority。
 Active state 还要求嵌套 `ReadyCertificateV1` 的 Lane ID/incarnation 与自身完全
 一致，避免“证书内部有效但挂错 Lane”的值通过本地恢复；这仍不是外部

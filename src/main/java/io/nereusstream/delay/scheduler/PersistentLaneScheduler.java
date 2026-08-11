@@ -729,9 +729,32 @@ public final class PersistentLaneScheduler {
                 timeline.retryEligibilityAtEpochMs())) {
             throw new IllegalStateException("READY eligibility disagrees with TimelineWorkRef: " + value.messageId());
         }
+        final ActiveLaneStateV1 typedLane = readTypedLane(lane);
+        if (typedLane != null) {
+            final long actionAt = timeline == null
+                    ? (currentWork == null ? message.deliverAtEpochMs() : currentWork.actionAtEpochMs())
+                    : timeline.actionAtEpochMs();
+            if (typedLane.earliestActionAtEpochMs() == null
+                    || typedLane.earliestActionAtEpochMs() != actionAt
+                    || typedLane.nextEligibleAtEpochMs() == null
+                    || typedLane.nextEligibleAtEpochMs() != key.nextEligibleAtEpochMs()) {
+                throw new IllegalStateException("typed READY action/eligibility projection disagrees with current head: "
+                        + value.messageId());
+            }
+        }
         final long accountedBytes = Math.max(1, message.payloadLength());
         return new ReadyProjection(lane, new ScheduleWorkItem(key.laneId(), value.messageId(), value.generation(),
                 key.nextEligibleAtEpochMs(), accountedBytes), entry.key());
+    }
+
+    private ActiveLaneStateV1 readTypedLane(final LaneRecord expected) {
+        final ValueEnvelope.Decoded value = store.getValue(ColumnFamily.META,
+                KeyCodec.metaLane(expected.laneId()), 2);
+        if (value == null) {
+            throw new IllegalStateException("registered Lane disappeared during READY validation: " + expected.laneId());
+        }
+        final LaneRecordEnvelopeV1 envelope = LaneRecordEnvelopeV1.decode(value.payload());
+        return envelope.isActive() ? envelope.typedActiveState().orElse(null) : null;
     }
 
     private static TimelineWorkRef validateTimelineValue(final byte[] encodedValue, final DelayMessageId messageId,

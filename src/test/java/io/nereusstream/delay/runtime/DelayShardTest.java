@@ -766,6 +766,10 @@ class DelayShardTest {
             store.write(batch -> batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(lane),
                     LaneRecordEnvelopeV1.active(stale).canonicalBytes()));
             assertThrows(IllegalStateException.class, () -> shard.discoverReady(10_000, 1));
+            final io.nereusstream.delay.scheduler.PersistentLaneScheduler scheduler =
+                    io.nereusstream.delay.scheduler.PersistentLaneScheduler.defaults(store);
+            scheduler.register(shard.getLane(lane));
+            assertThrows(IllegalStateException.class, () -> scheduler.rebuildFromAuthoritativeReady(1));
             shard.rebuildReadyIndexes();
 
             final ActiveLaneStateV1 persisted = LaneRecordEnvelopeV1.decode(

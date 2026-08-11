@@ -632,6 +632,8 @@ For the typed projection, READY also requires `earliest_action_at` and
 with field 16 and the READY key instead of retaining a stale field-15 value,
 and discovery rejects a typed state whose times disagree with the current
 TimelineWorkRef (`DelayShardTest.typedReadyProjectionRefreshesEarliestActionBoundaryFromCurrentHead`).
+The same cross-check is enforced by `PersistentLaneScheduler` recovery, so a
+second scheduler path cannot bypass the typed Lane time projection.
 The typed constructor also requires the nested ReadyCertificate's Lane ID and
 incarnation to byte-match the active state, with the drift regression in
 `ActiveLaneStateV1Test.readyRequiresCertificateAndRejectsReadyKeyDigestTampering`.
