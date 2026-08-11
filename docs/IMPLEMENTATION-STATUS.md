@@ -2170,6 +2170,13 @@ lease/fence preemption and stale-class selection. The service timestamp used
 to mark a class served is read before any head removal or fairness mutation, so
 an invalid monotonic-clock sample cannot drop a queued head
 (`WorkClassSchedulerTest.invalidClockSampleDoesNotDropHeadBeforeTurnMutation`).
+One bounded `poll` is also an in-memory mutation boundary: it snapshots the
+queue, queued bytes, credits, cursor, last-served values and preemption debt;
+if a later clock, selection or checked-arithmetic failure occurs after a head
+was selected, the exact turn projection is restored instead of dropping a task
+whose result was never returned. `WorkClassSchedulerTest.clockFailureAfterAHeadWasSelectedRollsBackTheWholePoll`
+covers this rollback; the monotonic clock high-water may remain conservative,
+but an interrupted poll is not recorded as served.
 `WorkClassResourcePool`
 additionally protects other classes' non-borrowable record/byte minima and
 bounds borrowed lease holds, covered by `WorkClassSchedulerTest` and

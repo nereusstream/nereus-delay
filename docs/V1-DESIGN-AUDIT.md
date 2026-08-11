@@ -2069,6 +2069,11 @@ borrowed hold time；这些仍是本地 scheduler/resource seams。`WorkClassSch
 仍由 bounded queue 支持的 head，回归证据为
 `WorkClassSchedulerTest.invalidClockSampleDoesNotDropHeadBeforeTurnMutation` 和
 `WorkClassSchedulerTest.continuousPreemptiveQueueYieldsAcrossSmallPolls`。
+一个 bounded `poll` 还把 queue、queued bytes、credits、cursor、last-served 和
+preemption-debt 当作一个内存边界；如果在已选中 head 后的后续 clock、选择或
+checked arithmetic 失败，整轮 projection 会恢复，未返回的 task 不会丢失。
+`WorkClassSchedulerTest.clockFailureAfterAHeadWasSelectedRollsBackTheWholePoll`
+覆盖该回滚；clock high-water 可以保守保留，但不会把中断的 poll 记作已服务。
 `WorkerRuntimeSafetyGate` 还把新鲜的 JVM/cgroup/FD/filesystem
 observation 接入一个 sticky `ACTIVE -> DRAIN_OR_MIGRATE` 门；共享资源的
 ownership/restore slots 和 embedded Claim 在门未恢复前 fail closed，只有

@@ -1749,6 +1749,13 @@ Ready discovery 使用持久 rotating cursor 与 active DRR ring：bounded scan/
 
 任何用于标记 work class 已服务的时钟样本也必须在移除 queue head、扣减 deficit 或推进公平计数之前成功读取；单调时钟回拨、负值或其它时钟采样错误必须在这些内存变更之前 fail closed，不能让一次失败的 bounded turn 丢失仍由队列支持的 head。
 
+一个 bounded work-class poll 本身也是单一的内存 mutation boundary：如果首个或后续
+head 已被暂时取出后，下一次时钟采样、选择或 checked arithmetic 失败，poll 必须
+恢复该 turn 开始时的所有 queue、queued-bytes、credits、cursor、last-served 和
+preemption-debt projection，再把原异常返回；不能因为异常发生在前一个 task 已选中
+之后就丢失该 task，调用方也不能拿到一个未返回的部分结果。时钟的 monotonic
+high-water 可以保留为保守观测，但不能把未返回的 poll 记成已服务。
+
 READY recovery 的全量 queue replacement 也必须先验证并组装所有 item，再清理旧 queue；未知 Lane、非 schedulable Lane、null 或其它 malformed item 只能在原 projection 仍完整时 fail closed，不能留下部分重建的 FIFO。
 
 这里的 `eligible` 必须按本轮 trusted due-through 重新计算：只有存在

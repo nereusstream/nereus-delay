@@ -91,6 +91,20 @@ class WorkClassSchedulerTest {
         assertEquals(1, scheduler.pendingBytes(WorkClass.QUERY));
     }
 
+    @Test
+    void clockFailureAfterAHeadWasSelectedRollsBackTheWholePoll() {
+        final AtomicInteger calls = new AtomicInteger();
+        final LongSupplier clock = () -> calls.incrementAndGet() <= 5 ? 0 : -1;
+        final WorkClassScheduler scheduler = scheduler(clock, 100);
+        scheduler.offer(new WorkClassTask(WorkClass.QUERY, "query-1", 1));
+        scheduler.offer(new WorkClassTask(WorkClass.QUERY, "query-2", 1));
+
+        assertThrows(IllegalStateException.class,
+                () -> scheduler.poll(new SchedulerBudget(10, 10, 1_000)));
+        assertEquals(2, scheduler.pending(WorkClass.QUERY));
+        assertEquals(2, scheduler.pendingBytes(WorkClass.QUERY));
+    }
+
     private static WorkClassScheduler scheduler(final long now, final long delay) {
         return scheduler(new AtomicLong(now), delay);
     }

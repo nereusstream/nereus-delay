@@ -67,54 +67,65 @@ public final class WorkClassScheduler {
     /** Polls a bounded turn, returning task identities without executing them. */
     public synchronized List<WorkClassTask> poll(final SchedulerBudget budget) {
         Objects.requireNonNull(budget, "budget");
-        final long started = readClock();
-        final EnumMap<WorkClass, TurnUsage> usage = new EnumMap<>(WorkClass.class);
-        for (WorkClass workClass : order) {
-            usage.put(workClass, new TurnUsage());
-        }
-        final List<WorkClassTask> result = new ArrayList<>();
-        long bytes = 0;
-        int noProgressRounds = 0;
-        replenishCredits();
-        while (result.size() < budget.maxMessages() && bytes < budget.maxBytes()) {
-            final long elapsed = elapsedSince(started, readClock());
-            if (elapsed >= budget.maxElapsedNanos()) {
-                break;
+        final SchedulerSnapshot before = snapshot();
+        try {
+            final long started = readClock();
+            final EnumMap<WorkClass, TurnUsage> usage = new EnumMap<>(WorkClass.class);
+            for (WorkClass workClass : order) {
+                usage.put(workClass, new TurnUsage());
             }
-            final int priority = priorityIndex(usage, budget.maxBytes() - bytes, elapsed);
-            final int selected = priority >= 0 ? priority : normalIndex(usage,
-                    budget.maxBytes() - bytes, elapsed);
-            if (selected < 0) {
-                if (noProgressRounds == 0) {
-                    replenishCredits();
-                    noProgressRounds = 1;
-                    continue;
+            final List<WorkClassTask> result = new ArrayList<>();
+            long bytes = 0;
+            int noProgressRounds = 0;
+            replenishCredits();
+            while (result.size() < budget.maxMessages() && bytes < budget.maxBytes()) {
+                final long elapsed = elapsedSince(started, readClock());
+                if (elapsed >= budget.maxElapsedNanos()) {
+                    break;
                 }
-                break;
+                final int priority = priorityIndex(usage, budget.maxBytes() - bytes, elapsed);
+                final int selected = priority >= 0 ? priority : normalIndex(usage,
+                        budget.maxBytes() - bytes, elapsed);
+                if (selected < 0) {
+                    if (noProgressRounds == 0) {
+                        replenishCredits();
+                        noProgressRounds = 1;
+                        continue;
+                    }
+                    break;
+                }
+                final ClassState state = states.get(order.get(selected));
+                // Read the service timestamp before mutating the queue.  A clock
+                // regression/invalid sample must fail closed without losing a
+                // durable-looking head from the in-memory bounded queue.
+                final long servedAtNanos = readClock();
+                final WorkClassTask task = state.queue.removeFirst();
+                state.queuedBytes -= task.bytes();
+                final TurnUsage classUsage = usage.get(state.workClass);
+                classUsage.records++;
+                classUsage.bytes = Math.addExact(classUsage.bytes, task.bytes());
+                state.credits--;
+                state.lastServedNanos = servedAtNanos;
+                if (state.policy.preemptive()) {
+                    preemptiveServedSinceNormal = true;
+                } else {
+                    preemptiveServedSinceNormal = false;
+                }
+                cursor = (selected + 1) % order.size();
+                noProgressRounds = 0;
+                result.add(task);
+                bytes = Math.addExact(bytes, task.bytes());
             }
-            final ClassState state = states.get(order.get(selected));
-            // Read the service timestamp before mutating the queue.  A clock
-            // regression/invalid sample must fail closed without losing a
-            // durable-looking head from the in-memory bounded queue.
-            final long servedAtNanos = readClock();
-            final WorkClassTask task = state.queue.removeFirst();
-            state.queuedBytes -= task.bytes();
-            final TurnUsage classUsage = usage.get(state.workClass);
-            classUsage.records++;
-            classUsage.bytes = Math.addExact(classUsage.bytes, task.bytes());
-            state.credits--;
-            state.lastServedNanos = servedAtNanos;
-            if (state.policy.preemptive()) {
-                preemptiveServedSinceNormal = true;
-            } else {
-                preemptiveServedSinceNormal = false;
-            }
-            cursor = (selected + 1) % order.size();
-            noProgressRounds = 0;
-            result.add(task);
-            bytes = Math.addExact(bytes, task.bytes());
+            return List.copyOf(result);
+        } catch (RuntimeException | Error failure) {
+            // A bounded poll is one scheduler mutation boundary.  If a later
+            // clock sample or arithmetic/selection check fails after an item
+            // was removed, the caller receives no result list; restore the
+            // exact queue, credit, cursor and fairness projection instead of
+            // silently dropping that item.
+            restore(before);
+            throw failure;
         }
-        return List.copyOf(result);
     }
 
     public synchronized int pending(final WorkClass workClass) {
@@ -211,6 +222,30 @@ public final class WorkClassScheduler {
         return states.get(Objects.requireNonNull(workClass, "workClass"));
     }
 
+    private SchedulerSnapshot snapshot() {
+        final EnumMap<WorkClass, ClassSnapshot> classSnapshots = new EnumMap<>(WorkClass.class);
+        for (WorkClass workClass : order) {
+            final ClassState state = states.get(workClass);
+            classSnapshots.put(workClass, new ClassSnapshot(List.copyOf(state.queue), state.queuedBytes,
+                    state.credits, state.lastServedNanos));
+        }
+        return new SchedulerSnapshot(classSnapshots, cursor, preemptiveServedSinceNormal);
+    }
+
+    private void restore(final SchedulerSnapshot snapshot) {
+        for (WorkClass workClass : order) {
+            final ClassState state = states.get(workClass);
+            final ClassSnapshot saved = snapshot.classes().get(workClass);
+            state.queue.clear();
+            state.queue.addAll(saved.queue());
+            state.queuedBytes = saved.queuedBytes();
+            state.credits = saved.credits();
+            state.lastServedNanos = saved.lastServedNanos();
+        }
+        cursor = snapshot.cursor();
+        preemptiveServedSinceNormal = snapshot.preemptiveServedSinceNormal();
+    }
+
     private long readClock() {
         final long now = clockNanos.getAsLong();
         if (now < 0 || now < lastClockNanos) {
@@ -246,5 +281,13 @@ public final class WorkClassScheduler {
     private static final class TurnUsage {
         private int records;
         private long bytes;
+    }
+
+    private record SchedulerSnapshot(EnumMap<WorkClass, ClassSnapshot> classes, int cursor,
+                                     boolean preemptiveServedSinceNormal) {
+    }
+
+    private record ClassSnapshot(List<WorkClassTask> queue, long queuedBytes, int credits,
+                                 long lastServedNanos) {
     }
 }
