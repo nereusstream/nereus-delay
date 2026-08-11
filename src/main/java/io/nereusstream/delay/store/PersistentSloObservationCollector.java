@@ -99,7 +99,7 @@ public final class PersistentSloObservationCollector {
                 final T result = action.run();
                 persist(delegate.snapshot());
                 return result;
-            } catch (RuntimeException | IOException failure) {
+            } catch (RuntimeException | IOException | Error failure) {
                 delegate = rebuild(before);
                 if (failure instanceof IOException ioFailure) {
                     throw new IllegalStateException("SLO collector state I/O failed", ioFailure);

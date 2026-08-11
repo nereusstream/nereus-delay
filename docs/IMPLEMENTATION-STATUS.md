@@ -3247,6 +3247,14 @@ failure from the fence callback is retained on the primary probe error. This
 is fail-closed monitor evidence only, and process supervision/fresh restart
 remain required for process-fatal JVM/native conditions.
 
+The crash-durable Recovery Catalog and SLO collector now also roll their
+in-memory delegate back to the pre-mutation snapshot when an `Error` escapes
+the mutation or persistence path. Ordinary I/O is still wrapped as the typed
+state-file failure, while runtime and JVM/native failures retain their
+original type after rollback. This prevents a surviving local process from
+serving a projection that was never durably published; process restart remains
+the recovery boundary for unrecoverable native failures.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

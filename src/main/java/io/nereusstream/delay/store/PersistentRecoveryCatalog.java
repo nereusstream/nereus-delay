@@ -173,7 +173,7 @@ public final class PersistentRecoveryCatalog implements RecoveryCatalogAuthority
                 final T result = action.run();
                 persist(delegate.snapshot());
                 return result;
-            } catch (RuntimeException | IOException failure) {
+            } catch (RuntimeException | IOException | Error failure) {
                 delegate = RecoveryCatalog.fromSnapshot(before);
                 if (failure instanceof IOException ioFailure) {
                     throw new IllegalStateException("Recovery Catalog state I/O failed", ioFailure);

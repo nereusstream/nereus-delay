@@ -3084,6 +3084,13 @@ secondary diagnostics. This closes the local monitor fail-closed edge; it is
 not evidence that a process-fatal JVM/native condition can be recovered
 without supervision and a fresh process/Store incarnation.
 
+The persistent Recovery Catalog and SLO collector now restore their exact
+pre-mutation in-memory snapshots when an `Error` escapes an action or durable
+replacement. I/O failures keep the existing wrapped state-file error, while
+runtime/JVM failures remain primary after rollback. This closes local
+projection/read-after-failed-write drift only; external authority and fresh
+process recovery remain release gates.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
