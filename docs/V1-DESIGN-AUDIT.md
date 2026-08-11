@@ -71,6 +71,12 @@ envelope, so a later timeout cannot strand an admitted request outside its
 zombie budget. The request and byte boundary regressions are
 `DestinationPhysicalAdmissionTest.admissionReservesZombieRequestCapacityForAllOutstandingRequests`
 and `DestinationPhysicalAdmissionTest.admissionReservesZombieByteCapacityForAllOutstandingRequests`.
+The same wrapper now handles an asynchronous delegate or callback-registration
+`Error` by completing the logical call as `UNKNOWN` and retaining the physical
+charge before rethrowing the fatal failure; this prevents an executor task from
+leaving an indefinitely pending `PublishCall`. Focused regressions are
+`BoundedDestinationPublishAdapterTest.asynchronousDelegateErrorCompletesUnknownBeforeFatalFailureEscapes`
+and `BoundedDestinationPublishAdapterTest.asynchronousCallbackRegistrationErrorCompletesUnknownBeforeFatalFailureEscapes`.
 
 The local Owner Lease model now rejects a renewal that would shorten the
 currently published expiry, matching the remote adapter's response fence and

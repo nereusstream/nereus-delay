@@ -149,7 +149,12 @@ are covered by `DestinationPhysicalAdmissionTest`'s
 `admissionReservesZombieRequestCapacityForAllOutstandingRequests` and
 `admissionReservesZombieByteCapacityForAllOutstandingRequests`. This local
 wrapper evidence does not replace the production adapter's ownership,
-cancellation or teardown attestation.
+cancellation or teardown attestation. An asynchronous delegate or callback
+registration `Error` now completes the logical call as `UNKNOWN`, retains the
+reservation as `ZOMBIE`/in-flight, and then rethrows the fatal failure so the
+executor/process supervisor still sees it; the regressions are
+`BoundedDestinationPublishAdapterTest.asynchronousDelegateErrorCompletesUnknownBeforeFatalFailureEscapes`
+and `BoundedDestinationPublishAdapterTest.asynchronousCallbackRegistrationErrorCompletesUnknownBeforeFatalFailureEscapes`.
 
 The deterministic `InMemoryOwnerLeaseStore` now applies the same monotonic
 renewal fence as `OxiaOwnerLeaseStore`: a valid lease renewal cannot move the
@@ -2702,6 +2707,11 @@ become zombies within the Lane budget are rejected as `ZOMBIE_CAPACITY`.
 Focused coverage is
 `DestinationPhysicalAdmissionTest.admissionReservesZombieRequestCapacityForAllOutstandingRequests`
 and `DestinationPhysicalAdmissionTest.admissionReservesZombieByteCapacityForAllOutstandingRequests`.
+Asynchronous delegate and callback-registration `Error` paths complete
+`UNKNOWN`, retain the physical charge, and rethrow after the logical result is
+available; focused coverage is in
+`BoundedDestinationPublishAdapterTest.asynchronousDelegateErrorCompletesUnknownBeforeFatalFailureEscapes`
+and `BoundedDestinationPublishAdapterTest.asynchronousCallbackRegistrationErrorCompletesUnknownBeforeFatalFailureEscapes`.
 
 | Area | Status | Evidence |
 |---|---|---|

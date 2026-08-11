@@ -153,20 +153,34 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                                 final DestinationPhysicalAdmission.Reservation reservation,
                                 final AtomicBoolean retainPhysicalCharge,
                                 final AtomicBoolean completionObserved) {
-        final DelegateInvocation invocation = closeGuard.invokeIfOpen(
-                () -> {
-                    try {
-                        return new DelegateInvocation(delegate.publish(request), false);
-                    } catch (RuntimeException exception) {
-                        // A synchronous transport exception does not prove
-                        // that the request stopped before Producer/channel
-                        // ownership. Preserve the same unobserved marker used
-                        // by the pinned adapters so the physical charge is
-                        // retained until certified completion or teardown.
-                        return new DelegateInvocation(UnobservedDestinationPublishStage.unknown(), false);
-                    }
-                },
-                () -> new DelegateInvocation(null, true));
+        final DelegateInvocation invocation;
+        try {
+            invocation = closeGuard.invokeIfOpen(
+                    () -> {
+                        try {
+                            return new DelegateInvocation(delegate.publish(request), false);
+                        } catch (RuntimeException exception) {
+                            // A synchronous transport exception does not
+                            // prove that the request stopped before
+                            // Producer/channel ownership. Preserve the same
+                            // unobserved marker used by the pinned adapters
+                            // so the physical charge is retained until
+                            // certified completion or teardown.
+                            return new DelegateInvocation(UnobservedDestinationPublishStage.unknown(), false);
+                        }
+                    },
+                    () -> new DelegateInvocation(null, true));
+        } catch (Error fatalFailure) {
+            // An asynchronous JVM/native failure must not strand the logical
+            // caller behind an incomplete PublishCall.  It is still not a
+            // proof of non-persistence, so retain the physical charge and
+            // expose UNKNOWN before rethrowing the fatal failure to the
+            // executor/process supervisor.
+            retainPhysicalCharge.set(true);
+            reservation.markZombie();
+            outcome.complete(completedUnknownValue());
+            throw fatalFailure;
+        }
         if (invocation.closed()) {
             outcome.complete(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
             return;
@@ -219,6 +233,19 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
             if (completionObserved.get()) {
                 reservation.release();
             }
+        } catch (Error registrationFailure) {
+            // A fatal callback-registration failure is the same absence of
+            // physical completion evidence as a runtime registration failure.
+            // Complete the logical branch and retain the charge before the
+            // fatal error escapes the executor.
+            if (!completionObserved.get()) {
+                retainPhysicalCharge.set(true);
+                reservation.markZombie();
+                outcome.complete(completedUnknownValue());
+            } else {
+                reservation.release();
+            }
+            throw registrationFailure;
         }
     }
 

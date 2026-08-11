@@ -16,11 +16,13 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class BoundedDestinationPublishAdapterTest {
@@ -112,6 +114,47 @@ class BoundedDestinationPublishAdapterTest {
         assertEquals(DestinationPhysicalAdmission.ReservationState.ZOMBIE, missingCall.reservation().state());
         assertEquals(1, admission.workerSnapshot().activeRequests());
         assertTrue(missingCall.releasePhysicalCharge());
+        assertEquals(0, admission.workerSnapshot().activeRequests());
+    }
+
+    @Test
+    void asynchronousDelegateErrorCompletesUnknownBeforeFatalFailureEscapes() {
+        final DestinationLaneId lane = lane("async-delegate-error");
+        final DestinationPhysicalAdmission admission = admission(lane, 2, 40, 1, 20);
+        admission.openReady(lane);
+        final AtomicReference<Runnable> task = new AtomicReference<>();
+        final DestinationPublishAdapter delegate = request -> {
+            throw new AssertionError("native delegate failed");
+        };
+        final BoundedDestinationPublishAdapter adapter = new BoundedDestinationPublishAdapter(
+                delegate, admission, task::set);
+
+        final BoundedDestinationPublishAdapter.PublishCall call = adapter.submit(request(lane, 10));
+        assertEquals(DestinationPhysicalAdmission.ReservationState.IN_FLIGHT, call.reservation().state());
+        assertThrows(AssertionError.class, () -> task.get().run());
+        assertEquals(DestinationPublishResult.Disposition.UNKNOWN,
+                call.outcome().toCompletableFuture().join().disposition());
+        assertEquals(DestinationPhysicalAdmission.ReservationState.ZOMBIE, call.reservation().state());
+        assertTrue(call.releasePhysicalCharge());
+        assertEquals(0, admission.workerSnapshot().activeRequests());
+    }
+
+    @Test
+    void asynchronousCallbackRegistrationErrorCompletesUnknownBeforeFatalFailureEscapes() {
+        final DestinationLaneId lane = lane("async-registration-error");
+        final DestinationPhysicalAdmission admission = admission(lane, 2, 40, 1, 20);
+        admission.openReady(lane);
+        final AtomicReference<Runnable> task = new AtomicReference<>();
+        final DestinationPublishAdapter delegate = request -> new ErrorRegistrationFuture<>();
+        final BoundedDestinationPublishAdapter adapter = new BoundedDestinationPublishAdapter(
+                delegate, admission, task::set);
+
+        final BoundedDestinationPublishAdapter.PublishCall call = adapter.submit(request(lane, 10));
+        assertThrows(AssertionError.class, () -> task.get().run());
+        assertEquals(DestinationPublishResult.Disposition.UNKNOWN,
+                call.outcome().toCompletableFuture().join().disposition());
+        assertEquals(DestinationPhysicalAdmission.ReservationState.ZOMBIE, call.reservation().state());
+        assertTrue(call.releasePhysicalCharge());
         assertEquals(0, admission.workerSnapshot().activeRequests());
     }
 
@@ -348,6 +391,19 @@ class BoundedDestinationPublishAdapterTest {
                 final BiConsumer<? super T, ? super Throwable> action) {
             super.whenComplete(action);
             return null;
+        }
+    }
+
+    private static final class ErrorRegistrationFuture<T> extends CompletableFuture<T> {
+        @Override
+        public CompletableFuture<T> whenComplete(
+                final BiConsumer<? super T, ? super Throwable> action) {
+            throw new AssertionError("callback registration failed fatally");
+        }
+
+        @Override
+        public CompletableFuture<T> toCompletableFuture() {
+            throw new AssertionError("CompletableFuture view failed fatally");
         }
     }
 
