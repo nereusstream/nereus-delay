@@ -3087,6 +3087,16 @@ discovery continue to revalidate the same bytes against the physical READY
 index and current Timeline head. This closes a typed-value integrity gap only;
 it does not replace source-ordered readiness authority or real adapter evidence.
 
+`LaneRecord.withReadiness` now encodes the Registry runtime-readiness graph:
+`RECOVERING_EVIDENCE` may enter `READY` or `BLOCKED`, `READY` may enter
+`BLOCKED` or `RECOVERING_EVIDENCE`, and `BLOCKED` must first return to
+`RECOVERING_EVIDENCE` before it can become `READY`. A direct `BLOCKED -> READY`
+transition would bypass evidence/capability reacquisition and is rejected;
+repeating the same readiness value is an idempotent local no-op. The focused
+regression is `LaneRecordTest.runtimeReadinessMustPassThroughRecoveryBeforeBecomingReadyAgain`.
+This is a local lifecycle fence and does not prove the external activator's
+evidence or Owner/Oxia readiness authority.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

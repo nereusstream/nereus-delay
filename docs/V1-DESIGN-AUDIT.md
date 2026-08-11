@@ -2940,6 +2940,15 @@ against the physical READY entry and current Timeline head. This removes the
 possibility of persisting an arbitrary typed READY locator, but it remains local
 integrity evidence rather than external readiness/capability authority.
 
+The local Lane runtime projection now enforces the frozen readiness transition
+graph: `RECOVERING_EVIDENCE -> READY|BLOCKED`, `READY -> BLOCKED|RECOVERING_EVIDENCE`,
+and `BLOCKED -> RECOVERING_EVIDENCE`. A capability-blocked Lane can therefore
+never be marked READY without an intervening evidence-recovery state; same-state
+updates are idempotent and do not advance `laneVersion`. Covered by
+`LaneRecordTest.runtimeReadinessMustPassThroughRecoveryBeforeBecomingReadyAgain`.
+This closes only the local state-machine fence; activator evidence and external
+readiness authority remain release gates.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

@@ -46,8 +46,21 @@ public record LaneRecord(
     }
 
     public LaneRecord withReadiness(final RuntimeReadiness next) {
+        Objects.requireNonNull(next, "next");
         if (admissionGate != AdmissionGate.OPEN && next == RuntimeReadiness.READY) {
             throw new IllegalStateException("non-open lane cannot become READY");
+        }
+        if (runtimeReadiness == next) {
+            return this;
+        }
+        final boolean allowed = switch (runtimeReadiness) {
+            case RECOVERING_EVIDENCE -> next == RuntimeReadiness.READY || next == RuntimeReadiness.BLOCKED;
+            case READY -> next == RuntimeReadiness.BLOCKED || next == RuntimeReadiness.RECOVERING_EVIDENCE;
+            case BLOCKED -> next == RuntimeReadiness.RECOVERING_EVIDENCE;
+        };
+        if (!allowed) {
+            throw new IllegalStateException("invalid runtime readiness transition: " + runtimeReadiness
+                    + " -> " + next);
         }
         return new LaneRecord(laneId, laneIncarnation, laneControlVersion, nextVersion(laneVersion, "laneVersion"),
                 admissionGate, next, weight, nextEligibleAtEpochMs);

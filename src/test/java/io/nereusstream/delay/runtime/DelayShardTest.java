@@ -2136,6 +2136,7 @@ class DelayShardTest {
             final LaneRecord resumed = shard.updateLaneGate(lane, paused.laneControlVersion(), AdmissionGate.OPEN);
             assertEquals(RuntimeReadiness.BLOCKED, resumed.runtimeReadiness());
             assertEquals(0, shard.discoverReady(10_000, 10).size());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.RECOVERING_EVIDENCE);
             shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
             assertEquals(1, shard.discoverReady(10_000, 10).size());
 
@@ -2284,6 +2285,7 @@ class DelayShardTest {
             assertEquals(AdmissionGate.OPEN, shard.getLane(lane).admissionGate());
             assertEquals(RuntimeReadiness.BLOCKED, shard.getLane(lane).runtimeReadiness());
             assertEquals(0, shard.discoverReady(10_000, 10).size());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.RECOVERING_EVIDENCE);
             shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
             assertEquals(1, shard.discoverReady(10_000, 10).size());
             assertEquals(schedule.delayMessageId(), shard.discoverReady(10_000, 10).get(0).messageId());

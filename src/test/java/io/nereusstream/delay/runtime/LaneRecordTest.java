@@ -40,4 +40,19 @@ class LaneRecordTest {
                 AdmissionGate.OPEN, RuntimeReadiness.READY, 1, 0);
         assertThrows(IllegalStateException.class, controlExhausted::pauseByAdmin);
     }
+
+    @Test
+    void runtimeReadinessMustPassThroughRecoveryBeforeBecomingReadyAgain() {
+        final LaneRecord initial = new LaneRecord(new DestinationLaneId(new byte[32]), new byte[16], 1, 0,
+                AdmissionGate.OPEN, RuntimeReadiness.RECOVERING_EVIDENCE, 1, 0);
+        final LaneRecord ready = initial.withReadiness(RuntimeReadiness.READY);
+        final LaneRecord blocked = ready.withReadiness(RuntimeReadiness.BLOCKED);
+
+        assertThrows(IllegalStateException.class,
+                () -> blocked.withReadiness(RuntimeReadiness.READY));
+        final LaneRecord recovering = blocked.withReadiness(RuntimeReadiness.RECOVERING_EVIDENCE);
+        assertEquals(RuntimeReadiness.RECOVERING_EVIDENCE, recovering.runtimeReadiness());
+        assertEquals(RuntimeReadiness.READY, recovering.withReadiness(RuntimeReadiness.READY).runtimeReadiness());
+        assertEquals(recovering, recovering.withReadiness(RuntimeReadiness.RECOVERING_EVIDENCE));
+    }
 }
