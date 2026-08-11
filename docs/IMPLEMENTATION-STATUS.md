@@ -3066,6 +3066,17 @@ cover the matching, replacement-identity and close-retry paths. This remains
 local orchestration evidence; production source stop, Oxia session fencing and
 worker restart coordination are still release blockers.
 
+The typed `ActiveLaneStateV1` constructor now applies the Registry READY-key
+projection itself: when field 22 is present it must be the exact
+`timeline/READY` key derived from the Lane ID, runtime Lane version and field
+16 `nextEligibleAt`; arbitrary non-empty bytes are rejected before the state
+can be wrapped in `meta_cf/LANE`. `ActiveLaneStateV1Test.readyKeyMustBeTheExactLaneVersionAndEligibilityProjection`
+and `DelayShardTest.typedActiveLaneStateRejectsReadyKeyDriftAtConstruction`
+cover the direct codec boundary, while shard and persistent-scheduler
+discovery continue to revalidate the same bytes against the physical READY
+index and current Timeline head. This closes a typed-value integrity gap only;
+it does not replace source-ordered readiness authority or real adapter evidence.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

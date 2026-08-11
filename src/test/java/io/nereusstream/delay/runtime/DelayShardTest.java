@@ -716,23 +716,10 @@ class DelayShardTest {
     }
 
     @Test
-    void typedActiveLaneStateRejectsReadyKeyDriftBeforeActivation() {
-        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("typed-lane-state-ready-drift"));
+    void typedActiveLaneStateRejectsReadyKeyDriftAtConstruction() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 84);
-        final ActiveLaneStateV1 state = typedReadyLaneState(shardId, Bytes.utf8("wrong-ready-key"));
-        final DestinationLaneId lane = state.laneId();
-        final byte[] laneQuota = LaneQuotaUsageProjection.empty()
-                .ensureLane(lane, state.laneIncarnation(), 1).canonicalBytes();
-        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
-             ShardStore store = ShardStore.open(config, shardId, resources)) {
-            store.write(batch -> {
-                batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(lane),
-                        LaneRecordEnvelopeV1.active(state).canonicalBytes());
-                batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(3), laneQuota);
-            });
-
-            assertThrows(IllegalStateException.class, () -> new DelayShard(store, DelayShardConfig.defaults()));
-        }
+        assertThrows(IllegalArgumentException.class,
+                () -> typedReadyLaneState(shardId, Bytes.utf8("wrong-ready-key")));
     }
 
     @Test

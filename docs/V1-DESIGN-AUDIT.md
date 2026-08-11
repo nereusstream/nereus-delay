@@ -2922,6 +2922,16 @@ byte-identical。`DelayShardTest` 覆盖错挂 key、重复 reservation 和 stal
 避免 Cancel/Commit/expiry materializer 从不完整投影中猜测唯一预约。Object Store、Oxia
 和 source-ordered reservation authority 仍不由此本地检查替代。
 
+Typed `ActiveLaneStateV1` now rejects a present field-22 READY key unless its
+bytes exactly equal the Registry `timeline/READY` projection of field 2 Lane ID,
+field 8 runtime Lane version and field 16 `nextEligibleAt`. The direct codec
+fence is covered by `ActiveLaneStateV1Test.readyKeyMustBeTheExactLaneVersionAndEligibilityProjection`
+and `DelayShardTest.typedActiveLaneStateRejectsReadyKeyDriftAtConstruction`;
+`DelayShard` and `PersistentLaneScheduler` still repeat the identity check
+against the physical READY entry and current Timeline head. This removes the
+possibility of persisting an arbitrary typed READY locator, but it remains local
+integrity evidence rather than external readiness/capability authority.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

@@ -20,6 +20,7 @@ public final class ActiveLaneStateV1 {
     public static final int VERSION = 1;
     public static final int HASH_LENGTH = 32;
     public static final int INCARNATION_LENGTH = 16;
+    private static final int READY_KEY_LENGTH = 2 + 8 + DestinationLaneId.LENGTH + 8;
     private static final int MAX_TUPLE_BYTES = 1 << 20;
     private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-active-lane-state-v1\0");
 
@@ -118,6 +119,9 @@ public final class ActiveLaneStateV1 {
                 && (earliestActionAtEpochMs == null || nextEligibleAtEpochMs == null
                 || encodedReadyKey == null || readyCertificate == null)) {
             throw new IllegalArgumentException("READY Lane must carry action/eligibility times, a ready key and certificate");
+        }
+        if (encodedReadyKey != null) {
+            validateReadyKeyProjection(encodedReadyKey, laneId, laneVersion, nextEligibleAtEpochMs);
         }
         if (runtimeReadiness != RuntimeReadiness.READY && (encodedReadyKey != null || readyCertificate != null)) {
             throw new IllegalArgumentException("non-READY Lane cannot carry ready projections");
@@ -465,6 +469,26 @@ public final class ActiveLaneStateV1 {
             }
         }
         return result;
+    }
+
+    /**
+     * Verifies the Registry {@code timeline/READY} key projection at the
+     * typed-value boundary.  Runtime discovery repeats the check against the
+     * physical index, but a typed value must not be able to persist a key for
+     * another Lane, version, or eligibility time in the first place.
+     */
+    private static void validateReadyKeyProjection(final byte[] encodedReadyKey,
+                                                    final DestinationLaneId laneId,
+                                                    final long laneVersion,
+                                                    final Long nextEligibleAtEpochMs) {
+        if (nextEligibleAtEpochMs == null) {
+            throw new IllegalArgumentException("encodedReadyKey requires nextEligibleAtEpochMs");
+        }
+        final byte[] expected = Bytes.concat(new byte[]{3, 1}, Bytes.u64be(nextEligibleAtEpochMs), laneId.bytes(),
+                Bytes.u64beBits(laneVersion));
+        if (encodedReadyKey.length != READY_KEY_LENGTH || !Arrays.equals(encodedReadyKey, expected)) {
+            throw new IllegalArgumentException("encodedReadyKey does not match the typed Lane projection");
+        }
     }
 
     private static byte[] optionalCopy(final byte[] value) {
