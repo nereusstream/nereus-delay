@@ -2893,6 +2893,14 @@ atomic rename 和 directory fsync 持久化，重启、同 bytes response-loss �
 响应执行 operation/request/scope identity 与 revision 不回退校验。这闭合了本地
 crash-durable CAS seam，durable control-operation query state 的生产 routing、
 authorization、session ownership 和真实 Oxia authority 仍未完成。
+现在 `OxiaSyncControlOperationBackend` 将同一 Control Operation 的完整 receipt 与
+CURRENT projection 写入一个 checksummed canonical Oxia record，并用 version CAS
+执行 register/advance；response loss 只有在 exact successor reread 后才成功，
+malformed record、identity drift、非法 state/target transition 都 fail closed。
+`OxiaSyncControlOperationBackendTest` 覆盖真实 Oxia Java client record surface 的
+deterministic seam、reopen、revision/retention fence、corruption 和 response-loss。
+这只是 per-operation durable record CAS，不等于 actor/scope authorization、
+source-ordered routing、session ownership 或生产 Oxia service/chaos evidence。
 `EmbeddedDelayService` 已将该 seam 暴露为本地 register/advance/query 入口，便于
 conformance tests 验证 register 和 exact advance response-loss 后的精确 receipt
 重读；`OxiaControlOperationAuthority.advance` 不接受更高或不同状态的后续
