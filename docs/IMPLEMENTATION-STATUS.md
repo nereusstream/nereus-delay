@@ -3104,6 +3104,19 @@ regression is `LaneRecordTest.directProjectionCannotPersistReadyLaneBehindAClose
 This is a local lifecycle fence and does not prove the external activator's
 evidence or Owner/Oxia readiness authority.
 
+The process-local `LaneScheduler` readiness projection now applies the same
+evidence-recovery fence as the authoritative `LaneRecord`: `markReady` is
+idempotent for READY, accepts only `RECOVERING_EVIDENCE -> READY`, and rejects
+`BLOCKED -> READY`; `markRecoveringEvidence` is the explicit recovery step.
+`PersistentLaneScheduler` exposes and persists that step, and its rollback now
+captures the full readiness enum rather than only the schedulable boolean, so a
+failed projection write cannot silently turn a recovery state into BLOCKED or
+READY; blocked/recovering Lanes also leave the active ring until READY
+reactivation. `LaneSchedulerTest.blockedLaneMustRecoverEvidenceBeforeBecomingReady`
+and `LaneSchedulerTest.failedReadyProjectionRestoresEvidenceRecoveryStateExactly`
+cover the local scheduler and rollback boundaries. External activator evidence
+and Owner/Oxia readiness authority remain release gates.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

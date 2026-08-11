@@ -60,6 +60,21 @@ class LaneSchedulerTest {
     }
 
     @Test
+    void blockedLaneMustRecoverEvidenceBeforeBecomingReady() {
+        final DestinationLaneId lane = lane(3);
+        final LaneScheduler scheduler = LaneScheduler.defaults();
+        scheduler.register(new LaneRecord(lane, new byte[16], 1, 0, AdmissionGate.OPEN,
+                RuntimeReadiness.RECOVERING_EVIDENCE, 1, 0));
+        scheduler.markReady(lane);
+        scheduler.markBlocked(lane);
+
+        assertThrows(IllegalStateException.class, () -> scheduler.markReady(lane));
+        scheduler.markRecoveringEvidence(lane);
+        scheduler.markReady(lane);
+        assertEquals(true, scheduler.snapshot().lanes().get(0).schedulable());
+    }
+
+    @Test
     void duePollUsesAnInclusiveEligibilityBoundary() {
         final DestinationLaneId lane = lane(2);
         final LaneScheduler scheduler = LaneScheduler.defaults();
@@ -562,6 +577,31 @@ class LaneSchedulerTest {
                 store.close();
                 assertThrows(IllegalStateException.class, () -> scheduler.markReady(lane));
                 assertEquals(before, scheduler.snapshot());
+            } finally {
+                store.close();
+            }
+        }
+    }
+
+    @Test
+    void failedReadyProjectionRestoresEvidenceRecoveryStateExactly() {
+        final DestinationLaneId lane = lane(39);
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 39);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("scheduler-ready-recovery-failure"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+            final ShardStore store = ShardStore.open(config, shardId, resources);
+            try {
+                final LaneScheduler delegate = LaneScheduler.defaults();
+                final PersistentLaneScheduler scheduler = new PersistentLaneScheduler(store, delegate);
+                scheduler.register(new LaneRecord(lane, new byte[16], 1, 0, AdmissionGate.OPEN,
+                        RuntimeReadiness.RECOVERING_EVIDENCE, 1, 0));
+
+                store.close();
+                assertThrows(IllegalStateException.class, () -> scheduler.markReady(lane));
+                // A retry after reopening the Store must still require the
+                // same evidence phase; the failed projection write cannot
+                // silently leave the in-memory state BLOCKED or READY.
+                delegate.markReady(lane);
             } finally {
                 store.close();
             }

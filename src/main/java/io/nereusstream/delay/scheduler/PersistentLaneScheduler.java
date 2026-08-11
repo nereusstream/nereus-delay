@@ -12,6 +12,7 @@ import io.nereusstream.delay.runtime.LaneRecord;
 import io.nereusstream.delay.runtime.MessageRecord;
 import io.nereusstream.delay.runtime.MessageStatus;
 import io.nereusstream.delay.runtime.ReadyIndexValue;
+import io.nereusstream.delay.runtime.RuntimeReadiness;
 import io.nereusstream.delay.runtime.TimelineEntry;
 import io.nereusstream.delay.runtime.TimelineWorkRef;
 import io.nereusstream.delay.store.ColumnFamily;
@@ -400,7 +401,7 @@ public final class PersistentLaneScheduler {
     private RuntimeSnapshot runtimeSnapshot() {
         return new RuntimeSnapshot(delegate.snapshot(), delegate.ringOrder(), new HashMap<>(discoveredHeads),
                 lastScannedReadyKey == null ? null : Bytes.copy(lastScannedReadyKey), ringGeneration,
-                wrapGeneration, recoveryFirstPass, new HashSet<>(recoveryServed));
+                wrapGeneration, recoveryFirstPass, new HashSet<>(recoveryServed), delegate.readinessSnapshot());
     }
 
     /**
@@ -422,27 +423,6 @@ public final class PersistentLaneScheduler {
             for (int index = polled.size() - 1; index >= 0; index--) {
                 delegate.requeueFirst(polled.get(index));
             }
-            if (restoreLaneId != null) {
-                final boolean expectedSchedulable = snapshot.schedulerSnapshot().lanes().stream()
-                        .filter(state -> state.laneId().equals(restoreLaneId))
-                        .findFirst()
-                        .orElseThrow(() -> new IllegalStateException("scheduler rollback lost Lane snapshot: "
-                                + restoreLaneId))
-                        .schedulable();
-                final boolean currentSchedulable = delegate.snapshot().lanes().stream()
-                        .filter(state -> state.laneId().equals(restoreLaneId))
-                        .findFirst()
-                        .orElseThrow(() -> new IllegalStateException("scheduler rollback lost Lane registration: "
-                                + restoreLaneId))
-                        .schedulable();
-                if (currentSchedulable != expectedSchedulable) {
-                    if (expectedSchedulable) {
-                        delegate.markReady(restoreLaneId);
-                    } else {
-                        delegate.markBlocked(restoreLaneId);
-                    }
-                }
-            }
             if (queueSnapshot != null) {
                 delegate.restoreQueues(queueSnapshot);
             }
@@ -457,6 +437,7 @@ public final class PersistentLaneScheduler {
             recoveryFirstPass = snapshot.recoveryFirstPass();
             recoveryServed.clear();
             recoveryServed.addAll(snapshot.recoveryServed());
+            delegate.restoreReadiness(snapshot.readiness());
         } catch (RuntimeException rollbackFailure) {
             original.addSuppressed(rollbackFailure);
         }
@@ -474,6 +455,21 @@ public final class PersistentLaneScheduler {
         try {
             delegate.markBlocked(laneId);
             delegate.deactivateLane(laneId);
+            recoveryFirstPass = true;
+            recoveryServed.clear();
+            persist();
+        } catch (RuntimeException failure) {
+            rollbackRuntime(before, List.of(), List.of(), laneId, failure, null);
+            throw failure;
+        }
+    }
+
+    /** Returns a registered Lane to evidence recovery before it can become READY. */
+    public synchronized void markRecoveringEvidence(final DestinationLaneId laneId) {
+        requireRegisteredLane(laneId);
+        final RuntimeSnapshot before = runtimeSnapshot();
+        try {
+            delegate.markRecoveringEvidence(laneId);
             recoveryFirstPass = true;
             recoveryServed.clear();
             persist();
@@ -953,13 +949,15 @@ public final class PersistentLaneScheduler {
                                    long ringGeneration,
                                    long wrapGeneration,
                                    boolean recoveryFirstPass,
-                                   Set<DestinationLaneId> recoveryServed) {
+                                   Set<DestinationLaneId> recoveryServed,
+                                   Map<DestinationLaneId, RuntimeReadiness> readiness) {
         private RuntimeSnapshot {
             Objects.requireNonNull(schedulerSnapshot, "schedulerSnapshot");
             ringOrder = List.copyOf(ringOrder);
             discoveredHeads = Map.copyOf(discoveredHeads);
             lastScannedReadyKey = lastScannedReadyKey == null ? null : Bytes.copy(lastScannedReadyKey);
             recoveryServed = Set.copyOf(recoveryServed);
+            readiness = Map.copyOf(readiness);
         }
 
         @Override

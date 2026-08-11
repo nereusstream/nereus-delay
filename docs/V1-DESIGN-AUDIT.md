@@ -2955,6 +2955,16 @@ covered by `LaneRecordTest.directProjectionCannotPersistReadyLaneBehindAClosedAd
 This closes only the local state-machine fence; activator evidence and external
 readiness authority remain release gates.
 
+The process-local scheduler now mirrors that graph: `markReady` cannot bypass
+`RECOVERING_EVIDENCE`, and `PersistentLaneScheduler` rolls back the exact
+readiness enum after a failed projection write instead of restoring only a
+schedulable/not-schedulable bit; blocked/recovering Lanes leave the active ring
+until READY reactivation. The regressions are
+`LaneSchedulerTest.blockedLaneMustRecoverEvidenceBeforeBecomingReady` and
+`LaneSchedulerTest.failedReadyProjectionRestoresEvidenceRecoveryStateExactly`.
+This is local projection evidence only; activator evidence and Owner/Oxia
+readiness authority remain release gates.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

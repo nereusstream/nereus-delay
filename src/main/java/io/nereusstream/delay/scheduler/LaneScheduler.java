@@ -177,6 +177,17 @@ public final class LaneScheduler {
     public synchronized void markBlocked(final DestinationLaneId laneId) {
         final LaneQueue lane = requireLane(laneId);
         lane.runtimeReadiness = RuntimeReadiness.BLOCKED;
+        deactivateLane(laneId);
+    }
+
+    /**
+     * Moves a Lane back into the evidence-recovery phase after a runtime
+     * capability failure. Repeated recovery notifications are idempotent.
+     */
+    public synchronized void markRecoveringEvidence(final DestinationLaneId laneId) {
+        final LaneQueue lane = requireLane(laneId);
+        lane.runtimeReadiness = RuntimeReadiness.RECOVERING_EVIDENCE;
+        deactivateLane(laneId);
     }
 
     public synchronized void markReady(final DestinationLaneId laneId) {
@@ -184,7 +195,15 @@ public final class LaneScheduler {
         if (lane.gate != io.nereusstream.delay.runtime.AdmissionGate.OPEN) {
             throw new IllegalStateException("closed or paused lane cannot be marked ready");
         }
+        if (lane.runtimeReadiness == RuntimeReadiness.BLOCKED) {
+            throw new IllegalStateException("blocked lane must recover evidence before becoming ready");
+        }
+        if (lane.runtimeReadiness != RuntimeReadiness.RECOVERING_EVIDENCE
+                && lane.runtimeReadiness != RuntimeReadiness.READY) {
+            throw new IllegalStateException("lane is not in an evidence-recovery state");
+        }
         lane.runtimeReadiness = RuntimeReadiness.READY;
+        activateLane(laneId);
     }
 
     public synchronized void requeueFirst(final ScheduleWorkItem item) {
@@ -252,6 +271,25 @@ public final class LaneScheduler {
     /** Returns the current in-memory head without removing it. */
     synchronized ScheduleWorkItem pendingHead(final DestinationLaneId laneId) {
         return requireLane(laneId).queue.peekFirst();
+    }
+
+    /** Captures the complete local readiness projection for rollback. */
+    synchronized Map<DestinationLaneId, RuntimeReadiness> readinessSnapshot() {
+        final Map<DestinationLaneId, RuntimeReadiness> result = new HashMap<>();
+        lanes.values().forEach(lane -> result.put(lane.laneId, lane.runtimeReadiness));
+        return Map.copyOf(result);
+    }
+
+    /** Restores a previously captured readiness projection before retrying a turn. */
+    synchronized void restoreReadiness(final Map<DestinationLaneId, RuntimeReadiness> snapshot) {
+        Objects.requireNonNull(snapshot, "readiness snapshot");
+        if (!lanes.keySet().equals(snapshot.keySet())) {
+            throw new IllegalArgumentException("scheduler readiness snapshot registration differs");
+        }
+        for (Map.Entry<DestinationLaneId, RuntimeReadiness> entry : snapshot.entrySet()) {
+            requireLane(entry.getKey()).runtimeReadiness = Objects.requireNonNull(entry.getValue(),
+                    "snapshot readiness");
+        }
     }
 
     /** Returns the currently due schedulable Lane identities for recovery fairness. */
