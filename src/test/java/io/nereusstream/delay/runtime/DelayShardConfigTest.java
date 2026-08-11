@@ -45,6 +45,10 @@ class DelayShardConfigTest {
                 3, 1, 2_000, 4_000, 0, 20_000, 40_000, 20_000, 100, 500);
 
         assertEquals(500, config.timeFenceSafetyMarginMs());
+        final DelayShardConfig brokerTimeConfig = new DelayShardConfig(
+                10_000, 1, 20_000, 10, 100, 4, 3, 100, 10_000,
+                3, 1, 2_000, 4_000, 0, 20_000, 500);
+        assertEquals(500, brokerTimeConfig.timeFenceSafetyMarginMs());
         assertThrows(IllegalArgumentException.class, () -> new DelayShardConfig(
                 10_000, 1, 20_000, 10, 100, 4, 3, 100, 10_000,
                 3, 1, 2_000, 4_000, 0, 20_000, 40_000, 20_000, 100, -1));

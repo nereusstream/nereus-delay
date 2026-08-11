@@ -86,6 +86,23 @@ public record DelayShardConfig(
                 maximumAdmissionMutationEnqueueAgeMs, 0, 0, 0, 0);
     }
 
+    /** Broker-time compatibility constructor with an explicit time-fence margin. */
+    public DelayShardConfig(final long maxDelayHorizonMs, final long minDeliveryWindowMs,
+                            final long maxMessageLifetimeMs, final long maxPendingMessages,
+                            final long maxPendingBytes, final long maxLanes,
+                            final long inlinePayloadThresholdBytes, final long maxPayloadBytes,
+                            final long maxReservationTtlMs, final int maxPublishAdmissions,
+                            final int maxUncertainRetries, final long maxOutcomeReserveBytes,
+                            final long maxOutcomeReserveRecords, final long maxIngressBrokerTimestampDivergenceMs,
+                            final long maximumAdmissionMutationEnqueueAgeMs,
+                            final long timeFenceSafetyMarginMs) {
+        this(maxDelayHorizonMs, minDeliveryWindowMs, maxMessageLifetimeMs, maxPendingMessages,
+                maxPendingBytes, maxLanes, inlinePayloadThresholdBytes, maxPayloadBytes,
+                maxReservationTtlMs, maxPublishAdmissions, maxUncertainRetries, maxOutcomeReserveBytes,
+                maxOutcomeReserveRecords, maxIngressBrokerTimestampDivergenceMs,
+                maximumAdmissionMutationEnqueueAgeMs, 0, 0, 0, timeFenceSafetyMarginMs);
+    }
+
     /** Compatibility constructor for the strict pre-time-fence-margin shape. */
     public DelayShardConfig(final long maxDelayHorizonMs, final long minDeliveryWindowMs,
                             final long maxMessageLifetimeMs, final long maxPendingMessages,
