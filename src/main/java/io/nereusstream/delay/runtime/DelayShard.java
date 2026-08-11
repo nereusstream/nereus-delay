@@ -4348,13 +4348,22 @@ public final class DelayShard {
                 ? CommandBodies.decodeScheduleV1(binding.canonicalBody()).intent().profile()
                 : CommandBodies.decodePrepareLargeV1(binding.canonicalBody()).intentWithoutPayload().profile();
         final ProfileSemanticEnvelopeV1 destination = profileCatalog.resolve(destinationRef);
-        if (destination == null || !(destination.body() instanceof DestinationProfileSemanticV1 body)
-                || body.adapterKind() != io.nereusstream.delay.protocol.AdapterKindV1.PULSAR
-                || body.handoffLeadMs() <= 0) {
-            return deliverAtEpochMs;
+        if (destination == null || !destination.ref().equals(destinationRef)
+                || destination.profileKind() != io.nereusstream.delay.protocol.ProfileKindV1.DESTINATION
+                || !(destination.body() instanceof DestinationProfileSemanticV1 body)) {
+            throw new V1CommandResolutionException(StableCode.ROUTE_SNAPSHOT_UNAVAILABLE,
+                    "pinned Destination Profile is unavailable during actionAt derivation");
         }
         final ProfileSemanticEnvelopeV1 capability = profileCatalog.resolve(body.deliveryCapability());
-        if (capability == null || !(capability.body() instanceof DeliveryCapabilitySemanticV1 capabilityBody)
+        if (capability == null || !capability.ref().equals(body.deliveryCapability())
+                || capability.profileKind() != io.nereusstream.delay.protocol.ProfileKindV1.DELIVERY_CAPABILITY
+                || !(capability.body() instanceof DeliveryCapabilitySemanticV1 capabilityBody)
+                || capabilityBody.adapterKind() != body.adapterKind()) {
+            throw new V1CommandResolutionException(StableCode.ROUTE_SNAPSHOT_UNAVAILABLE,
+                    "pinned Delivery Capability is unavailable during actionAt derivation");
+        }
+        if (body.adapterKind() != io.nereusstream.delay.protocol.AdapterKindV1.PULSAR
+                || body.handoffLeadMs() <= 0
                 || !TimingCapabilityV1.includes(capabilityBody.timingCapabilityBits(),
                 TimingCapabilityV1.PULSAR_GUARDED_HANDOFF)) {
             return deliverAtEpochMs;

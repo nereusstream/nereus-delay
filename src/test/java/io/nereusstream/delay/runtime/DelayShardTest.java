@@ -1943,6 +1943,86 @@ class DelayShardTest {
     }
 
     @Test
+    void catalogBackedActionAtDerivationFailsClosedWhenPinnedProfileDisappears() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("profile-binding-action-at-missing-catalog"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 39);
+        final ProfileRefV1 profile = new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 40),
+                ProfileKindV1.DESTINATION);
+        final ScheduleIntentV1 intent = ScheduleIntentV1.create(profile,
+                new io.nereusstream.delay.protocol.RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 41)),
+                2_000, 5_000, io.nereusstream.delay.protocol.DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT,
+                Bytes.utf8("ordering"), Bytes.utf8("missing-catalog"), null,
+                io.nereusstream.delay.protocol.AdapterMetadataV1.kafka(
+                        new io.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())), null, null);
+        final byte[] tuple = Bytes.utf8("missing-catalog-lane");
+        final DestinationLaneId lane = DestinationLaneId.derive(tuple);
+        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+            @Override
+            public ResolvedSchedule resolveSchedule(final ShardId shard, final DelayMessageId messageId,
+                                                     final ScheduleIntentV1 schedule,
+                                                     final SourcePosition sourcePosition) {
+                return new ResolvedSchedule(lane, tuple, schedule.inlinePayload(), null);
+            }
+
+            @Override
+            public ResolvedPrepare resolvePrepare(final ShardId shard, final DelayMessageId messageId,
+                                                  final PrepareLargeScheduleBodyV1 body,
+                                                  final SourcePosition sourcePosition) {
+                return new ResolvedPrepare(lane, tuple);
+            }
+        };
+        final PreparedCommand schedule = PreparedCommand.scheduleV1(shardId, intent, 9_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver);
+            assertEquals(StableCode.SCHEDULED,
+                    shard.apply(schedule, position(shardId, 0, 1_000)).stableCode());
+        }
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver,
+                    null, null, null, unavailableProfileCatalog());
+            final PreparedCommand reschedule = PreparedCommand.rescheduleV1(shardId, schedule.delayMessageId(),
+                    new io.nereusstream.delay.protocol.MessagePreconditionV1(0L, 1L),
+                    2_500, 6_000, 9_000);
+            assertEquals(StableCode.ROUTE_SNAPSHOT_UNAVAILABLE,
+                    shard.apply(reschedule, position(shardId, 1, 1_001)).stableCode());
+            assertEquals(2_000, shard.getMessage(schedule.delayMessageId()).deliverAtEpochMs());
+            assertEquals(1_001, shard.lastAppliedSourcePosition().brokerPersistenceTimeEpochMs());
+        }
+    }
+
+    private static ProfileCatalog unavailableProfileCatalog() {
+        return new ProfileCatalog() {
+            @Override
+            public io.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1 resolve(
+                    final ProfileRefV1 reference) {
+                return null;
+            }
+
+            @Override
+            public io.nereusstream.delay.protocol.CredentialBindingV1 resolveBinding(final ProfileRefV1 reference,
+                                                                                       final long generation) {
+                return null;
+            }
+
+            @Override
+            public io.nereusstream.delay.protocol.CredentialBindingHeadV1 resolveHead(
+                    final ProfileRefV1 reference) {
+                return null;
+            }
+
+            @Override
+            public io.nereusstream.delay.protocol.CredentialBindingProtectionV1 resolveProtection(
+                    final ProfileRefV1 reference, final long generation) {
+                return null;
+            }
+        };
+    }
+
+    @Test
     void registryCommittedScheduleResolverPreservesOptionalEtag() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("registry-committed-schedule"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 33);

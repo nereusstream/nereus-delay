@@ -790,6 +790,11 @@ missing/wrong-kind/mismatched capability is fail-closed. `DelayShard` applies
 this decorator automatically when a raw resolver and exact Profile catalog are
 provided, while preserving an already decorated resolver. It does not turn a
 catalog lookup into a source position activation receipt.
+When a persisted V1 binding is revisited for Commit, Reschedule or recovery,
+the same exact Profile/Capability lookup fence protects `actionAt`; a missing
+or mismatched catalog entry is `ROUTE_SNAPSHOT_UNAVAILABLE`, never an ordinary
+`deliverAt` fallback. `DelayShardTest.catalogBackedActionAtDerivationFailsClosedWhenPinnedProfileDisappears`
+covers the local boundary.
 The Control Operation request union now has local canonical codecs for all
 fifteen Registry branches, including the evidence/acknowledgement matrix. It
 remains a request-value boundary and does not authenticate an actor/resource,
