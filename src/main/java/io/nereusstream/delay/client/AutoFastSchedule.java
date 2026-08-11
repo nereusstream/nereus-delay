@@ -88,9 +88,9 @@ public final class AutoFastSchedule {
             this.destinationProfile = require(destinationProfile, "destinationProfile");
             this.capabilityProfile = require(capabilityProfile, "capabilityProfile");
             this.target = require(target, "target");
-            if (physicalPartition < 0) {
-                throw PreparationFailure.of(StableCode.INVALID_COMMAND);
-            }
+            // Physical partitions are Registry uint32 values. Preserve the
+            // complete raw bit pattern; profile/routing validation below is
+            // responsible for deciding whether this value is authorized.
             this.physicalPartition = physicalPartition;
             this.inlinePayload = Bytes.copy(require(inlinePayload, "inlinePayload"));
             this.metadata = require(metadata, "metadata");

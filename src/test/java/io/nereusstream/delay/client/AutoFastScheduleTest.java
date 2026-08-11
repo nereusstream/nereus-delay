@@ -154,6 +154,38 @@ class AutoFastScheduleTest {
     }
 
     @Test
+    void nativeSelectionPreservesUnsignedHighBitPhysicalPartition() throws Exception {
+        final Fixture base = fixture();
+        final int highBitPartition = Integer.MIN_VALUE;
+        final int partitionCount = Integer.MIN_VALUE + 1;
+        final ProfileSemanticEnvelopeV1 destination = destination(base.candidate.capabilityProfile().ref(),
+                base.target, partitionCount, TargetPartitionPolicyV1.EXPLICIT_ONLY,
+                List.of(highBitPartition), TargetPartitionHashInputV1.ORDERING_KEY);
+        final ScheduleIntentV1 intent = ScheduleIntentV1.create(destination.ref(),
+                new RetryPolicyRefV1(Bytes.utf8("autofast-high-bit-retry"), 1, bytes(32, 70)),
+                4_000, 9_000, DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, new byte[0], base.payload,
+                null, AdapterMetadataV1.pulsar(base.metadata), null, null);
+        final PreparedCommand command = PreparedCommand.scheduleV1(base.shard, intent, 10_000);
+        final TrustedUtcIntervalEvidence issuedAt = new TrustedUtcIntervalEvidence(2_000, 2_010,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("autofast-high-bit-clock"),
+                1, 2, 3, Bytes.sha256(Bytes.utf8("autofast-high-bit-sample")), 0, null);
+        final NativeCapabilitySnapshotV1 snapshot = NativeCapabilitySnapshotV1.create(destination.ref(),
+                base.candidate.capabilityProfile().ref(), base.target, highBitPartition, bytes(32, 71), 1, 1,
+                bytes(32, 72), bytes(32, 73), bytes(32, 74), issuedAt, 9_000, 1,
+                base.keyPair.getPrivate());
+        final AutoFastSchedule.NativeCandidate candidate = new AutoFastSchedule.NativeCandidate(destination,
+                base.candidate.capabilityProfile(), base.target, highBitPartition, base.payload, base.metadata,
+                null, 4_000, 5_000, snapshot, base.keyPair.getPublic(), true);
+
+        try (EmbeddedDelayService service = base.service(tempDir.resolve("high-bit-partition"))) {
+            final PreparedSubmissionV1 prepared = service.prepareAutoFast(
+                    AutoFastSchedule.withNativeCandidate(command, candidate));
+            assertFalse(prepared.isManaged());
+            assertEquals(highBitPartition, prepared.nativePrepared().physicalPartition());
+        }
+    }
+
+    @Test
     void malformedPreparationExposesAStablePreparationFailure() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 10);
         final PreparedCommand legacy = PreparedCommand.schedule(shard,
@@ -196,7 +228,7 @@ class AutoFastScheduleTest {
 
     private static ProfileSemanticEnvelopeV1 destination(final io.nereusstream.delay.protocol.ProfileRefV1 capability,
                                                          final PulsarBrokerResourceIdentityV1 target) {
-        return destination(capability, target, TargetPartitionPolicyV1.EXPLICIT_ONLY, List.of(0),
+        return destination(capability, target, 2, TargetPartitionPolicyV1.EXPLICIT_ONLY, List.of(0),
                 TargetPartitionHashInputV1.ORDERING_KEY);
     }
 
@@ -205,8 +237,18 @@ class AutoFastScheduleTest {
                                                          final TargetPartitionPolicyV1 policy,
                                                          final List<Integer> allowedPartitions,
                                                          final TargetPartitionHashInputV1 hashInput) {
+        return destination(capability, target, 2, policy, allowedPartitions, hashInput);
+    }
+
+    private static ProfileSemanticEnvelopeV1 destination(final io.nereusstream.delay.protocol.ProfileRefV1 capability,
+                                                         final PulsarBrokerResourceIdentityV1 target,
+                                                         final int targetPartitionCount,
+                                                         final TargetPartitionPolicyV1 policy,
+                                                         final List<Integer> allowedPartitions,
+                                                         final TargetPartitionHashInputV1 hashInput) {
         final DestinationProfileSemanticV1 body = new DestinationProfileSemanticV1(AdapterKindV1.PULSAR,
-                BrokerResourceIdentityV1.pulsar(target), 2, policy, hashInput, allowedPartitions, capability, 1, 0, 20,
+                BrokerResourceIdentityV1.pulsar(target), targetPartitionCount, policy, hashInput, allowedPartitions,
+                capability, 1, 0, 20,
                 bytes(32, 50), 1_024, 512, 512, 1, Bytes.utf8("autofast-destination"), 0, 0, 1,
                 bytes(32, 51));
         return new ProfileSemanticEnvelopeV1(ProfileKindV1.DESTINATION, Bytes.utf8("autofast-destination"),

@@ -426,6 +426,8 @@ public final class EmbeddedDelayService implements DelayClient {
                 return null;
             }
             final var snapshot = candidate.capabilitySnapshot();
+            final long candidatePartition = Integer.toUnsignedLong(candidate.physicalPartition());
+            final long targetPartitionCount = Integer.toUnsignedLong(destination.targetPartitionCount());
             final boolean explicitPartition = destination.allowedExplicitPartitions()
                     .contains(candidate.physicalPartition());
             final boolean partitionPolicyMatches = switch (destination.targetPartitionPolicy()) {
@@ -433,13 +435,13 @@ public final class EmbeddedDelayService implements DelayClient {
                 case HASH_ONLY, EXPLICIT_OR_HASH -> explicitPartition
                         || TargetPartitionHashV1.partition(destinationEnvelope.ref(),
                         destination.targetPartitionCount(), nativeRoutingBytes(request, candidate,
-                                destination.targetPartitionHashInput())) == candidate.physicalPartition();
+                                destination.targetPartitionHashInput())) == candidatePartition;
             };
             if (!destinationEnvelope.ref().equals(snapshot.destination())
                     || !capabilityEnvelope.ref().equals(snapshot.capability())
                     || !snapshot.target().equals(candidate.target())
                     || snapshot.physicalPartition() != candidate.physicalPartition()
-                    || candidate.physicalPartition() >= destination.targetPartitionCount()
+                    || candidatePartition >= targetPartitionCount
                     || !partitionPolicyMatches
                     || !snapshot.verifySignature(candidate.issuerKey())) {
                 return null;

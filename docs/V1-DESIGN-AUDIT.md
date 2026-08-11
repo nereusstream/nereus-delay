@@ -966,6 +966,11 @@ response evidence 仍是外部 release gate。Native adapter 若配置
 epoch millisecond 时返回 `AUTO_FAST_PREREQUISITE_UNAVAILABLE`，不把本地时间源故障
 解释成 expiry 或 Producer ownership；`NativeSubmissionAdapterTest` 覆盖这两个分支。
 时钟认证和生产 Broker-time authority 仍是 release gate。
+Native physical partition remains a raw `uint32` projection through AUTO_FAST
+selection; `AutoFastSchedule` and `EmbeddedDelayService` compare it as unsigned
+values, and `AutoFastScheduleTest` covers the high-bit `0x80000000` case. This
+closes the local representation boundary only; the Broker transport and guard
+authority remain pending external gates.
 `PulsarAttemptJournal` 进一步把 ADR 0037 的本地可验证部分落成独立 seam：Producer
 key 固定在一个 Shard，sequence 严格递增，mapping append 必须先拿到 Journal position，
 精确重放幂等；replay 也会在首条和后续 mapping 安装前验证严格的 Producer sequence

@@ -1548,6 +1548,11 @@ path.
 matching the already raw credential-binding generation. The snapshot test
 covers both high-bit fields; guarded Broker rollout attestation remains an
 external authority gate.
+`AutoFastSchedule` and the embedded AUTO_FAST preparation path likewise keep
+the native physical partition as raw `uint32` bits: selection and range checks
+use unsigned comparisons, so a valid high-bit partition is not rejected or
+miscompared before Producer ownership. `AutoFastScheduleTest` covers this
+projection with `0x80000000`.
 The nested `ReadyCertificateV1` Broker attestation and config generations now
 also preserve their complete raw `uint64` patterns through the shared
 Admission/certificate decoder; `ReadyCertificateV1Test` covers both high-bit
