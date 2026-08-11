@@ -3205,6 +3205,12 @@ with cleanup failures suppressed onto the original error. The checkpoint path
 therefore cannot leave a live Store advertising an unproven checkpoint merely
 because the primary failure was a JVM/native `Error`.
 
+`CheckpointUploadCoordinator` now records the primary adapter/intent failure
+before releasing its Worker upload slot. A release failure is suppressed onto
+that primary failure, while a release failure after an otherwise successful
+upload is surfaced explicitly instead of returning a result with an
+unconfirmed Worker-capacity transition.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

@@ -77,6 +77,7 @@ public final class CheckpointUploadCoordinator {
                 checkpointDirectory, manifestBytes);
 
         boolean slotAcquired = false;
+        Throwable primaryFailure = null;
         try {
             resources.acquireCheckpointUploadSlot();
             slotAcquired = true;
@@ -85,11 +86,32 @@ public final class CheckpointUploadCoordinator {
             limits.validateResource(resource);
             validatePublishedResource(pending, manifest, resource, manifestBytes);
             return intentStore.publish(pending, resource);
+        } catch (RuntimeException | Error failure) {
+            primaryFailure = failure;
+            throw failure;
         } finally {
             if (slotAcquired) {
-                resources.releaseCheckpointUploadSlot();
+                try {
+                    resources.releaseCheckpointUploadSlot();
+                } catch (RuntimeException | Error cleanupFailure) {
+                    if (primaryFailure != null && cleanupFailure != primaryFailure) {
+                        primaryFailure.addSuppressed(cleanupFailure);
+                    } else if (primaryFailure == null) {
+                        throwUnchecked(cleanupFailure);
+                    }
+                }
             }
         }
+    }
+
+    private static <T> T throwUnchecked(final Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error errorFailure) {
+            throw errorFailure;
+        }
+        throw new IllegalStateException("unexpected checked teardown failure", failure);
     }
 
     private static void validateManifestIdentity(final CheckpointUploadIntentV1 pending,

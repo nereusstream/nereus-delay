@@ -3046,6 +3046,12 @@ the create-concurrency slot are still attempted independently. This keeps the
 checkpoint identity projection fail-closed before a fresh Store incarnation
 is required.
 
+Checkpoint upload now preserves its primary provider/intent failure while
+independently attempting the Worker upload-slot release. If the upload body
+succeeds but the slot transition fails, the coordinator returns a failure
+instead of claiming a complete upload lifecycle; response-loss retry remains
+bound to the exact pending/published intent.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
