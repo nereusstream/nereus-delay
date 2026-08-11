@@ -1518,6 +1518,11 @@ record surface 的 deterministic seam、reopen、corruption 和 response-loss
 的跨 record transaction，也不等于 Owner Lease/session-bound RecoveryPin；这两类
 能力仍由 backend 明确拒绝，真实 Oxia service/session、multi-worker 和
 Object Store publication evidence 仍是 release gates。
+同一 backend 现在还会在复用本地 Store 前，对当前远端 catalog/Floor snapshot
+执行只读校验：要求 shard、published lineage/manifest、typed Floor generation
+以及 install-state/store-incarnation tuple 全部 exact match；stale Floor 或非
+descendant projection 会 fail closed。这只是 catalog-side reuse proof，不推断
+Owner Lease/session，也不替代跨 record activation transaction。
 这仍不是 Oxia 的 Owner Lease/session、lineage-head、catalog-generation
 transaction，也不执行 Object Store upload/attestation/delete。现有 `DelayShard` 仍
 通过兼容 `LaneRecord` 写入 ACTIVE 分支，因此这不被误报为已经完成 full

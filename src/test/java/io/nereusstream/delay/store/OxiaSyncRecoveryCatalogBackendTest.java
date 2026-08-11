@@ -3,6 +3,10 @@ package io.nereusstream.delay.store;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.EvidenceCursorV1;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
+import io.nereusstream.delay.protocol.RecoveryCandidateKindV1;
+import io.nereusstream.delay.protocol.RecoveryCandidateRefV1;
+import io.nereusstream.delay.protocol.RecoveryInstallPhaseV1;
+import io.nereusstream.delay.protocol.RecoveryInstallStateV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
 import io.oxia.client.api.GetResult;
@@ -79,6 +83,36 @@ class OxiaSyncRecoveryCatalogBackendTest {
     }
 
     @Test
+    void validatesLocalStoreRecoveryAgainstTheCurrentRemoteFloorSnapshot() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final OxiaSyncRecoveryCatalogBackend backend = new OxiaSyncRecoveryCatalogBackend(records,
+                "delay/recovery-reuse", LIMITS);
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
+        final UUID topic = UUID.randomUUID();
+        final byte[] lineage = id16(30);
+        final CheckpointManifest genesis = manifest(shard, topic, lineage, id16(31), 0, 1, 1, null);
+
+        assertEquals(1, backend.publish(genesis, 0).catalogGeneration());
+        final var floor = backend.advanceFloor(genesis.checkpointId(), 1, java.util.List.of());
+        final byte[] storeIncarnation = id16(32);
+        final StoreRecoveryMetadata local = new StoreRecoveryMetadata(
+                new RecoveryCandidateRefV1(RecoveryCandidateKindV1.LOCAL_STORE, lineage,
+                        genesis.checkpointId(), genesis.manifestSha256(), storeIncarnation), floor,
+                floor.catalogGeneration(), new RecoveryInstallStateV1(RecoveryInstallPhaseV1.OPEN,
+                        storeIncarnation, genesis.checkpointId()));
+
+        new OxiaRecoveryCatalog(backend).validateLocalStoreRecovery(shard, local);
+
+        final CheckpointManifest child = manifest(shard, topic, lineage, id16(33), 1, 2, 2,
+                new CheckpointManifest.ParentCheckpoint(genesis.checkpointId(),
+                        Bytes.hex(genesis.manifestSha256())));
+        backend.publish(child, floor.catalogGeneration());
+        backend.advanceFloor(child.checkpointId(), floor.catalogGeneration() + 1, java.util.List.of());
+        assertThrows(IllegalStateException.class,
+                () -> new OxiaRecoveryCatalog(backend).validateLocalStoreRecovery(shard, local));
+    }
+
+    @Test
     void uploadIntentAndPinTransactionAreNotPretendedToBeSingleRecordCas() {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncRecoveryCatalogBackend backend = new OxiaSyncRecoveryCatalogBackend(records, "delay/strict",
@@ -91,7 +125,15 @@ class OxiaSyncRecoveryCatalogBackendTest {
                                                final byte[] checkpointId, final long lineageGeneration,
                                                final long offset, final long mutationSequence,
                                                final CheckpointManifest.ParentCheckpoint parent) {
-        final KafkaSourcePosition position = new KafkaSourcePosition(shard, "cluster", UUID.randomUUID(), offset,
+        return manifest(shard, UUID.randomUUID(), lineage, checkpointId, lineageGeneration, offset,
+                mutationSequence, parent);
+    }
+
+    private static CheckpointManifest manifest(final ShardId shard, final UUID topic, final byte[] lineage,
+                                               final byte[] checkpointId, final long lineageGeneration,
+                                               final long offset, final long mutationSequence,
+                                               final CheckpointManifest.ParentCheckpoint parent) {
+        final KafkaSourcePosition position = new KafkaSourcePosition(shard, "cluster", topic, offset,
                 null, 1_000 + offset);
         final CheckpointManifest.FileEntry file = new CheckpointManifest.FileEntry("CURRENT", 1, id32(20),
                 Bytes.utf8("object/current"), Bytes.utf8("version"), null);

@@ -118,6 +118,19 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
         readCatalog().validatePublishedRestoreCandidate(candidate);
     }
 
+    /**
+     * Validates a reusable local Store projection against the current remote
+     * catalog snapshot.  This is intentionally a read-only catalog/Floor
+     * check; Owner Lease/session fencing is still supplied by the caller's
+     * separate authority and is never inferred from local metadata.
+     */
+    @Override
+    public void validateLocalStoreRecovery(final ShardId shardId,
+                                           final StoreRecoveryMetadata localMetadata) {
+        readCatalog().validateLocalStoreRecovery(Objects.requireNonNull(shardId, "shardId"),
+                Objects.requireNonNull(localMetadata, "localMetadata"));
+    }
+
     @Override
     public Optional<RecoveryCatalog.FloorCoverage> proveFloorCoverage(final byte[] candidateCheckpointId,
                                                                         final long requiredMutationSequence,
