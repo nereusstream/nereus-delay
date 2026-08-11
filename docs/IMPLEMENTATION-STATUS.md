@@ -18,6 +18,15 @@ and
 cover the boundary. Real target ownership, Broker evidence and subsequent
 UNKNOWN/outcome mutation remain release gates.
 
+The physical publish wrapper now also releases a reservation when its injected
+Adapter executor synchronously throws a fatal `Error` before accepting the
+delegate task, then rethrows that failure. This is the same pre-ownership
+boundary as ordinary executor rejection; it cannot strand an active request
+charge and does not manufacture a target-side `UNKNOWN`. The focused regression
+is `BoundedDestinationPublishAdapterTest.fatalExecutorRejectionReleasesPhysicalChargeBeforeRethrowing`.
+Production executor admission and target ownership evidence remain external
+release gates.
+
 The shard-local identity-reclamation seam now has an explicit compact branch:
 `DelayShard.retireMessageIdentity(...)` removes every bounded terminal
 generation and local DLQ export for a fully terminal Message in one

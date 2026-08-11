@@ -88,6 +88,13 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
         } catch (RuntimeException exception) {
             reservation.release();
             return PublishCall.completed(completedUnknownValue());
+        } catch (Error fatalFailure) {
+            // The executor rejected the task before delegate invocation.  No
+            // Producer ownership can have been acquired through this path, so
+            // release the pre-ownership reservation before allowing the fatal
+            // failure to reach the caller/supervisor.
+            reservation.release();
+            throw fatalFailure;
         }
         return withRelease(reservation, outcome, retainPhysicalCharge);
     }

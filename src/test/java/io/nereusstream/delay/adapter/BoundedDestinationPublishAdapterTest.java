@@ -327,6 +327,27 @@ class BoundedDestinationPublishAdapterTest {
         assertEquals(0, admission.workerSnapshot().activeRequests());
     }
 
+    @Test
+    void fatalExecutorRejectionReleasesPhysicalChargeBeforeRethrowing() {
+        final DestinationLaneId lane = lane("fatal-executor-rejection");
+        final DestinationPhysicalAdmission admission = admission(lane, 1, 20, 1, 20);
+        admission.openReady(lane);
+        final DestinationPublishAdapter delegate = request ->
+                CompletableFuture.completedFuture(published());
+        final BoundedDestinationPublishAdapter adapter = new BoundedDestinationPublishAdapter(
+                delegate, admission, task -> {
+                    throw new AssertionError("executor failed before accepting task");
+                });
+
+        assertThrows(AssertionError.class, () -> adapter.submit(request(lane, 10)));
+        assertEquals(0, admission.workerSnapshot().activeRequests());
+        final BoundedDestinationPublishAdapter healthyAdapter = new BoundedDestinationPublishAdapter(
+                delegate, admission, Runnable::run);
+        assertEquals(DestinationPublishResult.Disposition.PUBLISHED,
+                healthyAdapter.publish(request(lane, 10)).toCompletableFuture().join().disposition());
+        assertEquals(0, admission.workerSnapshot().activeRequests());
+    }
+
     private static DestinationPhysicalAdmission admission(final DestinationLaneId lane,
                                                           final long maxRequests, final long maxBytes,
                                                           final long maxZombieRequests, final long maxZombieBytes) {

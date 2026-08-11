@@ -1886,6 +1886,7 @@ Adapter Channel 是 Lane-scoped 的本地提交/缓冲隔离单元：
 - 每 Lane、Worker 和 target cluster 的 submit tasks、buffered messages/bytes、connections/producers、同步调用线程、physical outstanding requests/bytes、zombie requests/bytes 和 call deadline 都有硬上限；
 - 目标库的同步 `send`/metadata/auth/buffer wait 必须在 Lane-bounded Adapter executor 中运行并受 `adapterSubmitDeadline` 约束，绝不占 shard correctness thread；
 - `callbackDeadline` 只释放 logical waiter。physical/zombie charge 必须保留到 exact completion、library-confirmed pre-ownership cancellation，或 exact Producer/channel generation 被 fenced teardown；丢弃 Future、timer timeout 或 thread interrupt 都不算物理释放；
+- Adapter executor 在 delegate invocation 之前拒绝任务时，无论是普通拒绝还是同步抛出的 fatal `Error`，都属于 pre-ownership 分支：必须先释放本次 physical reservation，再把 fatal failure 继续交给调用方/进程监督器；不能把该分支留成 active charge，也不能把它解释成 target `UNKNOWN`；
 - physical reservation release 必须先同时校验 Lane、target-cluster、Worker 与 zombie bucket 的 successor 不会 underflow，再一次性扣减并标记 `RELEASED`；任何 accounting inconsistency 都保持 reservation active，不能留下部分扣减或不可重试的 charge；
 - Lane 达到 zombie cap 时只把该 Lane `runtimeReadiness=BLOCKED` 并停止新的 Admission；不能把其 charge 转嫁给其它 Lane；
 - 一个共享 Producer/transport 只有在能够证明 per-Lane reserve、物理 charge 归属、无跨 Lane head blocking、独立 outcome/circuit，以及 Worker/cluster 为其它 READY Lane 固定保留 connection/producer/thread/request/byte minima 时才可复用；

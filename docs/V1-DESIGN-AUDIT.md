@@ -24,6 +24,14 @@ This is local transport-SPI evidence only; the production caller still must
 classify the physical operation as UNKNOWN/evidence-pending until Broker
 completion or a certified teardown proof exists.
 
+The physical publish wrapper also releases the reservation when its Adapter
+executor synchronously throws a fatal `Error` before accepting the delegate
+task, then rethrows that failure. The boundary is pre-ownership, so it cannot
+leave an active request charge or produce a target-side `UNKNOWN`; focused
+evidence is `BoundedDestinationPublishAdapterTest.fatalExecutorRejectionReleasesPhysicalChargeBeforeRethrowing`.
+Production executor admission and target ownership remain external release
+gates.
+
 The local activation path now records the current `ownerEpoch` in the
 Store's non-decreasing `lastOpenedOwnerEpoch` projection before opening the
 Command gate, for both embedded and authoritative activation. A failed
