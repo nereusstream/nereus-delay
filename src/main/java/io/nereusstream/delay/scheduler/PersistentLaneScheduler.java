@@ -6,8 +6,10 @@ import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.ActiveLaneStateV1;
 import io.nereusstream.delay.protocol.LaneRecordEnvelopeV1;
 import io.nereusstream.delay.protocol.OwnerIdentityV1;
+import io.nereusstream.delay.protocol.ReadyCertificateV1;
 import io.nereusstream.delay.protocol.SchedulerProjectionsV1;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
+import io.nereusstream.delay.runtime.AdmissionGate;
 import io.nereusstream.delay.runtime.LaneRecord;
 import io.nereusstream.delay.runtime.MessageRecord;
 import io.nereusstream.delay.runtime.MessageStatus;
@@ -755,6 +757,7 @@ public final class PersistentLaneScheduler {
         }
         final ActiveLaneStateV1 typedLane = readTypedLane(lane);
         if (typedLane != null) {
+            validateTypedReadyProjection(typedLane, entry.key(), key);
             final long actionAt = timeline == null
                     ? (currentWork == null ? message.deliverAtEpochMs() : currentWork.actionAtEpochMs())
                     : timeline.actionAtEpochMs();
@@ -769,6 +772,39 @@ public final class PersistentLaneScheduler {
         final long accountedBytes = Math.max(1, message.payloadLength());
         return new ReadyProjection(lane, new ScheduleWorkItem(key.laneId(), value.messageId(), value.generation(),
                 key.nextEligibleAtEpochMs(), accountedBytes), entry.key());
+    }
+
+    /**
+     * Fences the physical READY index against the complete typed ACTIVE
+     * projection.  The typed value is the durable witness that the Registry
+     * Lane state and the scheduler index were advanced together; checking only
+     * Lane/version/time fields would allow a future codec revision to omit the
+     * key or certificate while still rebuilding a claimable head.
+     */
+    private static void validateTypedReadyProjection(final ActiveLaneStateV1 state,
+                                                     final byte[] physicalReadyKey,
+                                                     final ReadyKey decodedReadyKey) {
+        if (state.runtimeReadiness() != RuntimeReadiness.READY || state.admissionGate() != AdmissionGate.OPEN) {
+            throw new IllegalStateException("typed READY projection belongs to a non-schedulable Lane");
+        }
+        final byte[] encodedReadyKey = state.encodedReadyKey();
+        final byte[] readyCertificate = state.readyCertificate();
+        if (encodedReadyKey == null || readyCertificate == null) {
+            throw new IllegalStateException("typed READY projection is missing key or certificate");
+        }
+        if (!Arrays.equals(encodedReadyKey, physicalReadyKey)) {
+            throw new IllegalStateException("typed READY key disagrees with physical READY index");
+        }
+        if (decodedReadyKey.nextEligibleAtEpochMs() != state.nextEligibleAtEpochMs()
+                || decodedReadyKey.laneVersion() != state.laneVersion()
+                || !decodedReadyKey.laneId().equals(state.laneId())) {
+            throw new IllegalStateException("typed READY key fields disagree with Lane state");
+        }
+        try {
+            ReadyCertificateV1.decode(readyCertificate);
+        } catch (IllegalArgumentException malformedCertificate) {
+            throw new IllegalStateException("typed READY projection carries an invalid certificate", malformedCertificate);
+        }
     }
 
     private ActiveLaneStateV1 readTypedLane(final LaneRecord expected) {

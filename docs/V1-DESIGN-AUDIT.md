@@ -3426,8 +3426,12 @@ field 8 runtime Lane version and field 16 `nextEligibleAt`. The direct codec
 fence is covered by `ActiveLaneStateV1Test.readyKeyMustBeTheExactLaneVersionAndEligibilityProjection`
 and `DelayShardTest.typedActiveLaneStateRejectsReadyKeyDriftAtConstruction`;
 `DelayShard` and `PersistentLaneScheduler` still repeat the identity check
-against the physical READY entry and current Timeline head. This removes the
-possibility of persisting an arbitrary typed READY locator, but it remains local
+against the physical READY entry and current Timeline head. The scheduler
+recovery/discovery boundary additionally requires typed READY/OPEN state,
+non-empty encoded key and a decodable `ReadyCertificateV1` whose key fields
+match the physical index; legacy adapter Lanes retain their explicit
+compatibility path. This removes the possibility of rebuilding a claimable
+typed READY head from only a partial key/time projection, but it remains local
 integrity evidence rather than external readiness/capability authority.
 
 The local Lane runtime projection now enforces the frozen readiness transition

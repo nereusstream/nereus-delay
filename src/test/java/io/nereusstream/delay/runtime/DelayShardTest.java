@@ -828,6 +828,7 @@ class DelayShardTest {
                     store.getValue(ColumnFamily.META, KeyCodec.metaLane(lane), 2).payload()).activeState();
             assertEquals(2_000L, persisted.earliestActionAtEpochMs());
             assertEquals(2_000L, persisted.nextEligibleAtEpochMs());
+            assertEquals(1, scheduler.rebuildFromAuthoritativeReady(1));
         }
     }
 
