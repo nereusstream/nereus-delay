@@ -7,6 +7,17 @@ normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20�
 the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
+The configured Control target-registration gate now distinguishes an
+authoritative binding mismatch from an unavailable authority.  A missing
+registration still produces the bounded `UNAUTHORIZED_SYSTEM_MUTATION`
+position result, while a registry lookup/validation `RuntimeException` is no
+longer converted into that rejection: the Source Position remains pending for
+retry (and the Owner replay gate can fence the local Store).  This matches the
+main design's Oxia rule that transient or unproven target-registration absence
+must stop at the position.  `DelayShardTest.controlRegistrationAuthorityFailureRetainsSourcePositionForRetry`
+covers the local boundary; Oxia response classification and durable source
+replay remain external release gates.
+
 The uncertain-Store drain path now applies the source/scheduler stop fence even
 when a caller started native Store close before the coordinator observed the
 unproven write boundary.  External close is not evidence of source quiescence:

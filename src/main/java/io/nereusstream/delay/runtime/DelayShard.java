@@ -1825,10 +1825,13 @@ public final class DelayShard {
             }
             controlTargetRegistrationAuthority.validateMutation(prepared, target, mutation);
             return null;
-        } catch (RuntimeException exception) {
-            // A configured target registry is a fail-closed boundary.  A
-            // missing/malformed/drifting registration must never reach a
-            // local Control handler and must still advance the source log.
+        } catch (IllegalArgumentException exception) {
+            // An explicitly observed registration/binding mismatch is an
+            // authoritative position-level rejection.  Do not widen this
+            // catch to RuntimeException: an Oxia lookup/validation failure is
+            // an unproven authority boundary and must retain the Source
+            // Position for retry instead of being misreported as
+            // UNAUTHORIZED_SYSTEM_MUTATION.
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }

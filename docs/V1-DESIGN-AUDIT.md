@@ -11,6 +11,17 @@ V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障
 
 **Open semantic questions: none.**
 
+The Control target-registration audit now separates an authoritative binding
+mismatch from an unavailable registry boundary.  Missing registration remains
+an explicit `UNAUTHORIZED_SYSTEM_MUTATION` position result, but a lookup or
+validation `RuntimeException` is retained at the Source Position instead of
+being misclassified as an authorization rejection.  This preserves the
+main-design rule that Oxia transient/unproven absence must stop replay; the
+local regression is
+`DelayShardTest.controlRegistrationAuthorityFailureRetainsSourcePositionForRetry`.
+Production Oxia response classification and source replay authority remain
+release gates.
+
 The uncertain-Store drain audit now also covers the race where native Store
 close was started by another caller before the coordinator observed the
 unproven write boundary.  An already-started close does not prove source or
