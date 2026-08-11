@@ -80,6 +80,23 @@ class RetryPolicySemanticV1Test {
     }
 
     @Test
+    void computesDlqBackoffCapAndFencesThePolicyAttemptBudget() {
+        final RetryPolicySemanticV1 policy = new RetryPolicySemanticV1(Bytes.utf8("dlq-cap-policy"), 1,
+                100, 350, 5, 10_000, UncertainPolicyV1.HOLD_FOR_EVIDENCE, 0,
+                DlqExportModeV1.BASELINE_AT_LEAST_ONCE, 25, 90, 3, 1_000, true, bytes(32, 21));
+
+        assertEquals(25, policy.dlqRetryBackoffCap(1));
+        assertEquals(50, policy.dlqRetryBackoffCap(2));
+        assertEquals(90, policy.dlqRetryBackoffCap(3));
+        assertThrows(IllegalArgumentException.class, () -> policy.dlqRetryBackoffCap(4));
+
+        final RetryPolicySemanticV1 disabled = new RetryPolicySemanticV1(Bytes.utf8("dlq-disabled"), 1,
+                1, 2, 2, 10, UncertainPolicyV1.HOLD_FOR_EVIDENCE, 0,
+                DlqExportModeV1.NOT_CONFIGURED, 0, 0, 0, 0, false, bytes(32, 22));
+        assertThrows(IllegalStateException.class, () -> disabled.dlqRetryBackoffCap(1));
+    }
+
+    @Test
     void jitterAcceptsUnsignedHighBitGenerationAndAttemptBits() {
         final DelayMessageId messageId = DelayMessageId.random(new ShardId(RouteIncarnation.random(), 9));
         final long expected = RetryJitterV1.delayMs(RetryJitterV1.MESSAGE_PUBLISH, messageId,

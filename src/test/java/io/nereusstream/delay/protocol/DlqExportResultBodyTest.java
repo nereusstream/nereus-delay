@@ -24,6 +24,10 @@ class DlqExportResultBodyTest {
         assertArrayEquals(SystemMutation.computeDlqExportAttemptLogicalIdentity(exportId, 1),
                 decoded.logicalOperationIdentity());
         assertArrayEquals(PublishEvidenceV1.decode(evidence).evidenceId(), decoded.evidenceId());
+        assertEquals(1, decoded.parsedRetryDecision().completedAttemptNo());
+        assertEquals(1_000, decoded.parsedRetryDecision().firstAttemptAt());
+        assertEquals(2, decoded.parsedRetryDecision().retryDomain());
+        assertEquals(StableCode.OK, decoded.parsedRetryDecision().cause());
     }
 
     @Test

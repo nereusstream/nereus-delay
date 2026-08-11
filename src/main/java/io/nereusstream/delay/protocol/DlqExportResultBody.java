@@ -27,6 +27,7 @@ public final class DlqExportResultBody {
     private final byte[] transfer;
     private final TrustedUtcIntervalEvidence observedAt;
     private final byte[] retryDecision;
+    private final RetryDecision parsedRetryDecision;
     private final DlqExportStateV1 resultingState;
     private final int physicalAttemptNo;
 
@@ -35,6 +36,7 @@ public final class DlqExportResultBody {
                                 final int sideEffect, final int disposition, final StableCode stableCode,
                                 final byte[] evidence, final byte[] transfer,
                                 final TrustedUtcIntervalEvidence observedAt, final byte[] retryDecision,
+                                final RetryDecision parsedRetryDecision,
                                 final DlqExportStateV1 resultingState, final int physicalAttemptNo) {
         this.dlqExportId = fixed(dlqExportId, "dlqExportId");
         this.messageId = fixed(messageId, DelayMessageId.LENGTH, "messageId");
@@ -58,6 +60,7 @@ public final class DlqExportResultBody {
         this.transfer = copy(transfer);
         this.observedAt = Objects.requireNonNull(observedAt, "observedAt");
         this.retryDecision = copy(retryDecision);
+        this.parsedRetryDecision = Objects.requireNonNull(parsedRetryDecision, "parsedRetryDecision");
         this.resultingState = Objects.requireNonNull(resultingState, "resultingState");
         if (resultingState == DlqExportStateV1.NOT_CONFIGURED || physicalAttemptNo == 0) {
             throw new IllegalArgumentException("DLQ export result cannot target NOT_CONFIGURED or attempt zero");
@@ -87,14 +90,14 @@ public final class DlqExportResultBody {
         final TrustedUtcIntervalEvidence observedAt = TrustedUtcIntervalEvidence.decode(
                 nested(field(fields, 21), 21));
         final byte[] retryDecision = nested(field(fields, 22), 22);
-        final RetryShape retry = validateRetryDecision(retryDecision);
+        final RetryDecision retry = decodeRetryDecision(retryDecision);
         final DlqExportStateV1 resultingState = DlqExportStateV1.fromWire(unsigned(field(fields, 23), 23));
         final int physicalAttemptNo = QueryCodecSupport.uint32Bits(field(fields, 24), 24);
         validateCombination(eventKind, sideEffect, disposition, stableCode, evidence, resultingState, retry);
         SystemMutationBodyCodec.requireMessageShard(fields, new DelayMessageId(messageId), "DLQ export result");
         final DlqExportResultBody result = new DlqExportResultBody(exportId, messageId, generation,
                 terminalRevision, envelopeHash, eventKind, sideEffect, disposition, stableCode, evidence, transfer,
-                observedAt, retryDecision, resultingState, physicalAttemptNo);
+                observedAt, retryDecision, retry, resultingState, physicalAttemptNo);
         if (evidenceValue != null) {
             evidenceValue.requireDlqMutation(exportId, sideEffect == 1);
         }
@@ -153,6 +156,11 @@ public final class DlqExportResultBody {
         return copy(retryDecision);
     }
 
+    /** Returns the strictly decoded RetryDecisionV1 for local policy validation. */
+    public RetryDecision parsedRetryDecision() {
+        return parsedRetryDecision;
+    }
+
     public DlqExportStateV1 resultingState() {
         return resultingState;
     }
@@ -175,7 +183,7 @@ public final class DlqExportResultBody {
 
     private static void validateCombination(final int eventKind, final int sideEffect, final int disposition,
                                             final StableCode stableCode, final byte[] evidence,
-                                            final DlqExportStateV1 resultingState, final RetryShape retry) {
+                                            final DlqExportStateV1 resultingState, final RetryDecision retry) {
         if (eventKind == 2 && sideEffect == 3) {
             throw new IllegalArgumentException("evidence resolution cannot remain UNKNOWN");
         }
@@ -213,7 +221,7 @@ public final class DlqExportResultBody {
         }
     }
 
-    private static RetryShape validateRetryDecision(final byte[] encoded) {
+    private static RetryDecision decodeRetryDecision(final byte[] encoded) {
         final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "RetryDecision");
         if (fields.size() != 8 && fields.size() != 9) {
             throw new IllegalArgumentException("RetryDecision has unexpected field count");
@@ -226,8 +234,8 @@ public final class DlqExportResultBody {
         if (kind < 1 || kind > 5) {
             throw new IllegalArgumentException("invalid retry decision kind");
         }
-        RetryPolicyRefV1.decode(nested(field(fields, 2), 2));
-        uint32(field(fields, 3), 3);
+        final RetryPolicyRefV1 policy = RetryPolicyRefV1.decode(nested(field(fields, 2), 2));
+        final long completedAttemptNo = uint32(field(fields, 3), 3);
         final long firstAttemptAt = unsigned(field(fields, 4), 4);
         final long retryDeadline = unsigned(field(fields, 5), 5);
         if (retryDeadline < firstAttemptAt) {
@@ -236,8 +244,8 @@ public final class DlqExportResultBody {
         if ((kind == 2 || kind == 4) != hasNext) {
             throw new IllegalArgumentException("retry next-at presence does not match retry kind");
         }
-        if (hasNext) {
-            final long nextRetryAt = unsigned(field(fields, 6), 6);
+        final Long nextRetryAt = hasNext ? unsigned(field(fields, 6), 6) : null;
+        if (nextRetryAt != null) {
             if (nextRetryAt < firstAttemptAt || nextRetryAt > retryDeadline) {
                 throw new IllegalArgumentException("retry next-at is outside the first-attempt/deadline interval");
             }
@@ -245,11 +253,13 @@ public final class DlqExportResultBody {
         if (unsigned(field(fields, 7), 7) != 1) {
             throw new IllegalArgumentException("unsupported retry jitter algorithm");
         }
-        StableCode.fromWire(boundedInt(unsigned(field(fields, 8), 8), "retry cause"));
-        if (unsigned(field(fields, 9), 9) != 2) {
+        final StableCode cause = StableCode.fromWire(boundedInt(unsigned(field(fields, 8), 8), "retry cause"));
+        final int retryDomain = boundedInt(unsigned(field(fields, 9), 9), "retry domain");
+        if (retryDomain != 2) {
             throw new IllegalArgumentException("DLQ result must use DLQ_EXPORT retry domain");
         }
-        return new RetryShape(kind);
+        return new RetryDecision(encoded, kind, completedAttemptNo, firstAttemptAt, retryDeadline, nextRetryAt,
+                policy, cause, retryDomain);
     }
 
     private static void validateChargeVector(final byte[] encoded) {
@@ -359,6 +369,73 @@ public final class DlqExportResultBody {
         return fields;
     }
 
-    private record RetryShape(int kind) {
+    /** Strictly decoded DLQ RetryDecisionV1 fields retained beside the raw bytes. */
+    public static final class RetryDecision {
+        private final byte[] canonicalBytes;
+        private final int kind;
+        private final long completedAttemptNo;
+        private final long firstAttemptAt;
+        private final long retryDeadline;
+        private final Long nextRetryAt;
+        private final RetryPolicyRefV1 policy;
+        private final StableCode cause;
+        private final int retryDomain;
+
+        private RetryDecision(final byte[] canonicalBytes, final int kind, final long completedAttemptNo,
+                              final long firstAttemptAt, final long retryDeadline, final Long nextRetryAt,
+                              final RetryPolicyRefV1 policy, final StableCode cause, final int retryDomain) {
+            this.canonicalBytes = copy(canonicalBytes);
+            this.kind = kind;
+            this.completedAttemptNo = completedAttemptNo;
+            this.firstAttemptAt = firstAttemptAt;
+            this.retryDeadline = retryDeadline;
+            this.nextRetryAt = nextRetryAt;
+            this.policy = Objects.requireNonNull(policy, "policy");
+            this.cause = Objects.requireNonNull(cause, "cause");
+            this.retryDomain = retryDomain;
+        }
+
+        public byte[] canonicalBytes() {
+            return copy(canonicalBytes);
+        }
+
+        public int kind() {
+            return kind;
+        }
+
+        public long completedAttemptNo() {
+            return completedAttemptNo;
+        }
+
+        public long firstAttemptAt() {
+            return firstAttemptAt;
+        }
+
+        public long retryDeadline() {
+            return retryDeadline;
+        }
+
+        public boolean hasNextRetryAt() {
+            return nextRetryAt != null;
+        }
+
+        public long nextRetryAt() {
+            if (nextRetryAt == null) {
+                throw new IllegalStateException("RetryDecision has no next retry time");
+            }
+            return nextRetryAt;
+        }
+
+        public RetryPolicyRefV1 policy() {
+            return policy;
+        }
+
+        public StableCode cause() {
+            return cause;
+        }
+
+        public int retryDomain() {
+            return retryDomain;
+        }
     }
 }

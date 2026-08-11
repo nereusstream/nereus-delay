@@ -4786,6 +4786,7 @@ public final class DelayShard {
                     StableCode.STALE_SYSTEM_MUTATION);
         }
         try {
+            validateDlqRetryDecision(body, messageId, getMessage(messageId), terminal, sourcePosition);
             validateDlqExportAttempt(current, body);
             final int nextAttempt = body.resultingState() == DlqExportStateV1.PENDING
                     ? UnsignedInt32.successor(body.physicalAttemptNo()) : body.physicalAttemptNo();
@@ -4806,6 +4807,59 @@ public final class DelayShard {
         } catch (IllegalStateException | IllegalArgumentException | ArithmeticException exception) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.INTEGRITY_ERROR);
+        }
+    }
+
+    /**
+     * Recomputes the DLQ retry domain when the shard has the immutable
+     * source-position policy catalog for this V1 binding. Legacy records and
+     * catalog-less compatibility shards retain structural validation only.
+     */
+    private void validateDlqRetryDecision(final DlqExportResultBody body,
+                                          final DelayMessageId messageId,
+                                          final MessageRecord current,
+                                          final TerminalGenerationRecord terminal,
+                                          final SourcePosition sourcePosition) {
+        if (retryPolicyCatalog == null || current == null || getV1ScheduleBinding(messageId) == null) {
+            return;
+        }
+        final RetryPolicySemanticV1 policy = retryPolicyFor(messageId, current, sourcePosition);
+        if (policy == null || policy.dlqExportMode() == io.nereusstream.delay.protocol.DlqExportModeV1.NOT_CONFIGURED) {
+            throw new IllegalStateException("DLQ export result has no enabled pinned DLQ policy");
+        }
+        final DlqExportResultBody.RetryDecision decision = body.parsedRetryDecision();
+        if (decision.retryDomain() != RetryJitterV1.DLQ_EXPORT || !decision.policy().matches(policy)) {
+            throw new IllegalStateException("DLQ RetryDecision does not match the pinned Retry Policy");
+        }
+        final SourcePosition terminalPosition = SourcePositionCodec.decode(terminal.appliedSourcePosition());
+        final long firstExportAt = terminalPosition.brokerPersistenceTimeEpochMs();
+        if (decision.firstAttemptAt() != firstExportAt) {
+            throw new IllegalStateException("DLQ RetryDecision first attempt does not match terminalization time");
+        }
+        final long expectedDeadline = Math.addExact(firstExportAt, policy.dlqMaxRetryDurationMs());
+        if (decision.retryDeadline() != expectedDeadline) {
+            throw new IllegalStateException("DLQ RetryDecision deadline does not match the pinned policy");
+        }
+        final long completedAttemptNo = decision.completedAttemptNo();
+        final long physicalAttemptNo = UnsignedInt32.toLong(body.physicalAttemptNo());
+        if (completedAttemptNo <= 0 || completedAttemptNo != physicalAttemptNo
+                || completedAttemptNo > policy.dlqMaxAttempts()) {
+            throw new IllegalStateException("DLQ RetryDecision attempt does not match the export policy");
+        }
+        if (body.resultingState() == DlqExportStateV1.PENDING) {
+            if (body.sideEffect() == 3 && !policy.dlqAllowPossibleDuplicate()) {
+                throw new IllegalStateException("DLQ unknown retry requires possible-duplicate policy permission");
+            }
+            if (completedAttemptNo >= policy.dlqMaxAttempts() || !decision.hasNextRetryAt()) {
+                throw new IllegalStateException("DLQ scheduled retry exceeds the pinned attempt budget");
+            }
+            final long cap = policy.dlqRetryBackoffCap(completedAttemptNo);
+            final long jitter = RetryJitterV1.delayMs(RetryJitterV1.DLQ_EXPORT, messageId,
+                    UnsignedInt32.toLong(body.generation()), completedAttemptNo, cap);
+            final long expectedNext = Math.addExact(body.observedAt().latestEpochMs(), jitter);
+            if (decision.nextRetryAt() != expectedNext || expectedNext > expectedDeadline) {
+                throw new IllegalStateException("DLQ RetryDecision next retry does not match deterministic jitter");
+            }
         }
     }
 

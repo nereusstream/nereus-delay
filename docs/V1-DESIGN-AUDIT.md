@@ -2000,7 +2000,12 @@ also enforces the local `first_attempt_at <= next_retry_at <= retry_deadline`
 interval (and rejects a deadline before the first attempt), so a structurally
 valid retry cannot schedule outside its own decision window. Negative vectors
 are in `DlqExportResultBodyTest`; policy publication and source-ordered
-authority remain external evidence.
+authority remain external evidence. The typed decision is now retained by the
+body codec, and a `DelayShard` with an exact source-position Retry Policy
+catalog rechecks the `DLQ_EXPORT` domain, pinned ref, terminalization
+`firstExportAt`, checked deadline, physical-attempt budget, duplicate permission
+and deterministic next-retry jitter before persisting the outbox transition;
+catalog-less and legacy bindings remain structural compatibility seams.
 
 The business `PublishOutcomeBody` retry decoder applies the same exact
 `RetryDecisionV1` field sequence and first-attempt/deadline interval fence as

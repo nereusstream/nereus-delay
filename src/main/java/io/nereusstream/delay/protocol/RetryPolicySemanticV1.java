@@ -101,20 +101,22 @@ public final class RetryPolicySemanticV1 {
         if (completedAttemptNo <= 0 || completedAttemptNo > 0xffff_ffffL) {
             throw new IllegalArgumentException("completed attempt number is outside uint32 range");
         }
-        if (initialBackoffMs == 0 || maxBackoffMs == 0) {
-            return 0;
+        return retryBackoffCap(initialBackoffMs, maxBackoffMs, completedAttemptNo);
+    }
+
+    /**
+     * Returns the checked DLQ exponential cap for a completed physical export
+     * attempt. A disabled DLQ policy has no retry domain and cannot be used to
+     * authorize an export retry.
+     */
+    public long dlqRetryBackoffCap(final long completedAttemptNo) {
+        if (dlqExportMode == DlqExportModeV1.NOT_CONFIGURED) {
+            throw new IllegalStateException("DLQ export retry is not configured");
         }
-        long cap = initialBackoffMs;
-        long remaining = completedAttemptNo - 1;
-        while (remaining > 0 && cap < maxBackoffMs) {
-            if (cap > maxBackoffMs / 2) {
-                cap = maxBackoffMs;
-            } else {
-                cap *= 2;
-            }
-            remaining--;
+        if (completedAttemptNo <= 0 || completedAttemptNo > dlqMaxAttempts) {
+            throw new IllegalArgumentException("DLQ completed attempt exceeds policy budget");
         }
-        return cap;
+        return retryBackoffCap(dlqInitialBackoffMs, dlqMaxBackoffMs, completedAttemptNo);
     }
 
     public int maxPublishAdmissions() {
@@ -269,6 +271,24 @@ public final class RetryPolicySemanticV1 {
         } catch (ArithmeticException exception) {
             throw new IllegalArgumentException(name + " backoff budget overflows", exception);
         }
+    }
+
+    private static long retryBackoffCap(final long initialBackoff, final long maxBackoff,
+                                        final long completedAttemptNo) {
+        if (initialBackoff == 0 || maxBackoff == 0) {
+            return 0;
+        }
+        long cap = initialBackoff;
+        long remaining = completedAttemptNo - 1;
+        while (remaining > 0 && cap < maxBackoff) {
+            if (cap > maxBackoff / 2) {
+                cap = maxBackoff;
+            } else {
+                cap *= 2;
+            }
+            remaining--;
+        }
+        return cap;
     }
 
     private static byte[] nonEmpty(final byte[] value, final String name) {
