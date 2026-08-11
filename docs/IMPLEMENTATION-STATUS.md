@@ -7,6 +7,15 @@ normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20�
 the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
+The local `TIME_FENCE_V1` apply path now carries an explicit
+`DelayShardConfig.timeFenceSafetyMarginMs` input and checks the Trusted-UTC
+proof with checked addition before advancing the ingress watermark. A proof one
+millisecond below the configured boundary is rejected as
+`UNAUTHORIZED_SYSTEM_MUTATION`, while the exact boundary is accepted; legacy
+config constructors retain a zero-margin compatibility seam. Production Route
+configuration still must supply the benchmarked nonzero margin and authenticated
+fence-writer authority.
+
 The configured Control target-registration gate now distinguishes an
 authoritative binding mismatch from an unavailable authority.  A missing
 registration still produces the bounded `UNAUTHORIZED_SYSTEM_MUTATION`
