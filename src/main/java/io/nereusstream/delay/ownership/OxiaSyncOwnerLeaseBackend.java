@@ -19,6 +19,7 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
@@ -63,12 +64,24 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
     public static ClientHandle connect(final String serviceAddress, final String namespace,
                                        final String clientIdentifier, final String keyPrefix)
             throws OxiaException {
+        return connect(serviceAddress, namespace, clientIdentifier, Duration.ofSeconds(15), keyPrefix);
+    }
+
+    /** Creates a client with an explicit Oxia ephemeral-session timeout. */
+    public static ClientHandle connect(final String serviceAddress, final String namespace,
+                                       final String clientIdentifier, final Duration sessionTimeout,
+                                       final String keyPrefix) throws OxiaException {
         Objects.requireNonNull(serviceAddress, "serviceAddress");
         Objects.requireNonNull(namespace, "namespace");
         Objects.requireNonNull(clientIdentifier, "clientIdentifier");
+        Objects.requireNonNull(sessionTimeout, "sessionTimeout");
+        if (sessionTimeout.isZero() || sessionTimeout.isNegative()) {
+            throw new IllegalArgumentException("sessionTimeout must be positive");
+        }
         final SyncOxiaClient client = OxiaClientBuilder.create(serviceAddress)
                 .namespace(canonicalText(namespace, "namespace"))
                 .clientIdentifier(canonicalText(clientIdentifier, "clientIdentifier"))
+                .sessionTimeout(sessionTimeout)
                 .syncClient();
         return new ClientHandle(client, new OxiaSyncOwnerLeaseBackend(client, keyPrefix));
     }
