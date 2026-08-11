@@ -59,11 +59,11 @@ public final class OxiaControlOperationAuthority implements ControlOperationAuth
 
     @Override
     public ControlOperationQueryResponseV1 query(final ControlOperationReceiptV1 receipt, final long nowEpochMs) {
-        if (nowEpochMs < 0) {
-            throw new IllegalArgumentException("nowEpochMs must be non-negative");
+        if (receipt == null || nowEpochMs < 0) {
+            return ControlOperationQueryResponseV1.invalidReceipt();
         }
         final ControlOperationQueryResponseV1 response = Objects.requireNonNull(backend.query(
-                Objects.requireNonNull(receipt, "receipt"), nowEpochMs), "Oxia query response");
+                receipt, nowEpochMs), "Oxia query response");
         validateCurrent(response, receipt, -1, null);
         return response;
     }

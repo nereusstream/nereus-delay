@@ -77,6 +77,8 @@ class ControlOperationAuthorityTest {
                 authority.query(receipt, 4_001).resultKind());
         assertEquals(ControlOperationQueryResultV1.INVALID_RECEIPT,
                 authority.query(receipt, -1).resultKind());
+        assertEquals(ControlOperationQueryResultV1.INVALID_RECEIPT,
+                authority.query(null, 2_000).resultKind());
     }
 
     @Test
@@ -197,6 +199,10 @@ class ControlOperationAuthorityTest {
         final OxiaControlOperationAuthority authority = new OxiaControlOperationAuthority(backend);
         assertThrows(IllegalArgumentException.class, () -> authority.register(receipt, wrongIdentity));
         assertThrows(IllegalArgumentException.class, () -> authority.advance(receipt, 1, wrongRevision));
+        assertEquals(ControlOperationQueryResultV1.INVALID_RECEIPT,
+                authority.query(null, 2_000).resultKind());
+        assertEquals(ControlOperationQueryResultV1.INVALID_RECEIPT,
+                authority.query(receipt, -1).resultKind());
         assertFalse(called[0]);
     }
 

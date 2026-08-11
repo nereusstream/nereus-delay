@@ -1464,7 +1464,17 @@ public final class EmbeddedDelayService implements DelayClient {
     public synchronized ControlOperationQueryResponseV1 queryControlOperation(
             final ControlOperationReceiptV1 receipt, final long nowEpochMs) {
         ensureOpen();
-        return controlOperationAuthority.query(receipt, nowEpochMs);
+        if (receipt == null || nowEpochMs < 0) {
+            return ControlOperationQueryResponseV1.invalidReceipt();
+        }
+        try {
+            return Objects.requireNonNull(controlOperationAuthority.query(receipt, nowEpochMs),
+                    "control operation query response");
+        } catch (RuntimeException invalidProjection) {
+            // Keep the public control-query union closed when a local authority
+            // read or response binding cannot be proven.
+            return ControlOperationQueryResponseV1.integrityError();
+        }
     }
 
     public synchronized DelayShard shard() {

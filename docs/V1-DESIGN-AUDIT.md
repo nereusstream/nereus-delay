@@ -49,6 +49,12 @@ The Command Query audit now keeps the same response boundary: null locators are
 `RECEIPT_MISMATCH`.  This closes exceptional-Future leakage without changing
 pending, barrier or retention semantics.
 
+The Control Operation Query audit now applies the closed union at both the
+authority seams and the embedded facade: null receipts or negative observation
+times are `INVALID_RECEIPT`, while an unproven local authority read or response
+binding is `INTEGRITY_ERROR`.  Complete receipt matching, fixed retention expiry
+and CURRENT/error projection semantics are unchanged.
+
 The uncertain-Store drain audit now also covers the race where native Store
 close was started by another caller before the coordinator observed the
 unproven write boundary.  An already-started close does not prove source or

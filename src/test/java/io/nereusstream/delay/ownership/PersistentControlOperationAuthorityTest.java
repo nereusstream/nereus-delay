@@ -86,6 +86,10 @@ class PersistentControlOperationAuthorityTest {
                 receipt.registeredAt(), receipt.queryUntilEpochMs());
         assertEquals(ControlOperationQueryResultV1.NOT_FOUND_OR_NOT_AUTHORIZED,
                 authority.query(wrong, 2_000).resultKind());
+        assertEquals(ControlOperationQueryResultV1.INVALID_RECEIPT,
+                authority.query(null, 2_000).resultKind());
+        assertEquals(ControlOperationQueryResultV1.INVALID_RECEIPT,
+                authority.query(receipt, -1).resultKind());
     }
 
     private static ControlOperationReceiptV1 receipt(final int seed, final long queryUntil) {

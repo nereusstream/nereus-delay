@@ -47,6 +47,14 @@ RocksDB/read or projection exception returns `INTEGRITY_ERROR`; a proven
 command/position/hash mismatch remains `RECEIPT_MISMATCH`.  The null-receipt
 regression is included in `EmbeddedDelayServiceTest.embeddedQueryUsesQueuedReceiptAsSourceBarrier`.
 
+The Control Operation Query bridge now closes the same public boundary: a null
+receipt or negative observation time returns `INVALID_RECEIPT`, while an
+authority read or response-binding exception is projected as `INTEGRITY_ERROR`.
+Complete receipt identity, fixed retention expiry and CURRENT/error branches
+remain unchanged.  The local regressions are covered by
+`ControlOperationAuthorityTest` and the control-query assertions in
+`EmbeddedDelayServiceTest.embeddedControlOperationEntryPointsPreserveReceiptBoundCas`.
+
 The uncertain-Store drain path now applies the source/scheduler stop fence even
 when a caller started native Store close before the coordinator observed the
 unproven write boundary.  External close is not evidence of source quiescence:

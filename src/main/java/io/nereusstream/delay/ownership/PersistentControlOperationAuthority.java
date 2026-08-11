@@ -122,8 +122,7 @@ public final class PersistentControlOperationAuthority implements ControlOperati
     @Override
     public ControlOperationQueryResponseV1 query(final ControlOperationReceiptV1 receipt,
                                                   final long nowEpochMs) {
-        Objects.requireNonNull(receipt, "receipt");
-        if (nowEpochMs < 0) {
+        if (receipt == null || nowEpochMs < 0) {
             return ControlOperationQueryResponseV1.invalidReceipt();
         }
         return withExclusiveLock(() -> {
