@@ -52,6 +52,16 @@ entries address the same immutable object. The focused regressions are
 `CheckpointManifestTest.checksumWithConflictingLengthsIsRejectedButSameLengthReuseIsAllowed`;
 provider upload/attestation and catalog publication remain external gates.
 
+The physical checkpoint boundary now also covers directory creation before the
+RocksDB checkpoint/copy call: checkpoint parent, `checkpoint-tmp`, restore
+staging descendants and the installed parent are created one component at a
+time and rechecked without following a local symlink. A leading deployment
+symlink before the nearest existing anchor remains allowed, while a symlink at
+the shard-owned temporary boundary fails closed; the focused regression is
+`ShardStoreTest.checkpointRejectsSymbolicParentComponentBeforeCreatingOutsideFiles`.
+This closes local path handling only; provider and process-recovery authority
+remain release blockers.
+
 The Control target-registration audit now separates an authoritative binding
 mismatch from an unavailable registry boundary.  Missing registration remains
 an explicit `UNAUTHORIZED_SYSTEM_MUTATION` position result, but a lookup or

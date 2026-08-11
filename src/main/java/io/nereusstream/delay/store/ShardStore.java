@@ -290,9 +290,9 @@ public final class ShardStore implements AutoCloseable {
             if (manifest != null) {
                 validateCheckpointManifest(shardId, checkpointPath, manifest, limits);
             }
-            ensureRealDirectory(shardRoot.resolve("incarnations"));
-            ensureRealDirectory(shardRoot.resolve("restore-tmp"));
-            ensureRealDirectory(restoreRoot);
+            ensureRealDirectoryPath(shardRoot.resolve("incarnations"));
+            ensureRealDirectoryPath(shardRoot.resolve("restore-tmp"));
+            ensureRealDirectoryPath(restoreRoot);
             if (hasActiveDb(shardRoot)) {
                 throw new IOException("cannot restore while an active shard DB exists: " + shardRoot);
             }
@@ -343,7 +343,7 @@ public final class ShardStore implements AutoCloseable {
             if (pin != null) {
                 validateRecoveryPin(shardId, manifest, catalog, pin);
             }
-            ensureRealDirectory(activeDb.getParent());
+            ensureRealDirectoryPath(activeDb.getParent());
             Files.move(stagedDb, activeDb, StandardCopyOption.ATOMIC_MOVE);
             activeDbMoved = true;
             // Persist the new Store Incarnation directory entry before the
@@ -715,6 +715,39 @@ public final class ShardStore implements AutoCloseable {
         if (Files.isSymbolicLink(path)
                 || !Files.isDirectory(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
             throw new IOException("shard path component must be a real directory: " + path);
+        }
+    }
+
+    /** Creates and verifies every component of a local temporary directory. */
+    private static void ensureRealDirectoryPath(final Path path) throws IOException {
+        final Path absolute = path.toAbsolutePath().normalize();
+        final List<Path> missing = new ArrayList<>();
+        Path cursor = absolute;
+        while (!Files.exists(cursor, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            missing.add(cursor);
+            cursor = cursor.getParent();
+            if (cursor == null) {
+                throw new IOException("directory path has no existing ancestor: " + path);
+            }
+        }
+        if (Files.isSymbolicLink(cursor)
+                || !Files.isDirectory(cursor, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("temporary path component must be a real directory: " + cursor);
+        }
+        for (int index = missing.size() - 1; index >= 0; index--) {
+            cursor = missing.get(index);
+            if (!Files.exists(cursor, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                try {
+                    Files.createDirectory(cursor);
+                } catch (java.nio.file.FileAlreadyExistsException racedCreate) {
+                    // Re-check below; a concurrent creator is safe only when
+                    // it installed a real directory rather than a symlink.
+                }
+            }
+            if (Files.isSymbolicLink(cursor)
+                    || !Files.isDirectory(cursor, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                throw new IOException("temporary path component must be a real directory: " + cursor);
+            }
         }
     }
 
@@ -1296,6 +1329,7 @@ public final class ShardStore implements AutoCloseable {
 
     private static void copyTree(final Path source, final Path target) throws IOException {
         final List<Path> copiedDirectories = new ArrayList<>();
+        ensureRealDirectoryPath(target);
         try (var paths = Files.walk(source)) {
             final var iterator = paths.iterator();
             while (iterator.hasNext()) {
@@ -1305,11 +1339,10 @@ public final class ShardStore implements AutoCloseable {
                     throw new IOException("checkpoint contains a symbolic link: " + path);
                 }
                 if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
-                    Files.createDirectories(destination);
-                    ensureRealDirectory(destination);
+                    ensureRealDirectoryPath(destination);
                     copiedDirectories.add(destination);
                 } else if (Files.isRegularFile(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
-                    Files.createDirectories(destination.getParent());
+                    ensureRealDirectoryPath(destination.getParent());
                     Files.copy(path, destination, LinkOption.NOFOLLOW_LINKS);
                     forceFile(destination);
                 } else {
@@ -1830,10 +1863,9 @@ public final class ShardStore implements AutoCloseable {
             if (parent == null) {
                 throw new IOException("checkpoint target has no parent: " + checkpointPath);
             }
-            Files.createDirectories(parent);
+            ensureRealDirectoryPath(parent);
             final Path stagingRoot = parent.resolve("checkpoint-tmp");
-            ensureRealDirectory(parent);
-            ensureRealDirectory(stagingRoot);
+            ensureRealDirectoryPath(stagingRoot);
             temporary = stagingRoot.resolve(UUID.randomUUID().toString());
             try (Checkpoint checkpoint = Checkpoint.create(db)) {
                 checkpoint.createCheckpoint(temporary.toString());

@@ -81,6 +81,16 @@ and `CheckpointManifestTest.checksumWithConflictingLengthsIsRejectedButSameLengt
 cover the boundary. Object Store publication and immutable provider attestation
 remain external release gates.
 
+The shard checkpoint/restore filesystem paths now use the same component-by-
+component real-directory guard before creating `checkpoint-tmp`, `restore-tmp`,
+staged DB descendants, or the final checkpoint parent. The guard starts at the
+nearest already-existing deployment path (so a deployment-managed leading
+symlink is not mistaken for a shard-owned component), but rejects a symlink at
+the local temporary boundary and rechecks a concurrent create. The existing
+temporary-path regression plus `ShardStoreTest.checkpointRejectsSymbolicParentComponentBeforeCreatingOutsideFiles`
+cover the local boundary; this remains local evidence rather than external
+filesystem/quota authority.
+
 `OxiaRealRecoveryAuthoritySmokeTest` now exercises both single-record recovery
 authorities against a real Oxia endpoint when
 `NEREUS_DELAY_OXIA_ENDPOINT=host:port` is set: Recovery Catalog publication,

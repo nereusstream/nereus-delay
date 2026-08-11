@@ -793,6 +793,30 @@ class ShardStoreTest {
     }
 
     @Test
+    void checkpointRejectsSymbolicParentComponentBeforeCreatingOutsideFiles() throws Exception {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 53);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("checkpoint-parent-link"));
+        final Path parentRoot = tempDir.resolve("checkpoint-parent-link-root");
+        final Path outside = tempDir.resolve("checkpoint-parent-link-outside");
+        Files.createDirectories(parentRoot);
+        Files.createDirectories(outside);
+        final Path linkedParent = parentRoot.resolve("nested");
+        try {
+            Files.createSymbolicLink(linkedParent, outside);
+        } catch (UnsupportedOperationException | java.nio.file.FileSystemException unsupported) {
+            return;
+        }
+        final Path checkpoint = linkedParent.resolve("checkpoint");
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            assertThrows(IllegalStateException.class, () -> store.createCheckpoint(checkpoint));
+        }
+        try (var paths = Files.walk(outside)) {
+            assertTrue(paths.noneMatch(path -> path.getFileName().toString().equals("CURRENT")));
+        }
+    }
+
+    @Test
     void catalogBoundRestoreRejectsPinDriftBeforeActivePublication() throws Exception {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 20);
         final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("catalog-source"));
