@@ -16,6 +16,7 @@ import io.nereusstream.delay.protocol.PayloadCommitProofV1;
 import io.nereusstream.delay.protocol.PayloadProofTrustSet;
 import io.nereusstream.delay.protocol.PayloadProofTrustSetSemanticV1;
 import io.nereusstream.delay.protocol.PayloadProofVerifierKeyV1;
+import io.nereusstream.delay.protocol.PayloadReference;
 import io.nereusstream.delay.protocol.PayloadReservationReceiptV1;
 import io.nereusstream.delay.protocol.PayloadUploadHandleOutcomeV1;
 import io.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
@@ -138,6 +139,89 @@ class InMemoryPayloadObjectStoreTest {
                 reservation.reservationExpiryEpochMs(), PayloadReservationStatus.RESERVED,
                 reservation.stateVersion() + 1, reservation.sourcePosition(), null);
         assertThrows(IllegalStateException.class, () -> store.register(drifted));
+    }
+
+    @Test
+    void receiptAnchorSurvivesSourceOrderedReservationLifecycleTransitions() throws Exception {
+        final KeyPair keyPair = keyPair();
+        final PayloadProofTrustSetSemanticV1 trust = trustSet(keyPair, 9_000);
+        final InMemoryPayloadObjectStore store = new InMemoryPayloadObjectStore(profile(),
+                Bytes.sha256(Bytes.utf8("tenant")), trust, 7, keyPair.getPrivate());
+        final PayloadReservation reservation = reservation(5_000, Bytes.utf8("large"));
+        store.register(reservation);
+        final PayloadReservationReceiptV1 receipt = store.reservationReceipt(reservation);
+
+        final PayloadReservation logicallyExpired = new PayloadReservation(reservation.shardId(),
+                reservation.reservationId(), reservation.commandId(), reservation.delayMessageId(),
+                reservation.commandHash(), reservation.intent(), reservation.reservationExpiryEpochMs(),
+                PayloadReservationStatus.EXPIRED, reservation.stateVersion(), reservation.sourcePosition(), null);
+        store.register(logicallyExpired);
+        assertEquals(PayloadUploadHandleOutcomeV1.RESERVATION_EXPIRED,
+                store.issueUploadHandle(receipt, UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_000).outcome());
+
+        final PayloadReservation cancellationReservation = reservation(5_000, Bytes.utf8("large"));
+        final InMemoryPayloadObjectStore cancellationStore = new InMemoryPayloadObjectStore(profile(),
+                Bytes.sha256(Bytes.utf8("tenant")), trust, 7, keyPair.getPrivate());
+        cancellationStore.register(cancellationReservation);
+        final PayloadReservationReceiptV1 cancellationReceipt =
+                cancellationStore.reservationReceipt(cancellationReservation);
+        final byte[] cancellationPosition = new KafkaSourcePosition(cancellationReservation.shardId(), "embedded",
+                UUID.nameUUIDFromBytes(Bytes.utf8("payload-cancel-source")), 2, null, 1_100)
+                .canonicalBytes();
+        final PayloadReservation abandoned = new PayloadReservation(cancellationReservation.shardId(),
+                cancellationReservation.reservationId(), cancellationReservation.commandId(),
+                cancellationReservation.delayMessageId(), cancellationReservation.commandHash(),
+                cancellationReservation.intent(), cancellationReservation.reservationExpiryEpochMs(),
+                PayloadReservationStatus.ABANDONED, cancellationReservation.stateVersion() + 1,
+                cancellationPosition, null);
+        cancellationStore.register(abandoned);
+        assertEquals(PayloadUploadHandleOutcomeV1.RESERVATION_ABANDONED,
+                cancellationStore.issueUploadHandle(cancellationReceipt, UploadHandleKindV1.OPAQUE_SINGLE_PUT,
+                        1_100).outcome());
+    }
+
+    @Test
+    void committedTransitionClosesReceiptAndFencesForeignObjectIdentity() throws Exception {
+        final KeyPair keyPair = keyPair();
+        final PayloadProofTrustSetSemanticV1 trust = trustSet(keyPair, 9_000);
+        final ProfileSemanticEnvelopeV1 profile = profile();
+        final InMemoryPayloadObjectStore store = new InMemoryPayloadObjectStore(profile,
+                Bytes.sha256(Bytes.utf8("tenant")), trust, 7, keyPair.getPrivate());
+        final byte[] payload = Bytes.utf8("large");
+        final PayloadReservation reservation = reservation(5_000, payload);
+        store.register(reservation);
+        final PayloadReservationReceiptV1 receipt = store.reservationReceipt(reservation);
+        final byte[] container = Bytes.concat(Bytes.utf8("nereus-delay-local/"),
+                Bytes.utf8(Bytes.hex(profile.profileId())));
+        final byte[] objectKey = Bytes.concat(Bytes.utf8("reservation/"),
+                Bytes.utf8(Bytes.hex(reservation.reservationId())));
+        final PayloadReference committedPayload = new PayloadReference(profile.semanticHash(), container, objectKey,
+                Bytes.concat(Bytes.utf8("sha256-"), Bytes.utf8(Bytes.hex(Bytes.sha256(payload)))),
+                Bytes.sha256(payload), payload.length, Bytes.sha256(payload));
+        final byte[] commitPosition = new KafkaSourcePosition(reservation.shardId(), "embedded",
+                UUID.nameUUIDFromBytes(Bytes.utf8("payload-commit-source")), 2, null, 1_100)
+                .canonicalBytes();
+        final PayloadReservation committed = new PayloadReservation(reservation.shardId(),
+                reservation.reservationId(), reservation.commandId(), reservation.delayMessageId(),
+                reservation.commandHash(), reservation.intent(), reservation.reservationExpiryEpochMs(),
+                PayloadReservationStatus.COMMITTED, reservation.stateVersion() + 1, commitPosition,
+                committedPayload);
+        store.register(committed);
+        assertEquals(PayloadUploadHandleOutcomeV1.RESERVATION_CLOSED,
+                store.issueUploadHandle(receipt, UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_100).outcome());
+
+        final PayloadReference foreignPayload = new PayloadReference(profile.semanticHash(), Bytes.utf8("foreign"),
+                objectKey, committedPayload.immutableObjectVersion(), committedPayload.etag(), payload.length,
+                Bytes.sha256(payload));
+        final PayloadReservation foreignCommit = new PayloadReservation(reservation.shardId(),
+                reservation.reservationId(), reservation.commandId(), reservation.delayMessageId(),
+                reservation.commandHash(), reservation.intent(), reservation.reservationExpiryEpochMs(),
+                PayloadReservationStatus.COMMITTED, reservation.stateVersion() + 1, commitPosition,
+                foreignPayload);
+        final InMemoryPayloadObjectStore foreignStore = new InMemoryPayloadObjectStore(profile,
+                Bytes.sha256(Bytes.utf8("tenant")), trust, 7, keyPair.getPrivate());
+        foreignStore.register(reservation);
+        assertThrows(IllegalStateException.class, () -> foreignStore.register(foreignCommit));
     }
 
     @Test

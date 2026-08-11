@@ -1095,6 +1095,17 @@ closed retryable unavailable branch when no adapter is configured; it does not
 claim Oxia handle-protection CAS, provider credentials or remote immutability.
 The positive local reserve-to-handle-to-attestation path is covered by
 `EmbeddedDelayServiceTest.receiptBoundPayloadFacadeRereadsTheShardReservation`.
+The local adapter now keeps the first registered Prepare reservation as the
+immutable receipt anchor while accepting only the same reservation identity's
+legal source-ordered lifecycle advance. A receipt observed before a later
+`ABANDONED`/`EXPIRED` transition therefore reaches the corresponding typed
+closed outcome instead of being reported as `INTEGRITY_ERROR`; arbitrary
+identity/state drift remains rejected. The focused evidence is
+`InMemoryPayloadObjectStoreTest.receiptAnchorSurvivesSourceOrderedReservationLifecycleTransitions`
+and `EmbeddedDelayServiceTest.payloadFacadeMapsSourceOrderedReservationCloseToTypedOutcome`.
+This is bounded to an adapter that has observed the Prepare anchor; durable
+cross-restart reservation binding and external Object Store/Oxia authority
+remain release gates.
 Terminal generation history uses the same guarded reads for source and
 obligation framing in both legacy and v2 branches; the local prefix evidence
 is `TerminalGenerationRecordTest`. Direct `DelayShard` history reads also

@@ -296,6 +296,44 @@ class EmbeddedDelayServiceTest {
     }
 
     @Test
+    void payloadFacadeMapsSourceOrderedReservationCloseToTypedOutcome() throws Exception {
+        final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final PayloadProofTrustSetSemanticV1 trustSet = payloadTrustSet(keyPair);
+        final ProfileSemanticEnvelopeV1 profile = payloadObjectStoreProfile();
+        final byte[] payload = new byte[(1 << 20) + 1];
+        final InMemoryPayloadObjectStore objectStore = new InMemoryPayloadObjectStore(profile,
+                Bytes.sha256(Bytes.utf8("tenant")), trustSet, 7, keyPair.getPrivate());
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 29);
+        final LargeScheduleIntent intent = new LargeScheduleIntent(
+                DestinationLaneId.derive(Bytes.utf8("payload-facade-close-lane")), 2_000, 5_000,
+                OrderingMode.BEST_EFFORT, payload.length, Bytes.sha256(payload), 4_000, trustSet.version());
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("payload-facade-close")), shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC),
+                EmbeddedDelayServiceConfig.defaults(), objectStore)) {
+            final PreparedCommand prepare = service.prepareLargeSchedule(intent, 10_000);
+            final EnqueueOutcome queuedPrepare = service.enqueue(prepare).toCompletableFuture().join();
+            assertEquals(StableCode.OK, service.awaitApplied(queuedPrepare.receipt()).toCompletableFuture().join()
+                    .stableCode());
+            final var reservation = service.shard().getReservation(Bytes.sha256(
+                    Bytes.utf8("nereus-delay-reservation-id-v1\0"), prepare.commandId().bytes(),
+                    prepare.delayMessageId().bytes(), prepare.commandHash()));
+            objectStore.register(reservation);
+            final PayloadReservationReceiptV1 receipt = objectStore.reservationReceipt(reservation);
+
+            final PreparedCommand cancel = service.prepareCancel(prepare.delayMessageId(), 0, 10_000);
+            final EnqueueOutcome queuedCancel = service.enqueue(cancel).toCompletableFuture().join();
+            assertEquals(StableCode.PAYLOAD_RESERVATION_ABANDONED,
+                    service.awaitApplied(queuedCancel.receipt()).toCompletableFuture().join().stableCode());
+
+            final PayloadUploadHandleResponseV1 result = service.issuePayloadUploadHandle(receipt,
+                    UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_100).toCompletableFuture().join();
+            assertEquals(PayloadUploadHandleOutcomeV1.RESERVATION_ABANDONED, result.outcome());
+            assertEquals(StableCode.RESERVATION_ABANDONED, result.error().code());
+        }
+    }
+
+    @Test
     void payloadFacadeMapsLocalReservationBindingFailureAsIntegrityError() throws Exception {
         final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final PayloadProofTrustSetSemanticV1 reservationTrustSet = payloadTrustSet(keyPair);

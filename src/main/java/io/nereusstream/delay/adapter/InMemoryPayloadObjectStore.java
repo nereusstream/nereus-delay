@@ -20,6 +20,7 @@ import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.StableErrorV1;
 import io.nereusstream.delay.protocol.UploadHandleKindV1;
 import io.nereusstream.delay.runtime.PayloadReservation;
+import io.nereusstream.delay.runtime.PayloadReservationStatus;
 
 import java.security.GeneralSecurityException;
 import java.security.PrivateKey;
@@ -100,8 +101,10 @@ public final class InMemoryPayloadObjectStore {
 
     /**
      * Registers the exact durable reservation binding. Re-registering the same
-     * canonical reservation is response-loss idempotent; any identity drift is
-     * rejected before a capability can be issued.
+     * canonical reservation is response-loss idempotent; a legal source-ordered
+     * lifecycle advance updates only the current closed-outcome projection while
+     * retaining the original Prepare receipt anchor. Any identity or illegal
+     * state drift is rejected before a capability can be issued.
      */
     public synchronized void register(final PayloadReservation reservation) {
         Objects.requireNonNull(reservation, "reservation");
@@ -113,8 +116,19 @@ public final class InMemoryPayloadObjectStore {
         final ReservationState previous = reservations.get(key);
         if (previous == null) {
             reservations.put(key, new ReservationState(reservation));
-        } else if (!Arrays.equals(previous.reservation.encode(), reservation.encode())) {
-            throw new IllegalStateException("reservation identity or state drifted");
+        } else if (Arrays.equals(previous.reservation.encode(), reservation.encode())) {
+            return;
+        } else {
+            if (!sameReservationIdentity(previous.reservation, reservation)
+                    || !validStateAdvance(previous.reservation, reservation)) {
+                throw new IllegalStateException("reservation identity or state drifted");
+            }
+            // The receipt anchor remains the first registered Prepare state;
+            // only the lifecycle projection used for closed outcomes moves
+            // forward.  This lets a previously issued receipt resolve to
+            // EXPIRED/ABANDONED/CLOSED instead of being misclassified as an
+            // integrity failure after a source-ordered state transition.
+            previous.reservation = reservation;
         }
     }
 
@@ -129,11 +143,12 @@ public final class InMemoryPayloadObjectStore {
         if (state == null || !Arrays.equals(state.reservation.encode(), reservation.encode())) {
             throw new IllegalArgumentException("reservation is not the exact registered binding");
         }
-        return PayloadReservationReceiptV1.create(reservation.reservationId(), reservation.delayMessageId(),
-                reservation.shardId(), SourcePositionCodec.decode(reservation.sourcePosition()),
-                reservation.stateVersion(), profile.ref(), containerFor(profile), objectKeyFor(reservation),
-                reservation.intent().expectedPayloadLength(), reservation.intent().payloadSha256(),
-                reservation.reservationExpiryEpochMs(), trustSet.ref());
+        final PayloadReservation anchor = state.receiptAnchor;
+        return PayloadReservationReceiptV1.create(anchor.reservationId(), anchor.delayMessageId(),
+                anchor.shardId(), SourcePositionCodec.decode(anchor.sourcePosition()),
+                anchor.stateVersion(), profile.ref(), containerFor(profile), objectKeyFor(anchor),
+                anchor.intent().expectedPayloadLength(), anchor.intent().payloadSha256(),
+                anchor.reservationExpiryEpochMs(), trustSet.ref());
     }
 
     /**
@@ -333,7 +348,7 @@ public final class InMemoryPayloadObjectStore {
     }
 
     private boolean matchesReceipt(final ReservationState state, final PayloadReservationReceiptV1 receipt) {
-        final PayloadReservation reservation = state.reservation;
+        final PayloadReservation reservation = state.receiptAnchor;
         try {
             return Arrays.equals(receipt.reservationId(), reservation.reservationId())
                     && receipt.delayMessageId().equals(reservation.delayMessageId())
@@ -350,6 +365,72 @@ public final class InMemoryPayloadObjectStore {
         } catch (IllegalArgumentException mismatch) {
             return false;
         }
+    }
+
+    private static boolean sameReservationIdentity(final PayloadReservation left,
+                                                   final PayloadReservation right) {
+        return left.shardId().equals(right.shardId())
+                && Arrays.equals(left.reservationId(), right.reservationId())
+                && left.commandId().equals(right.commandId())
+                && left.delayMessageId().equals(right.delayMessageId())
+                && Arrays.equals(left.commandHash(), right.commandHash())
+                && left.intent().equals(right.intent())
+                && left.reservationExpiryEpochMs() == right.reservationExpiryEpochMs();
+    }
+
+    private boolean validStateAdvance(final PayloadReservation previous,
+                                      final PayloadReservation next) {
+        if (previous.status() == PayloadReservationStatus.RESERVED
+                && next.status() == PayloadReservationStatus.EXPIRED
+                && previous.stateVersion() == next.stateVersion()
+                && Arrays.equals(previous.sourcePosition(), next.sourcePosition())) {
+            // TIME_FENCE's logical overlay changes only the projected status;
+            // it does not create a new durable state version.
+            return true;
+        }
+        if (previous.status() == PayloadReservationStatus.RESERVED
+                && (next.status() == PayloadReservationStatus.ABANDONED
+                || next.status() == PayloadReservationStatus.COMMITTED)) {
+            return (next.status() != PayloadReservationStatus.COMMITTED
+                    || committedPayloadMatchesAdapter(next))
+                    && isImmediateSuccessor(previous, next);
+        }
+        if (previous.status() == PayloadReservationStatus.EXPIRED
+                && next.status() == PayloadReservationStatus.EXPIRED) {
+            // Expiry materialization may persist the already selected overlay
+            // as a new state version after the adapter has observed it.
+            return isImmediateSuccessor(previous, next, false);
+        }
+        return false;
+    }
+
+    private boolean committedPayloadMatchesAdapter(final PayloadReservation reservation) {
+        final var reference = reservation.committedPayload();
+        return reference != null
+                && Arrays.equals(reference.objectStoreProfileHash(), profile.semanticHash())
+                && Arrays.equals(reference.container(), containerFor(profile))
+                && Arrays.equals(reference.objectKey(), objectKeyFor(reservation))
+                && reference.length() == reservation.intent().expectedPayloadLength()
+                && Bytes.constantTimeEquals(reference.payloadSha256(), reservation.intent().payloadSha256());
+    }
+
+    private static boolean isImmediateSuccessor(final PayloadReservation previous,
+                                                final PayloadReservation next) {
+        return isImmediateSuccessor(previous, next, true);
+    }
+
+    private static boolean isImmediateSuccessor(final PayloadReservation previous,
+                                                final PayloadReservation next,
+                                                final boolean requireNewSourcePosition) {
+        final long expectedVersion;
+        try {
+            expectedVersion = Math.addExact(previous.stateVersion(), 1);
+        } catch (ArithmeticException overflow) {
+            return false;
+        }
+        return next.stateVersion() == expectedVersion
+                && (!requireNewSourcePosition
+                || !Arrays.equals(previous.sourcePosition(), next.sourcePosition()));
     }
 
     private static byte[] containerFor(final ProfileSemanticEnvelopeV1 profile) {
@@ -460,13 +541,15 @@ public final class InMemoryPayloadObjectStore {
     }
 
     private final class ReservationState {
-        private final PayloadReservation reservation;
+        private PayloadReservation reservation;
+        private final PayloadReservation receiptAnchor;
         private final Map<UploadHandleKindV1, OpaquePayloadUploadHandleV1> handles = new HashMap<>();
         private byte[] payload;
         private PayloadCommitProofV1 proof;
 
         private ReservationState(final PayloadReservation reservation) {
             this.reservation = reservation;
+            this.receiptAnchor = reservation;
         }
 
         private boolean matches(final OpaquePayloadUploadHandleV1 handle, final long nowEpochMs) {
