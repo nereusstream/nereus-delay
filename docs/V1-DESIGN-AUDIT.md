@@ -1312,7 +1312,9 @@ fail closed。这只证明 shard-local projection 与 Registry 字段的一致�
 physical READY 恢复、certificate authority 或外部 Profile/Oxia revision authority。
 Active state 还要求嵌套 `ReadyCertificateV1` 的 Lane ID/incarnation 与自身完全
 一致，避免“证书内部有效但挂错 Lane”的值通过本地恢复；这仍不是外部
-certificate issuer 或 Oxia activation authority。
+certificate issuer 或 Oxia activation authority。`next_eligible_at` 还必须不早于
+当前保留 action、OPEN circuit、Lane backoff 与 executor retry gate 的最大值，
+避免 typed projection 在本地先于显式故障隔离窗口重新进入 READY。
 
 协议边界也已开始按 Registry 收敛：`ScheduleIntentV1` 及其
 `RetryPolicyRefV1`、`AdapterMetadataV1`、`KafkaMetadataV1`、

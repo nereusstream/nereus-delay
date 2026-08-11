@@ -17,7 +17,7 @@ class ActiveLaneStateV1Test {
         final ActiveLaneStateV1 state = new ActiveLaneStateV1(
                 DestinationLaneId.derive(tuple), bytes(16, 1), AdmissionGate.OPEN,
                 RuntimeReadiness.BLOCKED, LaneRuntimeBlockReasonV1.CAPABILITY, 3, 4, destination, capability,
-                tuple, 5, charge(), 100L, 120L, LaneCircuitStateV1.CLOSED, 0, 2, 130, 140, null, null, null);
+                tuple, 5, charge(), 100L, 140L, LaneCircuitStateV1.CLOSED, 0, 2, 130, 140, null, null, null);
 
         final ActiveLaneStateV1 decoded = ActiveLaneStateV1.decode(state.canonicalBytes());
         assertEquals(state, decoded);
@@ -52,7 +52,7 @@ class ActiveLaneStateV1Test {
         final ActiveLaneStateV1 state = new ActiveLaneStateV1(
                 DestinationLaneId.derive(tuple), bytes(16, 3), AdmissionGate.OPEN, RuntimeReadiness.READY,
                 null, 1, 1, destination, capability, tuple, 1, charge(), 100L, 200L,
-                LaneCircuitStateV1.OPEN, 300, 0, 0, 0, Bytes.utf8("ready"), validCertificate, null);
+                LaneCircuitStateV1.CLOSED, 0, 0, 0, 0, Bytes.utf8("ready"), validCertificate, null);
         final ActiveLaneStateV1 projected = state.withLocalProjection(
                 AdmissionGate.OPEN, RuntimeReadiness.READY, null, 1, 2, 1, charge(), 150L, 250L,
                 state.encodedReadyKey());
@@ -76,6 +76,10 @@ class ActiveLaneStateV1Test {
                 DestinationLaneId.derive(tuple), bytes(16, 5), AdmissionGate.OPEN,
                 RuntimeReadiness.RECOVERING_EVIDENCE, null, 1, 1, destination, capability, tuple, 1, charge(),
                 null, null, LaneCircuitStateV1.OPEN, 0, 0, 0, 0, null, null, null));
+        assertThrows(IllegalArgumentException.class, () -> new ActiveLaneStateV1(
+                DestinationLaneId.derive(tuple), bytes(16, 5), AdmissionGate.OPEN,
+                RuntimeReadiness.BLOCKED, LaneRuntimeBlockReasonV1.CAPABILITY, 1, 1, destination, capability,
+                tuple, 1, charge(), 100L, 200L, LaneCircuitStateV1.OPEN, 300, 0, 0, 0, null, null, null));
     }
 
     @Test

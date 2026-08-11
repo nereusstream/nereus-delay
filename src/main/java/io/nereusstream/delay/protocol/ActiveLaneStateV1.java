@@ -103,6 +103,12 @@ public final class ActiveLaneStateV1 {
         this.laneRetryBackoffUntilEpochMs = nonNegative(laneRetryBackoffUntilEpochMs,
                 "laneRetryBackoffUntilEpochMs");
         this.executorRetryAtEpochMs = nonNegative(executorRetryAtEpochMs, "executorRetryAtEpochMs");
+        final long minimumNextEligibleAt = Math.max(earliestActionAtEpochMs == null ? 0 : earliestActionAtEpochMs,
+                Math.max(circuitState == LaneCircuitStateV1.OPEN ? this.circuitOpenUntilEpochMs : 0,
+                        Math.max(this.laneRetryBackoffUntilEpochMs, this.executorRetryAtEpochMs)));
+        if (nextEligibleAtEpochMs != null && nextEligibleAtEpochMs < minimumNextEligibleAt) {
+            throw new IllegalArgumentException("nextEligibleAtEpochMs precedes a Lane eligibility gate");
+        }
         this.encodedReadyKey = optionalBytes(encodedReadyKey, "encodedReadyKey");
         this.readyKeySha256 = this.encodedReadyKey == null ? null : Bytes.sha256(this.encodedReadyKey);
         if (runtimeReadiness == RuntimeReadiness.READY
