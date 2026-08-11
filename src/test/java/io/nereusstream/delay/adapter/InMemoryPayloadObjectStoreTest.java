@@ -76,6 +76,23 @@ class InMemoryPayloadObjectStoreTest {
     }
 
     @Test
+    void negativeObservationTimeReturnsTypedIntegrityOutcome() throws Exception {
+        final KeyPair keyPair = keyPair();
+        final InMemoryPayloadObjectStore store = new InMemoryPayloadObjectStore(profile(),
+                Bytes.sha256(Bytes.utf8("tenant")), trustSet(keyPair, 9_000), 7, keyPair.getPrivate());
+        final PayloadReservation reservation = reservation(5_000, Bytes.utf8("large"));
+        store.register(reservation);
+        final var handle = store.issueUploadHandle(reservation.reservationId(),
+                UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_000).issued();
+
+        assertEquals(PayloadUploadHandleOutcomeV1.INTEGRITY_ERROR,
+                store.issueUploadHandle(reservation.reservationId(), UploadHandleKindV1.OPAQUE_SINGLE_PUT, -1)
+                        .outcome());
+        assertEquals(PayloadAttestationOutcomeV1.INTEGRITY_ERROR,
+                store.attest(handle, -1).outcome());
+    }
+
+    @Test
     void rejectsPayloadDriftAndUnauthorizedOrExpiredHandles() throws Exception {
         final KeyPair keyPair = keyPair();
         final InMemoryPayloadObjectStore store = new InMemoryPayloadObjectStore(profile(),

@@ -143,6 +143,9 @@ public final class InMemoryPayloadObjectStore {
     public synchronized PayloadUploadHandleResponseV1 issueUploadHandle(final byte[] reservationId,
                                                                           final UploadHandleKindV1 kind,
                                                                           final long nowEpochMs) {
+        if (nowEpochMs < 0) {
+            return uploadError(PayloadUploadHandleOutcomeV1.INTEGRITY_ERROR, null);
+        }
         Objects.requireNonNull(kind, "kind");
         requireNow(nowEpochMs);
         final ReservationState state = reservations.get(key(reservationId));
@@ -179,6 +182,9 @@ public final class InMemoryPayloadObjectStore {
     public synchronized PayloadUploadHandleResponseV1 issueUploadHandle(final PayloadReservationReceiptV1 receipt,
                                                                           final UploadHandleKindV1 kind,
                                                                           final long nowEpochMs) {
+        if (nowEpochMs < 0) {
+            return uploadError(PayloadUploadHandleOutcomeV1.INTEGRITY_ERROR, null);
+        }
         Objects.requireNonNull(receipt, "receipt");
         final ReservationState state = reservations.get(key(receipt.reservationId()));
         if (state == null || !matchesReceipt(state, receipt)) {
@@ -234,6 +240,9 @@ public final class InMemoryPayloadObjectStore {
      */
     public synchronized PayloadAttestationResponseV1 attest(final OpaquePayloadUploadHandleV1 handle,
                                                              final long nowEpochMs) {
+        if (nowEpochMs < 0) {
+            return attestationError(PayloadAttestationOutcomeV1.INTEGRITY_ERROR, null);
+        }
         Objects.requireNonNull(handle, "handle");
         requireNow(nowEpochMs);
         final ReservationState state = reservations.get(key(handle.reservationId()));
@@ -272,6 +281,9 @@ public final class InMemoryPayloadObjectStore {
     public synchronized PayloadAttestationResponseV1 attest(final PayloadReservationReceiptV1 receipt,
                                                              final OpaquePayloadUploadHandleV1 handle,
                                                              final long nowEpochMs) {
+        if (nowEpochMs < 0) {
+            return attestationError(PayloadAttestationOutcomeV1.INTEGRITY_ERROR, null);
+        }
         Objects.requireNonNull(receipt, "receipt");
         Objects.requireNonNull(handle, "handle");
         final ReservationState state = reservations.get(key(receipt.reservationId()));

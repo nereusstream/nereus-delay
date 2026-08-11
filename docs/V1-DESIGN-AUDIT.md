@@ -33,7 +33,8 @@ failure must still be projected by the external adapter as
 `OBJECT_STORE_UNAVAILABLE_RETRYABLE`.  Negative `nowEpochMs` is rejected before
 adapter authority as closed `INTEGRITY_ERROR`, preserving the main design's
 non-negative observation-time rule; the no-adapter regression also covers that
-branch.
+branch, while the deterministic adapter's direct typed seam is covered by
+`InMemoryPayloadObjectStoreTest.negativeObservationTimeReturnsTypedIntegrityOutcome`.
 
 The uncertain-Store drain audit now also covers the race where native Store
 close was started by another caller before the coordinator observed the

@@ -30,7 +30,8 @@ provider/credential unavailability still belongs to the external adapter's
 `OBJECT_STORE_UNAVAILABLE_RETRYABLE` branch.  The facade also rejects a
 negative observation time as `INTEGRITY_ERROR` before either local or external
 Object Store authority; the negative-time branches are covered by
-`EmbeddedDelayServiceTest.payloadClientWithoutLocalObjectStoreReturnsTypedRetryableOutcome`.
+`EmbeddedDelayServiceTest.payloadClientWithoutLocalObjectStoreReturnsTypedRetryableOutcome`
+and `InMemoryPayloadObjectStoreTest.negativeObservationTimeReturnsTypedIntegrityOutcome`.
 
 The uncertain-Store drain path now applies the source/scheduler stop fence even
 when a caller started native Store close before the coordinator observed the
