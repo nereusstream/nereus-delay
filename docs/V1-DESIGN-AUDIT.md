@@ -150,6 +150,18 @@ before any record is applied and `lastCatchupPosition` remains unchanged.
 This is local fail-closed evidence only; real broker consumer continuity and
 fresh-incarnation replay remain release gates.
 
+The source-successor audit now also closes the deterministic gap branch:
+wrong-source, regression, conflicting canonical identity and non-successor
+positions are represented by a typed local proof and move the Owner to
+`FAILED(SOURCE_GAP)` rather than leaving it in `CATCHING_UP`. The offending
+record and `lastCatchupPosition` remain unchanged. A continuity proof that
+throws an unrelated runtime or fatal error, or a record that cannot be
+canonically bounded, fences the Owner instead because no durable gap has been
+proven. The focused regression is
+`OwnerLeaseTest.v1CatchupPinsTheAdapterSuccessorAndRejectsAKafkaGapBeforeApplyingIt`;
+Oxia shard-status/reason publication and real Broker continuity remain release
+gates.
+
 The activation audit also closes the metadata/requeue asymmetry: once either
 activation path starts its owner-open marker and Claim-requeue projection, any
 Store/recovery `RuntimeException` or fatal `Error` fences the Owner before the

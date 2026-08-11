@@ -219,6 +219,18 @@ covers a fatal control-registration boundary. This is local fail-closed evidence
 fresh Store-incarnation recovery, source continuity and Oxia ownership remain
 release gates.
 
+The replay successor boundary now distinguishes a deterministic continuity gap
+from an unavailable or malformed continuity proof. `SourceReplaySuccessor`
+emits a closed `SourceReplayGapException` for a wrong-source, regressed,
+conflicting or non-successor position; `OwnedDelayShard` projects that proof as
+`FAILED(SOURCE_GAP)` with the registered `ShardFailureReason`, retains the
+offending source record and refuses further catch-up. Other validation or
+canonical-bounding failures fence the local Owner instead of leaving it in
+`CATCHING_UP`. `OwnerLeaseTest.v1CatchupPinsTheAdapterSuccessorAndRejectsAKafkaGapBeforeApplyingIt`
+covers the command replay path; the mixed/type-specific paths use the same
+central validation helper. Durable Oxia shard-status/reason publication and
+production source continuity remain release gates.
+
 The same activation fence now covers both embedded and authoritative activation:
 after the owner-open metadata/requeue phase begins, a Store/recovery
 `RuntimeException` or fatal `Error` (including an owner-epoch metadata

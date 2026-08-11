@@ -27,6 +27,7 @@ public final class OwnedDelayShard {
     private SourceAssignment sourceAssignment;
     private SourceReplaySuccessor replaySuccessor = SourceReplaySuccessor.monotonic();
     private SourcePosition lastCatchupPosition;
+    private ShardFailureReason failureReason = ShardFailureReason.NONE;
     /**
      * Guards the complete local owner-drain attempt for this shard.  The
      * Worker-level drain semaphore limits aggregate concurrency, but it cannot
@@ -110,6 +111,7 @@ public final class OwnedDelayShard {
 
     public synchronized void fence() {
         state = ShardLifecycleState.FENCED;
+        failureReason = ShardFailureReason.NONE;
     }
 
     /**
@@ -182,6 +184,7 @@ public final class OwnedDelayShard {
         activationBarrier = assignment.activationBarrier();
         replaySuccessor = successor;
         lastCatchupPosition = delegate.lastAppliedSourcePosition();
+        failureReason = ShardFailureReason.NONE;
         state = ShardLifecycleState.CATCHING_UP;
     }
 
@@ -264,7 +267,7 @@ public final class OwnedDelayShard {
                 return new SourceReplayTurn<>(results, false);
             }
             final SourceReplayRecord candidate = sourcePeek(records);
-            final long recordBytes = canonicalReplayBytes(candidate);
+            final long recordBytes = canonicalReplayBytesSafely(candidate);
             if (recordBytes > budget.maxCanonicalBytes()) {
                 throw new IllegalArgumentException("single source replay record exceeds canonical-byte turn budget");
             }
@@ -273,15 +276,7 @@ public final class OwnedDelayShard {
             }
             final SourceReplayRecord record = sourcePeek(records);
             final SourcePosition position = record.position();
-            if (!delegate.shardId().equals(position.shardId())) {
-                throw new IllegalArgumentException("source replay position does not belong to shard");
-            }
-            if (activationBarrier != null) {
-                activationBarrier.validatePosition(position);
-                validateSourceConnection(position, record.sourceConnectionGeneration(),
-                        record.guardAttestationDigest());
-            }
-            validateCatchupOrder(position);
+            validateReplayPosition(position, record.sourceConnectionGeneration(), record.guardAttestationDigest());
             final CommandResult result;
             try {
                 result = delegate.apply(record.command(), position);
@@ -355,7 +350,7 @@ public final class OwnedDelayShard {
                 return new SourceReplayTurn<>(results, false);
             }
             final SourceReplayMutation candidate = sourcePeek(records);
-            final long recordBytes = canonicalReplayBytes(candidate);
+            final long recordBytes = canonicalReplayBytesSafely(candidate);
             if (recordBytes > budget.maxCanonicalBytes()) {
                 throw new IllegalArgumentException("single source replay record exceeds canonical-byte turn budget");
             }
@@ -364,15 +359,7 @@ public final class OwnedDelayShard {
             }
             final SourceReplayMutation record = sourcePeek(records);
             final SourcePosition position = record.position();
-            if (!delegate.shardId().equals(position.shardId())) {
-                throw new IllegalArgumentException("system replay position does not belong to shard");
-            }
-            if (activationBarrier != null) {
-                activationBarrier.validatePosition(position);
-                validateSourceConnection(position, record.sourceConnectionGeneration(),
-                        record.guardAttestationDigest());
-            }
-            validateCatchupOrder(position);
+            validateReplayPosition(position, record.sourceConnectionGeneration(), record.guardAttestationDigest());
             final SystemMutationResult result;
             try {
                 result = delegate.applySystemMutation(record.mutation(), position, verificationKey);
@@ -446,7 +433,7 @@ public final class OwnedDelayShard {
                 return new SourceReplayTurn<>(results, false);
             }
             final SourceReplayEntry candidate = sourcePeek(records);
-            final long recordBytes = canonicalReplayBytes(candidate);
+            final long recordBytes = canonicalReplayBytesSafely(candidate);
             if (recordBytes > budget.maxCanonicalBytes()) {
                 throw new IllegalArgumentException("single source replay record exceeds canonical-byte turn budget");
             }
@@ -547,6 +534,18 @@ public final class OwnedDelayShard {
         return Math.addExact(positionBytes, frameBytes);
     }
 
+    private long canonicalReplayBytesSafely(final SourceReplayEntry record) {
+        try {
+            return canonicalReplayBytes(record);
+        } catch (RuntimeException | Error failure) {
+            // A source record that cannot be canonically bounded is not a
+            // proven business rejection. Close the local replay authority and
+            // retain the cursor for a fresh source/store proof.
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        }
+    }
+
     /**
      * A logical duplicate keeps its durable result anchored at the first
      * Source Position.  Mixed replay outcomes describe the current physical
@@ -602,22 +601,41 @@ public final class OwnedDelayShard {
 
     private void validateReplayPosition(final SourcePosition position, final Long sourceConnectionGeneration,
                                         final byte[] guardAttestationDigest) {
-        Objects.requireNonNull(position, "source replay position");
-        if (!delegate.shardId().equals(position.shardId())) {
-            throw new IllegalArgumentException("source replay position does not belong to shard");
+        try {
+            Objects.requireNonNull(position, "source replay position");
+            if (!delegate.shardId().equals(position.shardId())) {
+                throw new IllegalArgumentException("source replay position does not belong to shard");
+            }
+            if (activationBarrier != null) {
+                activationBarrier.validatePosition(position);
+                validateSourceConnection(position, sourceConnectionGeneration, guardAttestationDigest);
+            }
+            validateCatchupOrder(position);
+        } catch (SourceReplayGapException failure) {
+            fail(ShardFailureReason.SOURCE_GAP);
+            throw failure;
+        } catch (RuntimeException | Error failure) {
+            // The source/guard proof is unavailable or malformed, but this
+            // path has not proven a gap. Fence rather than leaving a replay
+            // owner in CATCHING_UP with an unproven continuity claim.
+            state = ShardLifecycleState.FENCED;
+            throw failure;
         }
-        if (activationBarrier != null) {
-            activationBarrier.validatePosition(position);
-            validateSourceConnection(position, sourceConnectionGeneration, guardAttestationDigest);
-        }
-        validateCatchupOrder(position);
     }
 
     private void validateCatchupOrder(final SourcePosition position) {
         if (lastCatchupPosition == null) {
             return;
         }
-        replaySuccessor.validate(lastCatchupPosition, position);
+        try {
+            replaySuccessor.validate(lastCatchupPosition, position);
+        } catch (SourceReplayGapException failure) {
+            fail(ShardFailureReason.SOURCE_GAP);
+            throw failure;
+        } catch (RuntimeException | Error failure) {
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        }
     }
 
     private void validateSourceConnection(final SourcePosition position, final Long connectionGeneration,
@@ -834,6 +852,16 @@ public final class OwnedDelayShard {
 
     public synchronized ShardLifecycleState state() {
         return state;
+    }
+
+    /** Returns the closed failure reason when this local Owner is FAILED. */
+    public synchronized ShardFailureReason failureReason() {
+        return failureReason;
+    }
+
+    private void fail(final ShardFailureReason reason) {
+        failureReason = Objects.requireNonNull(reason, "reason");
+        state = ShardLifecycleState.FAILED;
     }
 
     private void ensureActive(final long nowEpochMs) {

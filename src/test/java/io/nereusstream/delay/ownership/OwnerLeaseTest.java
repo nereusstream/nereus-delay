@@ -736,6 +736,8 @@ class OwnerLeaseTest {
                     () -> owned.replayCatchupTurn(cursor, 101, ReplayTurnBudget.unbounded()));
             assertEquals(first, owned.lastCatchupPosition());
             assertEquals(gapRecord, cursor.peek());
+            assertEquals(ShardLifecycleState.FAILED, owned.state());
+            assertEquals(ShardFailureReason.SOURCE_GAP, owned.failureReason());
         }
     }
 

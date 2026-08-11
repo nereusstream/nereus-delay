@@ -30,20 +30,20 @@ public interface SourceReplaySuccessor {
         if (!previous.shardId().equals(current.shardId())
                 || !previous.sameSourceIdentity(current)
                 || previous.kind() != current.kind()) {
-            throw new IllegalArgumentException("source replay positions do not share one physical source");
+            throw new SourceReplayGapException("source replay positions do not share one physical source");
         }
         final int order = current.compareTo(previous);
         if (order < 0) {
-            throw new IllegalStateException("source replay position regressed");
+            throw new SourceReplayGapException("source replay position regressed");
         }
         if (order == 0) {
             if (!Bytes.constantTimeEquals(previous.canonicalBytes(), current.canonicalBytes())) {
-                throw new IllegalStateException("source replay position has conflicting canonical identity");
+                throw new SourceReplayGapException("source replay position has conflicting canonical identity");
             }
             return;
         }
         if (!isSuccessor(previous, current)) {
-            throw new IllegalStateException("source replay has a gap before the current position");
+            throw new SourceReplayGapException("source replay has a gap before the current position");
         }
     }
 
