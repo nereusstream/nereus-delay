@@ -276,6 +276,8 @@ public final class ShardStore implements AutoCloseable {
         ShardStore staged = null;
         ShardStore prepared = null;
         ShardStore installed = null;
+        Throwable primaryFailure = null;
+        boolean returningInstalled = false;
         try {
             resources.acquireCheckpointDownloadSlot();
             downloadSlotAcquired = true;
@@ -364,11 +366,13 @@ public final class ShardStore implements AutoCloseable {
             }
             deleteTree(restoreRoot);
             writeActivePointer(shardRoot, storeUuid);
+            returningInstalled = true;
             return installed;
         } catch (IOException | RocksDBException exception) {
+            primaryFailure = new IllegalStateException("cannot restore shard checkpoint", exception);
             cleanupFailedRestore(restoreRoot, activeDb, shardRoot, storeUuid, activeDbMoved, staged, prepared,
-                    installed, exception);
-            throw new IllegalStateException("cannot restore shard checkpoint", exception);
+                    installed, primaryFailure);
+            throw (IllegalStateException) primaryFailure;
         } catch (RuntimeException exception) {
             // A failed staged open/metadata validation can surface as a
             // runtime exception after restore-tmp has already been created.
@@ -376,25 +380,39 @@ public final class ShardStore implements AutoCloseable {
             // the slot is held, clean the private staging tree just like the
             // checked I/O failure path.
             if (!downloadSlotAcquired) {
+                primaryFailure = exception;
                 throw exception;
             }
+            primaryFailure = new IllegalStateException("cannot restore shard checkpoint", exception);
             cleanupFailedRestore(restoreRoot, activeDb, shardRoot, storeUuid, activeDbMoved, staged, prepared,
-                    installed, exception);
-            throw new IllegalStateException("cannot restore shard checkpoint", exception);
+                    installed, primaryFailure);
+            throw (IllegalStateException) primaryFailure;
         } catch (Error exception) {
             // Native/JVM errors are still allowed to escape, but once the
             // download slot has been acquired they must pass through the same
             // directory-safety cleanup.  Otherwise an unpublished incarnation
             // can retain an open handle while restore-tmp is removed by a
             // later repair attempt.
+            primaryFailure = exception;
             if (downloadSlotAcquired) {
                 cleanupFailedRestore(restoreRoot, activeDb, shardRoot, storeUuid, activeDbMoved, staged, prepared,
-                        installed, exception);
+                        installed, primaryFailure);
             }
             throw exception;
         } finally {
             if (downloadSlotAcquired) {
-                resources.releaseCheckpointDownloadSlot();
+                try {
+                    resources.releaseCheckpointDownloadSlot();
+                } catch (RuntimeException | Error cleanupFailure) {
+                    if (returningInstalled && installed != null && !installed.isClosed()) {
+                        closeForRestoreCleanup(installed, cleanupFailure);
+                    }
+                    if (primaryFailure != null && cleanupFailure != primaryFailure) {
+                        primaryFailure.addSuppressed(cleanupFailure);
+                    } else if (primaryFailure == null) {
+                        throwUnchecked(cleanupFailure);
+                    }
+                }
             }
         }
     }

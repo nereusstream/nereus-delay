@@ -3211,6 +3211,15 @@ that primary failure, while a release failure after an otherwise successful
 upload is surfaced explicitly instead of returning a result with an
 unconfirmed Worker-capacity transition.
 
+The restore download-slot boundary now follows the same primary/suppressed
+policy. A slot-release failure after a successful install first closes the
+Store that would otherwise be returned, then surfaces the release failure;
+the already-published ACTIVE incarnation is preserved for a later reopen. If
+restore or cleanup already failed, the release failure is retained as
+suppressed diagnostic evidence instead of masking the original failure. This
+is local resource-lifecycle evidence only; it does not replace process
+supervision or external checkpoint/download authority.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

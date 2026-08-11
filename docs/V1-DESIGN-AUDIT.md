@@ -3052,6 +3052,14 @@ succeeds but the slot transition fails, the coordinator returns a failure
 instead of claiming a complete upload lifecycle; response-loss retry remains
 bound to the exact pending/published intent.
 
+Restore now preserves the same boundary for checkpoint-download admission. A
+release failure after the ACTIVE pointer is published closes the installed
+Store before surfacing the slot failure, avoiding a returned-error/open-DB
+leak while leaving the durable incarnation available for reopen. A release
+failure on an already-failed restore is suppressed onto the primary restore
+or cleanup error. This closes local restore teardown accounting only; it is
+not evidence of external download, object-store, or process-recovery safety.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
