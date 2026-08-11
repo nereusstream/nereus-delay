@@ -247,6 +247,17 @@ the previously certified handoff. The focused regression is
 this is local replay/projection evidence and does not add external Profile or
 Broker authority.
 
+The retry projection closes the corresponding `PUBLISHING`/`UNCERTAIN` seam.
+Those branches have no current timeline reference, so a retry rebuild recovers
+`actionAt` from the canonical `PublishAdmission` descriptor retained by the
+bounded open-attempt ledger; opaque legacy ledgers remain compatibility-only.
+A conflicting or timing-mismatched canonical Admission is rejected rather than
+guessed. The focused regression is
+`DelayShardTest.uncertainRetryPreservesPinnedActionAtWithoutProfileCatalog`,
+which verifies the early-action value through uncertain retry and fresh-process
+reopen. This is local state-projection evidence, not production
+Profile/Admission or Broker handoff authority.
+
 The Evidence Cursor audit now treats the Pulsar Attempt Journal's
 `physicalTopic` and `physicalTopicCreationTimestamp` as part of the full
 stream identity. `EvidenceCursorV1.sameIdentity` and `dominates` reject a

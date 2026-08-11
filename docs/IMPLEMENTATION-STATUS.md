@@ -39,6 +39,19 @@ same-`deliverAt` early-action case with
 `DelayShardTest.reschedulePreservesPinnedActionAtInPersistedRuntimeProjection`;
 the main design's business-visible `deliverAt` boundary remains unchanged.
 
+The same action boundary is now retained when a generation leaves the timeline
+projection for `PUBLISHING`/`UNCERTAIN` and later returns to a retry timeline.
+Those runtime branches do not carry a current `TimelineWorkRef`, so the local
+rebuild scans the bounded open-attempt ledgers and decodes the canonical
+`PublishAdmission` descriptor as the immutable source of `actionAt`; legacy
+opaque ledgers remain on the ordinary compatibility path. Conflicting or
+mismatched canonical Admission timing fails closed. The regression
+`DelayShardTest.uncertainRetryPreservesPinnedActionAtWithoutProfileCatalog`
+covers a V1 early-action Schedule, canonical Admission projection, uncertain
+retry, and fresh-process reopen. This is shard-local evidence; production
+Profile/Admission authority and Broker handoff certification remain release
+gates.
+
 The certified early-Pulsar handoff projection now has a narrow evidence-binding
 fence: before a verified `PULSAR_SEND_ACK` can project local `HANDED_OFF`, its
 target resource, physical partition and prepared hash must match the retained

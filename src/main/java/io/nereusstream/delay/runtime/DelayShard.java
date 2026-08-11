@@ -4149,8 +4149,14 @@ public final class DelayShard {
                                                         final byte[] control, final byte[] controlPosition,
                                                         final GenerationRuntimeIndex base,
                                                         final List<AttemptObligationRef> obligations) {
-        final byte[] key = timelineKey(messageId, message);
-        final long actionAt = actionAtFor(messageId, message);
+        // Retry/rollback paths commonly construct a compatibility MessageRecord
+        // first and then replace its runtime projection.  That temporary record
+        // has no TimelineWorkRef, so resolving from `message` alone would fall
+        // back to deliverAt when the source-position resolver is not available
+        // on the current process.  The prior runtime projection is the durable
+        // action boundary for the same generation and must be carried forward.
+        final long actionAt = actionAtFor(messageId, message, base);
+        final byte[] key = timelineKey(messageId, message, actionAt);
         final TimelineWorkRef work = new TimelineWorkRef(workKind, key, actionAt,
                 message.retryEligibilityAtEpochMs(), candidateAttemptNo, runtimeRevision,
                 message.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO,
@@ -4182,6 +4188,16 @@ public final class DelayShard {
 
     private long actionAtFor(final DelayMessageId messageId, final MessageRecord message,
                              final long deliverAtEpochMs) {
+        return actionAtFor(messageId, message, deliverAtEpochMs, null);
+    }
+
+    private long actionAtFor(final DelayMessageId messageId, final MessageRecord message,
+                             final GenerationRuntimeIndex priorRuntime) {
+        return actionAtFor(messageId, message, message.deliverAtEpochMs(), priorRuntime);
+    }
+
+    private long actionAtFor(final DelayMessageId messageId, final MessageRecord message,
+                             final long deliverAtEpochMs, final GenerationRuntimeIndex priorRuntime) {
         if (lastResolvedSchedule != null
                 && lastResolvedScheduleMessageId != null
                 && lastResolvedScheduleMessageId.equals(messageId)
@@ -4189,10 +4205,18 @@ public final class DelayShard {
                 && lastResolvedSchedule.actionAtEpochMs() != null) {
             return checkedActionAt(lastResolvedSchedule.actionAtEpochMs(), deliverAtEpochMs);
         }
+        if (priorRuntime != null && priorRuntime.timeline() != null
+                && priorRuntime.timeline().actionAtEpochMs() <= deliverAtEpochMs) {
+            return priorRuntime.timeline().actionAtEpochMs();
+        }
         final TimelineWorkRef existing = message.runtimeIndex().timeline();
         if (existing != null && message.deliverAtEpochMs() == deliverAtEpochMs
                 && existing.actionAtEpochMs() <= deliverAtEpochMs) {
             return existing.actionAtEpochMs();
+        }
+        final Long admittedActionAt = actionAtFromOpenAdmission(messageId, message, deliverAtEpochMs);
+        if (admittedActionAt != null) {
+            return admittedActionAt;
         }
         if (profileCatalog == null) {
             return deliverAtEpochMs;
@@ -4221,6 +4245,41 @@ public final class DelayShard {
         } catch (ArithmeticException overflow) {
             throw new IllegalStateException("V1 certified handoff actionAt arithmetic overflow", overflow);
         }
+    }
+
+    /**
+     * Recovers the pinned action boundary while the current generation is in
+     * PUBLISHING/UNCERTAIN state.  Those runtime branches intentionally carry
+     * only the active attempt/obligation identity, while a canonical V1
+     * Publish Admission retains the immutable descriptor that pinned actionAt.
+     * Legacy opaque ledgers have no such evidence and remain on the ordinary
+     * compatibility path.
+     */
+    private Long actionAtFromOpenAdmission(final DelayMessageId messageId, final MessageRecord message,
+                                           final long deliverAtEpochMs) {
+        Long resolved = null;
+        for (final PublishAttemptLedger ledger : listOpenPublishAttempts()) {
+            if (!ledger.delayMessageId().equals(messageId)
+                    || ledger.generation() != message.generation()) {
+                continue;
+            }
+            final PublishAdmissionBody admission;
+            try {
+                admission = PublishAdmissionBody.decode(ledger.admissionBytes());
+            } catch (IllegalArgumentException legacyOrMalformed) {
+                failClosedForMalformedCanonicalAdmission(ledger.admissionBytes(), legacyOrMalformed);
+                continue;
+            }
+            if (admission.descriptor().deliverAtEpochMs() != deliverAtEpochMs) {
+                throw new IllegalStateException("open Admission timing does not match current Message");
+            }
+            final long candidate = checkedActionAt(admission.descriptor().actionAtEpochMs(), deliverAtEpochMs);
+            if (resolved != null && resolved.longValue() != candidate) {
+                throw new IllegalStateException("open Admissions disagree on the pinned actionAt");
+            }
+            resolved = candidate;
+        }
+        return resolved;
     }
 
     private static long checkedActionAt(final long actionAtEpochMs, final long deliverAtEpochMs) {
