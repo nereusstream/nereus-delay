@@ -6600,6 +6600,23 @@ class DelayShardTest {
             assertEquals(StableCode.OK,
                     shard.applySystemMutation(atMarginMutation, position(shardId, 1, 2_001),
                             keyPair.getPublic()).stableCode());
+
+            final TrustedUtcIntervalEvidence overflowingProof = new TrustedUtcIntervalEvidence(
+                    Long.MAX_VALUE, Long.MAX_VALUE,
+                    TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("fence-clock"), 1,
+                    12, 12, Bytes.sha256(Bytes.utf8("fence-proof-overflow")), 0, null);
+            final byte[] overflowingProofId = Bytes.sha256(Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                    shardId.routeIncarnation().bytes(), Bytes.u32be(shardId.partition()),
+                    Bytes.i64be(Long.MAX_VALUE), Bytes.u32be(keyVersion),
+                    Bytes.lp32(overflowingProof.canonicalBytes()));
+            final SystemMutation overflowingMutation = SystemMutation.signed(shardId,
+                    SystemMutationType.TIME_FENCE, 9_000, overflowingProofId,
+                    timeFenceBody(shardId, Long.MAX_VALUE, keyVersion, overflowingProofId,
+                            overflowingProof.canonicalBytes()), fence.canonicalBytes(), keyVersion,
+                    keyPair.getPrivate());
+            assertEquals(StableCode.UNAUTHORIZED_SYSTEM_MUTATION,
+                    shard.applySystemMutation(overflowingMutation, position(shardId, 2, 2_002),
+                            keyPair.getPublic()).stableCode());
             assertEquals(closeThrough, shard.closedIngressDeadlineThrough());
         }
     }
