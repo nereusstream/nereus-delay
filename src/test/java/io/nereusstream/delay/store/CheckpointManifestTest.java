@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -169,10 +170,33 @@ class CheckpointManifestTest {
     @Test
     void manifestTotalFileBytesOverflowFailsAsValidationError() {
         final CheckpointManifest manifest = manifestWithFiles(List.of(
-                file("a.sst", Long.MAX_VALUE), file("b.sst", 1)));
+                fileWithSeed("a.sst", Long.MAX_VALUE, 1), fileWithSeed("b.sst", 1, 2)));
 
         assertThrows(IllegalArgumentException.class,
                 () -> CheckpointManifestLimits.unbounded().validateManifest(manifest));
+    }
+
+    @Test
+    void duplicateObjectIdentityIsRejectedBeforePublication() {
+        final byte[] checksumA = Bytes.sha256(Bytes.utf8("a"));
+        final byte[] checksumB = Bytes.sha256(Bytes.utf8("b"));
+        final byte[] objectKey = Bytes.utf8("object/shared");
+        final byte[] objectVersion = Bytes.utf8("version-1");
+        assertThrows(IllegalArgumentException.class, () -> manifestWithFiles(List.of(
+                new CheckpointManifest.FileEntry("a.sst", 1, checksumA, objectKey, objectVersion, null),
+                new CheckpointManifest.FileEntry("b.sst", 1, checksumB, objectKey, objectVersion, null))));
+    }
+
+    @Test
+    void checksumWithConflictingLengthsIsRejectedButSameLengthReuseIsAllowed() {
+        final byte[] checksum = Bytes.sha256(Bytes.utf8("same-content"));
+        final byte[] version = Bytes.utf8("version-1");
+        assertThrows(IllegalArgumentException.class, () -> manifestWithFiles(List.of(
+                new CheckpointManifest.FileEntry("a.sst", 1, checksum, Bytes.utf8("object/a"), version, null),
+                new CheckpointManifest.FileEntry("b.sst", 2, checksum, Bytes.utf8("object/b"), version, null))));
+        assertDoesNotThrow(() -> manifestWithFiles(List.of(
+                new CheckpointManifest.FileEntry("a.sst", 1, checksum, Bytes.utf8("object/a"), version, null),
+                new CheckpointManifest.FileEntry("b.sst", 1, checksum, Bytes.utf8("object/b"), version, null))));
     }
 
     @Test
@@ -218,8 +242,13 @@ class CheckpointManifestTest {
     }
 
     private static CheckpointManifest.FileEntry file(final String name, final long length) {
+        return fileWithSeed(name, length, 1);
+    }
+
+    private static CheckpointManifest.FileEntry fileWithSeed(final String name, final long length,
+                                                              final int seed) {
         final byte[] checksum = new byte[32];
-        java.util.Arrays.fill(checksum, (byte) 1);
+        java.util.Arrays.fill(checksum, (byte) seed);
         return new CheckpointManifest.FileEntry(name, length, checksum, Bytes.utf8("object/" + name),
                 Bytes.utf8("version-1"), null);
     }

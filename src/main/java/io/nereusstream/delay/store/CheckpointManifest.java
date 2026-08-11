@@ -12,8 +12,12 @@ import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -78,6 +82,19 @@ public record CheckpointManifest(
         for (int index = 1; index < files.size(); index++) {
             if (files.get(index - 1).name().equals(files.get(index).name())) {
                 throw new IllegalArgumentException("duplicate checkpoint file name");
+            }
+        }
+        final Set<String> objectIdentities = new HashSet<>();
+        final Map<String, Long> checksumLengths = new HashMap<>();
+        for (FileEntry file : files) {
+            final String objectIdentity = Bytes.hex(file.objectKey()) + ':' + Bytes.hex(file.objectVersion());
+            if (!objectIdentities.add(objectIdentity)) {
+                throw new IllegalArgumentException("duplicate checkpoint object identity");
+            }
+            final String checksum = Bytes.hex(file.checksum());
+            final Long priorLength = checksumLengths.putIfAbsent(checksum, file.length());
+            if (priorLength != null && priorLength.longValue() != file.length()) {
+                throw new IllegalArgumentException("checkpoint checksum has conflicting file lengths");
             }
         }
         checkpointId = Bytes.copy(checkpointId);

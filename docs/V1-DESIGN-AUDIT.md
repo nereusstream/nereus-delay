@@ -43,6 +43,15 @@ the `Files.createDirectories(dbPath)` symlink-following window. This is local
 path-safety evidence; it does not replace the external ownership/placement
 authority or real-service recovery gates.
 
+The checkpoint manifest audit now rejects duplicate `(objectKey,
+objectVersion)` identities and checksum reuse with conflicting file lengths at
+the immutable `CheckpointManifest` boundary. Same-length checksum reuse remains
+allowed, while a duplicate provider identity can no longer make two manifest
+entries address the same immutable object. The focused regressions are
+`CheckpointManifestTest.duplicateObjectIdentityIsRejectedBeforePublication` and
+`CheckpointManifestTest.checksumWithConflictingLengthsIsRejectedButSameLengthReuseIsAllowed`;
+provider upload/attestation and catalog publication remain external gates.
+
 The Control target-registration audit now separates an authoritative binding
 mismatch from an unavailable registry boundary.  Missing registration remains
 an explicit `UNAUTHORIZED_SYSTEM_MUTATION` position result, but a lookup or

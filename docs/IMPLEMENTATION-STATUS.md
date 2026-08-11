@@ -71,6 +71,16 @@ stale Floor or descendant drift fails closed. This does not infer Owner
 Lease/session authority and does not replace the required cross-record
 activation transaction.
 
+The checkpoint manifest projection now rejects duplicate file object identities
+(`objectKey` plus immutable `objectVersion`) and rejects reuse of one SHA-256
+checksum across files with conflicting lengths before a manifest can be
+serialized or published. Reusing the same checksum at the same length remains
+valid; this matches Protocol Registry §10's object-identity and checksum
+consistency rule. `CheckpointManifestTest.duplicateObjectIdentityIsRejectedBeforePublication`
+and `CheckpointManifestTest.checksumWithConflictingLengthsIsRejectedButSameLengthReuseIsAllowed`
+cover the boundary. Object Store publication and immutable provider attestation
+remain external release gates.
+
 `OxiaRealRecoveryAuthoritySmokeTest` now exercises both single-record recovery
 authorities against a real Oxia endpoint when
 `NEREUS_DELAY_OXIA_ENDPOINT=host:port` is set: Recovery Catalog publication,
