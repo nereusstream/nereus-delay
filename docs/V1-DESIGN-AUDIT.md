@@ -62,6 +62,17 @@ the shard-owned temporary boundary fails closed; the focused regression is
 This closes local path handling only; provider and process-recovery authority
 remain release blockers.
 
+The same local path boundary now covers the crash-durable Recovery Catalog,
+Checkpoint Upload Intent and SLO collector projections. Their state-file
+parents are created and rechecked component by component with `NOFOLLOW_LINKS`,
+so a missing intermediate directory cannot follow a pre-planted or raced
+symlink before the lock/temp/state file is created. The focused regressions are
+`PersistentRecoveryCatalogTest.rejectsSymbolicParentComponentBeforeCreatingStateOutsideBoundary`,
+`CheckpointUploadIntentStoreTest.rejectsSymbolicParentComponentBeforeCreatingStateOutsideBoundary`
+and `PersistentSloObservationCollectorTest.rejectsSymbolicParentComponentBeforeCreatingStateOutsideBoundary`.
+This is local crash-durable evidence, not external Oxia/Object Store/collector
+authority.
+
 The Control target-registration audit now separates an authoritative binding
 mismatch from an unavailable registry boundary.  Missing registration remains
 an explicit `UNAUTHORIZED_SYSTEM_MUTATION` position result, but a lookup or

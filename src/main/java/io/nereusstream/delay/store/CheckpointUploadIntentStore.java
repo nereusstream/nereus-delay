@@ -313,13 +313,7 @@ public final class CheckpointUploadIntentStore implements CheckpointUploadIntent
         if (parent == null) {
             throw new IOException("checkpoint upload intent state must have a parent directory");
         }
-        rejectSymbolicLink(parent, "checkpoint upload intent state parent");
-        if (!Files.exists(parent, LinkOption.NOFOLLOW_LINKS)) {
-            Files.createDirectories(parent);
-        }
-        if (!Files.isDirectory(parent, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IOException("checkpoint upload intent state parent is not a directory: " + parent);
-        }
+        LocalStatePathGuard.ensureRealDirectoryPath(parent, "checkpoint upload intent state parent");
     }
 
     private static CheckpointUploadIntentV1 decode(final byte[] encoded) {

@@ -23,6 +23,7 @@ import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -85,6 +86,20 @@ class PersistentSloObservationCollectorTest {
         corrupted[corrupted.length - 1] ^= 0x01;
         Files.write(stateFile, corrupted);
         assertThrows(IllegalStateException.class, () -> new PersistentSloObservationCollector(stateFile));
+    }
+
+    @Test
+    void rejectsSymbolicParentComponentBeforeCreatingStateOutsideBoundary() throws Exception {
+        final Path parentRoot = tempDirectory.resolve("collector-parent");
+        final Path outside = tempDirectory.resolve("collector-outside");
+        Files.createDirectories(parentRoot);
+        Files.createDirectories(outside);
+        Files.createSymbolicLink(parentRoot.resolve("nested"), outside);
+
+        final Path stateFile = parentRoot.resolve("nested/state.bin");
+        assertThrows(IllegalStateException.class, () -> new PersistentSloObservationCollector(stateFile));
+        assertFalse(Files.exists(outside.resolve("state.bin"), java.nio.file.LinkOption.NOFOLLOW_LINKS));
+        assertFalse(Files.exists(outside.resolve("state.bin.lock"), java.nio.file.LinkOption.NOFOLLOW_LINKS));
     }
 
     @Test

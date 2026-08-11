@@ -222,13 +222,7 @@ public final class PersistentSloObservationCollector {
         if (parent == null) {
             throw new IOException("SLO collector state must have a parent directory");
         }
-        rejectSymbolicLink(parent, "SLO collector state parent");
-        if (!Files.exists(parent, LinkOption.NOFOLLOW_LINKS)) {
-            Files.createDirectories(parent);
-        }
-        if (!Files.isDirectory(parent, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IOException("SLO collector state parent is not a directory: " + parent);
-        }
+        LocalStatePathGuard.ensureRealDirectoryPath(parent, "SLO collector state parent");
     }
 
     private static byte[] encodeSnapshot(final List<SloObservationOutboxV1> values) {

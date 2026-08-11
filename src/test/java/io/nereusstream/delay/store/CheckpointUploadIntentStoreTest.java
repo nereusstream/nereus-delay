@@ -156,6 +156,20 @@ class CheckpointUploadIntentStoreTest {
                 () -> new CheckpointUploadIntentStore(stateFile).current());
     }
 
+    @Test
+    void rejectsSymbolicParentComponentBeforeCreatingStateOutsideBoundary() throws Exception {
+        final Path parentRoot = tempDir.resolve("upload-intent-parent");
+        final Path outside = tempDir.resolve("upload-intent-outside");
+        Files.createDirectories(parentRoot);
+        Files.createDirectories(outside);
+        Files.createSymbolicLink(parentRoot.resolve("nested"), outside);
+
+        final Path stateFile = parentRoot.resolve("nested/state.bin");
+        assertThrows(IllegalStateException.class, () -> new CheckpointUploadIntentStore(stateFile));
+        assertFalse(Files.exists(outside.resolve("state.bin"), java.nio.file.LinkOption.NOFOLLOW_LINKS));
+        assertFalse(Files.exists(outside.resolve("state.bin.lock"), java.nio.file.LinkOption.NOFOLLOW_LINKS));
+    }
+
     private static CheckpointUploadIntentV1 intent(final CheckpointUploadStateV1 state, final long revision,
                                                    final byte[] token, final TrustedUtcIntervalEvidence reaping) {
         final CheckpointResourceV1 resource = state == CheckpointUploadStateV1.PUBLISHED

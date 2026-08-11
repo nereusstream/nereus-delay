@@ -26,6 +26,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -134,6 +135,20 @@ class PersistentRecoveryCatalogTest {
         Files.write(stateFile, corrupted);
 
         assertThrows(IllegalStateException.class, () -> new PersistentRecoveryCatalog(stateFile));
+    }
+
+    @Test
+    void rejectsSymbolicParentComponentBeforeCreatingStateOutsideBoundary() throws Exception {
+        final Path parentRoot = tempDirectory.resolve("catalog-parent");
+        final Path outside = tempDirectory.resolve("catalog-outside");
+        Files.createDirectories(parentRoot);
+        Files.createDirectories(outside);
+        Files.createSymbolicLink(parentRoot.resolve("nested"), outside);
+
+        final Path stateFile = parentRoot.resolve("nested/state.bin");
+        assertThrows(IllegalStateException.class, () -> new PersistentRecoveryCatalog(stateFile));
+        assertFalse(Files.exists(outside.resolve("state.bin"), java.nio.file.LinkOption.NOFOLLOW_LINKS));
+        assertFalse(Files.exists(outside.resolve("state.bin.lock"), java.nio.file.LinkOption.NOFOLLOW_LINKS));
     }
 
     @Test

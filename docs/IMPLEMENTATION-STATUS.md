@@ -91,6 +91,18 @@ temporary-path regression plus `ShardStoreTest.checkpointRejectsSymbolicParentCo
 cover the local boundary; this remains local evidence rather than external
 filesystem/quota authority.
 
+The crash-durable local Recovery Catalog, Checkpoint Upload Intent and SLO
+collector projections now use the same component-by-component real-directory
+guard before creating their state, lock and temporary-file parents. A missing
+intermediate component is created with `CREATE_DIRECTORY` semantics and every
+concurrent create is rechecked with `NOFOLLOW_LINKS`; a symbolic parent cannot
+redirect a projection outside its configured state boundary. The focused
+regressions are `PersistentRecoveryCatalogTest.rejectsSymbolicParentComponentBeforeCreatingStateOutsideBoundary`,
+`CheckpointUploadIntentStoreTest.rejectsSymbolicParentComponentBeforeCreatingStateOutsideBoundary`
+and `PersistentSloObservationCollectorTest.rejectsSymbolicParentComponentBeforeCreatingStateOutsideBoundary`.
+This closes local projection path handling only; it does not replace external
+Oxia, Object Store or collector authority.
+
 `OxiaRealRecoveryAuthoritySmokeTest` now exercises both single-record recovery
 authorities against a real Oxia endpoint when
 `NEREUS_DELAY_OXIA_ENDPOINT=host:port` is set: Recovery Catalog publication,
