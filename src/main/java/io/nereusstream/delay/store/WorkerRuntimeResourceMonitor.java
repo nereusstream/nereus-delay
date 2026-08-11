@@ -88,7 +88,7 @@ public final class WorkerRuntimeResourceMonitor implements AutoCloseable {
             final WorkerRuntimeResourceObservation observation = Objects.requireNonNull(probe.get(),
                     "runtime probe returned null");
             observationConsumer.accept(observation);
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | Error failure) {
             recordFailure(failure);
         }
     }
@@ -119,12 +119,14 @@ public final class WorkerRuntimeResourceMonitor implements AutoCloseable {
         }
     }
 
-    private void recordFailure(final RuntimeException failure) {
+    private void recordFailure(final Throwable failure) {
         lastFailure.compareAndSet(null, failure);
         try {
             failureConsumer.accept(failure);
-        } catch (RuntimeException secondary) {
-            lastFailure.compareAndSet(null, secondary);
+        } catch (RuntimeException | Error secondary) {
+            if (secondary != failure) {
+                failure.addSuppressed(secondary);
+            }
         }
     }
 

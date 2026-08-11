@@ -80,6 +80,24 @@ class WorkerRuntimeResourceMonitorTest {
     }
 
     @Test
+    void fatalProbeErrorAlsoFencesBusinessAdmission() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("probe-error"));
+        final WorkerResourceEnvelope envelope = envelope(700L * 1024 * 1024);
+        final WorkerRuntimeResourceObservation healthy = observation(128L * 1024 * 1024);
+        final AssertionError failure = new AssertionError("probe failed fatally");
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config, envelope, healthy);
+             WorkerRuntimeResourceMonitor monitor = new WorkerRuntimeResourceMonitor(Duration.ofSeconds(1),
+                     () -> {
+                         throw failure;
+                     }, resources::revalidateRuntime, resources::recordRuntimeProbeFailure,
+                     Executors.newSingleThreadScheduledExecutor())) {
+            monitor.pollNow();
+            assertSame(failure, monitor.lastFailure());
+            assertEquals(WorkerRuntimeSafetyGate.State.DRAIN_OR_MIGRATE, resources.runtimeSafetyState());
+        }
+    }
+
+    @Test
     void sharedResourcesOwnMonitorLifecycle() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("owner-managed"));
         final WorkerResourceEnvelope envelope = envelope(700L * 1024 * 1024);

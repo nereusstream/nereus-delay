@@ -82,7 +82,7 @@ public final class WorkerRocksDbUsageMonitor implements AutoCloseable {
             final List<RocksDbUsageSnapshot> observation = Objects.requireNonNull(probe.get(),
                     "RocksDB usage probe returned null");
             lastObservation.set(List.copyOf(observation));
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | Error failure) {
             recordFailure(failure);
         }
     }
@@ -118,12 +118,14 @@ public final class WorkerRocksDbUsageMonitor implements AutoCloseable {
         }
     }
 
-    private void recordFailure(final RuntimeException failure) {
+    private void recordFailure(final Throwable failure) {
         lastFailure.compareAndSet(null, failure);
         try {
             failureConsumer.accept(failure);
-        } catch (RuntimeException secondary) {
-            lastFailure.compareAndSet(null, secondary);
+        } catch (RuntimeException | Error secondary) {
+            if (secondary != failure) {
+                failure.addSuppressed(secondary);
+            }
         }
     }
 

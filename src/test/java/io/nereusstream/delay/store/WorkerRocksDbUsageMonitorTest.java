@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -46,6 +47,19 @@ class WorkerRocksDbUsageMonitorTest {
             assertNotNull(failing.lastFailure());
             assertEquals(1, failures.get());
             assertEquals(List.of(), failing.lastObservation());
+        }
+    }
+
+    @Test
+    void fatalProbeErrorIsRecordedInsteadOfStoppingTheSafetySignal() {
+        final AssertionError failure = new AssertionError("usage probe failed fatally");
+        try (WorkerRocksDbUsageMonitor monitor = new WorkerRocksDbUsageMonitor(Duration.ofSeconds(1),
+                () -> {
+                    throw failure;
+                }, ignored -> { }, Executors.newSingleThreadScheduledExecutor())) {
+            monitor.pollNow();
+            assertSame(failure, monitor.lastFailure());
+            assertEquals(List.of(), monitor.lastObservation());
         }
     }
 

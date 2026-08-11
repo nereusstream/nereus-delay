@@ -3077,6 +3077,13 @@ failure is surfaced on its own only after an otherwise successful replacement.
 This closes local atomic-replacement error reporting, not external Oxia,
 Object Store or production durability authority.
 
+Both Worker resource monitors now convert probe `Error` escapes into recorded
+evidence and a sticky `DRAIN_OR_MIGRATE` gate instead of allowing a scheduled
+probe thread to terminate silently. Callback failures are retained as
+secondary diagnostics. This closes the local monitor fail-closed edge; it is
+not evidence that a process-fatal JVM/native condition can be recovered
+without supervision and a fresh process/Store incarnation.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

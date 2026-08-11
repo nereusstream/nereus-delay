@@ -3239,6 +3239,14 @@ otherwise succeeded. This keeps atomic replacement and retry evidence
 diagnosable; it remains local filesystem evidence and does not replace Oxia or
 provider durability authority.
 
+`WorkerRuntimeResourceMonitor` and `WorkerRocksDbUsageMonitor` now treat
+`Error` from a probe as missing resource evidence, record it, and fence the
+sticky Worker safety gate just like a runtime probe failure. A scheduled task
+therefore cannot silently die while the Worker remains admissible; secondary
+failure from the fence callback is retained on the primary probe error. This
+is fail-closed monitor evidence only, and process supervision/fresh restart
+remain required for process-fatal JVM/native conditions.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
