@@ -140,9 +140,12 @@ retirement proof refuses to install a guard while a `RESERVED` or `COMMITTED`
 reservation still names the Lane. A stale large-payload Commit observes an
 already installed same-key terminal guard before inspecting reservation state,
 returns `LANE_TERMINALLY_CLOSED`, and cannot recreate an ACTIVE Lane value.
+Activation/quota rebuild also rejects a live message or reservation that names
+a retired Lane instead of reconstructing live quota usage.
 `DelayShardTest.largePayloadCommitCannotResurrectTerminalLaneGuard` is the
-focused regression. This closes a local resurrection path; external close
-materialization, Floor/retention and adapter authority remain release gates.
+focused regression. This closes a local resurrection and reopen path; external
+close materialization, Floor/retention and adapter authority remain release
+gates.
 
 The Control target-registration audit now separates an authoritative binding
 mismatch from an unavailable registry boundary.  Missing registration remains

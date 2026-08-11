@@ -3135,6 +3135,10 @@ class DelayShardTest {
             assertEquals(guard, shard.getLaneTerminalGuard(lane));
             assertEquals(PayloadReservationStatus.RESERVED, shard.getReservation(reservationId).status());
         }
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            assertThrows(IllegalStateException.class, () -> new DelayShard(store, shardConfig, trustSet));
+        }
     }
 
     @Test

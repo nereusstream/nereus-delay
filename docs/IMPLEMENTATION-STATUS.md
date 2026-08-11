@@ -180,11 +180,13 @@ replacing an active Lane, so an unmaterialized `RESERVED`/`COMMITTED` payload
 reservation cannot be bypassed by physical retirement. Large-payload Commit
 checks the same-key `RETIRED` guard before lifecycle/proof handling and returns
 `LANE_TERMINALLY_CLOSED` without projecting a Message or rewriting the compact
-terminal value as ACTIVE. `DelayShardTest.largePayloadCommitCannotResurrectTerminalLaneGuard`
-covers both the local retirement fence and the stale-Commit branch. This is
-local state-machine evidence only; close-cursor completion, Recovery Floor,
-adapter quiescence and authenticated terminal-guard authority remain release
-gates.
+terminal value as ACTIVE. Activation/quota rebuild also rejects a current
+message or reservation that names a retired Lane instead of reconstructing a
+live quota entry. `DelayShardTest.largePayloadCommitCannotResurrectTerminalLaneGuard`
+covers the local retirement fence, stale-Commit branch and reopen fail-closed
+path. This is local state-machine evidence only; close-cursor completion,
+Recovery Floor, adapter quiescence and authenticated terminal-guard authority
+remain release gates.
 
 `OxiaRealRecoveryAuthoritySmokeTest` now exercises both single-record recovery
 authorities against a real Oxia endpoint when
@@ -2937,7 +2939,8 @@ CAS; validates the close policy and required `ORDER_LOSS` plus
 updates the gate/readiness/READY projection, reverses live Claims, restores
 their exact timeline keys, persists the System Mutation result, and advances
 the source position. Profile/grant activation, authenticated Oxia target
-registration and the Lane terminal guard remain release blockers.
+registration and production terminal-guard authority remain release blockers;
+the same-key local terminal-guard replacement is implemented below.
 
 The bounded local Lane-retirement path now releases the shard's physical
 `laneCount` slot in the same WriteBatch that replaces the active Lane value
@@ -3104,9 +3107,10 @@ The expected resource-state version now remains a raw unsigned `uint64` from
 canonical body decoding through logical identity, GC locator, durable record,
 lookup and local compaction APIs; this does not relax the separate bounded
 mutation-sequence counter. It deliberately does not perform an external
-delete, apply
-`RESOURCE_DELETE_CONFIRMED_V1`, replace a Lane with its terminal guard, or
-infer Recovery Floor release; those remain release blockers.
+delete, apply `RESOURCE_DELETE_CONFIRMED_V1`, or infer Recovery Floor release.
+The local same-key Lane terminal-guard replacement is implemented by
+`DelayShard.retireLaneWithTerminalGuard`; external deletion/confirmation,
+Oxia grant release and Recovery-Floor authority remain release blockers.
 Protection-set `ProtectionRefV1.protection_generation` now follows the same
 full-width rule through nested canonical bytes and the `gc_cf/PROTECTION` key;
 high-bit protection references are covered by `ResourceRetireIntentBodyTest`

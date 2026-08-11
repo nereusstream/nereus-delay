@@ -8208,6 +8208,9 @@ public final class DelayShard {
             if (lane == null) {
                 throw new IllegalStateException("message references a missing Lane during quota rebuild");
             }
+            if (lane.admissionGate() == AdmissionGate.RETIRED) {
+                throw new IllegalStateException("message references a retired Lane during quota rebuild");
+            }
             if (lane.admissionGate() == AdmissionGate.CLOSED && isUnadmittedGeneration(message)) {
                 continue;
             }
@@ -8228,6 +8231,9 @@ public final class DelayShard {
             final LaneRecord lane = readLane(reservation.intent().laneId());
             if (lane == null) {
                 throw new IllegalStateException("reservation references a missing Lane during quota rebuild");
+            }
+            if (lane.admissionGate() == AdmissionGate.RETIRED) {
+                throw new IllegalStateException("reservation references a retired Lane during quota rebuild");
             }
             if (lane.admissionGate() == AdmissionGate.CLOSED) {
                 continue;
