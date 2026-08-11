@@ -80,6 +80,14 @@ and `PersistentSloObservationCollectorTest.rejectsSymbolicParentComponentBeforeC
 This is local crash-durable evidence, not external Oxia/Object Store/collector
 authority.
 
+The same guard now covers the local Control Operation and Owner Lease roots,
+with focused regressions
+`PersistentControlOperationAuthorityTest.rejectsSymbolicParentComponentBeforeCreatingControlStateOutsideBoundary`
+and `PersistentOwnerLeaseStoreTest.rejectsSymbolicParentComponentBeforeCreatingLeaseStateOutsideBoundary`.
+This removes the remaining local root-initialization path that could have
+followed an intermediate symlink; production Oxia/session fencing remains an
+external release gate.
+
 The Control target-registration audit now separates an authoritative binding
 mismatch from an unavailable registry boundary.  Missing registration remains
 an explicit `UNAUTHORIZED_SYSTEM_MUTATION` position result, but a lookup or

@@ -111,6 +111,15 @@ and `PersistentSloObservationCollectorTest.rejectsSymbolicParentComponentBeforeC
 This closes local projection path handling only; it does not replace external
 Oxia, Object Store or collector authority.
 
+The same shared guard now covers the local Control Operation and Owner Lease
+state roots. Their missing root descendants are created one component at a time
+and existing/raced components are rechecked without following symlinks. The
+focused regressions are
+`PersistentControlOperationAuthorityTest.rejectsSymbolicParentComponentBeforeCreatingControlStateOutsideBoundary`
+and `PersistentOwnerLeaseStoreTest.rejectsSymbolicParentComponentBeforeCreatingLeaseStateOutsideBoundary`.
+This keeps all crash-durable local authority projections on one physical path
+policy; it remains an embedded seam, not production Oxia authority.
+
 `OxiaRealRecoveryAuthoritySmokeTest` now exercises both single-record recovery
 authorities against a real Oxia endpoint when
 `NEREUS_DELAY_OXIA_ENDPOINT=host:port` is set: Recovery Catalog publication,

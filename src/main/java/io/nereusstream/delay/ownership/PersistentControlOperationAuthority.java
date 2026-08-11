@@ -5,6 +5,7 @@ import io.nereusstream.delay.protocol.ControlOperationQueryResponseV1;
 import io.nereusstream.delay.protocol.ControlOperationReceiptV1;
 import io.nereusstream.delay.protocol.ControlOperationStateTransitionV1;
 import io.nereusstream.delay.protocol.CurrentControlOperationV1;
+import io.nereusstream.delay.store.LocalStatePathGuard;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -291,16 +292,14 @@ public final class PersistentControlOperationAuthority implements ControlOperati
     }
 
     private void ensureRoot(final boolean create) throws IOException {
-        rejectSymbolicLink(root, "control operation state root");
         if (!Files.exists(root, LinkOption.NOFOLLOW_LINKS)) {
             if (!create) {
                 throw new IOException("control operation state root is missing: " + root);
             }
-            Files.createDirectories(root);
+            LocalStatePathGuard.ensureRealDirectoryPath(root, "control operation state root");
+            return;
         }
-        if (!Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IOException("control operation state root is not a directory: " + root);
-        }
+        LocalStatePathGuard.ensureRealDirectoryPath(root, "control operation state root");
     }
 
     private static void rejectSymbolicLink(final Path path, final String name) throws IOException {

@@ -125,6 +125,19 @@ class PersistentOwnerLeaseStoreTest {
     }
 
     @Test
+    void rejectsSymbolicParentComponentBeforeCreatingLeaseStateOutsideBoundary() throws Exception {
+        final Path parentRoot = tempDir.resolve("lease-parent");
+        final Path outside = tempDir.resolve("lease-outside");
+        Files.createDirectories(parentRoot);
+        Files.createDirectories(outside);
+        Files.createSymbolicLink(parentRoot.resolve("nested"), outside);
+
+        assertThrows(IllegalStateException.class,
+                () -> new PersistentOwnerLeaseStore(parentRoot.resolve("nested/state")));
+        assertFalse(Files.exists(outside.resolve("state"), java.nio.file.LinkOption.NOFOLLOW_LINKS));
+    }
+
+    @Test
     void copiedStateForAnotherShardIsRejected() throws Exception {
         final ShardId firstShard = new ShardId(RouteIncarnation.random(), 24);
         final ShardId secondShard = new ShardId(RouteIncarnation.random(), 25);

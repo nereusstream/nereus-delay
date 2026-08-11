@@ -3,6 +3,7 @@ package io.nereusstream.delay.ownership;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CanonicalProtobuf;
 import io.nereusstream.delay.protocol.ShardId;
+import io.nereusstream.delay.store.LocalStatePathGuard;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -456,16 +457,14 @@ public final class PersistentOwnerLeaseStore implements OwnerLeaseStore {
     }
 
     private void ensureRoot(final boolean create) throws IOException {
-        rejectSymbolicLink(root, "owner lease state root");
         if (!Files.exists(root, LinkOption.NOFOLLOW_LINKS)) {
             if (!create) {
                 throw new IOException("owner lease state root is missing: " + root);
             }
-            Files.createDirectories(root);
+            LocalStatePathGuard.ensureRealDirectoryPath(root, "owner lease state root");
+            return;
         }
-        if (!Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IOException("owner lease state root is not a directory: " + root);
-        }
+        LocalStatePathGuard.ensureRealDirectoryPath(root, "owner lease state root");
     }
 
     private static void rejectSymbolicLink(final Path path, final String name) throws IOException {

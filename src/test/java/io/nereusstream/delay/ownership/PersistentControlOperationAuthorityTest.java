@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class PersistentControlOperationAuthorityTest {
@@ -66,6 +67,19 @@ class PersistentControlOperationAuthorityTest {
         Files.write(state, bytes);
 
         assertThrows(IllegalStateException.class, () -> authority.query(receipt, 2_000));
+    }
+
+    @Test
+    void rejectsSymbolicParentComponentBeforeCreatingControlStateOutsideBoundary() throws Exception {
+        final Path parentRoot = tempDir.resolve("control-parent");
+        final Path outside = tempDir.resolve("control-outside");
+        Files.createDirectories(parentRoot);
+        Files.createDirectories(outside);
+        Files.createSymbolicLink(parentRoot.resolve("nested"), outside);
+
+        assertThrows(IllegalStateException.class,
+                () -> new PersistentControlOperationAuthority(parentRoot.resolve("nested/state")));
+        assertFalse(Files.exists(outside.resolve("state"), java.nio.file.LinkOption.NOFOLLOW_LINKS));
     }
 
     @Test

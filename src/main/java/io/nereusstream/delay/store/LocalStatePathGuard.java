@@ -19,11 +19,11 @@ import java.util.Objects;
  * state files and their temporary/lock siblings inside the intended physical
  * directory boundary.</p>
  */
-final class LocalStatePathGuard {
+public final class LocalStatePathGuard {
     private LocalStatePathGuard() {
     }
 
-    static void ensureRealDirectoryPath(final Path path, final String description) throws IOException {
+    public static void ensureRealDirectoryPath(final Path path, final String description) throws IOException {
         Objects.requireNonNull(path, "path");
         Objects.requireNonNull(description, "description");
         final Path absolute = path.toAbsolutePath().normalize();
