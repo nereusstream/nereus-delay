@@ -53,7 +53,9 @@ public final class LaneScheduler {
         if (existing == null) {
             maxDeficitBytes = Math.max(maxDeficitBytes, weightIncrement);
             lanes.put(lane.laneId(), new LaneQueue(lane));
-            ring.add(lane.laneId());
+            if (lane.schedulable()) {
+                ring.add(lane.laneId());
+            }
         } else {
             existing.update(lane);
             // A Lane control update can lower its scheduler weight.  Rebuild
@@ -62,6 +64,11 @@ public final class LaneScheduler {
             // the outer Worker scheduler and publishes the bounded projection
             // before the next poll, even when the Lane is idle.
             recomputeDeficitCap();
+            if (lane.schedulable()) {
+                activateLane(lane.laneId());
+            } else {
+                deactivateLane(lane.laneId());
+            }
         }
     }
 
@@ -361,13 +368,15 @@ public final class LaneScheduler {
         final Set<DestinationLaneId> seen = new HashSet<>();
         final List<DestinationLaneId> rebuilt = new ArrayList<>();
         for (DestinationLaneId laneId : persistedOrder) {
-            if (!seen.add(laneId) || !lanes.containsKey(laneId)) {
+            final LaneQueue lane = lanes.get(laneId);
+            if (!seen.add(laneId) || lane == null || !lane.schedulable()) {
                 continue;
             }
             rebuilt.add(laneId);
         }
         for (DestinationLaneId laneId : ring) {
-            if (seen.add(laneId)) {
+            final LaneQueue lane = lanes.get(laneId);
+            if (seen.add(laneId) && lane != null && lane.schedulable()) {
                 rebuilt.add(laneId);
             }
         }
@@ -382,7 +391,8 @@ public final class LaneScheduler {
         final Set<DestinationLaneId> seen = new HashSet<>();
         final List<DestinationLaneId> rebuilt = new ArrayList<>();
         for (DestinationLaneId laneId : activeOrder) {
-            if (seen.add(laneId) && lanes.containsKey(laneId)) {
+            final LaneQueue lane = lanes.get(laneId);
+            if (seen.add(laneId) && lane != null && lane.schedulable()) {
                 rebuilt.add(laneId);
             }
         }
@@ -393,7 +403,10 @@ public final class LaneScheduler {
 
     /** Adds one registered Lane to the active ring after a READY transition. */
     public synchronized void activateLane(final DestinationLaneId laneId) {
-        requireLane(laneId);
+        final LaneQueue lane = requireLane(laneId);
+        if (!lane.schedulable()) {
+            throw new IllegalStateException("only an OPEN and READY lane can enter the active ring");
+        }
         if (!ring.contains(laneId)) {
             ring.add(laneId);
         }

@@ -3113,7 +3113,8 @@ captures the full readiness enum rather than only the schedulable boolean, so a
 failed projection write cannot silently turn a recovery state into BLOCKED or
 READY; blocked/recovering Lanes also leave the active ring until READY
 reactivation. `LaneSchedulerTest.blockedLaneMustRecoverEvidenceBeforeBecomingReady`
-and `LaneSchedulerTest.failedReadyProjectionRestoresEvidenceRecoveryStateExactly`
+and `LaneSchedulerTest.nonReadyRegistrationStaysOutsideActiveRingUntilRecoveryCompletes`
+plus `LaneSchedulerTest.failedReadyProjectionRestoresEvidenceRecoveryStateExactly`
 cover the local scheduler and rollback boundaries. External activator evidence
 and Owner/Oxia readiness authority remain release gates.
 

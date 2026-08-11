@@ -75,6 +75,21 @@ class LaneSchedulerTest {
     }
 
     @Test
+    void nonReadyRegistrationStaysOutsideActiveRingUntilRecoveryCompletes() {
+        final DestinationLaneId lane = lane(4);
+        final LaneScheduler scheduler = LaneScheduler.defaults();
+        final LaneRecord recovering = new LaneRecord(lane, new byte[16], 1, 0, AdmissionGate.OPEN,
+                RuntimeReadiness.RECOVERING_EVIDENCE, 1, 0);
+        scheduler.register(recovering);
+
+        assertEquals(List.of(), scheduler.ringOrder());
+        scheduler.markReady(lane);
+        assertEquals(List.of(lane), scheduler.ringOrder());
+        scheduler.markBlocked(lane);
+        assertEquals(List.of(), scheduler.ringOrder());
+    }
+
+    @Test
     void duePollUsesAnInclusiveEligibilityBoundary() {
         final DestinationLaneId lane = lane(2);
         final LaneScheduler scheduler = LaneScheduler.defaults();

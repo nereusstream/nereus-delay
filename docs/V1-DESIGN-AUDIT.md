@@ -2961,6 +2961,8 @@ readiness enum after a failed projection write instead of restoring only a
 schedulable/not-schedulable bit; blocked/recovering Lanes leave the active ring
 until READY reactivation. The regressions are
 `LaneSchedulerTest.blockedLaneMustRecoverEvidenceBeforeBecomingReady` and
+`LaneSchedulerTest.nonReadyRegistrationStaysOutsideActiveRingUntilRecoveryCompletes`,
+alongside
 `LaneSchedulerTest.failedReadyProjectionRestoresEvidenceRecoveryStateExactly`.
 This is local projection evidence only; activator evidence and Owner/Oxia
 readiness authority remain release gates.
