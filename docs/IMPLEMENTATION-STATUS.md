@@ -129,6 +129,14 @@ short read fails closed. `LocalStatePathGuardTest` covers the bounded read and
 target-type fences. This closes the local state-file check-then-open window
 only; it does not replace external authority or process supervision.
 
+The per-shard physical-usage probe now treats a symbolic link or any
+non-regular entry inside an open DB as missing physical evidence and fails
+closed instead of silently skipping it. File sizes are observed through one
+`NOFOLLOW_LINKS` handle, so a replacement or disappearance cannot be counted
+as zero bytes. `ShardStoreTest.physicalUsageFailsClosedOnADeceptiveSymbolicFile`
+covers the local monitor boundary; process-wide disk/quota authority remains
+external.
+
 `OxiaRealRecoveryAuthoritySmokeTest` now exercises both single-record recovery
 authorities against a real Oxia endpoint when
 `NEREUS_DELAY_OXIA_ENDPOINT=host:port` is set: Recovery Catalog publication,

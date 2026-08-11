@@ -110,6 +110,38 @@ public final class LocalStatePathGuard {
         }
     }
 
+    /**
+     * Returns the size observed through one no-follow regular-file handle.
+     * Missing, symbolic, non-regular or concurrently changing files fail
+     * closed because a physical-usage probe cannot treat unknown bytes as
+     * zero.
+     */
+    public static long sizeRegularFileNoFollow(final Path path, final String description) throws IOException {
+        Objects.requireNonNull(path, "path");
+        Objects.requireNonNull(description, "description");
+        final Path absolute = path.toAbsolutePath().normalize();
+        final FileChannel channel;
+        try {
+            channel = FileChannel.open(absolute, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS);
+        } catch (IOException failure) {
+            if (Files.isSymbolicLink(absolute)) {
+                throw new IOException(description + " must not be a symbolic link: " + path, failure);
+            }
+            throw failure;
+        }
+        try (channel) {
+            if (Files.isSymbolicLink(absolute)
+                    || !Files.isRegularFile(absolute, LinkOption.NOFOLLOW_LINKS)) {
+                throw new IOException(description + " is not a regular file: " + path);
+            }
+            final long size = channel.size();
+            if (size < 0 || channel.size() != size) {
+                throw new IOException(description + " changed while being inspected: " + path);
+            }
+            return size;
+        }
+    }
+
     private static void requireRealDirectory(final Path path, final String description) throws IOException {
         if (Files.isSymbolicLink(path)
                 || !Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {

@@ -75,10 +75,17 @@ public record RocksDbUsageSnapshot(
             int localFiles = 0;
             try (var paths = Files.walk(dbPath)) {
                 for (Path path : paths.toList()) {
-                    if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
+                    if (Files.isSymbolicLink(path)) {
+                        throw new IllegalStateException("RocksDB usage path must not contain a symbolic link: " + path);
+                    }
+                    if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
                         continue;
                     }
-                    final long size = nonNegative(Files.size(path), "local file size");
+                    if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
+                        throw new IllegalStateException("RocksDB usage path contains a non-regular file: " + path);
+                    }
+                    final long size = nonNegative(LocalStatePathGuard.sizeRegularFileNoFollow(path,
+                            "RocksDB local file size"), "local file size");
                     localBytes = add(localBytes, size, "local bytes");
                     localFiles = increment(localFiles, "local file count");
                     final String name = path.getFileName().toString();

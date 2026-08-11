@@ -1101,6 +1101,20 @@ class ShardStoreTest {
     }
 
     @Test
+    void physicalUsageFailsClosedOnADeceptiveSymbolicFile() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("physical-usage-symlink"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 54);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final Path outside = tempDir.resolve("physical-usage-outside");
+            Files.write(outside, new byte[]{1, 2, 3});
+            Files.createSymbolicLink(store.dbPath().resolve("external-file"), outside);
+
+            assertThrows(IllegalStateException.class, store::physicalUsage);
+        }
+    }
+
+    @Test
     void checkpointDownloadSlotIsWorkerBoundedAndReleased() {
         final ShardStoreConfig config = new ShardStoreConfig(tempDir.resolve("restore-slot"), 1, 2, 32, 64,
                 1, 1024 * 1024, 1024 * 1024, 1, 1, 1, 1024);
