@@ -1098,10 +1098,12 @@ The positive local reserve-to-handle-to-attestation path is covered by
 The local adapter now keeps the first registered Prepare reservation as the
 immutable receipt anchor while accepting only the same reservation identity's
 legal source-ordered lifecycle advance. The shard-local reservation value
-persists the anchor state version and Source Position, with a strict legacy-v1
-decode/upgrade path, so a newly constructed adapter reconstructs the original
-receipt after reopening a `COMMITTED`, `ABANDONED` or materialized `EXPIRED`
-value. A receipt observed before a later lifecycle transition therefore reaches
+persists the anchor state version and Source Position, so a newly constructed
+adapter reconstructs the original receipt after reopening a v2 `COMMITTED`,
+`ABANDONED` or materialized `EXPIRED` value. A strict legacy-v1 decode/upgrade
+path remains for older local values; because those values never carried an
+anchor, their fallback anchor is the current state and cannot invent missing
+historical Prepare data. A receipt observed before a later lifecycle transition therefore reaches
 the corresponding typed closed outcome instead of being reported as
 `INTEGRITY_ERROR`; arbitrary identity/state drift remains rejected. The
 focused evidence is

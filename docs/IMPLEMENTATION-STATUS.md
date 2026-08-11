@@ -1524,9 +1524,11 @@ The deterministic local Object Store adapter now retains the first registered
 Prepare reservation as the receipt anchor and accepts only the same immutable
 reservation identity's legal source-ordered lifecycle transition. The
 shard-local `PayloadReservation` value persists that anchor's state version and
-Source Position (with a strict v1 decode/upgrade path), so a newly constructed
-adapter can reconstruct the original Prepare receipt after reopening a
-`COMMITTED`, `ABANDONED` or materialized `EXPIRED` reservation. A previously
+Source Position, so a newly constructed adapter can reconstruct the original
+Prepare receipt after reopening a v2 `COMMITTED`, `ABANDONED` or materialized
+`EXPIRED` reservation. A strict v1 decode/upgrade path remains for older local
+values; because those values never carried an anchor, their fallback anchor is
+the value's current state and cannot invent missing historical Prepare data. A previously
 issued receipt consequently maps to `RESERVATION_EXPIRED`,
 `RESERVATION_ABANDONED` or `RESERVATION_CLOSED` after the corresponding local
 state projection, while arbitrary state/version/source drift remains rejected.
