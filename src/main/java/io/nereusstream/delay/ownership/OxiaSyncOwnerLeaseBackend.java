@@ -1,0 +1,502 @@
+package io.nereusstream.delay.ownership;
+
+import io.oxia.client.api.GetResult;
+import io.oxia.client.api.OxiaClientBuilder;
+import io.oxia.client.api.PutResult;
+import io.oxia.client.api.SyncOxiaClient;
+import io.oxia.client.api.Version;
+import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
+import io.oxia.client.api.exceptions.OxiaException;
+import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
+import io.oxia.client.api.options.DeleteOption;
+import io.oxia.client.api.options.PutOption;
+import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.CanonicalProtobuf;
+import io.nereusstream.delay.protocol.RouteIncarnation;
+import io.nereusstream.delay.protocol.ShardId;
+
+import java.io.Closeable;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
+
+/**
+ * Oxia implementation of the owner-lease CAS surface.
+ *
+ * <p>The lease record is an Oxia ephemeral record.  A separate durable epoch
+ * record is incremented with version CAS before the ephemeral record is
+ * created; losing a race may consume an epoch, but it can never reuse one.
+ * The caller still has to create the {@link SyncOxiaClient} with the desired
+ * session timeout and authenticated identity.  This class does not own or
+ * close that client.</p>
+ *
+ * <p>The backend is deliberately below {@link OxiaOwnerLeaseStore}: the
+ * latter remains responsible for validating the response against the V1
+ * fencing contract.  A response lost after a successful Oxia write is
+ * propagated as an exception rather than guessed as a successful CAS.</p>
+ */
+public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.LeaseCasBackend {
+    private static final int MAX_EPOCH_CAS_ATTEMPTS = 32;
+    private static final byte[] SESSION_DOMAIN = Bytes.utf8(
+            "nereus-delay-oxia-session-identity-v1\0");
+
+    private final RecordClient client;
+    private final String keyPrefix;
+
+    /** Creates a backend over an already configured Oxia client. */
+    public OxiaSyncOwnerLeaseBackend(final SyncOxiaClient client, final String keyPrefix) {
+        this(new SyncRecordClient(client), keyPrefix);
+    }
+
+    /**
+     * Convenience factory that creates a client with Oxia's ephemeral-session
+     * support enabled.  The returned backend does not close the client; keep
+     * the client and close it after the worker has released all leases.
+     */
+    public static ClientHandle connect(final String serviceAddress, final String namespace,
+                                       final String clientIdentifier, final String keyPrefix)
+            throws OxiaException {
+        Objects.requireNonNull(serviceAddress, "serviceAddress");
+        Objects.requireNonNull(namespace, "namespace");
+        Objects.requireNonNull(clientIdentifier, "clientIdentifier");
+        final SyncOxiaClient client = OxiaClientBuilder.create(serviceAddress)
+                .namespace(canonicalText(namespace, "namespace"))
+                .clientIdentifier(canonicalText(clientIdentifier, "clientIdentifier"))
+                .syncClient();
+        return new ClientHandle(client, new OxiaSyncOwnerLeaseBackend(client, keyPrefix));
+    }
+
+    /** Package-private constructor used by deterministic CAS tests. */
+    OxiaSyncOwnerLeaseBackend(final RecordClient client, final String keyPrefix) {
+        this.client = Objects.requireNonNull(client, "client");
+        this.keyPrefix = canonicalKeyPrefix(keyPrefix);
+    }
+
+    /**
+     * Derives the 32-byte V1 session identity from the metadata attached to an
+     * Oxia ephemeral record.  Callers of context-bound acquisition should pass
+     * this value, not a process-local random value.
+     */
+    public static byte[] sessionIdentity(final Version version) {
+        Objects.requireNonNull(version, "version");
+        final long sessionId = version.sessionId().orElseThrow(
+                () -> new IllegalArgumentException("Oxia lease is not bound to a session"));
+        final String clientIdentifier = canonicalText(version.clientIdentifier().orElseThrow(
+                () -> new IllegalArgumentException("Oxia lease has no client identity")),
+                "clientIdentifier");
+        if (sessionId < 0) {
+            throw new IllegalArgumentException("Oxia session id must be non-negative");
+        }
+        return Bytes.sha256(SESSION_DOMAIN, Bytes.u64be(sessionId),
+                Bytes.lp32(Bytes.utf8(clientIdentifier)));
+    }
+
+    @Override
+    public Optional<OwnerLease> acquire(final ShardId shardId, final String ownerId,
+                                        final long nowEpochMs, final long leaseDurationMs) {
+        validateRequest(shardId, ownerId, nowEpochMs, leaseDurationMs);
+        return acquireInternal(shardId, ownerId, nowEpochMs, leaseDurationMs, null);
+    }
+
+    @Override
+    public Optional<OwnerLease> acquire(final SourceAssignment assignment, final String ownerId,
+                                        final byte[] sessionIdentity, final long nowEpochMs,
+                                        final long leaseDurationMs) {
+        Objects.requireNonNull(assignment, "assignment");
+        final OwnerLeaseContext context = new OwnerLeaseContext(assignment.assignmentId(),
+                assignment.assignmentEpoch(), sessionIdentity);
+        validateRequest(assignment.shardId(), ownerId, nowEpochMs, leaseDurationMs);
+        return acquireInternal(assignment.shardId(), ownerId, nowEpochMs, leaseDurationMs, context);
+    }
+
+    @Override
+    public Optional<OwnerLease> renew(final OwnerLease expected, final long nowEpochMs,
+                                      final long leaseDurationMs) {
+        Objects.requireNonNull(expected, "expected");
+        validateRequest(expected.shardId(), expected.ownerId(), nowEpochMs, leaseDurationMs);
+        final StoredLease current = readLease(expected.shardId());
+        if (current == null || !expected.sameIdentity(current.lease)
+                || !expected.validAt(nowEpochMs)) {
+            return Optional.empty();
+        }
+        final long expiresAt;
+        try {
+            expiresAt = Math.addExact(nowEpochMs, leaseDurationMs);
+        } catch (ArithmeticException overflow) {
+            throw new IllegalArgumentException("lease expiry overflows epoch milliseconds", overflow);
+        }
+        final OwnerLease renewed = new OwnerLease(expected.shardId(), expected.ownerId(), expected.ownerEpoch(),
+                expected.leaseToken(), expiresAt, expected.context(), expected.state());
+        return putLease(renewed, current.versionId);
+    }
+
+    @Override
+    public boolean release(final OwnerLease expected) {
+        Objects.requireNonNull(expected, "expected");
+        final StoredLease current = readLease(expected.shardId());
+        if (current == null || !expected.sameIdentity(current.lease)) {
+            return false;
+        }
+        try {
+            return client.delete(leaseKey(expected.shardId()),
+                    Set.of(DeleteOption.IfVersionIdEquals(current.versionId)));
+        } catch (UnexpectedVersionIdException lostRace) {
+            return false;
+        }
+    }
+
+    @Override
+    public Optional<OwnerLease> transition(final OwnerLease expected, final ShardLifecycleState nextState) {
+        Objects.requireNonNull(expected, "expected");
+        Objects.requireNonNull(nextState, "nextState");
+        if (!expected.state().canTransitionTo(nextState)) {
+            return Optional.empty();
+        }
+        final StoredLease current = readLease(expected.shardId());
+        if (current == null || !expected.sameIdentity(current.lease)) {
+            return Optional.empty();
+        }
+        final OwnerLease transitioned = new OwnerLease(expected.shardId(), expected.ownerId(), expected.ownerEpoch(),
+                expected.leaseToken(), expected.expiresAtEpochMs(), expected.context(), nextState);
+        return putLease(transitioned, current.versionId);
+    }
+
+    @Override
+    public Optional<OwnerLease> current(final ShardId shardId) {
+        Objects.requireNonNull(shardId, "shardId");
+        final StoredLease current = readLease(shardId);
+        return current == null ? Optional.empty() : Optional.of(current.lease);
+    }
+
+    private Optional<OwnerLease> acquireInternal(final ShardId shardId, final String ownerId,
+                                                 final long nowEpochMs, final long leaseDurationMs,
+                                                 final OwnerLeaseContext context) {
+        if (readLease(shardId) != null) {
+            return Optional.empty();
+        }
+        final long expiresAt;
+        try {
+            expiresAt = Math.addExact(nowEpochMs, leaseDurationMs);
+        } catch (ArithmeticException overflow) {
+            throw new IllegalArgumentException("lease expiry overflows epoch milliseconds", overflow);
+        }
+        final long ownerEpoch = allocateEpoch(shardId);
+        final OwnerLease candidate = new OwnerLease(shardId, ownerId, ownerEpoch, randomToken(), expiresAt,
+                context, ShardLifecycleState.ACQUIRING);
+        PutResult result = null;
+        try {
+            result = client.put(leaseKey(shardId), encodeLease(candidate),
+                    Set.of(PutOption.IfRecordDoesNotExist, PutOption.AsEphemeralRecord));
+            validateEphemeralVersion(result.version(), context);
+            final OwnerLease stored = decodeLease(resultValue(result, candidate));
+            if (!candidate.sameIdentity(stored) || stored.state() != ShardLifecycleState.ACQUIRING) {
+                throw new IllegalStateException("Oxia lease create response changed its identity");
+            }
+            return Optional.of(stored);
+        } catch (KeyAlreadyExistsException | UnexpectedVersionIdException lostRace) {
+            return Optional.empty();
+        } catch (RuntimeException failure) {
+            // A malformed response must not strand an ephemeral record that
+            // would block the next owner.  Cleanup is best effort; the
+            // original integrity/transport failure remains authoritative.
+            if (result != null && result.version() != null) {
+                try {
+                    client.delete(leaseKey(shardId),
+                            Set.of(DeleteOption.IfVersionIdEquals(result.version().versionId())));
+                } catch (RuntimeException | UnexpectedVersionIdException ignored) {
+                    // The session may already have expired or another owner
+                    // may have won after a malformed response.
+                }
+            }
+            throw failure;
+        }
+    }
+
+    private Optional<OwnerLease> putLease(final OwnerLease lease, final long versionId) {
+        try {
+            final PutResult result = client.put(leaseKey(lease.shardId()), encodeLease(lease),
+                    Set.of(PutOption.IfVersionIdEquals(versionId), PutOption.AsEphemeralRecord));
+            validateEphemeralVersion(result.version(), lease.context());
+            final OwnerLease stored = decodeLease(resultValue(result, lease));
+            if (!lease.sameIdentity(stored) || lease.state() != stored.state()
+                    || lease.expiresAtEpochMs() != stored.expiresAtEpochMs()) {
+                throw new IllegalStateException("Oxia lease CAS response changed its identity or state");
+            }
+            return Optional.of(stored);
+        } catch (KeyAlreadyExistsException | UnexpectedVersionIdException lostRace) {
+            return Optional.empty();
+        }
+    }
+
+    private long allocateEpoch(final ShardId shardId) {
+        final String key = epochKey(shardId);
+        for (int attempt = 0; attempt < MAX_EPOCH_CAS_ATTEMPTS; attempt++) {
+            final GetResult current = client.get(key);
+            if (current == null) {
+                try {
+                    final PutResult created = client.put(key, Bytes.u64be(1), Set.of(PutOption.IfRecordDoesNotExist));
+                    if (created == null || created.version() == null) {
+                        throw new IllegalStateException("Oxia epoch create returned no version");
+                    }
+                    return 1;
+                } catch (KeyAlreadyExistsException | UnexpectedVersionIdException conflict) {
+                    continue;
+                }
+            }
+            final long previous = decodeEpoch(current.value());
+            if (previous == 0 || previous == -1L) {
+                throw new IllegalStateException("Oxia owner epoch is exhausted or malformed");
+            }
+            final long next = previous + 1;
+            try {
+                final PutResult updated = client.put(key, Bytes.u64beBits(next),
+                        Set.of(PutOption.IfVersionIdEquals(current.version().versionId())));
+                if (updated == null || updated.version() == null) {
+                    throw new IllegalStateException("Oxia epoch CAS returned no version");
+                }
+                return next;
+            } catch (KeyAlreadyExistsException | UnexpectedVersionIdException conflict) {
+                // Another worker won the version CAS.  Re-read and retry.
+            }
+        }
+        throw new IllegalStateException("Oxia owner epoch CAS did not converge");
+    }
+
+    private StoredLease readLease(final ShardId shardId) {
+        final GetResult result = client.get(leaseKey(shardId));
+        if (result == null) {
+            return null;
+        }
+        final OwnerLease lease = decodeLease(result.value());
+        if (!shardId.equals(lease.shardId())) {
+            throw new IllegalStateException("Oxia lease belongs to another shard");
+        }
+        validateEphemeralVersion(result.version(), lease.context());
+        return new StoredLease(lease, result.version().versionId());
+    }
+
+    private void validateEphemeralVersion(final Version version, final OwnerLeaseContext context) {
+        Objects.requireNonNull(version, "Oxia lease version");
+        if (version.sessionId().isEmpty() || version.clientIdentifier().isEmpty()) {
+            throw new IllegalStateException("Oxia owner lease is not an ephemeral session record");
+        }
+        if (context != null && !Bytes.constantTimeEquals(context.sessionIdentity(), sessionIdentity(version))) {
+            throw new IllegalStateException("Oxia lease session identity does not match the request");
+        }
+    }
+
+    private static byte[] resultValue(final PutResult result, final OwnerLease fallback) {
+        if (result == null || result.version() == null) {
+            throw new IllegalStateException("Oxia lease put returned no version");
+        }
+        // The Oxia PutResult intentionally does not echo the value.  The
+        // request bytes are canonical and have already passed the CAS, so the
+        // response projection is the exact value that was submitted.
+        return encodeLease(fallback);
+    }
+
+    private String leaseKey(final ShardId shardId) {
+        return keyPrefix + "/lease/" + shardToken(shardId);
+    }
+
+    private String epochKey(final ShardId shardId) {
+        return keyPrefix + "/epoch/" + shardToken(shardId);
+    }
+
+    private static String shardToken(final ShardId shardId) {
+        return Bytes.hex(Bytes.concat(shardId.routeIncarnation().bytes(), Bytes.u32beBits(shardId.partition())));
+    }
+
+    private static byte[] randomToken() {
+        final byte[] token = new byte[32];
+        ThreadLocalRandom.current().nextBytes(token);
+        return token;
+    }
+
+    private static byte[] encodeLease(final OwnerLease lease) {
+        final byte[] encoded = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, lease.shardId().routeIncarnation().bytes());
+            CanonicalProtobuf.uint32Bits(output, 2, lease.shardId().partition());
+            CanonicalProtobuf.bytes(output, 3, Bytes.utf8(canonicalText(lease.ownerId(), "ownerId")));
+            CanonicalProtobuf.uint64Bits(output, 4, lease.ownerEpoch());
+            CanonicalProtobuf.bytes(output, 5, lease.leaseToken());
+            CanonicalProtobuf.uint64Bits(output, 6, lease.expiresAtEpochMs());
+            CanonicalProtobuf.uint32(output, 7, lease.state().wireValue());
+            if (lease.context() != null) {
+                CanonicalProtobuf.bytes(output, 8, lease.context().sourceAssignmentId());
+                CanonicalProtobuf.uint64(output, 9, lease.context().assignmentEpoch());
+                CanonicalProtobuf.bytes(output, 10, lease.context().sessionIdentity());
+            }
+        });
+        return encoded;
+    }
+
+    private static OwnerLease decodeLease(final byte[] bytes) {
+        Objects.requireNonNull(bytes, "bytes");
+        final Map<Integer, CanonicalProtobuf.Reader.Field> fields = new HashMap<>();
+        final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(bytes);
+        while (reader.hasRemaining()) {
+            final CanonicalProtobuf.Reader.Field field = reader.next();
+            if (fields.put(field.number(), field) != null) {
+                throw new IllegalArgumentException("duplicate Oxia lease field");
+            }
+        }
+        for (int number = 1; number <= 7; number++) {
+            if (!fields.containsKey(number)) {
+                throw new IllegalArgumentException("missing Oxia lease field " + number);
+            }
+        }
+        final byte[] route = bytesField(fields, 1, 16);
+        final long partition = uintField(fields, 2);
+        if (partition > 0xffff_ffffL) {
+            throw new IllegalArgumentException("Oxia lease partition is outside uint32");
+        }
+        final String ownerId = canonicalText(new String(bytesField(fields, 3, Integer.MAX_VALUE),
+                StandardCharsets.UTF_8), "ownerId");
+        final long ownerEpoch = uintField(fields, 4);
+        if (ownerEpoch == 0) {
+            throw new IllegalArgumentException("Oxia owner epoch must be non-zero");
+        }
+        final byte[] token = bytesField(fields, 5, 32);
+        final long expiresAt = uintField(fields, 6);
+        final ShardLifecycleState state = state(uintField(fields, 7));
+        final boolean hasContext = fields.containsKey(8) || fields.containsKey(9) || fields.containsKey(10);
+        final OwnerLeaseContext context;
+        if (hasContext) {
+            if (!fields.keySet().containsAll(Set.of(8, 9, 10))) {
+                throw new IllegalArgumentException("Oxia lease context is incomplete");
+            }
+            context = new OwnerLeaseContext(bytesField(fields, 8, 32), uintField(fields, 9),
+                    bytesField(fields, 10, 32));
+        } else {
+            context = null;
+        }
+        final OwnerLease lease = new OwnerLease(new ShardId(new RouteIncarnation(route), (int) partition), ownerId,
+                ownerEpoch, token, expiresAt, context, state);
+        if (!Arrays.equals(bytes, encodeLease(lease))) {
+            throw new IllegalArgumentException("Oxia lease bytes are not canonical");
+        }
+        return lease;
+    }
+
+    private static long decodeEpoch(final byte[] bytes) {
+        Bytes.requireLength(bytes, Long.BYTES, "owner epoch");
+        return java.nio.ByteBuffer.wrap(bytes).getLong();
+    }
+
+    private static byte[] bytesField(final Map<Integer, CanonicalProtobuf.Reader.Field> fields,
+                                     final int number, final int maxLength) {
+        final CanonicalProtobuf.Reader.Field field = fields.get(number);
+        if (field == null || field.wireType() != 2 || field.rawValue().length > maxLength) {
+            throw new IllegalArgumentException("invalid Oxia lease bytes field " + number);
+        }
+        return field.rawValue();
+    }
+
+    private static long uintField(final Map<Integer, CanonicalProtobuf.Reader.Field> fields, final int number) {
+        final CanonicalProtobuf.Reader.Field field = fields.get(number);
+        if (field == null || field.wireType() != 0) {
+            throw new IllegalArgumentException("invalid Oxia lease varint field " + number);
+        }
+        return field.unsignedValue();
+    }
+
+    private static ShardLifecycleState state(final long value) {
+        for (ShardLifecycleState candidate : ShardLifecycleState.values()) {
+            if (candidate.wireValue() == value) {
+                return candidate;
+            }
+        }
+        throw new IllegalArgumentException("unknown Oxia lease lifecycle state");
+    }
+
+    private static void validateRequest(final ShardId shardId, final String ownerId, final long nowEpochMs,
+                                        final long leaseDurationMs) {
+        Objects.requireNonNull(shardId, "shardId");
+        canonicalText(ownerId, "ownerId");
+        if (nowEpochMs < 0 || leaseDurationMs <= 0) {
+            throw new IllegalArgumentException("invalid Oxia owner lease request");
+        }
+    }
+
+    private static String canonicalKeyPrefix(final String value) {
+        final String canonical = canonicalText(value, "keyPrefix");
+        if (canonical.endsWith("/") || canonical.indexOf('\0') >= 0) {
+            throw new IllegalArgumentException("keyPrefix must not end with '/'");
+        }
+        return canonical;
+    }
+
+    private static String canonicalText(final String value, final String name) {
+        Objects.requireNonNull(value, name);
+        final byte[] encoded = value.getBytes(StandardCharsets.UTF_8);
+        if (!value.equals(new String(encoded, StandardCharsets.UTF_8)) || value.isBlank()
+                || value.indexOf('\0') >= 0 || !value.equals(Normalizer.normalize(value, Normalizer.Form.NFC))) {
+            throw new IllegalArgumentException(name + " must be nonblank NFC UTF-8");
+        }
+        return value;
+    }
+
+    /** A connected client and its non-owning lease backend. */
+    public record ClientHandle(SyncOxiaClient client, OxiaSyncOwnerLeaseBackend backend)
+            implements Closeable {
+        public ClientHandle {
+            Objects.requireNonNull(client, "client");
+            Objects.requireNonNull(backend, "backend");
+        }
+
+        @Override
+        public void close() throws IOException {
+            try {
+                client.close();
+            } catch (Exception failure) {
+                throw new IOException("cannot close Oxia client", failure);
+            }
+        }
+    }
+
+    /** Narrow record surface to keep deterministic tests independent of gRPC. */
+    interface RecordClient {
+        GetResult get(String key);
+
+        PutResult put(String key, byte[] value, Set<PutOption> options)
+                throws UnexpectedVersionIdException, KeyAlreadyExistsException;
+
+        boolean delete(String key, Set<DeleteOption> options) throws UnexpectedVersionIdException;
+    }
+
+    private record StoredLease(OwnerLease lease, long versionId) {
+    }
+
+    private static final class SyncRecordClient implements RecordClient {
+        private final SyncOxiaClient delegate;
+
+        private SyncRecordClient(final SyncOxiaClient delegate) {
+            this.delegate = Objects.requireNonNull(delegate, "client");
+        }
+
+        @Override
+        public GetResult get(final String key) {
+            return delegate.get(key);
+        }
+
+        @Override
+        public PutResult put(final String key, final byte[] value, final Set<PutOption> options)
+                throws UnexpectedVersionIdException, KeyAlreadyExistsException {
+            return delegate.put(key, value, options);
+        }
+
+        @Override
+        public boolean delete(final String key, final Set<DeleteOption> options)
+                throws UnexpectedVersionIdException {
+            return delegate.delete(key, options);
+        }
+    }
+}

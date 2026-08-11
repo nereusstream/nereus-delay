@@ -16,6 +16,16 @@ config constructors retain a zero-margin compatibility seam. Production Route
 configuration still must supply the benchmarked nonzero margin and authenticated
 fence-writer authority.
 
+The owner-lease boundary now has a concrete Oxia Java client backend in
+`OxiaSyncOwnerLeaseBackend`. It stores the fencing epoch in a durable Oxia
+record, allocates it with version CAS, creates the lease as an Oxia ephemeral
+record, binds context-bound acquisition to Oxia session/client metadata, and
+uses version CAS for renew, lifecycle transition, and release. Epoch gaps after
+a lost race are intentional and safe; reuse is never allowed. The deterministic
+record surface is covered by `OxiaSyncOwnerLeaseBackendTest`. Real Oxia
+service/session, authenticated assignment publication, response-loss and
+multi-worker chaos evidence remain release gates.
+
 The configured Control target-registration gate now distinguishes an
 authoritative binding mismatch from an unavailable authority.  A missing
 registration still produces the bounded `UNAUTHORIZED_SYSTEM_MUTATION`

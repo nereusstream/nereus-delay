@@ -2242,7 +2242,11 @@ Owner Lease 的本地 CAS 投影现在还按 V1 lifecycle graph 拒绝回退状�
 `FENCED -> ACTIVE_FOR_COMMANDS` 复活；允许的前向 acquisition/activation
 跳转、fence 和 fenced recycle 都保留。续租响应若改变期望的 lifecycle
 state 也会 fail closed，即使 fencing/assignment/session identity 相同，避免
-把状态漂移误当作成功续租。真实 Oxia ephemeral session/CAS 仍未完成。
+把状态漂移误当作成功续租。`OxiaSyncOwnerLeaseBackend` 现在使用真实 Oxia
+Java client 的 durable epoch record、ephemeral lease record 和 version CAS；其
+deterministic record surface 由 `OxiaSyncOwnerLeaseBackendTest` 覆盖。真实 Oxia
+service/session、authenticated assignment publication、response-loss 和
+multi-worker chaos 证据仍是 release gate。
 内存 authority 也在同一 CAS 边界拒绝携带 stale lifecycle state 的 renewal；
 若已有 `ACQUIRING -> RESTORING` successor，旧 lease 不能把它续租写回
 `ACQUIRING`，证据为 `OwnerLeaseTest.renewalCannotRewindAConcurrentLifecycleTransition`。
@@ -2255,7 +2259,8 @@ lease 的 expiry checked-add 也在 epoch 写入之前执行，时间溢出不�
 接管的 epoch，证据为 `OwnerLeaseTest.overflowingAcquireExpiryDoesNotConsumeOwnerEpoch`；
 候选 lease 的 owner/context 校验同样先于 epoch/lease map 更新，非法身份输入不会
 消耗 fencing epoch，证据为 `OwnerLeaseTest.invalidAcquireValueDoesNotConsumeOwnerEpoch`；
-真实 Oxia sequence allocation 仍由外部 authority 负责。
+Oxia owner-epoch allocation is now implemented by the concrete backend; the
+real service response-loss and multi-worker evidence gates remain external.
 `PersistentOwnerLeaseStore` 现在把同一边界扩展到一个 crash-durable 的本地
 conformance projection：每个 shard 保留已消费的 epoch history，lease 的
 assignment/session context、lifecycle、expiry 和 token 通过 canonical bounded
