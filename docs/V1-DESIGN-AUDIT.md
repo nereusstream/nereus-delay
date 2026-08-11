@@ -1289,7 +1289,7 @@ generation；因此 catalog publication response 不能夹带另一条 shard 或
 这仍不是 Oxia 的 Owner Lease/session、lineage-head、catalog-generation
 transaction，也不执行 Object Store upload/attestation/delete。现有 `DelayShard` 仍
 通过兼容 `LaneRecord` 写入 ACTIVE 分支，因此这不被误报为已经完成 full
-ActiveLaneState persistence、quota-map revision coupling、Oxia target
+ActiveLaneState persistence 或外部 quota-map revision authority、Oxia target
 registration、Oxia Recovery Pin/Floor CAS、source/evidence replay 或
 Recovery-Floor/retention gate。`LaneRecordEnvelopeV1` 现在还提供 Registry
 field-10 直接承载 typed `ActiveLaneStateV1` 的构造、严格解码和
@@ -1304,6 +1304,12 @@ adapter/resource/ordering 不一致时 fail closed。新增的
 `CanonicalLaneTupleV1` 及其 Active/Terminal 回归测试只证明本地 canonical shape
 和 projection fence；Profile resolver/catalog、Oxia ownership 与 Broker authority
 仍是 release evidence，兼容 adapter 也仍未切换为 typed runtime persistence。
+在 typed Lane 的本地 scheduler projection 中，READY 现在同时要求
+`earliest_action_at`、`next_eligible_at`、exact key 和 certificate；候选 head 的
+action boundary 会随同 field 16/key 在同一 Lane value 中更新，不再沿用旧 field 15。
+READY discovery 也会把这两个时间与当前 `TimelineWorkRef` 交叉校验；不一致时
+fail closed。这只证明 shard-local projection 与 Registry 字段的一致性，不证明
+physical READY 恢复、certificate authority 或外部 Profile/Oxia revision authority。
 
 协议边界也已开始按 Registry 收敛：`ScheduleIntentV1` 及其
 `RetryPolicyRefV1`、`AdapterMetadataV1`、`KafkaMetadataV1`、

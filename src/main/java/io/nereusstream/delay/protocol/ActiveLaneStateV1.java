@@ -105,8 +105,10 @@ public final class ActiveLaneStateV1 {
         this.executorRetryAtEpochMs = nonNegative(executorRetryAtEpochMs, "executorRetryAtEpochMs");
         this.encodedReadyKey = optionalBytes(encodedReadyKey, "encodedReadyKey");
         this.readyKeySha256 = this.encodedReadyKey == null ? null : Bytes.sha256(this.encodedReadyKey);
-        if (runtimeReadiness == RuntimeReadiness.READY && (encodedReadyKey == null || readyCertificate == null)) {
-            throw new IllegalArgumentException("READY Lane must carry a ready key and certificate");
+        if (runtimeReadiness == RuntimeReadiness.READY
+                && (earliestActionAtEpochMs == null || nextEligibleAtEpochMs == null
+                || encodedReadyKey == null || readyCertificate == null)) {
+            throw new IllegalArgumentException("READY Lane must carry action/eligibility times, a ready key and certificate");
         }
         if (runtimeReadiness != RuntimeReadiness.READY && (encodedReadyKey != null || readyCertificate != null)) {
             throw new IllegalArgumentException("non-READY Lane cannot carry ready projections");
@@ -231,12 +233,13 @@ public final class ActiveLaneStateV1 {
                                                   final long nextLaneVersion,
                                                   final long nextSchedulerWeight,
                                                   final PublishAdmissionBody.ChargeVector nextLaneUsage,
+                                                  final Long nextEarliestActionAtEpochMs,
                                                   final Long nextEligibleAtEpochMs,
                                                   final byte[] nextEncodedReadyKey) {
         return new ActiveLaneStateV1(laneId, laneIncarnation, nextAdmissionGate, nextRuntimeReadiness,
                 nextRuntimeBlockReason, nextLaneControlVersion, nextLaneVersion, destinationProfile,
                 capabilityProfile, canonicalLaneTuple, nextSchedulerWeight, nextLaneUsage,
-                earliestActionAtEpochMs, nextEligibleAtEpochMs, circuitState, circuitOpenUntilEpochMs,
+                nextEarliestActionAtEpochMs, nextEligibleAtEpochMs, circuitState, circuitOpenUntilEpochMs,
                 consecutiveFailures, laneRetryBackoffUntilEpochMs, executorRetryAtEpochMs,
                 nextEncodedReadyKey, nextRuntimeReadiness == RuntimeReadiness.READY ? readyCertificate : null,
                 retirement);

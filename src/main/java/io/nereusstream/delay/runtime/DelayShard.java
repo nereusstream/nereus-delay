@@ -6299,7 +6299,9 @@ public final class DelayShard {
             if (key.nextEligibleAtEpochMs() > earliestEpochMs) {
                 break;
             }
-            final LaneRecord lane = readLane(key.laneId());
+            final LaneValue laneValue = readLaneValue(key.laneId());
+            final LaneRecord lane = laneValue == null || !laneValue.isActive()
+                    ? null : laneValue.asLaneRecord();
             if (lane == null || !lane.schedulable() || lane.laneVersion() != key.laneVersion()
                     || lane.nextEligibleAtEpochMs() != key.nextEligibleAtEpochMs()) {
                 throw new IllegalStateException("stale READY lane projection");
@@ -6323,11 +6325,27 @@ public final class DelayShard {
                     work.retryEligibilityAtEpochMs())) {
                 throw new IllegalStateException("READY eligibility disagrees with TimelineWorkRef");
             }
+            validateTypedReadyTimes(laneValue, value.messageId(), message, work, key.nextEligibleAtEpochMs());
             result.add(new ReadyWork(key.laneId(), value.messageId(), value.generation(),
                     key.nextEligibleAtEpochMs(), key.laneVersion(), message.orderingMode()
                     == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO));
         }
         return List.copyOf(result);
+    }
+
+    private void validateTypedReadyTimes(final LaneValue laneValue, final DelayMessageId messageId,
+                                         final MessageRecord message, final TimelineWorkRef work,
+                                         final long expectedNextEligibleAtEpochMs) {
+        final ActiveLaneStateV1 state = laneValue.typedActiveState();
+        if (state == null) {
+            return;
+        }
+        final long actionAt = work == null ? actionAtFor(messageId, message) : work.actionAtEpochMs();
+        if (state.earliestActionAtEpochMs() == null || state.earliestActionAtEpochMs() != actionAt
+                || state.nextEligibleAtEpochMs() == null
+                || state.nextEligibleAtEpochMs() != expectedNextEligibleAtEpochMs) {
+            throw new IllegalStateException("typed READY action/eligibility projection disagrees with current head");
+        }
     }
 
     /**
@@ -7519,11 +7537,14 @@ public final class DelayShard {
         final ReadyIndexValue ready = projected.schedulable() && candidate != null
                 ? new ReadyIndexValue(laneId, candidate.nextEligibleAtEpochMs(), projected.laneVersion(),
                 candidate.messageId(), candidate.generation(), Bytes.sha256(candidate.timelineKey())) : null;
+        final Long earliestActionAt = candidate == null ? null : candidate.actionAtEpochMs();
+        final Long projectedNextEligibleAt = candidate == null ? null : candidate.nextEligibleAtEpochMs();
         final LaneValue previousValue = readLaneValue(laneId);
         final PublishAdmissionBody.ChargeVector laneUsage = previousValue == null || !previousValue.isActive()
                 ? projectedLaneQuota.usageFor(laneId, projected.laneIncarnation())
                 : projectedLaneQuota.usageFor(laneId, previousValue.asLaneRecord().laneIncarnation());
-        return new LaneProjection(previous, projected, ready, previousValue, laneUsage);
+        return new LaneProjection(previous, projected, ready, previousValue, laneUsage,
+                earliestActionAt, projectedNextEligibleAt);
     }
 
     private void deleteReadyKey(final ShardStore.Batch batch, final LaneRecord lane) throws org.rocksdb.RocksDBException {
@@ -7549,7 +7570,7 @@ public final class DelayShard {
                             ? state.runtimeBlockReason() : null,
                     projection.lane().laneControlVersion(), projection.lane().laneVersion(),
                     projection.lane().weight(), usage,
-                    projection.lane().nextEligibleAtEpochMs(), readyKey);
+                    projection.earliestActionAtEpochMs(), projection.nextEligibleAtEpochMs(), readyKey);
             laneValue = LaneRecordEnvelopeV1.active(nextState).canonicalBytes();
         } else {
             laneValue = LaneRecordEnvelopeV1.active(projection.lane().encode()).canonicalBytes();
@@ -7574,6 +7595,7 @@ public final class DelayShard {
             selected = new TimelineCandidate(includedMessageId, includedMessage.generation(),
                     timelineEligibilityAt(includedMessageId, includedMessage),
                     headEligibilityAt(includedMessageId, includedMessage),
+                    actionAtFor(includedMessageId, includedMessage),
                     timelineKey(includedMessageId, includedMessage),
                     includedMessage.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO);
         }
@@ -7641,6 +7663,7 @@ public final class DelayShard {
             throw new IllegalStateException("timeline namespace does not match ordering mode");
         }
         return new TimelineCandidate(messageId, generation, eligibleAt, headEligibilityAt(messageId, message),
+                actionAtFor(messageId, message),
                 key, ordered);
     }
 
@@ -8779,11 +8802,12 @@ public final class DelayShard {
     }
 
     private record TimelineCandidate(DelayMessageId messageId, int generation, long eligibleAtEpochMs,
-                                     long nextEligibleAtEpochMs, byte[] timelineKey, boolean ordered)
+                                     long nextEligibleAtEpochMs, long actionAtEpochMs,
+                                     byte[] timelineKey, boolean ordered)
             implements Comparable<TimelineCandidate> {
         private TimelineCandidate {
             timelineKey = Bytes.copy(timelineKey);
-            if (eligibleAtEpochMs < 0 || nextEligibleAtEpochMs < 0) {
+            if (eligibleAtEpochMs < 0 || nextEligibleAtEpochMs < 0 || actionAtEpochMs < 0) {
                 throw new IllegalArgumentException("timeline candidate times must be non-negative");
             }
         }
@@ -8805,7 +8829,8 @@ public final class DelayShard {
 
     private record LaneProjection(LaneRecord previousLane, LaneRecord lane, ReadyIndexValue readyValue,
                                   LaneValue previousValue,
-                                  PublishAdmissionBody.ChargeVector laneUsage) {
+                                  PublishAdmissionBody.ChargeVector laneUsage,
+                                  Long earliestActionAtEpochMs, Long nextEligibleAtEpochMs) {
     }
 
     private record LaneClaimRollback(ClaimRecord claim, MessageRecord nextMessage) {

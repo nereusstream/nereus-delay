@@ -736,6 +736,44 @@ class DelayShardTest {
     }
 
     @Test
+    void typedReadyProjectionRefreshesEarliestActionBoundaryFromCurrentHead() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("typed-lane-state-action-boundary"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 85);
+        final ActiveLaneStateV1 template = typedActiveLaneState(zeroChargeVector());
+        final DestinationLaneId lane = template.laneId();
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
+                new io.nereusstream.delay.protocol.ScheduleIntent(lane, 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("typed-action-boundary")), 9_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, position(shardId, 0, 1_000)).stableCode());
+            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            final LaneRecord readyLane = shard.getLane(lane);
+            final PublishAdmissionBody.ChargeVector usage = LaneQuotaUsageProjection.decode(
+                    shard.laneQuotaUsage().canonicalBytes()).usageFor(lane, readyLane.laneIncarnation());
+            final byte[] certificate = PublishAdmissionBody.decode(Fixture.create(shardId).body())
+                    .readyCertificate().canonicalBytes();
+            final ActiveLaneStateV1 stale = new ActiveLaneStateV1(lane, readyLane.laneIncarnation(),
+                    readyLane.admissionGate(), readyLane.runtimeReadiness(), null,
+                    readyLane.laneControlVersion(), readyLane.laneVersion(), template.destinationProfile(),
+                    template.capabilityProfile(), template.canonicalLaneTuple(), readyLane.weight(), usage,
+                    1L, readyLane.nextEligibleAtEpochMs(), LaneCircuitStateV1.CLOSED, 0, 0, 0, 0,
+                    KeyCodec.timelineReady(readyLane.nextEligibleAtEpochMs(), lane, readyLane.laneVersion()),
+                    certificate, null);
+            store.write(batch -> batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(lane),
+                    LaneRecordEnvelopeV1.active(stale).canonicalBytes()));
+            assertThrows(IllegalStateException.class, () -> shard.discoverReady(10_000, 1));
+            shard.rebuildReadyIndexes();
+
+            final ActiveLaneStateV1 persisted = LaneRecordEnvelopeV1.decode(
+                    store.getValue(ColumnFamily.META, KeyCodec.metaLane(lane), 2).payload()).activeState();
+            assertEquals(2_000L, persisted.earliestActionAtEpochMs());
+            assertEquals(2_000L, persisted.nextEligibleAtEpochMs());
+        }
+    }
+
+    @Test
     void laneLookupRejectsKeyValueIdentityMismatch() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("lane-key-mismatch"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 57);
@@ -7430,7 +7468,7 @@ class DelayShardTest {
                 .readyCertificate().canonicalBytes();
         return new ActiveLaneStateV1(DestinationLaneId.derive(tuple), bytes(16, 5), AdmissionGate.OPEN,
                 RuntimeReadiness.READY, null, 1, 1, destination, capability, tuple, 1, zeroChargeVector(),
-                null, 200L, LaneCircuitStateV1.CLOSED, 0, 0, 0, 0, encodedReadyKey, certificate, null);
+                100L, 200L, LaneCircuitStateV1.CLOSED, 0, 0, 0, 0, encodedReadyKey, certificate, null);
     }
 
     private static PublishAdmissionBody.ChargeVector zeroChargeVector() {
