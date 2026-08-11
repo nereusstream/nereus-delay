@@ -162,6 +162,13 @@ covers both the closed rejection and the exact-incarnation retired cleanup,
 including persistent fairness-state removal. This only releases process-local
 scheduler state and does not authorize physical Lane retirement.
 
+The compatibility `LaneRecord` transition now preserves the final
+`laneControlVersion` when projecting `CLOSED -> RETIRED`; only the runtime
+version advances. This matches the terminal-guard rule that physical
+retirement is not a new source-ordered management CAS. `LaneRecordTest` covers
+the retained control version; the durable retirement method already applies
+the same rule and still requires the external Floor/adapter proof.
+
 `OxiaRealRecoveryAuthoritySmokeTest` now exercises both single-record recovery
 authorities against a real Oxia endpoint when
 `NEREUS_DELAY_OXIA_ENDPOINT=host:port` is set: Recovery Catalog publication,

@@ -124,6 +124,11 @@ the process-local ring, deficit and last-served projections. The focused
 and persistent cleanup. Recovery-Floor, adapter quiescence and terminal-guard
 authority remain separate release evidence.
 
+The local `LaneRecord` compatibility transition also retains the Close
+`laneControlVersion` across `CLOSED -> RETIRED`, advancing only the runtime
+projection. This prevents physical retirement from creating a synthetic
+source-ordered management version; `LaneRecordTest` covers the invariant.
+
 The Control target-registration audit now separates an authoritative binding
 mismatch from an unavailable registry boundary.  Missing registration remains
 an explicit `UNAUTHORIZED_SYSTEM_MUTATION` position result, but a lookup or

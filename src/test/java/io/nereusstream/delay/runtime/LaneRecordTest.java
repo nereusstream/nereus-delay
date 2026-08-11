@@ -21,6 +21,7 @@ class LaneRecordTest {
         assertEquals(AdmissionGate.CLOSED, closed.admissionGate());
         final LaneRecord retired = closed.retire();
         assertEquals(AdmissionGate.RETIRED, retired.admissionGate());
+        assertEquals(closed.laneControlVersion(), retired.laneControlVersion());
         assertThrows(IllegalStateException.class, () -> broken.withGate(AdmissionGate.ADMIN_PAUSED));
         assertThrows(IllegalStateException.class, () -> broken.withGate(AdmissionGate.OPEN));
         assertThrows(IllegalStateException.class, () -> closed.withGate(AdmissionGate.OPEN));

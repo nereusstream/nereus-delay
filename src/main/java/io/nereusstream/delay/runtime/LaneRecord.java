@@ -113,7 +113,12 @@ public record LaneRecord(
             }
             case ABSENT -> throw new IllegalArgumentException("LaneRecord cannot use ABSENT gate");
         }
-        return new LaneRecord(laneId, laneIncarnation, nextVersion(laneControlVersion, "laneControlVersion"),
+        // Physical retirement is not a new source-ordered management
+        // operation.  The terminal guard retains the final Close control
+        // version so a late Resume/Close cannot manufacture a new CAS epoch.
+        final long nextControlVersion = nextGate == AdmissionGate.RETIRED
+                ? laneControlVersion : nextVersion(laneControlVersion, "laneControlVersion");
+        return new LaneRecord(laneId, laneIncarnation, nextControlVersion,
                 nextVersion(laneVersion, "laneVersion"),
                 nextGate, nextGate == AdmissionGate.OPEN ? runtimeReadiness : RuntimeReadiness.BLOCKED,
                 weight, nextEligibleAtEpochMs);
