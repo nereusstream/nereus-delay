@@ -348,6 +348,25 @@ class BoundedDestinationPublishAdapterTest {
         assertEquals(0, admission.workerSnapshot().activeRequests());
     }
 
+    @Test
+    void inlineDelegateFatalFailureRetainsPhysicalChargeAfterTaskWasAccepted() {
+        final DestinationLaneId lane = lane("inline-delegate-fatal");
+        final DestinationPhysicalAdmission admission = admission(lane, 2, 40, 1, 20);
+        admission.openReady(lane);
+        final DestinationPublishAdapter delegate = request -> {
+            throw new AssertionError("native delegate failed after task acceptance");
+        };
+        final BoundedDestinationPublishAdapter adapter = new BoundedDestinationPublishAdapter(
+                delegate, admission, Runnable::run);
+
+        assertThrows(AssertionError.class, () -> adapter.submit(request(lane, 10)));
+        assertEquals(1, admission.workerSnapshot().activeRequests());
+        assertEquals(1, admission.laneSnapshot(lane).zombieRequests());
+        assertEquals(DestinationPhysicalAdmission.Rejection.ZOMBIE_CAPACITY,
+                admission.tryAcquire(lane, new byte[16], 10).rejection());
+        assertTrue(admission.laneSnapshot(lane).blocked());
+    }
+
     private static DestinationPhysicalAdmission admission(final DestinationLaneId lane,
                                                           final long maxRequests, final long maxBytes,
                                                           final long maxZombieRequests, final long maxZombieBytes) {

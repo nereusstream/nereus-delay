@@ -430,6 +430,13 @@ projection 若在本地 admission 后失败，保留该 physical attempt 并返�
 `ENQUEUE_UNCERTAIN`；不能把已进入本地队列的命令伪造成
 `DEFINITELY_NOT_QUEUED`。
 
+physical destination wrapper 还必须区分“执行器在 delegate 调用前拒绝任务”和
+“执行器已经接受任务后在内联执行或回调路径抛出 fatal `Error`”。只有前一种路径
+能够证明没有取得 target ownership，才可以释放 physical reservation；后一种路径
+必须先把逻辑结果收敛为 `UNKNOWN` 并保留 zombie/in-flight charge，不能因为异常从
+`submit` 外层传播就按 executor rejection 提前释放。该围栏同样适用于自定义或同步
+执行器，因为 `Executor` 合法地可以在 `execute` 内联运行任务。
+
 合法 non-persistence proof 仅为 Producer ownership 前本地拒绝、Kafka authenticated definitive rejection、Pulsar pre-persistence guard rejection，或已认证 Adapter/library 的 pre-ownership cancel。Timeout、Future cancel、丢 callback、连接/进程退出及未验证 exception 没有 proof branch，必须 `ENQUEUE_UNCERTAIN`。
 
 Batch 结果逐条返回且保持输入顺序；Broker batching 不提供跨命令原子性。

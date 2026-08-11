@@ -74,6 +74,11 @@ executor synchronously throws a fatal `Error` before accepting the delegate
 task, then rethrows that failure. The boundary is pre-ownership, so it cannot
 leave an active request charge or produce a target-side `UNKNOWN`; focused
 evidence is `BoundedDestinationPublishAdapterTest.fatalExecutorRejectionReleasesPhysicalChargeBeforeRethrowing`.
+The wrapper now records task start before invoking the delegate, so an inline or
+custom executor that throws after accepting the task cannot be mistaken for the
+pre-ownership rejection path: the unknown physical operation remains fenced as
+zombie/in-flight. `BoundedDestinationPublishAdapterTest.inlineDelegateFatalFailureRetainsPhysicalChargeAfterTaskWasAccepted`
+covers this accepted-task boundary.
 Production executor admission and target ownership remain external release
 gates.
 
@@ -1665,6 +1670,10 @@ Lane/Adapter executor（默认构造器使用 Java 21 virtual-thread executor）
 adapter 上一个永久阻塞的同步 metadata/send 调用不会阻塞另一个健康 Lane，且
 `blockingDelegateCallDoesNotBlockHealthyLane` 覆盖了该隔离边界；executor 拒绝会在
 delegate 尚未取得 ownership 前归一化为 `UNKNOWN` 并释放 reservation。Pinned
+如果执行器已经接受任务后在内联 delegate 或回调路径抛出 fatal `Error`，wrapper
+通过 task-start 围栏保留该未知 physical charge；不能把这种 accepted-task failure
+误判为 pre-ownership rejection。回归证据为
+`BoundedDestinationPublishAdapterTest.inlineDelegateFatalFailureRetainsPhysicalChargeAfterTaskWasAccepted`。
 destination adapter 对同步 transport exception 或空 stage 也不假定 ownership
 已结束，而是返回带“physical completion 未观察”标记的逻辑 `UNKNOWN`。若底层
 `CompletionStage` 的 callback registration（包括其 `toCompletableFuture()` fallback）

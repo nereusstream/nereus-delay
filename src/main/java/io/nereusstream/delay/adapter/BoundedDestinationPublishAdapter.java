@@ -82,18 +82,42 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
         final CompletableFuture<DestinationPublishResult> outcome = new CompletableFuture<>();
         final AtomicBoolean retainPhysicalCharge = new AtomicBoolean();
         final AtomicBoolean completionObserved = new AtomicBoolean();
+        final AtomicBoolean taskStarted = new AtomicBoolean();
         try {
-            executor.execute(() -> invokeDelegate(request, outcome, reservation, retainPhysicalCharge,
-                    completionObserved));
+            executor.execute(() -> {
+                // An Executor is allowed to run the task inline.  Record the
+                // hand-off before invoking the delegate so an Error escaping
+                // from that accepted task cannot be mistaken for executor
+                // rejection and release an operation whose ownership is
+                // already unknown.
+                taskStarted.set(true);
+                invokeDelegate(request, outcome, reservation, retainPhysicalCharge, completionObserved);
+            });
         } catch (RuntimeException exception) {
-            reservation.release();
+            if (!taskStarted.get()) {
+                // The task was rejected before delegate invocation, so no
+                // target-side ownership could have been acquired.
+                reservation.release();
+            } else {
+                // An inline/custom executor may throw after it has already
+                // accepted the task.  Preserve the same conservative fence
+                // as an unobserved delegate operation instead of leaking an
+                // active charge behind a completed logical UNKNOWN.
+                retainPhysicalCharge.set(true);
+                reservation.markZombie();
+                outcome.complete(completedUnknownValue());
+            }
             return PublishCall.completed(completedUnknownValue());
         } catch (Error fatalFailure) {
-            // The executor rejected the task before delegate invocation.  No
-            // Producer ownership can have been acquired through this path, so
-            // release the pre-ownership reservation before allowing the fatal
-            // failure to reach the caller/supervisor.
-            reservation.release();
+            // If the executor rejected the task before delegate invocation,
+            // no Producer ownership can have been acquired through that path,
+            // so release the pre-ownership reservation before allowing the
+            // fatal failure to reach the caller/supervisor.  If the executor
+            // ran the task inline, invokeDelegate has already fenced the
+            // unknown operation and its physical charge must remain retained.
+            if (!taskStarted.get()) {
+                reservation.release();
+            }
             throw fatalFailure;
         }
         return withRelease(reservation, outcome, retainPhysicalCharge);

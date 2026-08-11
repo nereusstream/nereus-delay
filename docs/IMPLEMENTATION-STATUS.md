@@ -68,6 +68,11 @@ delegate task, then rethrows that failure. This is the same pre-ownership
 boundary as ordinary executor rejection; it cannot strand an active request
 charge and does not manufacture a target-side `UNKNOWN`. The focused regression
 is `BoundedDestinationPublishAdapterTest.fatalExecutorRejectionReleasesPhysicalChargeBeforeRethrowing`.
+The wrapper also records whether the submitted task has started, so an inline
+or custom executor cannot be mistaken for pre-ownership rejection when a
+delegate/registration `Error` escapes after task acceptance: that path retains
+the physical charge as zombie/in-flight. The regression is
+`BoundedDestinationPublishAdapterTest.inlineDelegateFatalFailureRetainsPhysicalChargeAfterTaskWasAccepted`.
 Production executor admission and target ownership evidence remain external
 release gates.
 
@@ -231,6 +236,11 @@ reservation as `ZOMBIE`/in-flight, and then rethrows the fatal failure so the
 executor/process supervisor still sees it; the regressions are
 `BoundedDestinationPublishAdapterTest.asynchronousDelegateErrorCompletesUnknownBeforeFatalFailureEscapes`
 and `BoundedDestinationPublishAdapterTest.asynchronousCallbackRegistrationErrorCompletesUnknownBeforeFatalFailureEscapes`.
+The same wrapper distinguishes an executor that rejects before task start from
+an inline/custom executor that throws after task acceptance; the latter keeps
+the physical charge fenced even though `submit` rethrows the fatal failure.
+`BoundedDestinationPublishAdapterTest.inlineDelegateFatalFailureRetainsPhysicalChargeAfterTaskWasAccepted`
+covers that accepted-task boundary.
 
 The deterministic `InMemoryOwnerLeaseStore` now applies the same monotonic
 renewal fence as `OxiaOwnerLeaseStore`: a valid lease renewal cannot move the
