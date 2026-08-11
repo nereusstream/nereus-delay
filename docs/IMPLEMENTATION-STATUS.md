@@ -137,6 +137,11 @@ or custom executor cannot be mistaken for pre-ownership rejection when a
 delegate/registration `Error` escapes after task acceptance: that path retains
 the physical charge as zombie/in-flight. The regression is
 `BoundedDestinationPublishAdapterTest.inlineDelegateFatalFailureRetainsPhysicalChargeAfterTaskWasAccepted`.
+The release observer is now installed before `Executor.execute`: if a custom
+executor runs the task and then throws a fatal `Error` while returning from
+`execute`, a later delegate completion still releases the retained zombie
+charge instead of leaving an unowned reservation behind. The regression is
+`BoundedDestinationPublishAdapterTest.executorFatalAfterAcceptedTaskRetainsUntilDelegateCompletion`.
 Production executor admission and target ownership evidence remain external
 release gates.
 

@@ -138,6 +138,11 @@ custom executor that throws after accepting the task cannot be mistaken for the
 pre-ownership rejection path: the unknown physical operation remains fenced as
 zombie/in-flight. `BoundedDestinationPublishAdapterTest.inlineDelegateFatalFailureRetainsPhysicalChargeAfterTaskWasAccepted`
 covers this accepted-task boundary.
+The wrapper now installs its release observer before `Executor.execute` as well.
+If a custom executor runs the delegate task and then throws while returning
+from `execute`, the delegate CompletionStage callback can still release the
+retained zombie charge; `BoundedDestinationPublishAdapterTest.executorFatalAfterAcceptedTaskRetainsUntilDelegateCompletion`
+covers that post-accept executor-failure window.
 Production executor admission and target ownership remain external release
 gates.
 

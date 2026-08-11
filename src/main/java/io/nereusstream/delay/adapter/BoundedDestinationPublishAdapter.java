@@ -83,6 +83,12 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
         final AtomicBoolean retainPhysicalCharge = new AtomicBoolean();
         final AtomicBoolean completionObserved = new AtomicBoolean();
         final AtomicBoolean taskStarted = new AtomicBoolean();
+        // Install the release observer before handing the task to the
+        // executor.  A custom/inline executor may run the task and then
+        // throw while returning from execute(); if the observer were added
+        // afterwards, a later delegate completion could never release the
+        // already accepted physical reservation.
+        final PublishCall call = withRelease(reservation, outcome, retainPhysicalCharge);
         try {
             executor.execute(() -> {
                 // An Executor is allowed to run the task inline.  Record the
@@ -97,7 +103,9 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
             if (!taskStarted.get()) {
                 // The task was rejected before delegate invocation, so no
                 // target-side ownership could have been acquired.
+                outcome.complete(completedUnknownValue());
                 reservation.release();
+                return PublishCall.completed(completedUnknownValue());
             } else {
                 // An inline/custom executor may throw after it has already
                 // accepted the task.  Preserve the same conservative fence
@@ -107,20 +115,30 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                 reservation.markZombie();
                 outcome.complete(completedUnknownValue());
             }
-            return PublishCall.completed(completedUnknownValue());
+            return call;
         } catch (Error fatalFailure) {
             // If the executor rejected the task before delegate invocation,
             // no Producer ownership can have been acquired through that path,
             // so release the pre-ownership reservation before allowing the
             // fatal failure to reach the caller/supervisor.  If the executor
-            // ran the task inline, invokeDelegate has already fenced the
-            // unknown operation and its physical charge must remain retained.
+            // ran the task, retain the charge only when no delegate
+            // completion has been observed; a successful completion may
+            // already have released it through the observer installed above.
             if (!taskStarted.get()) {
                 reservation.release();
+            } else if (!completionObserved.get()) {
+                // The executor accepted and ran the task but failed after
+                // the delegate hand-off.  Treat that boundary as an
+                // unobserved physical operation; invokeDelegate has already
+                // registered the delegate completion callback when a stage
+                // exists, so that callback can release the retained charge.
+                retainPhysicalCharge.set(true);
+                reservation.markZombie();
+                outcome.complete(completedUnknownValue());
             }
             throw fatalFailure;
         }
-        return withRelease(reservation, outcome, retainPhysicalCharge);
+        return call;
     }
 
     @Override

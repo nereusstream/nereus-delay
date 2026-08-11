@@ -349,6 +349,28 @@ class BoundedDestinationPublishAdapterTest {
     }
 
     @Test
+    void executorFatalAfterAcceptedTaskRetainsUntilDelegateCompletion() {
+        final DestinationLaneId lane = lane("fatal-after-accept");
+        final DestinationPhysicalAdmission admission = admission(lane, 2, 40, 1, 20);
+        admission.openReady(lane);
+        final CompletableFuture<DestinationPublishResult> pending = new CompletableFuture<>();
+        final DestinationPublishAdapter delegate = request -> pending;
+        final BoundedDestinationPublishAdapter adapter = new BoundedDestinationPublishAdapter(
+                delegate, admission, task -> {
+                    task.run();
+                    throw new AssertionError("executor failed after accepting task");
+                });
+
+        assertThrows(AssertionError.class, () -> adapter.submit(request(lane, 10)));
+        assertEquals(1, admission.workerSnapshot().activeRequests());
+        assertEquals(1, admission.laneSnapshot(lane).zombieRequests());
+
+        pending.complete(published());
+        assertEquals(0, admission.workerSnapshot().activeRequests());
+        assertEquals(0, admission.laneSnapshot(lane).zombieRequests());
+    }
+
+    @Test
     void inlineDelegateFatalFailureRetainsPhysicalChargeAfterTaskWasAccepted() {
         final DestinationLaneId lane = lane("inline-delegate-fatal");
         final DestinationPhysicalAdmission admission = admission(lane, 2, 40, 1, 20);
