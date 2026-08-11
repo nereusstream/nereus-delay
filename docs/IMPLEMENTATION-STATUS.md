@@ -3188,6 +3188,15 @@ until Store closure is confirmed, and exposes the original failure so the same
 coordinator can retry native/slot teardown; no Claim revoke, callback poll,
 flush or final checkpoint is repeated on the retry branch.
 
+`ShardStore.openAtPath` now treats a post-open short-lived acquire-slot
+release failure as a Store teardown path: it retries closing that exact Store
+before any outer slot cleanup. DB and owned-shard capacity is released only by
+a confirmed Store close; if native teardown remains uncertain, those outer
+cleanup flags are cleared deliberately so capacity cannot be released beneath
+a live handle. This closes the open-failure ownership boundary locally; a
+process restart is still required to recover from an unrecoverable native
+teardown.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

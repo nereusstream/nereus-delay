@@ -3032,6 +3032,13 @@ without replaying Claim revocation, callback polling, flush or checkpoint
 steps. This is local drain sequencing evidence; external source quiescence,
 lease CAS and callback/evidence authority remain release gates.
 
+The Store open path now also handles failures after native construction. If
+the short-lived acquisition slot cannot be released, the already-open Store is
+closed and retried first; DB/owned-shard slots are not released by the outer
+catch while that close remains unconfirmed. This prevents an open native DB
+from being hidden behind phantom-free Worker capacity, while preserving the
+fail-closed requirement for a fatal teardown.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

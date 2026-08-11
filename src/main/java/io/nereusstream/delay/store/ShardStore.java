@@ -777,6 +777,7 @@ public final class ShardStore implements AutoCloseable {
         boolean acquireSlotAcquired = false;
         boolean ownedSlotAcquired = false;
         boolean dbSlotAcquired = false;
+        ShardStore opened = null;
         try {
             resources.acquireShardAcquireSlot();
             acquireSlotAcquired = true;
@@ -786,17 +787,38 @@ public final class ShardStore implements AutoCloseable {
             }
             resources.acquireDbSlot();
             dbSlotAcquired = true;
-            final ShardStore opened = openAtPathWithSlot(config, shardId, dbPath, resources,
+            opened = openAtPathWithSlot(config, shardId, dbPath, resources,
                     restoreStoreIncarnation, acquireOwnedSlot);
             resources.releaseShardAcquireSlot();
             acquireSlotAcquired = false;
             return opened;
         } catch (IOException | RocksDBException | RuntimeException | Error exception) {
+            Throwable cleanupFailure = null;
+            if (opened != null && !opened.isClosed()) {
+                // A failure after native open (most importantly, a failed
+                // short-lived acquire-slot release) must close the exact
+                // Store before the outer slot cleanup can run.  If close is
+                // still unconfirmed after the bounded retries, retain the
+                // DB/owned capacities instead of releasing them underneath a
+                // live native handle.
+                for (int attempt = 0; attempt < 2 && !opened.isClosed(); attempt++) {
+                    try {
+                        opened.close();
+                    } catch (RuntimeException | Error failure) {
+                        cleanupFailure = appendCloseFailure(cleanupFailure, failure);
+                    }
+                }
+                // The DB/owned slots are released by ShardStore.close()
+                // itself when that close succeeds.  If it did not succeed,
+                // deliberately clear the outer cleanup flags so a live or
+                // uncertain native handle cannot be released underneath.
+                dbSlotAcquired = false;
+                ownedSlotAcquired = false;
+            }
             // The DB slot is acquired after the owned slot.  Release only the
             // slots that this invocation actually acquired, but keep trying
             // after a failed release so one broken semaphore transition does
             // not strand the other worker capacities.
-            Throwable cleanupFailure = null;
             if (dbSlotAcquired) {
                 try {
                     resources.releaseDbSlot();
