@@ -452,6 +452,11 @@ public final class DelayShard {
             throw new IllegalStateException("persisted outcome reserve projections disagree");
         }
         validateRuntimeObligationIndexes();
+        // Bind a first-seen capacity envelope only after every persisted
+        // reserve, quota and obligation projection has passed validation.
+        // A failed open must not leave an identity marker behind that makes a
+        // later repaired activation appear to be envelope drift.
+        persistCapacityEnvelopeBindingIfAbsent(capacityEnvelope);
     }
 
     /**
@@ -692,8 +697,6 @@ public final class DelayShard {
             if (!usageEntries.isEmpty()) {
                 throw new IllegalStateException("persisted outcome reserve has no envelope identity");
             }
-            store.write(batch -> batch.putValue(ColumnFamily.META, CAPACITY_RESERVE_VALUE_TYPE, bindingKey,
-                    envelope.canonicalBytes()));
         } else if (!envelope.equals(ShardCapacityEnvelopeV1.decode(persistedBinding.payload()))) {
             throw new IllegalStateException("persisted capacity envelope identity differs from active envelope");
         }
@@ -716,6 +719,17 @@ public final class DelayShard {
             throw new IllegalStateException("persisted outcome reserve exceeds immutable capacity grant");
         }
         return usage;
+    }
+
+    private void persistCapacityEnvelopeBindingIfAbsent(final ShardCapacityEnvelopeV1 envelope) {
+        if (envelope == null) {
+            return;
+        }
+        final byte[] bindingKey = KeyCodec.metaControlReserve(1, envelope.outcomeReserve().grantId());
+        if (store.getValue(ColumnFamily.META, bindingKey, CAPACITY_RESERVE_VALUE_TYPE) == null) {
+            store.write(batch -> batch.putValue(ColumnFamily.META, CAPACITY_RESERVE_VALUE_TYPE, bindingKey,
+                    envelope.canonicalBytes()));
+        }
     }
 
     private void loadControlReserveUsage(final ShardCapacityEnvelopeV1 envelope) {

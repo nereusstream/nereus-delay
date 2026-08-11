@@ -976,6 +976,11 @@ without an immutable capacity envelope; when an envelope is pinned, the persiste
 grant-bound vector is additionally compared and bounded. This closes local
 record/byte/vector accounting only and still does not claim external reserve
 authority.
+When an immutable capacity envelope is first bound, `DelayShard` now defers the
+binding marker until all persisted reserve, quota and obligation projections
+have passed open-time validation; a failed open therefore leaves no partial
+envelope identity. `DelayShardTest.systemWriterReserveProjectionRejectsWrongPersistedDimensions`
+covers the no-partial-binding boundary.
 
 The Registry's `meta/QUOTA` quotaClass=4 (retained/object usage) remains
 unimplemented: the current Registry defines its key subtype but does not yet

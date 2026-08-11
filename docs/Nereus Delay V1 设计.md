@@ -2911,6 +2911,8 @@ source-writer/Control authority。
 
 placement/Owner activation 时为每 shard 分配 Protocol Registry 的 exact `CapacityGrantV1(OUTCOME_RESERVE)`；其 `reserveSourceVersion + grantId + CapacityVectorV1/vectorDigest` 同时进入 `ShardCapacityEnvelopeV1`、Oxia placement 与 `meta_cf`，Owner/Store 改变时重验。Route 还必须在 Broker 上拥有 non-borrowable System Mutation writer records/bytes/rate quota，且该 quota 的完整 vector 纳入同一 grant；tenant ingress ACL/quota 不能消费它。独立 shard DB 不通过“同时读取当前余量”在线借用同一份 reserve。发布前容量证明要求：
 
+Store 打开时必须先完成所有已持久化 reserve、quota 和 obligation projection 的校验，成功后才首次写入 `CapacityEnvelope` binding；失败的打开不得留下新的 binding marker，也不能用一次失败尝试把修复后的 envelope 误判为 identity drift。
+
 ```text
 sum(logical shard grants + worst-case amplification)
   < physical disk safety watermark

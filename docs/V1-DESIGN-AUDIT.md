@@ -2087,6 +2087,10 @@ reservation，绑定 `NON_OUTCOME_CONTROL` grant identity；class 6 只接受维
 及错误维度 fail-closed 测试。该证据只闭合 shard-local projection，不证明
 Route Broker/source-writer 的远端 quota authority、跨 shard placement 或
 实际 operation charge。
+首次 capacity-envelope binding 也已延后到所有 reserve/quota/obligation
+projection 校验成功之后；错误维度导致的失败 open 不会遗留 binding marker，
+回归由 `DelayShardTest.systemWriterReserveProjectionRejectsWrongPersistedDimensions`
+覆盖。这仍只是本地 open/recovery 原子性证据，不替代外部 grant/placement authority。
 
 当前 `DelayShard` 还把 Registry class-3 `meta_cf/QUOTA` 接入为一个本地兼容投影：
 `LaneQuotaUsageProjection` 按 Lane incarnation/usage revision 记录可精确重建的

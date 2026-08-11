@@ -5466,6 +5466,8 @@ class DelayShardTest {
                     capacityVector(CapacityDimensionV1.CONTROL_RESERVE_BYTES, 1).canonicalBytes()));
             assertThrows(IllegalArgumentException.class,
                     () -> new DelayShard(store, DelayShardConfig.defaults(), null, envelope));
+            assertNull(store.getValue(ColumnFamily.META,
+                    KeyCodec.metaControlReserve(1, envelope.outcomeReserve().grantId()), 8));
         }
     }
 
