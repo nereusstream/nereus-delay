@@ -321,6 +321,19 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
 
     /** Returns the floor-to-candidate ancestry in replay order. */
     public synchronized List<CheckpointManifest> recoverySet(final byte[] checkpointId) {
+        final List<CheckpointManifest> reverse = fullAncestry(checkpointId);
+        if (floor != null) {
+            final int floorIndex = indexOf(reverse, floor.checkpointId());
+            if (floorIndex < 0) {
+                throw new IllegalStateException("candidate is not a descendant of current recovery floor");
+            }
+            return List.copyOf(reverse.subList(floorIndex, reverse.size()));
+        }
+        return List.copyOf(reverse);
+    }
+
+    /** Returns the complete published parent-hash ancestry without applying the current Floor. */
+    private List<CheckpointManifest> fullAncestry(final byte[] checkpointId) {
         final CheckpointManifest candidate = manifests.get(key(checkpointId));
         if (candidate == null) {
             throw new IllegalArgumentException("checkpoint is not published");
@@ -339,14 +352,7 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
             }
         }
         Collections.reverse(reverse);
-        if (floor != null) {
-            final int floorIndex = indexOf(reverse, floor.checkpointId());
-            if (floorIndex < 0) {
-                throw new IllegalStateException("candidate is not a descendant of current recovery floor");
-            }
-            return List.copyOf(reverse.subList(floorIndex, reverse.size()));
-        }
-        return List.copyOf(reverse);
+        return reverse;
     }
 
     /**
@@ -496,18 +502,36 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
 
     private void validatePinProjection(final RecoveryPinV1 pin) {
         if (catalogShard == null || !new ShardSubjectV1(catalogShard).equals(pin.shard())
-                || pin.observedCatalogGeneration() != catalogGeneration) {
+                || Long.compareUnsigned(pin.observedCatalogGeneration(), catalogGeneration) > 0
+                || pin.observedCatalogGeneration() != pin.observedFloor().catalogGeneration()) {
             throw new IllegalArgumentException("snapshot RecoveryPin shard/generation mismatch");
         }
-        if (floor == null || !matchesFloor(pin)) {
-            throw new IllegalArgumentException("snapshot RecoveryPin does not match the current Floor");
+        if (floor == null) {
+            throw new IllegalArgumentException("snapshot RecoveryPin has no current Recovery Floor");
+        }
+        final RecoveryFloorRefV1 observedFloor = pin.observedFloor();
+        final CheckpointManifest observedFloorManifest = manifests.get(key(observedFloor.checkpointId()));
+        if (observedFloorManifest == null
+                || !Bytes.constantTimeEquals(observedFloorManifest.recoveryLineageId(),
+                observedFloor.recoveryLineageId())
+                || !Bytes.constantTimeEquals(observedFloorManifest.manifestSha256(), observedFloor.manifestSha256())
+                || !observedFloorManifest.appliedShardLogPosition().equals(observedFloor.appliedSourcePosition())
+                || observedFloorManifest.shardMutationSequence() != observedFloor.includedMutationSequence()
+                || !observedFloorManifest.evidenceCursors().equals(observedFloor.evidenceCursors())) {
+            throw new IllegalArgumentException("snapshot RecoveryPin observed Floor is not a published manifest");
         }
         final CheckpointManifest candidate = manifests.get(key(pin.candidate().checkpointId()));
         if (candidate == null || !Bytes.constantTimeEquals(candidate.manifestSha256(), pin.candidate().manifestSha256())
                 || !Bytes.constantTimeEquals(candidate.recoveryLineageId(), pin.candidate().recoveryLineageId())) {
             throw new IllegalArgumentException("snapshot RecoveryPin candidate is not published");
         }
-        recoverySet(candidate.checkpointId());
+        final List<CheckpointManifest> ancestry = fullAncestry(candidate.checkpointId());
+        final int observedFloorIndex = indexOf(ancestry, observedFloor.checkpointId());
+        if (observedFloorIndex < 0
+                || !Bytes.constantTimeEquals(ancestry.get(observedFloorIndex).manifestSha256(),
+                observedFloor.manifestSha256())) {
+            throw new IllegalArgumentException("snapshot RecoveryPin candidate does not descend from its observed Floor");
+        }
         if (pin.candidate().kind() == RecoveryCandidateKindV1.CATALOG_CHECKPOINT
                 && pin.candidate().storeIncarnation() != null) {
             throw new IllegalArgumentException("snapshot catalog RecoveryPin carries a Store Incarnation");

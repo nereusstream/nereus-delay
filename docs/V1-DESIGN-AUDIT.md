@@ -11,6 +11,18 @@ V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障
 
 **Open semantic questions: none.**
 
+The Recovery Pin persistence audit now preserves the intended historical
+protection window: creating a session-bound pin records the exact Floor it
+observed, but later Floor advancement must not make a still-active pin
+unreopenable.  Catalog snapshot validation therefore checks that historical
+Floor manifest and the candidate's complete parent-hash ancestry remain
+published, instead of requiring the pin to equal the current Floor.  The
+cross-restart regression is
+`PersistentRecoveryCatalogTest.historicalRecoveryPinSurvivesReopenAfterFloorAdvances`.
+Restore still revalidates the pin against the current Floor before staging and
+before ACTIVE publication, so a candidate superseded by Floor advancement is
+protected from deletion but cannot be installed through a stale pin.
+
 The Control target-registration audit now separates an authoritative binding
 mismatch from an unavailable registry boundary.  Missing registration remains
 an explicit `UNAUTHORIZED_SYSTEM_MUTATION` position result, but a lookup or

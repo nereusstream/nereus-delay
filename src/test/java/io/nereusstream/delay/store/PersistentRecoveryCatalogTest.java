@@ -69,6 +69,41 @@ class PersistentRecoveryCatalogTest {
     }
 
     @Test
+    void historicalRecoveryPinSurvivesReopenAfterFloorAdvances() {
+        final Path stateFile = tempDirectory.resolve("historical-pin.state");
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 71);
+        final UUID topic = UUID.randomUUID();
+        final byte[] lineage = id16(171);
+        final CheckpointManifest genesis = manifest(shard, topic, lineage, id16(172), 0, 1, 1, null);
+        final CheckpointManifest child = manifest(shard, topic, lineage, id16(173), 1, 2, 2,
+                new CheckpointManifest.ParentCheckpoint(genesis.checkpointId(),
+                        Bytes.hex(genesis.manifestSha256())));
+        final CheckpointManifest grandchild = manifest(shard, topic, lineage, id16(174), 2, 3, 3,
+                new CheckpointManifest.ParentCheckpoint(child.checkpointId(),
+                        Bytes.hex(child.manifestSha256())));
+
+        final PersistentRecoveryCatalog catalog = new PersistentRecoveryCatalog(stateFile);
+        catalog.publish(genesis, 0);
+        catalog.publish(child, 1);
+        final RecoveryFloorRefV1 childFloor = catalog.advanceFloor(child.checkpointId(), 2, List.of());
+        final RecoveryCandidateRefV1 candidate = new RecoveryCandidateRefV1(
+                RecoveryCandidateKindV1.CATALOG_CHECKPOINT, lineage, child.checkpointId(),
+                child.manifestSha256(), null);
+        final RecoveryPinV1 pin = new RecoveryPinV1(id16(175), new ShardSubjectV1(shard),
+                new OwnerIdentityV1(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(176)),
+                candidate, childFloor, childFloor.catalogGeneration(), id32(177));
+        catalog.createRecoveryPin(pin);
+
+        catalog.publish(grandchild, childFloor.catalogGeneration());
+        catalog.advanceFloor(grandchild.checkpointId(), childFloor.catalogGeneration() + 1, List.of());
+
+        final PersistentRecoveryCatalog reopened = new PersistentRecoveryCatalog(stateFile);
+        assertEquals(pin, reopened.activeRecoveryPin().orElseThrow());
+        assertManifestEquals(grandchild, reopened.currentFloorRef().map(floor ->
+                reopened.manifest(floor.checkpointId()).orElseThrow()).orElseThrow());
+    }
+
+    @Test
     void separateInstancesShareTheGenerationCasBoundary() {
         final Path stateFile = tempDirectory.resolve("catalog.state");
         final ShardId shard = new ShardId(RouteIncarnation.random(), 8);
