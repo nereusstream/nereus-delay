@@ -3197,6 +3197,14 @@ a live handle. This closes the open-failure ownership boundary locally; a
 process restart is still required to recover from an unrecoverable native
 teardown.
 
+`ShardStore.createCheckpoint` now routes `Error` as well as ordinary snapshot
+and metadata failures through the compensating `lastCheckpointId` restore. A
+failed compensation marks the live Store `WRITE_OUTCOME_UNCERTAIN`; temporary
+directory deletion and checkpoint-create-slot release are attempted afterward,
+with cleanup failures suppressed onto the original error. The checkpoint path
+therefore cannot leave a live Store advertising an unproven checkpoint merely
+because the primary failure was a JVM/native `Error`.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

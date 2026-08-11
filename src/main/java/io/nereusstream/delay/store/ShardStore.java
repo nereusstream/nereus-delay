@@ -1713,6 +1713,7 @@ public final class ShardStore implements AutoCloseable {
         boolean checkpointProjectionMutationAttempted = false;
         Path temporary = null;
         Path installedTarget = null;
+        Throwable primaryFailure = null;
         try {
             resources.acquireCheckpointCreateSlot();
             slotAcquired = true;
@@ -1750,18 +1751,18 @@ public final class ShardStore implements AutoCloseable {
             temporary = null;
             forceDirectory(parent);
             return checkpointPath;
-        } catch (RocksDBException | IOException | RuntimeException exception) {
+        } catch (RocksDBException | IOException | RuntimeException | Error exception) {
             if (installedTarget != null) {
                 try {
                     deleteTree(installedTarget);
-                } catch (IOException cleanupException) {
+                } catch (IOException | RuntimeException | Error cleanupException) {
                     exception.addSuppressed(cleanupException);
                 }
             }
             if (checkpointProjectionMutationAttempted) {
                 try {
                     persistRuntimeMetadata(previousMetadata);
-                } catch (RuntimeException rollbackFailure) {
+                } catch (RuntimeException | Error rollbackFailure) {
                     // The checkpoint image failed after its identity was
                     // written, and the compensating metadata batch is not
                     // provable.  Continuing with this live Store could make
@@ -1772,18 +1773,31 @@ public final class ShardStore implements AutoCloseable {
                     exception.addSuppressed(rollbackFailure);
                 }
             }
-            throw new IllegalStateException("cannot create RocksDB checkpoint", exception);
+            primaryFailure = exception instanceof Error
+                    ? exception : new IllegalStateException("cannot create RocksDB checkpoint", exception);
+            return throwUnchecked(primaryFailure);
         } finally {
             if (temporary != null) {
                 try {
                     deleteTree(temporary);
-                } catch (IOException cleanupException) {
-                    // Preserve the creation failure; an orphan is still kept
-                    // under the bounded checkpoint-tmp namespace for repair.
+                } catch (IOException | RuntimeException | Error cleanupException) {
+                    if (primaryFailure != null && cleanupException != primaryFailure) {
+                        primaryFailure.addSuppressed(cleanupException);
+                    } else if (primaryFailure == null) {
+                        throwUnchecked(cleanupException);
+                    }
                 }
             }
             if (slotAcquired) {
-                resources.releaseCheckpointCreateSlot();
+                try {
+                    resources.releaseCheckpointCreateSlot();
+                } catch (RuntimeException | Error cleanupException) {
+                    if (primaryFailure != null && cleanupException != primaryFailure) {
+                        primaryFailure.addSuppressed(cleanupException);
+                    } else if (primaryFailure == null) {
+                        throwUnchecked(cleanupException);
+                    }
+                }
             }
         }
     }
@@ -1964,7 +1978,7 @@ public final class ShardStore implements AutoCloseable {
         return first;
     }
 
-    private static void throwUnchecked(final Throwable failure) {
+    private static <T> T throwUnchecked(final Throwable failure) {
         if (failure instanceof RuntimeException runtimeFailure) {
             throw runtimeFailure;
         }
