@@ -1310,6 +1310,9 @@ action boundary 会随同 field 16/key 在同一 Lane value 中更新，不再�
 READY discovery 也会把这两个时间与当前 `TimelineWorkRef` 交叉校验；不一致时
 fail closed。这只证明 shard-local projection 与 Registry 字段的一致性，不证明
 physical READY 恢复、certificate authority 或外部 Profile/Oxia revision authority。
+Active state 还要求嵌套 `ReadyCertificateV1` 的 Lane ID/incarnation 与自身完全
+一致，避免“证书内部有效但挂错 Lane”的值通过本地恢复；这仍不是外部
+certificate issuer 或 Oxia activation authority。
 
 协议边界也已开始按 Registry 收敛：`ScheduleIntentV1` 及其
 `RetryPolicyRefV1`、`AdapterMetadataV1`、`KafkaMetadataV1`、

@@ -113,6 +113,13 @@ public final class ActiveLaneStateV1 {
         if (runtimeReadiness != RuntimeReadiness.READY && (encodedReadyKey != null || readyCertificate != null)) {
             throw new IllegalArgumentException("non-READY Lane cannot carry ready projections");
         }
+        if (readyCertificate != null) {
+            final ReadyCertificateV1 certificate = ReadyCertificateV1.decode(readyCertificate);
+            if (!Arrays.equals(certificate.destinationLaneId(), laneId.bytes())
+                    || !Arrays.equals(certificate.laneIncarnation(), this.laneIncarnation)) {
+                throw new IllegalArgumentException("ReadyCertificate identity does not match ActiveLaneStateV1");
+            }
+        }
         this.readyCertificate = optionalCanonicalBytes(readyCertificate, "readyCertificate");
         this.retirement = retirement;
         this.stateDigest = Bytes.sha256(DIGEST_DOMAIN, fieldsOneToTwentyFive());

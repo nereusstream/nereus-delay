@@ -36,12 +36,18 @@ class ActiveLaneStateV1Test {
                 LaneCircuitStateV1.CLOSED, 0, 0, 0, 0, null, null, null));
 
         final ShardId certificateShard = new ShardId(RouteIncarnation.random(), 0);
-        final byte[] certificate = PublishAdmissionBodyTest.Fixture.create(certificateShard)
-                .body();
+        final byte[] certificate = PublishAdmissionBodyTest.Fixture.createForSourceWithLane(certificateShard,
+                DelayMessageId.random(certificateShard), bytes(16, 3), Bytes.utf8("timeline"), 1, 1, 0,
+                Bytes.sha256(Bytes.utf8("obligations")), Bytes.sha256(Bytes.utf8("semantic")),
+                DestinationLaneId.derive(tuple).bytes()).body();
         final byte[] validCertificate = PublishAdmissionBody.decode(certificate).readyCertificate().canonicalBytes();
         assertThrows(IllegalArgumentException.class, () -> new ActiveLaneStateV1(
                 DestinationLaneId.derive(tuple), bytes(16, 2), AdmissionGate.OPEN, RuntimeReadiness.READY,
                 null, 1, 1, destination, capability, tuple, 1, charge(), null, null,
+                LaneCircuitStateV1.CLOSED, 0, 0, 0, 0, Bytes.utf8("ready"), validCertificate, null));
+        assertThrows(IllegalArgumentException.class, () -> new ActiveLaneStateV1(
+                DestinationLaneId.derive(tuple), bytes(16, 2), AdmissionGate.OPEN, RuntimeReadiness.READY,
+                null, 1, 1, destination, capability, tuple, 1, charge(), 100L, 200L,
                 LaneCircuitStateV1.CLOSED, 0, 0, 0, 0, Bytes.utf8("ready"), validCertificate, null));
         final ActiveLaneStateV1 state = new ActiveLaneStateV1(
                 DestinationLaneId.derive(tuple), bytes(16, 3), AdmissionGate.OPEN, RuntimeReadiness.READY,

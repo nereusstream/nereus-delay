@@ -632,6 +632,9 @@ For the typed projection, READY also requires `earliest_action_at` and
 with field 16 and the READY key instead of retaining a stale field-15 value,
 and discovery rejects a typed state whose times disagree with the current
 TimelineWorkRef (`DelayShardTest.typedReadyProjectionRefreshesEarliestActionBoundaryFromCurrentHead`).
+The typed constructor also requires the nested ReadyCertificate's Lane ID and
+incarnation to byte-match the active state, with the drift regression in
+`ActiveLaneStateV1Test.readyRequiresCertificateAndRejectsReadyKeyDigestTampering`.
 The typed state and terminal-guard constructors now also parse the
 Registry-shaped canonical Lane tuple and require exact byte projection of both
 immutable Profile slots; malformed tuple structure or Profile id/version/hash

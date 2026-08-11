@@ -752,8 +752,10 @@ class DelayShardTest {
             final LaneRecord readyLane = shard.getLane(lane);
             final PublishAdmissionBody.ChargeVector usage = LaneQuotaUsageProjection.decode(
                     shard.laneQuotaUsage().canonicalBytes()).usageFor(lane, readyLane.laneIncarnation());
-            final byte[] certificate = PublishAdmissionBody.decode(Fixture.create(shardId).body())
-                    .readyCertificate().canonicalBytes();
+            final byte[] certificate = PublishAdmissionBody.decode(Fixture.createForSourceWithLane(shardId,
+                    schedule.delayMessageId(), readyLane.laneIncarnation(), Bytes.utf8("timeline"), 1, 1, 0,
+                    Bytes.sha256(Bytes.utf8("obligations")), Bytes.sha256(Bytes.utf8("semantic")), lane.bytes())
+                    .body()).readyCertificate().canonicalBytes();
             final ActiveLaneStateV1 stale = new ActiveLaneStateV1(lane, readyLane.laneIncarnation(),
                     readyLane.admissionGate(), readyLane.runtimeReadiness(), null,
                     readyLane.laneControlVersion(), readyLane.laneVersion(), template.destinationProfile(),
@@ -7464,8 +7466,10 @@ class DelayShardTest {
         final ProfileRefV1 capability = new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4),
                 ProfileKindV1.DELIVERY_CAPABILITY);
         final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
-        final byte[] certificate = PublishAdmissionBody.decode(Fixture.create(shardId).body())
-                .readyCertificate().canonicalBytes();
+        final byte[] certificate = PublishAdmissionBody.decode(Fixture.createForSourceWithLane(shardId,
+                DelayMessageId.random(shardId), bytes(16, 5), Bytes.utf8("timeline"), 1, 1, 0,
+                Bytes.sha256(Bytes.utf8("obligations")), Bytes.sha256(Bytes.utf8("semantic")),
+                DestinationLaneId.derive(tuple).bytes()).body()).readyCertificate().canonicalBytes();
         return new ActiveLaneStateV1(DestinationLaneId.derive(tuple), bytes(16, 5), AdmissionGate.OPEN,
                 RuntimeReadiness.READY, null, 1, 1, destination, capability, tuple, 1, zeroChargeVector(),
                 100L, 200L, LaneCircuitStateV1.CLOSED, 0, 0, 0, 0, encodedReadyKey, certificate, null);
