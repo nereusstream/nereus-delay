@@ -4015,6 +4015,15 @@ public final class DelayShard {
         }
         if (next.status() == MessageStatus.SCHEDULED) {
             final TimelineWorkKind kind = TimelineWorkKind.INITIAL_SCHEDULE;
+            if (result.stableCode() == StableCode.SUPERSEDED && prior != null) {
+                // Reschedule creates a new generation but must retain the
+                // prior generation's pinned action boundary when the
+                // deliverAt is unchanged (and must re-derive the same pinned
+                // Profile handoff boundary when it changes).  Rebuilding
+                // from `next` alone would lose that source projection because
+                // its compatibility runtime index is intentionally empty.
+                return next.withRuntimeIndex(rescheduledTimelineRuntimeIndex(messageId, prior, next));
+            }
             return next.withRuntimeIndex(timelineRuntimeIndex(messageId, next, kind, 1, next.stateVersion(),
                     UncertainRetryAuthority.NONE, null, null));
         }
@@ -4028,6 +4037,16 @@ public final class DelayShard {
         return next.withRuntimeIndex(GenerationRuntimeIndex.none(
                 GenerationAggregateState.fromMessageStatus(next.status()), List.of(), 0, 0, false,
                 Math.max(1, next.stateVersion())));
+    }
+
+    private GenerationRuntimeIndex rescheduledTimelineRuntimeIndex(final DelayMessageId messageId,
+                                                                    final MessageRecord prior,
+                                                                    final MessageRecord next) {
+        final long actionAt = actionAtFor(messageId, prior, next.deliverAtEpochMs());
+        final byte[] key = timelineKey(messageId, next, actionAt);
+        final TimelineWorkRef work = TimelineWorkRef.initial(key, actionAt, Math.max(1, next.stateVersion()));
+        return GenerationRuntimeIndex.timeline(GenerationAggregateState.SCHEDULED, work,
+                List.of(), 0, 0, false, Math.max(1, next.stateVersion()));
     }
 
     private static boolean isTerminalStatus(final MessageStatus status) {
@@ -7557,10 +7576,17 @@ public final class DelayShard {
     private MessageRecord rescheduledMessage(final PreparedCommand command, final SourcePosition position,
                                              final MessageRecord prior) {
         final RescheduleRequest values = decodeRescheduleRequest(command);
+        // applyReschedule() already validates the new window and derives the
+        // immutable action boundary from the prior runtime projection (or the
+        // pinned Profile binding).  Rebuild the same value here instead of
+        // using the legacy constructor whose default actionAt is deliverAt;
+        // otherwise the later persistMutation() normalization would silently
+        // erase a certified early handoff on a same-deliverAt Reschedule.
+        final long actionAt = actionAtFor(command.delayMessageId(), prior, values.deliverAtEpochMs());
         return new MessageRecord(MessageStatus.SCHEDULED, Math.incrementExact(prior.generation()),
                 Math.incrementExact(prior.stateVersion()),
                 values.deliverAtEpochMs(), values.expireAtEpochMs(), prior.laneId(), prior.orderingMode(),
-                prior.payload(), position.canonicalBytes(), prior.payloadReference());
+                prior.payload(), position.canonicalBytes(), prior.payloadReference(), actionAt);
     }
 
     private void persistPositionOnly(final PreparedCommand command, final SourcePosition position) {
@@ -8352,7 +8378,14 @@ public final class DelayShard {
     }
 
     private byte[] timelineKey(final DelayMessageId messageId, final MessageRecord message) {
-        final long eligibleAt = timelineEligibilityAt(messageId, message);
+        return timelineKey(messageId, message, actionAtFor(messageId, message));
+    }
+
+    private byte[] timelineKey(final DelayMessageId messageId, final MessageRecord message,
+                                final long actionAtEpochMs) {
+        final long eligibleAt = message.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO
+                ? message.deliverAtEpochMs()
+                : Math.max(actionAtEpochMs, message.retryEligibilityAtEpochMs());
         final SourcePosition position = SourcePositionCodec.decode(message.scheduleSourcePosition());
         return message.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO
                 ? KeyCodec.timelineOrdered(message.laneId(), eligibleAt, position.sourceOrderToken(), messageId,

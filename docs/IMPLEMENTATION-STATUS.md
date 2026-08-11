@@ -29,6 +29,16 @@ evidence is `RetiredMessageIdentityRecordTest` and
 plus the positive fence/Floor/delete/reuse boundary in
 `DelayShardTest.retiredMessageIdentityCompactsOnlyAfterFenceAndFloorThenExpiresOldId`.
 
+The local command projection now preserves the pinned timeline action boundary
+across `RESCHEDULE`. Apply-time validation and the later persistence
+normalization derive the new generation's `actionAt` from the prior runtime
+projection (or its pinned Profile binding), build the matching DUE/ORDERED key,
+and write the corresponding `TimelineWorkRef` instead of letting the
+compatibility constructor reset `actionAt` to `deliverAt`. This covers the
+same-`deliverAt` early-action case with
+`DelayShardTest.reschedulePreservesPinnedActionAtInPersistedRuntimeProjection`;
+the main design's business-visible `deliverAt` boundary remains unchanged.
+
 The certified early-Pulsar handoff projection now has a narrow evidence-binding
 fence: before a verified `PULSAR_SEND_ACK` can project local `HANDED_OFF`, its
 target resource, physical partition and prepared hash must match the retained

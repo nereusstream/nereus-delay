@@ -1292,6 +1292,55 @@ class DelayShardTest {
     }
 
     @Test
+    void reschedulePreservesPinnedActionAtInPersistedRuntimeProjection() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("reschedule-action-at"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 88);
+        final byte[] tuple = Bytes.utf8("reschedule-action-at-lane");
+        final DestinationLaneId lane = DestinationLaneId.derive(tuple);
+        final ProfileRefV1 profile = new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 90),
+                ProfileKindV1.DESTINATION);
+        final ScheduleIntentV1 intent = ScheduleIntentV1.create(profile,
+                new io.nereusstream.delay.protocol.RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 91)),
+                2_000, 5_000, io.nereusstream.delay.protocol.DeliveryMode.MANAGED,
+                OrderingMode.BEST_EFFORT, Bytes.utf8("ordering"), Bytes.utf8("payload"), null,
+                io.nereusstream.delay.protocol.AdapterMetadataV1.kafka(
+                        new io.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())), null, null);
+        final PreparedCommand schedule = PreparedCommand.scheduleV1(shardId, intent, 9_000);
+        final PreparedCommand reschedule = PreparedCommand.rescheduleV1(shardId, schedule.delayMessageId(),
+                new MessagePreconditionV1(0L, 1L), 2_000, 6_000, 9_000);
+        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+            @Override
+            public ResolvedSchedule resolveSchedule(final ShardId shard, final DelayMessageId messageId,
+                                                     final ScheduleIntentV1 scheduleIntent,
+                                                     final SourcePosition source) {
+                return new ResolvedSchedule(lane, tuple, scheduleIntent.inlinePayload(), null, 1_500L);
+            }
+
+            @Override
+            public ResolvedPrepare resolvePrepare(final ShardId shard, final DelayMessageId messageId,
+                                                  final PrepareLargeScheduleBodyV1 body,
+                                                  final SourcePosition source) {
+                return new ResolvedPrepare(lane, tuple);
+            }
+        };
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver);
+            assertEquals(StableCode.SCHEDULED, shard.apply(schedule, position(shardId, 0, 1_000)).stableCode());
+            assertEquals(1_500, shard.getMessage(schedule.delayMessageId()).runtimeIndex().timeline()
+                    .actionAtEpochMs());
+
+            assertEquals(StableCode.SUPERSEDED,
+                    shard.apply(reschedule, position(shardId, 1, 1_001)).stableCode());
+            final MessageRecord rescheduled = shard.getMessage(schedule.delayMessageId());
+            assertEquals(1, rescheduled.generation());
+            assertEquals(2_000, rescheduled.deliverAtEpochMs());
+            assertEquals(1_500, rescheduled.retryEligibilityAtEpochMs());
+            assertEquals(1_500, rescheduled.runtimeIndex().timeline().actionAtEpochMs());
+        }
+    }
+
+    @Test
     void scheduleBindingLookupRejectsForeignMessageShard() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("binding-foreign-shard"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 84);

@@ -236,6 +236,17 @@ returns a non-compacting decision when either authority is unavailable. This
 is local Store evidence only; Route freshness/retention policy, Oxia CAS,
 provider quiescence and production GC remain release blockers.
 
+The command/runtime projection audit also closes a `RESCHEDULE` drift: the
+apply path and its persistence normalization now use the prior generation's
+same pinned `actionAt` (or re-derive the pinned Profile handoff boundary),
+construct the new generation's exact timeline key, and retain the matching
+`TimelineWorkRef`. A same-`deliverAt` Reschedule can no longer fall through a
+legacy constructor and become `actionAt=deliverAt`, which would disagree with
+the previously certified handoff. The focused regression is
+`DelayShardTest.reschedulePreservesPinnedActionAtInPersistedRuntimeProjection`;
+this is local replay/projection evidence and does not add external Profile or
+Broker authority.
+
 The Evidence Cursor audit now treats the Pulsar Attempt Journal's
 `physicalTopic` and `physicalTopicCreationTimestamp` as part of the full
 stream identity. `EvidenceCursorV1.sameIdentity` and `dominates` reject a
