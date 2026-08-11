@@ -7,6 +7,8 @@ import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.PayloadReference;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
+import io.nereusstream.delay.protocol.SourcePosition;
+import io.nereusstream.delay.protocol.SourcePositionCodec;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
@@ -38,8 +40,8 @@ public record PayloadReservation(
         Bytes.requireLength(commandHash, 32, "commandHash");
         Objects.requireNonNull(intent, "intent");
         Objects.requireNonNull(status, "status");
-        Bytes.requireLength(sourcePosition, sourcePosition.length, "sourcePosition");
-        Bytes.requireLength(receiptAnchorSourcePosition, receiptAnchorSourcePosition.length,
+        sourcePosition = canonicalSourcePosition(shardId, sourcePosition, "sourcePosition");
+        receiptAnchorSourcePosition = canonicalSourcePosition(shardId, receiptAnchorSourcePosition,
                 "receiptAnchorSourcePosition");
         if (reservationExpiryEpochMs < 0 || stateVersion <= 0 || sourcePosition.length == 0
                 || receiptAnchorStateVersion <= 0 || receiptAnchorStateVersion > stateVersion
@@ -139,6 +141,22 @@ public record PayloadReservation(
                 && Arrays.equals(commandHash, other.commandHash)
                 && intent.equals(other.intent)
                 && reservationExpiryEpochMs == other.reservationExpiryEpochMs;
+    }
+
+    /**
+     * Reservation lifecycle values are source-ordered durable state.  A
+     * non-empty byte string is not sufficient evidence of a Source Position:
+     * accepting one would let a malformed or foreign-shard reservation carry
+     * an untrusted receipt/GC anchor until a later path happened to decode it.
+     */
+    private static byte[] canonicalSourcePosition(final ShardId shardId, final byte[] encoded,
+                                                  final String name) {
+        Objects.requireNonNull(encoded, name);
+        final SourcePosition decoded = SourcePositionCodec.decode(encoded);
+        if (!shardId.equals(decoded.shardId())) {
+            throw new IllegalArgumentException(name + " belongs to another shard");
+        }
+        return decoded.canonicalBytes();
     }
 
     public byte[] encode() {
