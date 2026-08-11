@@ -64,7 +64,13 @@ proof that Producer ownership was avoided. The wrapper preserves logical
 closed-gate and executor-rejection paths release before a delegate invocation.
 `BoundedDestinationPublishAdapterTest.failedOrNullDelegateStageRetainsChargeUntilExplicitRelease`
 covers both regressions. This is local admission evidence, not authenticated
-Broker ownership or provider teardown proof.
+Broker ownership or provider teardown proof. `DestinationPhysicalAdmission`
+also rejects a candidate before transport when the complete currently-active
+request/byte charge plus that candidate cannot fit the Lane's potential-zombie
+envelope, so a later timeout cannot strand an admitted request outside its
+zombie budget. The request and byte boundary regressions are
+`DestinationPhysicalAdmissionTest.admissionReservesZombieRequestCapacityForAllOutstandingRequests`
+and `DestinationPhysicalAdmissionTest.admissionReservesZombieByteCapacityForAllOutstandingRequests`.
 
 The local Owner Lease model now rejects a renewal that would shorten the
 currently published expiry, matching the remote adapter's response fence and
@@ -1557,7 +1563,9 @@ visibility guard 或真实 Producer/target timing evidence。
 本地 `DestinationPhysicalAdmission`/`BoundedDestinationPublishAdapter` 现在把
 target 请求的 physical request/byte charge 作为显式 reservation：Worker 和 target
 cluster hard cap、每 Lane cap 以及所有其它 READY Lane 的 committed minimum 都在
-同一 gate 中检查；logical callback 超时只能把 reservation 标为 `ZOMBIE`，达到
+同一 gate 中检查；每次 Admission 还必须能纳入当前 active charge 全部变成
+zombie 的 request/byte 最坏向量，否则在调用 delegate 前以 `ZOMBIE_CAPACITY`
+拒绝；logical callback 超时只能把 reservation 标为 `ZOMBIE`，达到
 Lane zombie cap 立即阻止该 Lane 的新 Admission，直到 physical release 后显式清除
 block。delegate stage 完成（包括 `UNKNOWN`）才释放 request/byte charge；capacity
 拒绝不会调用 delegate。Release 现在先检查 Lane/cluster/Worker/zombie 四个 accounting

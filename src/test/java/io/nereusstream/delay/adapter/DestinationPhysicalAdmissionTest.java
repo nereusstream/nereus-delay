@@ -18,8 +18,8 @@ class DestinationPhysicalAdmissionTest {
         admission.registerTargetCluster("cluster-a", 3, 100);
         final DestinationLaneId laneA = lane("a");
         final DestinationLaneId laneB = lane("b");
-        admission.registerLane(spec(laneA, "cluster-a", 1, 10, 3, 80, 2, 60));
-        admission.registerLane(spec(laneB, "cluster-a", 1, 10, 3, 80, 2, 60));
+        admission.registerLane(spec(laneA, "cluster-a", 1, 10, 3, 80, 3, 80));
+        admission.registerLane(spec(laneB, "cluster-a", 1, 10, 3, 80, 3, 80));
         admission.openReady(laneA);
         admission.openReady(laneB);
 
@@ -65,20 +65,62 @@ class DestinationPhysicalAdmissionTest {
         admission.openReady(lane);
 
         final var first = admission.tryAcquire(lane, new byte[16], 10).reservation();
-        final var second = admission.tryAcquire(lane, new byte[16], 10).reservation();
+        assertEquals(DestinationPhysicalAdmission.Rejection.ZOMBIE_CAPACITY,
+                admission.tryAcquire(lane, new byte[16], 10).rejection());
         assertTrue(first.markZombie());
-        assertFalse(second.markZombie());
-        assertTrue(admission.laneSnapshot(lane).blocked());
+        assertFalse(admission.laneSnapshot(lane).blocked());
         assertEquals(DestinationPhysicalAdmission.Rejection.ZOMBIE_CAPACITY,
                 admission.tryAcquire(lane, new byte[16], 1).rejection());
+        assertTrue(admission.laneSnapshot(lane).blocked());
 
         assertThrows(IllegalStateException.class, () -> admission.clearZombieBlock(lane));
         first.release();
-        second.release();
         admission.clearZombieBlock(lane);
         final var next = admission.tryAcquire(lane, new byte[16], 10);
         assertTrue(next.granted());
         next.reservation().close();
+    }
+
+    @Test
+    void admissionReservesZombieRequestCapacityForAllOutstandingRequests() {
+        final DestinationPhysicalAdmission admission = new DestinationPhysicalAdmission(3, 30);
+        admission.registerTargetCluster("cluster-a", 3, 30);
+        final DestinationLaneId lane = lane("zombie-request-reserve");
+        admission.registerLane(spec(lane, "cluster-a", 0, 0, 3, 30, 2, 30));
+        admission.openReady(lane);
+
+        final var first = admission.tryAcquire(lane, new byte[16], 10);
+        assertTrue(first.granted());
+        final var second = admission.tryAcquire(lane, new byte[16], 10);
+        assertTrue(second.granted());
+        assertEquals(DestinationPhysicalAdmission.Rejection.ZOMBIE_CAPACITY,
+                admission.tryAcquire(lane, new byte[16], 1).rejection());
+
+        first.reservation().release();
+        second.reservation().release();
+        final var afterRelease = admission.tryAcquire(lane, new byte[16], 10);
+        assertTrue(afterRelease.granted());
+        afterRelease.reservation().release();
+    }
+
+    @Test
+    void admissionReservesZombieByteCapacityForAllOutstandingRequests() {
+        final DestinationPhysicalAdmission admission = new DestinationPhysicalAdmission(3, 30);
+        admission.registerTargetCluster("cluster-a", 3, 30);
+        final DestinationLaneId lane = lane("zombie-byte-reserve");
+        admission.registerLane(spec(lane, "cluster-a", 0, 0, 3, 30, 3, 15));
+        admission.openReady(lane);
+
+        final var first = admission.tryAcquire(lane, new byte[16], 10);
+        assertTrue(first.granted());
+        assertEquals(DestinationPhysicalAdmission.Rejection.ZOMBIE_CAPACITY,
+                admission.tryAcquire(lane, new byte[16], 6).rejection());
+        final var exact = admission.tryAcquire(lane, new byte[16], 5);
+        assertTrue(exact.granted());
+
+        first.reservation().release();
+        exact.reservation().release();
+        assertEquals(0, admission.workerSnapshot().activeRequests());
     }
 
     @Test

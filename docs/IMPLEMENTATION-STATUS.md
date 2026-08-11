@@ -141,8 +141,15 @@ as `ZOMBIE`/in-flight until the caller's `PublishCall` receives certified
 completion or fenced-teardown release; only a closed gate or executor
 rejection is a pre-ownership release. `BoundedDestinationPublishAdapterTest`
 `failedOrNullDelegateStageRetainsChargeUntilExplicitRelease` covers both
-unobserved branches. This local wrapper evidence does not replace the
-production adapter's ownership, cancellation or teardown attestation.
+unobserved branches. The physical-admission gate also reserves the complete
+potential-zombie request/byte envelope: a candidate is rejected with
+`ZOMBIE_CAPACITY` before transport when all currently active charges plus that
+candidate could not simultaneously become zombies. Request and byte boundaries
+are covered by `DestinationPhysicalAdmissionTest`'s
+`admissionReservesZombieRequestCapacityForAllOutstandingRequests` and
+`admissionReservesZombieByteCapacityForAllOutstandingRequests`. This local
+wrapper evidence does not replace the production adapter's ownership,
+cancellation or teardown attestation.
 
 The deterministic `InMemoryOwnerLeaseStore` now applies the same monotonic
 renewal fence as `OxiaOwnerLeaseStore`: a valid lease renewal cannot move the
@@ -2687,6 +2694,14 @@ to the intended modules:
 | `io.nereusstream.delay.adapter` | Broker/destination interfaces and test adapters | ingress/adapter modules |
 
 ## Evidence matrix
+
+Latest local delta for the target-publish boundary: physical admission now
+checks each candidate against the full currently-active potential-zombie
+request/byte envelope before invoking the delegate; requests that cannot all
+become zombies within the Lane budget are rejected as `ZOMBIE_CAPACITY`.
+Focused coverage is
+`DestinationPhysicalAdmissionTest.admissionReservesZombieRequestCapacityForAllOutstandingRequests`
+and `DestinationPhysicalAdmissionTest.admissionReservesZombieByteCapacityForAllOutstandingRequests`.
 
 | Area | Status | Evidence |
 |---|---|---|

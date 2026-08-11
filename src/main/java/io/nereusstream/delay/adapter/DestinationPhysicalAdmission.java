@@ -127,6 +127,17 @@ public final class DestinationPhysicalAdmission {
             lane.blocked = true;
             return AdmissionDecision.rejected(Rejection.ZOMBIE_CAPACITY);
         }
+        // V1 reserves the vector in which every currently outstanding
+        // request becomes a zombie.  Checking only the already-marked zombie
+        // bucket would admit a request that can never fit that worst-case
+        // vector; a later callback timeout would then strand it as an
+        // in-flight charge that cannot be marked zombie.  Active charges are
+        // retained until completion, so they are part of the potential
+        // zombie envelope even before a timeout is observed.
+        if (lane.activeRequests >= lane.maxZombieRequests
+                || physicalBytes > lane.maxZombieBytes - lane.activeBytes) {
+            return AdmissionDecision.rejected(Rejection.ZOMBIE_CAPACITY);
+        }
         if (lane.activeRequests >= lane.maxRequests
                 || physicalBytes > lane.maxBytes - lane.activeBytes) {
             return AdmissionDecision.rejected(Rejection.LANE_CAPACITY);
