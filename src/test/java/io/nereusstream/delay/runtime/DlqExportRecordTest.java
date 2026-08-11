@@ -45,6 +45,23 @@ class DlqExportRecordTest {
     }
 
     @Test
+    void preservesUnsignedGenerationAndPhysicalAttemptBitsAcrossRoundTrip() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 7);
+        final DelayMessageId messageId = DelayMessageId.random(shard);
+        final byte[] source = new KafkaSourcePosition(shard, "cluster", UUID.randomUUID(), 9, null, 1_000)
+                .canonicalBytes();
+        final int highBit = (int) 0x8000_0000L;
+        final byte[] envelope = Bytes.sha256(Bytes.utf8("high-bit-dlq-envelope"));
+        final byte[] emptyCharge = new PublishAdmissionBody.ChargeVector(
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0).canonicalBytes();
+        final DlqExportRecord record = new DlqExportRecord(
+                DlqExportRecord.deriveId(messageId, highBit, 1), messageId, highBit, 1, envelope,
+                emptyCharge, DlqExportStateV1.PENDING, highBit, source);
+
+        assertEquals(record, DlqExportRecord.decode(record.encode()));
+    }
+
+    @Test
     void rejectsIdentityAndStateDrift() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
         final DelayMessageId messageId = DelayMessageId.random(shard);
