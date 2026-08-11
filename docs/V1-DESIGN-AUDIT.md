@@ -19,6 +19,15 @@ source record/cursor for a fresh Store incarnation. The focused regression is
 This closes only the local owner gate; source continuity, fresh-incarnation
 recovery and Oxia lease authority remain release gates.
 
+The activation audit also closes the metadata/requeue asymmetry: once either
+activation path starts its owner-open marker and Claim-requeue projection, any
+Store/recovery `RuntimeException` or fatal `Error` fences the Owner before the
+authoritative `ACTIVE_FOR_COMMANDS` CAS. The regression is
+`OwnerLeaseTest.activationMetadataIntegrityFailureFencesBeforeAuthorityCas`.
+An unreached source barrier, missing control snapshot or expired lease remains a
+precondition failure in `CATCHING_UP` (or the existing lease fence), not a
+post-start Store failure.
+
 The Kafka receipt and Pulsar Attempt Journal mapping-before-send seams now
 reject a target sender that returns `null CompletionStage` with a typed
 integrity/divergence failure. The mapping is already durable and remains the

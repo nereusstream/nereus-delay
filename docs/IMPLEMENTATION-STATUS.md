@@ -16,6 +16,16 @@ covers a fatal control-registration boundary. This is local fail-closed evidence
 fresh Store-incarnation recovery, source continuity and Oxia ownership remain
 release gates.
 
+The same activation fence now covers both embedded and authoritative activation:
+after the owner-open metadata/requeue phase begins, a Store/recovery
+`RuntimeException` or fatal `Error` (including an owner-epoch metadata
+regression) fences the local Owner before the Oxia `ACTIVE_FOR_COMMANDS` CAS can
+run. `OwnerLeaseTest.activationMetadataIntegrityFailureFencesBeforeAuthorityCas`
+covers the persisted newer-epoch case. Missing activation prerequisites such as
+an unreached source barrier still remain `CATCHING_UP`; they are not Store
+activation failures. External lease/session and recovery authority remain
+release blockers.
+
 The local Kafka receipt and Pulsar Attempt Journal mapping-before-send seams now
 fail closed when an injected target sender returns a `null CompletionStage`.
 That malformed result is not a non-persistence proof: the exact durable mapping

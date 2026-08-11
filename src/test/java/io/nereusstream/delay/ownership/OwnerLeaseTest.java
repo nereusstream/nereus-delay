@@ -227,6 +227,34 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void activationMetadataIntegrityFailureFencesBeforeAuthorityCas() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 192);
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = backend.acquire(shardId, "worker-activation-metadata", 100, 100).orElseThrow();
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("activation-metadata-fence"));
+        final UUID topic = UUID.randomUUID();
+        final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster", topic, 0, null, 1_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            // Simulate a durable image that already observed a newer Owner
+            // Epoch.  Reusing it for this older lease is an integrity failure,
+            // not a reason to leave the local owner in CATCHING_UP.
+            store.recordOpenedOwnerEpoch(2);
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            owned.markCatchingUp(new SourceAssignment(shardId,
+                    Bytes.sha256(Bytes.utf8("activation-metadata-assignment")), 1,
+                    new KafkaActivationBarrier(shardId, "cluster", topic, 0)));
+            owned.recordCatchup(position);
+
+            assertThrows(IllegalArgumentException.class,
+                    () -> owned.activateForCommands(new OxiaOwnerLeaseStore(backend), 101));
+            assertEquals(ShardLifecycleState.FENCED, owned.state());
+            assertEquals(ShardLifecycleState.ACQUIRING, backend.current(shardId).orElseThrow().state());
+            assertEquals(2, store.runtimeMetadata().lastOpenedOwnerEpoch());
+        }
+    }
+
+    @Test
     void activationFatalAuthorityFailureFencesTheLocalOwnerGate() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 190);
         final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();

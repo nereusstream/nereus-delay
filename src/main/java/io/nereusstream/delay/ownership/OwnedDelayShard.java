@@ -612,6 +612,13 @@ public final class OwnedDelayShard {
         } catch (Error failure) {
             state = ShardLifecycleState.FENCED;
             throw failure;
+        } catch (RuntimeException failure) {
+            // Metadata/recovery projection failures are not activation
+            // rejections. Keep the command gate closed and fence this Owner
+            // before the failure escapes, including validation failures that
+            // are not wrapped as RocksDbWriteFailure.
+            state = ShardLifecycleState.FENCED;
+            throw failure;
         }
         state = ShardLifecycleState.ACTIVE_FOR_COMMANDS;
     }
@@ -642,6 +649,13 @@ public final class OwnedDelayShard {
             delegate.recordOpenedOwnerEpoch(lease.ownerEpoch());
             delegate.requeueClaimsForRecovery();
         } catch (ShardStore.RocksDbWriteFailure failure) {
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        } catch (RuntimeException | Error failure) {
+            // Metadata/recovery projection failures are not activation
+            // rejections.  Keep the local command gate closed and fence the
+            // Owner before the failure escapes, regardless of whether the
+            // failure was typed by RocksDB or surfaced during validation.
             state = ShardLifecycleState.FENCED;
             throw failure;
         }
