@@ -3125,6 +3125,17 @@ budget instead of merely skipping a blocked entry after spending a visit on it.
 `WorkerSchedulerTest.blockedShardLeavesOuterRingBeforeAOneVisitBudgetCanStarveHealthyWork`
 covers the fairness boundary. Placement/ownership authority remains external.
 
+Shared Worker resource teardown now treats runtime-monitor shutdown as a
+retryable close item rather than an escape hatch: if either monitor reports a
+runtime failure, the shared RateLimiter, WriteBufferManager, block cache and
+their native reservations are still all attempted, with the first failure
+preserved and later failures suppressed. A Store open/restore invocation also
+releases the acquire, owned-shard and DB slots when a post-acquisition `Error`
+escapes the native-open/metadata path, so an unrecoverable JVM/native failure
+cannot strand the Worker capacity envelope. This is teardown accounting only;
+it does not turn a failed native process into a safe retry without a fresh
+Store incarnation.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

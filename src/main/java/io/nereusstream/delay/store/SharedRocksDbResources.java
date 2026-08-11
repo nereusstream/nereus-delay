@@ -496,17 +496,29 @@ public final class SharedRocksDbResources implements AutoCloseable {
             throw new IllegalStateException("cannot close shared RocksDB resources while work is in flight");
         }
         closeStarted = true;
+        RuntimeException closeFailure = null;
         if (runtimeResourceMonitor != null) {
-            runtimeResourceMonitor.close();
+            try {
+                runtimeResourceMonitor.close();
+            } catch (RuntimeException failure) {
+                // Monitor teardown is part of the Worker close boundary, but
+                // it must not prevent the native resource attempts below.
+                // A failed executor shutdown is retryable just like a failed
+                // RocksDB JNI close.
+                closeFailure = appendCloseFailure(closeFailure, failure);
+            }
         }
         if (rocksDbUsageMonitor != null) {
-            rocksDbUsageMonitor.close();
+            try {
+                rocksDbUsageMonitor.close();
+            } catch (RuntimeException failure) {
+                closeFailure = appendCloseFailure(closeFailure, failure);
+            }
         }
         // Every process-level native resource must be attempted even if an
         // earlier close reports a JNI/runtime failure.  Otherwise a failed
         // rate-limiter shutdown can strand the shared write-buffer manager or
         // block cache for the lifetime of the Worker.
-        RuntimeException closeFailure = null;
         if (!rateLimiterClosed) {
             try {
                 rateLimiter.close();

@@ -2974,6 +2974,16 @@ alongside
 This is local projection evidence only; activator evidence and Owner/Oxia
 readiness authority remain release gates.
 
+The shared-resource teardown boundary now also preserves the process-level
+cleanup invariant when a runtime monitor close fails: monitor failures are
+retained as retryable close errors while RateLimiter, WriteBufferManager,
+block-cache and native reservation teardown continue independently. The Store
+open wrapper similarly releases every slot acquired by that invocation if an
+`Error` escapes after acquisition, preventing an unrecoverable native/JVM path
+from leaving phantom Worker capacity. This remains local teardown evidence;
+fresh-incarnation recovery and production process supervision are external
+release gates.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

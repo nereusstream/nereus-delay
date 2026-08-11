@@ -780,7 +780,7 @@ public final class ShardStore implements AutoCloseable {
             resources.releaseShardAcquireSlot();
             acquireSlotAcquired = false;
             return opened;
-        } catch (IOException | RocksDBException | RuntimeException exception) {
+        } catch (IOException | RocksDBException | RuntimeException | Error exception) {
             // The DB slot is acquired after the owned slot.  Release only the
             // slots that this invocation actually acquired.
             if (dbSlotAcquired) {
