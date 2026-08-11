@@ -3069,6 +3069,14 @@ retryable state until Store teardown and lease release are proven. This closes
 the local drain-capacity accounting edge only; source/Callback quiescence and
 Oxia authority remain release blockers.
 
+The four crash-durable local projections now apply the same primary/suppressed
+rule to temporary-file deletion: Recovery Catalog, SLO collector, Checkpoint
+Upload Intent and Control Operation state preserve the original write/rename/
+directory-fsync failure and retain cleanup failures as diagnostics. A cleanup
+failure is surfaced on its own only after an otherwise successful replacement.
+This closes local atomic-replacement error reporting, not external Oxia,
+Object Store or production durability authority.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

@@ -3230,6 +3230,15 @@ retryable whenever teardown or lease release is not proven. This is local
 drain-lifecycle evidence only; Oxia CAS, source quiescence and callback
 authority remain external release gates.
 
+Crash-durable local projections now preserve primary write failures when their
+temporary-file cleanup fails. Recovery Catalog, SLO collector, Checkpoint
+Upload Intent and Control Operation writes record the body/rename/fsync failure
+before attempting temporary deletion, suppress cleanup diagnostics onto that
+primary failure, and surface cleanup failure directly only when the write body
+otherwise succeeded. This keeps atomic replacement and retry evidence
+diagnosable; it remains local filesystem evidence and does not replace Oxia or
+provider durability authority.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

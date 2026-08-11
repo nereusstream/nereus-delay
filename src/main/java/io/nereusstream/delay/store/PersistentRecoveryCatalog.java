@@ -217,6 +217,7 @@ public final class PersistentRecoveryCatalog implements RecoveryCatalogAuthority
                 .order(ByteOrder.BIG_ENDIAN);
         output.putInt(MAGIC).putInt(FORMAT_VERSION).putInt(payload.length).put(payload).put(digest);
         final Path temporary = Files.createTempFile(stateFile.getParent(), ".recovery-catalog-", ".tmp");
+        Throwable primaryFailure = null;
         try {
             try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.WRITE,
                     StandardOpenOption.TRUNCATE_EXISTING)) {
@@ -235,9 +236,33 @@ public final class PersistentRecoveryCatalog implements RecoveryCatalogAuthority
             try (FileChannel directory = FileChannel.open(stateFile.getParent(), StandardOpenOption.READ)) {
                 directory.force(true);
             }
+        } catch (IOException | RuntimeException | Error failure) {
+            primaryFailure = failure;
+            throw failure;
         } finally {
-            Files.deleteIfExists(temporary);
+            try {
+                Files.deleteIfExists(temporary);
+            } catch (IOException | RuntimeException | Error cleanupFailure) {
+                if (primaryFailure != null && cleanupFailure != primaryFailure) {
+                    primaryFailure.addSuppressed(cleanupFailure);
+                } else if (primaryFailure == null) {
+                    throwCleanupFailure(cleanupFailure);
+                }
+            }
         }
+    }
+
+    private static void throwCleanupFailure(final Throwable failure) throws IOException {
+        if (failure instanceof IOException ioFailure) {
+            throw ioFailure;
+        }
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error errorFailure) {
+            throw errorFailure;
+        }
+        throw new IllegalStateException("unexpected cleanup failure", failure);
     }
 
     private <T> T withExclusiveLock(final IoAction<T> action) {
