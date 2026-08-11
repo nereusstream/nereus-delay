@@ -1333,7 +1333,9 @@ public final class EmbeddedDelayService implements DelayClient {
                                                              final io.nereusstream.delay.protocol.PublicEvidenceRefV1 evidence,
                                                              final FirstScheduleEligibilityV1 unknownEligibility) {
         ensureOpen();
-        Objects.requireNonNull(messageId, "messageId");
+        if (messageId == null) {
+            return MessageQueryResponseV1.error(StableCode.INVALID_RECEIPT, null);
+        }
         if (!shardId.equals(messageId.routingId().shardId())) {
             return MessageQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
         }
@@ -1364,7 +1366,9 @@ public final class EmbeddedDelayService implements DelayClient {
                                                              final io.nereusstream.delay.protocol.PublicEvidenceRefV1 evidence,
                                                              final FirstScheduleEligibilityV1 unknownEligibility) {
         ensureOpen();
-        Objects.requireNonNull(messageId, "messageId");
+        if (messageId == null) {
+            return MessageQueryResponseV1.error(StableCode.INVALID_RECEIPT, null);
+        }
         if (!shardId.equals(messageId.routingId().shardId())) {
             return MessageQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
         }

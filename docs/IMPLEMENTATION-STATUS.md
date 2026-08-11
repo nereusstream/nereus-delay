@@ -38,8 +38,9 @@ when a durable snapshot/read or caller-supplied binding/DLQ projection cannot
 be proven: those failures return `INTEGRITY_ERROR`, while a cross-shard
 message identity remains `RECEIPT_MISMATCH`.  The regression
 `EmbeddedDelayServiceTest.messageQueryMapsPublicProjectionDriftToClosedIntegrityError`
-covers both public query overloads; the projector's direct throwing seam stays
-an internal validation boundary.
+covers both public query overloads; null Message IDs now return
+`INVALID_RECEIPT` through both the local and `CompletionStage` entrypoints; the
+projector's direct throwing seam stays an internal validation boundary.
 
 The Command Query bridge now applies the same closed-union rule to its local
 POSITION/result reads: a null receipt returns `INVALID_RECEIPT`, while a

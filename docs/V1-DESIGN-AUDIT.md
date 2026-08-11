@@ -40,8 +40,9 @@ The Message Query audit now maps local snapshot/read and public binding/DLQ
 projection failures to closed `INTEGRITY_ERROR` responses instead of leaking
 exceptional Futures; cross-shard identity remains the explicit
 `RECEIPT_MISMATCH` branch.  `EmbeddedDelayServiceTest.messageQueryMapsPublicProjectionDriftToClosedIntegrityError`
-covers both facade overloads, while the direct projector remains a throwing
-internal validation seam.
+covers both facade overloads, and null Message IDs are now `INVALID_RECEIPT`
+through the same facade; the direct projector remains a throwing internal
+validation seam.
 
 The Command Query audit now keeps the same response boundary: null locators are
 `INVALID_RECEIPT`, local POSITION/result/projection failures are
