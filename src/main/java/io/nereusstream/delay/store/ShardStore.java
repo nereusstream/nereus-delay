@@ -874,16 +874,17 @@ public final class ShardStore implements AutoCloseable {
                                                  final UUID restoreStoreIncarnation,
                                                  final boolean ownsShardSlot)
             throws IOException, RocksDBException {
-        if (Files.isSymbolicLink(dbPath)
-                || (Files.exists(dbPath, java.nio.file.LinkOption.NOFOLLOW_LINKS)
-                && !Files.isDirectory(dbPath, java.nio.file.LinkOption.NOFOLLOW_LINKS))) {
-            throw new IOException("DB path must be a real directory: " + dbPath);
-        }
+        // Files.createDirectories(dbPath) follows a symlink in any missing
+        // parent component. That would let a raced or pre-planted
+        // `incarnations/<store>/` (or restore staging) redirect RocksDB to a
+        // different physical ownership boundary. Walk the complete path
+        // below the configured Worker root one component at a time and
+        // verify each component with NOFOLLOW_LINKS before RocksDB opens it.
+        ensureRealDbPath(config, dbPath);
         final Path current = dbPath.resolve("CURRENT");
         if (Files.isSymbolicLink(current)) {
             throw new IOException("RocksDB CURRENT must not be a symbolic link: " + current);
         }
-        Files.createDirectories(dbPath);
         final boolean existing = Files.isRegularFile(current, java.nio.file.LinkOption.NOFOLLOW_LINKS);
         final List<ColumnFamilyOptions> cfOptions = new ArrayList<>();
         final List<ColumnFamilyDescriptor> descriptors = descriptors(config, resources, existing, cfOptions, dbPath);
@@ -1034,6 +1035,36 @@ public final class ShardStore implements AutoCloseable {
                         throwUnchecked(cleanupFailure);
                     }
                 }
+            }
+        }
+    }
+
+    /**
+     * Creates/verifies every DB path component below the configured root
+     * without following a symlink in the Worker-owned namespace. The root
+     * itself may be a deployment-managed symlink; all descendants are the
+     * physical shard/restore ownership boundary and must be real directories.
+     */
+    private static void ensureRealDbPath(final ShardStoreConfig config, final Path dbPath) throws IOException {
+        final Path root = config.rootPath().toAbsolutePath().normalize();
+        final Path target = dbPath.toAbsolutePath().normalize();
+        if (target.equals(root) || !target.startsWith(root)) {
+            throw new IOException("DB path must remain below the configured Worker root: " + dbPath);
+        }
+        Path cursor = root;
+        for (Path component : root.relativize(target)) {
+            cursor = cursor.resolve(component);
+            if (!Files.exists(cursor, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                try {
+                    Files.createDirectory(cursor);
+                } catch (java.nio.file.FileAlreadyExistsException racedCreate) {
+                    // Re-check below. A concurrent creator is safe only if
+                    // it installed a real directory rather than a symlink.
+                }
+            }
+            if (Files.isSymbolicLink(cursor)
+                    || !Files.isDirectory(cursor, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                throw new IOException("DB path component must be a real directory: " + cursor);
             }
         }
     }

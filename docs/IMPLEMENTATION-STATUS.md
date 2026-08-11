@@ -2425,6 +2425,12 @@ closed before RocksDB creation or restore staging, so a shard cannot redirect
 its DB outside the configured root namespace. `ShardStoreTest`
 `openRejectsSymbolicShardPathAncestors` covers the `shards`, route and
 partition ancestors, and confirms no external `CURRENT` marker is created.
+The DB open path now applies the same component-by-component check to every
+descendant below the configured root, including a newly created Store
+Incarnation or restore staging parent; a raced `FileAlreadyExists` is accepted
+only after the component is rechecked as a real directory. This closes the
+remaining `Files.createDirectories(dbPath)` symlink-following window before
+RocksDB opens the physical DB.
 If the `ACTIVE` pointer itself names a missing or non-directory DB, restore
 now fails closed instead of treating the corrupt pointer as an orphan and
 overwriting it; `ShardStoreTest.restoreRejectsAnActivePointerWhoseDbIsMissing`

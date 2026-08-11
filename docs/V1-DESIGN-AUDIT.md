@@ -34,6 +34,15 @@ Restore still revalidates the pin against the current Floor before staging and
 before ACTIVE publication, so a candidate superseded by Floor advancement is
 protected from deletion but cannot be installed through a stale pin.
 
+The local physical-boundary audit now also covers the DB open call itself:
+every descendant of the configured Worker root is created and rechecked as a
+real directory before RocksDB is opened, including a fresh Store Incarnation
+or restore staging parent. A concurrent `FileAlreadyExists` is accepted only
+after the component passes the same `NOFOLLOW_LINKS` directory check, closing
+the `Files.createDirectories(dbPath)` symlink-following window. This is local
+path-safety evidence; it does not replace the external ownership/placement
+authority or real-service recovery gates.
+
 The Control target-registration audit now separates an authoritative binding
 mismatch from an unavailable registry boundary.  Missing registration remains
 an explicit `UNAUTHORIZED_SYSTEM_MUTATION` position result, but a lookup or
