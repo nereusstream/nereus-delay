@@ -1891,6 +1891,25 @@ public final class DelayShard {
                     StableCode.VERSION_CONFLICT);
         }
 
+        // Resume has a closed result union in the V1 contract.  Do not let
+        // LaneRecord.resumeByAdmin() collapse an already terminal or
+        // source-closed Lane into the generic TOO_LATE result: callers must be
+        // able to distinguish an idempotent OPEN, a reversible pause, a
+        // source-ordered close, and an irreversible terminal guard.
+        if (body.controlKind() == 9) {
+            final StableCode resumeCode = switch (current.admissionGate()) {
+                case OPEN -> StableCode.ALREADY_OPEN;
+                case ORDERING_BROKEN -> StableCode.ORDERING_DOMAIN_BROKEN;
+                case CLOSED -> StableCode.LANE_CLOSED;
+                case RETIRED -> StableCode.LANE_TERMINALLY_CLOSED;
+                case ADMIN_PAUSED -> null;
+                case ABSENT -> StableCode.INTEGRITY_ERROR;
+            };
+            if (resumeCode != null) {
+                return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, resumeCode);
+            }
+        }
+
         if (body.controlKind() == 10
                 && (!body.hasAcknowledgement(1) || !body.hasAcknowledgement(3))) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
@@ -3064,6 +3083,14 @@ public final class DelayShard {
                 AttemptLedgerState.UNCERTAIN, MessageStatus.UNCERTAIN);
     }
 
+    private static StableCode laneAdmissionClosedCode(final AdmissionGate gate) {
+        return switch (gate) {
+            case CLOSED -> StableCode.LANE_CLOSED;
+            case RETIRED -> StableCode.LANE_TERMINALLY_CLOSED;
+            default -> throw new IllegalArgumentException("Lane is not closed: " + gate);
+        };
+    }
+
     /**
      * Applies the source-ordered Resolve subset. Verified-published evidence
      * can settle the exact UNCERTAIN obligation locally; absent evidence and
@@ -3121,7 +3148,8 @@ public final class DelayShard {
                     StableCode.ORDERING_DOMAIN_BROKEN);
         }
         if (lane.admissionGate() == AdmissionGate.CLOSED || lane.admissionGate() == AdmissionGate.RETIRED) {
-            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.LANE_CLOSED);
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    laneAdmissionClosedCode(lane.admissionGate()));
         }
         final AttemptObligationRef target = current.runtimeIndex().attemptObligations().stream()
                 .filter(ref -> Arrays.equals(ref.publishAttemptId(), body.publishAttemptId())
@@ -3780,7 +3808,8 @@ public final class DelayShard {
                     StableCode.INTEGRITY_ERROR);
         }
         if (lane.admissionGate() == AdmissionGate.CLOSED || lane.admissionGate() == AdmissionGate.RETIRED) {
-            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.LANE_CLOSED);
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                    laneAdmissionClosedCode(lane.admissionGate()));
         }
         if (lane.admissionGate() == AdmissionGate.ORDERING_BROKEN) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,

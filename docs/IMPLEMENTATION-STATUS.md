@@ -144,6 +144,16 @@ contents through a symlink; the existing
 `ShardStoreTest.checkpointAndActivePointerTemporaryPathsRejectSymbolicLinks`
 regression covers the fail-closed temporary boundary.
 
+The source-ordered Lane control projection now preserves the V1 closed result
+union for Resume: an already `OPEN` Lane returns `ALREADY_OPEN`, an
+`ORDERING_BROKEN`/`CLOSED` Lane returns its corresponding stable code, and a
+terminal guard returns `LANE_TERMINALLY_CLOSED` instead of the previous generic
+`TOO_LATE`. Resolve retry and Dead Letter replay use the same distinction for a
+closed versus irreversibly retired Lane. `DelayShardTest` covers the OPEN
+idempotent Resume and terminal-guard Resume paths. This is a local source-log
+projection; authenticated control registration and production Oxia authority
+remain release gates.
+
 `OxiaRealRecoveryAuthoritySmokeTest` now exercises both single-record recovery
 authorities against a real Oxia endpoint when
 `NEREUS_DELAY_OXIA_ENDPOINT=host:port` is set: Recovery Catalog publication,

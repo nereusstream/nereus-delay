@@ -109,6 +109,14 @@ the atomic rename. A raced replacement cannot redirect the pointer write via a
 symlink; the focused temporary-path regression is
 `ShardStoreTest.checkpointAndActivePointerTemporaryPathsRejectSymbolicLinks`.
 
+The Lane-control audit now checks the closed Resume result union at the runtime
+projection boundary: `OPEN` is `ALREADY_OPEN`, `ORDERING_BROKEN` and `CLOSED`
+retain their stable rejection codes, and a same-key terminal guard is
+`LANE_TERMINALLY_CLOSED`. Resolve retry and Dead Letter replay also distinguish
+an ordinary closed Lane from an irreversibly retired one. The focused evidence
+is `DelayShardTest`'s idempotent-Resume and terminal-guard-Resume cases. This
+does not claim authenticated control registration or production Oxia authority.
+
 The Control target-registration audit now separates an authoritative binding
 mismatch from an unavailable registry boundary.  Missing registration remains
 an explicit `UNAUTHORIZED_SYSTEM_MUTATION` position result, but a lookup or

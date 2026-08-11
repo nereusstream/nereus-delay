@@ -2493,6 +2493,20 @@ class DelayShardTest {
             shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
             assertEquals(1, shard.discoverReady(10_000, 10).size());
             assertEquals(schedule.delayMessageId(), shard.discoverReady(10_000, 10).get(0).messageId());
+
+            final LaneRecord openLane = shard.getLane(lane);
+            final ControlRef alreadyOpenRef = new ControlRef(
+                    Bytes.sha256(Bytes.utf8("lane-control-already-open-op")),
+                    Bytes.sha256(Bytes.utf8("lane-control-already-open-request")), 3);
+            final byte[] alreadyOpenBody = applyShardControlBody(shardId, alreadyOpenRef, 9, lane,
+                    openLane.laneIncarnation(), openLane.laneControlVersion());
+            final SystemMutation alreadyOpen = SystemMutation.signed(shardId,
+                    SystemMutationType.APPLY_SHARD_CONTROL, 9_000,
+                    alreadyOpenRef.logicalOperationIdentity(9), alreadyOpenBody, control.canonicalBytes(), 1,
+                    keyPair.getPrivate());
+            assertEquals(StableCode.ALREADY_OPEN,
+                    shard.applySystemMutation(alreadyOpen, position(shardId, 3, 1_003), keyPair.getPublic())
+                            .stableCode());
         }
     }
 
@@ -2928,7 +2942,7 @@ class DelayShardTest {
     }
 
     @Test
-    void laneRetirementAtomicallyReplacesActiveValueWithTerminalGuard() {
+    void laneRetirementAtomicallyReplacesActiveValueWithTerminalGuard() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("lane-terminal-guard"));
         final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 1,
                 1, 1_000, 10_000);
@@ -3004,6 +3018,24 @@ class DelayShardTest {
             assertEquals(StableCode.SCHEDULED,
                     reopened.apply(replacementSchedule, position(shardId, 3, 1_003)).stableCode());
             assertEquals(1, reopened.quota().laneCount());
+
+            final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+            final KeyPair keyPair = generator.generateKeyPair();
+            final AuthorIdentity control = AuthorIdentity.control(
+                    Bytes.sha256(Bytes.utf8("terminal-resume-actor")),
+                    Bytes.sha256(Bytes.utf8("terminal-resume-roles")),
+                    Bytes.sha256(Bytes.utf8("terminal-resume-scope")));
+            final LaneRecord terminalLane = reopened.getLane(lane);
+            final ControlRef resumeRef = new ControlRef(Bytes.sha256(Bytes.utf8("terminal-resume-op")),
+                    Bytes.sha256(Bytes.utf8("terminal-resume-request")), 4);
+            final byte[] resumeBody = applyShardControlBody(shardId, resumeRef, 9, lane,
+                    terminalLane.laneIncarnation(), terminalLane.laneControlVersion());
+            final SystemMutation resume = SystemMutation.signed(shardId, SystemMutationType.APPLY_SHARD_CONTROL,
+                    9_000, resumeRef.logicalOperationIdentity(9), resumeBody, control.canonicalBytes(), 1,
+                    keyPair.getPrivate());
+            assertEquals(StableCode.LANE_TERMINALLY_CLOSED,
+                    reopened.applySystemMutation(resume, position(shardId, 4, 1_004), keyPair.getPublic())
+                            .stableCode());
         }
     }
 
