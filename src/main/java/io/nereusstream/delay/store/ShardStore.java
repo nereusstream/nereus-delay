@@ -427,7 +427,7 @@ public final class ShardStore implements AutoCloseable {
             try {
                 store.close();
                 return true;
-            } catch (RuntimeException cleanupException) {
+            } catch (RuntimeException | Error cleanupException) {
                 if (cleanupException != failure) {
                     failure.addSuppressed(cleanupException);
                 }

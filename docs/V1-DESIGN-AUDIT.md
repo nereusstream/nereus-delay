@@ -2984,6 +2984,13 @@ from leaving phantom Worker capacity. This remains local teardown evidence;
 fresh-incarnation recovery and production process supervision are external
 release gates.
 
+Restore failure cleanup now applies the same conservative rule to `Error`
+escapes from Store teardown as to ordinary retryable close failures: the exact
+Store is retried once, its directory remains preserved while teardown is
+unconfirmed, and the original restore failure is kept as the primary error.
+This closes the local directory-safety edge only; process supervision and
+fresh-incarnation recovery remain external release gates.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

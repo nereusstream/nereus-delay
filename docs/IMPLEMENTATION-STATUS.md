@@ -3136,6 +3136,13 @@ cannot strand the Worker capacity envelope. This is teardown accounting only;
 it does not turn a failed native process into a safe retry without a fresh
 Store incarnation.
 
+Restore cleanup now treats both runtime/native exceptions and `Error` escapes
+from a staged or installed Store close as unconfirmed teardown: it records the
+failure, retries the exact close boundary once, and leaves the private
+`restore-tmp`/unpublished incarnation in place unless every handle and slot is
+known closed. The original restore failure remains the surfaced cause, so an
+unrecoverable JVM/native path cannot turn into an unsafe directory deletion.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
