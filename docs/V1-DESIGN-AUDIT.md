@@ -1516,8 +1516,13 @@ record，并用单次 version CAS 做 publication/Floor mutation；response loss
 record surface 的 deterministic seam、reopen、corruption 和 response-loss
 边界。这闭合的是 catalog/Floor 单 record CAS，不等于 upload-intent 与 catalog
 的跨 record transaction，也不等于 Owner Lease/session-bound RecoveryPin；这两类
-能力仍由 backend 明确拒绝，真实 Oxia service/session、multi-worker 和
-Object Store publication evidence 仍是 release gates。
+能力仍由 backend 明确拒绝。新增的 `OxiaRealRecoveryAuthoritySmokeTest` 在
+2026-08-12 对 Oxia source `a45e38cf2b8c815499fda4c1b59e017db769142f` 的真实
+endpoint 通过了 catalog publication、typed Floor CAS、reopen/local-reuse
+validation，以及 Upload Intent PENDING_UPLOAD -> PUBLISHED CAS/reopen；这仍是
+single-record service evidence，不扩大为跨 record transaction、Owner
+Lease/session-bound RecoveryPin、multi-worker 或 Object Store publication
+evidence，后四者仍是 release gates。
 同一 backend 现在还会在复用本地 Store 前，对当前远端 catalog/Floor snapshot
 执行只读校验：要求 shard、published lineage/manifest、typed Floor generation
 以及 install-state/store-incarnation tuple 全部 exact match；stale Floor 或非

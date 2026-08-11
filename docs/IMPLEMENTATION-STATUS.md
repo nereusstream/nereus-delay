@@ -53,6 +53,15 @@ stale Floor or descendant drift fails closed. This does not infer Owner
 Lease/session authority and does not replace the required cross-record
 activation transaction.
 
+`OxiaRealRecoveryAuthoritySmokeTest` now exercises both single-record recovery
+authorities against a real Oxia endpoint when
+`NEREUS_DELAY_OXIA_ENDPOINT=host:port` is set: Recovery Catalog publication,
+typed Floor CAS, reopen and local-store reuse validation, plus Upload Intent
+PENDING_UPLOAD -> PUBLISHED CAS and exact reopen. The 2026-08-12 run passed
+against Oxia source `a45e38cf2b8c815499fda4c1b59e017db769142f`; these tests are
+still opt-in and do not claim the deliberately unsupported cross-record
+Owner Lease/session + catalog transaction or Object Store attestation.
+
 The Control Operation state now has a concrete per-operation Oxia CAS backend
 in `OxiaSyncControlOperationBackend`. It stores the complete receipt and
 CURRENT projection in one checksummed canonical record, uses version CAS for
