@@ -1254,6 +1254,13 @@ the actual minimum framing prefix, so short valid LP32 values remain readable;
 The large-payload reservation value applies the same guards to its post-intent
 numeric and presence fields; `PayloadReservationTest` covers strict-prefix
 rejection before payload-reference decoding.
+Its current and receipt-anchor Source Position fields are now decoded through
+`SourcePositionCodec` at construction time, require exact canonical bytes and
+the reservation Shard identity, and reject arbitrary non-empty or
+foreign-Shard values before they can become source-order, receipt or GC
+anchors. `PayloadReservationTest.sourcePositionsMustBeCanonicalAndBelongToReservationShard`
+covers the malformed and cross-Shard fences; this remains local binding
+evidence, not authenticated ingress/source authority.
 Its `COMMITTED` branch also rejects a payload reference whose length or
 SHA-256 differs from the Prepare intent, so a damaged durable value cannot
 cross the reservation-to-message boundary as a false object binding. The

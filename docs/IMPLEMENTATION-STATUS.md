@@ -42,6 +42,16 @@ compatibility path. Focused coverage is
 this is local projection evidence, not external capability or transport
 authority.
 
+`PayloadReservation` now validates both the current lifecycle Source Position
+and the receipt-anchor Source Position through `SourcePositionCodec` before a
+reservation value can be constructed or persisted. The decoded position must
+be canonical and belong to the reservation's Shard; arbitrary non-empty bytes
+and a foreign-Shard anchor therefore fail closed instead of entering the
+source-order, receipt or GC-protection path. `PayloadReservationTest` covers
+malformed, foreign-Shard and canonical round-trip cases. This is local durable
+binding evidence only; authenticated source assignment and external receipt/
+Object Store authority remain release gates.
+
 The local `TIME_FENCE_V1` apply path now carries an explicit
 `DelayShardConfig.timeFenceSafetyMarginMs` input and checks the Trusted-UTC
 proof with checked addition before advancing the ingress watermark. A proof one
