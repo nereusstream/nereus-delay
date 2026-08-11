@@ -244,12 +244,16 @@ class LaneSchedulerTest {
         assertThrows(IllegalStateException.class,
                 () -> scheduler.unregister(lane, closed.laneIncarnation()));
         scheduler.replacePending(List.of());
+        assertThrows(IllegalStateException.class,
+                () -> scheduler.unregister(lane, closed.laneIncarnation()));
+        final LaneRecord retired = closed.retire();
+        scheduler.register(retired);
         final byte[] staleIncarnation = closed.laneIncarnation();
         staleIncarnation[0] = 2;
         assertThrows(IllegalArgumentException.class,
                 () -> scheduler.unregister(lane, staleIncarnation));
 
-        scheduler.unregister(lane, closed.laneIncarnation());
+        scheduler.unregister(lane, retired.laneIncarnation());
         assertEquals(List.of(), scheduler.snapshot().lanes());
         assertEquals(List.of(), scheduler.ringOrder());
         assertThrows(IllegalArgumentException.class, () -> scheduler.pendingItems(lane));
@@ -469,12 +473,12 @@ class LaneSchedulerTest {
         final DestinationLaneId lane = lane(35);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 35);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("scheduler-lane-unregister"));
-        final LaneRecord closed = recordWithIncarnation(lane, 1).closeForNewAdmission();
+        final LaneRecord retired = recordWithIncarnation(lane, 1).closeForNewAdmission().retire();
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
-            scheduler.register(closed);
-            scheduler.unregister(lane, closed.laneIncarnation());
+            scheduler.register(retired);
+            scheduler.unregister(lane, retired.laneIncarnation());
             assertEquals(List.of(), scheduler.snapshot().lanes());
             assertEquals(List.of(), SchedulerProjectionsV1.ActiveRing.decode(store.getValue(
                     ColumnFamily.META, KeyCodec.metaScheduler(2), 5).payload()).entries());
@@ -501,13 +505,13 @@ class LaneSchedulerTest {
             final ShardStore store = ShardStore.open(config, shardId, resources);
             try {
                 final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
-                final LaneRecord closed = recordWithIncarnation(lane, 1).closeForNewAdmission();
-                scheduler.register(closed);
+                final LaneRecord retired = recordWithIncarnation(lane, 1).closeForNewAdmission().retire();
+                scheduler.register(retired);
                 final LaneScheduler.SchedulerSnapshot before = scheduler.snapshot();
 
                 store.close();
                 assertThrows(IllegalStateException.class,
-                        () -> scheduler.unregister(lane, closed.laneIncarnation()));
+                        () -> scheduler.unregister(lane, retired.laneIncarnation()));
                 assertEquals(before, scheduler.snapshot());
             } finally {
                 store.close();
@@ -526,15 +530,15 @@ class LaneSchedulerTest {
             try {
                 final LaneScheduler delegate = LaneScheduler.defaults();
                 final PersistentLaneScheduler scheduler = new PersistentLaneScheduler(store, delegate);
-                final LaneRecord closed = recordWithIncarnation(lane, 1).closeForNewAdmission();
-                scheduler.register(closed);
+                final LaneRecord retired = recordWithIncarnation(lane, 1).closeForNewAdmission().retire();
+                scheduler.register(retired);
                 scheduler.markBlocked(lane);
                 assertEquals(List.of(), delegate.ringOrder());
                 final LaneScheduler.SchedulerSnapshot before = scheduler.snapshot();
 
                 store.close();
                 assertThrows(IllegalStateException.class,
-                        () -> scheduler.unregister(lane, closed.laneIncarnation()));
+                        () -> scheduler.unregister(lane, retired.laneIncarnation()));
                 assertEquals(before, scheduler.snapshot());
                 assertEquals(List.of(), delegate.ringOrder());
             } finally {

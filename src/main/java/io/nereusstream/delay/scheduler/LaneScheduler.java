@@ -486,9 +486,8 @@ public final class LaneScheduler {
         if (!Arrays.equals(lane.laneIncarnation, laneIncarnation)) {
             throw new IllegalArgumentException("lane incarnation mismatch");
         }
-        if (lane.gate != io.nereusstream.delay.runtime.AdmissionGate.CLOSED
-                && lane.gate != io.nereusstream.delay.runtime.AdmissionGate.RETIRED) {
-            throw new IllegalStateException("only a terminal Lane can be unregistered");
+        if (lane.gate != io.nereusstream.delay.runtime.AdmissionGate.RETIRED) {
+            throw new IllegalStateException("only a Lane with an installed terminal guard can be unregistered");
         }
         if (!lane.queue.isEmpty()) {
             throw new IllegalStateException("cannot unregister a Lane with pending work");

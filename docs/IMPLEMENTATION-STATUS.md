@@ -154,6 +154,14 @@ idempotent Resume and terminal-guard Resume paths. This is a local source-log
 projection; authenticated control registration and production Oxia authority
 remain release gates.
 
+The scheduler unregister boundary now requires `AdmissionGate.RETIRED`, which
+is the local projection of an installed same-key `LaneTerminalGuardV1`; an
+ordinary source-ordered `CLOSED` Lane remains registered until the
+Recovery-Floor/adapter retirement protocol completes. `LaneSchedulerTest` now
+covers both the closed rejection and the exact-incarnation retired cleanup,
+including persistent fairness-state removal. This only releases process-local
+scheduler state and does not authorize physical Lane retirement.
+
 `OxiaRealRecoveryAuthoritySmokeTest` now exercises both single-record recovery
 authorities against a real Oxia endpoint when
 `NEREUS_DELAY_OXIA_ENDPOINT=host:port` is set: Recovery Catalog publication,

@@ -117,6 +117,13 @@ an ordinary closed Lane from an irreversibly retired one. The focused evidence
 is `DelayShardTest`'s idempotent-Resume and terminal-guard-Resume cases. This
 does not claim authenticated control registration or production Oxia authority.
 
+The scheduler registry now rejects unregister for an ordinary `CLOSED` Lane;
+only `RETIRED`—after the same-key terminal guard has been installed—can remove
+the process-local ring, deficit and last-served projections. The focused
+`LaneSchedulerTest` covers the non-terminal rejection, exact incarnation fence
+and persistent cleanup. Recovery-Floor, adapter quiescence and terminal-guard
+authority remain separate release evidence.
+
 The Control target-registration audit now separates an authoritative binding
 mismatch from an unavailable registry boundary.  Missing registration remains
 an explicit `UNAUTHORIZED_SYSTEM_MUTATION` position result, but a lookup or
