@@ -40,6 +40,30 @@ class WorkerSchedulerTest {
     }
 
     @Test
+    void blockedShardLeavesOuterRingBeforeAOneVisitBudgetCanStarveHealthyWork() {
+        final ShardId blockedShard = shard(3);
+        final ShardId healthyShard = shard(4);
+        final DestinationLaneId blockedLane = lane(3);
+        final DestinationLaneId healthyLane = lane(4);
+        final WorkerScheduler worker = new WorkerScheduler(10, 1);
+        worker.registerShard(blockedShard, 1, LaneScheduler.defaults());
+        worker.registerShard(healthyShard, 1, LaneScheduler.defaults());
+        worker.registerLane(blockedShard, laneRecord(blockedLane));
+        worker.registerLane(healthyShard, laneRecord(healthyLane));
+        worker.offer(item(blockedShard, blockedLane, 1));
+        worker.offer(item(healthyShard, healthyLane, 2));
+
+        worker.markShardBlocked(blockedShard);
+
+        assertEquals(List.of(healthyLane), worker.poll(new SchedulerBudget(1, 100, 1_000_000_000))
+                .stream().map(ScheduleWorkItem::laneId).toList());
+        worker.markShardReady(blockedShard);
+        assertFalse(worker.snapshot().shards().stream()
+                .filter(snapshot -> snapshot.shardId().equals(blockedShard))
+                .findFirst().orElseThrow().blocked());
+    }
+
+    @Test
     void shardUnregisterRequiresBlockedAndDrainedLocalQueue() {
         final ShardId shard = shard(29);
         final DestinationLaneId lane = lane(29);

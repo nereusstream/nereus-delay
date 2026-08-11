@@ -160,11 +160,17 @@ public final class WorkerScheduler {
     }
 
     public synchronized void markShardBlocked(final ShardId shardId) {
-        requireShard(shardId).blocked = true;
+        final ShardQueue shard = requireShard(shardId);
+        shard.blocked = true;
+        removeFromRing(shardId);
     }
 
     public synchronized void markShardReady(final ShardId shardId) {
-        requireShard(shardId).blocked = false;
+        final ShardQueue shard = requireShard(shardId);
+        shard.blocked = false;
+        if (!ring.contains(shardId)) {
+            ring.add(shardId);
+        }
         recoveryFirstPass = true;
         recoveryServed.clear();
     }
@@ -189,19 +195,8 @@ public final class WorkerScheduler {
         if (shard.hasPendingWork()) {
             throw new IllegalStateException("cannot unregister a shard with pending work");
         }
-        final int removed = ring.indexOf(shardId);
         shards.remove(shardId);
-        if (removed >= 0) {
-            ring.remove(removed);
-            if (ring.isEmpty()) {
-                cursor = 0;
-            } else if (removed < cursor) {
-                cursor--;
-                cursor %= ring.size();
-            } else {
-                cursor %= ring.size();
-            }
-        }
+        removeFromRing(shardId);
         recoveryFirstPass = true;
         recoveryServed.clear();
         recomputeDeficitCap();
@@ -246,10 +241,44 @@ public final class WorkerScheduler {
             shard.lastServedRound = saved.lastServedRound();
             shard.blocked = saved.blocked();
         }
+        rebuildRingAfterRestore();
         cursor = ring.isEmpty() ? 0 : Math.floorMod(snapshot.cursor(), ring.size());
         roundGeneration = snapshot.roundGeneration();
         recoveryFirstPass = true;
         recoveryServed.clear();
+    }
+
+    private void rebuildRingAfterRestore() {
+        final Set<ShardId> seen = new HashSet<>();
+        final List<ShardId> rebuilt = new ArrayList<>();
+        for (ShardId shardId : ring) {
+            final ShardQueue shard = shards.get(shardId);
+            if (shard != null && !shard.blocked && seen.add(shardId)) {
+                rebuilt.add(shardId);
+            }
+        }
+        shards.values().stream()
+                .filter(shard -> !shard.blocked && seen.add(shard.shardId))
+                .sorted(Comparator.comparing(shard -> shard.shardId.toString()))
+                .forEach(shard -> rebuilt.add(shard.shardId));
+        ring.clear();
+        ring.addAll(rebuilt);
+    }
+
+    private void removeFromRing(final ShardId shardId) {
+        final int removed = ring.indexOf(shardId);
+        if (removed < 0) {
+            return;
+        }
+        ring.remove(removed);
+        if (ring.isEmpty()) {
+            cursor = 0;
+        } else if (removed < cursor) {
+            cursor--;
+            cursor %= ring.size();
+        } else {
+            cursor %= ring.size();
+        }
     }
 
     private Set<ShardId> eligibleShards(final long dueThroughEpochMs, final long maximumHeadBytes) {

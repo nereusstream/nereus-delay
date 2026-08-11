@@ -3118,6 +3118,13 @@ plus `LaneSchedulerTest.failedReadyProjectionRestoresEvidenceRecoveryStateExactl
 cover the local scheduler and rollback boundaries. External activator evidence
 and Owner/Oxia readiness authority remain release gates.
 
+The Worker outer scheduler now removes a blocked Shard from its active ring and
+re-adds it only on `markShardReady`; restore also rebuilds the ring without
+blocked Shards. This makes the isolation claim hold under a small outer visit
+budget instead of merely skipping a blocked entry after spending a visit on it.
+`WorkerSchedulerTest.blockedShardLeavesOuterRingBeforeAOneVisitBudgetCanStarveHealthyWork`
+covers the fairness boundary. Placement/ownership authority remains external.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

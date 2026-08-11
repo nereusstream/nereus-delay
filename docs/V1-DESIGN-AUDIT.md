@@ -2955,6 +2955,13 @@ covered by `LaneRecordTest.directProjectionCannotPersistReadyLaneBehindAClosedAd
 This closes only the local state-machine fence; activator evidence and external
 readiness authority remain release gates.
 
+The Worker outer ring now has the matching isolation behavior: blocked Shards
+are removed before polling and restore filters them, while READY reactivation
+rejoins the ring. The one-visit starvation regression is
+`WorkerSchedulerTest.blockedShardLeavesOuterRingBeforeAOneVisitBudgetCanStarveHealthyWork`.
+This is local scheduler evidence only; placement and Owner/Oxia authority
+remain release gates.
+
 The process-local scheduler now mirrors that graph: `markReady` cannot bypass
 `RECOVERING_EVIDENCE`, and `PersistentLaneScheduler` rolls back the exact
 readiness enum after a failed projection write instead of restoring only a
