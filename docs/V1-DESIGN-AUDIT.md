@@ -848,6 +848,14 @@ and operation-ID checks around its injected backend; it is a validation
 adapter, not a real Oxia client or transport classifier. Lookup buffers are
 copied into separate backend and validation snapshots, so a backend cannot
 rewrite the operation identity used by the response check.
+`OxiaSyncControlTargetRegistrationBackend` 现在把每个 operation ID 的 exact
+Prepared bytes 放进一个 canonical Oxia record，以 `IfRecordDoesNotExist` CAS
+完成 immutable registration；response loss 只有 exact reread 成功，record
+corruption、same-ID/different-bytes 和 operation-ID drift 均 fail closed。
+`OxiaSyncControlTargetRegistrationBackendTest` 覆盖真实 Oxia Java client
+record surface 的 deterministic seam、reopen、冲突和损坏边界。这只闭合
+per-operation registration record，不等于 actor/target authorization、target
+existence、source-ordered mutation transaction 或 production transport。
 `ControlSystemMutationFactoryV1` now centralizes the signed envelope and
 logical-identity derivation, while operation-specific body encoding and
 service-key trust remain outside this local seam.
