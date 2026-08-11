@@ -257,13 +257,13 @@ public final class OwnedDelayShard {
         final List<CommandResult> results = new ArrayList<>();
         while (true) {
             ensureReplayWindow(readClock(clock));
-            if (!records.hasNext()) {
+            if (!sourceHasNext(records)) {
                 return new SourceReplayTurn<>(results, true);
             }
             if (turnCapReached(recordCount, canonicalBytes, startedNanos, budget)) {
                 return new SourceReplayTurn<>(results, false);
             }
-            final SourceReplayRecord candidate = records.peek();
+            final SourceReplayRecord candidate = sourcePeek(records);
             final long recordBytes = canonicalReplayBytes(candidate);
             if (recordBytes > budget.maxCanonicalBytes()) {
                 throw new IllegalArgumentException("single source replay record exceeds canonical-byte turn budget");
@@ -271,7 +271,7 @@ public final class OwnedDelayShard {
             if (canonicalBytes > budget.maxCanonicalBytes() - recordBytes) {
                 return new SourceReplayTurn<>(results, false);
             }
-            final SourceReplayRecord record = records.peek();
+            final SourceReplayRecord record = sourcePeek(records);
             final SourcePosition position = record.position();
             if (!delegate.shardId().equals(position.shardId())) {
                 throw new IllegalArgumentException("source replay position does not belong to shard");
@@ -295,7 +295,7 @@ public final class OwnedDelayShard {
             // Advance the caller-owned cursor only after the shard WriteBatch
             // has returned successfully.  A validation or storage failure
             // must leave the exact source record available for retry.
-            records.next();
+            sourceNext(records);
             lastCatchupPosition = position;
             results.add(result);
             recordCount++;
@@ -348,13 +348,13 @@ public final class OwnedDelayShard {
         final List<SystemMutationResult> results = new ArrayList<>();
         while (true) {
             ensureReplayWindow(readClock(clock));
-            if (!records.hasNext()) {
+            if (!sourceHasNext(records)) {
                 return new SourceReplayTurn<>(results, true);
             }
             if (turnCapReached(recordCount, canonicalBytes, startedNanos, budget)) {
                 return new SourceReplayTurn<>(results, false);
             }
-            final SourceReplayMutation candidate = records.peek();
+            final SourceReplayMutation candidate = sourcePeek(records);
             final long recordBytes = canonicalReplayBytes(candidate);
             if (recordBytes > budget.maxCanonicalBytes()) {
                 throw new IllegalArgumentException("single source replay record exceeds canonical-byte turn budget");
@@ -362,7 +362,7 @@ public final class OwnedDelayShard {
             if (canonicalBytes > budget.maxCanonicalBytes() - recordBytes) {
                 return new SourceReplayTurn<>(results, false);
             }
-            final SourceReplayMutation record = records.peek();
+            final SourceReplayMutation record = sourcePeek(records);
             final SourcePosition position = record.position();
             if (!delegate.shardId().equals(position.shardId())) {
                 throw new IllegalArgumentException("system replay position does not belong to shard");
@@ -387,7 +387,7 @@ public final class OwnedDelayShard {
                 state = ShardLifecycleState.FENCED;
                 throw failure;
             }
-            records.next();
+            sourceNext(records);
             lastCatchupPosition = position;
             results.add(result);
             recordCount++;
@@ -439,13 +439,13 @@ public final class OwnedDelayShard {
         final List<SourceReplayOutcome> results = new ArrayList<>();
         while (true) {
             ensureReplayWindow(readClock(clock));
-            if (!records.hasNext()) {
+            if (!sourceHasNext(records)) {
                 return new SourceReplayTurn<>(results, true);
             }
             if (turnCapReached(recordCount, canonicalBytes, startedNanos, budget)) {
                 return new SourceReplayTurn<>(results, false);
             }
-            final SourceReplayEntry candidate = records.peek();
+            final SourceReplayEntry candidate = sourcePeek(records);
             final long recordBytes = canonicalReplayBytes(candidate);
             if (recordBytes > budget.maxCanonicalBytes()) {
                 throw new IllegalArgumentException("single source replay record exceeds canonical-byte turn budget");
@@ -453,7 +453,7 @@ public final class OwnedDelayShard {
             if (canonicalBytes > budget.maxCanonicalBytes() - recordBytes) {
                 return new SourceReplayTurn<>(results, false);
             }
-            final SourceReplayEntry record = records.peek();
+            final SourceReplayEntry record = sourcePeek(records);
             final SourcePosition position = record.position();
             validateReplayPosition(position, record.sourceConnectionGeneration(), record.guardAttestationDigest());
             if (record instanceof SourceReplayRecord commandRecord) {
@@ -485,7 +485,7 @@ public final class OwnedDelayShard {
             } else {
                 throw new IllegalArgumentException("unsupported source replay entry: " + record.getClass());
             }
-            records.next();
+            sourceNext(records);
             recordCount++;
             canonicalBytes = Math.addExact(canonicalBytes, recordBytes);
         }
@@ -498,6 +498,39 @@ public final class OwnedDelayShard {
         }
         final long elapsedNanos = System.nanoTime() - startedNanos;
         return elapsedNanos >= budget.maxElapsedNanos();
+    }
+
+    /**
+     * A source cursor is part of the replay continuity proof.  If its backing
+     * iterator fails while loading, the Owner cannot prove which physical
+     * record is next; keep the cursor untouched and close the local authority
+     * gate before allowing the failure to escape.
+     */
+    private boolean sourceHasNext(final SourceReplayCursor<?> records) {
+        try {
+            return records.hasNext();
+        } catch (RuntimeException | Error failure) {
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        }
+    }
+
+    private <T> T sourcePeek(final SourceReplayCursor<? extends T> records) {
+        try {
+            return records.peek();
+        } catch (RuntimeException | Error failure) {
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        }
+    }
+
+    private <T> T sourceNext(final SourceReplayCursor<? extends T> records) {
+        try {
+            return records.next();
+        } catch (RuntimeException | Error failure) {
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        }
     }
 
     private static long canonicalReplayBytes(final SourceReplayEntry record) {

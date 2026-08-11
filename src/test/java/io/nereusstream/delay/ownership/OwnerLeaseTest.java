@@ -625,6 +625,56 @@ class OwnerLeaseTest {
                         currentKeyPair.getPublic(), clock, ReplayTurnBudget.unbounded()));
     }
 
+    @Test
+    void sourceCursorFailureFencesEveryReplayPathBeforeApplyingOrAdvancing() throws Exception {
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+
+        assertReplayCursorFailureFences("cursor-failure-command", keyPair,
+                (owned, ignored) -> owned.replayCatchupTurn(failingCursor(), 101,
+                        ReplayTurnBudget.unbounded()));
+        assertReplayCursorFailureFences("cursor-failure-system", keyPair,
+                (owned, currentKeyPair) -> owned.replaySystemMutationsTurn(failingCursor(),
+                        currentKeyPair.getPublic(), 101, ReplayTurnBudget.unbounded()));
+        assertReplayCursorFailureFences("cursor-failure-mixed", keyPair,
+                (owned, currentKeyPair) -> owned.replayTurn(failingCursor(),
+                        currentKeyPair.getPublic(), 101, ReplayTurnBudget.unbounded()));
+    }
+
+    private void assertReplayCursorFailureFences(final String directoryName, final KeyPair keyPair,
+                                                 final ReplayCursorInvocation invocation) {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 151);
+        final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = authority.acquire(shardId, "worker-cursor-failure", 100, 100).orElseThrow();
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve(directoryName));
+        final UUID topic = UUID.randomUUID();
+        final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 0);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            owned.markCatchingUp(new SourceAssignment(shardId,
+                    Bytes.sha256(Bytes.utf8(directoryName + "-assignment")), 1, barrier));
+
+            assertThrows(AssertionError.class, () -> invocation.invoke(owned, keyPair));
+            assertEquals(ShardLifecycleState.FENCED, owned.state());
+            assertNull(owned.lastCatchupPosition());
+        }
+    }
+
+    private static <T> SourceReplayCursor<T> failingCursor() {
+        return SourceReplayCursor.of(new java.util.Iterator<>() {
+            @Override
+            public boolean hasNext() {
+                throw new AssertionError("source iterator unavailable");
+            }
+
+            @Override
+            public T next() {
+                throw new AssertionError("source iterator unavailable");
+            }
+        });
+    }
+
     private void assertReplayClockFailureFences(final String directoryName, final KeyPair keyPair,
                                                 final java.util.function.LongSupplier failedClock,
                                                 final Class<? extends Throwable> expectedFailure,
@@ -650,6 +700,11 @@ class OwnerLeaseTest {
     @FunctionalInterface
     private interface ReplayClockInvocation {
         void invoke(OwnedDelayShard owned, KeyPair keyPair, java.util.function.LongSupplier clock);
+    }
+
+    @FunctionalInterface
+    private interface ReplayCursorInvocation {
+        void invoke(OwnedDelayShard owned, KeyPair keyPair);
     }
 
     @Test

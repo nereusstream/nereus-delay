@@ -800,6 +800,12 @@ Source consumer 的 look-ahead cursor 只能在该记录的 shard WriteBatch 成
 bounded replay turn 原样重试。不能先消费 source cursor、再把失败记录交给调用方自行
 猜测或重新定位。
 
+Source cursor 的 `hasNext`、look-ahead `peek` 或推进操作如果从 backing iterator
+抛出异常，也属于 source continuity 未知：Owner 必须先进入 `FENCED`，再重新抛出，且
+不得推进 `lastCatchupPosition`。这与 Store/clock failure 使用同一个 fail-closed
+边界；不能让损坏或暂时不可读的 cursor 把 shard 留在 `CATCHING_UP` 并继续持有本地
+replay authority。
+
 如果同步 `db.write` 返回 native failure，或 WriteBatch 已返回成功但 Store 无法完成
 提交后的 ingress-fence 重读/解码校验，Store 必须进入本地
 `WRITE_OUTCOME_UNCERTAIN` 状态：禁止继续读写、禁止写 clean-close marker，source
@@ -1035,6 +1041,11 @@ Store/Delegate 应用抛出 `RocksDbWriteFailure` 或 fatal `Error` 时，都必
 Owner 置为 `FENCED` 再重新抛出；不能把该异常转换成业务 rejection，也不能推进
 Source cursor 或 `lastCatchupPosition`。原始 record 必须保留给新 Store
 incarnation 校验和重放，直到提交边界被重新证明。
+
+同一 fail-closed 规则适用于 source cursor 的 backing iterator：`hasNext`、look-ahead
+`peek` 或推进操作抛出 `RuntimeException`/`Error` 时，Owner 必须先置为 `FENCED`，再
+重新抛出；不得把 source continuity 未知解释成仍可继续 replay。若记录尚未成功写入
+Shard Store，cursor 与 `lastCatchupPosition` 都必须保持在原位置。
 
 live-clock replay 的时钟读取也是 lease-validity proof 的一部分。Command、System
 Mutation 和 mixed replay 在每个 bounded turn 开始及每条 record 前读取该时钟；若

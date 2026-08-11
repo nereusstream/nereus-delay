@@ -101,6 +101,16 @@ source record/cursor for a fresh Store incarnation. The focused regression is
 This closes only the local owner gate; source continuity, fresh-incarnation
 recovery and Oxia lease authority remain release gates.
 
+The same replay boundary now covers failures from the backing source iterator:
+`hasNext`, look-ahead `peek` and cursor advancement are fenced before a
+`RuntimeException`/`Error` escapes, so an unavailable or malformed source
+cannot leave an Owner in `CATCHING_UP` with a continuity proof it no longer
+holds. `OwnerLeaseTest.sourceCursorFailureFencesEveryReplayPathBeforeApplyingOrAdvancing`
+covers Command, System Mutation and mixed replay; the failed read occurs
+before any record is applied and `lastCatchupPosition` remains unchanged.
+This is local fail-closed evidence only; real broker consumer continuity and
+fresh-incarnation replay remain release gates.
+
 The activation audit also closes the metadata/requeue asymmetry: once either
 activation path starts its owner-open marker and Claim-requeue projection, any
 Store/recovery `RuntimeException` or fatal `Error` fences the Owner before the
