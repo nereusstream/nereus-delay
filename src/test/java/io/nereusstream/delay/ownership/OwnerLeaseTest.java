@@ -581,6 +581,78 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void replayClockFailureFencesEveryReplayPathBeforeReadingSource() throws Exception {
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final java.util.function.LongSupplier failedClock = () -> {
+            throw new AssertionError("replay clock unavailable");
+        };
+
+        assertReplayClockFailureFences("clock-failure-command", keyPair, failedClock, AssertionError.class,
+                (owned, ignored, clock) -> owned.replayCatchupTurn(
+                        SourceReplayCursor.<SourceReplayRecord>of(List.<SourceReplayRecord>of().iterator()),
+                        clock, ReplayTurnBudget.unbounded()));
+        assertReplayClockFailureFences("clock-failure-system", keyPair, failedClock, AssertionError.class,
+                (owned, currentKeyPair, clock) -> owned.replaySystemMutationsTurn(
+                        SourceReplayCursor.<SourceReplayMutation>of(List.<SourceReplayMutation>of().iterator()),
+                        currentKeyPair.getPublic(), clock, ReplayTurnBudget.unbounded()));
+        assertReplayClockFailureFences("clock-failure-mixed", keyPair, failedClock, AssertionError.class,
+                (owned, currentKeyPair, clock) -> owned.replayTurn(
+                SourceReplayCursor.<SourceReplayEntry>of(List.<SourceReplayEntry>of().iterator()),
+                        currentKeyPair.getPublic(), clock, ReplayTurnBudget.unbounded()));
+    }
+
+    @Test
+    void negativeReplayClockFencesEveryReplayPathBeforeReadingSource() throws Exception {
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final java.util.function.LongSupplier negativeClock = () -> -1;
+
+        assertReplayClockFailureFences("negative-clock-command", keyPair, negativeClock,
+                IllegalArgumentException.class,
+                (owned, ignored, clock) -> owned.replayCatchupTurn(
+                        SourceReplayCursor.<SourceReplayRecord>of(List.<SourceReplayRecord>of().iterator()),
+                        clock, ReplayTurnBudget.unbounded()));
+        assertReplayClockFailureFences("negative-clock-system", keyPair, negativeClock,
+                IllegalArgumentException.class,
+                (owned, currentKeyPair, clock) -> owned.replaySystemMutationsTurn(
+                        SourceReplayCursor.<SourceReplayMutation>of(List.<SourceReplayMutation>of().iterator()),
+                        currentKeyPair.getPublic(), clock, ReplayTurnBudget.unbounded()));
+        assertReplayClockFailureFences("negative-clock-mixed", keyPair, negativeClock,
+                IllegalArgumentException.class,
+                (owned, currentKeyPair, clock) -> owned.replayTurn(
+                        SourceReplayCursor.<SourceReplayEntry>of(List.<SourceReplayEntry>of().iterator()),
+                        currentKeyPair.getPublic(), clock, ReplayTurnBudget.unbounded()));
+    }
+
+    private void assertReplayClockFailureFences(final String directoryName, final KeyPair keyPair,
+                                                final java.util.function.LongSupplier failedClock,
+                                                final Class<? extends Throwable> expectedFailure,
+                                                final ReplayClockInvocation invocation) {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 150);
+        final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = authority.acquire(shardId, "worker-clock-failure", 100, 100).orElseThrow();
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve(directoryName));
+        final UUID topic = UUID.randomUUID();
+        final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 0);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            owned.markCatchingUp(new SourceAssignment(shardId,
+                    Bytes.sha256(Bytes.utf8(directoryName + "-assignment")), 1, barrier));
+
+            assertThrows(expectedFailure, () -> invocation.invoke(owned, keyPair, failedClock));
+            assertEquals(ShardLifecycleState.FENCED, owned.state());
+            assertNull(owned.lastCatchupPosition());
+        }
+    }
+
+    @FunctionalInterface
+    private interface ReplayClockInvocation {
+        void invoke(OwnedDelayShard owned, KeyPair keyPair, java.util.function.LongSupplier clock);
+    }
+
+    @Test
     void v1CatchupPinsTheAdapterSuccessorAndRejectsAKafkaGapBeforeApplyingIt() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 11);
         final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();

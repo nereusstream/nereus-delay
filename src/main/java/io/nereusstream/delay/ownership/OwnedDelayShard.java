@@ -550,12 +550,21 @@ public final class OwnedDelayShard {
         }
     }
 
-    private static long readClock(final LongSupplier clock) {
-        final long nowEpochMs = clock.getAsLong();
-        if (nowEpochMs < 0) {
-            throw new IllegalArgumentException("owner clock returned a negative time");
+    private long readClock(final LongSupplier clock) {
+        try {
+            final long nowEpochMs = clock.getAsLong();
+            if (nowEpochMs < 0) {
+                throw new IllegalArgumentException("owner clock returned a negative time");
+            }
+            return nowEpochMs;
+        } catch (RuntimeException | Error failure) {
+            // A replay clock is part of the lease-validity proof.  If it is
+            // unavailable or malformed, the Owner cannot establish that the
+            // lease is still valid; keep the source cursor untouched and close
+            // the local mutation gate before the failure escapes.
+            state = ShardLifecycleState.FENCED;
+            throw failure;
         }
-        return nowEpochMs;
     }
 
     private void validateReplayPosition(final SourcePosition position, final Long sourceConnectionGeneration,

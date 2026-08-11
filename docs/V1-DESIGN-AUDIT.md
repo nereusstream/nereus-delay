@@ -2001,6 +2001,12 @@ canonical Source Position 的 broker redelivery 可以由 durable apply 幂等�
 catch-up 中途过期会在下一条记录前 fence，cursor 保留在最后已提交的位置，
 不会继续用旧 owner 写入。固定 `nowEpochMs` overload 仅保留给确定性兼容调用，
 `OwnerLeaseTest.liveCatchupClockFencesBeforeApplyingAfterLeaseExpiry` 覆盖该边界。
+时钟读取本身也是 lease-validity proof：若 injected clock 抛异常或返回负的
+epoch-ms，Command、System Mutation 和 mixed 三条 bounded replay 路径都会在
+读取 source 之前把 Owner 置为 `FENCED`，保留 look-ahead cursor 和
+`lastCatchupPosition`。`OwnerLeaseTest.replayClockFailureFencesEveryReplayPathBeforeReadingSource`
+覆盖该 pre-read fence；这仍是本地 fail-closed 证据，trusted-clock、Broker
+assignment 和 Oxia lease/session authority 仍是 release gate。
 正常 source apply 还可使用 `OwnedDelayShard.applyAuthoritatively`，在每次
 delegate WriteBatch 前 reread Oxia lease；同 identity 的续租可以更新本地 expiry，
 而 owner/epoch/token/session、状态或 expiry 回退都会在写入前 fence。旧的本地

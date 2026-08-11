@@ -1929,6 +1929,13 @@ view on mid-replay expiry, and leave the durable source cursor at the last
 committed record; the fixed-time overloads remain deterministic compatibility
 seams. `OwnerLeaseTest.liveCatchupClockFencesBeforeApplyingAfterLeaseExpiry`
 covers the command replay boundary.
+The live clock is itself part of that lease-validity proof: if the injected
+clock throws or returns a negative epoch-ms, all three bounded replay paths
+(Command, System Mutation and mixed) fence the local Owner before the failure
+escapes, without consuming their look-ahead cursor or changing
+`lastCatchupPosition`. `OwnerLeaseTest.replayClockFailureFencesEveryReplayPathBeforeReadingSource`
+covers this pre-read boundary. This is local fail-closed evidence; production
+trusted-clock and Oxia lease/session authority remain release gates.
 `OwnedDelayShard.applyAuthoritatively` adds the corresponding per-command
 authority reread for the post-activation path: a missing, changed, non-active,
 expired or regressed-expiry Oxia lease fences before the delegate WriteBatch;

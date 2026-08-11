@@ -1036,6 +1036,12 @@ Owner 置为 `FENCED` 再重新抛出；不能把该异常转换成业务 reject
 Source cursor 或 `lastCatchupPosition`。原始 record 必须保留给新 Store
 incarnation 校验和重放，直到提交边界被重新证明。
 
+live-clock replay 的时钟读取也是 lease-validity proof 的一部分。Command、System
+Mutation 和 mixed replay 在每个 bounded turn 开始及每条 record 前读取该时钟；若
+时钟供应器抛出异常或返回负的 epoch-ms，Owner 必须先置为 `FENCED`，再重新抛出，
+且不得读取/推进 source cursor 或 `lastCatchupPosition`。不能把 lease-validity
+未知解释成仍可继续 replay；固定 `nowEpochMs` overload 仅是确定性兼容 seam。
+
 如果 Store 已标记为 `writeOutcomeUncertain`，Owner drain 必须先关闭本地
 Command/Claim/Admission authority，再调用 source/scheduler stop callback。该
 callback 只是编排通知，失败不能让一个提交边界不确定的 Store 继续保持
