@@ -310,10 +310,15 @@ entrypoint: `ControlOperationQueryPolicy` must match the nonzero
 `queryUntil` from `registeredAt.latest` with checked addition, and performs that
 derivation before target registration. Policy-version drift or overflow fails
 closed without a partial local registration. The existing absolute-window
-overload remains a compatibility seam; immutable policy distribution and the
-production Oxia registration transaction remain external release gates. Focused
-evidence is `ControlOperationQueryPolicyTest` and
-`EmbeddedDelayServiceTest.strictPreparedControlRegistrationRejectsPolicyDriftAndOverflowBeforeRegistration`.
+overload remains a compatibility seam, but it now constructs and validates the
+same receipt/current projection before publishing the target registration, so a
+negative window or invalid registration evidence cannot leave a target-only
+record. Immutable policy distribution and the production Oxia registration
+transaction remain external release gates. Focused evidence is
+`ControlOperationQueryPolicyTest`,
+`EmbeddedDelayServiceTest.strictPreparedControlRegistrationRejectsPolicyDriftAndOverflowBeforeRegistration`
+and
+`EmbeddedDelayServiceTest.compatibilityPreparedControlRegistrationValidatesBeforeTargetRegistration`.
 
 The command-result wire constructors now enforce the lower retention bound as
 well: `fullResultRetainUntilEpochMs` must not precede the result Source

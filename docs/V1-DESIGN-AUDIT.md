@@ -216,12 +216,16 @@ The Control Operation receipt boundary now has the same executable local fence:
 `ControlOperationQueryPolicy` must match the policy version carried by the
 Prepared Control Operation and derives `queryUntil` from the trusted
 registration upper bound before target registration. Version drift and checked
-addition overflow fail closed without a partial local registration. Explicit
-deadline/window constructors remain compatibility seams; immutable policy
-publication and the production Oxia registration transaction remain external
-release gates. Focused evidence is
-`ControlOperationQueryPolicyTest` and
-`EmbeddedDelayServiceTest.strictPreparedControlRegistrationRejectsPolicyDriftAndOverflowBeforeRegistration`.
+addition overflow fail closed without a partial local registration. The raw
+absolute-window compatibility entrypoint now performs the same projection and
+binding validation before publishing its target record, so an invalid window or
+registration evidence cannot leave a target-only operation behind. Immutable
+policy publication and the production Oxia registration transaction remain
+external release gates. Focused evidence is
+`ControlOperationQueryPolicyTest`,
+`EmbeddedDelayServiceTest.strictPreparedControlRegistrationRejectsPolicyDriftAndOverflowBeforeRegistration`
+and
+`EmbeddedDelayServiceTest.compatibilityPreparedControlRegistrationValidatesBeforeTargetRegistration`.
 
 The result-retention wire boundary now enforces both sides of the source-time
 contract: `fullResultRetainUntilEpochMs` in

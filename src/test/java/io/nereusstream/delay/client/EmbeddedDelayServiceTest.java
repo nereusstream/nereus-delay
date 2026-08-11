@@ -63,6 +63,7 @@ import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.SubmissionOutcomeKindV1;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
+import io.nereusstream.delay.ownership.ControlTargetRegistrationAuthority;
 import io.nereusstream.delay.runtime.ApplyStatus;
 import io.nereusstream.delay.runtime.DelayShard;
 import io.nereusstream.delay.runtime.DelayShardConfig;
@@ -78,6 +79,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.lang.reflect.Field;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.time.Clock;
@@ -1003,6 +1005,38 @@ class EmbeddedDelayServiceTest {
                     Bytes.sha256(Bytes.utf8("strict-control-overflow-evidence")), 0, null);
             assertThrows(IllegalArgumentException.class, () -> service.registerPreparedControlOperation(
                     prepared, overflowAt, new ControlOperationQueryPolicy(1, 1)));
+        }
+    }
+
+    @Test
+    void compatibilityPreparedControlRegistrationValidatesBeforeTargetRegistration() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 9);
+        final ControlOperationRequestV1 request = ControlOperationRequestV1.forceCheckpoint(
+                new ForceCheckpointRequestV1(new ControlReasonV1(ControlReasonKindV1.MAINTENANCE, null, null)));
+        final ControlTargetRefV1 target = new ControlTargetRefV1(0, ControlTargetKindV1.SHARD,
+                new ShardSubjectV1(shard), null, null);
+        final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final PreparedControlOperationV1 prepared = PreparedControlOperationV1.prepare(Bytes.sha256(
+                        Bytes.utf8("compatibility-control-window")), request.kind(),
+                new ControlAuthorV1(Bytes.sha256(Bytes.utf8("compatibility-actor")),
+                        Bytes.sha256(Bytes.utf8("compatibility-roles")),
+                        Bytes.sha256(Bytes.utf8("compatibility-scope"))), request, List.of(target), 1, 2, 1,
+                keyPair.getPrivate());
+        final TrustedUtcIntervalEvidence registeredAt = new TrustedUtcIntervalEvidence(1_000, 1_100,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("compatibility-clock"),
+                1, 1, 1, Bytes.sha256(Bytes.utf8("compatibility-evidence")), 0, null);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("compatibility-control-window")), shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            assertThrows(IllegalArgumentException.class, () -> service.registerPreparedControlOperation(
+                    prepared, registeredAt, -1));
+
+            final Field authorityField = EmbeddedDelayService.class.getDeclaredField(
+                    "controlTargetRegistrationAuthority");
+            authorityField.setAccessible(true);
+            final ControlTargetRegistrationAuthority authority =
+                    (ControlTargetRegistrationAuthority) authorityField.get(service);
+            assertTrue(authority.find(prepared.operationId()).isEmpty());
         }
     }
 

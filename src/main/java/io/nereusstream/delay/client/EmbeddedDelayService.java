@@ -1340,11 +1340,16 @@ public final class EmbeddedDelayService implements DelayClient {
     private ControlRegistrationProjectionV1 registerPreparedControlOperationInternal(
             final PreparedControlOperationV1 prepared, final TrustedUtcIntervalEvidence registeredAt,
             final long controlOperationQueryWindowMs) {
-        controlTargetRegistrationAuthority.register(prepared);
+        // Build and validate every local projection before publishing the
+        // target registration.  The raw-window overload is retained as an
+        // embedded compatibility seam, so invalid timestamps/windows must not
+        // leave a target-only registration behind for a control operation that
+        // never obtained a receipt/current projection.
         final ControlRegistrationProjectionV1 projection = ControlRegistrationProjectionV1.initialWithQueryWindow(
                 prepared, registeredAt, controlOperationQueryWindowMs);
         ControlRegistrationBindingV1.validate(prepared,
                 ControlRegistrationOutcomeMessageV1.recorded(projection.receipt()));
+        controlTargetRegistrationAuthority.register(prepared);
         final ControlOperationQueryResponseV1 response = controlOperationAuthority.register(projection.receipt(),
                 projection.current());
         if (response.resultKind() != io.nereusstream.delay.protocol.ControlOperationQueryResultV1.CURRENT
