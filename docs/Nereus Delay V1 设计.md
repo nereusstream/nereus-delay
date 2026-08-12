@@ -1108,7 +1108,10 @@ control snapshot 或 lease-validity 等激活前置条件时，才保留 `CATCHI
     snapshot 不能打开 command gate。生产 strict activation 入口还必须证明该
     lease 由 context-bound strict catch-up 建立（assignment/session context 仍在
     replay window 内）；contextless legacy lease 只能用于 embedded compatibility
-    activation，不能进入 V1 production command gate。
+    activation，不能进入 V1 production command gate。该入口在写入本地
+    `lastOpenedOwnerEpoch` 或恢复 Claim 前，还必须 reread 同一 authority 上的
+    `CATCHING_UP` lease；Owner replacement、session/assignment drift 或 authority
+    read failure 时先 `FENCED`，不得留下旧 Owner 的 activation projection。
 11. 每个 Lane 独立完成 evidence/capability 验证后进入 `runtimeReadiness=READY`；Scheduler 只 scan/Claim/Admission `admissionGate=OPEN && runtimeReadiness=READY` 的 Lane。
 
 某 Lane 的 target/receipt/journal 不可用只让该 Lane 留在 `RECOVERING_EVIDENCE`/`BLOCKED`，不得阻止 shard Command application 或其他健康 Lane。Shard 生命周期只使用精确状态 `ACTIVE_FOR_COMMANDS`；Lane readiness 是独立闸门，不用含混的 `ACTIVE` 同时表示两者。

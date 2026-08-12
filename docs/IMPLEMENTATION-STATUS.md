@@ -96,6 +96,16 @@ authority on rejection. The no-snapshot/assignment-only activation overloads
 remain embedded compatibility seams, while the production control catalog and
 atomic RecoveryPin/lease transaction remain external blockers.
 
+Commit `45ec559` adds the strict activation pre-CAS fence: after the control
+snapshot and strict context checks, the entrypoint rereads the same
+authority-bound `CATCHING_UP` lease before writing `lastOpenedOwnerEpoch` or
+requeueing restored Claims. Replacement-owner, assignment/session drift and
+authority-read failure therefore fence without publishing an old Owner's local
+activation projection; `OwnerLeaseTest` verifies the replacement path leaves a
+fresh Store epoch at zero. This is still a local ordering fence; the atomic
+production control-catalog/RecoveryPin transaction and real session authority
+remain external blockers.
+
 After the terminal-Lane reservation/Commit, publish-charge ordering and typed
 READY recovery fencing fixes (`c619b38`, `f771f64`, `3527c89`), the repository
 verification command `./gradlew clean check --rerun-tasks --console=plain`

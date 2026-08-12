@@ -82,6 +82,13 @@ that path. `OwnerLeaseTest` covers the strict snapshot success and unchanged
 explicit embedded seams, and the production control catalog plus atomic
 RecoveryPin/lease transaction are still open.
 
+After `45ec559`, strict activation rereads the exact `CATCHING_UP` lease before
+any local owner-open or Claim-recovery write. The replacement-owner regression
+confirms that an authority change fences before `lastOpenedOwnerEpoch` is
+persisted, closing the local pre-CAS projection gap while leaving the
+production atomic control-catalog/RecoveryPin transaction and real session
+authority open.
+
 The post-`3527c89` local verification `./gradlew clean check --rerun-tasks
 --console=plain` passed on 2026-08-12. Five opt-in real-Oxia methods were
 skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is repository
