@@ -68,6 +68,19 @@ public final class PayloadProofTrustSet {
                 && sourceEpochMs <= window.notAfterEpochMs() && proof.verifySignature(key);
     }
 
+    /**
+     * Verifies an already accepted semantic proof identity with a retained
+     * historical key. Issuance and source-time windows gate first acceptance;
+     * they must not make a previously committed ProofId unverifiable.
+     */
+    public boolean verifiesHistoricalSignature(final PayloadCommitProofView proof) {
+        if (proof.trustSetVersion() != version) {
+            return false;
+        }
+        final PublicKey key = keys.get(proof.proofKeyVersion());
+        return key != null && proof.verifySignature(key);
+    }
+
     private PayloadProofTrustSet(final long version, final Map<Integer, PublicKey> keys,
                                  final Map<Integer, KeyWindow> keyWindows) {
         this.version = version;

@@ -2,8 +2,11 @@ package io.nereusstream.delay.protocol;
 
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PayloadReferenceTest {
     @Test
@@ -15,8 +18,24 @@ class PayloadReferenceTest {
         final PayloadReference reference = PayloadReference.fromDescriptor(descriptor);
 
         assertNull(reference.etag());
+        assertTrue(reference.hasCommitIdentity());
+        assertArrayEquals(descriptor.reservationId(), reference.reservationId());
+        assertArrayEquals(descriptor.proofId(), reference.proofId());
         assertEquals(reference, PayloadReference.decode(reference.encode()));
         assertNull(PayloadReference.decode(reference.encode()).etag());
+    }
+
+    @Test
+    void legacyProjectionWithoutCommitIdentityRemainsReadable() {
+        final PayloadReference legacy = new PayloadReference(bytes(32, 1), Bytes.utf8("bucket"),
+                Bytes.utf8("object"), Bytes.utf8("version"), null, 7,
+                Bytes.sha256(Bytes.utf8("payload")));
+
+        final PayloadReference decoded = PayloadReference.decode(legacy.encode());
+        assertEquals(legacy, decoded);
+        assertFalse(decoded.hasCommitIdentity());
+        assertNull(decoded.reservationId());
+        assertNull(decoded.proofId());
     }
 
     private static byte[] bytes(final int length, final int seed) {

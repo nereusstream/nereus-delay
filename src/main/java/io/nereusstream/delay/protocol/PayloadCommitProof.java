@@ -5,6 +5,7 @@ import java.security.GeneralSecurityException;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.Signature;
+import java.security.SignatureException;
 import java.util.Arrays;
 import java.util.Objects;
 
@@ -158,6 +159,8 @@ public record PayloadCommitProof(
             verifier.initVerify(publicKey);
             verifier.update(signatureDigest());
             return verifier.verify(signature);
+        } catch (SignatureException invalidSignature) {
+            return false;
         } catch (GeneralSecurityException exception) {
             throw new IllegalStateException("Ed25519 verification is unavailable", exception);
         }

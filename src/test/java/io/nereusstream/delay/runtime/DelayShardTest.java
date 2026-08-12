@@ -40,6 +40,7 @@ import io.nereusstream.delay.protocol.PayloadProofTrustSetSemanticV1;
 import io.nereusstream.delay.protocol.PayloadProofVerifierKeyV1;
 import io.nereusstream.delay.protocol.PayloadProofIssuanceClosePayloadV1;
 import io.nereusstream.delay.protocol.PayloadProofTrustSetActivatePayloadV1;
+import io.nereusstream.delay.protocol.PayloadReference;
 import io.nereusstream.delay.protocol.ControlReasonKindV1;
 import io.nereusstream.delay.protocol.ControlReasonV1;
 import io.nereusstream.delay.protocol.ProfileAcceptanceV1;
@@ -1539,6 +1540,48 @@ class DelayShardTest {
                     prepare.delayMessageId(), reservationId, acceptedProof, 9_000);
             assertEquals(StableCode.SCHEDULED,
                     shard.apply(acceptedCommit, position(shardId, 5, 1_600)).stableCode());
+            final PayloadReference committedReference = shard.getReservation(reservationId).committedPayload();
+            assertNotNull(committedReference);
+            assertTrue(committedReference.hasCommitIdentity());
+            assertArrayEquals(reservationId, committedReference.reservationId());
+            assertArrayEquals(acceptedProof.proofId(), committedReference.proofId());
+
+            final ControlRef closeRef = new ControlRef(
+                    Bytes.sha256(Bytes.utf8("trust-downgrade-close-op")),
+                    Bytes.sha256(Bytes.utf8("trust-downgrade-close-request")), 2);
+            final PayloadProofIssuanceClosePayloadV1 closePayload = new PayloadProofIssuanceClosePayloadV1(
+                    semantic.ref(), 7, new ControlReasonV1(ControlReasonKindV1.INCIDENT,
+                    Bytes.sha256(Bytes.utf8("trust-downgrade-close-incident")), null));
+            final byte[] closeBody = trustSetControlBody(shardId, closeRef, 13, semantic.ref(),
+                    closePayload.canonicalBytes());
+            final SystemMutation close = SystemMutation.signed(shardId,
+                    SystemMutationType.APPLY_SHARD_CONTROL, 9_000,
+                    closeRef.logicalOperationIdentity(13), closeBody,
+                    control.canonicalBytes(), 1, semanticKey.getPrivate());
+            assertEquals(StableCode.OK, shard.applySystemMutation(close,
+                    position(shardId, 6, 1_625), semanticKey.getPublic()).stableCode());
+            assertFalse(shard.payloadProofTrustSetControlState().firstSeenIssuanceOpen(
+                    semantic.ref(), 7, position(shardId, 7, 1_650)));
+
+            final PreparedCommand exactRetry = PreparedCommand.commitLargeV1(shardId,
+                    prepare.delayMessageId(), reservationId, acceptedProof, 9_000);
+            assertEquals(StableCode.ALREADY_COMMITTED,
+                    shard.apply(exactRetry, position(shardId, 7, 1_650)).stableCode());
+
+            final byte[] forgedSignature = acceptedProof.signature();
+            forgedSignature[0] ^= 1;
+            final PayloadCommitProofV1 forgedHistoricalProof = new PayloadCommitProofV1(
+                    acceptedProof.reservationId(), acceptedProof.tenantRoutingScope(),
+                    acceptedProof.routeIncarnationUuid(), acceptedProof.partition(),
+                    acceptedProof.delayMessageId(), acceptedProof.objectStoreProfile(),
+                    acceptedProof.trustSetVersion(), acceptedProof.proofKeyVersion(),
+                    acceptedProof.container(), acceptedProof.objectKey(), acceptedProof.immutableObjectVersion(),
+                    acceptedProof.etag(), acceptedProof.length(), acceptedProof.payloadSha256(),
+                    acceptedProof.notAfterEpochMs(), acceptedProof.proofId(), forgedSignature);
+            final PreparedCommand forgedRetry = PreparedCommand.commitLargeV1(shardId,
+                    prepare.delayMessageId(), reservationId, forgedHistoricalProof, 9_000);
+            assertEquals(StableCode.PAYLOAD_PROOF_KEY_NOT_AUTHORIZED_AT_SOURCE_POSITION,
+                    shard.apply(forgedRetry, position(shardId, 8, 1_700)).stableCode());
 
             final ProfileRefV1 committedRetryForeignProfile = new ProfileRefV1(
                     Bytes.utf8("committed-retry-foreign-object-store"), 1,
@@ -1551,7 +1594,7 @@ class DelayShardTest {
             final PreparedCommand committedRetry = PreparedCommand.commitLargeV1(shardId,
                     prepare.delayMessageId(), reservationId, committedRetryDowngrade, 9_000);
             assertEquals(StableCode.PAYLOAD_PROOF_INVALID,
-                    shard.apply(committedRetry, position(shardId, 6, 1_700)).stableCode());
+                    shard.apply(committedRetry, position(shardId, 9, 1_750)).stableCode());
             assertEquals(PayloadReservationStatus.COMMITTED,
                     shard.getReservation(reservationId).status());
         }

@@ -12,7 +12,12 @@ public record PayloadReference(
         byte[] immutableObjectVersion,
         byte[] etag,
         long length,
-        byte[] payloadSha256) {
+        byte[] payloadSha256,
+        byte[] reservationId,
+        byte[] proofId) {
+    private static final int LEGACY_VERSION = 1;
+    private static final int VERSION = 2;
+
     public PayloadReference {
         Bytes.requireLength(objectStoreProfileHash, 32, "objectStoreProfileHash");
         requireNonEmpty(container, "container");
@@ -22,6 +27,13 @@ public record PayloadReference(
         if (length < 0) {
             throw new IllegalArgumentException("payload length must be non-negative");
         }
+        if ((reservationId == null) != (proofId == null)) {
+            throw new IllegalArgumentException("payload commit identity must be present as a pair");
+        }
+        if (reservationId != null) {
+            reservationId = fixedNonZero(reservationId, "reservationId");
+            proofId = fixedNonZero(proofId, "proofId");
+        }
         objectStoreProfileHash = Bytes.copy(objectStoreProfileHash);
         container = Bytes.copy(container);
         objectKey = Bytes.copy(objectKey);
@@ -30,12 +42,20 @@ public record PayloadReference(
         payloadSha256 = Bytes.copy(payloadSha256);
     }
 
+    /** Compatibility constructor for local/legacy projections without committed proof identity. */
+    public PayloadReference(final byte[] objectStoreProfileHash, final byte[] container, final byte[] objectKey,
+                            final byte[] immutableObjectVersion, final byte[] etag, final long length,
+                            final byte[] payloadSha256) {
+        this(objectStoreProfileHash, container, objectKey, immutableObjectVersion, etag, length, payloadSha256,
+                null, null);
+    }
+
     /** Projects the Registry committed-payload descriptor without losing an absent etag. */
     public static PayloadReference fromDescriptor(final CommittedPayloadDescriptorV1 descriptor) {
         Objects.requireNonNull(descriptor, "descriptor");
         return new PayloadReference(descriptor.objectStoreProfile().semanticHash(), descriptor.container(),
                 descriptor.objectKey(), descriptor.immutableObjectVersion(), descriptor.etag(), descriptor.length(),
-                descriptor.payloadSha256());
+                descriptor.payloadSha256(), descriptor.reservationId(), descriptor.proofId());
     }
 
     private static void requireNonEmpty(final byte[] value, final String name) {
@@ -70,6 +90,20 @@ public record PayloadReference(
     }
 
     @Override
+    public byte[] reservationId() {
+        return reservationId == null ? null : Bytes.copy(reservationId);
+    }
+
+    @Override
+    public byte[] proofId() {
+        return proofId == null ? null : Bytes.copy(proofId);
+    }
+
+    public boolean hasCommitIdentity() {
+        return reservationId != null;
+    }
+
+    @Override
     public boolean equals(final Object other) {
         if (!(other instanceof PayloadReference that)) {
             return false;
@@ -77,20 +111,23 @@ public record PayloadReference(
         return length == that.length && Arrays.equals(objectStoreProfileHash, that.objectStoreProfileHash)
                 && Arrays.equals(container, that.container) && Arrays.equals(objectKey, that.objectKey)
                 && Arrays.equals(immutableObjectVersion, that.immutableObjectVersion)
-                && Arrays.equals(etag, that.etag) && Arrays.equals(payloadSha256, that.payloadSha256);
+                && Arrays.equals(etag, that.etag) && Arrays.equals(payloadSha256, that.payloadSha256)
+                && Arrays.equals(reservationId, that.reservationId) && Arrays.equals(proofId, that.proofId);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(Arrays.hashCode(objectStoreProfileHash), Arrays.hashCode(container),
                 Arrays.hashCode(objectKey), Arrays.hashCode(immutableObjectVersion), Arrays.hashCode(etag), length,
-                Arrays.hashCode(payloadSha256));
+                Arrays.hashCode(payloadSha256), Arrays.hashCode(reservationId), Arrays.hashCode(proofId));
     }
 
     public byte[] encode() {
-        return Bytes.concat(Bytes.u32be(1), objectStoreProfileHash, Bytes.lp32(container), Bytes.lp32(objectKey),
+        final byte[] base = Bytes.concat(Bytes.u32be(hasCommitIdentity() ? VERSION : LEGACY_VERSION),
+                objectStoreProfileHash, Bytes.lp32(container), Bytes.lp32(objectKey),
                 Bytes.lp32(immutableObjectVersion), Bytes.lp32(etag == null ? new byte[0] : etag),
                 Bytes.u64be(length), payloadSha256);
+        return hasCommitIdentity() ? Bytes.concat(base, reservationId, proofId) : base;
     }
 
     public static PayloadReference decode(final byte[] encoded) {
@@ -98,7 +135,8 @@ public record PayloadReference(
         if (input.remaining() < 4 + 32 + 4 * 4 + 8 + 32) {
             throw new IllegalArgumentException("payload reference is truncated");
         }
-        if (input.getInt() != 1) {
+        final int versionNumber = input.getInt();
+        if (versionNumber != LEGACY_VERSION && versionNumber != VERSION) {
             throw new IllegalArgumentException("unsupported payload reference version");
         }
         final byte[] profile = readFixed(input, 32);
@@ -108,11 +146,13 @@ public record PayloadReference(
         final byte[] etag = readLp32(input);
         final long length = input.getLong();
         final byte[] sha = readFixed(input, 32);
+        final byte[] reservationId = versionNumber == VERSION ? readFixed(input, 32) : null;
+        final byte[] proofId = versionNumber == VERSION ? readFixed(input, 32) : null;
         if (input.hasRemaining()) {
             throw new IllegalArgumentException("payload reference has trailing bytes");
         }
         final PayloadReference result = new PayloadReference(profile, container, key, version,
-                etag.length == 0 ? null : etag, length, sha);
+                etag.length == 0 ? null : etag, length, sha, reservationId, proofId);
         if (!Arrays.equals(encoded, result.encode())) {
             throw new IllegalArgumentException("non-canonical payload reference");
         }
@@ -141,5 +181,17 @@ public record PayloadReference(
 
     private static byte[] optionalEtag(final byte[] value) {
         return value == null || value.length == 0 ? null : Bytes.copy(value);
+    }
+
+    private static byte[] fixedNonZero(final byte[] value, final String name) {
+        Bytes.requireLength(value, 32, name);
+        boolean nonZero = false;
+        for (byte current : value) {
+            nonZero |= current != 0;
+        }
+        if (!nonZero) {
+            throw new IllegalArgumentException(name + " must be non-zero");
+        }
+        return Bytes.copy(value);
     }
 }

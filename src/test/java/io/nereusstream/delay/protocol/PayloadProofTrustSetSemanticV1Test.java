@@ -3,9 +3,11 @@ package io.nereusstream.delay.protocol;
 import org.junit.jupiter.api.Test;
 
 import java.security.KeyPairGenerator;
+import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class PayloadProofTrustSetSemanticV1Test {
@@ -91,5 +93,21 @@ class PayloadProofTrustSetSemanticV1Test {
         org.junit.jupiter.api.Assertions.assertTrue(adapter.verifies(legacyProof, 150));
         org.junit.jupiter.api.Assertions.assertFalse(adapter.verifies(proof, 99));
         org.junit.jupiter.api.Assertions.assertFalse(adapter.verifies(proof, 201));
+
+        final byte[] malformedSignature = new byte[64];
+        Arrays.fill(malformedSignature, (byte) 0xff);
+        final PayloadCommitProofV1 malformedTyped = new PayloadCommitProofV1(proof.reservationId(),
+                proof.tenantRoutingScope(), proof.routeIncarnationUuid(), proof.partition(), proof.delayMessageId(),
+                proof.objectStoreProfile(), proof.trustSetVersion(), proof.proofKeyVersion(), proof.container(),
+                proof.objectKey(), proof.immutableObjectVersion(), proof.etag(), proof.length(),
+                proof.payloadSha256(), proof.notAfterEpochMs(), proof.proofId(), malformedSignature);
+        final PayloadCommitProof malformedLegacy = new PayloadCommitProof(legacyProof.trustSetVersion(),
+                legacyProof.proofKeyVersion(), legacyProof.routeIncarnationUuid(), legacyProof.partition(),
+                legacyProof.delayMessageId(), legacyProof.reservationId(), legacyProof.objectStoreProfileHash(),
+                legacyProof.container(), legacyProof.objectKey(), legacyProof.immutableObjectVersion(),
+                legacyProof.etag(), legacyProof.length(), legacyProof.payloadSha256(),
+                legacyProof.notAfterEpochMs(), legacyProof.proofId(), malformedSignature);
+        assertFalse(adapter.verifies(malformedTyped, 150));
+        assertFalse(adapter.verifies(malformedLegacy, 150));
     }
 }

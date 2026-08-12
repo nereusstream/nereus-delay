@@ -7089,6 +7089,10 @@ public final class DelayShard {
         final PayloadReservation reservation = effectiveReservation(storedReservation);
         if (reservation.status() == PayloadReservationStatus.COMMITTED) {
             if (reservation.committedPayload() != null && proofMatches(proof, reservation.committedPayload())) {
+                if (!historicallyVerifies(proof, pinnedPrepare, sourcePosition)) {
+                    return persistRejected(command, sourcePosition,
+                            StableCode.PAYLOAD_PROOF_KEY_NOT_AUTHORIZED_AT_SOURCE_POSITION);
+                }
                 final CommandResult result = applied(StableCode.ALREADY_COMMITTED, sourcePosition, null);
                 persistResultAndPosition(command, sourcePosition, result, null);
                 return result;
@@ -7138,7 +7142,8 @@ public final class DelayShard {
                     StableCode.PAYLOAD_PROOF_KEY_NOT_AUTHORIZED_AT_SOURCE_POSITION);
         }
         final PayloadReference reference = new PayloadReference(proof.objectStoreProfileHash(), proof.container(),
-                proof.objectKey(), proof.immutableObjectVersion(), proof.etag(), proof.length(), proof.payloadSha256());
+                proof.objectKey(), proof.immutableObjectVersion(), proof.etag(), proof.length(), proof.payloadSha256(),
+                proof.reservationId(), proof.proofId());
         final long actionAt = actionAtFor(command.delayMessageId(),
                 new MessageRecord(MessageStatus.SCHEDULED, 0, 1, reservation.intent().deliverAtEpochMs(),
                         reservation.intent().expireAtEpochMs(), reservation.intent().laneId(),
@@ -7181,12 +7186,33 @@ public final class DelayShard {
     }
 
     private static boolean proofMatches(final PayloadCommitProofView proof, final PayloadReference reference) {
-        return Bytes.constantTimeEquals(proof.objectStoreProfileHash(), reference.objectStoreProfileHash())
+        return reference.hasCommitIdentity()
+                && Bytes.constantTimeEquals(proof.reservationId(), reference.reservationId())
+                && Bytes.constantTimeEquals(proof.proofId(), reference.proofId())
+                && Bytes.constantTimeEquals(proof.objectStoreProfileHash(), reference.objectStoreProfileHash())
                 && java.util.Arrays.equals(proof.container(), reference.container())
                 && java.util.Arrays.equals(proof.objectKey(), reference.objectKey())
                 && java.util.Arrays.equals(proof.immutableObjectVersion(), reference.immutableObjectVersion())
                 && optionalBytesEqual(proof.etag(), reference.etag()) && proof.length() == reference.length()
                 && Bytes.constantTimeEquals(proof.payloadSha256(), reference.payloadSha256());
+    }
+
+    private boolean historicallyVerifies(final PayloadCommitProofView proof,
+                                         final PrepareLargeScheduleBodyV1 pinnedPrepare,
+                                         final SourcePosition sourcePosition) {
+        if (pinnedPrepare == null) {
+            return payloadProofTrustSet != null && payloadProofTrustSet.verifiesHistoricalSignature(proof);
+        }
+        final PayloadProofTrustSetRefV1 pinnedTrustSet = pinnedPrepare.trustSet();
+        if (payloadProofTrustSetControlCatalog == null) {
+            throw new V1CommandResolutionException(StableCode.ROUTE_SNAPSHOT_UNAVAILABLE,
+                    "V1 payload proof trust-set catalog is unavailable");
+        }
+        return proof.trustSetVersion() == pinnedTrustSet.version()
+                && payloadProofTrustSetControlState.historicalVerificationAllowed(pinnedTrustSet,
+                proof.proofKeyVersion(), sourcePosition)
+                && PayloadProofTrustSet.fromSemantic(requireTrustSetSemantic(pinnedTrustSet))
+                .verifiesHistoricalSignature(proof);
     }
 
     private static boolean optionalBytesEqual(final byte[] left, final byte[] right) {
