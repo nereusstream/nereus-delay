@@ -1526,12 +1526,22 @@ and a committed descriptor with the wrong Profile kind are in
 The runtime Claim seam now has a strict `DelayShard.claimForPublishV1` entrypoint.
 Before Claim persistence it compares the typed materialization with the current
 Message's identity, generation, delivery window, timeline `actionAt` and
-inline/object payload reference; `ClaimMaterializationRuntimeTest` covers both
-payload branches and mismatch rejection. The raw byte-array primitive is now
+inline/object payload reference. When the Message has a durable
+`V1ScheduleBinding`, it additionally re-decodes the accepted Schedule/Prepare
+body and requires exact Destination Profile, business metadata and delivery
+window equality. Ordinary Schedule requires the complete original payload
+branch/descriptor; Prepare→Commit requires the complete pinned Object Store
+ProfileRef plus expected length and SHA-256. Therefore a foreign Profile
+identity cannot pass merely by reusing the same semantic hash.
+`ClaimMaterializationRuntimeTest` covers both payload branches and ordinary
+Schedule Profile substitution; the large-payload regression in
+`DelayShardTest.registryPrepareCannotDowngradeTrustSetAuthorityWithLegacyCommitBody`
+covers the post-Commit Prepare binding. The raw byte-array primitive is now
 package-local; `DelayShardTest.physicalGcMutationPrimitivesAreNotPublicProductionApis`
 locks that visibility, and the only cross-package compatibility access lives in
-test sources for recovery-fixture construction. This is a local Message-binding
-and API-surface proof only: Profile/catalog, Adapter serialization/size
+test sources for recovery-fixture construction. This is a local durable-command
+binding and API-surface proof only: Delivery Capability/target/partition
+authority, Object Store fetch/immutability, Adapter serialization/size
 certification and Producer ownership/recovery remain release gates.
 
 `PublishAdmissionBody` now parses its descriptor through the complete canonical
@@ -5369,6 +5379,22 @@ five real-Oxia smokes were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was
 unset. This closes local adapter API parity only; the filesystem class remains
 a test seam outside the embedded facade and does not prove production provider
 credentials, remote immutability or Oxia authority.
+
+Typed Claim creation now closes the adjacent compact-reference substitution
+gap. `PayloadReference` is intentionally compact and therefore cannot by itself
+distinguish two complete ProfileRefs that share one semantic hash. Before the
+Claim WriteBatch, `DelayShard` now reloads `V1ScheduleBinding`: ordinary
+Schedule requires exact Destination Profile, business metadata, delivery
+window and payload branch/descriptor equality; Prepare→Commit requires the
+complete Object Store ProfileRef pinned by Prepare plus expected length and
+SHA-256, while the Message reference still fences object coordinates and
+ReservationId/ProofId. Focused regressions reject same-hash foreign Destination
+and Object Store Profile identities on both ordinary Schedule and committed
+Prepare paths and prove no Claim state transition. Code commit `abc6fec1` and
+the complete six-task local Gradle gate passed on 2026-08-13; five real-Oxia
+smokes were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset. Delivery
+Capability/target partition, Object Store fetch, Adapter/Producer and recovery
+authority remain OPEN.
 
 ## Final gate
 

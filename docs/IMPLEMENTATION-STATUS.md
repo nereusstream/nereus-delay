@@ -4295,7 +4295,7 @@ covers this ordering.
 |---|---|---|
 | Queued receipt Route-policy boundary | Implemented (local strict adapter seam; Route authority pending) | `QueuedReceiptQueryPolicy`, `PolicyBoundWireCommandIngressAdapter`, `PinnedKafkaCommandIngress`, `PinnedPulsarCommandIngress`, `PreparedSubmissionAdapter`, `EmbeddedDelayService`, `AdapterIngressTest`, `NativeSubmissionAdapterTest`; strict paths derive `receipt_query_until` from authenticated Broker persistence time with checked addition, reject missing/drifting policy snapshots before transport ownership, and retain post-persistence overflow as `ENQUEUE_UNCERTAIN`/integrity evidence; absolute-boundary overloads are compatibility-only and checked against a bound policy; Route policy publication, source-time authority and concrete production transports remain release blockers |
 | Full command-result retention boundary | Implemented (local strict query seam; retention authority pending) | `CommandResultRetentionPolicy`, `DelayClient`, `EmbeddedDelayService`, `BoundedLocalQueryProjector`, `EmbeddedDelayServiceTest.embeddedQueryDerivesFullResultRetentionFromAppliedSourceTime`, `CommandResultRetentionPolicyTest`; strict query/await/applied-receipt projections derive `full_result_retain_until` from the applied Source Position Broker persistence time with checked addition, while absolute-boundary overloads remain compatibility-only; policy publication, source-time authority and production query routing remain release blockers |
-| Strict typed Claim runtime binding | Implemented (local Message/payload binding and public-API fence; external authority pending) | `DelayShard.claimForPublishV1`, `DelayShardTest.physicalGcMutationPrimitivesAreNotPublicProductionApis`, `ClaimMaterializationRuntimeTest`; strict Claim entrypoint binds message identity, generation, delivery window, timeline `actionAt` and inline/object payload reference before persistence, while the legacy byte-array primitive is package-local and reachable across packages only from the test-classpath bridge; production Claim creation remains routed through `ClaimHandoffWorkClassExecutor`/`OwnedDelayShard`; Profile/catalog, Adapter serialization/size certification, Producer ownership and crash recovery remain release blockers |
+| Strict typed Claim runtime binding | Implemented (local Message plus durable V1 command binding and public-API fence; external authority pending) | `DelayShard.claimForPublishV1`, `DelayShardTest.physicalGcMutationPrimitivesAreNotPublicProductionApis`, `DelayShardTest.registryPrepareCannotDowngradeTrustSetAuthorityWithLegacyCommitBody`, `ClaimMaterializationRuntimeTest`; strict Claim entrypoint binds message identity, generation, delivery window, timeline `actionAt` and inline/object payload reference before persistence, then, when a `V1ScheduleBinding` exists, exactly rebinds Destination Profile, business metadata, delivery window and the original Schedule payload branch or Prepare Object Store Profile/length/SHA-256. Same-semantic-hash foreign Destination/Object Store Profile identities are rejected before Claim state changes; the legacy byte-array primitive is package-local and reachable across packages only from the test-classpath bridge. Production Claim creation remains routed through `ClaimHandoffWorkClassExecutor`/`OwnedDelayShard`; Delivery Capability/target/partition authority, Object Store fetch, Adapter serialization/size certification, Producer ownership and crash recovery remain release blockers |
 | Gradle Java 21 build | Implemented | `gradle compileJava`, `gradle test` |
 | Self-routing IDs and CRC32C | Implemented | `ProtocolCodecTest` |
 | `commandId + commandHash` prepared before I/O | Implemented | `PreparedCommand`, `CommandHash`, `ProtocolCodecTest` |
@@ -5593,6 +5593,22 @@ Code commit `c4af3096` and the complete six-task local Gradle gate passed on
 `NEREUS_DELAY_OXIA_ENDPOINT` was unset. `FilesystemPayloadObjectStore` remains
 a local test seam and is not yet the embedded facade type or a production
 provider/credential/Oxia authority.
+
+Typed Claim persistence now reuses the durable V1 command sidecar instead of
+trusting an authority-supplied materialization merely because its compact
+`PayloadReference` matches. For ordinary Registry Schedule, `DelayShard`
+requires exact Destination Profile, business metadata, delivery window and
+inline/committed payload descriptor equality. For Prepare→Commit, it requires
+the complete Object Store ProfileRef pinned by Prepare plus the expected length
+and SHA-256; the committed ReservationId/ProofId/object coordinates remain
+checked by the current Message reference. Regressions reject same-semantic-hash
+foreign Destination and Object Store Profile identities for ordinary Schedule
+and reject the equivalent Profile substitution after a signed large-payload
+Commit, without changing `SCHEDULED` state. Code commit `abc6fec1` and the
+complete six-task local Gradle gate passed on 2026-08-13; five real-Oxia smokes
+were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset. Delivery Capability,
+target resource/partition, Object Store fetch/immutability, Adapter
+serialization/size and Producer/recovery authority remain OPEN.
 
 ## Verification command
 
