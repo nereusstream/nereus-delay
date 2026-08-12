@@ -302,13 +302,16 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
             if (current == null) {
                 try {
                     final PutResult created = client.put(key, Bytes.u64be(1), Set.of(PutOption.IfRecordDoesNotExist));
-                    if (created == null || created.version() == null) {
+                    if (created == null || !key.equals(created.key()) || created.version() == null) {
                         throw new IllegalStateException("Oxia epoch create returned no version");
                     }
                     return 1;
                 } catch (KeyAlreadyExistsException | UnexpectedVersionIdException conflict) {
                     continue;
                 }
+            }
+            if (!key.equals(current.key()) || current.value() == null || current.version() == null) {
+                throw new IllegalStateException("Oxia owner epoch response has an invalid record identity");
             }
             final long previous = decodeEpoch(current.value());
             if (previous == 0 || previous == -1L) {
@@ -318,7 +321,7 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
             try {
                 final PutResult updated = client.put(key, Bytes.u64beBits(next),
                         Set.of(PutOption.IfVersionIdEquals(current.version().versionId())));
-                if (updated == null || updated.version() == null) {
+                if (updated == null || !key.equals(updated.key()) || updated.version() == null) {
                     throw new IllegalStateException("Oxia epoch CAS returned no version");
                 }
                 return next;
@@ -330,9 +333,13 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
     }
 
     private StoredLease readLease(final ShardId shardId) {
-        final GetResult result = client.get(leaseKey(shardId));
+        final String key = leaseKey(shardId);
+        final GetResult result = client.get(key);
         if (result == null) {
             return null;
+        }
+        if (!key.equals(result.key()) || result.value() == null || result.version() == null) {
+            throw new IllegalStateException("Oxia owner lease response has an invalid record identity");
         }
         final OwnerLease lease = decodeLease(result.value());
         if (!shardId.equals(lease.shardId())) {

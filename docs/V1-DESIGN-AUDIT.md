@@ -3914,6 +3914,20 @@ CAS version is rejected at the boundary by
 `OxiaSyncRecoveryCatalogBackendTest.catalogReadRejectsARecordWithoutAnOxiaVersion`;
 this remains local single-record integrity evidence.
 
+Owner-lease epoch and lease reads now require the exact Oxia record key,
+non-null value and non-null version before decoding; malformed or redirected
+single-record responses fail closed. The focused evidence is
+`OxiaSyncOwnerLeaseBackendTest.epochReadRejectsARecordWithoutExactIdentityOrVersion`
+and `leaseReadRejectsAResponseForAnotherRecordKey`. This closes only the local
+single-record identity boundary and does not claim source-assignment,
+session-orchestration or cross-record activation/pin correctness.
+
+After this owner-lease identity fence, the focused owner-lease test and the
+full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
+2026-08-12 (`BUILD SUCCESSFUL`, five executed tasks). The five opt-in real-Oxia
+methods were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is
+local regression evidence, not release evidence.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

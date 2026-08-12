@@ -4169,6 +4169,24 @@ read or mutation callers; `OxiaSyncRecoveryCatalogBackendTest.catalogReadRejects
 covers the malformed record. This keeps the single-record CAS projection
 fail-closed and does not add the missing cross-record transaction.
 
+The concrete Oxia owner-lease backend now validates the exact record identity
+at every owner-epoch and lease read boundary. Epoch CAS reads/writes reject a
+wrong key, null value or missing version, and lease reads reject the same
+malformed response before decoding or using the ephemeral-session metadata.
+`OxiaSyncOwnerLeaseBackendTest.epochReadRejectsARecordWithoutExactIdentityOrVersion`
+and `leaseReadRejectsAResponseForAnotherRecordKey` cover the two failure
+classes. This is a local single-record response-integrity fence; assignment
+publication, session orchestration and cross-record activation/pin authority
+remain release blockers.
+
+After this owner-lease identity fence, the focused
+`OxiaSyncOwnerLeaseBackendTest` run and the full
+`./gradlew clean check --rerun-tasks --console=plain` gate passed on
+2026-08-12 (`BUILD SUCCESSFUL`, five executed tasks). The five opt-in
+real-Oxia methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was
+unset; this is local regression evidence only, not real-service or release
+evidence.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

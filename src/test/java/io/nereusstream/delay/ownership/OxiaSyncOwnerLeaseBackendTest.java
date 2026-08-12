@@ -131,6 +131,29 @@ class OxiaSyncOwnerLeaseBackendTest {
     }
 
     @Test
+    void epochReadRejectsARecordWithoutExactIdentityOrVersion() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final OxiaSyncOwnerLeaseBackend backend = new OxiaSyncOwnerLeaseBackend(records, "delay/test");
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 15);
+        final String epochKey = "delay/test/epoch/" + shardToken(shard);
+        records.putRawWithoutVersion(epochKey, Bytes.u64be(1));
+
+        assertThrows(IllegalStateException.class, () -> backend.acquire(shard, "worker-a", 100, 50));
+    }
+
+    @Test
+    void leaseReadRejectsAResponseForAnotherRecordKey() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final OxiaSyncOwnerLeaseBackend backend = new OxiaSyncOwnerLeaseBackend(records, "delay/test");
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 16);
+        backend.acquire(shard, "worker-a", 100, 50).orElseThrow();
+        records.wrongKeyOnNextGet = true;
+
+        assertThrows(IllegalStateException.class, () -> backend.current(shard));
+        assertTrue(records.records.containsKey("delay/test/lease/" + shardToken(shard)));
+    }
+
+    @Test
     void ownerEpochUsesTheCompleteUnsigned64Domain() {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncOwnerLeaseBackend backend = new OxiaSyncOwnerLeaseBackend(records, "delay/test");
@@ -150,6 +173,7 @@ class OxiaSyncOwnerLeaseBackendTest {
         private long nextVersion = 1;
         private boolean failNextPutAfterCommit;
         private boolean failNextDeleteAfterCommit;
+        private boolean wrongKeyOnNextGet;
 
         private Version ephemeralVersion() {
             return new Version(1, 0, 0, 1, Optional.of(7L), Optional.of("worker-session"));
@@ -158,7 +182,14 @@ class OxiaSyncOwnerLeaseBackendTest {
         @Override
         public GetResult get(final String key) {
             final Entry entry = records.get(key);
-            return entry == null ? null : entry.result;
+            if (entry == null) {
+                return null;
+            }
+            if (wrongKeyOnNextGet) {
+                wrongKeyOnNextGet = false;
+                return new GetResult(key + "/wrong", Bytes.copy(entry.result.value()), entry.result.version());
+            }
+            return entry.result;
         }
 
         @Override
@@ -215,6 +246,10 @@ class OxiaSyncOwnerLeaseBackendTest {
         private void putRaw(final String key, final byte[] value) {
             final Version version = new Version(nextVersion++, 0, 0, 1, Optional.empty(), Optional.empty());
             records.put(key, new Entry(new GetResult(key, value, version)));
+        }
+
+        private void putRawWithoutVersion(final String key, final byte[] value) {
+            records.put(key, new Entry(new GetResult(key, value, null)));
         }
 
         private record Entry(GetResult result) {
