@@ -4,6 +4,7 @@ import io.nereusstream.delay.scheduler.SchedulerBudget;
 import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import io.nereusstream.delay.scheduler.WorkClassTask;
 
+import java.security.PublicKey;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.LongSupplier;
@@ -34,13 +35,16 @@ public final class SourceApplyCoordinator {
 
     public SourceApplyCoordinator(final SourceReplayCursor<? extends SourceReplayEntry> source,
                                   final WorkClassExecutionRegistry workClasses,
-                                  final SourceApplyWorkClassExecutor executor,
                                   final OwnedDelayShard ownedShard,
+                                  final OxiaOwnerLeaseStore authority,
+                                  final PublicKey verificationKey,
                                   final SourceAcknowledgement acknowledgement) {
         this.source = Objects.requireNonNull(source, "source");
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
-        this.executor = Objects.requireNonNull(executor, "executor");
         this.ownedShard = Objects.requireNonNull(ownedShard, "ownedShard");
+        this.executor = new SourceApplyWorkClassExecutor(this.workClasses, this.ownedShard,
+                Objects.requireNonNull(authority, "authority"),
+                Objects.requireNonNull(verificationKey, "verificationKey"));
         this.acknowledgement = Objects.requireNonNull(acknowledgement, "acknowledgement");
     }
 

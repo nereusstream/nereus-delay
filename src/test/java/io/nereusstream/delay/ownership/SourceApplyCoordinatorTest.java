@@ -24,7 +24,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.lang.reflect.Modifier;
+import java.security.PublicKey;
 import java.security.KeyPairGenerator;
+import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.UUID;
@@ -38,6 +41,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class SourceApplyCoordinatorTest {
     @TempDir
     Path tempDir;
+
+    @Test
+    void publicConstructorBuildsTheActiveExecutorFromItsExactDependencies() {
+        final var publicConstructors = Arrays.stream(SourceApplyCoordinator.class.getDeclaredConstructors())
+                .filter(constructor -> Modifier.isPublic(constructor.getModifiers()))
+                .toList();
+
+        assertEquals(1, publicConstructors.size());
+        assertFalse(Arrays.asList(publicConstructors.get(0).getParameterTypes())
+                .contains(SourceApplyWorkClassExecutor.class));
+    }
 
     @Test
     void advancesSourceCursorOnlyAfterWriteBatchAndBrokerAck() throws Exception {
@@ -130,7 +144,7 @@ class SourceApplyCoordinatorTest {
         private final UUID topic;
         private final WorkClassExecutionRegistry workClasses = workClasses();
         private final OwnedDelayShard owned;
-        private final SourceApplyWorkClassExecutor executor;
+        private final PublicKey verificationKey;
         private final SharedRocksDbResources resources;
         private final ShardStore store;
 
@@ -148,8 +162,7 @@ class SourceApplyCoordinatorTest {
             owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
             owned.activateForCommands(authority, 101);
-            executor = new SourceApplyWorkClassExecutor(workClasses, owned, authority,
-                    KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPublic());
+            verificationKey = KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPublic();
             source = SourceReplayCursor.of(List.<SourceReplayEntry>of().iterator());
         }
 
@@ -167,7 +180,8 @@ class SourceApplyCoordinatorTest {
 
         private SourceApplyCoordinator coordinator(final SourceReplayRecord entry,
                                                    final SourceAcknowledgement acknowledgement) {
-            return new SourceApplyCoordinator(source, workClasses, executor, owned, acknowledgement);
+            return new SourceApplyCoordinator(source, workClasses, owned, authority,
+                    verificationKey, acknowledgement);
         }
 
         private SchedulerBudget budget() {
