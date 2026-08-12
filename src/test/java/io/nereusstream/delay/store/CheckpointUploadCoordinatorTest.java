@@ -18,6 +18,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -146,6 +147,27 @@ class CheckpointUploadCoordinatorTest {
     }
 
     @Test
+    void rereadsIntentAfterUploadSlotBeforeProviderIo() throws Exception {
+        final Fixture fixture = fixture();
+        final CheckpointUploadIntentStore backing = new CheckpointUploadIntentStore();
+        backing.create(fixture.pending());
+        final CheckpointUploadIntentAuthority authority = new PublishAfterFirstPendingRead(
+                backing, fixture.pending(), fixture.resource());
+        final AtomicBoolean adapterCalled = new AtomicBoolean();
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(
+                ShardStoreConfig.defaults(tempDir.resolve("slot-race")))) {
+            final CheckpointUploadIntentV1 result = new CheckpointUploadCoordinator(resources, authority)
+                    .upload(fixture.directory(), fixture.pending(), fixture.manifest(), 1_000, request -> {
+                        adapterCalled.set(true);
+                        throw new AssertionError("stale intent must not reach provider I/O");
+                    });
+            assertEquals(CheckpointUploadStateV1.PUBLISHED, result.state());
+            assertEquals(fixture.resource(), result.publishedManifest());
+            assertEquals(false, adapterCalled.get());
+        }
+    }
+
+    @Test
     void explicitManifestLimitsRejectBeforeProviderIo() throws Exception {
         final Fixture fixture = fixture();
         final CheckpointUploadIntentStore intentStore = new CheckpointUploadIntentStore();
@@ -229,6 +251,61 @@ class CheckpointUploadCoordinatorTest {
 
     private record Fixture(Path directory, ProfileRefV1 profile, CheckpointManifest manifest,
                            CheckpointUploadIntentV1 pending, CheckpointResourceV1 resource) {
+    }
+
+    /** Changes the intent immediately after the coordinator's first exact read. */
+    private static final class PublishAfterFirstPendingRead implements CheckpointUploadIntentAuthority {
+        private final CheckpointUploadIntentStore delegate;
+        private final CheckpointUploadIntentV1 pending;
+        private final CheckpointResourceV1 resource;
+        private boolean published;
+
+        private PublishAfterFirstPendingRead(final CheckpointUploadIntentStore delegate,
+                                             final CheckpointUploadIntentV1 pending,
+                                             final CheckpointResourceV1 resource) {
+            this.delegate = delegate;
+            this.pending = pending;
+            this.resource = resource;
+        }
+
+        @Override
+        public CheckpointUploadIntentV1 create(final CheckpointUploadIntentV1 value) {
+            return delegate.create(value);
+        }
+
+        @Override
+        public CheckpointUploadIntentV1 publish(final CheckpointUploadIntentV1 expected,
+                                                final CheckpointResourceV1 value) {
+            return delegate.publish(expected, value);
+        }
+
+        @Override
+        public Optional<CheckpointUploadIntentV1> currentPublishedFor(final CheckpointUploadIntentV1 expected) {
+            return delegate.currentPublishedFor(expected);
+        }
+
+        @Override
+        public CheckpointUploadIntentV1 beginReaping(final CheckpointUploadIntentV1 expected,
+                                                     final TrustedUtcIntervalEvidence evidence) {
+            return delegate.beginReaping(expected, evidence);
+        }
+
+        @Override
+        public CheckpointUploadIntentV1 beginReaping(final CheckpointUploadIntentV1 expected,
+                                                     final TrustedUtcIntervalEvidence evidence,
+                                                     final RecoveryCatalogAuthority catalog) {
+            return delegate.beginReaping(expected, evidence, catalog);
+        }
+
+        @Override
+        public Optional<CheckpointUploadIntentV1> current(final CheckpointUploadIntentV1 identity) {
+            final Optional<CheckpointUploadIntentV1> result = delegate.current(identity);
+            if (!published && identity.equals(pending) && result.isPresent()) {
+                delegate.publish(pending, resource);
+                published = true;
+            }
+            return result;
+        }
     }
 
     private static byte[] bytes(final int length, final int seed) {

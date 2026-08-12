@@ -82,6 +82,21 @@ public final class CheckpointUploadCoordinator {
         try {
             resources.acquireCheckpointUploadSlot();
             slotAcquired = true;
+            // The upload slot is a process-wide resource, not an intent lock.
+            // Another owner/reaper may have advanced the exact intent while
+            // this call was waiting for the slot.  Re-read immediately before
+            // provider I/O so a stale PENDING_UPLOAD cannot create an orphan
+            // object whose later CAS is guaranteed to fail.  A concurrently
+            // completed publication is returned idempotently and does not
+            // invoke the provider a second time.
+            final var publishedAfterSlot = intentStore.currentPublishedFor(pending);
+            if (publishedAfterSlot.isPresent()) {
+                return publishedAfterSlot.orElseThrow();
+            }
+            final var pendingAfterSlot = intentStore.current(pending);
+            if (pendingAfterSlot.isEmpty() || !pendingAfterSlot.orElseThrow().equals(pending)) {
+                throw new IllegalStateException("checkpoint upload intent changed before provider I/O");
+            }
             final CheckpointResourceV1 resource = Objects.requireNonNull(adapter.upload(request),
                     "checkpoint upload adapter returned null resource");
             limits.validateResource(resource);
