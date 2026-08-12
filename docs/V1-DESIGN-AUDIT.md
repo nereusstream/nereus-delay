@@ -58,10 +58,12 @@ context-bound Owner Lease to `CATCHING_UP` before exposing the replay gate.
 response-loss reread with unchanged fencing/assignment/session identity and a
 non-regressed expiry; a contextless compatibility lease is rejected before
 the authority transition. `OwnerLeaseTest` covers both the authoritative
-state publication and the fail-closed legacy path. This aligns the local
-catch-up lifecycle with section 9.2, while source-assignment publication,
-session orchestration, cross-record activation/pin authority and real Broker
-replay remain release blockers.
+state publication and the fail-closed legacy path. Commit `38f6a60` adds a
+response-loss backend regression that drops the successful CAS response and
+verifies that only an exact authority reread is accepted. This aligns the
+local catch-up lifecycle with section 9.2, while source-assignment
+publication, session orchestration, cross-record activation/pin authority and
+real Broker replay remain release blockers.
 
 The post-`3527c89` local verification `./gradlew clean check --rerun-tasks
 --console=plain` passed on 2026-08-12. Five opt-in real-Oxia methods were

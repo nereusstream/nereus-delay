@@ -67,10 +67,12 @@ Store identity/recovery validation, `OwnedDelayShard.markCatchingUp` with an
 accepted only for the same fencing identity, assignment/session context,
 state and non-regressed expiry; contextless legacy leases are rejected before
 any authority transition. `OwnerLeaseTest` covers the authoritative state
-publication and the contextless fail-closed path. This closes only the local
-per-record lifecycle CAS ordering; source assignment publication, Oxia session
-orchestration, cross-record activation/pin authority and real Broker replay
-remain release blockers.
+publication and the contextless fail-closed path. Commit `38f6a60` adds an
+explicit backend that drops the successful transition response; the regression
+proves that only an exact authority reread can open the local replay gate. This
+closes only the local per-record lifecycle CAS ordering; source assignment
+publication, Oxia session orchestration, cross-record activation/pin authority
+and real Broker replay remain release blockers.
 
 After the terminal-Lane reservation/Commit, publish-charge ordering and typed
 READY recovery fencing fixes (`c619b38`, `f771f64`, `3527c89`), the repository
