@@ -2076,6 +2076,17 @@ action 开始后重读 Owner Lease，以 evidence 的 `earliestEpochMs` 为 incl
 由下次从 durable index 重新发现。discovery 不改变 Message；每个 exact candidate
 仍须交给 `ExpiryWorkClassExecutor` 签名并 append source-ordered mutation。
 
+Payload Reservation expiry discovery 属于 `GC` work-class，但不能重新读取 wall
+clock 来决定过期。`ReservationExpiryDiscoveryWorkClassExecutor` 的 submission 只做
+strict-active 本地 preflight，并把 exact Shard 与 record/byte/elapsed scan budget
+绑定进 task；queue rejection 不得读取 Oxia、owner clock、scan clock 或 Store。
+action 开始后重读 Owner Lease，inclusive cutoff 只能取 Store 已持久化的
+source-ordered `closedIngressDeadlineThrough`。同一个 `BoundedReadBudget` 必须覆盖
+`RESERVATION_EXPIRY` index 与 dependent `id_cf/RESERVATION` 的实际 key/value bytes
+和 elapsed time；过大单 candidate fail closed，剩余预算不足则留到下一 turn。
+discovery 不物化、不释放 quota；每个 byte-identical candidate 仍须经
+`ReservationExpiryWorkClassExecutor` 的第二个 strict `GC` handoff 才能写 batch。
+
 Lane Close 的 source-ordered marker 已经冻结语义结果，但 cursor 物化仍属于
 `GC` work-class。跨包 Worker 每次只能把一个 exact
 `LaneCloseMaterializationWork` 与 `maxRecords`、Owner Lease 和执行时钟提交给
@@ -2485,7 +2496,7 @@ PREPARE_LARGE_SCHEDULE
 
 Prepare 保存完整 Schedule intent、tenant/shard/message identity、object-store Profile、service-owned object key、expected length/checksum、upload deadline、quota，以及该 Source Position 已激活的 immutable `PayloadProofTrustSetVersion`。
 
-Reservation expiry 不是本地 timer 的直接状态写入。`TIME_FENCE_V1` 在 Source Position 上把 `closedIngressDeadlineThrough` 推过 `reservationExpiry` 时，逻辑上原子关闭所有尚未 Commit/Cancel/Close 且 deadline 不大于该 fence 的 reservation；Commit、Query、handle 和 attestation 立即按该 source-ordered overlay 返回 `RESERVATION_EXPIRED`。`RESERVATION_EXPIRY` scanner 只按 bounded cursor 把这一已冻结结果物化到 reservation/tombstone/counter/GC 索引，重启可重做且不再作语义选择，因此不为每条 reservation 另写 System Mutation。当前本地组合入口 `ReservationExpiryWorkClassExecutor` 只接收一个由 durable `RESERVATION_EXPIRY` index 发现的 exact candidate，把 reservation/message/expiry/state-version identity 绑定进 `GC` task 后再入队；执行时重新检查 strict Owner Lease、执行时钟、Shard identity 和当前 reservation projection，并在一个 Store batch 中完成 reservation、expiry index 与 quota 的物化。队列拒绝不触碰 Store；source-ordered Commit/Cancel/Lane Close 已先改变 projection 时返回 `STALE` 或 `ALREADY_TERMINAL`，不会写入新 reservation。该入口不创建 System Mutation、不分配 Source Position，也不替代真实 `TIME_FENCE`/scanner 调度、Oxia authority、Recovery-Floor barrier、Object Store deletion evidence 或 source replay。Cancel 或 Lane Close 先出现则仍是 `ABANDONED`（携各自 stable cause）；Commit 先出现则 reservation 已成为 `COMMITTED`，后续 fence 不回写它。
+Reservation expiry 不是本地 timer 的直接状态写入。`TIME_FENCE_V1` 在 Source Position 上把 `closedIngressDeadlineThrough` 推过 `reservationExpiry` 时，逻辑上原子关闭所有尚未 Commit/Cancel/Close 且 deadline 不大于该 fence 的 reservation；Commit、Query、handle 和 attestation 立即按该 source-ordered overlay 返回 `RESERVATION_EXPIRED`。`RESERVATION_EXPIRY` scanner 只按 bounded cursor 把这一已冻结结果物化到 reservation/tombstone/counter/GC 索引，重启可重做且不再作语义选择，因此不为每条 reservation 另写 System Mutation。当前本地 discovery 入口 `ReservationExpiryDiscoveryWorkClassExecutor` 不接收 wall-clock cutoff，而是把 exact Shard 与完整 record/byte/elapsed scan budget 绑定进 `GC` task；queue admission 只做本地 lifecycle preflight，不读取 Oxia、时钟或 Store。action 开始后重读 strict Owner Lease，并以 Store 中 source-ordered `closedIngressDeadlineThrough` 为唯一 inclusive cutoff；独立 monotonic scan clock 和共享 `BoundedReadBudget` 同时计入 `timeline_cf/RESERVATION_EXPIRY` 与对应 `id_cf/RESERVATION` key/value 的实际字节及 elapsed time。首个完整 candidate 超过 envelope 时 fail closed，后续 candidate 仅因剩余预算不足时留给下一 turn。discovery 只返回与当前 reservation projection byte-identical 的已冻结 candidate，不物化、不释放 quota。随后 `ReservationExpiryWorkClassExecutor` 接收一个 exact candidate，把 reservation/message/expiry/state-version identity 绑定进另一个 `GC` task；执行时重新检查 strict Owner Lease、执行时钟、Shard identity 和当前 reservation projection，并在一个 Store batch 中完成 reservation、expiry index 与 quota 的物化。队列拒绝不触碰 Store；source-ordered Commit/Cancel/Lane Close 已先改变 projection 时返回 `STALE` 或 `ALREADY_TERMINAL`，不会写入新 reservation。两层入口都不创建 System Mutation、不分配 Source Position，也不替代真实 `TIME_FENCE`/scanner 调度、Oxia authority、Recovery-Floor barrier、Object Store deletion evidence 或 source replay。Cancel 或 Lane Close 先出现则仍是 `ABANDONED`（携各自 stable cause）；Commit 先出现则 reservation 已成为 `COMMITTED`，后续 fence 不回写它。
 
 `ReservationId` 不是 upload session 或随机 provider key；apply 按 `SHA-256("nereus-delay-reservation-id-v1\0" || commandId[41] || delayMessageId[41] || commandHash[32])` 生成。exact duplicate 因而复用同一 reservation，另一 Prepared Command 即使复用 Message ID 也不能别名为原 reservation。
 

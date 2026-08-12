@@ -223,6 +223,20 @@ candidate and Owner-expiry fencing. This closes only the local scanner-to-store
 composition seam; production GC scheduling, Oxia authority, Recovery-Floor and
 Object Store deletion evidence remain open.
 
+After `f2c9334`, the scanner side is bounded by the same class as well.
+`ReservationExpiryDiscoveryWorkClassExecutor` admits the exact Shard and full
+record/byte/elapsed envelope without reading Oxia, clocks or RocksDB. Execution
+rereads strict Owner authority and derives its cutoff exclusively from persisted
+source-ordered `closedIngressDeadlineThrough`; no wall-clock input can create a
+second expiry decision. One shared `BoundedReadBudget` charges actual index and
+dependent Reservation key/value bytes plus elapsed time. Oversized individual
+candidates fail closed and later candidates that exhaust the remaining envelope
+stay durable for a later turn. Discovery is state-neutral and every byte-identical
+candidate still uses the materializer above. Focused discovery/materialization,
+Message-expiry and full `DelayShardTest` suites plus compilation and Checkstyle
+passed; production TIME_FENCE scheduling, Oxia, Recovery-Floor, Object Store and
+replay authority remain open.
+
 After `5eedd9d`, Lane-close cursor advancement has the matching strict
 `GC`-class bridge. `LaneCloseWorkClassExecutor` binds the canonical cursor and
 bounded batch size before queue admission, rereads the Owner Lease before the
@@ -3142,6 +3156,17 @@ the production Worker boundary. Returned candidates remain state-neutral and mus
 pass through `ExpiryWorkClassExecutor`; no new Source Position or competing mutation
 authority was introduced. This closes local discovery/work-class drift only and
 does not close real Trusted-Time, Oxia, Broker or replay gates.
+
+After `f2c9334`, the same no-bypass rule covers Reservation expiry discovery.
+The strict public composition path is `ReservationExpiryDiscoveryWorkClassExecutor`;
+it has no external time-cutoff parameter and runs only through `GC` admission with
+execution-time Owner reread. `DelayShard` derives the scan boundary from the
+persisted TIME_FENCE watermark and shares one actual-byte/elapsed budget across the
+index and dependent Reservation reads. Its explicit-cutoff overload remains a
+compatibility/test seam for deterministic projection validation, not a production
+clock authority. Discovery does not write state or quota; materialization remains a
+second exact `ReservationExpiryWorkClassExecutor` action. This closes local scanner
+work-class drift only, not production TIME_FENCE/Oxia/Floor/Object Store authority.
 
 Worker 资源侧现在还提供了本地 `WorkerLoadVector` 与
 `WorkerPlacementPolicy`：它们先按完整 committed capacity、固定/transition
