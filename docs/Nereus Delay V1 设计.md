@@ -2208,6 +2208,11 @@ Lane、Persistent Shard、Worker 三层 scheduler 的对外 poll 契约因此完
 三层 `offer(ScheduleWorkItem)` 也只能包内可见：生产 READY work 必须由持久索引扫描
 验证 READY key/value、Message、Timeline、Lane、certificate 与 Owner/Store identity 后
 在 scheduler 内部注入，外部 Worker/ownership 代码不得自造 work item 绕过该链路。
+`PersistentLaneScheduler` 的裸 registry/恢复/readiness/retirement primitive（包括
+`register`、projection restore/rebuild、`mark*`、`unregister`、裸 requeue 和
+`persist`）也只能 scheduler 包内可见。它们本身没有 Owner、source-ordered Lane
+lifecycle 或 terminal-guard authority；未来生产接线必须由明确 coordinator 在完成相应
+authority 复核后组合这些 primitive，不能直接把它们重新公开给 Worker。
 
 一次 discovery 成功只返回本轮新 promote 的 due heads；它不等于 Claim，也不能越过
 Claim materialization、permit、Ready Certificate 或 Publish Admission gate。queue 拒绝

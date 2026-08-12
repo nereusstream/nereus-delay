@@ -5364,6 +5364,19 @@ Lane/Worker/due/Claim coverage and the full local Gradle gate passed on
 2026-08-13; five real-Oxia smoke methods remained opt-in and skipped without
 an endpoint.
 
+Raw `PersistentLaneScheduler` lifecycle mutation is now package-local:
+registration, persisted-projection restore, fenced READY rebuild, readiness
+transitions, terminal unregister, direct requeue and explicit persist are not
+public Worker APIs. No production main source called those methods across the
+scheduler package. Cross-package ownership/runtime tests use a test-classpath
+bridge only for registration and fenced-rebuild fixtures; the bridge is absent
+from the main artifact. Strict discovery and Claim primitives used by
+`OwnedDelayShard` remain public. The reflection fence, complete `DelayShardTest`
+and focused scheduler/ownership suites plus the full local Gradle gate passed
+on 2026-08-13; five real-Oxia smoke methods remained skipped. Production
+recovery/readiness/retirement coordinators and their external authority remain
+release work, not implied by these local primitives.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

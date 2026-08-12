@@ -5061,6 +5061,16 @@ complete persistent validation, while scheduler tests retain package access.
 The reflection regressions, focused scheduler/due/Claim suites and complete
 local gate passed on 2026-08-13; external trusted time and Oxia remain open.
 
+The persistent scheduler's raw lifecycle methods are no longer public:
+registry setup, persisted restore, fenced rebuild, readiness changes, terminal
+unregister, direct requeue and explicit persist all mutate rebuildable process
+and projection state without themselves proving Owner or source-ordered Lane
+authority. Main production sources had no cross-package caller. A test-only
+bridge preserves registration/rebuild fixtures without enlarging the artifact
+API, and reflection tests lock the visibility. Full runtime/scheduler/ownership
+coverage and the complete local gate passed on 2026-08-13; dedicated production
+recovery/readiness/retirement coordination remains OPEN.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
