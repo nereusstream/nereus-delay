@@ -3826,6 +3826,15 @@ foreign-Shard 构造失败，并保留 lineage、generation、digest 的已有�
 仍是本地 recovery value integrity，不替代 Oxia session/CAS、Floor publication 或
 source replay authority。
 
+`SloObservationOutboxStore` 的通用 `ensureStart/reconcile` 路径以及
+`get/scan/usage` 读取现在也复用 typed `COMMAND_APPLIED`/`DUE_ADMISSION`
+Start 的 Shard fence。有效但属于其他 Shard 的 Source Position 或 self-routing
+`DelayMessageId` 不能绕过专用入口写入本地 `SLO_OUTBOX`，读取侧的错挂值同样
+fail closed；旧的 opaque synthetic Due fixture 仍明确保留为 compatibility seam。
+证据为 `SloObservationOutboxStoreTest` 的 generic admission/reconcile/read
+corruption 回归。该边界只证明本地 outbox 完整性，真实 receipt/evidence
+authority、collector 路由与 production observability 仍是 release blocker。
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

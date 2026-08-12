@@ -4077,6 +4077,16 @@ the foreign-Shard constructor path alongside the existing lineage and digest
 checks. This is local recovery-value integrity evidence only; Oxia session/CAS,
 Floor publication and source replay remain release blockers.
 
+`SloObservationOutboxStore` now applies the same Shard fence to the generic
+`ensureStart/reconcile` paths and to direct `get/scan/usage` reads for the typed
+`COMMAND_APPLIED` and `DUE_ADMISSION` Start branches. A valid Source Position or
+self-routing `DelayMessageId` from another Shard cannot be smuggled through the
+generic outbox API; legacy opaque synthetic Due fixtures remain an explicit
+compatibility seam. `SloObservationOutboxStoreTest` covers generic admission,
+reconciliation and read-side corruption. This is local SLO outbox integrity
+only; production receipt/evidence authority and collector routing remain
+release blockers.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
