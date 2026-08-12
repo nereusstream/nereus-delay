@@ -124,9 +124,21 @@ then completes and releases the lease. This closes a process-local deadlock and
 overlapping-turn path only; production Worker handler/IO authority remains a
 release gate.
 
+After `c44368c`, a normal handler `RuntimeException` no longer discards later
+tasks that were already selected and removed for the same bounded Turn.
+`WorkClassEventLoop.runTurn` records the first handler failure, continues the
+remaining callbacks while every borrowed-hold check remains valid, closes all
+leases, then rethrows the original failure with later failures suppressed.
+Fatal `Error` and hold-boundary failures still stop callback execution and take
+the cleanup path. `WorkClassDispatcherTest.handlerRuntimeFailureDoesNotDropLaterTasksAlreadySelectedForTheTurn`
+proves a two-task Turn invokes the second handler after the first fails and
+leaves the queue empty without masking the first failure. This closes a local
+selected-task loss/isolation path; durable production handler identities and
+Worker IO authority remain release gates.
+
 After the corresponding design/status/audit synchronization, the full
 `GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew clean check
---rerun-tasks --console=plain` gate passed on 2026-08-12: 1216 tests were
+--rerun-tasks --console=plain` gate passed on 2026-08-12: 1217 tests were
 reported with zero failures/errors and five skipped opt-in real-Oxia methods
 because `NEREUS_DELAY_OXIA_ENDPOINT` was unset. `checkDocumentation` and
 `checkstyleMain` passed in the same run. This is current local repository

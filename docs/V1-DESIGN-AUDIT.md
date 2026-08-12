@@ -78,7 +78,16 @@ rejects the still-open Turn rather than deadlocking; after release, close
 finishes with zero active leases. This is local concurrency evidence and does
 not replace production Worker or external IO authority.
 
-The synchronized full local gate then passed on 2026-08-12 with 1216 reported
+After `c44368c`, an ordinary handler `RuntimeException` is aggregated rather
+than aborting the selected callback sequence. Later tasks already removed for
+that bounded Turn still reach their handlers while the resource hold is valid;
+all leases then close and the first handler failure is rethrown. Fatal `Error`
+or a hold-boundary failure still terminates callback execution and proceeds to
+cleanup. The two-task dispatcher regression proves the trailing selected task
+is invoked rather than silently lost. This is local event-loop isolation
+evidence; it does not provide production handler durability or IO authority.
+
+The synchronized full local gate then passed on 2026-08-12 with 1217 reported
 tests, zero failures/errors and five skipped opt-in real-Oxia methods because
 the endpoint was unset. `checkDocumentation` and `checkstyleMain` passed in the
 same `clean check --rerun-tasks` run. This verifies the repository-local change

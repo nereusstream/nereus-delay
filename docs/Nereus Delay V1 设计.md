@@ -1827,6 +1827,13 @@ active-turn 检查也不能在持有 event-loop monitor 时再取得 Turn monito
 close 又以相反顺序清除 event-loop 状态；该可见性必须使用 lock-free/volatile 状态
 或统一锁顺序。close 尚未清除 active Turn 时，并发 poll 只能立即拒绝；close 清除后
 才允许下一 turn，不能死锁，也不能让新旧两个 bounded turn 同时持有共享 lease。
+一个 bounded Turn 已经从 queue 取出多条 task 后，某个 handler 的普通
+`RuntimeException` 只表示该 handler 必须按自己的 durable identity 收敛当前 task；
+它不能让后续已选中但尚未调用 handler 的 task 静默消失。只要 exact lease 的
+borrowed-hold 检查仍通过，event loop 必须继续执行该 Turn 的剩余 task，最后重新抛出
+首个 handler failure，并把后续 handler/close failure 作为 suppressed evidence。
+fatal `Error` 或 hold-boundary failure 仍立即停止 handler 执行并进入全 lease cleanup；
+已经调用过 handler 的 task 不做不安全的隐式 requeue。
 
 Worker 外层 bounded poll 也必须是一个完整的进程内 mutation boundary：它除了外层
 ring、cursor、Shard deficit、last-served、round generation 与 recovery-first-pass
