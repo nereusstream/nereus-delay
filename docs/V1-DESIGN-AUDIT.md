@@ -5123,6 +5123,16 @@ six-task local gate passed on 2026-08-13; five real-Oxia smokes were skipped.
 Real Broker cursor ownership, Worker event-loop wiring and external session
 authority remain OPEN.
 
+The active source composition now also has a single dependency graph.
+`SourceApplyCoordinator` internally creates its executor from the exact owned
+shard, Oxia authority, verification key and shared WorkClass registry supplied
+to the coordinator, so a caller cannot pair ACK/cursor handling with an
+executor bound to another owner, key, authority or queue. Constructor-shape,
+ACK retention and executor regressions plus the complete six-task local gate
+passed on 2026-08-13; five real-Oxia smokes were skipped. The lower-level
+active executor remains a bounded action API, while real Broker consumer,
+ACK/commit/rewind and session evidence remain OPEN.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

@@ -5428,6 +5428,14 @@ verification key 和 shared WorkClass registry 内部构造恢复 executor，消
 于 2026-08-13 通过；5 个真实 Oxia smoke 跳过。真实 Broker cursor、Worker event loop
 和 session-bound authority 仍是 OPEN 集成证据。
 
+`SourceApplyCoordinator` 现在与恢复协调器采用同一依赖闭合方式：公开构造器显式接收
+owned shard、Oxia authority、verification key 和 shared WorkClass registry，并在内部
+构造 active `SourceApplyWorkClassExecutor`；调用方不能混装另一套 owner/authority/key/
+queue。构造器形状由反射测试锁定，ACK-after-sync、unknown-ACK retention、queue
+rejection 和低层 executor 聚焦测试及完整 6-task Gradle 门禁于 2026-08-13 通过；5 个
+真实 Oxia smoke 跳过。低层 active executor 仍是公开 bounded action，但真实
+Kafka/Pulsar consumer 必须由 coordinator 绑定 ACK/cursor/rewind；这些外部证据仍 OPEN。
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

@@ -824,6 +824,12 @@ frame、guard digest 与 source connection generation 完全一致时才推进 c
 真实 source adapter 必须把 pinned resource/session、Broker ACK/commit 和 rewind 证明
 接到这个边界上。
 
+该 coordinator 必须从同一组 exact `OwnedDelayShard`、`OxiaOwnerLeaseStore`、
+verification key 与 shared `WorkClassExecutionRegistry` 内部构造 active source executor；
+调用方不得再注入另一份可能绑定到不同 owner、authority、key 或 queue 的 executor。
+低层 active executor 可以作为独立 bounded action 入口保留，但生产 consumer 的
+ACK/cursor 顺序必须经 coordinator 组合。
+
 如果同步 `db.write` 返回 native failure，或 WriteBatch 已返回成功但 Store 无法完成
 提交后的 ingress-fence 重读/解码校验，Store 必须进入本地
 `WRITE_OUTCOME_UNCERTAIN` 状态：禁止继续读写、禁止写 clean-close marker，source
