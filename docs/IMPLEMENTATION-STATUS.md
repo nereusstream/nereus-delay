@@ -46,6 +46,19 @@ smoke evidence for the implemented single-record authorities, but it does
 not close the cross-record Owner Lease/catalog/pin transaction, Object Store,
 Kafka/Pulsar, chaos, benchmark, soak or upgrade release gates.
 
+Commit `4e2cf94` tightens the local recovery-reuse open boundary: an ACTIVE
+Store is opened without rewriting its runtime/recovery OPEN projection, the
+persisted recovery metadata is passed to `RecoveryCatalogAuthority` for
+read-only validation, and only a successful proof may publish the OPEN marker
+in a synchronous WriteBatch. A rejected proof therefore cannot be hidden by
+an eager open-phase rewrite. `ShardStoreTest.localRecoveryReuseOpensOnlyCatalogValidatedActiveStore`
+now asserts that validation observes the prior `CLOSED_CLEAN` projection and
+that OPEN is published only after validation returns. The focused test and
+the full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
+2026-08-12 (`BUILD SUCCESSFUL`, 5 tasks). This remains a local ordering fence;
+Owner Lease/session fencing, source replay and final activation are still
+release blockers.
+
 After the terminal-Lane reservation/Commit, publish-charge ordering and typed
 READY recovery fencing fixes (`c619b38`, `f771f64`, `3527c89`), the repository
 verification command `./gradlew clean check --rerun-tasks --console=plain`

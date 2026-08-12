@@ -41,6 +41,17 @@ from environment-skipped to live-service PASS, but remains only repository
 evidence. It does not close cross-record authority transactions, Object Store
 publication, Kafka/Pulsar transport, chaos, benchmark, soak or upgrade gates.
 
+After `4e2cf94`, local recovery reuse no longer rewrites a Store's runtime or
+recovery projection merely by opening the ACTIVE DB. `ShardStore` first passes
+the persisted projection (including the prior `CLOSED_CLEAN` install state in
+the clean-reopen case) to the catalog/Floor validator; only after that proof
+returns does a synchronous WriteBatch publish the new `OPEN` marker. The
+focused `ShardStoreTest.localRecoveryReuseOpensOnlyCatalogValidatedActiveStore`
+regression and the full `./gradlew clean check --rerun-tasks --console=plain`
+gate passed on 2026-08-12 (`BUILD SUCCESSFUL`, 5 tasks). This closes the local
+open-phase ordering drift described by the main design; it does not claim
+Owner Lease/session, source replay or final activation authority.
+
 The post-`3527c89` local verification `./gradlew clean check --rerun-tasks
 --console=plain` passed on 2026-08-12. Five opt-in real-Oxia methods were
 skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is repository
