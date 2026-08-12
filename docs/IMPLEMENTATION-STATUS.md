@@ -59,6 +59,19 @@ the full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
 Owner Lease/session fencing, source replay and final activation are still
 release blockers.
 
+Commit `a9321b4` adds the strict authority-bound catch-up seam: after local
+Store identity/recovery validation, `OwnedDelayShard.markCatchingUp` with an
+`OxiaOwnerLeaseStore`, exact `SourceAssignment`, live time and pinned
+`SourceReplaySuccessor` CASes the same context-bound Owner Lease to
+`CATCHING_UP` before opening the local replay gate. A response-loss reread is
+accepted only for the same fencing identity, assignment/session context,
+state and non-regressed expiry; contextless legacy leases are rejected before
+any authority transition. `OwnerLeaseTest` covers the authoritative state
+publication and the contextless fail-closed path. This closes only the local
+per-record lifecycle CAS ordering; source assignment publication, Oxia session
+orchestration, cross-record activation/pin authority and real Broker replay
+remain release blockers.
+
 After the terminal-Lane reservation/Commit, publish-charge ordering and typed
 READY recovery fencing fixes (`c619b38`, `f771f64`, `3527c89`), the repository
 verification command `./gradlew clean check --rerun-tasks --console=plain`

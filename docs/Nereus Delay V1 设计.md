@@ -1094,15 +1094,19 @@ control snapshot 或 lease-validity 等激活前置条件时，才保留 `CATCHI
 2. 分配新 epoch，以 expected-not-exists 创建 owner lease。
 3. response loss 时 reread exact lease identity。
 4. 选择并验证 local Store Incarnation；必要时 restore checkpoint。
-5. 打开 DB，按 Adapter-defined replay successor 从 `appliedShardLogPosition` 恢复（Kafka 下一 offset；Pulsar containing entry + batch-aware skip）。
-6. 证明 exact Broker Resource Incarnation；Kafka 开启 pinned UUID Fetch，Pulsar 认证当前 connection generation；随后捕获 typed Activation Barrier，并按 Adapter 的 inclusive/exclusive reached predicate replay。
-7. 把每个 Destination Lane 恢复为 `RECOVERING_EVIDENCE`；baseline/strong capability 分别做自己的 channel fence/evidence barrier。
-8. 复核 assignment、lease、DB/store、source continuity 和 shard invariant。
-9. 先确认 `meta_cf/FIXED` key 10 中的完整 `CompatibleControlSnapshotV1` 与本次
+5. DB 打开并完成本地 identity/recovery 校验后，使用带 assignment identity、assignment epoch
+   和 session identity 的同一 Owner Lease CAS 到 `CATCHING_UP`；只有 exact successor
+   或 response-loss reread 成功，才打开本地 source replay gate。无 context 的 legacy
+   lease 不能进入生产 V1 catch-up。
+6. 按 Adapter-defined replay successor 从 `appliedShardLogPosition` 恢复（Kafka 下一 offset；Pulsar containing entry + batch-aware skip）。
+7. 证明 exact Broker Resource Incarnation；Kafka 开启 pinned UUID Fetch，Pulsar 认证当前 connection generation；随后捕获 typed Activation Barrier，并按 Adapter 的 inclusive/exclusive reached predicate replay。
+8. 把每个 Destination Lane 恢复为 `RECOVERING_EVIDENCE`；baseline/strong capability 分别做自己的 channel fence/evidence barrier。
+9. 复核 assignment、lease、DB/store、source continuity 和 shard invariant。
+10. 先确认 `meta_cf/FIXED` key 10 中的完整 `CompatibleControlSnapshotV1` 与本次
    activation input exact match，再 CAS 同一 ephemeral lease 为
    `ACTIVE_FOR_COMMANDS`，恢复 source application/query；缺少或漂移的 control
    snapshot 不能打开 command gate。
-10. 每个 Lane 独立完成 evidence/capability 验证后进入 `runtimeReadiness=READY`；Scheduler 只 scan/Claim/Admission `admissionGate=OPEN && runtimeReadiness=READY` 的 Lane。
+11. 每个 Lane 独立完成 evidence/capability 验证后进入 `runtimeReadiness=READY`；Scheduler 只 scan/Claim/Admission `admissionGate=OPEN && runtimeReadiness=READY` 的 Lane。
 
 某 Lane 的 target/receipt/journal 不可用只让该 Lane 留在 `RECOVERING_EVIDENCE`/`BLOCKED`，不得阻止 shard Command application 或其他健康 Lane。Shard 生命周期只使用精确状态 `ACTIVE_FOR_COMMANDS`；Lane readiness 是独立闸门，不用含混的 `ACTIVE` 同时表示两者。
 

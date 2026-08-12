@@ -52,6 +52,17 @@ gate passed on 2026-08-12 (`BUILD SUCCESSFUL`, 5 tasks). This closes the local
 open-phase ordering drift described by the main design; it does not claim
 Owner Lease/session, source replay or final activation authority.
 
+After `a9321b4`, the strict local catch-up entrypoint also CASes the exact
+context-bound Owner Lease to `CATCHING_UP` before exposing the replay gate.
+`OwnedDelayShard.markCatchingUp` accepts only an exact successor or an exact
+response-loss reread with unchanged fencing/assignment/session identity and a
+non-regressed expiry; a contextless compatibility lease is rejected before
+the authority transition. `OwnerLeaseTest` covers both the authoritative
+state publication and the fail-closed legacy path. This aligns the local
+catch-up lifecycle with section 9.2, while source-assignment publication,
+session orchestration, cross-record activation/pin authority and real Broker
+replay remain release blockers.
+
 The post-`3527c89` local verification `./gradlew clean check --rerun-tasks
 --console=plain` passed on 2026-08-12. Five opt-in real-Oxia methods were
 skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is repository
