@@ -4105,6 +4105,12 @@ cover the constructor and native-reopen corruption boundaries. This is local
 projection integrity only and does not provide the external Oxia Floor/Owner
 Lease transaction.
 
+After `ebb2bc5`, the full checked-in `./gradlew clean check --rerun-tasks
+--console=plain` gate passed on 2026-08-12 (`BUILD SUCCESSFUL`, five executed
+tasks). The five opt-in real-Oxia methods were skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is local regression evidence only,
+not real-service or release evidence.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
