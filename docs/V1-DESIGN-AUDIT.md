@@ -41,6 +41,16 @@ from environment-skipped to live-service PASS, but remains only repository
 evidence. It does not close cross-record authority transactions, Object Store
 publication, Kafka/Pulsar transport, chaos, benchmark, soak or upgrade gates.
 
+After `1aca36a`, the repository also has a concrete local provider seam:
+`FilesystemCheckpointUploadAdapter` streams the complete checkpoint inventory
+to deterministic immutable object paths, writes the manifest last through an
+atomic temporary-file boundary, and verifies exact bytes/hashes on retry. Its
+regressions cover response-loss-style idempotency, immutable-object conflict and
+source symlink rejection. This is useful evidence for the local physical upload
+ordering only; it does not change the audit result for remote credentials,
+provider quiescence/attestation/deletion, Owner Lease/session, cross-record
+Upload Intent/Catalog transaction or real Object Store conformance.
+
 After `6efd89f`, the local checkpoint execution boundary is explicit rather
 than implicit: `CheckpointExecutionCoordinator` requires the exact scheduler
 claim before filesystem/provider I/O, creates or safely reuses the fixed-ID

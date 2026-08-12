@@ -2635,6 +2635,16 @@ fail closed。该执行器只闭合本地 create/upload/catalog 的顺序和 res
 重试，不产生 Owner Lease、Source Assignment、Object Store attestation 或生产
 Oxia 跨记录事务结论。
 
+本地/测试 provider seam `FilesystemCheckpointUploadAdapter` 只模拟上述上传阶段的
+物理边界：它在配置的本地 root 下为每个 opaque `(objectKey, objectVersion)` 生成
+domain-separated immutable object path，流式复制并重新计算完整文件 SHA-256，拒绝
+符号链接、非 regular file、源文件漂移和超出 manifest limits 的 inventory；所有文件
+对象成功后才写 manifest object，并通过临时文件、`force`、atomic create-new rename
+和 immutable-if-absent 校验处理 crash/retry。重复请求只接受 byte/hash 相同的既有对象，
+否则 fail closed。这个 seam 不提供生产凭据、provider quiescence、远端一致性、
+attestation、删除 authority 或 Oxia/Catalog transaction；生产 adapter 仍必须证明
+这些边界，不能把本地文件树当成已发布 Recovery Set。
+
 ### 16.3 Recovery Set / Floor
 
 Catalog 保存有界 checkpoint count/age、lineage parent-hash chain 和 monotonic Recovery Floor。Floor 固定 exact `(recoveryLineageId, checkpointId, manifestHash, catalogGeneration, appliedShardLogPosition, includedMutationSequence, evidenceCursors)`；`includedMutationSequence` 是完整 `u64`，Floor coverage 以 unsigned order 比较。恢复从 newest 开始，只可 fallback 到 parent chain 能到达该 exact Floor 的 candidate；scalar position/sequence 大小不能替代 ancestry。
