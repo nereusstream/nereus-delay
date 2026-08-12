@@ -5457,6 +5457,15 @@ rate limit 计入另一 Worker。测试覆盖 open 零文件系统副作用、re
 通过；5 个真实 Oxia smoke 跳过。生产 envelope 数值、基准测试与真实 Object Store/
 Oxia authority 仍 OPEN。
 
+`CheckpointDrainWorkClassExecutor` 现在在 queue admission 与执行时 authority reread 前
+后都校验 `store.runtimeMetadata.lastOpenedOwnerEpoch == expectedLease.ownerEpoch`。
+因此公开 bounded executor 即使拿到同 Shard 的 DRAINING lease，也不能对尚未由该
+Owner epoch 打开的旧 Store 创建 final checkpoint；正常 `OwnerDrainCoordinator` 会在
+checkpoint 前持久化 exact epoch。直接调用拒绝用例证明零 checkpoint 文件副作用，
+正常 drain/checkpoint 聚焦套件和完整 6-task Gradle 门禁于 2026-08-13 通过；5 个真实
+Oxia smoke 跳过。该 Store projection fence 不替代真实 session-bound lease、catalog
+或 Object Store publication authority。
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

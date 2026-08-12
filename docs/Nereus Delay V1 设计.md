@@ -1079,6 +1079,11 @@ memtable、后台线程、文件句柄、checkpoint/drain/acquire slots 与 rate
 active Store 共享同一个 `SharedRocksDbResources` 实例，不能把上传并发/I/O 计入另一
 Worker envelope。
 
+Owner drain 的 final checkpoint 在入队前和执行前都必须要求 Store runtime 的
+`lastOpenedOwnerEpoch` exact 等于 DRAINING lease 的 `ownerEpoch`。ShardId 相同、lease
+当前有效仍不足以允许对一个由旧/其它 Owner epoch 打开的 DB 创建“最终”镜像；正常
+drain coordinator 必须先持久化当前 epoch，再提交 bounded checkpoint action。
+
 Renewal CAS 必须保留 exact fencing/assignment/session identity 与当前
 lifecycle state；旧 Owner 携带的 stale state 不能通过续租把状态投影回退，expiry
 也只能单调延长。response loss 只能 reread 同一 identity、同一 state 的 successor。
