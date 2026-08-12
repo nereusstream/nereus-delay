@@ -13,6 +13,7 @@ import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.runtime.DelayShard;
 import io.nereusstream.delay.runtime.DelayShardConfig;
 import io.nereusstream.delay.store.ColumnFamily;
+import io.nereusstream.delay.store.CheckpointDrainWorkClassExecutor;
 import io.nereusstream.delay.store.KeyCodec;
 import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.ShardStoreConfig;
@@ -43,6 +44,29 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class OwnerDrainCoordinatorTest {
     @TempDir
     Path tempDir;
+
+    @Test
+    void directFinalCheckpointRejectsAStoreNotOpenedByTheDrainingOwnerEpoch() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 71);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("drain-owner-epoch"));
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease acquired = backend.acquire(shardId, "worker-drain-epoch", 100, 500).orElseThrow();
+        final OwnerLease draining = new OwnerLease(acquired.shardId(), acquired.ownerId(), acquired.ownerEpoch(),
+                acquired.leaseToken(), acquired.expiresAtEpochMs(), acquired.context(), ShardLifecycleState.DRAINING);
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        final Path checkpoint = tempDir.resolve("drain-owner-epoch-checkpoint");
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final CheckpointDrainWorkClassExecutor executor = new CheckpointDrainWorkClassExecutor(
+                    workClasses(1), store);
+
+            assertThrows(IllegalStateException.class, () -> executor.submit(
+                    new CheckpointDrainWorkClassExecutor.Request(checkpoint, bytes(16, 72), draining,
+                            authority, () -> 101, 500)));
+            assertFalse(Files.exists(checkpoint));
+            assertEquals(0, store.runtimeMetadata().lastOpenedOwnerEpoch());
+        }
+    }
 
     @Test
     void constructorRejectsAnotherStoreIncarnationForTheSameShard() {

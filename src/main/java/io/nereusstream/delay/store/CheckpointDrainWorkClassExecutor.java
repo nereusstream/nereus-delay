@@ -68,6 +68,7 @@ public final class CheckpointDrainWorkClassExecutor {
         if (!store.shardId().equals(request.expectedLease().shardId())) {
             throw new IllegalArgumentException("drain checkpoint lease belongs to another shard");
         }
+        requireStoreOwnerEpoch(request.expectedLease());
         if (request.expectedLease().state() != ShardLifecycleState.DRAINING) {
             throw new IllegalArgumentException("drain checkpoint requires a DRAINING lease");
         }
@@ -80,6 +81,7 @@ public final class CheckpointDrainWorkClassExecutor {
     }
 
     private void requireAuthoritativeDrain(final Request request) {
+        requireStoreOwnerEpoch(request.expectedLease());
         final long now = request.ownerClock().getAsLong();
         if (now < 0) {
             throw new IllegalArgumentException("drain checkpoint clock returned a negative time");
@@ -96,6 +98,13 @@ public final class CheckpointDrainWorkClassExecutor {
                 || observed.state() != ShardLifecycleState.DRAINING
                 || !observed.validAt(now)) {
             throw new IllegalStateException("drain checkpoint Owner Lease changed or expired");
+        }
+    }
+
+    private void requireStoreOwnerEpoch(final OwnerLease expectedLease) {
+        if (store.runtimeMetadata().lastOpenedOwnerEpoch() != expectedLease.ownerEpoch()) {
+            throw new IllegalStateException(
+                    "drain checkpoint Store was not opened by the expected Owner epoch");
         }
     }
 
