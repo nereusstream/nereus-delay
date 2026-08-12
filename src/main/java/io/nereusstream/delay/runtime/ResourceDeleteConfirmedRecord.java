@@ -3,6 +3,7 @@ package io.nereusstream.delay.runtime;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
 import io.nereusstream.delay.protocol.ResourceRetireIntentBody;
+import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 
@@ -48,7 +49,13 @@ public record ResourceDeleteConfirmedRecord(
         if (appliedSourcePosition.length == 0) {
             throw new IllegalArgumentException("appliedSourcePosition must not be empty");
         }
-        SourcePositionCodec.decode(appliedSourcePosition);
+        final SourcePosition intentSourcePosition = SourcePositionCodec.decode(
+                retireIntent.appliedSourcePosition());
+        final SourcePosition confirmationSourcePosition = SourcePositionCodec.decode(appliedSourcePosition);
+        if (!intentSourcePosition.shardId().equals(confirmationSourcePosition.shardId())
+                || !intentSourcePosition.sameSourceIdentity(confirmationSourcePosition)) {
+            throw new IllegalArgumentException("delete confirmation source position does not match retire intent");
+        }
         confirmationMutationId = Bytes.copy(confirmationMutationId);
         confirmationMutationHash = Bytes.copy(confirmationMutationHash);
         providerRequestIdHash = Bytes.copy(providerRequestIdHash);
@@ -57,7 +64,7 @@ public record ResourceDeleteConfirmedRecord(
         responseHash = Bytes.copy(responseHash);
         observedAt = Bytes.copy(observedAt);
         confirmedAt = Bytes.copy(confirmedAt);
-        appliedSourcePosition = Bytes.copy(appliedSourcePosition);
+        appliedSourcePosition = confirmationSourcePosition.canonicalBytes();
     }
 
     @Override
