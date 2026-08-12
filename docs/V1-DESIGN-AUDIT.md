@@ -48,7 +48,7 @@ canonical bytes. The focused regression is
 provider and Recovery-Floor authority are still external gates.
 
 After the retire identity/protection constructor fences (`18629dd`, `2a84e88`,
-`4a81566`), the full
+`4a81566`, `7180153`), the full
 `./gradlew clean check --rerun-tasks --console=plain` recheck also passed on
 2026-08-12 (`BUILD SUCCESSFUL`, 5 tasks); the real-Oxia methods were still
 skipped because no endpoint was configured.

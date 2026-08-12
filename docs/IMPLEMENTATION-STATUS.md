@@ -108,7 +108,7 @@ covers the mismatch, duplicate and digest failures; external resource and
 Recovery-Floor authority remain release gates.
 
 After the retire identity/protection constructor fences (`18629dd`, `2a84e88`,
-`4a81566`),
+`4a81566`, `7180153`),
 `./gradlew clean check --rerun-tasks --console=plain` passed again on
 2026-08-12 (`BUILD SUCCESSFUL`, 5 tasks). The five real-Oxia methods remained
 skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is local
