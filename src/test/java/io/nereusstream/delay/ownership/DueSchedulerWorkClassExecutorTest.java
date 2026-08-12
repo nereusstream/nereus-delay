@@ -123,7 +123,7 @@ class DueSchedulerWorkClassExecutorTest {
                         new TimelineEntry(messageId, message.generation()).encode());
                 batch.putValue(ColumnFamily.TIMELINE, 3, readyKey, ready.encode());
             });
-            scheduler.register(lane);
+            io.nereusstream.delay.scheduler.PersistentLaneSchedulerTestSupport.register(scheduler, lane);
             final WorkClassExecutionRegistry workClasses = workClasses(1);
             final DueSchedulerWorkClassExecutor executor = new DueSchedulerWorkClassExecutor(
                     workClasses, owned, authority, scheduler);
@@ -147,7 +147,7 @@ class DueSchedulerWorkClassExecutorTest {
                     otherWorker, 2, Bytes.sha256(Bytes.utf8("due-work-other-owner-fence")));
             final PersistentLaneScheduler otherOwnerScheduler = new PersistentLaneScheduler(
                     store, LaneScheduler.defaults(), otherOwner);
-            otherOwnerScheduler.register(lane);
+            io.nereusstream.delay.scheduler.PersistentLaneSchedulerTestSupport.register(otherOwnerScheduler, lane);
             assertThrows(IllegalStateException.class,
                     () -> otherOwnerScheduler.discoverReady(evidence, budget));
             assertEquals(0, otherOwnerScheduler.snapshot().lanes().get(0).pendingItems());

@@ -856,15 +856,19 @@ class DelayShardTest {
             assertThrows(IllegalStateException.class, () -> shard.discoverReady(10_000, 1));
             final io.nereusstream.delay.scheduler.PersistentLaneScheduler scheduler =
                     io.nereusstream.delay.scheduler.PersistentLaneScheduler.defaults(store);
-            scheduler.register(shard.getLane(lane));
-            assertThrows(IllegalStateException.class, () -> scheduler.rebuildFromAuthoritativeReady(1));
+            io.nereusstream.delay.scheduler.PersistentLaneSchedulerTestSupport.register(
+                    scheduler, shard.getLane(lane));
+            assertThrows(IllegalStateException.class,
+                    () -> io.nereusstream.delay.scheduler.PersistentLaneSchedulerTestSupport
+                            .rebuildFromAuthoritativeReady(scheduler, 1));
             shard.rebuildReadyIndexes();
 
             final ActiveLaneStateV1 persisted = LaneRecordEnvelopeV1.decode(
                     store.getValue(ColumnFamily.META, KeyCodec.metaLane(lane), 2).payload()).activeState();
             assertEquals(2_000L, persisted.earliestActionAtEpochMs());
             assertEquals(2_000L, persisted.nextEligibleAtEpochMs());
-            assertEquals(1, scheduler.rebuildFromAuthoritativeReady(1));
+            assertEquals(1, io.nereusstream.delay.scheduler.PersistentLaneSchedulerTestSupport
+                    .rebuildFromAuthoritativeReady(scheduler, 1));
         }
     }
 

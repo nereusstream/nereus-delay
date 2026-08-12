@@ -57,6 +57,24 @@ class LaneSchedulerTest {
                 .getDeclaredMethod("offer", ScheduleWorkItem.class).getModifiers()));
         assertFalse(java.lang.reflect.Modifier.isPublic(PersistentLaneScheduler.class
                 .getDeclaredMethod("offer", ScheduleWorkItem.class).getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(PersistentLaneScheduler.class
+                .getDeclaredMethod("register", LaneRecord.class).getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(PersistentLaneScheduler.class
+                .getDeclaredMethod("restorePersistedState").getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(PersistentLaneScheduler.class
+                .getDeclaredMethod("rebuildFromAuthoritativeReady", int.class).getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(PersistentLaneScheduler.class
+                .getDeclaredMethod("markBlocked", DestinationLaneId.class).getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(PersistentLaneScheduler.class
+                .getDeclaredMethod("markRecoveringEvidence", DestinationLaneId.class).getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(PersistentLaneScheduler.class
+                .getDeclaredMethod("markReady", DestinationLaneId.class).getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(PersistentLaneScheduler.class
+                .getDeclaredMethod("unregister", DestinationLaneId.class, byte[].class).getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(PersistentLaneScheduler.class
+                .getDeclaredMethod("requeueFirst", ScheduleWorkItem.class).getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(PersistentLaneScheduler.class
+                .getDeclaredMethod("persist").getModifiers()));
     }
 
     @Test

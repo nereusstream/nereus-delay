@@ -126,7 +126,7 @@ class ClaimHandoffWorkClassExecutorTest {
                     readyKey, certificate, null);
             store.write(batch -> batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(laneId),
                     LaneRecordEnvelopeV1.active(activeLane).canonicalBytes()));
-            scheduler.register(lane);
+            io.nereusstream.delay.scheduler.PersistentLaneSchedulerTestSupport.register(scheduler, lane);
             scheduler.discoverReady(evidence, budget);
 
             final ClaimExecutionAdmission permits = new ClaimExecutionAdmission(1, payload.length);

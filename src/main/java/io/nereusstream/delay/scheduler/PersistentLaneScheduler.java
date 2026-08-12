@@ -96,7 +96,7 @@ public final class PersistentLaneScheduler {
         return owner;
     }
 
-    public synchronized void register(final LaneRecord lane) {
+    synchronized void register(final LaneRecord lane) {
         Objects.requireNonNull(lane, "lane");
         delegate.register(lane);
         // Keep the registry update after the delegate's identity fence. A
@@ -106,7 +106,7 @@ public final class PersistentLaneScheduler {
     }
 
     /** Applies the saved projections after all currently active lanes are registered. */
-    public synchronized void restorePersistedState() {
+    synchronized void restorePersistedState() {
         if (persisted == null) {
             discoveredHeads.clear();
             persistedRestored = true;
@@ -173,7 +173,7 @@ public final class PersistentLaneScheduler {
      *
      * @return the number of READY heads installed in the in-memory scheduler
      */
-    public synchronized int rebuildFromAuthoritativeReady(final int maxReadyEntries) {
+    synchronized int rebuildFromAuthoritativeReady(final int maxReadyEntries) {
         if (maxReadyEntries <= 0) {
             throw new IllegalArgumentException("maxReadyEntries must be positive");
         }
@@ -596,7 +596,7 @@ public final class PersistentLaneScheduler {
         }
     }
 
-    public synchronized void markBlocked(final DestinationLaneId laneId) {
+    synchronized void markBlocked(final DestinationLaneId laneId) {
         requireRegisteredLane(laneId);
         final RuntimeSnapshot before = runtimeSnapshot();
         try {
@@ -612,7 +612,7 @@ public final class PersistentLaneScheduler {
     }
 
     /** Returns a registered Lane to evidence recovery before it can become READY. */
-    public synchronized void markRecoveringEvidence(final DestinationLaneId laneId) {
+    synchronized void markRecoveringEvidence(final DestinationLaneId laneId) {
         requireRegisteredLane(laneId);
         final RuntimeSnapshot before = runtimeSnapshot();
         try {
@@ -626,7 +626,7 @@ public final class PersistentLaneScheduler {
         }
     }
 
-    public synchronized void markReady(final DestinationLaneId laneId) {
+    synchronized void markReady(final DestinationLaneId laneId) {
         requireRegisteredLane(laneId);
         final RuntimeSnapshot before = runtimeSnapshot();
         try {
@@ -648,8 +648,8 @@ public final class PersistentLaneScheduler {
      * removes the corresponding registry and discovery entries after that
      * check succeeds.
      */
-    public synchronized void unregister(final DestinationLaneId laneId,
-                                        final byte[] laneIncarnation) {
+    synchronized void unregister(final DestinationLaneId laneId,
+                                 final byte[] laneIncarnation) {
         Objects.requireNonNull(laneId, "laneId");
         Bytes.requireLength(laneIncarnation, 16, "laneIncarnation");
         final LaneRecord lane = registered.get(laneId);
@@ -695,7 +695,7 @@ public final class PersistentLaneScheduler {
         }
     }
 
-    public synchronized void requeueFirst(final ScheduleWorkItem item) {
+    synchronized void requeueFirst(final ScheduleWorkItem item) {
         delegate.requeueFirst(item);
     }
 
@@ -703,7 +703,7 @@ public final class PersistentLaneScheduler {
         return delegate.snapshot();
     }
 
-    public synchronized void persist() {
+    synchronized void persist() {
         persist(wrapGeneration);
     }
 
