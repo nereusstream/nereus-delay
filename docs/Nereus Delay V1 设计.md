@@ -1155,6 +1155,14 @@ planned drain：
    `lastCheckpointId` 与该产物绑定；
 6. close DB，释放 lease。
 
+生产编排在完成过 context-bound catch-up 后，planned drain 必须继续使用同一
+assignment/session-bound Owner Lease 执行 `ACTIVE_FOR_COMMANDS -> DRAINING`
+authority CAS。`OwnedDelayShard.beginDrainStrict` 会在 CAS 前验证 lease context、
+已接受的 Source Assignment 和 strict replay authority；contextless 或
+assignment-only owner 只能留在嵌入式 compatibility seam，不能冒充 V1 生产 drain
+边界。`OwnerDrainCoordinator` 对 strict owner 自动选择该入口，旧 owner 则显式
+走兼容路径。
+
 超时/宕机依赖 session expiry；旧 Admission 在新 Owner 下先重放为同一 `PUBLISHING`，再由新 Owner 的 exact recovery-unknown Outcome 进入 `UNCERTAIN`。
 
 ## 10. RocksDB 物理模型

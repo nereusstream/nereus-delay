@@ -89,6 +89,17 @@ persisted, closing the local pre-CAS projection gap while leaving the
 production atomic control-catalog/RecoveryPin transaction and real session
 authority open.
 
+The planned-drain boundary now carries the same context requirement. A strict
+owner must use `OwnedDelayShard.beginDrainStrict`, which validates the exact
+assignment/session-bound lease and accepted Source Assignment before the
+`ACTIVE_FOR_COMMANDS -> DRAINING` CAS. `OwnerDrainCoordinator` chooses this
+path for strict owners; contextless assignment-only owners remain an explicit
+embedded compatibility seam. `OwnerLeaseTest.strictDrainRequiresTheContextBoundCatchupLease`
+and `OwnerLeaseTest.strictDrainPreservesAssignmentAndSessionFenceThroughAuthorityCas`
+cover the rejection and successful identity-preservation paths. This closes a
+local lifecycle ordering gap, not the production Oxia session/assignment or
+cross-worker drain orchestration gate.
+
 The post-`3527c89` local verification `./gradlew clean check --rerun-tasks
 --console=plain` passed on 2026-08-12. Five opt-in real-Oxia methods were
 skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is repository

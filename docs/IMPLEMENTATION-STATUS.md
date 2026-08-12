@@ -106,6 +106,17 @@ fresh Store epoch at zero. This is still a local ordering fence; the atomic
 production control-catalog/RecoveryPin transaction and real session authority
 remain external blockers.
 
+The strict owner lifecycle boundary now continues through planned drain.
+`OwnedDelayShard.beginDrainStrict` requires the context-bound lease, accepted
+Source Assignment and strict catch-up authority before the authoritative
+`ACTIVE_FOR_COMMANDS -> DRAINING` CAS. `OwnerDrainCoordinator` selects this
+entrypoint automatically for strict owners, while assignment-only owners keep
+an explicit embedded compatibility path. `OwnerLeaseTest` covers both the
+contextless rejection (with no authority transition) and the exact
+assignment/session identity preserved by a successful drain CAS. This is still
+local lifecycle evidence; Oxia session orchestration, source assignment
+publication and production planned-drain routing remain release blockers.
+
 After the terminal-Lane reservation/Commit, publish-charge ordering and typed
 READY recovery fencing fixes (`c619b38`, `f771f64`, `3527c89`), the repository
 verification command `./gradlew clean check --rerun-tasks --console=plain`
