@@ -456,7 +456,8 @@ class OwnerLeaseTest {
             assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, owned.state());
             assertEquals(MessageStatus.SCHEDULED, delegate.getMessage(schedule.delayMessageId()).status());
             assertNull(delegate.getClaim(claim.claimId(), lease.ownerEpoch()));
-            assertEquals(1, delegate.discoverReady(10_000, 10).size());
+            assertEquals(1, io.nereusstream.delay.runtime.DelayShardTestSupport.discoverReady(
+                    delegate, 10_000, 10).size());
         }
     }
 

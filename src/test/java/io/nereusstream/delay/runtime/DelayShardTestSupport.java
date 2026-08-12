@@ -38,6 +38,12 @@ public final class DelayShardTestSupport {
         return shard.discoverExpiry(earliestEpochMs, limit);
     }
 
+    public static List<DelayShard.ReadyWork> discoverReady(final DelayShard shard,
+                                                            final long earliestEpochMs,
+                                                            final int limit) {
+        return shard.discoverReady(earliestEpochMs, limit);
+    }
+
     public static List<DelayShard.ReservationExpiryWork> discoverReservationExpiry(
             final DelayShard shard, final long earliestEpochMs, final int limit) {
         return shard.discoverReservationExpiry(earliestEpochMs, limit);

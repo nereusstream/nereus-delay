@@ -6511,7 +6511,7 @@ public final class DelayShard {
      * version-mismatched entry fences discovery instead of silently falling
      * back to a full timeline scan.
      */
-    public synchronized List<ReadyWork> discoverReady(final long earliestEpochMs, final int limit) {
+    synchronized List<ReadyWork> discoverReady(final long earliestEpochMs, final int limit) {
         if (earliestEpochMs < 0 || limit <= 0) {
             throw new IllegalArgumentException("invalid READY discovery bounds");
         }
