@@ -24,6 +24,19 @@ class WorkerSchedulerTest {
                 .getDeclaredMethod("poll", SchedulerBudget.class).getModifiers()));
         assertFalse(java.lang.reflect.Modifier.isPublic(WorkerScheduler.class
                 .getDeclaredMethod("offer", ScheduleWorkItem.class).getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(WorkerScheduler.class
+                .getDeclaredMethod("registerShard", ShardId.class, int.class, LaneScheduler.class)
+                .getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(WorkerScheduler.class
+                .getDeclaredMethod("registerLane", ShardId.class, LaneRecord.class).getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(WorkerScheduler.class
+                .getDeclaredMethod("markShardBlocked", ShardId.class).getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(WorkerScheduler.class
+                .getDeclaredMethod("markShardReady", ShardId.class).getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(WorkerScheduler.class
+                .getDeclaredMethod("unregisterShard", ShardId.class).getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(WorkerScheduler.class
+                .getDeclaredMethod("restore", WorkerScheduler.WorkerSnapshot.class).getModifiers()));
     }
 
     @Test

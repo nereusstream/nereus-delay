@@ -52,8 +52,8 @@ public final class WorkerScheduler {
         return new WorkerScheduler(DEFAULT_QUANTUM_BYTES, 64);
     }
 
-    public synchronized void registerShard(final ShardId shardId, final int weight,
-                                           final LaneScheduler laneScheduler) {
+    synchronized void registerShard(final ShardId shardId, final int weight,
+                                    final LaneScheduler laneScheduler) {
         Objects.requireNonNull(shardId, "shardId");
         Objects.requireNonNull(laneScheduler, "laneScheduler");
         if (weight <= 0) {
@@ -72,7 +72,7 @@ public final class WorkerScheduler {
         }
     }
 
-    public synchronized void registerLane(final ShardId shardId, final LaneRecord lane) {
+    synchronized void registerLane(final ShardId shardId, final LaneRecord lane) {
         requireShard(shardId).scheduler.register(lane);
     }
 
@@ -247,13 +247,13 @@ public final class WorkerScheduler {
         return Math.min((long) maxVisitShards, (long) ringSize * 2L);
     }
 
-    public synchronized void markShardBlocked(final ShardId shardId) {
+    synchronized void markShardBlocked(final ShardId shardId) {
         final ShardQueue shard = requireShard(shardId);
         shard.blocked = true;
         removeFromRing(shardId);
     }
 
-    public synchronized void markShardReady(final ShardId shardId) {
+    synchronized void markShardReady(final ShardId shardId) {
         final ShardQueue shard = requireShard(shardId);
         shard.blocked = false;
         if (!ring.contains(shardId)) {
@@ -275,7 +275,7 @@ public final class WorkerScheduler {
      * every registered Lane queue is empty.  Source-ordered terminal guards,
      * Oxia ownership and Store close remain outside this process-local method.
      */
-    public synchronized void unregisterShard(final ShardId shardId) {
+    synchronized void unregisterShard(final ShardId shardId) {
         final ShardQueue shard = requireShard(shardId);
         if (!shard.blocked) {
             throw new IllegalStateException("only a blocked shard can be unregistered");
@@ -298,7 +298,7 @@ public final class WorkerScheduler {
         return new WorkerSnapshot(cursor, roundGeneration, states);
     }
 
-    public synchronized void restore(final WorkerSnapshot snapshot) {
+    synchronized void restore(final WorkerSnapshot snapshot) {
         Objects.requireNonNull(snapshot, "snapshot");
         final Set<ShardId> seen = new HashSet<>();
         // Validate the complete identity set before publishing any restored

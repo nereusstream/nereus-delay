@@ -55,7 +55,7 @@ public final class LaneScheduler {
         return new LaneScheduler(DEFAULT_QUANTUM_BYTES, 64);
     }
 
-    public synchronized void register(final LaneRecord lane) {
+    synchronized void register(final LaneRecord lane) {
         Objects.requireNonNull(lane, "lane");
         final long weightIncrement = checkedWeightIncrement(lane.weight());
         final LaneQueue existing = lanes.get(lane.laneId());
@@ -222,7 +222,7 @@ public final class LaneScheduler {
         return (long) ringSize * 2L;
     }
 
-    public synchronized void markBlocked(final DestinationLaneId laneId) {
+    synchronized void markBlocked(final DestinationLaneId laneId) {
         final LaneQueue lane = requireLane(laneId);
         lane.runtimeReadiness = RuntimeReadiness.BLOCKED;
         deactivateLane(laneId);
@@ -232,13 +232,13 @@ public final class LaneScheduler {
      * Moves a Lane back into the evidence-recovery phase after a runtime
      * capability failure. Repeated recovery notifications are idempotent.
      */
-    public synchronized void markRecoveringEvidence(final DestinationLaneId laneId) {
+    synchronized void markRecoveringEvidence(final DestinationLaneId laneId) {
         final LaneQueue lane = requireLane(laneId);
         lane.runtimeReadiness = RuntimeReadiness.RECOVERING_EVIDENCE;
         deactivateLane(laneId);
     }
 
-    public synchronized void markReady(final DestinationLaneId laneId) {
+    synchronized void markReady(final DestinationLaneId laneId) {
         final LaneQueue lane = requireLane(laneId);
         if (lane.gate != io.nereusstream.delay.runtime.AdmissionGate.OPEN) {
             throw new IllegalStateException("closed or paused lane cannot be marked ready");
@@ -254,7 +254,7 @@ public final class LaneScheduler {
         activateLane(laneId);
     }
 
-    public synchronized void requeueFirst(final ScheduleWorkItem item) {
+    synchronized void requeueFirst(final ScheduleWorkItem item) {
         requireLane(item.laneId()).queue.addFirst(item);
     }
 
@@ -404,7 +404,7 @@ public final class LaneScheduler {
     }
 
     /** Rebuilds the in-memory ring from a validated persisted successor order. */
-    public synchronized void restoreRing(final List<DestinationLaneId> persistedOrder) {
+    synchronized void restoreRing(final List<DestinationLaneId> persistedOrder) {
         Objects.requireNonNull(persistedOrder, "persistedOrder");
         final Set<DestinationLaneId> seen = new HashSet<>();
         final List<DestinationLaneId> rebuilt = new ArrayList<>();
@@ -427,7 +427,7 @@ public final class LaneScheduler {
     }
 
     /** Replaces the active ring with an authority-validated successor order. */
-    public synchronized void rebuildActiveRing(final List<DestinationLaneId> activeOrder) {
+    synchronized void rebuildActiveRing(final List<DestinationLaneId> activeOrder) {
         Objects.requireNonNull(activeOrder, "activeOrder");
         final Set<DestinationLaneId> seen = new HashSet<>();
         final List<DestinationLaneId> rebuilt = new ArrayList<>();
@@ -443,7 +443,7 @@ public final class LaneScheduler {
     }
 
     /** Adds one registered Lane to the active ring after a READY transition. */
-    public synchronized void activateLane(final DestinationLaneId laneId) {
+    synchronized void activateLane(final DestinationLaneId laneId) {
         final LaneQueue lane = requireLane(laneId);
         if (!lane.schedulable()) {
             throw new IllegalStateException("only an OPEN and READY lane can enter the active ring");
@@ -454,7 +454,7 @@ public final class LaneScheduler {
     }
 
     /** Removes one Lane from the active ring after a fenced readiness loss. */
-    public synchronized void deactivateLane(final DestinationLaneId laneId) {
+    synchronized void deactivateLane(final DestinationLaneId laneId) {
         requireLane(laneId);
         final int removed = ring.indexOf(laneId);
         if (removed < 0) {
@@ -479,8 +479,8 @@ public final class LaneScheduler {
      * whose queue is empty; an old callback cannot remove a replacement
      * registration.</p>
      */
-    public synchronized void unregister(final DestinationLaneId laneId,
-                                        final byte[] laneIncarnation) {
+    synchronized void unregister(final DestinationLaneId laneId,
+                                 final byte[] laneIncarnation) {
         final LaneQueue lane = requireLane(laneId);
         Bytes.requireLength(laneIncarnation, 16, "laneIncarnation");
         if (!Arrays.equals(lane.laneIncarnation, laneIncarnation)) {
@@ -497,7 +497,7 @@ public final class LaneScheduler {
     }
 
     /** Replaces all in-memory work with the exact READY projection recovered from storage. */
-    public synchronized void replacePending(final List<ScheduleWorkItem> items) {
+    synchronized void replacePending(final List<ScheduleWorkItem> items) {
         Objects.requireNonNull(items, "items");
         final Map<LaneQueue, List<ScheduleWorkItem>> replacement = new HashMap<>();
         // Validate and assemble the complete replacement before touching any
@@ -518,7 +518,7 @@ public final class LaneScheduler {
     }
 
     /** Restores fair-scheduling counters after all current Lane records are registered. */
-    public synchronized void restore(final SchedulerSnapshot snapshot) {
+    synchronized void restore(final SchedulerSnapshot snapshot) {
         Objects.requireNonNull(snapshot, "snapshot");
         if (snapshot.cursor() < 0 || snapshot.roundGeneration() < 0) {
             throw new IllegalArgumentException("invalid scheduler snapshot");

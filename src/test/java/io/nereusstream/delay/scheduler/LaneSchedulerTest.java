@@ -75,6 +75,30 @@ class LaneSchedulerTest {
                 .getDeclaredMethod("requeueFirst", ScheduleWorkItem.class).getModifiers()));
         assertFalse(java.lang.reflect.Modifier.isPublic(PersistentLaneScheduler.class
                 .getDeclaredMethod("persist").getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(LaneScheduler.class
+                .getDeclaredMethod("register", LaneRecord.class).getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(LaneScheduler.class
+                .getDeclaredMethod("markBlocked", DestinationLaneId.class).getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(LaneScheduler.class
+                .getDeclaredMethod("markRecoveringEvidence", DestinationLaneId.class).getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(LaneScheduler.class
+                .getDeclaredMethod("markReady", DestinationLaneId.class).getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(LaneScheduler.class
+                .getDeclaredMethod("requeueFirst", ScheduleWorkItem.class).getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(LaneScheduler.class
+                .getDeclaredMethod("restoreRing", List.class).getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(LaneScheduler.class
+                .getDeclaredMethod("rebuildActiveRing", List.class).getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(LaneScheduler.class
+                .getDeclaredMethod("activateLane", DestinationLaneId.class).getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(LaneScheduler.class
+                .getDeclaredMethod("deactivateLane", DestinationLaneId.class).getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(LaneScheduler.class
+                .getDeclaredMethod("unregister", DestinationLaneId.class, byte[].class).getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(LaneScheduler.class
+                .getDeclaredMethod("replacePending", List.class).getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(LaneScheduler.class
+                .getDeclaredMethod("restore", LaneScheduler.SchedulerSnapshot.class).getModifiers()));
     }
 
     @Test
