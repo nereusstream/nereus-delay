@@ -4,11 +4,27 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Modifier;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class LaneCloseMaterializerTest {
+    @Test
+    void authorityFreeWholeTurnMaterializerIsNotPublicProductionApi() {
+        assertFalse(Modifier.isPublic(LaneCloseMaterializer.class.getModifiers()));
+        boolean found = false;
+        for (var method : LaneCloseMaterializer.class.getDeclaredMethods()) {
+            if (method.getName().equals("runTurn")) {
+                found = true;
+                assertFalse(Modifier.isPublic(method.getModifiers()), method::toGenericString);
+            }
+        }
+        assertTrue(found);
+    }
+
     @Test
     void materializationResultRejectsCounterAdditionOverflow() {
         final DestinationLaneId lane = lane("single");

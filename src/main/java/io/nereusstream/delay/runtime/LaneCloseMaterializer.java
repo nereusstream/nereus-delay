@@ -14,8 +14,8 @@ import java.util.function.ToIntFunction;
  * It has no Owner Lease, Oxia, or cross-shard authority and therefore must be
  * invoked only by the owner/worker orchestration that supplies those gates.</p>
  */
-public final class LaneCloseMaterializer {
-    public TurnResult runTurn(final DelayShard shard, final int maxLanes, final int maxRecordsPerLane) {
+final class LaneCloseMaterializer {
+    TurnResult runTurn(final DelayShard shard, final int maxLanes, final int maxRecordsPerLane) {
         Objects.requireNonNull(shard, "shard");
         if (maxLanes <= 0 || maxRecordsPerLane <= 0) {
             throw new IllegalArgumentException("materializer bounds must be positive");
