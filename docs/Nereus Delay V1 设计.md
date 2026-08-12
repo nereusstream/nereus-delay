@@ -2048,6 +2048,18 @@ action outcome 已证明且 look-ahead identity 未变化时才调用 `next()` �
 takeover replay 共享公平性、资源限额和 fencing 边界，同时保持 `CATCHING_UP` 与
 `ACTIVE_FOR_COMMANDS` 的 lifecycle 语义分离。
 
+checkpoint 的物理创建/上传与接管时的下载/restore 都属于同一个独立的
+`CHECKPOINT` work-class。Restore task 的 identity 必须绑定 exact canonical manifest、
+checkpoint resource 和可选 `RecoveryPinV1`，byte charge 使用该 request envelope 的
+checked exact length；queue admission 只能做本地纯校验，拒绝时不得读 catalog、调用
+Object Store/provider、创建 staging 目录或改变 Store/Recovery 状态。bounded action
+开始后必须再次执行同一校验，并把完整的 download → inventory validation → staged
+Store-Incarnation install 区间放在 CHECKPOINT action 内；成功 outcome 移交一个由调用方
+负责关闭的已安装 `ShardStore`，普通失败返回 restore-owned outcome，fatal `Error`
+仍交给 event-loop stop path。`CheckpointRestoreCoordinator` 的 direct restore 只保留为
+store 包内测试/组合 seam，跨包 Worker 生产组合必须使用
+`CheckpointRestoreWorkClassExecutor`，不得绕过 CHECKPOINT queue。
+
 `LEASE_FENCE` 是唯一允许抢占首个 bounded turn 的 work-class。每个 fence task
 必须绑定触发事件所观察到的完整 Owner Lease identity（Shard、owner、ownerEpoch、
 lease token、assignment/session context 和 lifecycle value）。进入队列前只做本地
@@ -2939,7 +2951,11 @@ AND RecoveryFloor.includedMutationSequence >= r within that lineage
    协调器必须在调用 provider 之前取得 Worker 级 checkpoint-download permit，并一直
    持有到 provider 返回、完整 inventory 校验和 `ShardStore` 安装结束；不能只在
    `ShardStore` 内部限制 restore 阶段，否则实际 provider I/O 会绕过进程级并发边界。
-   这闭合的是本地 download → restore 的调用顺序，不产生 Owner Lease、Source Assignment、
+   Worker 生产组合必须先把这个 restore request 提交给 `CHECKPOINT` work-class；只有
+   被选中的 bounded action 才能调用上述 coordinator。queue rejection 发生在 provider
+   I/O、staging 创建和 catalog read 之前；action outcome 交回已安装 Store 或 restore
+   failure evidence，direct coordinator seam 不得作为跨包 Worker API。这个边界闭合的
+   仍是本地 download → restore 调用顺序，不产生 Owner Lease、Source Assignment、
    RecoveryPin 或 Source Log replay authority。
 4. 生成全新 Store Incarnation，rename temp 到 `incarnations/<newStoreIncarnation>`；install-mode open，WAL-sync 写入新的 Store Incarnation、current Owner open metadata 和 unclean marker，再 close。
 5. 在替换 `ACTIVE` 前重读 exact pin/Floor/catalog/retention；Floor 已越过 candidate、session-bound pin 消失或 lineage 改变则关闭并丢弃安装、再重新选择。否则 fsync parent，写/fsync `ACTIVE.tmp`，atomic rename、fsync shard parent并 normal open。

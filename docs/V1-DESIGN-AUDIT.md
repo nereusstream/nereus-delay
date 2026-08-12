@@ -3051,6 +3051,19 @@ waiting and continuation path. This removes the local active/recovery queue
 drift; it remains local evidence and does not prove production Broker,
 Oxia-session, checkpoint/Object Store, Lane evidence or dynamic IO authority.
 
+After `0261cb5`, the local checkpoint restore path also has an explicit bounded
+work-class boundary. `CheckpointRestoreWorkClassExecutor` admits the exact
+manifest/resource/optional-pin identity and checked request bytes before the
+`CHECKPOINT` queue, repeats the pure validation after queue wait, and keeps the
+provider download, complete inventory validation and Store-Incarnation install
+inside the selected action. The focused coordinator regression proves that queue
+rejection does not call the provider or create staging, while success returns an
+explicit restore-owned outcome containing the installed Store. The direct
+`CheckpointRestoreCoordinator.restore` seam is package-local for tests/composition;
+cross-package Worker production code cannot bypass the queue. This closes local
+restore work-class drift only and leaves RecoveryPin/Oxia CAS, Object Store,
+Source Assignment/replay and production dynamic IO authority as release blockers.
+
 Worker 资源侧现在还提供了本地 `WorkerLoadVector` 与
 `WorkerPlacementPolicy`：它们先按完整 committed capacity、固定/transition
 demand 以及 owned/open DB slots 做 hard filter，再以 dominant-resource/load
