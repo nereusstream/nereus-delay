@@ -589,26 +589,17 @@ class DelayShardTest {
     }
 
     @Test
-    void publishAttemptLookupRejectsForeignSourcePosition() {
-        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("attempt-source-shard-mismatch"));
+    void publishAttemptConstructionRejectsForeignSourcePosition() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 66);
         final ShardId otherShardId = new ShardId(RouteIncarnation.random(), 67);
         final DelayMessageId messageId = DelayMessageId.random(shardId);
         final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("attempt-source-shard-mismatch-lane"));
         final byte[] attemptId = Bytes.sha256(Bytes.utf8("attempt-source-shard-mismatch-attempt"));
         final byte[] claimId = Bytes.sha256(Bytes.utf8("attempt-source-shard-mismatch-claim"));
-        final PublishAttemptLedger misplaced = PublishAttemptLedger.publishing(messageId, 0, attemptId, claimId, 1,
-                1, lane, new byte[16], Bytes.sha256(Bytes.utf8("attempt-owner")), new byte[16],
+        assertThrows(IllegalArgumentException.class, () -> PublishAttemptLedger.publishing(messageId, 0, attemptId,
+                claimId, 1, 1, lane, new byte[16], Bytes.sha256(Bytes.utf8("attempt-owner")), new byte[16],
                 Bytes.sha256(Bytes.utf8("attempt-prepared")), Bytes.utf8("attempt-admission"),
-                position(otherShardId, 0, 1_000).canonicalBytes());
-        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
-             ShardStore store = ShardStore.open(config, shardId, resources)) {
-            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
-            store.write(batch -> batch.putValue(ColumnFamily.INFLIGHT, PublishAttemptLedger.VALUE_TYPE,
-                    misplaced.encodedKey(), misplaced.encode()));
-
-            assertThrows(IllegalStateException.class, () -> shard.getPublishAttempt(attemptId, 1));
-        }
+                position(otherShardId, 0, 1_000).canonicalBytes()));
     }
 
     @Test
