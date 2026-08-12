@@ -98,7 +98,7 @@ class FilesystemPayloadObjectStoreTest {
             return;
         }
         final KeyPair keyPair = keyPair();
-        assertThrows(IllegalStateException.class, () -> new FilesystemPayloadObjectStore(root, profile(),
+        assertThrows(IllegalArgumentException.class, () -> new FilesystemPayloadObjectStore(root, profile(),
                 Bytes.sha256(Bytes.utf8("tenant")), trustSet(keyPair, 9_000), 7, keyPair.getPrivate()));
     }
 
