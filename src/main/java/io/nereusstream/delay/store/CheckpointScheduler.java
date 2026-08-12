@@ -99,6 +99,19 @@ public final class CheckpointScheduler {
         return List.copyOf(due.subList(0, claimed));
     }
 
+    /**
+     * Verifies that the supplied value is the exact claim currently held for
+     * its shard. A caller must perform this check before starting checkpoint
+     * I/O; completion still repeats the identity check after the I/O boundary.
+     */
+    public synchronized void requireCurrentClaim(final ScheduledCheckpoint claimed) {
+        Objects.requireNonNull(claimed, "claimed");
+        final State state = requireState(claimed.shardId());
+        if (!state.inFlight() || state.claim() != claimed) {
+            throw new IllegalStateException("checkpoint claim is no longer current: " + claimed.shardId());
+        }
+    }
+
     /** Reschedules a successfully completed or failed checkpoint attempt. */
     public synchronized long complete(final ScheduledCheckpoint claimed, final long completedAtEpochMs) {
         requireTime(completedAtEpochMs, "completedAtEpochMs");

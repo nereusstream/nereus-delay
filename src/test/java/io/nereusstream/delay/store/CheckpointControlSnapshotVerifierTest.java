@@ -63,10 +63,16 @@ class CheckpointControlSnapshotVerifierTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("identity-source"));
         final Path checkpoint = tempDir.resolve("identity-checkpoint");
         final CompatibleControlSnapshotV1 snapshot = controlSnapshot(shardId);
+        final KafkaSourcePosition appliedPosition = new KafkaSourcePosition(shardId, "cluster",
+                java.util.UUID.randomUUID(), 0, null, 1_000);
         final CheckpointManifest manifest;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             store.recordControlSnapshot(snapshot);
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(3), appliedPosition.canonicalBytes());
+                batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(5), Bytes.u64beBits(0));
+            });
             store.createCheckpoint(checkpoint, bytes(16, 10));
             manifest = manifestFor(checkpoint, shardId, store, bytes(16, 10), snapshot.snapshotDigest());
         }
@@ -99,8 +105,7 @@ class CheckpointControlSnapshotVerifierTest {
                 .map(file -> new CheckpointManifest.FileEntry(file.name(), file.length(), file.checksum(),
                         Bytes.utf8("object/" + file.name()), Bytes.utf8("version-1"), null))
                 .toList();
-        final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster", java.util.UUID.randomUUID(),
-                0, null, 1_000);
+        final KafkaSourcePosition position = (KafkaSourcePosition) store.appliedShardLogPosition();
         return new CheckpointManifest(checkpointId, bytes(16, 11), 0, null, null,
                 new CheckpointManifest.CreatedBy(bytes(8, 12), bytes(8, 13), 1),
                 new CheckpointManifest.CreatedAt(900, 1_000, "CERTIFIED_HOST_CLOCK", bytes(8, 14), 1, 2, 3,

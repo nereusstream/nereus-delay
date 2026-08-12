@@ -3,6 +3,8 @@ package io.nereusstream.delay.store;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
 import io.nereusstream.delay.protocol.ShardId;
+import io.nereusstream.delay.protocol.SourcePosition;
+import io.nereusstream.delay.protocol.SourcePositionCodec;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ColumnFamilyOptions;
@@ -35,7 +37,7 @@ final class CheckpointControlSnapshotVerifier {
 
     static void validate(final Path checkpointDirectory, final ShardId expectedShard,
                          final byte[] expectedDigest) {
-        validate(checkpointDirectory, expectedShard, expectedDigest, null, null, null);
+        validate(checkpointDirectory, expectedShard, expectedDigest, null, null, null, null);
     }
 
     /**
@@ -48,12 +50,13 @@ final class CheckpointControlSnapshotVerifier {
     static void validate(final Path checkpointDirectory, final CheckpointManifest manifest) {
         Objects.requireNonNull(manifest, "manifest");
         validate(checkpointDirectory, manifest.shardId(), manifest.controlStateDigest(),
-                manifest.dbIdentity(), manifest.sourceStoreIncarnation(), manifest.storeFormatVersion());
+                manifest.dbIdentity(), manifest.sourceStoreIncarnation(), manifest.storeFormatVersion(), manifest);
     }
 
     private static void validate(final Path checkpointDirectory, final ShardId expectedShard,
                                  final byte[] expectedDigest, final byte[] expectedDbIdentity,
-                                 final UUID expectedStoreIncarnation, final Integer expectedStoreFormat) {
+                                 final UUID expectedStoreIncarnation, final Integer expectedStoreFormat,
+                                 final CheckpointManifest expectedManifest) {
         Objects.requireNonNull(checkpointDirectory, "checkpointDirectory");
         Objects.requireNonNull(expectedShard, "expectedShard");
         Bytes.requireLength(expectedDigest, 32, "expectedDigest");
@@ -136,6 +139,33 @@ final class CheckpointControlSnapshotVerifier {
                 if (!Bytes.constantTimeEquals(snapshot.snapshotDigest(), expectedDigest)) {
                     throw new IllegalArgumentException("checkpoint control snapshot digest does not match manifest");
                 }
+                if (expectedManifest != null) {
+                    final byte[] checkpointId = requiredPayload(db, meta, 7, "checkpoint identity");
+                    if (!Bytes.constantTimeEquals(checkpointId, expectedManifest.checkpointId())) {
+                        throw new IllegalArgumentException("checkpoint identity does not match manifest");
+                    }
+                    final byte[] sourceBytes = requiredPayload(db, meta, 3, "applied source position");
+                    final SourcePosition sourcePosition;
+                    try {
+                        sourcePosition = SourcePositionCodec.decode(sourceBytes);
+                    } catch (IllegalArgumentException malformed) {
+                        throw new IllegalArgumentException("checkpoint source position is malformed", malformed);
+                    }
+                    if (!Bytes.constantTimeEquals(sourcePosition.canonicalBytes(),
+                            expectedManifest.appliedShardLogPosition().canonicalBytes())) {
+                        throw new IllegalArgumentException("checkpoint source position does not match manifest");
+                    }
+                    final byte[] mutationBytes = requiredPayload(db, meta, 5, "mutation sequence");
+                    if (mutationBytes.length != Long.BYTES
+                            || Bytes.readU64be(mutationBytes, 0) != expectedManifest.shardMutationSequence()) {
+                        throw new IllegalArgumentException("checkpoint mutation sequence does not match manifest");
+                    }
+                    final byte[] cursorBytes = requiredPayload(db, meta, 6, "evidence cursors");
+                    if (!StoreRuntimeMetadata.decodeEvidenceCursors(cursorBytes)
+                            .equals(expectedManifest.evidenceCursors())) {
+                        throw new IllegalArgumentException("checkpoint evidence cursors do not match manifest");
+                    }
+                }
             } catch (RocksDBException failure) {
                 throw new IllegalArgumentException("cannot open checkpoint RocksDB read-only", failure);
             }
@@ -159,6 +189,15 @@ final class CheckpointControlSnapshotVerifier {
                 throwUnchecked(cleanupFailure);
             }
         }
+    }
+
+    private static byte[] requiredPayload(final RocksDB db, final ColumnFamilyHandle meta,
+                                          final int keyKind, final String description) throws RocksDBException {
+        final byte[] encoded = db.get(meta, KeyCodec.metaFixed(keyKind));
+        if (encoded == null) {
+            throw new IllegalArgumentException("checkpoint RocksDB is missing " + description);
+        }
+        return ValueEnvelope.decode(encoded, META_FIXED_VALUE_TYPE).payload();
     }
 
     private static boolean hasManifestFile(final Path checkpointDirectory) {
