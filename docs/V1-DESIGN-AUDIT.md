@@ -5133,6 +5133,18 @@ passed on 2026-08-13; five real-Oxia smokes were skipped. The lower-level
 active executor remains a bounded action API, while real Broker consumer,
 ACK/commit/rewind and session evidence remain OPEN.
 
+Drain composition now binds the exact physical runtime. The public
+`OwnerDrainCoordinator` constructor requires a non-null shared WorkClass
+registry, while the no-registry compatibility constructor is package-local;
+an optional final checkpoint therefore cannot silently bypass the bounded
+`CHECKPOINT` class from package-external production wiring. Construction also
+requires the owned runtime and supplied Store to have the same ShardId and
+byte-equal Store Incarnation, in addition to the existing exact shared-resource
+instance check. Same-Shard foreign-Store rejection, focused drain/checkpoint
+coverage and the complete six-task local gate passed on 2026-08-13; five
+real-Oxia smokes skipped. External callbacks, Object Store/catalog publication
+and production Worker drain authority remain OPEN.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

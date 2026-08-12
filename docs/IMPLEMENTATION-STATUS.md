@@ -5436,6 +5436,15 @@ rejection 和低层 executor 聚焦测试及完整 6-task Gradle 门禁于 2026-
 真实 Oxia smoke 跳过。低层 active executor 仍是公开 bounded action，但真实
 Kafka/Pulsar consumer 必须由 coordinator 绑定 ACK/cursor/rewind；这些外部证据仍 OPEN。
 
+`OwnerDrainCoordinator` 的公开生产构造现在要求非空 shared WorkClass registry，不能
+以 `null` 静默退化到无 bounded final-checkpoint executor；无 registry 的四参数兼容
+构造保持 package-local。构造器还把 owned runtime 的 Store Incarnation 与传入
+`ShardStore` 做 exact equality fence，除已有 ShardId 和 shared-resource 实例校验外，
+同 Shard 的另一 DB incarnation 也会在任何 close/lease 操作前被拒绝。聚焦
+owner-drain/checkpoint 测试和完整 6-task Gradle 门禁于 2026-08-13 通过；5 个真实
+Oxia smoke 跳过。Object Store upload/catalog publication、真实 callback quiescence 与
+Worker drain wiring 仍为 OPEN release evidence。
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

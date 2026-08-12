@@ -1065,6 +1065,12 @@ key 或 registry 的 executor。活动 source apply 可以保留独立公开入�
 recovery-only submit 必须是 coordinator 内部原语，避免绕过 cursor 保留、bounded turn
 和最终 activation 顺序。
 
+`OwnerDrainCoordinator` 构造时必须证明 `OwnedDelayShard` runtime 与待关闭
+`ShardStore` 不仅 ShardId 相同，而且 Store Incarnation byte-equal；同一逻辑 Shard 的
+另一 DB incarnation 也不得被 drain。公开生产构造必须提供非空 shared
+`WorkClassExecutionRegistry`，使可选 final checkpoint 必然经过 bounded `CHECKPOINT`
+action；无 registry 的兼容构造只能包内使用，不能成为包外静默降级。
+
 Renewal CAS 必须保留 exact fencing/assignment/session identity 与当前
 lifecycle state；旧 Owner 携带的 stale state 不能通过续租把状态投影回退，expiry
 也只能单调延长。response loss 只能 reread 同一 identity、同一 state 的 successor。
