@@ -1370,6 +1370,14 @@ Checkstyle passed. Production Route retention, Oxia CAS/session, provider
 ownership/quiescence, grant release and Recovery-Floor orchestration remain OPEN;
 no strict replacement coordinator is claimed by this visibility change.
 
+After `ce21a99`, the recovery-only READY rewrite is also hidden from cross-package
+production composition. `DelayShard.rebuildReadyIndexes()` remains a package-local
+deterministic repair/test algorithm, and the existing reflection regression now
+requires this fifth method to remain non-public. Complete `DelayShardTest`,
+compilation and Checkstyle passed. The READY key/value/timeline integrity checks are
+unchanged; a future public repair coordinator still needs fenced lifecycle,
+Owner/Oxia authority and record/actual-byte/elapsed I/O admission.
+
 The local command projection now preserves the pinned timeline action boundary
 across `RESCHEDULE`. Apply-time validation and the later persistence
 normalization derive the new generation's `actionAt` from the prior runtime
@@ -2836,7 +2844,7 @@ or expiry work; valid close-owned `SCHEDULED`/`CLAIMED` generations remain
 discoverable until their normal materialization/admission path removes them.
 `DelayShardTest.timelineDiscoveryRejectsOrphanDueAndExpiryEntries` covers both
 discovery namespaces.
-The same exact-key requirement is enforced by `rebuildReadyIndexes` while it
+The same exact-key requirement is enforced by the package-local `rebuildReadyIndexes` while it
 reconstructs the per-Lane READY head; a current scheduled `MESSAGE` cannot
 legitimize a timeline entry whose eligibility/source token/generation key was
 altered. `DelayShardTest.readyRebuildRejectsTimelineKeyThatDiffersFromCurrentMessage`

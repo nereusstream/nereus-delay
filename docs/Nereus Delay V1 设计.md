@@ -1885,6 +1885,12 @@ nextEligibleAt =
 
 正常打开的 DB 必须物理上每 Lane 至多一个 READY key，并满足上述 gate/readiness 双向不变量。发现无法由 snapshot 并发解释的 orphan/stale key、schedulable Lane missing key、非 schedulable Lane 残留 key 或 version mismatch 时停止该 shard scheduling，告警并在 fenced 状态做 deterministic index rebuild；不允许依赖后台 GC，也不允许退化为全 timeline 热路径扫描。
 
+本地 deterministic repair 算法 `DelayShard.rebuildReadyIndexes()` 只允许作为
+`runtime` 包内恢复/测试 seam，不是跨包 Worker API。它会扫描 Lane/Timeline 并重写
+全部 READY projection；在生产恢复 coordinator 尚未把 fenced lifecycle、strict
+Owner/Oxia authority、record/actual-byte/elapsed I/O budget 与该 WriteBatch 绑定之前，
+包外调用者不能直接触发 rebuild。
+
 Expiry discovery 与 publish readiness 完全分离。每个仍可能因 `expireAt` 禁止未来 Admission 的 active generation，在 `timeline_cf/EXPIRY` 恰有一个：
 
 ```text

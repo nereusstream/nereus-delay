@@ -1244,6 +1244,15 @@ a test-only bridge absent from the main artifact. Complete `DelayShardTest` and
 removes an API-authority mismatch only; Route retention, Oxia, provider quiescence,
 grant release and Recovery-Floor coordinators are still release gates.
 
+After `ce21a99`, the same compiler boundary includes
+`DelayShard.rebuildReadyIndexes()`. This recovery-only algorithm scans Lane and
+Timeline projections and rewrites all READY keys, so exposing it without a fenced
+Owner/Oxia coordinator would create a direct mutation bypass. It is now
+runtime-package-only and covered by the existing non-public reflection regression;
+the full `DelayShardTest`, compilation and Checkstyle passed. This visibility change
+does not implement the still-open production repair coordinator or dynamic I/O
+admission.
+
 The command/runtime projection audit also closes a `RESCHEDULE` drift: the
 apply path and its persistence normalization now use the prior generation's
 same pinned `actionAt` (or re-derive the pinned Profile handoff boundary),
@@ -3502,7 +3511,7 @@ derived key 必须一致。orphan、terminal、旧 generation 或错挂的 DUE/E
 不会变成 publish/expiry work，而是直接 fail closed；Close 物化前仍合法的
 `SCHEDULED`/`CLAIMED` generation 继续可发现。证据为
 `DelayShardTest.timelineDiscoveryRejectsOrphanDueAndExpiryEntries`。
-`rebuildReadyIndexes` 在恢复每个 Lane 的 READY head 时也要求 candidate 的
+package-local `rebuildReadyIndexes` 在恢复每个 Lane 的 READY head 时也要求 candidate 的
 timeline key 是当前 `MESSAGE` 的 exact derived key；仅有当前 message 而时间、
 source token 或 generation key 被篡改，不能使 READY 恢复成功。证据为
 `DelayShardTest.readyRebuildRejectsTimelineKeyThatDiffersFromCurrentMessage`。
