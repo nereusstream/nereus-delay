@@ -1,0 +1,82 @@
+package io.nereusstream.delay.scheduler;
+
+import org.junit.jupiter.api.Test;
+
+import java.util.EnumMap;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class WorkClassEventLoopTest {
+    @Test
+    void resourceRejectionRestoresQueueAndReleasesEarlierTurnLeases() {
+        final AtomicLong now = new AtomicLong();
+        final EnumMap<WorkClass, WorkClassPolicy> policies = policies();
+        final WorkClassResourcePool resources = new WorkClassResourcePool(policies, 1, 64, 100, now::get);
+        final WorkClassEventLoop loop = new WorkClassEventLoop(
+                new WorkClassScheduler(policies, 100, now::get), resources);
+        loop.offer(new WorkClassTask(WorkClass.QUERY, "query-1", 8));
+        loop.offer(new WorkClassTask(WorkClass.QUERY, "query-2", 8));
+
+        assertThrows(IllegalStateException.class,
+                () -> loop.poll(new SchedulerBudget(2, 32, 1_000)));
+        assertEquals(2, loop.pending(WorkClass.QUERY));
+        assertEquals(0, resources.snapshot().activeLeases());
+
+        final WorkClassEventLoop.Turn turn = loop.poll(new SchedulerBudget(1, 32, 1_000));
+        assertEquals(List.of(new WorkClassTask(WorkClass.QUERY, "query-1", 8)), turn.tasks());
+        turn.close();
+        assertEquals(1, loop.pending(WorkClass.QUERY));
+        assertEquals(0, resources.snapshot().activeLeases());
+    }
+
+    @Test
+    void aTurnMustCloseBeforeTheNextBoundedPollAndCloseIsIdempotent() {
+        final AtomicLong now = new AtomicLong();
+        final WorkClassResourcePool resources = new WorkClassResourcePool(policies(), 1, 64, 100, now::get);
+        final WorkClassEventLoop loop = new WorkClassEventLoop(
+                new WorkClassScheduler(policies(), 100, now::get), resources);
+        loop.offer(new WorkClassTask(WorkClass.SOURCE_APPLY, "source-1", 8));
+
+        final WorkClassEventLoop.Turn turn = loop.poll(new SchedulerBudget(1, 32, 1_000));
+        assertFalse(turn.isClosed());
+        assertEquals(1, resources.snapshot().activeLeases());
+        assertThrows(IllegalStateException.class,
+                () -> loop.poll(new SchedulerBudget(1, 32, 1_000)));
+
+        turn.close();
+        turn.close();
+        assertTrue(turn.isClosed());
+        assertEquals(0, resources.snapshot().activeLeases());
+        assertTrue(loop.poll(new SchedulerBudget(1, 32, 1_000)).isEmpty());
+    }
+
+    @Test
+    void borrowedHoldViolationStillReleasesEveryLease() {
+        final AtomicLong now = new AtomicLong();
+        final WorkClassResourcePool resources = new WorkClassResourcePool(policies(), 2, 64, 10, now::get);
+        final WorkClassEventLoop loop = new WorkClassEventLoop(
+                new WorkClassScheduler(policies(), 100, now::get), resources);
+        loop.offer(new WorkClassTask(WorkClass.GC, "gc-1", 8));
+        final WorkClassEventLoop.Turn turn = loop.poll(new SchedulerBudget(1, 32, 1_000));
+
+        now.set(11);
+        assertThrows(IllegalStateException.class, turn::requireWithinBorrowedHold);
+        assertThrows(IllegalStateException.class, turn::close);
+        assertTrue(turn.isClosed());
+        assertEquals(0, resources.snapshot().activeLeases());
+    }
+
+    private static EnumMap<WorkClass, WorkClassPolicy> policies() {
+        final EnumMap<WorkClass, WorkClassPolicy> policies = new EnumMap<>(WorkClass.class);
+        for (WorkClass workClass : WorkClass.values()) {
+            policies.put(workClass, new WorkClassPolicy(1, 8, 64, 8, 32, 1_000,
+                    0, 0, workClass == WorkClass.LEASE_FENCE));
+        }
+        return policies;
+    }
+}

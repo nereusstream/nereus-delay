@@ -1,0 +1,219 @@
+package io.nereusstream.delay.scheduler;
+
+import java.util.List;
+import java.util.Objects;
+
+/**
+ * Local composition seam for the V1 Worker event loop.
+ *
+ * <p>{@link WorkClassScheduler} owns queue fairness and
+ * {@link WorkClassResourcePool} owns shared record/byte tokens.  This class
+ * binds them at the bounded-turn boundary: tokens are acquired immediately
+ * before a task leaves its queue, and the returned {@link Turn} must be closed
+ * before another turn can be polled.  A failed acquisition restores the
+ * scheduler queue and releases any tokens acquired earlier in that poll.</p>
+ *
+ * <p>The class does not execute callbacks, perform RocksDB writes, or claim
+ * Oxia authority.  Production code must perform those actions while holding a
+ * turn and keep the external write/admission authorities around this local
+ * seam.</p>
+ */
+public final class WorkClassEventLoop {
+    private final WorkClassScheduler scheduler;
+    private final WorkClassResourcePool resources;
+    private Turn activeTurn;
+
+    public WorkClassEventLoop(final WorkClassScheduler scheduler,
+                              final WorkClassResourcePool resources) {
+        this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
+        this.resources = Objects.requireNonNull(resources, "resources");
+    }
+
+    /** Offers bounded work without consuming a resource token while queued. */
+    public synchronized void offer(final WorkClassTask task) {
+        scheduler.offer(Objects.requireNonNull(task, "task"));
+    }
+
+    /**
+     * Removes one bounded turn and returns the exact token leases for it.
+     * Callers must close the returned turn after the bounded chunk finishes.
+     */
+    public synchronized Turn poll(final SchedulerBudget budget) {
+        Objects.requireNonNull(budget, "budget");
+        if (activeTurn != null && !activeTurn.isClosed()) {
+            throw new IllegalStateException("previous WorkClass turn must be closed before polling again");
+        }
+        final TurnBuilder builder = new TurnBuilder();
+        try {
+            final List<WorkClassTask> tasks = scheduler.poll(budget, task ->
+                    builder.add(resources.acquire(task.workClass(), 1, task.bytes())));
+            if (tasks.isEmpty()) {
+                builder.release();
+                return Turn.empty();
+            }
+            final List<WorkClassResourcePool.ResourceLease> leases = builder.snapshotLeases();
+            final Turn turn = new Turn(this, tasks, leases);
+            builder.clearAfterTransfer();
+            activeTurn = turn;
+            return turn;
+        } catch (RuntimeException | Error failure) {
+            try {
+                builder.release();
+            } catch (RuntimeException releaseFailure) {
+                failure.addSuppressed(releaseFailure);
+            }
+            throw failure;
+        }
+    }
+
+    public synchronized int pending(final WorkClass workClass) {
+        return scheduler.pending(workClass);
+    }
+
+    public synchronized long pendingBytes(final WorkClass workClass) {
+        return scheduler.pendingBytes(workClass);
+    }
+
+    private synchronized void finish(final Turn turn) {
+        if (activeTurn == turn) {
+            activeTurn = null;
+        }
+    }
+
+    private static final class TurnBuilder {
+        private final java.util.ArrayList<WorkClassResourcePool.ResourceLease> leases =
+                new java.util.ArrayList<>();
+
+        private void add(final WorkClassResourcePool.ResourceLease lease) {
+            leases.add(Objects.requireNonNull(lease, "resource lease"));
+        }
+
+        private List<WorkClassResourcePool.ResourceLease> snapshotLeases() {
+            return List.copyOf(leases);
+        }
+
+        private void clearAfterTransfer() {
+            leases.clear();
+        }
+
+        private void release() {
+            RuntimeException failure = null;
+            for (int index = leases.size() - 1; index >= 0; index--) {
+                try {
+                    leases.get(index).close();
+                } catch (RuntimeException closeFailure) {
+                    if (failure == null) {
+                        failure = closeFailure;
+                    } else {
+                        failure.addSuppressed(closeFailure);
+                    }
+                }
+            }
+            leases.clear();
+            if (failure != null) {
+                throw failure;
+            }
+        }
+    }
+
+    /** One bounded work turn and the exact resource leases acquired for it. */
+    public static final class Turn implements AutoCloseable {
+        private final WorkClassEventLoop owner;
+        private final List<WorkClassTask> tasks;
+        private final List<WorkClassResourcePool.ResourceLease> leases;
+        private boolean closed;
+
+        private Turn(final WorkClassEventLoop owner,
+                     final List<WorkClassTask> tasks,
+                     final List<WorkClassResourcePool.ResourceLease> leases) {
+            this.tasks = List.copyOf(tasks);
+            this.leases = List.copyOf(leases);
+            if (this.tasks.isEmpty()) {
+                if (owner != null || !this.leases.isEmpty()) {
+                    throw new IllegalArgumentException("empty turn cannot carry an owner or resource leases");
+                }
+                this.owner = null;
+            } else {
+                this.owner = Objects.requireNonNull(owner, "owner");
+                if (this.leases.size() != this.tasks.size()) {
+                    throw new IllegalArgumentException("non-empty turn must carry one lease per task");
+                }
+            }
+        }
+
+        private static Turn empty() {
+            return new Turn(null, List.of(), List.of());
+        }
+
+        public List<WorkClassTask> tasks() {
+            return tasks;
+        }
+
+        public boolean isEmpty() {
+            return tasks.isEmpty();
+        }
+
+        public synchronized boolean isClosed() {
+            return closed;
+        }
+
+        /** Checks every borrowed lease before the bounded chunk continues. */
+        public synchronized void requireWithinBorrowedHold() {
+            requireOpen();
+            for (WorkClassResourcePool.ResourceLease lease : leases) {
+                owner.resources.requireWithinBorrowedHold(lease);
+            }
+        }
+
+        /**
+         * Releases all tokens exactly once.  Hold-time/clock violations are
+         * reported after every lease has been released so a failed close does
+         * not strand shared capacity.
+         */
+        @Override
+        public synchronized void close() {
+            if (closed) {
+                return;
+            }
+            RuntimeException failure = null;
+            if (owner != null) {
+                for (WorkClassResourcePool.ResourceLease lease : leases) {
+                    try {
+                        owner.resources.requireWithinBorrowedHold(lease);
+                    } catch (RuntimeException holdFailure) {
+                        if (failure == null) {
+                            failure = holdFailure;
+                        } else {
+                            failure.addSuppressed(holdFailure);
+                        }
+                    }
+                }
+                for (int index = leases.size() - 1; index >= 0; index--) {
+                    try {
+                        leases.get(index).close();
+                    } catch (RuntimeException releaseFailure) {
+                        if (failure == null) {
+                            failure = releaseFailure;
+                        } else {
+                            failure.addSuppressed(releaseFailure);
+                        }
+                    }
+                }
+                owner.finish(this);
+            }
+            closed = true;
+            if (failure != null) {
+                throw failure;
+            }
+        }
+
+        private void requireOpen() {
+            if (closed) {
+                throw new IllegalStateException("WorkClass turn is already closed");
+            }
+            if (owner == null) {
+                throw new IllegalStateException("empty WorkClass turn has no resource hold");
+            }
+        }
+    }
+}

@@ -7,6 +7,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
 /**
@@ -66,7 +67,24 @@ public final class WorkClassScheduler {
 
     /** Polls a bounded turn, returning task identities without executing them. */
     public synchronized List<WorkClassTask> poll(final SchedulerBudget budget) {
+        return poll(budget, ignored -> {
+        });
+    }
+
+    /**
+     * Polls a bounded turn and invokes {@code beforeRemove} immediately before
+     * each selected head is removed.  The callback is part of the same local
+     * mutation boundary: if it rejects a task, the complete scheduler snapshot
+     * is restored and no selected task is returned.
+     *
+     * <p>This hook lets a Worker compose queue selection with a separate
+     * resource-token authority without acquiring tokens for work that remains
+     * queued.  The callback must not execute the task.</p>
+     */
+    public synchronized List<WorkClassTask> poll(final SchedulerBudget budget,
+                                                   final Consumer<WorkClassTask> beforeRemove) {
         Objects.requireNonNull(budget, "budget");
+        Objects.requireNonNull(beforeRemove, "beforeRemove");
         final SchedulerSnapshot before = snapshot();
         try {
             final long started = readClock();
@@ -99,6 +117,8 @@ public final class WorkClassScheduler {
                 // regression/invalid sample must fail closed without losing a
                 // durable-looking head from the in-memory bounded queue.
                 final long servedAtNanos = readClock();
+                final WorkClassTask head = state.queue.peekFirst();
+                beforeRemove.accept(Objects.requireNonNull(head, "selected work-class head"));
                 final WorkClassTask task = state.queue.removeFirst();
                 state.queuedBytes -= task.bytes();
                 final TurnUsage classUsage = usage.get(state.workClass);

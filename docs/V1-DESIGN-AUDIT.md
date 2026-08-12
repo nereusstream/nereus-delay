@@ -42,6 +42,17 @@ design, and a single frozen spec revision across the main design, Registry,
 ADR index, Status and Audit. This is governance evidence only; it does not
 turn the remaining external release gates into PASS.
 
+The local event-loop/resource composition gap is now closed without changing
+the V1 contract: `WorkClassEventLoop` uses the scheduler's atomic
+before-removal hook to acquire one exact record/byte lease per selected task,
+restores the queue/fairness snapshot and releases earlier leases when a later
+task is rejected, and requires the returned bounded `Turn` to close before a
+second poll. Borrowed-hold and monotonic-clock failures are reported after all
+leases are released. `WorkClassEventLoopTest` covers the rollback, one-turn
+fence, idempotent release and hold-time failure. This is local evidence only;
+callback execution, dynamic RocksDB attribution, WriteBatch/IO admission and
+production Worker wiring remain open release gates.
+
 After `c4391ca`, checkpoint restore admission covers the complete local
 download-to-install interval: `CheckpointRestoreCoordinator` acquires a
 Worker-wide idempotent permit before provider I/O, and the same permit remains
@@ -2694,7 +2705,10 @@ shared reservation，并以 `WorkerNativeResourceLedgerTest.sharedResourceCloseR
 普通 class），以及 stale-class
 选择；`WorkClassResourcePool` 还按 class 保护 non-borrowable record/byte
 minimum、把 acquisition checked-sum overflow 转成 closed rejection，并限制
-borrowed hold time；这些仍是本地 scheduler/resource seams。`WorkClassScheduler`
+borrowed hold time。`WorkClassEventLoop` 现在把两者绑定在 bounded-turn
+边界：任务仍在 queue 中时不占共享 token，任务即将移出 queue 时才取得
+exact lease；后续任务 admission 失败会恢复 scheduler projection 并释放前面
+已取得的 lease，上一 Turn 未关闭时下一次 poll 会 fail closed。`WorkClassScheduler`
 现在会在任何 queue head removal、deficit 扣减或 fairness counter 推进之前
 读取用于 `lastServed` 的单调时钟样本；负值/回拨样本只会 fail closed，不会丢掉
 仍由 bounded queue 支持的 head，回归证据为
@@ -3063,8 +3077,10 @@ probe 异常或 envelope mismatch 都会进入 drain/migrate，并可显式关�
 生命周期和共享资源 ownership fencing；`WorkClassSchedulerTest` 覆盖七个
 work-class 的 bounded queue/turn caps、lease/fence 抢占和 stale-class 选择。
 `WorkClassResourcePoolTest` 还覆盖 non-borrowable minimum、borrowed hold
-bound 和 acquisition overflow rejection。每 DB 的动态 RocksDB attribution、chunk-level token reacquisition 和
-write-time reserve admission 仍是 release gate。
+bound 和 acquisition overflow rejection，`WorkClassEventLoopTest` 覆盖组合层
+的 rollback、close 和 hold-time 边界。每 DB 的动态 RocksDB attribution、
+实际 chunk 执行、WriteBatch/IO reserve admission 和生产 Worker wiring 仍是
+release gate。
 Lease validity additionally rejects negative observation times even when a
 caller reaches `OwnerLease.validAt` directly rather than through an authority
 request; `OwnerLeaseTest.negativeClockCannotMakeOwnerLeaseValid` covers the
