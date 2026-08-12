@@ -5046,6 +5046,13 @@ to remove future work despite the shard-level time fence. Only
 regression, focused scheduler/due/Claim tests and complete local gate passed;
 production trusted-time issuance remains an external gate.
 
+The innermost Lane scheduler now follows the same rule: untimed poll is
+package-local, while its public poll requires an explicit due-through value.
+All three scheduler layers therefore reject API-level omission of the time
+boundary. The reflection regression, focused scheduler/due/Claim suites and
+complete local gate passed; this still does not prove production trusted-clock
+authority.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

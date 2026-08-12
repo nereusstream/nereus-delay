@@ -2203,6 +2203,8 @@ READY scan 由 `PersistentLaneScheduler` 的完整 evidence+budget overload 执�
 due-through，不能用 `Long.MAX_VALUE` 隐式选择尚未到期的 head。Worker 级 DRR
 的 `poll(budget)` 同样只保留 scheduler 包内；对外唯一 poll 形式必须显式携带
 due-through，并把它原样传到 shard-local scheduler。
+Lane、Persistent Shard、Worker 三层 scheduler 的对外 poll 契约因此完全一致：
+必须传显式 due-through；三层无时间 overload 都只是 scheduler 包内算法/兼容测试面。
 
 一次 discovery 成功只返回本轮新 promote 的 due heads；它不等于 Claim，也不能越过
 Claim materialization、permit、Ready Certificate 或 Publish Admission gate。queue 拒绝

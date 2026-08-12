@@ -5345,6 +5345,14 @@ public and propagates the same inclusive boundary to shard-local polling.
 Worker/Lane/due/Claim suites and the full local Gradle gate passed; five
 real-Oxia smoke methods remained opt-in and skipped.
 
+The innermost `LaneScheduler.poll(SchedulerBudget)` overload is package-local
+too. Its only main production caller was already the explicit due-through form
+from `PersistentLaneScheduler`; the untimed overload remains solely for
+same-package algorithm tests. Lane, persistent-shard and Worker scheduler
+public polling now uniformly requires a due-through timestamp. The shared
+scheduler reflection fence, focused Lane/Worker/due/Claim tests and complete
+local Gradle gate passed; five real-Oxia smoke methods remained skipped.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
