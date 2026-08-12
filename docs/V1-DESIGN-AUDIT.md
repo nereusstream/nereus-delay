@@ -5289,6 +5289,21 @@ injection between Schedule actionAt and Admission/recovery timing only;
 authenticated Profile publication, source-ordered activation and external Oxia
 authority remain OPEN.
 
+Large-payload Commit verification no longer lets the current body encoding
+choose a weaker authority than the durable Prepare. A Registry V1 Prepare pins
+the exact `PayloadProofTrustSetRefV1(version, semanticHash)` in its
+`V1ScheduleBinding`; a later legacy Commit body is still checked against that
+semantic and its source-ordered activation/issuance-close state. Only a legacy
+Prepare without the V1 binding can use the version-only compatibility verifier.
+`DelayShardTest.registryPrepareCannotDowngradeTrustSetAuthorityWithLegacyCommitBody`
+uses two different verifier keys with the same trust-set/key versions and
+proves that the fallback key is rejected while reservation/quota state remains
+unchanged. Code commit `897c0eec` and the complete six-task local Gradle gate
+passed on 2026-08-13; five real-Oxia smokes were skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was unset. This closes the local mixed-body
+downgrade only; authenticated trust-set publication, catalog durability,
+signer ACL and Recovery-Floor historical key retention remain OPEN.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
