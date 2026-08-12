@@ -41,6 +41,10 @@ public final class CheckpointUploadCoordinator {
         this.limits = Objects.requireNonNull(limits, "limits");
     }
 
+    SharedRocksDbResources resources() {
+        return resources;
+    }
+
     CheckpointUploadIntentV1 upload(final Path checkpointDirectory,
                                     final CheckpointUploadIntentV1 pending,
                                     final CheckpointManifest manifest,

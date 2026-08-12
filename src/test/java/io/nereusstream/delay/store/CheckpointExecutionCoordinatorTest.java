@@ -55,6 +55,25 @@ class CheckpointExecutionCoordinatorTest {
     }
 
     @Test
+    void executionRejectsPublicationBoundToAnotherWorkerResourceEnvelope() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 20);
+        final ShardStoreConfig storeConfig = ShardStoreConfig.defaults(tempDir.resolve("execution-store-resources"));
+        final ShardStoreConfig foreignConfig = ShardStoreConfig.defaults(
+                tempDir.resolve("execution-foreign-resources"));
+        final CheckpointScheduler scheduler = new CheckpointScheduler(100, 0, 1);
+        try (SharedRocksDbResources storeResources = new SharedRocksDbResources(storeConfig);
+             SharedRocksDbResources foreignResources = new SharedRocksDbResources(foreignConfig);
+             ShardStore store = ShardStore.open(storeConfig, shard, storeResources)) {
+            final CheckpointPublicationCoordinator foreignPublication = new CheckpointPublicationCoordinator(
+                    foreignResources, new CheckpointUploadIntentStore(), new RecoveryCatalog());
+
+            assertThrows(IllegalArgumentException.class,
+                    () -> new CheckpointExecutionCoordinator(scheduler, store, foreignPublication));
+            assertFalse(store.isCloseStarted());
+        }
+    }
+
+    @Test
     void retriesSamePhysicalCheckpointAfterCatalogResponseLoss() throws Exception {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 17);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("resources"));

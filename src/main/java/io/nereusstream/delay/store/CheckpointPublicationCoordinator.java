@@ -40,6 +40,10 @@ public final class CheckpointPublicationCoordinator {
         this.catalog = Objects.requireNonNull(catalog, "catalog");
     }
 
+    SharedRocksDbResources resources() {
+        return uploadCoordinator.resources();
+    }
+
     /**
      * Uploads one exact checkpoint and then binds its published object to the
      * expected catalog generation.  The catalog generation is checked before

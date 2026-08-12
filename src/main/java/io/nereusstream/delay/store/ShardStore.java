@@ -164,6 +164,7 @@ public final class ShardStore implements AutoCloseable {
         Objects.requireNonNull(config, "config");
         Objects.requireNonNull(shardId, "shardId");
         Objects.requireNonNull(resources, "resources");
+        resources.requireConfig(config);
         try {
             final Path shardRoot = prepareShardRoot(config, shardId);
             final Path dbPath = locateOrCreateDbPath(shardRoot);
@@ -202,6 +203,7 @@ public final class ShardStore implements AutoCloseable {
         Objects.requireNonNull(shardId, "shardId");
         Objects.requireNonNull(resources, "resources");
         Objects.requireNonNull(catalog, "catalog");
+        resources.requireConfig(config);
         final Path activeDb;
         try {
             final Path shardRoot = prepareShardRoot(config, shardId);
@@ -340,6 +342,7 @@ public final class ShardStore implements AutoCloseable {
         Objects.requireNonNull(resources, "resources");
         Objects.requireNonNull(checkpointPath, "checkpointPath");
         Objects.requireNonNull(limits, "limits");
+        resources.requireConfig(config);
         if (downloadPermit != null) {
             downloadPermit.requireActive(resources);
         }
@@ -947,6 +950,7 @@ public final class ShardStore implements AutoCloseable {
                                          final UUID restoreStoreIncarnation,
                                          final boolean acquireOwnedSlot,
                                          final boolean publishOpenMarkers) throws IOException, RocksDBException {
+        resources.requireConfig(config);
         boolean acquireSlotAcquired = false;
         boolean ownedSlotAcquired = false;
         boolean dbSlotAcquired = false;

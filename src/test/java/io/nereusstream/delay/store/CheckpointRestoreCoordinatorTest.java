@@ -138,13 +138,29 @@ class CheckpointRestoreCoordinatorTest {
                 manifest.checkpointId(), profile, Bytes.utf8("container"), Bytes.utf8("manifest"),
                 Bytes.utf8("version"), manifest.canonicalJsonBytes().length, manifest.manifestSha256());
         final ShardStoreConfig restoreConfig = ShardStoreConfig.defaults(tempDir.resolve("outside"));
-        final ShardStoreConfig resourceConfig = ShardStoreConfig.defaults(tempDir.resolve("outside-resources"));
-        try (SharedRocksDbResources resources = new SharedRocksDbResources(resourceConfig)) {
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(restoreConfig)) {
             final CheckpointRestoreCoordinator coordinator = new CheckpointRestoreCoordinator(
                     restoreConfig, shardId, resources, (request, target) -> tempDir.resolve("outside-return"), null,
                     CheckpointManifestLimits.unbounded());
             assertThrows(IllegalStateException.class,
                     () -> coordinator.restore(new CheckpointDownloadRequest(manifest, resource), null));
+        }
+    }
+
+    @Test
+    void constructorRejectsAConfigFromAnotherWorkerResourceEnvelopeBeforeProviderIo() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 14);
+        final ShardStoreConfig restoreConfig = ShardStoreConfig.defaults(tempDir.resolve("restore-config"));
+        final ShardStoreConfig resourceConfig = ShardStoreConfig.defaults(tempDir.resolve("restore-resources"));
+        final AtomicBoolean providerCalled = new AtomicBoolean();
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(resourceConfig)) {
+            assertThrows(IllegalArgumentException.class, () -> new CheckpointRestoreCoordinator(
+                    restoreConfig, shardId, resources, (request, target) -> {
+                        providerCalled.set(true);
+                        return target;
+                    }, null, CheckpointManifestLimits.unbounded()));
+            assertTrue(!providerCalled.get());
+            assertTrue(!Files.exists(restoreConfig.rootPath()));
         }
     }
 

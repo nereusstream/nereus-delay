@@ -74,6 +74,18 @@ class ShardStoreTest {
     }
 
     @Test
+    void openRejectsAConfigFromAnotherWorkerResourceEnvelopeBeforeFilesystemMutation() {
+        final ShardStoreConfig requested = ShardStoreConfig.defaults(tempDir.resolve("requested-worker-root"));
+        final ShardStoreConfig envelope = ShardStoreConfig.defaults(tempDir.resolve("resource-worker-root"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 99);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(envelope)) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> ShardStore.open(requested, shardId, resources));
+            assertFalse(Files.exists(requested.rootPath()));
+        }
+    }
+
+    @Test
     void boundedScanEnforcesActualBytesAndElapsedTime() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("bounded-scan"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 18);

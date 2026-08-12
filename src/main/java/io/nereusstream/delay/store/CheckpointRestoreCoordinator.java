@@ -36,6 +36,7 @@ public final class CheckpointRestoreCoordinator {
         this.config = Objects.requireNonNull(config, "config");
         this.shardId = Objects.requireNonNull(shardId, "shardId");
         this.resources = Objects.requireNonNull(resources, "resources");
+        this.resources.requireConfig(this.config);
         this.downloader = Objects.requireNonNull(downloader, "downloader");
         this.catalog = catalog;
         this.limits = Objects.requireNonNull(limits, "limits");

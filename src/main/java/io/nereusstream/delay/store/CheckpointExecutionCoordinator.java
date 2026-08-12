@@ -39,6 +39,10 @@ public final class CheckpointExecutionCoordinator {
         this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
         this.store = Objects.requireNonNull(store, "store");
         this.publicationCoordinator = Objects.requireNonNull(publicationCoordinator, "publicationCoordinator");
+        if (publicationCoordinator.resources() != store.sharedResources()) {
+            throw new IllegalArgumentException(
+                    "checkpoint publication resources are not the Store resource envelope");
+        }
     }
 
     /**

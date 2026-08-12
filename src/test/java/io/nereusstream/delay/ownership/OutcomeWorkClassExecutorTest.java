@@ -135,10 +135,9 @@ class OutcomeWorkClassExecutorTest {
         final OwnerLease lease = backend.acquire(assignment, "outcome-owner",
                 Bytes.sha256(Bytes.utf8("outcome-session-" + name)), 100, 100).orElseThrow();
         final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
-        final SharedRocksDbResources resources = new SharedRocksDbResources(
-                ShardStoreConfig.defaults(tempDir.resolve(name + "-resources")));
-        final ShardStore store = ShardStore.open(ShardStoreConfig.defaults(tempDir.resolve(name + "-store")),
-                shard, resources);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve(name + "-store"));
+        final SharedRocksDbResources resources = new SharedRocksDbResources(config);
+        final ShardStore store = ShardStore.open(config, shard, resources);
         final OwnerIdentityV1 owner = new OwnerIdentityV1(Bytes.utf8("outcome-deployment"),
                 Bytes.utf8("outcome-worker"), lease.ownerEpoch(),
                 Bytes.sha256(Bytes.utf8("outcome-fence")));

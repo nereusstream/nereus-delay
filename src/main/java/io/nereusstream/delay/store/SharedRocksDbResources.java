@@ -155,6 +155,14 @@ public final class SharedRocksDbResources implements AutoCloseable {
         return rateLimiter;
     }
 
+    /** Requires a Store operation to use the exact Worker resource configuration. */
+    void requireConfig(final ShardStoreConfig expected) {
+        if (!config.equals(Objects.requireNonNull(expected, "expected config"))) {
+            throw new IllegalArgumentException(
+                    "ShardStore config does not match the shared Worker resource envelope");
+        }
+    }
+
     /** Returns the native bucket ledger for envelope-bound Workers. */
     public synchronized WorkerNativeResourceLedger nativeResourceLedger() {
         ensureOpen();
