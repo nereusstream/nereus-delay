@@ -194,6 +194,21 @@ side-effect free. This closes only the local candidate-to-log composition
 seam; production expiry scanner scheduling, Broker append/ACK, Oxia/clock
 authority and source-ordered `EXPIRE_GENERATION` apply remain release gates.
 
+After `8eb97e4`, the independent reservation-expiry path has a bounded
+`GC`-class materializer. `ReservationExpiryWorkClassExecutor` binds the exact
+reservation id, Message id, expiry and state version before queue admission,
+performs no System Mutation or Source Position allocation, and rereads the
+strict Owner Lease and execution clock before touching RocksDB. The shard
+materializer atomically updates the reservation, `RESERVATION_EXPIRY` index and
+reservation quota only when the candidate still names the same `RESERVED`
+projection and the source-ordered `TIME_FENCE` watermark covers it; a newer
+Commit/Cancel/Lane Close projection is reported as `STALE` or
+`ALREADY_TERMINAL`. Queue rejection is mutation-free. The focused
+`ReservationExpiryWorkClassExecutorTest` covers success, rejection, stale
+candidate and Owner-expiry fencing. This closes only the local scanner-to-store
+composition seam; production GC scheduling, Oxia authority, Recovery-Floor and
+Object Store deletion evidence remain open.
+
 After `3ba6fb6`, persistent READY discovery is also behind a concrete
 `DUE_SCHEDULER` action. The task identity binds the exact Shard, canonical
 trusted-UTC evidence and all scan-budget fields; its charge reserves canonical
