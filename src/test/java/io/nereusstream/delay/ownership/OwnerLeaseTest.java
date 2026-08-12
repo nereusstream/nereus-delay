@@ -26,9 +26,11 @@ import io.nereusstream.delay.protocol.SystemMutation;
 import io.nereusstream.delay.protocol.SystemMutationType;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.runtime.ClaimRecord;
+import io.nereusstream.delay.runtime.CommandResult;
 import io.nereusstream.delay.runtime.DelayShard;
 import io.nereusstream.delay.runtime.DelayShardConfig;
 import io.nereusstream.delay.runtime.MessageStatus;
+import io.nereusstream.delay.runtime.SystemMutationResult;
 import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.ShardStoreConfig;
 import io.nereusstream.delay.store.SharedRocksDbResources;
@@ -777,7 +779,9 @@ class OwnerLeaseTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("catchup-replay"));
         final UUID topic = UUID.randomUUID();
         final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster", topic, 0, null, 1_000);
-        final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 1);
+        final KafkaSourcePosition duplicatePosition = new KafkaSourcePosition(shardId, "cluster", topic, 1,
+                null, 1_001);
+        final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 2);
         final PreparedCommand command = PreparedCommand.schedule(shardId,
                 new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("catchup-replay-lane")), 2_000, 5_000,
                         OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
@@ -786,13 +790,19 @@ class OwnerLeaseTest {
             final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("assignment-replay")), 1,
                     barrier));
-            assertEquals(io.nereusstream.delay.protocol.StableCode.SCHEDULED,
-                    owned.replayCatchup(List.of(new SourceReplayRecord(command, position, null, null)), 101)
-                            .get(0).stableCode());
-            assertEquals(position, owned.lastCatchupPosition());
+            final List<CommandResult> replayResults = owned.replayCatchup(List.of(
+                    new SourceReplayRecord(command, position, null, null),
+                    new SourceReplayRecord(command, duplicatePosition, null, null)), 101);
+            assertEquals(2, replayResults.size());
+            assertEquals(io.nereusstream.delay.protocol.StableCode.SCHEDULED, replayResults.get(0).stableCode());
+            assertEquals(io.nereusstream.delay.protocol.StableCode.SCHEDULED, replayResults.get(1).stableCode());
+            assertArrayEquals(position.canonicalBytes(), owned.shard().getCommandResult(command.commandId())
+                    .appliedSourcePosition());
+            assertArrayEquals(duplicatePosition.canonicalBytes(), replayResults.get(1).appliedSourcePosition());
+            assertEquals(duplicatePosition, owned.lastCatchupPosition());
             owned.activateForCommands(101);
             assertEquals(io.nereusstream.delay.protocol.StableCode.SCHEDULED,
-                    owned.apply(command, position, 101).stableCode());
+                    owned.apply(command, duplicatePosition, 101).stableCode());
             assertThrows(IllegalStateException.class,
                     () -> owned.replayCatchup(List.of(new SourceReplayRecord(command,
                             new KafkaSourcePosition(shardId, "cluster", topic, 0, null, 999), null, null)), 101));
@@ -1070,7 +1080,9 @@ class OwnerLeaseTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-catchup-replay"));
         final UUID topic = UUID.randomUUID();
         final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster", topic, 0, null, 1_000);
-        final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 1);
+        final KafkaSourcePosition duplicatePosition = new KafkaSourcePosition(shardId, "cluster", topic, 1,
+                null, 1_001);
+        final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 2);
         final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
         final KeyPair keyPair = generator.generateKeyPair();
         final TrustedUtcIntervalEvidence proof = new TrustedUtcIntervalEvidence(2_000, 2_000,
@@ -1088,10 +1100,16 @@ class OwnerLeaseTest {
             final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
             owned.markCatchingUp(new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("assignment-system-replay")),
                     1, barrier));
-            assertEquals(StableCode.OK, owned.replaySystemMutations(
-                    List.of(new SourceReplayMutation(mutation, position, null, null)), keyPair.getPublic(), 101)
-                    .get(0).stableCode());
-            assertEquals(position, owned.lastCatchupPosition());
+            final List<SystemMutationResult> replayResults = owned.replaySystemMutations(List.of(
+                    new SourceReplayMutation(mutation, position, null, null),
+                    new SourceReplayMutation(mutation, duplicatePosition, null, null)), keyPair.getPublic(), 101);
+            assertEquals(2, replayResults.size());
+            assertEquals(StableCode.OK, replayResults.get(0).stableCode());
+            assertEquals(StableCode.OK, replayResults.get(1).stableCode());
+            assertArrayEquals(position.canonicalBytes(), owned.shard().getSystemMutationResult(
+                    mutation.systemMutationId()).appliedSourcePosition());
+            assertArrayEquals(duplicatePosition.canonicalBytes(), replayResults.get(1).appliedSourcePosition());
+            assertEquals(duplicatePosition, owned.lastCatchupPosition());
             owned.activateForCommands(101);
             assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, owned.state());
         }

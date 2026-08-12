@@ -386,13 +386,26 @@ public final class OwnedDelayShard {
             final SourceReplayRecord record = sourcePeek(records);
             final SourcePosition position = record.position();
             validateReplayPosition(position, record.sourceConnectionGeneration(), record.guardAttestationDigest());
-            final CommandResult result;
+            final CommandResult appliedResult;
             try {
-                result = delegate.apply(record.command(), position);
+                appliedResult = delegate.apply(record.command(), position);
             } catch (ShardStore.RocksDbWriteFailure failure) {
                 state = ShardLifecycleState.FENCED;
                 throw failure;
             } catch (Error failure) {
+                state = ShardLifecycleState.FENCED;
+                throw failure;
+            }
+            final CommandResult result;
+            try {
+                // A logical duplicate keeps its durable result anchored at
+                // the first Source Position, but this type-specific replay
+                // result still describes the physical record just consumed.
+                // Validate that projection before advancing the cursor so a
+                // malformed result cannot create a position-ahead-of-cursor
+                // continuity claim.
+                result = replayCommandResultAt(position, appliedResult);
+            } catch (RuntimeException | Error failure) {
                 state = ShardLifecycleState.FENCED;
                 throw failure;
             }
@@ -469,9 +482,9 @@ public final class OwnedDelayShard {
             final SourceReplayMutation record = sourcePeek(records);
             final SourcePosition position = record.position();
             validateReplayPosition(position, record.sourceConnectionGeneration(), record.guardAttestationDigest());
-            final SystemMutationResult result;
+            final SystemMutationResult appliedResult;
             try {
-                result = delegate.applySystemMutation(record.mutation(), position, verificationKey);
+                appliedResult = delegate.applySystemMutation(record.mutation(), position, verificationKey);
             } catch (ShardStore.RocksDbWriteFailure failure) {
                 state = ShardLifecycleState.FENCED;
                 throw failure;
@@ -480,6 +493,16 @@ public final class OwnedDelayShard {
                 // consequence as an uncertain native WriteBatch: the source
                 // record must remain available for a fresh Store incarnation,
                 // and this Owner must not continue from an unproven image.
+                state = ShardLifecycleState.FENCED;
+                throw failure;
+            }
+            final SystemMutationResult result;
+            try {
+                // Keep the returned result aligned with the physical source
+                // entry while leaving the durable logical result anchored at
+                // its first application position.
+                result = replaySystemMutationResultAt(position, appliedResult);
+            } catch (RuntimeException | Error failure) {
                 state = ShardLifecycleState.FENCED;
                 throw failure;
             }
