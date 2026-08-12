@@ -45,14 +45,13 @@ public final class CheckpointRestoreCoordinator {
      * Downloads and installs one exact checkpoint. The returned Store remains
      * open; the provider download tree has already been removed.
      */
-    public ShardStore restore(final CheckpointDownloadRequest request, final RecoveryPinV1 pin) {
-        Objects.requireNonNull(request, "request");
-        if (!shardId.equals(request.manifest().shardId())) {
-            throw new IllegalArgumentException("checkpoint restore request belongs to another shard");
-        }
-        if (pin != null && catalog == null) {
-            throw new IllegalArgumentException("RecoveryPin requires a catalog authority");
-        }
+    /**
+     * Package-local physical restore seam. Cross-package Worker composition
+     * must use {@link CheckpointRestoreWorkClassExecutor} so the complete
+     * download-to-install interval enters the bounded CHECKPOINT class.
+     */
+    ShardStore restore(final CheckpointDownloadRequest request, final RecoveryPinV1 pin) {
+        requireRestoreSubmission(request, pin);
         final Path downloadRoot = config.rootPath().toAbsolutePath().normalize()
                 .resolve("checkpoint-download-tmp").normalize();
         final Path attemptRoot = downloadRoot.resolve(UUID.randomUUID().toString()).normalize();
@@ -98,6 +97,23 @@ public final class CheckpointRestoreCoordinator {
                 downloadPermit.close();
             }
         }
+    }
+
+    /**
+     * Side-effect-free admission check for one exact restore request. It does
+     * not read the catalog, touch the filesystem, acquire a slot, or call the
+     * provider; the physical restore repeats the same check after queue wait.
+     */
+    void requireRestoreSubmission(final CheckpointDownloadRequest request, final RecoveryPinV1 pin) {
+        final CheckpointDownloadRequest exact = Objects.requireNonNull(request, "request");
+        if (!shardId.equals(exact.manifest().shardId())) {
+            throw new IllegalArgumentException("checkpoint restore request belongs to another shard");
+        }
+        if (pin != null && catalog == null) {
+            throw new IllegalArgumentException("RecoveryPin requires a catalog authority");
+        }
+        exact.manifest().validateLimits(limits);
+        limits.validateResource(exact.resource());
     }
 
     private void validateDownloadedInventory(final Path directory, final CheckpointManifest manifest) {

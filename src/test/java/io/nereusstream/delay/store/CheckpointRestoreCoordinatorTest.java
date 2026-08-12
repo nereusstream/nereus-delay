@@ -16,13 +16,22 @@ import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.ShardSubjectV1;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
+import io.nereusstream.delay.scheduler.SchedulerBudget;
+import io.nereusstream.delay.scheduler.WorkClass;
+import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
+import io.nereusstream.delay.scheduler.WorkClassPolicy;
+import io.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
+import io.nereusstream.delay.scheduler.WorkClassTask;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.EnumMap;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -92,7 +101,17 @@ class CheckpointRestoreCoordinatorTest {
                         assertThrows(IllegalStateException.class, resources::acquireCheckpointDownloadSlot);
                         return filesystemDownloader.download(downloadRequest, target);
                     }, null, limits);
-            try (ShardStore restored = coordinator.restore(request, null)) {
+            final WorkClassExecutionRegistry workClasses = workClasses(1);
+            final CheckpointRestoreWorkClassExecutor executor = new CheckpointRestoreWorkClassExecutor(
+                    workClasses, coordinator);
+            final CheckpointRestoreWorkClassExecutor.Submission submission = executor.submit(
+                    new CheckpointRestoreWorkClassExecutor.RestoreRequest(request, null));
+            assertTrue(submission.outcome().isEmpty());
+            assertEquals(List.of(submission.task()), workClasses.runTurn(
+                    new SchedulerBudget(1, submission.task().bytes(), 1_000_000)));
+            final CheckpointRestoreWorkClassExecutor.RestoreOutcome outcome = submission.outcome().orElseThrow();
+            assertTrue(outcome.failure() == null);
+            try (ShardStore restored = outcome.restored()) {
                 assertArrayEquals(payload, restored.getValue(ColumnFamily.META, Bytes.utf8("restore-key"), 3).payload());
                 assertEquals(checkpointId.length, restored.runtimeMetadata().lastCheckpointId().length);
                 assertTrue(Files.isDirectory(restored.dbPath()));
@@ -126,6 +145,37 @@ class CheckpointRestoreCoordinatorTest {
                     CheckpointManifestLimits.unbounded());
             assertThrows(IllegalStateException.class,
                     () -> coordinator.restore(new CheckpointDownloadRequest(manifest, resource), null));
+        }
+    }
+
+    @Test
+    void restoreQueueRejectionDoesNotCallProviderOrCreateStaging() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 13);
+        final CheckpointManifest manifest = minimalManifest(shardId);
+        final ProfileRefV1 profile = new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, bytes(32, 70),
+                ProfileKindV1.OBJECT_STORE);
+        final CheckpointResourceV1 resource = new CheckpointResourceV1(manifest.recoveryLineageId(),
+                manifest.checkpointId(), profile, Bytes.utf8("container"), Bytes.utf8("manifest"),
+                Bytes.utf8("version"), manifest.canonicalJsonBytes().length, manifest.manifestSha256());
+        final Path restoreRoot = tempDir.resolve("queue-rejected-restore");
+        final ShardStoreConfig config = ShardStoreConfig.defaults(restoreRoot);
+        final AtomicBoolean providerCalled = new AtomicBoolean();
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+            final CheckpointRestoreCoordinator coordinator = new CheckpointRestoreCoordinator(config, shardId,
+                    resources, (request, target) -> {
+                        providerCalled.set(true);
+                        return target;
+                    }, null, CheckpointManifestLimits.unbounded());
+            final WorkClassExecutionRegistry workClasses = workClasses(1);
+            workClasses.submit(new WorkClassTask(WorkClass.CHECKPOINT, "occupied", 1), () -> {
+            });
+            final CheckpointRestoreWorkClassExecutor executor = new CheckpointRestoreWorkClassExecutor(
+                    workClasses, coordinator);
+            assertThrows(IllegalStateException.class, () -> executor.submit(
+                    new CheckpointRestoreWorkClassExecutor.RestoreRequest(
+                            new CheckpointDownloadRequest(manifest, resource), null)));
+            assertTrue(!providerCalled.get());
+            assertTrue(!Files.exists(restoreRoot.resolve("checkpoint-download-tmp")));
         }
     }
 
@@ -168,5 +218,21 @@ class CheckpointRestoreCoordinatorTest {
         return new TrustedUtcIntervalEvidence(time, time + 1,
                 TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, bytes(8, 60), 1, 2, 3,
                 bytes(32, 61), 0, null);
+    }
+
+    private static WorkClassExecutionRegistry workClasses(final int maxQueueRecords) {
+        final EnumMap<WorkClass, WorkClassPolicy> policies = new EnumMap<>(WorkClass.class);
+        for (WorkClass workClass : WorkClass.values()) {
+            final boolean protectedClass = switch (workClass) {
+                case LEASE_FENCE, SOURCE_APPLY, OUTCOME_AND_CONTROL, EXPIRY, DUE_SCHEDULER, GC -> true;
+                case QUERY, CHECKPOINT -> false;
+            };
+            policies.put(workClass, new WorkClassPolicy(1, maxQueueRecords, 1_000_000,
+                    maxQueueRecords, 1_000_000, 1_000_000,
+                    protectedClass ? 1 : 0, protectedClass ? 1 : 0,
+                    workClass == WorkClass.LEASE_FENCE));
+        }
+        return new WorkClassExecutionRegistry(new WorkClassRuntimeConfig(policies, 100, 100,
+                16, 2_000_000), new AtomicLong()::get);
     }
 }
