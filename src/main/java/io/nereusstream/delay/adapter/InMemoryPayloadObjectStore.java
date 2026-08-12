@@ -55,6 +55,7 @@ public final class InMemoryPayloadObjectStore {
     private final int proofKeyVersion;
     private final long maxUploadHandleLifetimeMs;
     private final PrivateKey proofSigningKey;
+    private final PayloadObjectBackend payloadBackend;
     private final Map<String, ReservationState> reservations = new HashMap<>();
 
     /**
@@ -80,6 +81,23 @@ public final class InMemoryPayloadObjectStore {
                                       final int proofKeyVersion,
                                       final long maxUploadHandleLifetimeMs,
                                       final PrivateKey proofSigningKey) {
+        this(profile, tenantRoutingScope, trustSet, proofKeyVersion, maxUploadHandleLifetimeMs,
+                proofSigningKey, new MemoryPayloadObjectBackend());
+    }
+
+    /**
+     * Creates the protocol state machine over an explicit immutable-byte
+     * backend. This package-private seam is used by the durable local
+     * filesystem adapter; production providers still need a separately
+     * authenticated adapter and authority transaction.
+     */
+    InMemoryPayloadObjectStore(final ProfileSemanticEnvelopeV1 profile,
+                               final byte[] tenantRoutingScope,
+                               final PayloadProofTrustSetSemanticV1 trustSet,
+                               final int proofKeyVersion,
+                               final long maxUploadHandleLifetimeMs,
+                               final PrivateKey proofSigningKey,
+                               final PayloadObjectBackend payloadBackend) {
         this.profile = Objects.requireNonNull(profile, "profile");
         if (profile.profileKind() != ProfileKindV1.OBJECT_STORE
                 || !(profile.body() instanceof ObjectStoreProfileSemanticV1 body)) {
@@ -95,6 +113,7 @@ public final class InMemoryPayloadObjectStore {
         }
         this.maxUploadHandleLifetimeMs = maxUploadHandleLifetimeMs;
         this.proofSigningKey = Objects.requireNonNull(proofSigningKey, "proofSigningKey");
+        this.payloadBackend = Objects.requireNonNull(payloadBackend, "payloadBackend");
         requireTrustKey(trustSet, proofKeyVersion);
         requireEd25519PrivateKey(proofSigningKey);
     }
@@ -218,8 +237,10 @@ public final class InMemoryPayloadObjectStore {
         Objects.requireNonNull(payload, "payload");
         requireNow(nowEpochMs);
         final ReservationState state = requireHandle(handle, nowEpochMs);
-        if (state.payload != null) {
-            if (Arrays.equals(state.payload, payload)) {
+        final String objectIdentity = objectIdentity(state.reservation);
+        final byte[] existing = payloadBackend.read(objectIdentity);
+        if (existing != null) {
+            if (Arrays.equals(existing, payload)) {
                 return;
             }
             throw new IllegalStateException("immutable Object Store object identity conflict");
@@ -231,7 +252,7 @@ public final class InMemoryPayloadObjectStore {
                 || !Bytes.constantTimeEquals(Bytes.sha256(payload), state.reservation.intent().payloadSha256())) {
             throw new IllegalArgumentException("payload length or SHA-256 does not match reservation");
         }
-        state.payload = Bytes.copy(payload);
+        payloadBackend.putIfAbsent(objectIdentity, payload, objectStore.maxObjectBytes());
     }
 
     /** Uploads through a receipt-bound API; receipt drift is rejected before bytes are accepted. */
@@ -268,9 +289,14 @@ public final class InMemoryPayloadObjectStore {
         if (lifecycle != null) {
             return attestationError(lifecycle, null);
         }
-        if (state.payload == null) {
+        final byte[] payload = payloadBackend.read(objectIdentity(state.reservation));
+        if (payload == null) {
             return attestationError(PayloadAttestationOutcomeV1.OBJECT_NOT_READY_RETRYABLE,
                     retryAt(state.reservation.reservationExpiryEpochMs(), nowEpochMs));
+        }
+        if (payload.length != state.reservation.intent().expectedPayloadLength()
+                || !Bytes.constantTimeEquals(Bytes.sha256(payload), state.reservation.intent().payloadSha256())) {
+            return attestationError(PayloadAttestationOutcomeV1.OBJECT_IDENTITY_CONFLICT, null);
         }
         if (state.proof != null) {
             return PayloadAttestationResponseV1.attested(state.proof);
@@ -279,7 +305,7 @@ public final class InMemoryPayloadObjectStore {
         if (nowEpochMs < key.verifyNotBeforeEpochMs() || nowEpochMs > key.verifyNotAfterEpochMs()) {
             return attestationError(PayloadAttestationOutcomeV1.INTEGRITY_ERROR, null);
         }
-        final byte[] payloadHash = Bytes.sha256(state.payload);
+        final byte[] payloadHash = Bytes.sha256(payload);
         final byte[] container = containerFor(profile);
         final byte[] objectKey = objectKeyFor(state.reservation);
         final byte[] immutableVersion = Bytes.concat(OBJECT_VERSION_PREFIX, Bytes.utf8(Bytes.hex(payloadHash)));
@@ -287,7 +313,7 @@ public final class InMemoryPayloadObjectStore {
         state.proof = PayloadCommitProofV1.signed(state.reservation.reservationId(), tenantRoutingScope,
                 state.reservation.shardId().routeIncarnation().bytes(), state.reservation.shardId().partition(),
                 state.reservation.delayMessageId(), profile.ref(), trustSet.version(), proofKeyVersion, container,
-                objectKey, immutableVersion, etag, state.payload.length, payloadHash,
+                objectKey, immutableVersion, etag, payload.length, payloadHash,
                 state.reservation.reservationExpiryEpochMs(), proofSigningKey);
         return PayloadAttestationResponseV1.attested(state.proof);
     }
@@ -441,6 +467,10 @@ public final class InMemoryPayloadObjectStore {
         return Bytes.concat(OBJECT_KEY_PREFIX, Bytes.utf8(key(reservation.reservationId())));
     }
 
+    private static String objectIdentity(final PayloadReservation reservation) {
+        return key(reservation.reservationId());
+    }
+
     private static PayloadUploadHandleResponseV1 uploadError(final PayloadUploadHandleOutcomeV1 outcome,
                                                               final Long retryAtEpochMs) {
         return PayloadUploadHandleResponseV1.error(outcome, error(stableCode(outcome), retryAtEpochMs));
@@ -544,7 +574,6 @@ public final class InMemoryPayloadObjectStore {
         private PayloadReservation reservation;
         private final PayloadReservation receiptAnchor;
         private final Map<UploadHandleKindV1, OpaquePayloadUploadHandleV1> handles = new HashMap<>();
-        private byte[] payload;
         private PayloadCommitProofV1 proof;
 
         private ReservationState(final PayloadReservation reservation) {
@@ -558,6 +587,33 @@ public final class InMemoryPayloadObjectStore {
                     && nowEpochMs <= handle.expiresAtEpochMs()
                     && handle.expiresAtEpochMs() <= reservation.reservationExpiryEpochMs()
                     && Objects.equals(handles.get(handle.kind()), handle);
+        }
+    }
+
+    private static final class MemoryPayloadObjectBackend implements PayloadObjectBackend {
+        private final Map<String, byte[]> values = new HashMap<>();
+
+        @Override
+        public synchronized byte[] read(final String objectIdentity) {
+            final byte[] value = values.get(Objects.requireNonNull(objectIdentity, "objectIdentity"));
+            return value == null ? null : Bytes.copy(value);
+        }
+
+        @Override
+        public synchronized void putIfAbsent(final String objectIdentity, final byte[] payload,
+                                              final long maxBytes) {
+            Objects.requireNonNull(objectIdentity, "objectIdentity");
+            Objects.requireNonNull(payload, "payload");
+            if (payload.length > maxBytes) {
+                throw new IllegalArgumentException("payload exceeds Object Store profile maximum");
+            }
+            final byte[] existing = values.get(objectIdentity);
+            if (existing != null && !Arrays.equals(existing, payload)) {
+                throw new IllegalStateException("immutable Object Store object identity conflict");
+            }
+            if (existing == null) {
+                values.put(objectIdentity, Bytes.copy(payload));
+            }
         }
     }
 }
