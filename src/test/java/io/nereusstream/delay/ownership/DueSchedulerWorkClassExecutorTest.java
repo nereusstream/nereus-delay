@@ -1,11 +1,21 @@
 package io.nereusstream.delay.ownership;
 
+import io.nereusstream.delay.protocol.ActiveLaneStateV1;
+import io.nereusstream.delay.protocol.AuthorIdentity;
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.CanonicalProtobuf;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.KafkaActivationBarrier;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.LaneRecordEnvelopeV1;
+import io.nereusstream.delay.protocol.LaneCircuitStateV1;
 import io.nereusstream.delay.protocol.OrderingMode;
+import io.nereusstream.delay.protocol.OwnerIdentityV1;
+import io.nereusstream.delay.protocol.ProfileKindV1;
+import io.nereusstream.delay.protocol.ProfileRefV1;
+import io.nereusstream.delay.protocol.ProtocolTestFixtures;
+import io.nereusstream.delay.protocol.PublishAdmissionBody;
+import io.nereusstream.delay.protocol.PublishAdmissionBodyTest;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
@@ -17,6 +27,7 @@ import io.nereusstream.delay.runtime.MessageStatus;
 import io.nereusstream.delay.runtime.ReadyIndexValue;
 import io.nereusstream.delay.runtime.RuntimeReadiness;
 import io.nereusstream.delay.runtime.TimelineEntry;
+import io.nereusstream.delay.scheduler.LaneScheduler;
 import io.nereusstream.delay.scheduler.PersistentLaneScheduler;
 import io.nereusstream.delay.scheduler.ScheduleWorkItem;
 import io.nereusstream.delay.scheduler.SchedulerBudget;
@@ -33,6 +44,7 @@ import io.nereusstream.delay.store.SharedRocksDbResources;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.ByteArrayOutputStream;
 import java.nio.file.Path;
 import java.util.EnumMap;
 import java.util.List;
@@ -60,7 +72,13 @@ class DueSchedulerWorkClassExecutorTest {
         final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
         final KafkaSourcePosition source = new KafkaSourcePosition(shard, "due-work-cluster", topic,
                 0, null, 1_000);
-        final DestinationLaneId laneId = DestinationLaneId.derive(Bytes.utf8("due-work-lane"));
+        final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("due-work-destination"), 1,
+                Bytes.sha256(Bytes.utf8("due-work-destination-semantic")), ProfileKindV1.DESTINATION);
+        final ProfileRefV1 capability = new ProfileRefV1(Bytes.utf8("due-work-capability"), 1,
+                Bytes.sha256(Bytes.utf8("due-work-capability-semantic")),
+                ProfileKindV1.DELIVERY_CAPABILITY);
+        final byte[] laneTuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
+        final DestinationLaneId laneId = DestinationLaneId.derive(laneTuple);
         final LaneRecord lane = new LaneRecord(laneId, incarnation(), 1, 1,
                 io.nereusstream.delay.runtime.AdmissionGate.OPEN, RuntimeReadiness.READY, 1, 2_000);
         final io.nereusstream.delay.protocol.DelayMessageId messageId =
@@ -86,15 +104,26 @@ class DueSchedulerWorkClassExecutorTest {
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
             owned.recordCatchup(source);
             owned.activateForCommands(authority, 101);
+            final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
+            final byte[] certificate = bindReadyCertificate(PublishAdmissionBody.decode(
+                    PublishAdmissionBodyTest.Fixture.createForSourceWithLane(shard, messageId, incarnation(),
+                            timelineKey, 1, 0, 0, Bytes.sha256(Bytes.utf8("due-work-obligations")),
+                            Bytes.sha256(Bytes.utf8("due-work-semantic")), laneId.bytes()).body())
+                    .readyCertificate().canonicalBytes(), scheduler.ownerIdentity(),
+                    store.metadata().storeIncarnation());
+            final ActiveLaneStateV1 activeLane = new ActiveLaneStateV1(laneId, incarnation(),
+                    io.nereusstream.delay.runtime.AdmissionGate.OPEN, RuntimeReadiness.READY, null,
+                    lane.laneControlVersion(), lane.laneVersion(), destination, capability, laneTuple, lane.weight(),
+                    zeroCharge(), 2_000L, 2_000L, LaneCircuitStateV1.CLOSED, 0, 0, 0, 0,
+                    readyKey, certificate, null);
             store.write(batch -> {
                 batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(laneId),
-                        LaneRecordEnvelopeV1.active(lane.encode()).canonicalBytes());
+                        LaneRecordEnvelopeV1.active(activeLane).canonicalBytes());
                 batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(messageId), message.encode());
                 batch.putValue(ColumnFamily.TIMELINE, 1, timelineKey,
                         new TimelineEntry(messageId, message.generation()).encode());
                 batch.putValue(ColumnFamily.TIMELINE, 3, readyKey, ready.encode());
             });
-            final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
             scheduler.register(lane);
             final WorkClassExecutionRegistry workClasses = workClasses(1);
             final DueSchedulerWorkClassExecutor executor = new DueSchedulerWorkClassExecutor(
@@ -106,6 +135,24 @@ class DueSchedulerWorkClassExecutorTest {
             assertEquals(0, scheduler.snapshot().lanes().get(0).pendingItems());
             workClasses.runTurn(new SchedulerBudget(1, 1_000_000, 1_000));
 
+            final TrustedUtcIntervalEvidence certificateBoundary = new TrustedUtcIntervalEvidence(
+                    8_000, 8_000, TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                    Bytes.utf8("due-work-expired-clock"), 1, 2, 2,
+                    Bytes.sha256(Bytes.utf8("due-work-expired-proof")), 0, null);
+            assertThrows(IllegalStateException.class,
+                    () -> scheduler.discoverReady(certificateBoundary, budget));
+            assertEquals(0, scheduler.snapshot().lanes().get(0).pendingItems());
+
+            final byte[] otherWorker = Bytes.utf8("due-work-other-owner");
+            final OwnerIdentityV1 otherOwner = new OwnerIdentityV1(Bytes.utf8("embedded-scheduler"),
+                    otherWorker, 2, Bytes.sha256(Bytes.utf8("due-work-other-owner-fence")));
+            final PersistentLaneScheduler otherOwnerScheduler = new PersistentLaneScheduler(
+                    store, LaneScheduler.defaults(), otherOwner);
+            otherOwnerScheduler.register(lane);
+            assertThrows(IllegalStateException.class,
+                    () -> otherOwnerScheduler.discoverReady(evidence, budget));
+            assertEquals(0, otherOwnerScheduler.snapshot().lanes().get(0).pendingItems());
+
             final DueSchedulerWorkClassExecutor.Submission submitted =
                     executor.submit(evidence, budget, () -> 101);
             assertEquals(16 + 4 + 4 + 8 + 8 + 4 + evidence.canonicalBytes().length + budget.maxBytes(),
@@ -116,6 +163,7 @@ class DueSchedulerWorkClassExecutorTest {
             assertEquals(List.of(messageId), submitted.discovered().orElseThrow().stream()
                     .map(ScheduleWorkItem::messageId).toList());
             assertEquals(0, workClasses.registeredActions());
+            assertEquals(1, scheduler.snapshot().lanes().get(0).pendingItems());
 
             final DueSchedulerWorkClassExecutor.Submission expired =
                     executor.submit(evidence, budget, () -> 200);
@@ -134,6 +182,50 @@ class DueSchedulerWorkClassExecutorTest {
         final byte[] bytes = new byte[16];
         bytes[15] = 1;
         return bytes;
+    }
+
+    private static PublishAdmissionBody.ChargeVector zeroCharge() {
+        return new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0);
+    }
+
+    private static byte[] bindReadyCertificate(final byte[] encoded, final OwnerIdentityV1 owner,
+                                               final byte[] storeIncarnation) {
+        final byte[] ownerAuthor = AuthorIdentity.owner(owner.deploymentId(), owner.workerRunId(),
+                owner.ownerEpoch(), owner.leaseFencingDigest()).canonicalBytes();
+        final byte[] prefix = CanonicalProtobuf.message(output -> {
+            final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(encoded);
+            while (reader.hasRemaining()) {
+                final CanonicalProtobuf.Reader.Field field = reader.next();
+                if (field.number() == 16) {
+                    break;
+                }
+                if (field.number() == 2) {
+                    CanonicalProtobuf.bytes(output, 2, ownerAuthor);
+                } else if (field.number() == 3) {
+                    CanonicalProtobuf.bytes(output, 3, storeIncarnation);
+                } else {
+                    writeField(output, field);
+                }
+            }
+        });
+        return CanonicalProtobuf.message(output -> {
+            final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(prefix);
+            while (reader.hasRemaining()) {
+                writeField(output, reader.next());
+            }
+            CanonicalProtobuf.bytes(output, 16,
+                    Bytes.sha256(Bytes.utf8("nereus-delay-ready-certificate-v1\0"), prefix));
+        });
+    }
+
+    private static void writeField(final ByteArrayOutputStream output,
+                                   final CanonicalProtobuf.Reader.Field field) {
+        if (field.wireType() == 0) {
+            CanonicalProtobuf.uint64Bits(output, field.number(), field.unsignedValue());
+        } else {
+            CanonicalProtobuf.bytes(output, field.number(), field.rawValue());
+        }
     }
 
     private static WorkClassExecutionRegistry workClasses(final int maxQueueRecords) {

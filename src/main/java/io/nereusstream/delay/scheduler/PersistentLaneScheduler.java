@@ -4,12 +4,14 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.ActiveLaneStateV1;
+import io.nereusstream.delay.protocol.AuthorIdentity;
 import io.nereusstream.delay.protocol.LaneRecordEnvelopeV1;
 import io.nereusstream.delay.protocol.OwnerIdentityV1;
 import io.nereusstream.delay.protocol.ReadyCertificateV1;
 import io.nereusstream.delay.protocol.SchedulerProjectionsV1;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
+import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.runtime.AdmissionGate;
 import io.nereusstream.delay.runtime.LaneRecord;
 import io.nereusstream.delay.runtime.MessageRecord;
@@ -253,6 +255,24 @@ public final class PersistentLaneScheduler {
      */
     public synchronized List<ScheduleWorkItem> discoverReady(final long dueThroughEpochMs,
                                                               final SchedulerBudget budget) {
+        return discoverReady(dueThroughEpochMs, null, budget);
+    }
+
+    /**
+     * Production READY discovery with the complete trusted-time interval.
+     * Besides using its earliest bound for due eligibility, this path binds
+     * every typed READY certificate to the current scheduler Owner, Store
+     * Incarnation and latest pre-expiry bound before promoting a head.
+     */
+    public synchronized List<ScheduleWorkItem> discoverReady(final TrustedUtcIntervalEvidence evidence,
+                                                              final SchedulerBudget budget) {
+        final TrustedUtcIntervalEvidence trusted = Objects.requireNonNull(evidence, "evidence");
+        return discoverReady(trusted.earliestEpochMs(), trusted, budget);
+    }
+
+    private List<ScheduleWorkItem> discoverReady(final long dueThroughEpochMs,
+                                                  final TrustedUtcIntervalEvidence evidence,
+                                                  final SchedulerBudget budget) {
         requireDueThrough(dueThroughEpochMs);
         Objects.requireNonNull(budget, "budget");
         if (!persistedRestored) {
@@ -284,7 +304,7 @@ public final class PersistentLaneScheduler {
                     break;
                 }
                 scannedBytes = Math.addExact(scannedBytes, entryBytes);
-                final ReadyProjection projection = decodeReadyProjection(entry);
+                final ReadyProjection projection = decodeReadyProjection(entry, evidence);
                 if (!scannedLanes.add(projection.lane().laneId())) {
                     throw new IllegalStateException("multiple READY heads discovered for Lane: "
                             + projection.lane().laneId());
@@ -707,6 +727,11 @@ public final class PersistentLaneScheduler {
     }
 
     private ReadyProjection decodeReadyProjection(final ShardStore.KeyValue entry) {
+        return decodeReadyProjection(entry, null);
+    }
+
+    private ReadyProjection decodeReadyProjection(final ShardStore.KeyValue entry,
+                                                   final TrustedUtcIntervalEvidence evidence) {
         final ReadyKey key = decodeReadyKey(entry.key());
         final ReadyIndexValue value = ReadyIndexValue.decode(
                 ValueEnvelope.decode(entry.value(), 3).payload());
@@ -768,7 +793,7 @@ public final class PersistentLaneScheduler {
         }
         final ActiveLaneStateV1 typedLane = readTypedLane(lane);
         if (typedLane != null) {
-            validateTypedReadyProjection(typedLane, entry.key(), key);
+            validateTypedReadyProjection(typedLane, entry.key(), key, evidence);
             final long actionAt = timeline == null
                     ? (currentWork == null ? message.deliverAtEpochMs() : currentWork.actionAtEpochMs())
                     : timeline.actionAtEpochMs();
@@ -779,6 +804,8 @@ public final class PersistentLaneScheduler {
                 throw new IllegalStateException("typed READY action/eligibility projection disagrees with current head: "
                         + value.messageId());
             }
+        } else if (evidence != null) {
+            throw new IllegalStateException("strict READY discovery requires a typed ACTIVE Lane projection");
         }
         final long accountedBytes = Math.max(1, message.payloadLength());
         return new ReadyProjection(lane, new ScheduleWorkItem(key.laneId(), value.messageId(), value.generation(),
@@ -792,9 +819,10 @@ public final class PersistentLaneScheduler {
      * Lane/version/time fields would allow a future codec revision to omit the
      * key or certificate while still rebuilding a claimable head.
      */
-    private static void validateTypedReadyProjection(final ActiveLaneStateV1 state,
-                                                     final byte[] physicalReadyKey,
-                                                     final ReadyKey decodedReadyKey) {
+    private void validateTypedReadyProjection(final ActiveLaneStateV1 state,
+                                              final byte[] physicalReadyKey,
+                                              final ReadyKey decodedReadyKey,
+                                              final TrustedUtcIntervalEvidence evidence) {
         if (state.runtimeReadiness() != RuntimeReadiness.READY || state.admissionGate() != AdmissionGate.OPEN) {
             throw new IllegalStateException("typed READY projection belongs to a non-schedulable Lane");
         }
@@ -812,9 +840,30 @@ public final class PersistentLaneScheduler {
             throw new IllegalStateException("typed READY key fields disagree with Lane state");
         }
         try {
-            ReadyCertificateV1.decode(readyCertificate);
+            final ReadyCertificateV1 certificate = ReadyCertificateV1.decode(readyCertificate);
+            if (evidence != null) {
+                validateLiveReadyCertificate(certificate, evidence);
+            }
         } catch (IllegalArgumentException malformedCertificate) {
             throw new IllegalStateException("typed READY projection carries an invalid certificate", malformedCertificate);
+        }
+    }
+
+    private void validateLiveReadyCertificate(final ReadyCertificateV1 certificate,
+                                               final TrustedUtcIntervalEvidence evidence) {
+        final byte[] expectedOwner = AuthorIdentity.owner(owner.deploymentId(), owner.workerRunId(),
+                owner.ownerEpoch(), owner.leaseFencingDigest()).canonicalBytes();
+        if (!Arrays.equals(certificate.ownerIdentity(), expectedOwner)) {
+            throw new IllegalArgumentException("READY certificate belongs to a different scheduler Owner");
+        }
+        if (!Arrays.equals(certificate.storeIncarnation(), store.metadata().storeIncarnation())) {
+            throw new IllegalArgumentException("READY certificate belongs to a different Store Incarnation");
+        }
+        if (evidence.earliestEpochMs() < certificate.issuedAt().latestEpochMs()) {
+            throw new IllegalArgumentException("READY discovery evidence predates certificate issuance");
+        }
+        if (evidence.latestEpochMs() >= certificate.validUntilEpochMs()) {
+            throw new IllegalArgumentException("READY certificate is not live through the trusted UTC interval");
         }
     }
 

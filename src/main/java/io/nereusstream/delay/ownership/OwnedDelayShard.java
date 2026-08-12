@@ -236,8 +236,8 @@ public final class OwnedDelayShard {
         final long nowEpochMs = readActiveWorkClock(clock, "due scheduler");
         ensureAuthoritativeActive(authority, nowEpochMs, "due scheduler discovery");
         try {
-            return scheduler.discoverReady(Objects.requireNonNull(evidence, "trusted UTC evidence")
-                    .earliestEpochMs(), Objects.requireNonNull(budget, "scheduler budget"));
+            return scheduler.discoverReady(Objects.requireNonNull(evidence, "trusted UTC evidence"),
+                    Objects.requireNonNull(budget, "scheduler budget"));
         } catch (RuntimeException | Error failure) {
             state = ShardLifecycleState.FENCED;
             throw failure;
