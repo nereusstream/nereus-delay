@@ -4292,6 +4292,22 @@ full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
 real-Oxia methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was
 unset; this remains local regression evidence only.
 
+The Recovery Catalog snapshot encoder now also rejects a non-null manifest set
+whose `catalogShard` does not match its manifests, and rejects a non-empty
+manifest set without a shard identity. After the explicit resource/identity
+checks, it reuses the local snapshot validator so ancestry, scalar/typed Floor,
+generation and shard relationships cannot be encoded into bytes that the
+decoder would refuse. `OxiaSyncRecoveryCatalogBackendTest`
+`rejectsCatalogShardIdentityThatDoesNotMatchManifestBeforeEncodingSnapshot`
+covers the cross-shard case. This remains a local serialization-integrity
+fence; it does not add external recovery authority.
+
+After this complete snapshot-structure fence, the focused catalog test and the
+full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
+2026-08-12 (`BUILD SUCCESSFUL`, five executed tasks). The five opt-in
+real-Oxia methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was
+unset; this remains local regression evidence only.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

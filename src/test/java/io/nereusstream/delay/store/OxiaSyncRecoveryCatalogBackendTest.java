@@ -239,6 +239,18 @@ class OxiaSyncRecoveryCatalogBackendTest {
     }
 
     @Test
+    void rejectsCatalogShardIdentityThatDoesNotMatchManifestBeforeEncodingSnapshot() {
+        final ShardId manifestShard = new ShardId(RouteIncarnation.random(), 22);
+        final ShardId catalogShard = new ShardId(RouteIncarnation.random(), 23);
+        final CheckpointManifest manifest = manifest(manifestShard, id16(56), id16(57), 0, 1, 1, null);
+        final RecoveryCatalog.Snapshot snapshot = new RecoveryCatalog.Snapshot(
+                1, catalogShard, java.util.List.of(manifest), Map.of(), null, null, null);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> OxiaSyncRecoveryCatalogBackend.encodeSnapshot(snapshot));
+    }
+
+    @Test
     void rejectsUnsupportedRecoveryPinBeforeEncodingSnapshot() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 21);
         final CheckpointManifest manifest = manifest(shard, id16(50), id16(51), 0, 1, 1, null);

@@ -4028,6 +4028,22 @@ full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
 real-Oxia methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was
 unset; this remains local evidence only.
 
+The Catalog encoder now validates the complete local snapshot structure
+before emitting bytes: manifest presence must carry the matching shard
+identity, and the existing local validator checks manifest ancestry, Floor
+projections and generation relationships. A cross-shard `catalogShard` is
+rejected by `OxiaSyncRecoveryCatalogBackendTest`
+`rejectsCatalogShardIdentityThatDoesNotMatchManifestBeforeEncodingSnapshot`.
+This prevents a direct encoder caller from producing a record that cannot be
+reopened by the canonical decoder; it does not claim external Oxia recovery
+authority.
+
+After this complete snapshot-structure fence, the focused catalog test and the
+full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
+2026-08-12 (`BUILD SUCCESSFUL`, five executed tasks). The five opt-in
+real-Oxia methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was
+unset; this remains local evidence only.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

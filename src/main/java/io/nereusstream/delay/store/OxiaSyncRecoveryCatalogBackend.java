@@ -337,6 +337,15 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
                 throw new IllegalStateException("Oxia catalog resource identity does not match a manifest");
             }
         }
+        if (!manifests.isEmpty() && snapshot.catalogShard() == null) {
+            throw new IllegalArgumentException("Oxia catalog snapshot is missing its shard identity");
+        }
+        // Reuse the local catalog's complete projection validator so direct
+        // encoder callers cannot emit bytes whose shard, ancestry, Floor or
+        // generation relationships would fail on the next decode. The
+        // explicit identity checks above remain first so malformed maps fail
+        // at this boundary without being normalized by Map.copyOf().
+        RecoveryCatalog.fromSnapshot(snapshot);
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, SNAPSHOT_VERSION);
             CanonicalProtobuf.uint64Bits(output, 2, snapshot.catalogGeneration());
