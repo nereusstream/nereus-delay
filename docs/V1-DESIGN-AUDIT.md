@@ -87,6 +87,15 @@ cleanup. The two-task dispatcher regression proves the trailing selected task
 is invoked rather than silently lost. This is local event-loop isolation
 evidence; it does not provide production handler durability or IO authority.
 
+After `70d65c2`, a fatal handler or borrowed-hold stop returns the exact
+never-invoked suffix of the selected Turn to the fronts of its class queues in
+original selection order. The handler-started task is not implicitly requeued,
+while selected record/byte capacity remains reserved against concurrent offers
+until the active Turn closes. The focused dispatcher and event-loop regressions
+cover fatal suffix retention, a pre-handler hold failure and capacity
+reservation. This is local queue-integrity evidence; durable production task
+identity, handler side-effect recovery and Worker IO authority remain open.
+
 After `9663927`, every exact `PUBLISHED` successor observed after acquiring the
 Worker checkpoint-upload slot is subjected to the same bounded-resource and
 canonical-manifest binding checks as the initial read. A concurrent publisher
@@ -97,7 +106,7 @@ regression covers the mismatched-length race. This is local fail-closed
 publication integrity evidence, not proof of production Object Store or Oxia
 cross-record transaction authority.
 
-The synchronized full local gate then passed on 2026-08-12 with 1218 reported
+The synchronized full local gate then passed on 2026-08-12 with 1221 reported
 tests, zero failures/errors and five skipped opt-in real-Oxia methods because
 the endpoint was unset. `checkDocumentation` and `checkstyleMain` passed in the
 same `clean check --rerun-tasks` run. This verifies the repository-local change
@@ -2822,8 +2831,10 @@ exact lease；后续任务 admission 失败会恢复 scheduler projection 并释
 不持有 event-loop monitor 的情况下执行一个 bounded callback sequence，并在
 每个 callback 前后检查 borrowed hold、无论 callback 成功还是失败都关闭所有
 lease。`WorkClassDispatcher` 在这一层之上要求八类 handler 完整覆盖，并把
-selected task 路由到对应 handler；handler failure 仍沿用同一 lease cleanup，
-不会隐式 requeue。`WorkClassScheduler`
+selected task 路由到对应 handler；已经进入 handler 的 task 不做隐式 requeue，
+fatal/hold stop 之后从未进入 handler 的 exact suffix 则按原 selection order 回到
+各 class 队首。active Turn 还保留 selected queue capacity，避免并发 offer 挤掉
+该安全 requeue 空间。`WorkClassScheduler`
 现在会在任何 queue head removal、deficit 扣减或 fairness counter 推进之前
 读取用于 `lastServed` 的单调时钟样本；负值/回拨样本只会 fail closed，不会丢掉
 仍由 bounded queue 支持的 head，回归证据为

@@ -1833,7 +1833,12 @@ close 又以相反顺序清除 event-loop 状态；该可见性必须使用 lock
 borrowed-hold 检查仍通过，event loop 必须继续执行该 Turn 的剩余 task，最后重新抛出
 首个 handler failure，并把后续 handler/close failure 作为 suppressed evidence。
 fatal `Error` 或 hold-boundary failure 仍立即停止 handler 执行并进入全 lease cleanup；
-已经调用过 handler 的 task 不做不安全的隐式 requeue。
+已经调用过 handler 的 task 不做不安全的隐式 requeue。停止点之后、尚未调用过
+handler 的 exact trailing tasks 必须按原 selection order 放回各自 class 的队首，
+保持 class-local FIFO 和 queued-bytes；active Turn 关闭前还必须为全部 selected tasks
+保留原 queue record/byte capacity，使并发 offer 不能占用这块恢复空间。这样 fatal
+handler 或首个 borrowed-hold 检查既不会重复可能已有副作用的 task，也不会丢失从未
+开始的 task；requeue/cleanup 的后续 failure 只作为首个 failure 的 suppressed evidence。
 
 Worker 外层 bounded poll 也必须是一个完整的进程内 mutation boundary：它除了外层
 ring、cursor、Shard deficit、last-served、round generation 与 recovery-first-pass
