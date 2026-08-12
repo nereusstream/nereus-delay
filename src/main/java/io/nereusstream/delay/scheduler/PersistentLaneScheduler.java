@@ -376,7 +376,7 @@ public final class PersistentLaneScheduler {
                 Math.max(1, ringGeneration));
     }
 
-    public synchronized void offer(final ScheduleWorkItem item) {
+    synchronized void offer(final ScheduleWorkItem item) {
         delegate.offer(item);
     }
 

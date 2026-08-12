@@ -76,7 +76,7 @@ public final class WorkerScheduler {
         requireShard(shardId).scheduler.register(lane);
     }
 
-    public synchronized void offer(final ScheduleWorkItem item) {
+    synchronized void offer(final ScheduleWorkItem item) {
         final ShardId shardId = item.messageId().routingId().shardId();
         requireShard(shardId).scheduler.offer(item);
     }

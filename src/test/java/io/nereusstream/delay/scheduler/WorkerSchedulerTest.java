@@ -22,6 +22,8 @@ class WorkerSchedulerTest {
     void untimedWorkerPollIsNotPublicProductionApi() throws Exception {
         assertFalse(java.lang.reflect.Modifier.isPublic(WorkerScheduler.class
                 .getDeclaredMethod("poll", SchedulerBudget.class).getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(WorkerScheduler.class
+                .getDeclaredMethod("offer", ScheduleWorkItem.class).getModifiers()));
     }
 
     @Test

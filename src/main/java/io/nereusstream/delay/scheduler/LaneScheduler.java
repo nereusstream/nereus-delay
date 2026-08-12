@@ -81,7 +81,7 @@ public final class LaneScheduler {
         }
     }
 
-    public synchronized void offer(final ScheduleWorkItem item) {
+    synchronized void offer(final ScheduleWorkItem item) {
         final LaneQueue lane = requireLane(item.laneId());
         lane.queue.addLast(item);
     }
