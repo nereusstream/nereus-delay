@@ -85,21 +85,43 @@ public final class WorkClassEventLoop {
         if (turn.isEmpty()) {
             return;
         }
+        Throwable primaryFailure = null;
         try {
             for (WorkClassTask task : turn.tasks()) {
                 turn.requireWithinBorrowedHold();
-                executor.accept(task);
+                try {
+                    executor.accept(task);
+                } catch (RuntimeException handlerFailure) {
+                    // Every task in the Turn has already left its bounded
+                    // queue. A normal handler failure owns that task's durable
+                    // retry identity, but it must not silently discard later
+                    // selected tasks. Continue while the resource hold remains
+                    // valid, then propagate the first handler failure.
+                    primaryFailure = appendFailure(primaryFailure, handlerFailure);
+                }
                 turn.requireWithinBorrowedHold();
             }
         } catch (RuntimeException | Error failure) {
-            try {
-                turn.close();
-            } catch (RuntimeException | Error closeFailure) {
-                failure.addSuppressed(closeFailure);
-            }
-            throw failure;
+            primaryFailure = appendFailure(primaryFailure, failure);
         }
-        turn.close();
+        try {
+            turn.close();
+        } catch (RuntimeException | Error closeFailure) {
+            primaryFailure = appendFailure(primaryFailure, closeFailure);
+        }
+        if (primaryFailure != null) {
+            throwUnchecked(primaryFailure);
+        }
+    }
+
+    private static Throwable appendFailure(final Throwable first, final Throwable failure) {
+        if (first == null) {
+            return failure;
+        }
+        if (failure != first) {
+            first.addSuppressed(failure);
+        }
+        return first;
     }
 
     public synchronized int pending(final WorkClass workClass) {
