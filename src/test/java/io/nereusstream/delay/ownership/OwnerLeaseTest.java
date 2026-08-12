@@ -516,6 +516,35 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void strictActivationFencesBeforeLocalWriteAfterAuthoritativeOwnerReplacement() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 44);
+        final UUID topic = UUID.randomUUID();
+        final SourceAssignment assignment = new SourceAssignment(shardId,
+                Bytes.sha256(Bytes.utf8("replacement-activation-assignment")), 1,
+                new KafkaActivationBarrier(shardId, "cluster", topic, 0));
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = backend.acquire(assignment, "worker-replacement-activation",
+                Bytes.sha256(Bytes.utf8("replacement-activation-session")), 100, 100).orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("replacement-activation"));
+        final CompatibleControlSnapshotV1 snapshot = controlSnapshot(shardId);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
+            store.recordControlSnapshot(snapshot);
+
+            assertTrue(backend.release(owned.lease()));
+            backend.acquire(shardId, "replacement-owner", 150, 100).orElseThrow();
+
+            assertThrows(IllegalStateException.class,
+                    () -> owned.activateForCommandsWithControlSnapshot(authority, snapshot, 101));
+            assertEquals(ShardLifecycleState.FENCED, owned.state());
+            assertEquals(0, store.runtimeMetadata().lastOpenedOwnerEpoch());
+        }
+    }
+
+    @Test
     void ownerCannotApplyBeforeRestoreAndCatchUpBarriers() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 1);
         final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();

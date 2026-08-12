@@ -800,8 +800,16 @@ public final class OwnedDelayShard {
 
     /** Completes activation only after the authority CASes the same lease to ACTIVE_FOR_COMMANDS. */
     public synchronized void activateForCommands(final OxiaOwnerLeaseStore authority, final long nowEpochMs) {
+        activateForCommands(authority, nowEpochMs, false);
+    }
+
+    private void activateForCommands(final OxiaOwnerLeaseStore authority, final long nowEpochMs,
+                                     final boolean requireAuthoritativeCatchup) {
         Objects.requireNonNull(authority, "authority");
         ensureActivationPreconditions(nowEpochMs);
+        if (requireAuthoritativeCatchup) {
+            ensureAuthoritativeCatchup(authority, nowEpochMs);
+        }
         // Keep the local recovery boundary identical for the authoritative
         // and embedded activation paths.  A failed lease CAS leaves the
         // requeue durable and harmless; it never grants publish authority.
@@ -844,7 +852,7 @@ public final class OwnedDelayShard {
                                                                       final long nowEpochMs) {
         requireStrictActivationAuthority(authority);
         requireControlSnapshot(expected);
-        activateForCommands(authority, nowEpochMs);
+        activateForCommands(authority, nowEpochMs, true);
     }
 
     private void requireStrictActivationAuthority(final OxiaOwnerLeaseStore authority) {
@@ -853,6 +861,25 @@ public final class OwnedDelayShard {
             throw new IllegalStateException("strict activation requires a context-bound strict catch-up lease");
         }
         validateCatchupAssignment(sourceAssignment);
+    }
+
+    private void ensureAuthoritativeCatchup(final OxiaOwnerLeaseStore authority, final long nowEpochMs) {
+        try {
+            final OwnerLease observed = authority.current(lease.shardId()).orElse(null);
+            if (observed == null || !lease.sameIdentity(observed)
+                    || observed.state() != ShardLifecycleState.CATCHING_UP
+                    || observed.expiresAtEpochMs() < lease.expiresAtEpochMs()
+                    || !observed.validAt(nowEpochMs)) {
+                state = ShardLifecycleState.FENCED;
+                throw new IllegalStateException("authoritative owner lease changed before strict activation");
+            }
+            if (observed.expiresAtEpochMs() > lease.expiresAtEpochMs()) {
+                lease = observed;
+            }
+        } catch (RuntimeException | Error failure) {
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        }
     }
 
     private void requireControlSnapshot(final CompatibleControlSnapshotV1 expected) {
