@@ -188,6 +188,81 @@ public final class OwnedDelayShard {
         state = ShardLifecycleState.CATCHING_UP;
     }
 
+    /**
+     * Strict V1 catch-up admission.  The local replay gate is not opened until
+     * the same owner lease is CASed to {@code CATCHING_UP}; a response-loss
+     * reread is accepted only for that exact lease identity and lifecycle
+     * successor.  The context-bound overload is the production boundary;
+     * assignment-only overloads remain embedded compatibility seams.
+     */
+    public synchronized void markCatchingUp(final OxiaOwnerLeaseStore authority,
+                                             final SourceAssignment assignment,
+                                             final SourceReplaySuccessor successor,
+                                             final long nowEpochMs) {
+        Objects.requireNonNull(authority, "authority");
+        if (state != ShardLifecycleState.RESTORING) {
+            throw new IllegalStateException("shard is not restoring");
+        }
+        if (nowEpochMs < 0) {
+            throw new IllegalArgumentException("owner clock returned a negative time");
+        }
+        Objects.requireNonNull(assignment, "assignment");
+        Objects.requireNonNull(successor, "successor");
+        if (lease.context() == null) {
+            throw new IllegalStateException("strict catch-up requires a context-bound owner lease");
+        }
+        validateCatchupAssignment(assignment);
+        if (!lease.validAt(nowEpochMs)) {
+            state = ShardLifecycleState.FENCED;
+            throw new IllegalStateException("owner lease expired before catch-up CAS");
+        }
+
+        final OwnerLease transitioned;
+        try {
+            transitioned = authority.transitionOrRead(lease, ShardLifecycleState.CATCHING_UP)
+                    .orElseThrow(() -> new IllegalStateException("owner lease catch-up CAS was lost"));
+        } catch (RuntimeException | Error failure) {
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        }
+        if (!lease.sameIdentity(transitioned)
+                || transitioned.state() != ShardLifecycleState.CATCHING_UP
+                || transitioned.expiresAtEpochMs() < lease.expiresAtEpochMs()
+                || !transitioned.validAt(nowEpochMs)) {
+            state = ShardLifecycleState.FENCED;
+            throw new IllegalStateException("owner lease catch-up CAS changed fencing identity");
+        }
+        try {
+            sourceAssignment = assignment;
+            activationBarrier = assignment.activationBarrier();
+            replaySuccessor = successor;
+            lastCatchupPosition = delegate.lastAppliedSourcePosition();
+            failureReason = ShardFailureReason.NONE;
+            lease = transitioned;
+            state = ShardLifecycleState.CATCHING_UP;
+        } catch (RuntimeException | Error failure) {
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        }
+    }
+
+    private void validateCatchupAssignment(final SourceAssignment assignment) {
+        if (!delegate.shardId().equals(assignment.shardId())) {
+            throw new IllegalArgumentException("source assignment does not belong to shard");
+        }
+        if (lease.context() != null && lease.sourceAssignmentEpoch() <= 0) {
+            throw new IllegalArgumentException("owner lease context has no positive assignment epoch");
+        }
+        if (lease.sourceAssignmentId() != null
+                && !Bytes.constantTimeEquals(lease.sourceAssignmentId(), assignment.assignmentId())) {
+            throw new IllegalArgumentException("source assignment does not match owner lease context");
+        }
+        if (lease.sourceAssignmentEpoch() > 0
+                && lease.sourceAssignmentEpoch() != assignment.assignmentEpoch()) {
+            throw new IllegalArgumentException("source assignment epoch does not match owner lease context");
+        }
+    }
+
     public synchronized void recordCatchup(final SourcePosition position) {
         recordCatchup(position, null, null);
     }

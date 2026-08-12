@@ -204,6 +204,53 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void strictCatchupCasPublishesTheAuthoritativeLifecycleBeforeReplay() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 181);
+        final UUID topic = UUID.randomUUID();
+        final SourceAssignment assignment = new SourceAssignment(shardId,
+                Bytes.sha256(Bytes.utf8("strict-catchup-assignment")), 7,
+                new KafkaActivationBarrier(shardId, "strict-catchup-cluster", topic, 0));
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = backend.acquire(assignment, "worker-strict-catchup",
+                Bytes.sha256(Bytes.utf8("strict-catchup-session")), 100, 100).orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("strict-catchup"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+
+            owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
+
+            assertEquals(ShardLifecycleState.CATCHING_UP, owned.state());
+            assertEquals(ShardLifecycleState.CATCHING_UP, authority.current(shardId).orElseThrow().state());
+            assertEquals(lease.ownerEpoch(), owned.lease().ownerEpoch());
+        }
+    }
+
+    @Test
+    void strictCatchupRejectsAContextlessLeaseBeforeChangingAuthority() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 182);
+        final UUID topic = UUID.randomUUID();
+        final SourceAssignment assignment = new SourceAssignment(shardId,
+                Bytes.sha256(Bytes.utf8("strict-catchup-legacy-assignment")), 1,
+                new KafkaActivationBarrier(shardId, "strict-catchup-legacy-cluster", topic, 0));
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = backend.acquire(shardId, "worker-strict-catchup-legacy", 100, 100).orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("strict-catchup-legacy"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+
+            assertThrows(IllegalStateException.class,
+                    () -> owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101));
+
+            assertEquals(ShardLifecycleState.RESTORING, owned.state());
+            assertEquals(ShardLifecycleState.ACQUIRING, authority.current(shardId).orElseThrow().state());
+        }
+    }
+
+    @Test
     void activationRequeuesRestoredClaimBeforeOpeningCommandGate() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 19);
         final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
