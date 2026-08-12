@@ -552,6 +552,7 @@ public final class OwnedDelayShard {
             final SourceReplayEntry record = sourcePeek(records);
             final SourcePosition position = record.position();
             validateReplayPosition(position, record.sourceConnectionGeneration(), record.guardAttestationDigest());
+            final SourceReplayOutcome outcome;
             if (record instanceof SourceReplayRecord commandRecord) {
                 final CommandResult result;
                 try {
@@ -563,8 +564,16 @@ public final class OwnedDelayShard {
                     state = ShardLifecycleState.FENCED;
                     throw failure;
                 }
-                lastCatchupPosition = position;
-                results.add(SourceReplayOutcome.command(position, replayCommandResultAt(position, result)));
+                try {
+                    outcome = SourceReplayOutcome.command(position, replayCommandResultAt(position, result));
+                } catch (RuntimeException | Error failure) {
+                    // The WriteBatch may already be durable, but a malformed
+                    // result projection is not a continuity proof.  Do not
+                    // advance the in-memory source position before the
+                    // outcome has passed its exact canonical-position fence.
+                    state = ShardLifecycleState.FENCED;
+                    throw failure;
+                }
             } else if (record instanceof SourceReplayMutation mutationRecord) {
                 final SystemMutationResult result;
                 try {
@@ -576,12 +585,24 @@ public final class OwnedDelayShard {
                     state = ShardLifecycleState.FENCED;
                     throw failure;
                 }
-                lastCatchupPosition = position;
-                results.add(SourceReplayOutcome.systemMutation(position, replaySystemMutationResultAt(position, result)));
+                try {
+                    outcome = SourceReplayOutcome.systemMutation(position,
+                            replaySystemMutationResultAt(position, result));
+                } catch (RuntimeException | Error failure) {
+                    // Keep the local source cursor/position pair untouched
+                    // when a post-WriteBatch result projection is malformed.
+                    state = ShardLifecycleState.FENCED;
+                    throw failure;
+                }
             } else {
                 throw new IllegalArgumentException("unsupported source replay entry: " + record.getClass());
             }
+            // The cursor is part of the continuity proof.  Only after the
+            // exact outcome projection is valid and the caller-owned cursor
+            // advances may the in-memory last position move forward.
             sourceNext(records);
+            lastCatchupPosition = position;
+            results.add(outcome);
             recordCount++;
             canonicalBytes = Math.addExact(canonicalBytes, recordBytes);
         }
