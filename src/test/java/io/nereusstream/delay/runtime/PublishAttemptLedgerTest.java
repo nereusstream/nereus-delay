@@ -49,6 +49,18 @@ class PublishAttemptLedgerTest {
     }
 
     @Test
+    void sourcePositionMustBelongToAttemptMessageShard() {
+        final ShardId messageShard = new ShardId(RouteIncarnation.random(), 1);
+        final ShardId foreignShard = new ShardId(RouteIncarnation.random(), 2);
+        assertThrows(IllegalArgumentException.class, () -> PublishAttemptLedger.publishing(
+                DelayMessageId.random(messageShard), 0, Bytes.sha256(Bytes.utf8("foreign-source-attempt")),
+                Bytes.sha256(Bytes.utf8("foreign-source-claim")), 1, 1,
+                DestinationLaneId.derive(Bytes.utf8("foreign-source-lane")), new byte[16], new byte[]{1},
+                new byte[16], Bytes.sha256(Bytes.utf8("foreign-source-prepared")), canonicalAdmissionBytes(),
+                sourcePosition(foreignShard)));
+    }
+
+    @Test
     void v2LedgerRoundTripsAnIndependentRetryWindowAndKeepsV1Compatibility() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 0);
         final PublishAttemptLedger ledger = PublishAttemptLedger.publishingWithRetryWindow(

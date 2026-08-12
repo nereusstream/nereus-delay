@@ -3,6 +3,7 @@ package io.nereusstream.delay.runtime;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DestinationLaneId;
+import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.store.KeyCodec;
 
@@ -110,7 +111,11 @@ public final class PublishAttemptLedger {
         this.state = Objects.requireNonNull(state, "state");
         this.outcomeBytes = optional(outcomeBytes);
         this.evidenceBytes = optional(evidenceBytes);
-        this.sourcePosition = SourcePositionCodec.decode(sourcePosition).canonicalBytes();
+        final SourcePosition decodedSourcePosition = SourcePositionCodec.decode(sourcePosition);
+        if (!delayMessageId.routingId().shardId().equals(decodedSourcePosition.shardId())) {
+            throw new IllegalArgumentException("publish attempt source position belongs to another shard");
+        }
+        this.sourcePosition = decodedSourcePosition.canonicalBytes();
         if (sequenceId < ABSENT_SEQUENCE_ID) {
             throw new IllegalArgumentException("invalid Attempt Journal sequence ID");
         }
