@@ -3784,8 +3784,10 @@ retire intent 绑定到同一个 Shard Log source identity：Shard、Kafka topic
 脱离 `DelayShard` apply 路径读取的本地 GC tombstone 也不能接受 foreign-shard 或
 replacement-source 的删除确认。回归证据为
 `ResourceGcGuardTest.deleteConfirmationSourcePositionMustMatchRetireIntentSource`；
-这仍只是本地 tombstone integrity proof，不替代 provider delete attestation、
-Oxia CAS 或 external GC orchestration。
+confirmation 还必须严格晚于 retire intent，回归证据为
+`ResourceGcGuardTest.deleteConfirmationSourcePositionMustFollowRetireIntent`。这仍只是
+本地 tombstone integrity proof，不替代 provider delete attestation、Oxia CAS 或
+external GC orchestration。
 
 After `93147c4`, `./gradlew clean check --rerun-tasks --console=plain` passed on
 2026-08-12 (`BUILD SUCCESSFUL`, five executed tasks). The five real-Oxia

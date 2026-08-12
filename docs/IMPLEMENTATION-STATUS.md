@@ -4026,11 +4026,13 @@ release blockers.
 `ResourceDeleteConfirmedRecord` now binds its confirmation Source Position to
 the nested retire intent's exact Shard Log identity: both the Shard and the
 authenticated Kafka topic or Pulsar resource identity must match before a
-delete-confirmation tombstone can be constructed or decoded. This prevents a
-foreign-shard or replacement-source confirmation from being accepted when the
-record is handled outside the `DelayShard` apply path;
-`ResourceGcGuardTest.deleteConfirmationSourcePositionMustMatchRetireIntentSource`
-covers both rejection branches. The check is local tombstone integrity only;
+delete-confirmation tombstone can be constructed or decoded, and the
+confirmation position must be strictly later than the retire-intent position.
+This prevents a foreign-shard, replacement-source or source-reordered
+confirmation from being accepted when the record is handled outside the
+`DelayShard` apply path; `ResourceGcGuardTest.deleteConfirmationSourcePositionMustMatchRetireIntentSource`
+and `ResourceGcGuardTest.deleteConfirmationSourcePositionMustFollowRetireIntent`
+cover the fences. The check is local tombstone integrity only;
 provider delete attestation, Oxia CAS and external GC orchestration remain
 release blockers.
 
