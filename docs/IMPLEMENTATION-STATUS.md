@@ -4156,6 +4156,13 @@ byte-equal snapshot contents. `OxiaSyncRecoveryCatalogBackendTest`
 same-bytes/wrong-key response; the committed catalog remains durable but the
 caller does not receive a false success.
 
+Owner-lease release now applies the same response-loss rule: a delete is
+confirmed only by rereading the exact lease key as absent; a still-present
+same-identity lease or a failed reread remains unknown, while a replacement
+owner is reported as not released. `OxiaSyncOwnerLeaseBackendTest`
+`releaseResponseLossRereadsAbsenceAfterCommittedDelete` covers the committed
+delete/response-loss path. This remains per-record Oxia evidence only.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

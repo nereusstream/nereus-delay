@@ -162,6 +162,23 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
                     Set.of(DeleteOption.IfVersionIdEquals(current.versionId)));
         } catch (UnexpectedVersionIdException lostRace) {
             return false;
+        } catch (RuntimeException failure) {
+            // A successful delete can lose its response. The only definitive
+            // success is an exact reread proving that the lease record is
+            // absent; a replacement owner or a still-present identity keeps
+            // the release outcome unknown/fenced.
+            try {
+                final StoredLease observed = readLease(expected.shardId());
+                if (observed == null) {
+                    return true;
+                }
+                if (!expected.sameIdentity(observed.lease)) {
+                    return false;
+                }
+            } catch (RuntimeException rereadFailure) {
+                failure.addSuppressed(rereadFailure);
+            }
+            throw failure;
         }
     }
 

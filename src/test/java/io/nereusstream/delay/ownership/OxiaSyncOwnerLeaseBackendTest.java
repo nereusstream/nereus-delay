@@ -97,6 +97,18 @@ class OxiaSyncOwnerLeaseBackendTest {
     }
 
     @Test
+    void releaseResponseLossRereadsAbsenceAfterCommittedDelete() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final OxiaSyncOwnerLeaseBackend backend = new OxiaSyncOwnerLeaseBackend(records, "delay/test");
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 14);
+        final OwnerLease acquired = backend.acquire(shard, "worker-release-loss", 100, 50).orElseThrow();
+        records.failNextDeleteAfterCommit = true;
+
+        assertTrue(backend.release(acquired));
+        assertTrue(backend.current(shard).isEmpty());
+    }
+
+    @Test
     void wrongSessionIdentityFailsClosedAndCleansTheEphemeralRecord() {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncOwnerLeaseBackend backend = new OxiaSyncOwnerLeaseBackend(records, "delay/test");
@@ -137,6 +149,7 @@ class OxiaSyncOwnerLeaseBackendTest {
         private final Map<String, Entry> records = new HashMap<>();
         private long nextVersion = 1;
         private boolean failNextPutAfterCommit;
+        private boolean failNextDeleteAfterCommit;
 
         private Version ephemeralVersion() {
             return new Version(1, 0, 0, 1, Optional.of(7L), Optional.of("worker-session"));
@@ -191,7 +204,12 @@ class OxiaSyncOwnerLeaseBackendTest {
                 throw new UnexpectedVersionIdException(key,
                         current == null ? OptionVersionId.KEY_NOT_EXISTS : current.result.version().versionId());
             }
-            return records.remove(key) != null;
+            final boolean removed = records.remove(key) != null;
+            if (removed && failNextDeleteAfterCommit) {
+                failNextDeleteAfterCommit = false;
+                throw new IllegalStateException("simulated response loss");
+            }
+            return removed;
         }
 
         private void putRaw(final String key, final byte[] value) {

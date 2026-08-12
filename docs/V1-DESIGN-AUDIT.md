@@ -3901,6 +3901,13 @@ bytes must match. A same-bytes response for a different key is not success;
 covers the case. This is still a single-record CAS fence, not cross-record
 catalog/upload-intent/Owner Lease authority.
 
+Owner-lease release now rereads after a delete response loss and accepts
+success only when the exact lease record is absent. A still-present identity or
+failed reread stays unknown, and a replacement identity is not reported as
+released; `OxiaSyncOwnerLeaseBackendTest.releaseResponseLossRereadsAbsenceAfterCommittedDelete`
+covers the committed-delete case. This is per-record CAS evidence, not a
+session/assignment or cross-record activation proof.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
