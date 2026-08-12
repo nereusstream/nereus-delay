@@ -10,6 +10,7 @@ import io.nereusstream.delay.protocol.PulsarActivationBarrier;
 import io.nereusstream.delay.protocol.SourceActivationBarrier;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
+import io.nereusstream.delay.protocol.SystemMutation;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.runtime.SystemMutationResult;
@@ -19,6 +20,7 @@ import io.nereusstream.delay.runtime.DelayShard;
 import io.nereusstream.delay.scheduler.PersistentLaneScheduler;
 import io.nereusstream.delay.scheduler.ScheduleWorkItem;
 import io.nereusstream.delay.scheduler.SchedulerBudget;
+import io.nereusstream.delay.scheduler.WorkClass;
 import io.nereusstream.delay.store.ShardStore;
 
 import java.util.ArrayList;
@@ -419,6 +421,51 @@ public final class OwnedDelayShard {
         if (current == null || !current.equals(expectedClaim)) {
             state = ShardLifecycleState.FENCED;
             throw new IllegalStateException("Publish Admission Claim changed before Shard Log append");
+        }
+    }
+
+    /**
+     * Side-effect-free preflight for a prepared result/control mutation.  The
+     * mutation is already signed and semantically encoded by its producer;
+     * this owner boundary only admits the four result types whose physical
+     * append must be bounded by {@link WorkClass#OUTCOME_AND_CONTROL}.
+     */
+    synchronized void requireOutcomeMutationSubmission(final OxiaOwnerLeaseStore authority,
+                                                       final SystemMutation mutation) {
+        requireStrictActiveAuthority(authority);
+        validateOutcomeMutation(mutation);
+    }
+
+    /** Rereads the authoritative Owner Lease immediately before the external append. */
+    synchronized void requireOutcomeMutationAuthoritativelyStrict(
+            final OxiaOwnerLeaseStore authority,
+            final SystemMutation mutation,
+            final LongSupplier clock) {
+        requireOutcomeMutationSubmission(authority, mutation);
+        final long nowEpochMs = readActiveWorkClock(clock, "outcome mutation handoff");
+        ensureAuthoritativeActive(authority, nowEpochMs, "outcome mutation handoff");
+        // Queue wait and lease renewal may have changed the local epoch.  The
+        // exact signed bytes are rechecked immediately before append.
+        validateOutcomeMutation(mutation);
+    }
+
+    private void validateOutcomeMutation(final SystemMutation mutation) {
+        final SystemMutation exact = Objects.requireNonNull(mutation, "outcome mutation");
+        switch (exact.type()) {
+            case PUBLISH_OUTCOME, EVIDENCE_RESOLUTION, CLAIM_RESULT, DLQ_EXPORT_RESULT -> {
+                // Allowed result mutations.
+            }
+            default -> throw new IllegalArgumentException(
+                    "mutation type is not an OUTCOME_AND_CONTROL result: " + exact.type());
+        }
+        if (!delegate.shardId().equals(exact.shardId()) || !lease.shardId().equals(exact.shardId())) {
+            throw new IllegalArgumentException("outcome mutation does not belong to this shard");
+        }
+        final AuthorIdentity author = AuthorIdentity.decode(exact.authorIdentity());
+        author.requireFor(exact.type());
+        if (author.kind() == AuthorIdentity.Kind.OWNER
+                && author.asOwnerIdentity().ownerEpoch() != lease.ownerEpoch()) {
+            throw new IllegalArgumentException("outcome mutation Owner epoch does not match the active lease");
         }
     }
 
