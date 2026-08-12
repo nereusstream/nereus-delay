@@ -438,7 +438,10 @@ issuance, dynamic RocksDB/IO attribution and real destination authority remain
 release blockers. The old `DelayShard.discoverDue(earliest, limit)` timeline
 scan is package-local because it has only a record cap and cannot satisfy the
 trusted-time, Owner-reread or byte/elapsed-budget contract; production callers
-cannot use it as a shortcut around this executor.
+cannot use it as a shortcut around this executor. The same visibility fence now
+applies to count-only expiry, reservation-expiry and Lane-close discovery;
+their strict `SchedulerBudget`/monotonic-clock overloads remain the
+cross-package primitives used by the owner/work-class composition.
 
 After `120f462`, that production discovery path passes the complete
 `TrustedUtcIntervalEvidenceV1` into `PersistentLaneScheduler` instead of
@@ -5281,13 +5284,24 @@ is local API-boundary evidence only.
 The legacy timeline `DelayShard.discoverDue(...)` scan is now package-local.
 It has no production main-source caller and lacks the trusted-UTC evidence,
 execution-time Owner reread and byte/elapsed scan envelope required by the
-active READY-discovery contract. `DelayShardTest.legacyTimelineDiscoveryIsNotPublicProductionApi`
+active READY-discovery contract. `DelayShardTest.legacyRecordOnlyDiscoveryOverloadsAreNotPublicProductionApis`
 locks the visibility while existing same-package tests retain its compatibility
 semantics. Production discovery remains exclusively routed through
 `DueSchedulerWorkClassExecutor`, `OwnedDelayShard` and
 `PersistentLaneScheduler`. Focused runtime/scheduler tests and the full local
 Gradle gate passed after the change; five opt-in real-Oxia smoke methods were
 still skipped without `NEREUS_DELAY_OXIA_ENDPOINT`.
+
+The count-only compatibility overloads for message expiry, reservation expiry
+and Lane-close discovery are now package-local as well. They previously filled
+missing byte/elapsed fields with effectively unbounded values, so a production
+caller could have bypassed the exact envelope enforced by the corresponding
+discovery work-class. Strict overloads taking `SchedulerBudget` and a monotonic
+clock remain public for `OwnedDelayShard`; cross-package executor fixtures use
+only a test-classpath bridge. The reflection regression locks all four
+record-only discovery seams. Focused discovery/materialization tests and the
+complete local Gradle gate passed; the five real-Oxia methods remained opt-in
+and skipped without an endpoint.
 
 ## Verification command
 

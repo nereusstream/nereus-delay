@@ -279,7 +279,10 @@ local discovery-class bridge only; Claim/Admission handoff, production
 trusted-time issuance, dynamic IO attribution and external destination/Oxia
 authority remain release gates. The record-count-only legacy timeline
 `discoverDue` scan is package-local and cannot serve as a public production
-shortcut around these boundaries.
+shortcut around these boundaries. Count-only expiry, reservation-expiry and
+Lane-close discovery are package-local for the same reason; only strict
+budget/clock overloads remain available to the cross-package owner/work-class
+composition.
 
 After `120f462`, the active-owner discovery bridge passes the complete trusted
 interval into the persistent scanner. Production discovery requires typed
@@ -4999,6 +5002,16 @@ or byte/elapsed budget. A reflection regression locks package-local visibility;
 same-package compatibility tests remain unchanged. Focused scheduler/runtime
 coverage and the complete local Gradle gate passed, while the five real-Oxia
 smoke tests stayed opt-in and skipped without an endpoint.
+
+The remaining count-only discovery overloads for message expiry, reservation
+expiry and Lane-close materialization are also no longer public. Their default
+`Long.MAX_VALUE` byte/elapsed envelopes were useful for same-package semantics
+tests but did not satisfy the V1 bounded-turn contract. The strict
+`SchedulerBudget` plus monotonic-clock forms remain public and are called by
+`OwnedDelayShard`; test-only bridges construct exact materializer fixtures
+without enlarging the main artifact API. The reflection regression, focused
+discovery/materialization suites and full local gate passed; external Oxia
+evidence remains open.
 
 ## Final gate
 
