@@ -98,7 +98,17 @@ smuggle malformed source anchors into a protection set. The focused coverage is
 `ResourceRetireIntentBodyTest.protectionRefConstructorRequiresCanonicalSourceAndKindSpecificFields`;
 Recovery-Floor ancestry and external catalog authority remain release gates.
 
-After the ProtectionRef source/field fence (`18629dd`, `4a81566`),
+The same public-construction boundary now covers the surrounding
+`ExactResourceIdentity` and `ProtectionSet` values: identity branches and
+identity hashes must agree, while protection references must be strictly
+sorted/unique and match their set digest and canonical bytes. Direct callers
+cannot bypass the decode-only integrity checks before a retire body is
+persisted. `ResourceRetireIntentBodyTest.exactIdentityAndProtectionSetConstructorsRequireCanonicalDigestsAndOrdering`
+covers the mismatch, duplicate and digest failures; external resource and
+Recovery-Floor authority remain release gates.
+
+After the retire identity/protection constructor fences (`18629dd`, `2a84e88`,
+`4a81566`),
 `./gradlew clean check --rerun-tasks --console=plain` passed again on
 2026-08-12 (`BUILD SUCCESSFUL`, 5 tasks). The five real-Oxia methods remained
 skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is local
