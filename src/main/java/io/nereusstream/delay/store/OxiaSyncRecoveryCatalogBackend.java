@@ -303,6 +303,9 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
         if (snapshot.manifestResources().size() > MAX_MANIFESTS) {
             throw new IllegalStateException("Oxia catalog resource count exceeds bound");
         }
+        if (snapshot.activeRecoveryPin() != null) {
+            throw new IllegalStateException("Oxia catalog snapshot cannot encode an unsupported RecoveryPin");
+        }
         final List<CheckpointManifest> manifests = snapshot.manifests().stream()
                 .sorted(Comparator.comparing(manifest -> Bytes.hex(manifest.checkpointId())))
                 .toList();

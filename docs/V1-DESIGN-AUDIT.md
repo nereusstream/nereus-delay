@@ -4014,6 +4014,20 @@ After this resource-map identity fence, the focused catalog test and the full
 remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this remains
 local evidence only.
 
+The Recovery Catalog encoder now rejects any snapshot with an active
+`RecoveryPin`. This backend has no supported single-record representation for
+the pin's create/release semantics, and encoding it as a pin-less snapshot
+would silently discard the recovery fence. The focused regression is
+`OxiaSyncRecoveryCatalogBackendTest.rejectsUnsupportedRecoveryPinBeforeEncodingSnapshot`;
+this is a fail-closed serialization boundary, not evidence that RecoveryPin
+CAS or cross-record recovery authority is implemented.
+
+After this unsupported-RecoveryPin fence, the focused catalog test and the
+full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
+2026-08-12 (`BUILD SUCCESSFUL`, five executed tasks). The five opt-in
+real-Oxia methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was
+unset; this remains local evidence only.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

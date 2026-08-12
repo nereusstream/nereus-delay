@@ -4,14 +4,18 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CheckpointResourceV1;
 import io.nereusstream.delay.protocol.EvidenceCursorV1;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
+import io.nereusstream.delay.protocol.OwnerIdentityV1;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.RecoveryCandidateKindV1;
 import io.nereusstream.delay.protocol.RecoveryCandidateRefV1;
+import io.nereusstream.delay.protocol.RecoveryFloorRefV1;
 import io.nereusstream.delay.protocol.RecoveryInstallPhaseV1;
 import io.nereusstream.delay.protocol.RecoveryInstallStateV1;
+import io.nereusstream.delay.protocol.RecoveryPinV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
+import io.nereusstream.delay.protocol.ShardSubjectV1;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.Version;
@@ -232,6 +236,28 @@ class OxiaSyncRecoveryCatalogBackendTest {
 
         assertThrows(IllegalStateException.class,
                 () -> OxiaSyncRecoveryCatalogBackend.encodeSnapshot(snapshot));
+    }
+
+    @Test
+    void rejectsUnsupportedRecoveryPinBeforeEncodingSnapshot() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 21);
+        final CheckpointManifest manifest = manifest(shard, id16(50), id16(51), 0, 1, 1, null);
+        final RecoveryCatalog catalog = new RecoveryCatalog();
+        catalog.publish(manifest, 0);
+        final RecoveryFloor floor = catalog.advanceFloor(manifest.checkpointId(), 1, id32(55));
+        final RecoveryFloorRefV1 floorRef = new RecoveryFloorRefV1(floor.recoveryLineageId(), floor.checkpointId(),
+                floor.manifestSha256(), floor.catalogGeneration(), floor.appliedSourcePosition(),
+                floor.includedMutationSequence(), java.util.List.of());
+        final RecoveryCandidateRefV1 candidate = new RecoveryCandidateRefV1(
+                RecoveryCandidateKindV1.CATALOG_CHECKPOINT, manifest.recoveryLineageId(), manifest.checkpointId(),
+                manifest.manifestSha256(), null);
+        final RecoveryPinV1 pin = new RecoveryPinV1(id16(52), new ShardSubjectV1(shard),
+                new OwnerIdentityV1(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(53)), candidate,
+                floorRef, floor.catalogGeneration(), id32(54));
+        catalog.createRecoveryPin(pin);
+
+        assertThrows(IllegalStateException.class,
+                () -> OxiaSyncRecoveryCatalogBackend.encodeSnapshot(catalog.snapshot()));
     }
 
     private static CheckpointManifest manifest(final ShardId shard, final byte[] lineage,

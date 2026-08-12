@@ -4277,6 +4277,21 @@ After this resource-map identity fence, the focused catalog test and the full
 remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this remains
 local regression evidence only.
 
+The Oxia single-record Recovery Catalog encoder now fails closed when a
+snapshot contains an active `RecoveryPin`. The current backend cannot encode
+or atomically persist the pin semantics, so silently dropping it would lose
+recovery protection; `OxiaSyncRecoveryCatalogBackendTest`
+`rejectsUnsupportedRecoveryPinBeforeEncodingSnapshot` verifies that the
+encoder rejects the snapshot before emitting bytes. This preserves the
+unsupported RecoveryPin boundary and does not claim RecoveryPin CAS,
+session-fencing or cross-record catalog authority.
+
+After this unsupported-RecoveryPin fence, the focused catalog test and the
+full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
+2026-08-12 (`BUILD SUCCESSFUL`, five executed tasks). The five opt-in
+real-Oxia methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was
+unset; this remains local regression evidence only.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
