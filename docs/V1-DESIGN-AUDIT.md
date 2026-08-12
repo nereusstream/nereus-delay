@@ -21,6 +21,13 @@ local process-level concurrency boundary only; it does not close remote Object
 Store, Owner Lease/session, Source Assignment, Source Log replay or real-broker
 release gates.
 
+After `dc7a300`, the full local Gradle gate completed successfully with 1205
+tests and zero failures/errors; 5 opt-in real-Oxia methods were skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was unset.  This confirms the checkpoint-download
+permit change across the repository regression suite but does not convert the
+remaining external Object Store, broker, authority, chaos, benchmark, soak or
+upgrade gates into PASS evidence.
+
 The 2026-08-12 transport-source check is intentionally recorded as blocker
 evidence rather than a PASS claim.  Kafka source
 `76f62f3b83e882105219b6c7687dbde594a8b8a2` exposes Produce v13 topic-ID wire

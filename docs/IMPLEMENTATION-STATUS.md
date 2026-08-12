@@ -18,6 +18,13 @@ first operation is active.  This is process-local concurrency evidence; remote
 Object Store authority, Owner Lease/session, Source Assignment and source
 replay remain release blockers.
 
+After `dc7a300`, `GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle
+./gradlew clean check --rerun-tasks --console=plain` completed successfully:
+1205 tests ran with zero failures/errors and 5 opt-in real-Oxia tests were
+skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset.  The gate verifies the
+permit change against the complete local regression suite; the skipped external
+smoke tests remain release evidence gaps.
+
 Commit `465d6de` adds a crash-durable byte backend to the local large-payload
 seam:
 `FilesystemPayloadObjectStore` reuses the exact reservation/handle/proof state
