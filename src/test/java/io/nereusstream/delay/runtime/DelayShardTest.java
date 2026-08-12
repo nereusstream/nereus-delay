@@ -1438,7 +1438,11 @@ class DelayShardTest {
                 ? semantic : null;
         final PayloadProofTrustSet fallback = new PayloadProofTrustSet(4,
                 Map.of(7, fallbackKey.getPublic()));
-        final byte[] tuple = Bytes.utf8("registry-prepare-trust-set-lane");
+        final ProfileRefV1 capability = new ProfileRefV1(Bytes.utf8("capability"), 1,
+                Bytes.sha256(Bytes.utf8("capability")), ProfileKindV1.DELIVERY_CAPABILITY);
+        final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 59),
+                ProfileKindV1.DESTINATION);
+        final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
         final V1ScheduleResolver resolver = new V1ScheduleResolver() {
             @Override
@@ -1456,8 +1460,7 @@ class DelayShardTest {
             }
         };
         final ScheduleIntentV1 intent = ScheduleIntentV1.forPrepare(
-                new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 59),
-                        ProfileKindV1.DESTINATION),
+                destination,
                 new io.nereusstream.delay.protocol.RetryPolicyRefV1(
                         Bytes.utf8("retry"), 1, bytes(32, 60)),
                 3_000, 6_000, io.nereusstream.delay.protocol.DeliveryMode.MANAGED,
@@ -1561,12 +1564,12 @@ class DelayShardTest {
                     committedDescriptor.length(), committedDescriptor.payloadSha256(),
                     committedDescriptor.reservationId(), committedDescriptor.proofId());
             final ClaimMaterializationV1 wrongClaimMaterialization = new ClaimMaterializationV1(intent.profile(),
-                    new ProfileRefV1(Bytes.utf8("capability"), 1,
-                            Bytes.sha256(Bytes.utf8("capability")), ProfileKindV1.DELIVERY_CAPABILITY),
+                    capability,
                     io.nereusstream.delay.protocol.BrokerResourceIdentityV1.kafka(
-                            new io.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1("cluster",
-                                    java.util.UUID.nameUUIDFromBytes(Bytes.utf8("claim-target")))),
-                    0, prepare.delayMessageId(), Integer.toUnsignedLong(committedMessage.generation()),
+                            new io.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1(
+                                    "fixture-target-cluster",
+                                    java.util.UUID.nameUUIDFromBytes(Bytes.utf8("fixture-lane-topic")))),
+                    3, prepare.delayMessageId(), Integer.toUnsignedLong(committedMessage.generation()),
                     PayloadForPublishV1.object(claimForeignDescriptor), intent.adapterMetadata(),
                     committedMessage.deliverAtEpochMs(), committedMessage.expireAtEpochMs(),
                     committedMessage.runtimeIndex().timeline().actionAtEpochMs());

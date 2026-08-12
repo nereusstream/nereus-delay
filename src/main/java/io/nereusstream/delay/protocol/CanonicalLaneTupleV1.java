@@ -3,12 +3,14 @@ package io.nereusstream.delay.protocol;
 import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
 import java.util.Arrays;
+import java.util.UUID;
 
 /**
- * Minimal parser for the immutable fields of the Registry canonical Lane
- * tuple.  The complete Profile semantic/target authority remains outside the
- * local value codec; this parser only proves that the two Profile slots in a
- * typed Lane projection are the exact bytes carried by the tuple.
+ * Parser for the immutable fields of the Registry canonical Lane tuple.
+ * It proves the exact Profile, Broker-resource and physical-partition
+ * projections needed by typed Lane state and Claim materialization. Live
+ * Profile semantics, credentials and Broker authority remain outside this
+ * local value codec.
  */
 final class CanonicalLaneTupleV1 {
     private static final int TENANT_SCOPE_LENGTH = 32;
@@ -27,6 +29,32 @@ final class CanonicalLaneTupleV1 {
 
     static void requireProfileProjection(final byte[] encoded, final ProfileRefV1 destination,
                                          final ProfileRefV1 capability) {
+        final Projection projection = parse(encoded);
+        if (!projection.destinationProfile().equals(destination)) {
+            throw new IllegalArgumentException("destination Profile does not project from canonical Lane tuple");
+        }
+        if (!projection.capabilityProfile().equals(capability)) {
+            throw new IllegalArgumentException("capability Profile does not project from canonical Lane tuple");
+        }
+    }
+
+    static void requireClaimProjection(final byte[] encoded, final ClaimMaterializationV1 materialization) {
+        final Projection projection = parse(encoded);
+        if (!projection.destinationProfile().equals(materialization.destinationProfile())) {
+            throw new IllegalArgumentException("Claim Destination Profile does not project from canonical Lane tuple");
+        }
+        if (!projection.capabilityProfile().equals(materialization.capabilityProfile())) {
+            throw new IllegalArgumentException("Claim Capability Profile does not project from canonical Lane tuple");
+        }
+        if (!projection.targetResource().equals(materialization.targetResource())) {
+            throw new IllegalArgumentException("Claim target resource does not project from canonical Lane tuple");
+        }
+        if (projection.physicalPartition() != materialization.physicalPartition()) {
+            throw new IllegalArgumentException("Claim physical partition does not project from canonical Lane tuple");
+        }
+    }
+
+    private static Projection parse(final byte[] encoded) {
         final Cursor cursor = new Cursor(encoded);
         cursor.fixed(TENANT_SCOPE_LENGTH, "tenantRoutingScope");
         final int adapter = cursor.u8("adapterKind");
@@ -40,19 +68,28 @@ final class CanonicalLaneTupleV1 {
                 || (adapter == PULSAR_ADAPTER && resourceKind != PULSAR_RESOURCE)) {
             throw new IllegalArgumentException("Lane tuple adapter/resource kind mismatch");
         }
+        final byte[] resourceIncarnation;
+        final long physicalTopicCreationTimestamp;
+        final byte[] nativeTopicUuid;
         if (adapter == KAFKA_ADAPTER) {
-            cursor.fixed(16, "kafkaNativeTopicUuid");
+            nativeTopicUuid = cursor.fixed(16, "kafkaNativeTopicUuid");
+            resourceIncarnation = null;
+            physicalTopicCreationTimestamp = 0;
         } else {
-            cursor.fixed(32, "pulsarResourceIncarnation");
-            cursor.u64("pulsarPhysicalTopicCreationTimestamp");
+            nativeTopicUuid = null;
+            resourceIncarnation = cursor.fixed(32, "pulsarResourceIncarnation");
+            physicalTopicCreationTimestamp = cursor.u64("pulsarPhysicalTopicCreationTimestamp");
         }
         final byte[] physicalTopic = cursor.lp32(1 << 20, "physicalTopicIdentity");
         if (adapter == KAFKA_ADAPTER) {
             Bytes.requireLength(physicalTopic, 16, "kafkaPhysicalTopicIdentity");
+            if (!Arrays.equals(nativeTopicUuid, physicalTopic)) {
+                throw new IllegalArgumentException("Kafka Lane tuple topic UUID projections differ");
+            }
         } else {
             requireCanonicalText(physicalTopic, "pulsarPhysicalTopicIdentity");
         }
-        cursor.u32("physicalPartition");
+        final long physicalPartition = cursor.u32("physicalPartition");
 
         final byte[] destinationId = cursor.lp32(MAX_PROFILE_ID_BYTES, "destinationProfileId");
         final long destinationVersion = cursor.u64("destinationProfileVersion");
@@ -70,17 +107,24 @@ final class CanonicalLaneTupleV1 {
             throw new IllegalArgumentException("unknown Lane tuple ordering kind");
         }
         cursor.requireEnd();
+        final BrokerResourceIdentityV1 target = adapter == KAFKA_ADAPTER
+                ? BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+                new String(cluster, StandardCharsets.UTF_8), uuid(nativeTopicUuid)))
+                : BrokerResourceIdentityV1.pulsar(new PulsarBrokerResourceIdentityV1(
+                new String(cluster, StandardCharsets.UTF_8), resourceIncarnation,
+                new String(physicalTopic, StandardCharsets.UTF_8), physicalTopicCreationTimestamp));
+        return new Projection(target, physicalPartition,
+                new ProfileRefV1(destinationId, destinationVersion, destinationHash, ProfileKindV1.DESTINATION),
+                new ProfileRefV1(capabilityId, capabilityVersion, capabilityHash,
+                        ProfileKindV1.DELIVERY_CAPABILITY));
+    }
 
-        if (!Arrays.equals(destinationId, destination.profileId())
-                || destinationVersion != destination.version()
-                || !Bytes.constantTimeEquals(destinationHash, destination.semanticHash())) {
-            throw new IllegalArgumentException("destination Profile does not project from canonical Lane tuple");
-        }
-        if (!Arrays.equals(capabilityId, capability.profileId())
-                || capabilityVersion != capability.version()
-                || !Bytes.constantTimeEquals(capabilityHash, capability.semanticHash())) {
-            throw new IllegalArgumentException("capability Profile does not project from canonical Lane tuple");
-        }
+    private static UUID uuid(final byte[] value) {
+        return new UUID(Bytes.readU64be(value, 0), Bytes.readU64be(value, 8));
+    }
+
+    private record Projection(BrokerResourceIdentityV1 targetResource, long physicalPartition,
+                              ProfileRefV1 destinationProfile, ProfileRefV1 capabilityProfile) {
     }
 
     private static void requireCanonicalText(final byte[] value, final String name) {

@@ -71,6 +71,12 @@ public final class V1ScheduleBinding {
         return Bytes.copy(canonicalBody);
     }
 
+    /** Requires one Claim projection to preserve the immutable resolved Lane tuple. */
+    public void requireClaimLaneProjection(final ClaimMaterializationV1 materialization) {
+        CanonicalLaneTupleV1.requireClaimProjection(canonicalLaneTuple,
+                Objects.requireNonNull(materialization, "materialization"));
+    }
+
     @Override
     public boolean equals(final Object other) {
         return other instanceof V1ScheduleBinding that && commandType == that.commandType

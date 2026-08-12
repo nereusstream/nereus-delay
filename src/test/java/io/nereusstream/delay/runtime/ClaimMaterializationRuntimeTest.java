@@ -16,6 +16,7 @@ import io.nereusstream.delay.protocol.PayloadReference;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
+import io.nereusstream.delay.protocol.ProtocolTestFixtures;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ScheduleIntent;
 import io.nereusstream.delay.protocol.ScheduleIntentV1;
@@ -102,6 +103,7 @@ class ClaimMaterializationRuntimeTest {
                 Bytes.sha256(payload), Bytes.sha256(Bytes.utf8("reservation")),
                 Bytes.sha256(Bytes.utf8("proof")));
         final ProfileRefV1 destination = profile(ProfileKindV1.DESTINATION, "destination");
+        final ProfileRefV1 capability = profile(ProfileKindV1.DELIVERY_CAPABILITY, "capability");
         final ScheduleIntentV1 intent = ScheduleIntentV1.create(destination,
                 new io.nereusstream.delay.protocol.RetryPolicyRefV1(Bytes.utf8("retry"), 1,
                         Bytes.sha256(Bytes.utf8("retry"))),
@@ -109,7 +111,7 @@ class ClaimMaterializationRuntimeTest {
                 Bytes.utf8("ordering"), null, descriptor,
                 AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())), null, null);
         final PreparedCommand schedule = PreparedCommand.scheduleV1(shardId, intent, 9_000);
-        final byte[] tuple = Bytes.utf8("object-claim-lane");
+        final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
         final io.nereusstream.delay.protocol.DestinationLaneId lane =
                 io.nereusstream.delay.protocol.DestinationLaneId.derive(tuple);
         final V1ScheduleResolver resolver = new V1ScheduleResolver() {
@@ -136,8 +138,13 @@ class ClaimMaterializationRuntimeTest {
                     shard.apply(schedule, position(shardId, 0, 1_000)).stableCode());
             shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
             final MessageRecord current = shard.getMessage(schedule.delayMessageId());
-            final ClaimMaterializationV1 valid = materialization(schedule.delayMessageId(), current,
-                    PayloadForPublishV1.object(descriptor));
+            final ClaimMaterializationV1 valid = new ClaimMaterializationV1(destination, capability,
+                    BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1("fixture-target-cluster",
+                            UUID.nameUUIDFromBytes(Bytes.utf8("fixture-lane-topic")))),
+                    3, schedule.delayMessageId(), Integer.toUnsignedLong(current.generation()),
+                    PayloadForPublishV1.object(descriptor), intent.adapterMetadata(),
+                    current.deliverAtEpochMs(), current.expireAtEpochMs(),
+                    current.runtimeIndex().timeline().actionAtEpochMs());
             final ProfileRefV1 foreignObjectStore = new ProfileRefV1(Bytes.utf8("foreign-object-store"), 7,
                     objectStore.semanticHash(), ProfileKindV1.OBJECT_STORE);
             final CommittedPayloadDescriptorV1 foreignDescriptor = new CommittedPayloadDescriptorV1(
@@ -153,6 +160,22 @@ class ClaimMaterializationRuntimeTest {
                     foreignDestination, valid.capabilityProfile(), valid.targetResource(), valid.physicalPartition(),
                     valid.messageId(), valid.generation(), valid.payload(), valid.businessMetadata(),
                     valid.deliverAtEpochMs(), valid.expireAtEpochMs(), valid.actionAtEpochMs());
+            final ClaimMaterializationV1 wrongCapability = new ClaimMaterializationV1(
+                    valid.destinationProfile(), profile(ProfileKindV1.DELIVERY_CAPABILITY, "foreign-capability"),
+                    valid.targetResource(), valid.physicalPartition(), valid.messageId(), valid.generation(),
+                    valid.payload(), valid.businessMetadata(), valid.deliverAtEpochMs(), valid.expireAtEpochMs(),
+                    valid.actionAtEpochMs());
+            final ClaimMaterializationV1 wrongTarget = new ClaimMaterializationV1(
+                    valid.destinationProfile(), valid.capabilityProfile(),
+                    BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1("fixture-target-cluster",
+                            UUID.nameUUIDFromBytes(Bytes.utf8("foreign-target-topic")))),
+                    valid.physicalPartition(), valid.messageId(), valid.generation(), valid.payload(),
+                    valid.businessMetadata(), valid.deliverAtEpochMs(), valid.expireAtEpochMs(),
+                    valid.actionAtEpochMs());
+            final ClaimMaterializationV1 wrongPartition = new ClaimMaterializationV1(
+                    valid.destinationProfile(), valid.capabilityProfile(), valid.targetResource(), 4,
+                    valid.messageId(), valid.generation(), valid.payload(), valid.businessMetadata(),
+                    valid.deliverAtEpochMs(), valid.expireAtEpochMs(), valid.actionAtEpochMs());
 
             assertThrows(IllegalArgumentException.class,
                     () -> shard.claimForPublishV1(schedule.delayMessageId(), owner(), 3_000,
@@ -160,6 +183,15 @@ class ClaimMaterializationRuntimeTest {
             assertThrows(IllegalArgumentException.class,
                     () -> shard.claimForPublishV1(schedule.delayMessageId(), owner(), 3_000,
                             wrongDestinationIdentity, zeroCharge()));
+            assertThrows(IllegalArgumentException.class,
+                    () -> shard.claimForPublishV1(schedule.delayMessageId(), owner(), 3_000,
+                            wrongCapability, zeroCharge()));
+            assertThrows(IllegalArgumentException.class,
+                    () -> shard.claimForPublishV1(schedule.delayMessageId(), owner(), 3_000,
+                            wrongTarget, zeroCharge()));
+            assertThrows(IllegalArgumentException.class,
+                    () -> shard.claimForPublishV1(schedule.delayMessageId(), owner(), 3_000,
+                            wrongPartition, zeroCharge()));
 
             final ClaimRecord claim = shard.claimForPublishV1(schedule.delayMessageId(), owner(), 3_000, valid,
                     zeroCharge());

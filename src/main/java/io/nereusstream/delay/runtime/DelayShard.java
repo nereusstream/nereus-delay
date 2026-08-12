@@ -1388,6 +1388,7 @@ public final class DelayShard {
                 || materialization.expireAtEpochMs() != intent.expireAtEpochMs()) {
             throw new IllegalArgumentException("Claim materialization V1 delivery window mismatch");
         }
+        binding.requireClaimLaneProjection(materialization);
         final PayloadForPublishV1 payload = materialization.payload();
         if (prepare == null) {
             if (intent.hasInlinePayload()) {
