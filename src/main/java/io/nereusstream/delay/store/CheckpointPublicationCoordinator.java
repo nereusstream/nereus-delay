@@ -45,12 +45,12 @@ public final class CheckpointPublicationCoordinator {
      * expected catalog generation.  The catalog generation is checked before
      * provider I/O so an obviously stale intent cannot create an orphan.
      */
-    public CheckpointPublication publish(final Path checkpointDirectory,
-                                         final CheckpointUploadIntentV1 pending,
-                                         final CheckpointManifest manifest,
-                                         final long expectedCatalogGeneration,
-                                         final long nowEpochMs,
-                                         final CheckpointUploadAdapter adapter) {
+    CheckpointPublication publish(final Path checkpointDirectory,
+                                  final CheckpointUploadIntentV1 pending,
+                                  final CheckpointManifest manifest,
+                                  final long expectedCatalogGeneration,
+                                  final long nowEpochMs,
+                                  final CheckpointUploadAdapter adapter) {
         Objects.requireNonNull(pending, "pending");
         if (pending.baseCatalogGeneration() != expectedCatalogGeneration) {
             throw new IllegalStateException("checkpoint intent catalog generation does not match request");

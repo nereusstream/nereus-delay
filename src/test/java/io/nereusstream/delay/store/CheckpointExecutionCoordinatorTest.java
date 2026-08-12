@@ -27,6 +27,7 @@ import io.nereusstream.delay.scheduler.WorkClassTask;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.lang.reflect.Modifier;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.EnumMap;
@@ -45,6 +46,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class CheckpointExecutionCoordinatorTest {
     @TempDir
     Path tempDir;
+
+    @Test
+    void checkpointPipelineActionsAreNotPublicProductionApi() {
+        assertNamedMethodsAreNotPublic(CheckpointExecutionCoordinator.class, "execute");
+        assertNamedMethodsAreNotPublic(CheckpointPublicationCoordinator.class, "publish");
+        assertNamedMethodsAreNotPublic(CheckpointUploadCoordinator.class, "upload");
+    }
 
     @Test
     void retriesSamePhysicalCheckpointAfterCatalogResponseLoss() throws Exception {
@@ -340,6 +348,17 @@ class CheckpointExecutionCoordinatorTest {
             value[index] = (byte) (seed + index);
         }
         return value;
+    }
+
+    private static void assertNamedMethodsAreNotPublic(final Class<?> type, final String methodName) {
+        boolean found = false;
+        for (var method : type.getDeclaredMethods()) {
+            if (method.getName().equals(methodName)) {
+                found = true;
+                assertFalse(Modifier.isPublic(method.getModifiers()), method::toGenericString);
+            }
+        }
+        assertTrue(found, () -> type.getName() + " has no declared method named " + methodName);
     }
 
     private static final class ResponseLossCatalog implements RecoveryCatalogAuthority {

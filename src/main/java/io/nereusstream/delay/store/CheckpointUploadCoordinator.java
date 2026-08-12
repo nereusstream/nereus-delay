@@ -41,11 +41,11 @@ public final class CheckpointUploadCoordinator {
         this.limits = Objects.requireNonNull(limits, "limits");
     }
 
-    public CheckpointUploadIntentV1 upload(final Path checkpointDirectory,
-                                           final CheckpointUploadIntentV1 pending,
-                                           final CheckpointManifest manifest,
-                                           final long nowEpochMs,
-                                           final CheckpointUploadAdapter adapter) {
+    CheckpointUploadIntentV1 upload(final Path checkpointDirectory,
+                                    final CheckpointUploadIntentV1 pending,
+                                    final CheckpointManifest manifest,
+                                    final long nowEpochMs,
+                                    final CheckpointUploadAdapter adapter) {
         Objects.requireNonNull(checkpointDirectory, "checkpointDirectory");
         Objects.requireNonNull(pending, "pending");
         Objects.requireNonNull(manifest, "manifest");
