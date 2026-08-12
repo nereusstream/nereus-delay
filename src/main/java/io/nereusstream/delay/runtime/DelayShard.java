@@ -79,6 +79,8 @@ import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.protocol.UnsignedInt32;
 import io.nereusstream.delay.protocol.V1ScheduleBinding;
 import io.nereusstream.delay.ownership.ControlTargetRegistrationAuthority;
+import io.nereusstream.delay.scheduler.SchedulerBudget;
+import io.nereusstream.delay.store.BoundedReadBudget;
 import io.nereusstream.delay.store.ColumnFamily;
 import io.nereusstream.delay.store.IngressFenceState;
 import io.nereusstream.delay.store.KeyCodec;
@@ -98,6 +100,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.LongSupplier;
 
 /**
  * Single-writer deterministic command application loop for one Delay Shard.
@@ -6598,13 +6601,27 @@ public final class DelayShard {
 
     /** Returns expiry candidates; the caller must apply an exact source-ordered expiry mutation. */
     public synchronized List<ExpiryWork> discoverExpiry(final long earliestEpochMs, final int limit) {
-        if (earliestEpochMs < 0 || limit <= 0) {
+        return discoverExpiry(earliestEpochMs,
+                new SchedulerBudget(limit, Long.MAX_VALUE, Long.MAX_VALUE), () -> 0);
+    }
+
+    /** Returns expiry candidates under record, actual-byte and elapsed scan bounds. */
+    public synchronized List<ExpiryWork> discoverExpiry(final long earliestEpochMs,
+                                                         final SchedulerBudget budget,
+                                                         final LongSupplier monotonicClockNanos) {
+        final SchedulerBudget bounded = Objects.requireNonNull(budget, "expiry discovery budget");
+        final LongSupplier clock = Objects.requireNonNull(monotonicClockNanos,
+                "expiry discovery monotonic clock");
+        if (earliestEpochMs < 0) {
             throw new IllegalArgumentException("invalid expiry discovery bounds");
         }
         final List<ExpiryWork> result = new ArrayList<>();
-        final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries = store.scan(ColumnFamily.TIMELINE,
-                new byte[]{4, 1}, new byte[]{5, 1}, limit);
-        for (var entry : entries) {
+        final BoundedReadBudget readBudget = new BoundedReadBudget(bounded.maxBytes(),
+                bounded.maxElapsedNanos(), clock);
+        final long[] completedCharge = {0};
+        store.visit(ColumnFamily.TIMELINE, new byte[]{4, 1}, new byte[]{5, 1}, bounded.maxMessages(),
+                readBudget, (entry, sharedBudget) -> {
+            final long indexCharge = sharedBudget.chargedBytes() - completedCharge[0];
             final byte[] key = entry.key();
             if (key.length != 2 + 8 + 32 + DelayMessageId.LENGTH + 4) {
                 throw new IllegalStateException("invalid EXPIRY key length");
@@ -6620,12 +6637,28 @@ public final class DelayShard {
             input.get(messageBytes);
             final int generation = input.getInt();
             if (expireAt > earliestEpochMs) {
-                break;
+                return false;
             }
             final DelayMessageId messageId = new DelayMessageId(messageBytes);
             final io.nereusstream.delay.protocol.DestinationLaneId laneId =
                     new io.nereusstream.delay.protocol.DestinationLaneId(laneBytes);
-            final MessageRecord message = getMessage(messageId);
+            if (!sharedBudget.beforeRead()) {
+                return false;
+            }
+            final byte[] messageKey = KeyCodec.idMessage(messageId);
+            final byte[] rawMessage = store.get(ColumnFamily.ID, messageKey);
+            final int messageBytesLength = rawMessage == null ? 0 : rawMessage.length;
+            if (!sharedBudget.tryCharge(messageKey.length, messageBytesLength)) {
+                final long candidateBytes = Math.addExact(indexCharge,
+                        Math.addExact((long) messageKey.length, messageBytesLength));
+                if (candidateBytes > sharedBudget.maxBytes()) {
+                    throw new IllegalStateException("EXPIRY discovery candidate exceeds byte budget");
+                }
+                return false;
+            }
+            final MessageRecord message = rawMessage == null ? null : validateMessageSourcePosition(messageId,
+                    MessageRecord.decode(ValueEnvelope.decode(rawMessage, MESSAGE_VALUE_TYPE).payload()),
+                    "EXPIRY discovery");
             if (message == null || (message.status() != MessageStatus.SCHEDULED
                     && message.status() != MessageStatus.CLAIMED) || message.generation() != generation
                     || message.expireAtEpochMs() != expireAt || !message.laneId().equals(laneId)
@@ -6636,7 +6669,9 @@ public final class DelayShard {
                     messageId, message, timelineKey(messageId, message), message.status() == MessageStatus.SCHEDULED,
                     "EXPIRY discovery");
             result.add(new ExpiryWork(messageId, laneId, generation, expireAt));
-        }
+            completedCharge[0] = sharedBudget.chargedBytes();
+            return true;
+        });
         return List.copyOf(result);
     }
 

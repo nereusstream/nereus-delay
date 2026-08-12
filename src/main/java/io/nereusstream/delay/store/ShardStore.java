@@ -1835,27 +1835,43 @@ public final class ShardStore implements AutoCloseable {
                                             final byte[] upperExclusive, final int maxRecords,
                                             final long maxBytes, final long maxElapsedNanos,
                                             final LongSupplier monotonicClockNanos) {
+        return scan(family, lowerInclusive, upperExclusive, maxRecords,
+                new BoundedReadBudget(maxBytes, maxElapsedNanos, monotonicClockNanos));
+    }
+
+    /** Returns a record-bounded snapshot while charging a caller-shared read budget. */
+    public synchronized List<KeyValue> scan(final ColumnFamily family, final byte[] lowerInclusive,
+                                            final byte[] upperExclusive, final int maxRecords,
+                                            final BoundedReadBudget budget) {
+        final List<KeyValue> result = new ArrayList<>();
+        visit(family, lowerInclusive, upperExclusive, maxRecords, budget, (entry, ignored) -> {
+            result.add(entry);
+            return true;
+        });
+        return List.copyOf(result);
+    }
+
+    /** Visits bounded entries in key order, allowing one shared budget across dependent reads. */
+    public synchronized int visit(final ColumnFamily family, final byte[] lowerInclusive,
+                                  final byte[] upperExclusive, final int maxRecords,
+                                  final BoundedReadBudget budget,
+                                  final BoundedEntryVisitor visitor) {
         ensureOpen();
         Objects.requireNonNull(family, "family");
-        final LongSupplier clock = Objects.requireNonNull(monotonicClockNanos, "monotonicClockNanos");
-        if (maxRecords <= 0 || maxBytes <= 0 || maxElapsedNanos <= 0) {
-            throw new IllegalArgumentException("scan bounds must be positive");
+        final BoundedReadBudget readBudget = Objects.requireNonNull(budget, "budget");
+        final BoundedEntryVisitor entryVisitor = Objects.requireNonNull(visitor, "visitor");
+        if (maxRecords <= 0) {
+            throw new IllegalArgumentException("scan record bound must be positive");
         }
-        final List<KeyValue> result = new ArrayList<>();
-        final long startedNanos = readScanClock(clock);
-        long scannedBytes = 0;
+        int visited = 0;
         try (RocksIterator iterator = db.newIterator(handles.get(family))) {
             if (lowerInclusive == null) {
                 iterator.seekToFirst();
             } else {
                 iterator.seek(lowerInclusive);
             }
-            while (iterator.isValid() && result.size() < maxRecords) {
-                final long nowNanos = readScanClock(clock);
-                if (nowNanos < startedNanos) {
-                    throw new IllegalStateException("RocksDB scan monotonic clock moved backwards");
-                }
-                if (nowNanos - startedNanos >= maxElapsedNanos) {
+            while (iterator.isValid() && visited < maxRecords) {
+                if (!readBudget.beforeRead()) {
                     break;
                 }
                 final byte[] key = iterator.key();
@@ -1863,35 +1879,20 @@ public final class ShardStore implements AutoCloseable {
                     break;
                 }
                 final byte[] value = iterator.value();
-                final long entryBytes;
-                try {
-                    entryBytes = Math.addExact((long) key.length, value.length);
-                } catch (ArithmeticException overflow) {
-                    throw new IllegalStateException("RocksDB scan entry byte charge overflow", overflow);
-                }
-                if (entryBytes > maxBytes) {
-                    throw new IllegalStateException("RocksDB scan entry exceeds byte budget");
-                }
-                if (entryBytes > maxBytes - scannedBytes) {
+                if (!readBudget.tryCharge(key.length, value.length)) {
                     break;
                 }
-                scannedBytes = Math.addExact(scannedBytes, entryBytes);
-                result.add(new KeyValue(key, value));
+                visited++;
+                if (!entryVisitor.visit(new KeyValue(key, value), readBudget)) {
+                    break;
+                }
                 iterator.next();
             }
             iterator.status();
         } catch (RocksDBException exception) {
             throw new IllegalStateException("RocksDB scan failed", exception);
         }
-        return List.copyOf(result);
-    }
-
-    private static long readScanClock(final LongSupplier clock) {
-        final long value = clock.getAsLong();
-        if (value < 0) {
-            throw new IllegalStateException("RocksDB scan monotonic clock returned a negative value");
-        }
-        return value;
+        return visited;
     }
 
     public synchronized void write(final BatchOperation operation) {
@@ -2329,6 +2330,11 @@ public final class ShardStore implements AutoCloseable {
     @FunctionalInterface
     public interface BatchOperation {
         void apply(Batch batch) throws RocksDBException;
+    }
+
+    @FunctionalInterface
+    public interface BoundedEntryVisitor {
+        boolean visit(KeyValue entry, BoundedReadBudget budget);
     }
 
     public record KeyValue(byte[] key, byte[] value) {

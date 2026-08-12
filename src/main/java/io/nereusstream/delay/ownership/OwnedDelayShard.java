@@ -386,6 +386,36 @@ public final class OwnedDelayShard {
         validateExpirySubmission(candidate, evidence, owner);
     }
 
+    /** Pure local preflight for one bounded EXPIRY-index discovery action. */
+    synchronized void requireExpiryDiscoverySubmission(final OxiaOwnerLeaseStore authority) {
+        requireStrictActiveAuthority(authority);
+        if (state != ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
+            throw new IllegalStateException("expiry discovery requires an active shard");
+        }
+    }
+
+    /** Rereads Owner authority before a record/byte/time-bounded EXPIRY scan. */
+    synchronized List<io.nereusstream.delay.runtime.DelayShard.ExpiryWork>
+            discoverExpiryAuthoritativelyStrict(
+                    final OxiaOwnerLeaseStore authority,
+                    final TrustedUtcIntervalEvidence evidence,
+                    final SchedulerBudget budget,
+                    final LongSupplier ownerClock,
+                    final LongSupplier scanClockNanos) {
+        requireExpiryDiscoverySubmission(authority);
+        final long nowEpochMs = readActiveWorkClock(ownerClock, "expiry discovery");
+        ensureAuthoritativeActive(authority, nowEpochMs, "expiry discovery");
+        try {
+            return delegate.discoverExpiry(
+                    Objects.requireNonNull(evidence, "trusted UTC evidence").earliestEpochMs(),
+                    Objects.requireNonNull(budget, "expiry discovery budget"),
+                    Objects.requireNonNull(scanClockNanos, "expiry discovery scan clock"));
+        } catch (RuntimeException | Error failure) {
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        }
+    }
+
     /** Rereads the authoritative Owner Lease immediately before appending expiry. */
     synchronized void requireExpiryAuthoritativelyStrict(final OxiaOwnerLeaseStore authority,
                                                          final io.nereusstream.delay.runtime.DelayShard.ExpiryWork candidate,
