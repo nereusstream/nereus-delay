@@ -2592,6 +2592,14 @@ CAS，或 Object Store 的上传、quiescence、attestation 和删除 authority�
 6. 单个 Oxia transaction/CAS 比较 intent state/revision/token、Owner Lease/session、lineage head 与 base catalog，做 `PENDING_UPLOAD -> PUBLISHED` 并把 exact manifest object identity/version/length/hash 加入 Recovery Set；reaper 只能竞争 `PENDING_UPLOAD -> REAPING`，两者互斥。
 7. CAS response loss 用 exact checkpoint ID/token reread；只有与最终 manifest byte-equal 的 `PUBLISHED` 是成功。
 
+本地上传协调器取得 Worker upload slot 之后，必须在调用 provider adapter
+之前再次读取 exact Upload Intent。slot 只限制进程级并发，不是 intent lock；如果
+并发 Owner/reaper 已经把 intent 推进为 `PUBLISHED`，直接返回该 exact successor，
+不得再次调用 provider；如果 intent 已变为其它 revision/state，则 fail closed，
+不得以旧的 `PENDING_UPLOAD` 发起 provider I/O。这样不会把迟到上传变成必然无法
+完成 CAS 的 orphan object；这条本地 reread 仍不替代生产 Oxia 的跨 record
+Owner Lease/session、catalog 和 Object Store transaction。
+
 上传未 catalog publish 的对象不是 recovery state，只是 orphan candidate。只有赢得 `REAPING` CAS 的 reaper 才可删除；仅 upload deadline 到达、callback 丢失或 watch 缺失都不够。旧 Owner 主动 abandon，或其 exact Owner Lease/session 已不再 current 且 Trusted UTC 越过 deadline，才可竞争该 CAS。`REAPING` 永久禁止后来 publish；reaper 还必须等待 `checkpointUploadRequestQuiescenceHorizon`、证明旧 Owner local guard 与 provider-owned request horizon 已关闭、确认无 active `RecoveryPinV1`/`PUBLISHED` catalog protection，再对 unique checkpoint prefix 做 exact-version delete 和 final empty-prefix sweep。任何 catalog、Floor 或 Recovery Pin 读取异常（包括适配器/进程边界抛出的 fatal `Error`）都只能解释为保护状态不可用，必须保持 `PENDING_UPLOAD` 或保留 GC tombstone，不能继续回收。这样旧 SDK/provider 的 late PUT 不能在一次 `HEAD not found` 后制造无主对象。
 
 ### 16.3 Recovery Set / Floor

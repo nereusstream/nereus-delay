@@ -109,6 +109,15 @@ context-bound success and contextless no-mutation regressions are in
 This closes the local mutation gate, while production source-writer wiring and
 real assignment/session authority remain open.
 
+The checkpoint upload boundary now rereads the exact `PENDING_UPLOAD` intent
+after acquiring the Worker upload slot and immediately before provider I/O.
+If a concurrent caller already committed the exact `PUBLISHED` successor, the
+coordinator returns it without invoking the adapter; any other revision/state
+change fails closed. `CheckpointUploadCoordinatorTest.rereadsIntentAfterUploadSlotBeforeProviderIo`
+covers the race. This closes a local stale-provider-I/O window only; Object
+Store quiescence/attestation, owner-abandonment proof and the Oxia
+intent/catalog transaction remain release gates.
+
 The post-`3527c89` local verification `./gradlew clean check --rerun-tasks
 --console=plain` passed on 2026-08-12. Five opt-in real-Oxia methods were
 skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is repository
