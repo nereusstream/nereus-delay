@@ -4051,6 +4051,16 @@ tasks). The same five real-Oxia methods were skipped because
 `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this revalidates the local code and
 does not claim real-service or release evidence.
 
+Kafka `ReceiptJournal.AttemptIdentity` and Pulsar `AttemptJournal.AttemptIdentity`
+now bind their canonical Source Position to the embedded `DelayMessageId` Shard
+at construction time, before a transport mapping is created. This closes the
+intermediate-value gap in which a foreign-shard attempt identity could exist
+until `Mapping.create`; `KafkaReceiptJournalTest.attemptIdentityRequiresCanonicalSourcePositionAndMatchingShard`
+and `PulsarAttemptJournalTest.attemptIdentityRequiresCanonicalSourcePositionAndMatchingShard`
+cover the direct-construction rejection. The checks remain local adapter
+identity evidence; authenticated broker assignment and real journal authority
+remain release blockers.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

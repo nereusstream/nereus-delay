@@ -3799,8 +3799,17 @@ publication。
 
 After `93147c4`, `./gradlew clean check --rerun-tasks --console=plain` passed on
 2026-08-12 (`BUILD SUCCESSFUL`, five executed tasks). The five real-Oxia
-methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this
-is local revalidation, not real-service or release evidence.
+ methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this
+ is local revalidation, not real-service or release evidence.
+
+Kafka `ReceiptJournal.AttemptIdentity` 与 Pulsar `AttemptJournal.AttemptIdentity`
+现在在构造时就把 canonical Source Position 绑定到嵌入的 `DelayMessageId` Shard，
+不再允许 foreign-shard 的中间 attempt identity 先存在、等到 `Mapping.create` 才
+被拒绝。回归证据为
+`KafkaReceiptJournalTest.attemptIdentityRequiresCanonicalSourcePositionAndMatchingShard`
+和 `PulsarAttemptJournalTest.attemptIdentityRequiresCanonicalSourcePositionAndMatchingShard`；
+这仍只是本地 adapter identity proof，不替代 authenticated broker assignment 或
+real journal authority。
 
 ## Final gate
 
