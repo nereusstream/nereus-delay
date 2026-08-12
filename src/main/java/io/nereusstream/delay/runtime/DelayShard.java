@@ -6078,14 +6078,30 @@ public final class DelayShard {
             throw new IllegalArgumentException("limit must be positive");
         }
         final int scanLimit = limit == Integer.MAX_VALUE ? Integer.MAX_VALUE : Math.addExact(limit, 1);
-        final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries = store.scan(ColumnFamily.TIMELINE,
-                new byte[]{6, 1, LaneCloseMaterializationCursor.SYSTEM_WORK_KIND},
-                new byte[]{6, 1, (byte) (LaneCloseMaterializationCursor.SYSTEM_WORK_KIND + 1)}, scanLimit);
-        if (entries.size() > limit) {
+        final List<LaneCloseMaterializationWork> result = discoverLaneCloseMaterialization(
+                new SchedulerBudget(scanLimit, Long.MAX_VALUE, Long.MAX_VALUE), () -> 0);
+        if (result.size() > limit) {
             throw new IllegalStateException("Lane close materialization work exceeds scheduler bound");
         }
-        final List<LaneCloseMaterializationWork> result = new ArrayList<>(entries.size());
-        for (var entry : entries) {
+        return result;
+    }
+
+    /** Returns validated close cursors under record, actual-byte and elapsed scan bounds. */
+    public synchronized List<LaneCloseMaterializationWork> discoverLaneCloseMaterialization(
+            final SchedulerBudget budget, final LongSupplier monotonicClockNanos) {
+        final SchedulerBudget bounded = Objects.requireNonNull(budget,
+                "Lane close discovery budget");
+        final LongSupplier clock = Objects.requireNonNull(monotonicClockNanos,
+                "Lane close discovery monotonic clock");
+        final List<LaneCloseMaterializationWork> result = new ArrayList<>();
+        final BoundedReadBudget readBudget = new BoundedReadBudget(bounded.maxBytes(),
+                bounded.maxElapsedNanos(), clock);
+        final long[] completedCharge = {0};
+        store.visit(ColumnFamily.TIMELINE,
+                new byte[]{6, 1, LaneCloseMaterializationCursor.SYSTEM_WORK_KIND},
+                new byte[]{6, 1, (byte) (LaneCloseMaterializationCursor.SYSTEM_WORK_KIND + 1)},
+                bounded.maxMessages(), readBudget, (entry, sharedBudget) -> {
+            final long indexCharge = sharedBudget.chargedBytes() - completedCharge[0];
             final SystemTimelineKey key = decodeLaneCloseWorkKey(entry.key());
             final LaneCloseMaterializationCursor cursor = LaneCloseMaterializationCursor.decode(
                     ValueEnvelope.decode(entry.value(), LaneCloseMaterializationCursor.VALUE_TYPE).payload());
@@ -6095,7 +6111,28 @@ public final class DelayShard {
                 throw new IllegalStateException("Lane close system work key/value identity mismatch");
             }
             validateSourcePositionShard(cursor.closeSourcePosition(), "Lane close materialization discovery");
-            final LaneRecord lane = readLane(laneId);
+            if (!sharedBudget.beforeRead()) {
+                return false;
+            }
+            final byte[] laneKey = KeyCodec.metaLane(laneId);
+            final byte[] rawLane = store.get(ColumnFamily.META, laneKey);
+            final int laneValueBytes = rawLane == null ? 0 : rawLane.length;
+            if (!sharedBudget.tryCharge(laneKey.length, laneValueBytes)) {
+                final long candidateBytes = Math.addExact(indexCharge,
+                        Math.addExact((long) laneKey.length, laneValueBytes));
+                if (candidateBytes > sharedBudget.maxBytes()) {
+                    throw new IllegalStateException("Lane close discovery candidate exceeds byte budget");
+                }
+                return false;
+            }
+            final LaneValue laneValue = rawLane == null ? null : validateLaneValueIdentity(laneId,
+                    decodeLaneValue(ValueEnvelope.decode(rawLane, 2).payload()));
+            final LaneRecord lane = laneValue == null ? null : laneValue.isActive()
+                    ? laneValue.asLaneRecord()
+                    : new LaneRecord(laneValue.terminalGuard().laneId(),
+                    laneValue.terminalGuard().laneIncarnation(),
+                    laneValue.terminalGuard().laneControlVersion(), 0,
+                    AdmissionGate.RETIRED, RuntimeReadiness.BLOCKED, 1, 0);
             if (lane == null || lane.admissionGate() != AdmissionGate.CLOSED
                     || lane.laneControlVersion() != cursor.closeVersion()
                     || !Arrays.equals(lane.laneIncarnation(), cursor.laneIncarnation())) {
@@ -6103,7 +6140,9 @@ public final class DelayShard {
             }
             result.add(new LaneCloseMaterializationWork(laneId, cursor.closeVersion(), key.nextEligibleAtEpochMs(),
                     cursor));
-        }
+            completedCharge[0] = sharedBudget.chargedBytes();
+            return true;
+        });
         return List.copyOf(result);
     }
 
@@ -8651,7 +8690,12 @@ public final class DelayShard {
         if (value == null) {
             return null;
         }
-        final LaneValue laneValue = decodeLaneValue(value.payload());
+        return validateLaneValueIdentity(laneId, decodeLaneValue(value.payload()));
+    }
+
+    private LaneValue validateLaneValueIdentity(
+            final io.nereusstream.delay.protocol.DestinationLaneId laneId,
+            final LaneValue laneValue) {
         if (laneValue.isActive()) {
             final LaneRecord lane = laneValue.asLaneRecord();
             if (!lane.laneId().equals(laneId)) {

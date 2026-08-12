@@ -519,6 +519,34 @@ public final class OwnedDelayShard {
         validateLaneCloseMaterializationCandidate(candidate, maxRecords);
     }
 
+    /** Pure local preflight for one bounded Lane-close cursor discovery action. */
+    synchronized void requireLaneCloseDiscoverySubmission(final OxiaOwnerLeaseStore authority) {
+        requireStrictActiveAuthority(authority);
+        if (state != ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
+            throw new IllegalStateException("Lane close discovery requires an active shard");
+        }
+    }
+
+    /** Rereads Owner authority before a record/byte/time-bounded cursor scan. */
+    synchronized List<io.nereusstream.delay.runtime.DelayShard.LaneCloseMaterializationWork>
+            discoverLaneCloseAuthoritativelyStrict(
+                    final OxiaOwnerLeaseStore authority,
+                    final SchedulerBudget budget,
+                    final LongSupplier ownerClock,
+                    final LongSupplier scanClockNanos) {
+        requireLaneCloseDiscoverySubmission(authority);
+        final long nowEpochMs = readActiveWorkClock(ownerClock, "Lane close discovery");
+        ensureAuthoritativeActive(authority, nowEpochMs, "Lane close discovery");
+        try {
+            return delegate.discoverLaneCloseMaterialization(
+                    Objects.requireNonNull(budget, "Lane close discovery budget"),
+                    Objects.requireNonNull(scanClockNanos, "Lane close discovery scan clock"));
+        } catch (RuntimeException | Error failure) {
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        }
+    }
+
     /** Rereads the Owner Lease before a bounded Lane-close cursor batch. */
     synchronized io.nereusstream.delay.runtime.DelayShard.LaneCloseMaterializationExecutionResult
             materializeLaneCloseAuthoritativelyStrict(

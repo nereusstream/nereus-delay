@@ -33,7 +33,10 @@ import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -109,6 +112,88 @@ class LaneCloseWorkClassExecutorTest {
             assertEquals(ShardLifecycleState.FENCED, fixture.owned.state());
             assertArrayEquals(fixture.candidate.cursor().canonicalBytes(),
                     fixture.shard.getLaneCloseCursor(fixture.lane).canonicalBytes());
+        }
+    }
+
+    @Test
+    void discoversCloseCursorOnlyInsideBoundedGcTurnWithoutAdvancingIt() throws Exception {
+        try (Fixture fixture = new Fixture(tempDir.resolve("discovery-success"), 2)) {
+            final SchedulerBudget scanBudget = new SchedulerBudget(1, 8_192, 1_000);
+            final AtomicInteger ownerClockReads = new AtomicInteger();
+            final AtomicLong scanClock = new AtomicLong();
+            final LaneCloseDiscoveryWorkClassExecutor.Submission submission = fixture.discoveryExecutor().submit(
+                    scanBudget, () -> {
+                        ownerClockReads.incrementAndGet();
+                        return 101;
+                    }, scanClock::getAndIncrement);
+
+            assertTrue(submission.discovered().isEmpty());
+            assertEquals(0, ownerClockReads.get());
+            final int domainBytes = Bytes.utf8("nereus-delay-lane-close-discovery-task-v1\0").length;
+            assertEquals(scanBudget.maxBytes() + domainBytes + 16 + 4 + 4 + 8 + 8,
+                    submission.task().bytes());
+
+            assertEquals(List.of(submission.task()), fixture.workClasses.runTurn(fixture.budget()));
+            assertEquals(1, ownerClockReads.get());
+            assertEquals(List.of(fixture.lane), submission.discovered().orElseThrow().stream()
+                    .map(DelayShard.LaneCloseMaterializationWork::laneId).toList());
+            assertArrayEquals(fixture.candidate.cursor().canonicalBytes(),
+                    fixture.shard.getLaneCloseCursor(fixture.lane).canonicalBytes());
+            assertEquals(MessageStatus.SCHEDULED, fixture.shard.getMessage(fixture.message.delayMessageId()).status());
+        }
+    }
+
+    @Test
+    void closeDiscoveryQueueRejectionReadsNeitherClockNorStore() throws Exception {
+        try (Fixture fixture = new Fixture(tempDir.resolve("discovery-rejected"), 1)) {
+            final AtomicInteger ownerClockReads = new AtomicInteger();
+            final AtomicInteger scanClockReads = new AtomicInteger();
+            fixture.workClasses.submit(new WorkClassTask(WorkClass.GC, "occupied", 1), () -> {
+            });
+
+            assertThrows(IllegalStateException.class, () -> fixture.discoveryExecutor().submit(
+                    new SchedulerBudget(1, 8_192, 1_000), () -> {
+                        ownerClockReads.incrementAndGet();
+                        return 101;
+                    }, () -> {
+                        scanClockReads.incrementAndGet();
+                        return 0;
+                    }));
+            assertEquals(0, ownerClockReads.get());
+            assertEquals(0, scanClockReads.get());
+            assertArrayEquals(fixture.candidate.cursor().canonicalBytes(),
+                    fixture.shard.getLaneCloseCursor(fixture.lane).canonicalBytes());
+        }
+    }
+
+    @Test
+    void undersizedCloseCursorEnvelopeFailsClosedAndFencesOwner() throws Exception {
+        try (Fixture fixture = new Fixture(tempDir.resolve("discovery-undersized"))) {
+            final LaneCloseDiscoveryWorkClassExecutor.Submission submission = fixture.discoveryExecutor().submit(
+                    new SchedulerBudget(1, 1, 1_000), () -> 101, () -> 0);
+
+            assertThrows(IllegalStateException.class, () -> fixture.workClasses.runTurn(fixture.budget()));
+            assertEquals(ShardLifecycleState.FENCED, fixture.owned.state());
+            assertTrue(submission.discovered().isEmpty());
+            assertEquals(WorkClassExecutionRegistry.ExecutionState.FAILED,
+                    fixture.workClasses.state(submission.task()).orElseThrow());
+        }
+    }
+
+    @Test
+    void expiredOwnerFencesBeforeCloseDiscoveryScanClockIsRead() throws Exception {
+        try (Fixture fixture = new Fixture(tempDir.resolve("discovery-expired"))) {
+            final AtomicInteger scanClockReads = new AtomicInteger();
+            final LaneCloseDiscoveryWorkClassExecutor.Submission submission = fixture.discoveryExecutor().submit(
+                    new SchedulerBudget(1, 8_192, 1_000), () -> 200, () -> {
+                        scanClockReads.incrementAndGet();
+                        return 0;
+                    });
+
+            assertThrows(IllegalStateException.class, () -> fixture.workClasses.runTurn(fixture.budget()));
+            assertEquals(0, scanClockReads.get());
+            assertEquals(ShardLifecycleState.FENCED, fixture.owned.state());
+            assertTrue(submission.discovered().isEmpty());
         }
     }
 
@@ -233,6 +318,10 @@ class LaneCloseWorkClassExecutorTest {
 
         private LaneCloseWorkClassExecutor executor() {
             return new LaneCloseWorkClassExecutor(workClasses, owned, authority);
+        }
+
+        private LaneCloseDiscoveryWorkClassExecutor discoveryExecutor() {
+            return new LaneCloseDiscoveryWorkClassExecutor(workClasses, owned, authority);
         }
 
         private KafkaSourcePosition position(final long offset, final long brokerTime) {
