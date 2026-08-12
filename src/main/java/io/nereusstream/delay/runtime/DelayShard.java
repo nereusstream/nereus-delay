@@ -6493,8 +6493,8 @@ public final class DelayShard {
         return releaseControlCapacity(CONTROL_RESERVE_SYSTEM_WRITER_CLASS, amount);
     }
 
-    /** Returns due work without claiming it or changing authoritative state. */
-    public synchronized List<TimelineWork> discoverDue(final long earliestEpochMs, final int limit) {
+    /** Package-local compatibility scan; production scheduling uses bounded READY discovery. */
+    synchronized List<TimelineWork> discoverDue(final long earliestEpochMs, final int limit) {
         if (earliestEpochMs < 0 || limit <= 0) {
             throw new IllegalArgumentException("invalid due discovery bounds");
         }

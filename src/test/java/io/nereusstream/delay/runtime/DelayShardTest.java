@@ -161,6 +161,11 @@ class DelayShardTest {
     }
 
     @Test
+    void legacyTimelineDiscoveryIsNotPublicProductionApi() {
+        assertMethodIsNotPublic("discoverDue", long.class, int.class);
+    }
+
+    @Test
     void strictFirstSeenIdentityTimingBindsRetryDeadlineAndUuidAge() {
         final ShardStoreConfig storage = ShardStoreConfig.defaults(tempDir.resolve("strict-identity-timing"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 63);
