@@ -37,11 +37,13 @@ import io.nereusstream.delay.store.SharedRocksDbResources;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.lang.reflect.Modifier;
 import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -56,6 +58,19 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class OwnerLeaseTest {
     @TempDir
     Path tempDir;
+
+    @Test
+    void directReplaySeamsAreNotPublicProductionApi() {
+        final Set<String> directReplayNames = Set.of(
+                "replayCatchup", "replayCatchupTurn", "replaySystemMutations",
+                "replaySystemMutationsTurn", "replay", "replayTurn");
+
+        for (java.lang.reflect.Method method : OwnedDelayShard.class.getDeclaredMethods()) {
+            if (directReplayNames.contains(method.getName())) {
+                assertFalse(Modifier.isPublic(method.getModifiers()), method.toGenericString());
+            }
+        }
+    }
 
     @Test
     void negativeClockCannotMakeOwnerLeaseValid() {

@@ -979,8 +979,8 @@ public final class OwnedDelayShard {
      * use {@link #replayCatchupTurn(SourceReplayCursor, LongSupplier,
      * ReplayTurnBudget)} so a source turn cannot grow without a bound.
      */
-    public synchronized List<CommandResult> replayCatchup(final Iterable<SourceReplayRecord> records,
-                                                           final long nowEpochMs) {
+    synchronized List<CommandResult> replayCatchup(final Iterable<SourceReplayRecord> records,
+                                                   final long nowEpochMs) {
         return replayCatchup(records, () -> nowEpochMs);
     }
 
@@ -990,8 +990,8 @@ public final class OwnedDelayShard {
      * deterministic callers; source consumers should provide a live clock so
      * a long replay cannot continue after the lease expires.
      */
-    public synchronized List<CommandResult> replayCatchup(final Iterable<SourceReplayRecord> records,
-                                                           final LongSupplier clock) {
+    synchronized List<CommandResult> replayCatchup(final Iterable<SourceReplayRecord> records,
+                                                   final LongSupplier clock) {
         Objects.requireNonNull(records, "records");
         Objects.requireNonNull(clock, "clock");
         return replayCatchupTurn(SourceReplayCursor.of(records.iterator()), clock,
@@ -999,7 +999,7 @@ public final class OwnedDelayShard {
     }
 
     /** Replays at most one bounded catch-up turn using a fixed owner clock. */
-    public synchronized SourceReplayTurn<CommandResult> replayCatchupTurn(
+    synchronized SourceReplayTurn<CommandResult> replayCatchupTurn(
             final SourceReplayCursor<? extends SourceReplayRecord> records, final long nowEpochMs,
             final ReplayTurnBudget budget) {
         return replayCatchupTurn(records, () -> nowEpochMs, budget);
@@ -1011,7 +1011,7 @@ public final class OwnedDelayShard {
      * true. The next record is looked up before applying it so the canonical
      * byte cap never consumes a record that belongs to a later turn.
      */
-    public synchronized SourceReplayTurn<CommandResult> replayCatchupTurn(
+    synchronized SourceReplayTurn<CommandResult> replayCatchupTurn(
             final SourceReplayCursor<? extends SourceReplayRecord> records, final LongSupplier clock,
             final ReplayTurnBudget budget) {
         Objects.requireNonNull(records, "records");
@@ -1081,14 +1081,14 @@ public final class OwnedDelayShard {
     }
 
     /** Compatibility whole-iterable System Mutation replay. */
-    public synchronized List<SystemMutationResult> replaySystemMutations(
+    synchronized List<SystemMutationResult> replaySystemMutations(
             final Iterable<SourceReplayMutation> records, final PublicKey verificationKey,
             final long nowEpochMs) {
         return replaySystemMutations(records, verificationKey, () -> nowEpochMs);
     }
 
     /** Replays signed System Mutations with a live per-record lease check. */
-    public synchronized List<SystemMutationResult> replaySystemMutations(
+    synchronized List<SystemMutationResult> replaySystemMutations(
             final Iterable<SourceReplayMutation> records, final PublicKey verificationKey,
             final LongSupplier clock) {
         Objects.requireNonNull(records, "records");
@@ -1099,14 +1099,14 @@ public final class OwnedDelayShard {
     }
 
     /** Replays at most one bounded System Mutation turn using a fixed clock. */
-    public synchronized SourceReplayTurn<SystemMutationResult> replaySystemMutationsTurn(
+    synchronized SourceReplayTurn<SystemMutationResult> replaySystemMutationsTurn(
             final SourceReplayCursor<? extends SourceReplayMutation> records, final PublicKey verificationKey,
             final long nowEpochMs, final ReplayTurnBudget budget) {
         return replaySystemMutationsTurn(records, verificationKey, () -> nowEpochMs, budget);
     }
 
     /** Replays one bounded signed System Mutation turn. */
-    public synchronized SourceReplayTurn<SystemMutationResult> replaySystemMutationsTurn(
+    synchronized SourceReplayTurn<SystemMutationResult> replaySystemMutationsTurn(
             final SourceReplayCursor<? extends SourceReplayMutation> records, final PublicKey verificationKey,
             final LongSupplier clock, final ReplayTurnBudget budget) {
         Objects.requireNonNull(records, "records");
@@ -1170,14 +1170,14 @@ public final class OwnedDelayShard {
     }
 
     /** Compatibility whole-iterable mixed replay. */
-    public synchronized List<SourceReplayOutcome> replay(
+    synchronized List<SourceReplayOutcome> replay(
             final Iterable<? extends SourceReplayEntry> records, final PublicKey verificationKey,
             final long nowEpochMs) {
         return replay(records, verificationKey, () -> nowEpochMs);
     }
 
     /** Replays mixed source entries with a live per-record lease check. */
-    public synchronized List<SourceReplayOutcome> replay(
+    synchronized List<SourceReplayOutcome> replay(
             final Iterable<? extends SourceReplayEntry> records, final PublicKey verificationKey,
             final LongSupplier clock) {
         Objects.requireNonNull(records, "records");
@@ -1188,7 +1188,7 @@ public final class OwnedDelayShard {
     }
 
     /** Replays at most one bounded mixed source turn using a fixed clock. */
-    public synchronized SourceReplayTurn<SourceReplayOutcome> replayTurn(
+    synchronized SourceReplayTurn<SourceReplayOutcome> replayTurn(
             final SourceReplayCursor<? extends SourceReplayEntry> records, final PublicKey verificationKey,
             final long nowEpochMs, final ReplayTurnBudget budget) {
         return replayTurn(records, verificationKey, () -> nowEpochMs, budget);
@@ -1199,7 +1199,7 @@ public final class OwnedDelayShard {
      * and mutations retain one source cursor, so a turn cap cannot reorder the
      * two branches or advance the cursor before the selected WriteBatch commits.
      */
-    public synchronized SourceReplayTurn<SourceReplayOutcome> replayTurn(
+    synchronized SourceReplayTurn<SourceReplayOutcome> replayTurn(
             final SourceReplayCursor<? extends SourceReplayEntry> records, final PublicKey verificationKey,
             final LongSupplier clock, final ReplayTurnBudget budget) {
         Objects.requireNonNull(records, "records");
