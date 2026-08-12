@@ -2621,6 +2621,20 @@ identity；本地 Catalog 对已存在的 byte-identical manifest 只做幂等�
 Owner Lease/session、Upload Intent 与 Catalog 的单事务；生产 Oxia adapter 仍必须
 提供真正的跨记录 transaction，否则应 fail closed。
 
+`CheckpointExecutionCoordinator` 把上述本地步骤接到 process-local
+`CheckpointScheduler`：调用方必须先交回 scheduler 返回的 exact claim，随后用
+`PENDING_UPLOAD` intent 中已经固定的 `checkpointId` 创建该 shard 的 RocksDB
+checkpoint；若同一 identity 的本地目录已经存在，则只允许在 Store 的
+`lastCheckpointId` 与 intent 完全一致时复用。manifest factory 之后必须描述同一
+Store 的 DB identity、Store Incarnation、applied Source Position、mutation
+sequence、evidence cursors 和 control snapshot；物理 checkpoint verifier 会从
+`meta_cf` 重读这些字段并与 manifest 做 canonical 比较。只有这些检查通过才进入
+upload/catalog 编排。无论 provider 或 catalog 是否失败，执行器都用同一 exact
+claim 完成并安排下一次 due；完成时钟异常或 claim 已被替换则保持 in-flight 并
+fail closed。该执行器只闭合本地 create/upload/catalog 的顺序和 response-loss
+重试，不产生 Owner Lease、Source Assignment、Object Store attestation 或生产
+Oxia 跨记录事务结论。
+
 ### 16.3 Recovery Set / Floor
 
 Catalog 保存有界 checkpoint count/age、lineage parent-hash chain 和 monotonic Recovery Floor。Floor 固定 exact `(recoveryLineageId, checkpointId, manifestHash, catalogGeneration, appliedShardLogPosition, includedMutationSequence, evidenceCursors)`；`includedMutationSequence` 是完整 `u64`，Floor coverage 以 unsigned order 比较。恢复从 newest 开始，只可 fallback 到 parent chain 能到达该 exact Floor 的 candidate；scalar position/sequence 大小不能替代 ancestry。

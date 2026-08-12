@@ -41,6 +41,19 @@ from environment-skipped to live-service PASS, but remains only repository
 evidence. It does not close cross-record authority transactions, Object Store
 publication, Kafka/Pulsar transport, chaos, benchmark, soak or upgrade gates.
 
+After `6efd89f`, the local checkpoint execution boundary is explicit rather
+than implicit: `CheckpointExecutionCoordinator` requires the exact scheduler
+claim before filesystem/provider I/O, creates or safely reuses the fixed-ID
+physical checkpoint, verifies the physical checkpoint's source/mutation,
+evidence and control projections against the canonical manifest, and completes
+the same claim after either outcome. Its response-loss regression reuses the
+same local image and PUBLISHED intent without invoking the provider twice.
+This closes a local orchestration/documentation gap in §16.2; it does not
+upgrade the audit to a production checkpoint PASS because the Owner
+Lease/session + Upload Intent + Catalog transaction, Object Store
+attestation/quiescence, Source Assignment and real transport evidence remain
+open gates.
+
 After `4e2cf94`, local recovery reuse no longer rewrites a Store's runtime or
 recovery projection merely by opening the ACTIVE DB. `ShardStore` first passes
 the persisted projection (including the prior `CLOSED_CLEAN` install state in
