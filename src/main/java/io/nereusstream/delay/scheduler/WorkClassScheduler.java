@@ -81,8 +81,8 @@ public final class WorkClassScheduler {
      * resource-token authority without acquiring tokens for work that remains
      * queued.  The callback must not execute the task.</p>
      */
-    public synchronized List<WorkClassTask> poll(final SchedulerBudget budget,
-                                                   final Consumer<WorkClassTask> beforeRemove) {
+    synchronized List<WorkClassTask> poll(final SchedulerBudget budget,
+                                           final Consumer<WorkClassTask> beforeRemove) {
         Objects.requireNonNull(budget, "budget");
         Objects.requireNonNull(beforeRemove, "beforeRemove");
         final SchedulerSnapshot before = snapshot();
