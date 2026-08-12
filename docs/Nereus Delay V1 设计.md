@@ -2032,6 +2032,19 @@ attempt failure outcome。物理 Broker record/cursor 是唯一 retry authority�
 流。fatal `Error` 仍记录 outcome 并重新抛出。绕过 queue 的 direct active apply
 方法只能保留为 ownership 包内的本地测试/组合 seam，不得暴露为跨包生产 API。
 
+`LEASE_FENCE` 是唯一允许抢占首个 bounded turn 的 work-class。每个 fence task
+必须绑定触发事件所观察到的完整 Owner Lease identity（Shard、owner、ownerEpoch、
+lease token、assignment/session context 和 lifecycle value）。进入队列前只做本地
+identity 校验；执行时必须先重读 Oxia lease 和 owner clock。若 exact lease 仍然有效，
+该 task 返回 `OWNER_STILL_VALID`，不得误 fence；若 lease 已过期、被替换或 lifecycle
+identity 不再匹配，必须先用同一 identity fence 本地 Owner，再调用一次外部
+`stopSourceAndScheduling` 回调。旧 Owner 的延迟 fence task 不能 fence 已在同一进程
+接管的新 Owner。Oxia 读失败、clock 失败或 stop 回调失败都不能证明安全完成，结果保留
+为 `UNKNOWN` 并让本地 gate 保持 fenced；队列拒绝不得触发 fence 或 stop 副作用。
+当前 `LeaseFenceWorkClassExecutor` 只闭合这个本地 preemptive handoff 和精确 task
+identity；真实 Oxia session watch、Broker consumer pause/rewind、scheduler shutdown
+以及跨 Worker stop authority 仍由生产 Worker 接线完成。
+
 active shard 的持久 READY discovery 必须通过 `DUE_SCHEDULER` action 进入
 work-class runtime。task identity 用 domain-separated hash 绑定 exact Shard、canonical
 `TrustedUtcIntervalEvidenceV1` 与本轮 `maxMessages/maxBytes/maxElapsedNanos`；byte charge
@@ -2946,6 +2959,18 @@ Kafka MirrorMaker offset 或 Pulsar geo-replicated MessageId 不被假设保持�
 ### 17.1 Query routing
 
 Queued receipt 的 Broker Source Position 是 Command query 的路由权威；bare Command/Message ID 使用其 self-routing locator。若 consumed physical partition 与 envelope locator 不同，实际 shard 写 position-level `REJECTED(INGRESS_ROUTE_MISMATCH)`，不创建消息；只有携该 queued receipt 的查询能定位这次错误物理记录。Gateway 从 Oxia 找 `ACTIVE_FOR_COMMANDS` lease，携 observed epoch 转发；owner mismatch 时 refresh 一次。
+
+进入 Worker 的本地 Query 必须使用独立 `QUERY` bounded action。Gateway 在外部完成
+Route/Owner 定位、Authenticated Tenant Context 授权、receipt/retention policy 校验后，
+把已授权的 canonical request envelope 和目标 Shard 交给该 action；task identity 必须
+绑定 exact Shard 与 request bytes，byte charge 使用同一 canonical envelope 的实际长度。
+queue admission 只做本地格式/Shard 检查，不读 Oxia、不读 RocksDB，也不改变任何 runtime
+projection。action 执行时先重读 Owner Lease/clock，再执行一次 bounded shard-local
+read-only projection，并在读完成后再次重读同一 lease。前后 identity 不一致、lease
+过期或 Store/authority 读失败时丢弃已读 snapshot，返回 `SHARD_TRANSITIONING` 或
+`INTEGRITY_ERROR`，不得把 stale DB 结果暴露给调用方。Query action 不分配 Source
+Position、不写 RocksDB、不调用 Broker/Object Store，也不自行决定租户授权、路由、
+retention 或 non-enumerating error；这些仍由生产 Gateway/authority 提供。
 
 Locator 是闭合 ADT：
 

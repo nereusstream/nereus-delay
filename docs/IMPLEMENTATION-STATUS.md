@@ -418,6 +418,32 @@ without local apply, queue rejection and expired-owner fencing. Real control
 registration/authorization, Broker append/ACK/cursor, Oxia session, source
 replay and signing-key history remain release blockers.
 
+After `096f461`, `LeaseFenceWorkClassExecutor` provides the
+concrete `LEASE_FENCE` preemptive entrypoint. It binds the complete observed
+Owner Lease identity into the task bytes before queue admission, rereads the
+Oxia lease and owner clock after the queue wait, returns `OWNER_STILL_VALID`
+without fencing when the exact lease is still live, and fences/stops only when
+the queued identity is still the local identity but the authoritative lease has
+expired or been replaced. A delayed old-owner task cannot fence a replacement
+local Owner; clock/authority/stop failures remain `UNKNOWN`, and queue
+rejection has no stop or Store side effect. `LeaseFenceWorkClassExecutorTest`
+covers expiry/replacement, still-valid, and queue-rejection branches. This is a
+local preemptive handoff only; Oxia session watch, Broker pause/rewind,
+scheduler shutdown and cross-Worker stop authority remain release blockers.
+
+After `fc0cf8a`, `QueryWorkClassExecutor` provides the concrete read-only
+`QUERY` action. It binds the exact Shard and canonical request envelope into
+the task identity and charges the actual envelope bytes before queue admission;
+the preflight performs no Oxia/RocksDB read. The bounded action rereads the
+Owner Lease/clock before and after the injected shard-local read, returns the
+value only when the same owner remains authoritative, and discards a snapshot
+on ownership loss as `SHARD_TRANSITIONING`. Queue rejection and expired-owner
+paths do not invoke the read callback. `QueryWorkClassExecutorTest` covers
+successful linearization, ownership loss, expiry and rejection. This is a
+local query composition seam; Gateway routing, tenant authorization,
+retention authority, cross-worker forwarding and observability remain release
+blockers.
+
 After `666f56a` and the corresponding design/status/audit synchronization, the full
 `GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew clean check
 --rerun-tasks --console=plain` gate passed on 2026-08-12: 1232 tests were

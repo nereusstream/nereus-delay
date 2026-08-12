@@ -326,6 +326,26 @@ TIME_FENCE is not locally applied and expired ownership never calls the
 appender. Control authorization/registration, Broker/Oxia/source replay and
 signing-key history remain OPEN.
 
+`LeaseFenceWorkClassExecutor` now closes the local `LEASE_FENCE` handoff
+boundary. The task identity includes the complete observed Owner Lease bytes;
+execution rereads the authoritative lease and clock, does not fence when the
+exact lease is still valid, and fences/stops only the matching local Owner when
+the lease is expired or replaced. A queued task from an old Owner cannot fence
+a replacement local identity, and queue rejection is side-effect free.
+`LeaseFenceWorkClassExecutorTest` covers the expiry/replacement, live-owner and
+rejection paths. This evidence is process-local: Oxia session-watch delivery,
+Broker consumer pause/rewind, scheduler shutdown and cross-Worker stop
+authority remain release gates.
+
+After `fc0cf8a`, `QueryWorkClassExecutor` closes the local read-only `QUERY`
+handoff. It binds exact Shard/request bytes, performs no authority or Store
+read before queue admission, rereads the Owner Lease/clock around one injected
+bounded read, and discards the result when ownership changes. The focused test
+covers successful read linearization, ownership loss, expired-owner fencing and
+queue rejection without invoking the callback. This does not claim production
+Gateway routing, tenant authorization, retention calculation, cross-worker
+forwarding or observability authority.
+
 The synchronized full local gate after `666f56a` and this documentation update
 passed on 2026-08-12 with 1232 reported
 tests, zero failures/errors and five skipped opt-in real-Oxia methods because
