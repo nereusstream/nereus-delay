@@ -8,5 +8,6 @@ public enum WorkClass {
     EXPIRY,
     DUE_SCHEDULER,
     QUERY,
-    GC
+    GC,
+    CHECKPOINT
 }

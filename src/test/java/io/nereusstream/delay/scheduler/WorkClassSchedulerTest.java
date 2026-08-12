@@ -28,6 +28,17 @@ class WorkClassSchedulerTest {
     }
 
     @Test
+    void checkpointHasItsOwnBoundedWorkClassQueue() {
+        final WorkClassScheduler scheduler = scheduler(100);
+        scheduler.offer(new WorkClassTask(WorkClass.CHECKPOINT, "checkpoint-1", 8));
+
+        assertEquals(1, scheduler.pending(WorkClass.CHECKPOINT));
+        assertEquals(List.of(new WorkClassTask(WorkClass.CHECKPOINT, "checkpoint-1", 8)),
+                scheduler.poll(new SchedulerBudget(1, 8, 1_000)));
+        assertEquals(0, scheduler.pending(WorkClass.CHECKPOINT));
+    }
+
+    @Test
     void leaseFenceIsPreemptiveAndClassTurnCapBoundsOneTurn() {
         final WorkClassScheduler scheduler = scheduler(100);
         scheduler.offer(new WorkClassTask(WorkClass.SOURCE_APPLY, "source-1", 1));
