@@ -30,6 +30,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.lang.reflect.Modifier;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Optional;
@@ -52,6 +53,8 @@ class CheckpointExecutionCoordinatorTest {
         assertNamedMethodsAreNotPublic(CheckpointExecutionCoordinator.class, "execute");
         assertNamedMethodsAreNotPublic(CheckpointPublicationCoordinator.class, "publish");
         assertNamedMethodsAreNotPublic(CheckpointUploadCoordinator.class, "upload");
+        assertFalse(Arrays.stream(CheckpointWorkClassExecutor.ExecutionRequest.class.getRecordComponents())
+                .anyMatch(component -> component.getName().equals("workClassBytes")));
     }
 
     @Test
@@ -231,7 +234,7 @@ class CheckpointExecutionCoordinatorTest {
                             1_000, () -> 100, upload -> {
                                 adapterCalled.set(true);
                                 return resource(upload, pending, objectStore);
-                            }, 8);
+                            });
 
             workClasses.submit(new WorkClassTask(WorkClass.CHECKPOINT, "occupied", 8), () -> {
             });
@@ -242,22 +245,27 @@ class CheckpointExecutionCoordinatorTest {
             assertEquals(1, workClasses.registeredActions());
 
             workClasses.runTurn(new SchedulerBudget(1, 8, 1_000));
+            assertThrows(IllegalArgumentException.class,
+                    () -> new CheckpointWorkClassExecutor.ExecutionRequest(
+                            claim, checkpointDirectory, pending, (directory, currentStore) -> null,
+                            -1, () -> 100, upload -> null));
             final CheckpointWorkClassExecutor.ExecutionRequest failingRequest =
                     new CheckpointWorkClassExecutor.ExecutionRequest(claim, checkpointDirectory, pending,
                             (directory, currentStore) -> {
-                                throw new AssertionError("invalid upload time must fail before manifest creation");
-                            }, -1, () -> 100, upload -> {
-                                throw new AssertionError("invalid upload time must fail before provider I/O");
-                            }, 8);
+                                throw new IllegalStateException("manifest factory failed");
+                            }, 1_000, () -> 100, upload -> {
+                                throw new AssertionError("manifest failure must precede provider I/O");
+                            });
             final CheckpointWorkClassExecutor.Submission failed = executor.submit(failingRequest);
+            assertTrue(failed.task().bytes() > 8);
             assertEquals(List.of(failed.task()),
-                    workClasses.runTurn(new SchedulerBudget(1, 8, 1_000)));
+                    workClasses.runTurn(new SchedulerBudget(1, failed.task().bytes(), 1_000)));
             final CheckpointWorkClassExecutor.AttemptOutcome failedOutcome = failed.outcome().orElseThrow();
             assertTrue(failedOutcome.result() == null);
-            assertEquals("uploadNowEpochMs must be non-negative", failedOutcome.failure().getMessage());
+            assertEquals("manifest factory failed", failedOutcome.failure().getMessage());
             assertFalse(scheduler.isInFlight(shard));
             assertEquals(0, workClasses.registeredActions());
-            assertFalse(Files.exists(checkpointDirectory));
+            assertTrue(Files.isDirectory(checkpointDirectory));
 
             final CheckpointScheduler.ScheduledCheckpoint retryClaim = scheduler.claimDue(200, 1).get(0);
             final CheckpointWorkClassExecutor.ExecutionRequest retryRequest =
@@ -267,11 +275,11 @@ class CheckpointExecutionCoordinatorTest {
                             1_000, () -> 200, upload -> {
                                 adapterCalled.set(true);
                                 return resource(upload, pending, objectStore);
-                            }, 8);
+                            });
             final CheckpointWorkClassExecutor.Submission submitted = executor.submit(retryRequest);
             assertTrue(submitted.outcome().isEmpty());
             assertEquals(List.of(submitted.task()),
-                    workClasses.runTurn(new SchedulerBudget(1, 8, 1_000)));
+                    workClasses.runTurn(new SchedulerBudget(1, submitted.task().bytes(), 1_000)));
 
             final CheckpointWorkClassExecutor.AttemptOutcome outcome = submitted.outcome().orElseThrow();
             assertTrue(outcome.failure() == null);
@@ -320,13 +328,13 @@ class CheckpointExecutionCoordinatorTest {
                 case LEASE_FENCE, SOURCE_APPLY, OUTCOME_AND_CONTROL, EXPIRY, DUE_SCHEDULER, GC -> true;
                 case QUERY, CHECKPOINT -> false;
             };
-            policies.put(workClass, new WorkClassPolicy(1, maxQueueRecords, maxQueueRecords * 8L,
-                    maxQueueRecords, maxQueueRecords * 8L, 1_000,
+            policies.put(workClass, new WorkClassPolicy(1, maxQueueRecords, maxQueueRecords * 1_000_000L,
+                    maxQueueRecords, maxQueueRecords * 1_000_000L, 1_000,
                     protectedClass ? 1 : 0, protectedClass ? 8 : 0,
                     workClass == WorkClass.LEASE_FENCE));
         }
         return new WorkClassExecutionRegistry(new WorkClassRuntimeConfig(policies, 100, 100,
-                16, 256), new AtomicLong()::get);
+                16, 8_000_000), new AtomicLong()::get);
     }
 
     private static CheckpointResourceV1 resource(final CheckpointUploadRequest request,

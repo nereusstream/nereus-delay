@@ -1,8 +1,8 @@
 package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.CanonicalProtobuf;
 import io.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.scheduler.WorkClass;
 import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import io.nereusstream.delay.scheduler.WorkClassTask;
@@ -30,6 +30,9 @@ import java.util.function.LongSupplier;
  * fatal-stop and process fencing rules still apply.</p>
  */
 public final class CheckpointWorkClassExecutor {
+    private static final byte[] TASK_ID_DOMAIN =
+            Bytes.utf8("nereus-delay-checkpoint-handoff-v1\0");
+
     private final WorkClassExecutionRegistry workClasses;
     private final CheckpointExecutionCoordinator checkpointExecutor;
 
@@ -43,8 +46,9 @@ public final class CheckpointWorkClassExecutor {
     public Submission submit(final ExecutionRequest request) {
         final ExecutionRequest submitted = Objects.requireNonNull(request, "request");
         checkpointExecutor.requireCurrentExecution(submitted.claim(), submitted.pending());
+        final byte[] identity = canonicalIdentity(submitted);
         final WorkClassTask task = new WorkClassTask(WorkClass.CHECKPOINT,
-                taskId(submitted.claim(), submitted.pending()), submitted.workClassBytes());
+                "checkpoint/" + Bytes.hex(Bytes.sha256(TASK_ID_DOMAIN, identity)), identity.length);
         final Submission result = new Submission(task);
         workClasses.submit(task, () -> execute(submitted, result));
         return result;
@@ -70,13 +74,17 @@ public final class CheckpointWorkClassExecutor {
         }
     }
 
-    private static String taskId(final CheckpointScheduler.ScheduledCheckpoint claim,
-                                 final CheckpointUploadIntentV1 pending) {
-        final ShardId shard = claim.shardId();
-        return "checkpoint/" + shard.routeIncarnation().uuid()
-                + '/' + Integer.toUnsignedString(shard.partition())
-                + '/' + claim.dueAtEpochMs()
-                + '/' + Bytes.hex(pending.checkpointId());
+    private static byte[] canonicalIdentity(final ExecutionRequest request) {
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1,
+                    request.claim().shardId().routeIncarnation().bytes());
+            CanonicalProtobuf.uint32(output, 2, request.claim().shardId().partition());
+            CanonicalProtobuf.int64(output, 3, request.claim().dueAtEpochMs());
+            CanonicalProtobuf.bytes(output, 4,
+                    Bytes.utf8(request.checkpointDirectory().toString()));
+            CanonicalProtobuf.bytes(output, 5, request.pending().canonicalBytes());
+            CanonicalProtobuf.int64(output, 6, request.uploadNowEpochMs());
+        });
     }
 
     /** Complete immutable inputs for one queued checkpoint attempt. */
@@ -87,17 +95,17 @@ public final class CheckpointWorkClassExecutor {
             CheckpointExecutionCoordinator.CheckpointManifestFactory manifestFactory,
             long uploadNowEpochMs,
             LongSupplier completionClock,
-            CheckpointUploadAdapter adapter,
-            long workClassBytes) {
+            CheckpointUploadAdapter adapter) {
         public ExecutionRequest {
             Objects.requireNonNull(claim, "claim");
             Objects.requireNonNull(checkpointDirectory, "checkpointDirectory");
+            checkpointDirectory = checkpointDirectory.toAbsolutePath().normalize();
             Objects.requireNonNull(pending, "pending");
             Objects.requireNonNull(manifestFactory, "manifestFactory");
             Objects.requireNonNull(completionClock, "completionClock");
             Objects.requireNonNull(adapter, "adapter");
-            if (workClassBytes <= 0) {
-                throw new IllegalArgumentException("workClassBytes must be positive");
+            if (uploadNowEpochMs < 0) {
+                throw new IllegalArgumentException("uploadNowEpochMs must be non-negative");
             }
         }
     }
