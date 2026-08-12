@@ -101,8 +101,7 @@ class ClaimMaterializationRuntimeTest {
                 Bytes.utf8("bucket"), Bytes.utf8("object"), Bytes.utf8("version"), null, payload.length,
                 Bytes.sha256(payload), Bytes.sha256(Bytes.utf8("reservation")),
                 Bytes.sha256(Bytes.utf8("proof")));
-        final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("destination"), 1,
-                Bytes.sha256(Bytes.utf8("destination")), ProfileKindV1.DESTINATION);
+        final ProfileRefV1 destination = profile(ProfileKindV1.DESTINATION, "destination");
         final ScheduleIntentV1 intent = ScheduleIntentV1.create(destination,
                 new io.nereusstream.delay.protocol.RetryPolicyRefV1(Bytes.utf8("retry"), 1,
                         Bytes.sha256(Bytes.utf8("retry"))),
@@ -139,6 +138,28 @@ class ClaimMaterializationRuntimeTest {
             final MessageRecord current = shard.getMessage(schedule.delayMessageId());
             final ClaimMaterializationV1 valid = materialization(schedule.delayMessageId(), current,
                     PayloadForPublishV1.object(descriptor));
+            final ProfileRefV1 foreignObjectStore = new ProfileRefV1(Bytes.utf8("foreign-object-store"), 7,
+                    objectStore.semanticHash(), ProfileKindV1.OBJECT_STORE);
+            final CommittedPayloadDescriptorV1 foreignDescriptor = new CommittedPayloadDescriptorV1(
+                    foreignObjectStore, descriptor.container(), descriptor.objectKey(),
+                    descriptor.immutableObjectVersion(), descriptor.etag(), descriptor.length(),
+                    descriptor.payloadSha256(), descriptor.reservationId(), descriptor.proofId());
+            final ClaimMaterializationV1 wrongObjectStoreIdentity = newMaterialization(valid, valid.generation(),
+                    valid.deliverAtEpochMs(), valid.expireAtEpochMs(), valid.actionAtEpochMs(),
+                    PayloadForPublishV1.object(foreignDescriptor));
+            final ProfileRefV1 foreignDestination = new ProfileRefV1(Bytes.utf8("foreign-destination"), 8,
+                    destination.semanticHash(), ProfileKindV1.DESTINATION);
+            final ClaimMaterializationV1 wrongDestinationIdentity = new ClaimMaterializationV1(
+                    foreignDestination, valid.capabilityProfile(), valid.targetResource(), valid.physicalPartition(),
+                    valid.messageId(), valid.generation(), valid.payload(), valid.businessMetadata(),
+                    valid.deliverAtEpochMs(), valid.expireAtEpochMs(), valid.actionAtEpochMs());
+
+            assertThrows(IllegalArgumentException.class,
+                    () -> shard.claimForPublishV1(schedule.delayMessageId(), owner(), 3_000,
+                            wrongObjectStoreIdentity, zeroCharge()));
+            assertThrows(IllegalArgumentException.class,
+                    () -> shard.claimForPublishV1(schedule.delayMessageId(), owner(), 3_000,
+                            wrongDestinationIdentity, zeroCharge()));
 
             final ClaimRecord claim = shard.claimForPublishV1(schedule.delayMessageId(), owner(), 3_000, valid,
                     zeroCharge());
@@ -160,7 +181,9 @@ class ClaimMaterializationRuntimeTest {
                                                               final long expireAt,
                                                               final long actionAt,
                                                               final PayloadForPublishV1 payload) {
-        return newMaterialization(source.messageId(), generation, deliverAt, expireAt, actionAt, payload);
+        return new ClaimMaterializationV1(source.destinationProfile(), source.capabilityProfile(),
+                source.targetResource(), source.physicalPartition(), source.messageId(), generation, payload,
+                source.businessMetadata(), deliverAt, expireAt, actionAt);
     }
 
     private static ClaimMaterializationV1 newMaterialization(final DelayMessageId messageId,

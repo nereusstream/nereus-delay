@@ -8,6 +8,7 @@ import io.nereusstream.delay.protocol.CapacityDimensionV1;
 import io.nereusstream.delay.protocol.CapacityGrantKindV1;
 import io.nereusstream.delay.protocol.CapacityGrantV1;
 import io.nereusstream.delay.protocol.CapacityVectorV1;
+import io.nereusstream.delay.protocol.ClaimMaterializationV1;
 import io.nereusstream.delay.protocol.ClaimResultBody;
 import io.nereusstream.delay.protocol.CommittedPayloadDescriptorV1;
 import io.nereusstream.delay.protocol.CommandId;
@@ -40,6 +41,7 @@ import io.nereusstream.delay.protocol.PayloadProofTrustSetSemanticV1;
 import io.nereusstream.delay.protocol.PayloadProofVerifierKeyV1;
 import io.nereusstream.delay.protocol.PayloadProofIssuanceClosePayloadV1;
 import io.nereusstream.delay.protocol.PayloadProofTrustSetActivatePayloadV1;
+import io.nereusstream.delay.protocol.PayloadForPublishV1;
 import io.nereusstream.delay.protocol.PayloadReference;
 import io.nereusstream.delay.protocol.ControlReasonKindV1;
 import io.nereusstream.delay.protocol.ControlReasonV1;
@@ -1545,6 +1547,36 @@ class DelayShardTest {
             assertTrue(committedReference.hasCommitIdentity());
             assertArrayEquals(reservationId, committedReference.reservationId());
             assertArrayEquals(acceptedProof.proofId(), committedReference.proofId());
+            final MessageRecord committedMessage = shard.getMessage(prepare.delayMessageId());
+            final CommittedPayloadDescriptorV1 committedDescriptor = new CommittedPayloadDescriptorV1(
+                    objectStoreProfile, acceptedProof.container(), acceptedProof.objectKey(),
+                    acceptedProof.immutableObjectVersion(), acceptedProof.etag(), acceptedProof.length(),
+                    acceptedProof.payloadSha256(), acceptedProof.reservationId(), acceptedProof.proofId());
+            final ProfileRefV1 claimForeignProfile = new ProfileRefV1(
+                    Bytes.utf8("claim-foreign-object-store"), 8, objectStoreProfile.semanticHash(),
+                    ProfileKindV1.OBJECT_STORE);
+            final CommittedPayloadDescriptorV1 claimForeignDescriptor = new CommittedPayloadDescriptorV1(
+                    claimForeignProfile, committedDescriptor.container(), committedDescriptor.objectKey(),
+                    committedDescriptor.immutableObjectVersion(), committedDescriptor.etag(),
+                    committedDescriptor.length(), committedDescriptor.payloadSha256(),
+                    committedDescriptor.reservationId(), committedDescriptor.proofId());
+            final ClaimMaterializationV1 wrongClaimMaterialization = new ClaimMaterializationV1(intent.profile(),
+                    new ProfileRefV1(Bytes.utf8("capability"), 1,
+                            Bytes.sha256(Bytes.utf8("capability")), ProfileKindV1.DELIVERY_CAPABILITY),
+                    io.nereusstream.delay.protocol.BrokerResourceIdentityV1.kafka(
+                            new io.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1("cluster",
+                                    java.util.UUID.nameUUIDFromBytes(Bytes.utf8("claim-target")))),
+                    0, prepare.delayMessageId(), Integer.toUnsignedLong(committedMessage.generation()),
+                    PayloadForPublishV1.object(claimForeignDescriptor), intent.adapterMetadata(),
+                    committedMessage.deliverAtEpochMs(), committedMessage.expireAtEpochMs(),
+                    committedMessage.runtimeIndex().timeline().actionAtEpochMs());
+            final IllegalArgumentException claimFailure = assertThrows(IllegalArgumentException.class,
+                    () -> shard.claimForPublishV1(prepare.delayMessageId(),
+                            AuthorIdentity.owner(Bytes.utf8("claim-deployment"), Bytes.utf8("claim-worker"), 1,
+                                    Bytes.sha256(Bytes.utf8("claim-lease"))),
+                            3_000, wrongClaimMaterialization, new byte[]{1}));
+            assertEquals("Claim materialization Prepare payload binding mismatch", claimFailure.getMessage());
+            assertEquals(MessageStatus.SCHEDULED, shard.getMessage(prepare.delayMessageId()).status());
 
             final ControlRef closeRef = new ControlRef(
                     Bytes.sha256(Bytes.utf8("trust-downgrade-close-op")),

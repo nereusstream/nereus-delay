@@ -6,6 +6,7 @@ import io.nereusstream.delay.protocol.ActiveLaneStateV1;
 import io.nereusstream.delay.protocol.AuthorIdentity;
 import io.nereusstream.delay.protocol.CommandBodies;
 import io.nereusstream.delay.protocol.CommandId;
+import io.nereusstream.delay.protocol.CommandType;
 import io.nereusstream.delay.protocol.ClaimResultBody;
 import io.nereusstream.delay.protocol.CanonicalProtobuf;
 import io.nereusstream.delay.protocol.CapacityDimensionV1;
@@ -1323,9 +1324,9 @@ public final class DelayShard {
         return claim;
     }
 
-    private static void requireClaimMaterializationMatchesMessage(final DelayMessageId messageId,
-                                                                    final MessageRecord current,
-                                                                    final ClaimMaterializationV1 materialization) {
+    private void requireClaimMaterializationMatchesMessage(final DelayMessageId messageId,
+                                                            final MessageRecord current,
+                                                            final ClaimMaterializationV1 materialization) {
         if (current == null) {
             throw new IllegalStateException("Claim materialization requires an existing Message");
         }
@@ -1356,6 +1357,51 @@ public final class DelayShard {
         } else if (current.payloadReference() == null
                 || !PayloadReference.fromDescriptor(payload.object()).equals(current.payloadReference())) {
             throw new IllegalArgumentException("Claim materialization object payload mismatch");
+        }
+        requireClaimMaterializationMatchesV1Binding(messageId, materialization);
+    }
+
+    private void requireClaimMaterializationMatchesV1Binding(final DelayMessageId messageId,
+                                                              final ClaimMaterializationV1 materialization) {
+        final V1ScheduleBinding binding = getV1ScheduleBinding(messageId);
+        if (binding == null) {
+            return;
+        }
+        final ScheduleIntentV1 intent;
+        final PrepareLargeScheduleBodyV1 prepare;
+        if (binding.commandType() == CommandType.SCHEDULE) {
+            intent = ScheduleCommandBodyV1.decode(binding.canonicalBody()).intent();
+            prepare = null;
+        } else if (binding.commandType() == CommandType.PREPARE_LARGE_SCHEDULE) {
+            prepare = PrepareLargeScheduleBodyV1.decode(binding.canonicalBody());
+            intent = prepare.intentWithoutPayload();
+        } else {
+            throw new IllegalStateException("unsupported V1 Claim binding command type");
+        }
+        if (!materialization.destinationProfile().equals(intent.profile())) {
+            throw new IllegalArgumentException("Claim materialization Destination Profile mismatch");
+        }
+        if (!materialization.businessMetadata().equals(intent.adapterMetadata())) {
+            throw new IllegalArgumentException("Claim materialization business metadata mismatch");
+        }
+        if (materialization.deliverAtEpochMs() != intent.deliverAtEpochMs()
+                || materialization.expireAtEpochMs() != intent.expireAtEpochMs()) {
+            throw new IllegalArgumentException("Claim materialization V1 delivery window mismatch");
+        }
+        final PayloadForPublishV1 payload = materialization.payload();
+        if (prepare == null) {
+            if (intent.hasInlinePayload()) {
+                if (!payload.hasInlinePayload() || !Arrays.equals(payload.inlinePayload(), intent.inlinePayload())) {
+                    throw new IllegalArgumentException("Claim materialization V1 inline payload mismatch");
+                }
+            } else if (payload.hasInlinePayload() || !payload.object().equals(intent.committedPayload())) {
+                throw new IllegalArgumentException("Claim materialization V1 object payload mismatch");
+            }
+        } else if (payload.hasInlinePayload()
+                || !payload.object().objectStoreProfile().equals(prepare.objectStoreProfile())
+                || payload.object().length() != prepare.expectedPayloadLength()
+                || !Arrays.equals(payload.object().payloadSha256(), prepare.payloadSha256())) {
+            throw new IllegalArgumentException("Claim materialization Prepare payload binding mismatch");
         }
     }
 
