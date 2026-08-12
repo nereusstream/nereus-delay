@@ -4061,6 +4061,13 @@ cover the direct-construction rejection. The checks remain local adapter
 identity evidence; authenticated broker assignment and real journal authority
 remain release blockers.
 
+`ClaimRecord` now parses the retained DUE/ORDERED timeline key and requires its
+lane, `DelayMessageId` and generation tuple to equal the Claim value and its
+precondition. Rebinding only `originalTimelineKeySha256` can no longer make a
+Claim point at another Message; `ClaimRecordTest.claimRejectsTimelineKeyForAnotherMessageAfterPreconditionHashIsRebound`
+covers this local value-integrity fence. Full Claim materialization/recovery
+authority remains a release blocker.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

@@ -3811,6 +3811,13 @@ Kafka `ReceiptJournal.AttemptIdentity` 与 Pulsar `AttemptJournal.AttemptIdentit
 这仍只是本地 adapter identity proof，不替代 authenticated broker assignment 或
 real journal authority。
 
+`ClaimRecord` 现在会解析保留的 DUE/ORDERED timeline key，并要求其中的 lane、
+`DelayMessageId`、generation 三元组同时匹配 Claim 值和 precondition。即使只重绑
+`originalTimelineKeySha256`，也不能让 Claim 指向另一条 Message；回归证据为
+`ClaimRecordTest.claimRejectsTimelineKeyForAnotherMessageAfterPreconditionHashIsRebound`。
+这只是本地 Claim value integrity proof，完整 Claim materialization/recovery authority
+仍是 release blocker。
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
