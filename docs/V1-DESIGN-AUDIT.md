@@ -5101,6 +5101,17 @@ Focused suites and the complete six-task local Gradle gate passed on
 same-epoch identity substitution, but authenticated Oxia lease/session to
 protocol-Owner construction in a production Worker remains OPEN.
 
+Raw `OwnedDelayShard` lifecycle mutation is no longer a public composition
+surface. Lease replacement, catch-up admission/cursor recording, activation
+and drain transitions are package-local; public callers compose strict
+takeover and shutdown through `OwnerRecoveryCoordinator` and
+`OwnerDrainCoordinator`. Read-only projections remain public, and `fence()` is
+intentionally public because it can only remove local authority. Reflection
+coverage locks every overload; focused ownership/recovery/drain/source-apply
+tests and the complete six-task local gate passed on 2026-08-13, with five
+real-Oxia smokes skipped. This prevents API-level lifecycle bypass but does not
+provide production Worker, source-quiescence, placement or Oxia evidence.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

@@ -5410,6 +5410,15 @@ scheduler 拒绝。聚焦 ownership/due/Claim/expiry/outcome/admission 测试及
 仍因未设置 `NEREUS_DELAY_OXIA_ENDPOINT` 跳过。认证 lease/session 到协议 Owner 的
 生产 Worker 组装仍是 OPEN release blocker。
 
+`OwnedDelayShard` 的 lease renewal、所有 catch-up admission/cursor、activation 与
+drain transition primitive 现均为 ownership 包内可见；包外公开面只保留完整 Owner
+identity 构造、只读 lease/assignment/lifecycle/failure projection，以及只能收权的
+`fence()`。`OwnerRecoveryCoordinator` 和 `OwnerDrainCoordinator` 仍是公开的 bounded
+组合入口，包内 WorkClass executors 继续使用所需的精确校验原语。反射回归锁定所有
+重载，聚焦 ownership/recovery/drain/source-apply 测试及完整 6-task Gradle 门禁于
+2026-08-13 通过；5 个真实 Oxia smoke 仍因缺少 endpoint 跳过。此项只关闭 API-level
+authority bypass，生产 Worker、真实 source quiescence 和 placement/Oxia 集成仍 OPEN。
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

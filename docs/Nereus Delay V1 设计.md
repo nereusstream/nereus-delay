@@ -1044,6 +1044,14 @@ identity 的本地兼容构造不能进入这些严格实时路径。V1 不从�
 未冻结公式推导该 identity；其与认证 Oxia lease/session 的组装仍由生产 Worker
 coordinator 明确完成并提供可审计证据。
 
+包外 Worker 组装不得直接调用 lease renewal、`RESTORING -> CATCHING_UP`、catch-up
+cursor 记录、activation 或 `ACTIVE -> DRAINING` 的 shard-local lifecycle primitive；
+这些原语只能由 ownership 包内、完成相应 Oxia/source/control/Store 顺序校验的
+`OwnerRecoveryCoordinator` 与 `OwnerDrainCoordinator` 组合。只读 lease/state/
+assignment projection 可以暴露；显式 `fence()` 也可以暴露，因为它只能关闭本地
+authority，不能推进 lifecycle 或延长租约。该 API 边界不代表生产 Worker、真实
+consumer stop/rewind 或跨进程 placement 已完成。
+
 Renewal CAS 必须保留 exact fencing/assignment/session identity 与当前
 lifecycle state；旧 Owner 携带的 stale state 不能通过续租把状态投影回退，expiry
 也只能单调延长。response loss 只能 reread 同一 identity、同一 state 的 successor。
