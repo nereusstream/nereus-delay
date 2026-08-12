@@ -663,6 +663,33 @@ public final class OwnedDelayShard {
     }
 
     /**
+     * Fences this local owner only when the queued fence still names the
+     * current local fencing identity.  A delayed {@code LEASE_FENCE} action
+     * must not fence a replacement Owner that has already been installed in
+     * the same process.
+     */
+    synchronized boolean fenceIfLeaseMatches(final OwnerLease expected) {
+        Objects.requireNonNull(expected, "expected lease");
+        if (!lease.sameIdentity(expected)) {
+            return false;
+        }
+        state = ShardLifecycleState.FENCED;
+        failureReason = ShardFailureReason.NONE;
+        return true;
+    }
+
+    /** Validates a queued lease-fence task without consulting external authority. */
+    synchronized void requireLeaseFenceSubmission(final OwnerLease expected) {
+        Objects.requireNonNull(expected, "expected lease");
+        if (!lease.sameIdentity(expected)) {
+            throw new IllegalStateException("lease-fence task belongs to a different local owner");
+        }
+        if (!delegate.shardId().equals(expected.shardId())) {
+            throw new IllegalArgumentException("lease-fence task belongs to another shard");
+        }
+    }
+
+    /**
      * @deprecated V1 requires an explicit source assignment; use
      * {@link #markCatchingUp(SourceAssignment)}.
      */
