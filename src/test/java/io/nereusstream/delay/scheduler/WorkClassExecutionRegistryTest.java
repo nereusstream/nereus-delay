@@ -97,6 +97,18 @@ class WorkClassExecutionRegistryTest {
                 () -> registry.state(new WorkClassTask(WorkClass.CHECKPOINT, "bounded", 7)));
     }
 
+    @Test
+    void oneWorkerRegistryBindsOneExactClaimAdmissionPool() {
+        final WorkClassExecutionRegistry registry = registry(1);
+        final ClaimExecutionAdmission expected = new ClaimExecutionAdmission(1, 1);
+
+        registry.bindClaimExecutionAdmission(expected);
+        registry.bindClaimExecutionAdmission(expected);
+        assertThrows(IllegalArgumentException.class,
+                () -> registry.bindClaimExecutionAdmission(new ClaimExecutionAdmission(1, 1)));
+        assertEquals(0, registry.registeredActions());
+    }
+
     private static WorkClassExecutionRegistry registry(final int maxQueueRecords) {
         final EnumMap<WorkClass, WorkClassPolicy> policies = new EnumMap<>(WorkClass.class);
         for (WorkClass workClass : WorkClass.values()) {

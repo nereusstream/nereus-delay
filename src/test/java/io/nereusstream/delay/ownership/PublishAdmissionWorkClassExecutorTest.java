@@ -61,6 +61,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PublishAdmissionWorkClassExecutorTest {
@@ -139,7 +140,21 @@ class PublishAdmissionWorkClassExecutorTest {
             };
             final WorkClassExecutionRegistry workClasses = workClasses();
             final PublishAdmissionWorkClassExecutor executor = new PublishAdmissionWorkClassExecutor(
-                    workClasses, owned, authority, appender, ignored -> gate.get());
+                    workClasses, owned, authority, permits, appender, ignored -> gate.get());
+
+            final ClaimExecutionAdmission foreignPermits = new ClaimExecutionAdmission(1, payload.length);
+            foreignPermits.registerShard(new ClaimExecutionAdmission.ShardSpec(shardId, 1, payload.length));
+            foreignPermits.registerLane(new ClaimExecutionAdmission.LaneSpec(shardId, laneId,
+                    claim.laneIncarnation(), 0, 0, 1, payload.length));
+            foreignPermits.openReady(shardId, laneId, claim.laneIncarnation());
+            final ClaimExecutionAdmission.Reservation foreignReservation = foreignPermits.tryAcquire(
+                    shardId, laneId, claim.laneIncarnation(), claim.delayMessageId(),
+                    Integer.toUnsignedLong(claim.generation()), payload.length).reservation();
+            assertThrows(IllegalArgumentException.class, () -> executor.submit(claim, foreignReservation,
+                    descriptor, certificate, decision, 2_500, 1, keyPair.getPrivate(), () -> 101));
+            assertEquals(0, workClasses.registeredActions());
+            assertEquals(0, appendCalls.get());
+            foreignReservation.release();
 
             final PublishAdmissionWorkClassExecutor.Submission deferred = executor.submit(claim, reservation,
                     descriptor, certificate, decision, 2_500, 1, keyPair.getPrivate(), () -> 101);

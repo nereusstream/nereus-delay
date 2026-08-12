@@ -27,6 +27,7 @@ import java.util.function.LongSupplier;
 public final class WorkClassExecutionRegistry {
     private final WorkClassDispatcher dispatcher;
     private final Map<TaskKey, RegisteredAction> actions = new HashMap<>();
+    private ClaimExecutionAdmission claimExecutionAdmission;
 
     public WorkClassExecutionRegistry(final WorkClassRuntimeConfig config,
                                       final LongSupplier monotonicClockNanos) {
@@ -93,6 +94,17 @@ public final class WorkClassExecutionRegistry {
 
     public synchronized int registeredActions() {
         return actions.size();
+    }
+
+    /** Binds all Claim and Publish Admission actions on this Worker registry to one exact permit pool. */
+    public synchronized void bindClaimExecutionAdmission(final ClaimExecutionAdmission admission) {
+        final ClaimExecutionAdmission requested = Objects.requireNonNull(admission, "admission");
+        if (claimExecutionAdmission == null) {
+            claimExecutionAdmission = requested;
+        } else if (claimExecutionAdmission != requested) {
+            throw new IllegalArgumentException(
+                    "work-class registry is already bound to another Claim admission pool");
+        }
     }
 
     public int pending(final WorkClass workClass) {

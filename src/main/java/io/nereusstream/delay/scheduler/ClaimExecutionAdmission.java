@@ -181,6 +181,14 @@ public final class ClaimExecutionAdmission {
                 workerMaxMessages, workerMaxBytes);
     }
 
+    /** Fails closed unless the reservation was created by this exact Worker permit pool. */
+    public void requireOwnedReservation(final Reservation reservation) {
+        final Reservation requested = Objects.requireNonNull(reservation, "reservation");
+        if (requested.owner != this) {
+            throw new IllegalArgumentException("Claim reservation belongs to another admission pool");
+        }
+    }
+
     private boolean release(final Reservation reservation) {
         synchronized (this) {
             if (reservation.state == ReservationState.RELEASED) {

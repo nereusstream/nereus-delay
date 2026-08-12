@@ -39,19 +39,23 @@ public final class PublishAdmissionWorkClassExecutor {
     private final WorkClassExecutionRegistry workClasses;
     private final OwnedDelayShard ownedShard;
     private final OxiaOwnerLeaseStore authority;
+    private final ClaimExecutionAdmission permits;
     private final ShardLogMutationAppender appender;
     private final AdmissionPrerequisiteGate prerequisiteGate;
 
     public PublishAdmissionWorkClassExecutor(final WorkClassExecutionRegistry workClasses,
                                              final OwnedDelayShard ownedShard,
                                              final OxiaOwnerLeaseStore authority,
+                                             final ClaimExecutionAdmission permits,
                                              final ShardLogMutationAppender appender,
                                              final AdmissionPrerequisiteGate prerequisiteGate) {
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
         this.ownedShard = Objects.requireNonNull(ownedShard, "ownedShard");
         this.authority = Objects.requireNonNull(authority, "authority");
+        this.permits = Objects.requireNonNull(permits, "permits");
         this.appender = Objects.requireNonNull(appender, "appender");
         this.prerequisiteGate = Objects.requireNonNull(prerequisiteGate, "prerequisiteGate");
+        this.workClasses.bindClaimExecutionAdmission(this.permits);
     }
 
     /**
@@ -68,6 +72,7 @@ public final class PublishAdmissionWorkClassExecutor {
                              final int signingKeyVersion,
                              final PrivateKey signingKey,
                              final LongSupplier ownerClock) {
+        permits.requireOwnedReservation(reservation);
         final Request request = Request.prepare(claim, reservation, descriptor, readyCertificate, decisionTime,
                 retryUntilEpochMs, signingKeyVersion, signingKey, ownerClock);
         ownedShard.requirePublishAdmissionSubmission(authority, request.claim);
