@@ -32,6 +32,12 @@ passed on 2026-08-12. The five opt-in real-Oxia methods remained skipped because
 `NEREUS_DELAY_OXIA_ENDPOINT` was not configured; this local PASS does not close
 the real-service, transport, Object Store, chaos or benchmark release gates.
 
+After the journal Source Position identity fences (`22b9409`, `5d22d8a`), the
+same full command passed again on 2026-08-12 (`BUILD SUCCESSFUL`, 5 tasks).
+The five real-Oxia methods were still skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was unset; this recheck confirms local regression
+health only and does not close any external release gate.
+
 The typed READY recovery boundary now validates the complete projection at the
 physical scheduler index: a typed ACTIVE Lane must be READY/OPEN, carry both
 the exact encoded READY key and a decodable `ReadyCertificateV1`, and match the

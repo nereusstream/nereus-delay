@@ -28,6 +28,11 @@ skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is repository
 evidence only and does not change the external transport/Oxia/Object Store,
 chaos, benchmark or soak release gates.
 
+The journal Source Position identity-fence follow-up (`22b9409`, `5d22d8a`)
+was rechecked with the same full command on 2026-08-12 and passed
+(`BUILD SUCCESSFUL`, 5 tasks). The real-Oxia methods remained skipped because
+the endpoint was unset, so this is only local regression evidence.
+
 The Recovery Pin persistence audit now preserves the intended historical
 protection window: creating a session-bound pin records the exact Floor it
 observed, but later Floor advancement must not make a still-active pin
