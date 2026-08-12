@@ -1581,9 +1581,12 @@ Message/Claim/Admission ledger、key、查询和调度的 signed narrowing 一�
 运行时现在另提供严格的 `DelayShard.claimForPublishV1` 入口：在构造 Claim
 WriteBatch 前，它把 typed materialization 的 message identity、generation、
 delivery window、current timeline 的 `actionAt` 以及 inline/object payload
-引用逐项绑定到当前 `MessageRecord`。旧的 `byte[]` 入口仍是兼容桥，不能被当作
-V1 typed Claim API；该绑定仍不替代 Profile/catalog、Adapter 序列化/大小证明或
-Producer ownership。
+引用逐项绑定到当前 `MessageRecord`。旧的 `byte[]` primitive 已降为 runtime
+包内可见，只供 typed 实现和测试搭建本地状态使用；`claimForPublishV1` 是
+`DelayShard` 唯一公开的 Claim 创建入口，生产调度仍必须经
+`ClaimHandoffWorkClassExecutor` 与 `OwnedDelayShard` 的 authority/lifecycle
+复核。该边界仍不替代 Profile/catalog、Adapter 序列化/大小证明或 Producer
+ownership。
 
 Claim handoff 必须在 discovery 已经精确 poll 出一个 READY head 后，作为另一个
 有界 `DUE_SCHEDULER` action 完成。action identity 要绑定 shard、Lane/head

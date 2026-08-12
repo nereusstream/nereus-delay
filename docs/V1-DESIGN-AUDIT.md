@@ -1493,9 +1493,12 @@ The runtime Claim seam now has a strict `DelayShard.claimForPublishV1` entrypoin
 Before Claim persistence it compares the typed materialization with the current
 Message's identity, generation, delivery window, timeline `actionAt` and
 inline/object payload reference; `ClaimMaterializationRuntimeTest` covers both
-payload branches and mismatch rejection. This is a local Message-binding
-proof only: Profile/catalog, Adapter serialization/size certification and
-Producer ownership/recovery remain release gates.
+payload branches and mismatch rejection. The raw byte-array primitive is now
+package-local; `DelayShardTest.physicalGcMutationPrimitivesAreNotPublicProductionApis`
+locks that visibility, and the only cross-package compatibility access lives in
+test sources for recovery-fixture construction. This is a local Message-binding
+and API-surface proof only: Profile/catalog, Adapter serialization/size
+certification and Producer ownership/recovery remain release gates.
 
 `PublishAdmissionBody` now parses its descriptor through the complete canonical
 `PreparedPublishDescriptorV1`; `Descriptor.value()` returns that same typed
@@ -4976,6 +4979,16 @@ Store Incarnation; `CheckpointControlSnapshotVerifierTest`
 `rejectsManifestWhenCheckpointStoreIdentityDrifts` covers the local fence.
 This remains an upload-integrity check and does not claim Object Store or
 upload-intent/catalog transaction authority.
+
+The raw-byte Claim mutation is no longer a public runtime seam. Main production
+sources call only typed `DelayShard.claimForPublishV1(...)` through
+`OwnedDelayShard`; the package-local primitive remains solely as its
+implementation detail and for same-package/test-classpath fixture construction.
+The reflection regression in `DelayShardTest` prevents accidental public
+re-exposure. Focused Claim/ownership coverage and the complete local Gradle gate
+passed after the change; the five real-Oxia smoke methods remained opt-in and
+skipped without `NEREUS_DELAY_OXIA_ENDPOINT`, so external authority is still
+unverified.
 
 ## Final gate
 

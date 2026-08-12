@@ -1827,9 +1827,12 @@ recovery remain release blockers.
 The runtime now also exposes strict `DelayShard.claimForPublishV1`: before the
 Claim WriteBatch it binds message identity, generation, delivery window,
 timeline `actionAt` and inline/object payload identity to the current
-`MessageRecord`. The legacy byte-array Claim method remains a compatibility
-bridge and is not evidence of the typed V1 API; Profile/catalog, adapter and
-Producer authority remain external gates.
+`MessageRecord`. The legacy byte-array Claim primitive is now package-local and
+cannot be called as a production API; a test-classpath-only bridge exists only
+to construct recovery fixtures. `claimForPublishV1` is therefore the sole
+public `DelayShard` Claim-creation entrypoint, while production still enters
+through `ClaimHandoffWorkClassExecutor` and `OwnedDelayShard`. Profile/catalog,
+adapter and Producer authority remain external gates.
 
 `PublishAdmissionBody` now uses `PreparedPublishDescriptorV1.decode` as its main
 descriptor parser, while `Descriptor.value()` exposes the same exact typed
@@ -4218,7 +4221,7 @@ covers this ordering.
 |---|---|---|
 | Queued receipt Route-policy boundary | Implemented (local strict adapter seam; Route authority pending) | `QueuedReceiptQueryPolicy`, `PolicyBoundWireCommandIngressAdapter`, `PinnedKafkaCommandIngress`, `PinnedPulsarCommandIngress`, `PreparedSubmissionAdapter`, `EmbeddedDelayService`, `AdapterIngressTest`, `NativeSubmissionAdapterTest`; strict paths derive `receipt_query_until` from authenticated Broker persistence time with checked addition, reject missing/drifting policy snapshots before transport ownership, and retain post-persistence overflow as `ENQUEUE_UNCERTAIN`/integrity evidence; absolute-boundary overloads are compatibility-only and checked against a bound policy; Route policy publication, source-time authority and concrete production transports remain release blockers |
 | Full command-result retention boundary | Implemented (local strict query seam; retention authority pending) | `CommandResultRetentionPolicy`, `DelayClient`, `EmbeddedDelayService`, `BoundedLocalQueryProjector`, `EmbeddedDelayServiceTest.embeddedQueryDerivesFullResultRetentionFromAppliedSourceTime`, `CommandResultRetentionPolicyTest`; strict query/await/applied-receipt projections derive `full_result_retain_until` from the applied Source Position Broker persistence time with checked addition, while absolute-boundary overloads remain compatibility-only; policy publication, source-time authority and production query routing remain release blockers |
-| Strict typed Claim runtime binding | Implemented (local Message/payload binding; external authority pending) | `DelayShard.claimForPublishV1`, `ClaimMaterializationRuntimeTest`; strict Claim entrypoint binds message identity, generation, delivery window, timeline `actionAt` and inline/object payload reference before persistence, while the legacy byte-array entrypoint remains a compatibility bridge; Profile/catalog, Adapter serialization/size certification, Producer ownership and crash recovery remain release blockers |
+| Strict typed Claim runtime binding | Implemented (local Message/payload binding and public-API fence; external authority pending) | `DelayShard.claimForPublishV1`, `DelayShardTest.physicalGcMutationPrimitivesAreNotPublicProductionApis`, `ClaimMaterializationRuntimeTest`; strict Claim entrypoint binds message identity, generation, delivery window, timeline `actionAt` and inline/object payload reference before persistence, while the legacy byte-array primitive is package-local and reachable across packages only from the test-classpath bridge; production Claim creation remains routed through `ClaimHandoffWorkClassExecutor`/`OwnedDelayShard`; Profile/catalog, Adapter serialization/size certification, Producer ownership and crash recovery remain release blockers |
 | Gradle Java 21 build | Implemented | `gradle compileJava`, `gradle test` |
 | Self-routing IDs and CRC32C | Implemented | `ProtocolCodecTest` |
 | `commandId + commandHash` prepared before I/O | Implemented | `PreparedCommand`, `CommandHash`, `ProtocolCodecTest` |
@@ -5258,6 +5261,19 @@ and `ShardStoreTest.localRecoveryReuseDoesNotCreateAFreshDbWithoutActiveIncarnat
 cover the success, rejection/close and no-fresh-DB paths. This is only the local
 catalog/Floor reuse gate; Owner Lease/session fencing, source replay and final
 `ACTIVE_FOR_COMMANDS` activation remain external.
+
+The legacy raw-byte `DelayShard.claimForPublish(...)` primitive is now
+package-local. Production main sources have no caller of that overload: the
+public typed `claimForPublishV1(...)` entry is reached through
+`OwnedDelayShard`, while `ClaimHandoffWorkClassExecutor` supplies the bounded
+work-class and authority checks. The only cross-package compatibility bridge
+lives in test sources to create an activation-recovery fixture, and
+`DelayShardTest.physicalGcMutationPrimitivesAreNotPublicProductionApis` locks
+the visibility. After this API fence, focused Claim/ownership tests and the
+full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
+2026-08-12 (`BUILD SUCCESSFUL`, six executed tasks). Five opt-in real-Oxia
+methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this
+is local API-boundary evidence only.
 
 ## Verification command
 
