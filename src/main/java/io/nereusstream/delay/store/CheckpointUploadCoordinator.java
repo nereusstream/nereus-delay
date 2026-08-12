@@ -160,7 +160,7 @@ public final class CheckpointUploadCoordinator {
                         + actualFile.name());
             }
         }
-        CheckpointControlSnapshotVerifier.validateIfPresent(checkpointDirectory, manifest.shardId(),
+        CheckpointControlSnapshotVerifier.validate(checkpointDirectory, manifest.shardId(),
                 manifest.controlStateDigest());
     }
 

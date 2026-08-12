@@ -35,10 +35,25 @@ class CheckpointControlSnapshotVerifierTest {
             store.createCheckpoint(checkpoint, bytes(16, 1));
         }
 
-        assertDoesNotThrow(() -> CheckpointControlSnapshotVerifier.validateIfPresent(
+        assertDoesNotThrow(() -> CheckpointControlSnapshotVerifier.validate(
                 checkpoint, shardId, snapshot.snapshotDigest()));
-        assertThrows(IllegalArgumentException.class, () -> CheckpointControlSnapshotVerifier.validateIfPresent(
+        assertThrows(IllegalArgumentException.class, () -> CheckpointControlSnapshotVerifier.validate(
                 checkpoint, shardId, new byte[32]));
+    }
+
+    @Test
+    void rejectsMissingControlSnapshotFromRecognizedRocksDbImage() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 8);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("missing-control-source"));
+        final Path checkpoint = tempDir.resolve("missing-control-checkpoint");
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.createCheckpoint(checkpoint, bytes(16, 9));
+        }
+
+        final IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                () -> CheckpointControlSnapshotVerifier.validate(checkpoint, shardId, new byte[32]));
+        org.junit.jupiter.api.Assertions.assertTrue(failure.getMessage().contains("missing control snapshot"));
     }
 
     private static CompatibleControlSnapshotV1 controlSnapshot(final ShardId shardId) {

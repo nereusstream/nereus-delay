@@ -20,10 +20,10 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Read-only validation of the shard-bound control snapshot inside a physical
- * checkpoint image.  A directory without a RocksDB MANIFEST is retained as a
- * legacy embedded fixture seam; a recognized RocksDB image is never allowed
- * to publish a mismatched key-10 digest.
+ * Read-only validation of the complete shard-bound control snapshot inside a
+ * physical checkpoint image. A directory without a RocksDB MANIFEST is
+ * retained as a legacy embedded fixture seam; a recognized RocksDB image must
+ * carry key 10 and is never allowed to publish a mismatched digest.
  */
 final class CheckpointControlSnapshotVerifier {
     private static final int META_CONTROL_SNAPSHOT = 10;
@@ -32,8 +32,8 @@ final class CheckpointControlSnapshotVerifier {
     private CheckpointControlSnapshotVerifier() {
     }
 
-    static void validateIfPresent(final Path checkpointDirectory, final ShardId expectedShard,
-                                  final byte[] expectedDigest) {
+    static void validate(final Path checkpointDirectory, final ShardId expectedShard,
+                         final byte[] expectedDigest) {
         Objects.requireNonNull(checkpointDirectory, "checkpointDirectory");
         Objects.requireNonNull(expectedShard, "expectedShard");
         Bytes.requireLength(expectedDigest, 32, "expectedDigest");
@@ -72,7 +72,7 @@ final class CheckpointControlSnapshotVerifier {
                  RocksDB db = RocksDB.openReadOnly(dbOptions, checkpointDirectory.toString(), descriptors, handles)) {
                 final byte[] encoded = db.get(handles.get(metaIndex), KeyCodec.metaFixed(META_CONTROL_SNAPSHOT));
                 if (encoded == null) {
-                    return;
+                    throw new IllegalArgumentException("checkpoint RocksDB is missing control snapshot");
                 }
                 final byte[] payload = ValueEnvelope.decode(encoded, META_FIXED_VALUE_TYPE).payload();
                 final CompatibleControlSnapshotV1 snapshot = CompatibleControlSnapshotV1.decode(payload);

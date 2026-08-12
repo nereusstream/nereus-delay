@@ -4070,6 +4070,21 @@ full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
 methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is
 local evidence only.
 
+The checkpoint upload verifier now requires the same key-10 control projection
+that manifest-backed restore requires: a recognized RocksDB checkpoint without
+`CompatibleControlSnapshotV1` is rejected before the upload coordinator can
+advance PENDING_UPLOAD to PUBLISHED. The focused regression is
+`CheckpointControlSnapshotVerifierTest.rejectsMissingControlSnapshotFromRecognizedRocksDbImage`.
+The no-MANIFEST legacy fixture seam is still explicit; this is local upload
+integrity evidence and does not close Object Store, catalog or Oxia transaction
+authority.
+
+After this checkpoint-upload control-snapshot fence, the focused verifier and
+upload-coordinator tests and the full `./gradlew clean check --rerun-tasks
+--console=plain` gate passed on 2026-08-12 (`BUILD SUCCESSFUL`, five executed
+tasks). The five opt-in real-Oxia methods remained skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is local evidence only.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
