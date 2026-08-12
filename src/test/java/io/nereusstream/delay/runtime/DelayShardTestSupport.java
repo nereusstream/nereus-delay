@@ -4,7 +4,9 @@ import io.nereusstream.delay.protocol.AuthorIdentity;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 
-/** Test-classpath-only bridge for package-local physical mutation seams. */
+import java.util.List;
+
+/** Test-classpath-only bridge for package-local runtime compatibility seams. */
 public final class DelayShardTestSupport {
     private DelayShardTestSupport() {
     }
@@ -28,5 +30,21 @@ public final class DelayShardTestSupport {
                                               final byte[] materialization,
                                               final byte[] claimedCharge) {
         return shard.claimForPublish(messageId, owner, claimDeadlineEpochMs, materialization, claimedCharge);
+    }
+
+    public static List<DelayShard.ExpiryWork> discoverExpiry(final DelayShard shard,
+                                                              final long earliestEpochMs,
+                                                              final int limit) {
+        return shard.discoverExpiry(earliestEpochMs, limit);
+    }
+
+    public static List<DelayShard.ReservationExpiryWork> discoverReservationExpiry(
+            final DelayShard shard, final long earliestEpochMs, final int limit) {
+        return shard.discoverReservationExpiry(earliestEpochMs, limit);
+    }
+
+    public static List<DelayShard.LaneCloseMaterializationWork> discoverLaneCloseMaterialization(
+            final DelayShard shard, final int limit) {
+        return shard.discoverLaneCloseMaterialization(limit);
     }
 }

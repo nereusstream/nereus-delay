@@ -6074,7 +6074,7 @@ public final class DelayShard {
      * Every returned entry is checked against the cursor value and the
      * current closed Lane before it becomes scheduler input.
      */
-    public synchronized List<LaneCloseMaterializationWork> discoverLaneCloseMaterialization(final int limit) {
+    synchronized List<LaneCloseMaterializationWork> discoverLaneCloseMaterialization(final int limit) {
         if (limit <= 0) {
             throw new IllegalArgumentException("limit must be positive");
         }
@@ -6640,7 +6640,7 @@ public final class DelayShard {
     }
 
     /** Returns expiry candidates; the caller must apply an exact source-ordered expiry mutation. */
-    public synchronized List<ExpiryWork> discoverExpiry(final long earliestEpochMs, final int limit) {
+    synchronized List<ExpiryWork> discoverExpiry(final long earliestEpochMs, final int limit) {
         return discoverExpiry(earliestEpochMs,
                 new SchedulerBudget(limit, Long.MAX_VALUE, Long.MAX_VALUE), () -> 0);
     }
@@ -6716,8 +6716,8 @@ public final class DelayShard {
     }
 
     /** Returns only reservations whose expiry is already decided by TIME_FENCE. */
-    public synchronized List<ReservationExpiryWork> discoverReservationExpiry(final long earliestEpochMs,
-                                                                                final int limit) {
+    synchronized List<ReservationExpiryWork> discoverReservationExpiry(final long earliestEpochMs,
+                                                                         final int limit) {
         if (earliestEpochMs < 0 || limit <= 0) {
             throw new IllegalArgumentException("invalid reservation expiry discovery bounds");
         }

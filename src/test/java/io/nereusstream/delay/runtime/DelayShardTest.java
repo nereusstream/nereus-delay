@@ -161,8 +161,11 @@ class DelayShardTest {
     }
 
     @Test
-    void legacyTimelineDiscoveryIsNotPublicProductionApi() {
+    void legacyRecordOnlyDiscoveryOverloadsAreNotPublicProductionApis() {
         assertMethodIsNotPublic("discoverDue", long.class, int.class);
+        assertMethodIsNotPublic("discoverExpiry", long.class, int.class);
+        assertMethodIsNotPublic("discoverReservationExpiry", long.class, int.class);
+        assertMethodIsNotPublic("discoverLaneCloseMaterialization", int.class);
     }
 
     @Test

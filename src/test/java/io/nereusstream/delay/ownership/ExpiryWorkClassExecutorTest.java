@@ -212,7 +212,8 @@ class ExpiryWorkClassExecutorTest {
                     new ScheduleIntent(lane, 2_000, 5_000, OrderingMode.BEST_EFFORT,
                             Bytes.utf8("expiry-payload")), 9_000);
             shard.apply(schedule, position(0, 1_000));
-            candidate = shard.discoverExpiry(5_000, 1).get(0);
+            candidate = io.nereusstream.delay.runtime.DelayShardTestSupport.discoverExpiry(
+                    shard, 5_000, 1).get(0);
             owned = new OwnedDelayShard(shard, lease);
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
             owned.activateForCommands(authority, 101);

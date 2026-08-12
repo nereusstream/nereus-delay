@@ -309,7 +309,8 @@ class LaneCloseWorkClassExecutorTest {
                             Bytes.sha256(Bytes.utf8("lane-close-work-scope"))).canonicalBytes(),
                     1, keyPair.getPrivate());
             shard.applySystemMutation(close, position(1, 1_001), keyPair.getPublic());
-            candidate = shard.discoverLaneCloseMaterialization(1).get(0);
+            candidate = io.nereusstream.delay.runtime.DelayShardTestSupport.discoverLaneCloseMaterialization(
+                    shard, 1).get(0);
             owned = new OwnedDelayShard(shard, lease);
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
             owned.activateForCommands(authority, 101);

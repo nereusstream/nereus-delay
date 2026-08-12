@@ -204,7 +204,8 @@ class ReservationExpiryWorkClassExecutorTest {
                     AuthorIdentity.fence(Bytes.utf8("reservation-expiry-fence"), 1).canonicalBytes(),
                     1, keyPair.getPrivate());
             shard.applySystemMutation(fence, position(1, 1_001), keyPair.getPublic());
-            candidate = shard.discoverReservationExpiry(5_000, 10).get(0);
+            candidate = io.nereusstream.delay.runtime.DelayShardTestSupport.discoverReservationExpiry(
+                    shard, 5_000, 10).get(0);
             owned = new OwnedDelayShard(shard, lease);
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
             owned.activateForCommands(authority, 101);
