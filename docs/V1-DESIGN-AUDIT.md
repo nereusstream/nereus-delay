@@ -5024,6 +5024,14 @@ reflection regression and focused runtime/ownership/scheduler tests plus the
 complete local gate passed. This API fence does not close real Oxia or trusted
 clock evidence.
 
+The persistent scheduler API now mirrors the same boundary: only
+`discoverReady(TrustedUtcIntervalEvidence, SchedulerBudget)` remains public.
+The no-evidence and scalar-time overloads are package-local because they omit
+the certificate lifetime, exact scheduler Owner and Store Incarnation binding
+required by production discovery. `LaneSchedulerTest` locks their visibility;
+focused scheduler/due/Claim suites and the complete local gate passed. External
+trusted-time and Oxia authority remain open.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

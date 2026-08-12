@@ -2196,7 +2196,9 @@ reservation-expiry 与 Lane-close 的 count-only discovery overload 也只能包
 work-class/Owner wrapper 补齐 authority 的严格 overload。`DelayShard` 自身的
 count-only `discoverReady(earliest, limit)` 也只保留包内用于索引语义测试；生产
 READY scan 由 `PersistentLaneScheduler` 的完整 evidence+budget overload 执行，
-外部只能从 `DueSchedulerWorkClassExecutor` 提交 bounded action。
+外部只能从 `DueSchedulerWorkClassExecutor` 提交 bounded action。scheduler 自身的
+无 evidence `discoverReady(budget)` 与仅有 due-through scalar 的 overload 同样是
+包内兼容面，不能从 Worker/ownership 包直接调用。
 
 一次 discovery 成功只返回本轮新 promote 的 due heads；它不等于 Claim，也不能越过
 Claim materialization、permit、Ready Certificate 或 Publish Admission gate。queue 拒绝

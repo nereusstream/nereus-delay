@@ -5317,6 +5317,16 @@ The reflection API fence, runtime/ownership/scheduler focused suites and full
 local Gradle gate passed; five real-Oxia smoke methods remained skipped without
 an endpoint.
 
+`PersistentLaneScheduler` now exposes only the complete
+`discoverReady(TrustedUtcIntervalEvidence, SchedulerBudget)` form across package
+boundaries. The no-evidence and scalar-due-through overloads have no main-source
+caller outside the scheduler and are package-local compatibility surfaces;
+otherwise a caller could promote READY work without the certificate-issued-at,
+certificate-expiry, exact Owner and Store Incarnation checks. A reflection
+regression locks both overloads. Focused scheduler, due-work and Claim-handoff
+tests plus the full local Gradle gate passed; five real-Oxia smoke methods
+remained opt-in and skipped.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
