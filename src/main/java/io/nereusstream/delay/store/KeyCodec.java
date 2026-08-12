@@ -5,6 +5,7 @@ import io.nereusstream.delay.protocol.CommandId;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.ResourceKind;
+import io.nereusstream.delay.protocol.SourcePositionCodec;
 
 import java.util.Objects;
 
@@ -30,7 +31,12 @@ public final class KeyCodec {
         if (canonicalSourcePosition.length == 0) {
             throw new IllegalArgumentException("canonicalSourcePosition must not be empty");
         }
-        return Bytes.concat(new byte[]{3, 1}, canonicalSourcePosition);
+        // This key is the physical-position audit locator.  Do not allow a
+        // caller to manufacture a look-alike key with malformed or
+        // non-canonical bytes; every durable POSITION lookup must use the
+        // exact registered Source Position encoding.
+        final byte[] canonical = SourcePositionCodec.decode(canonicalSourcePosition).canonicalBytes();
+        return Bytes.concat(new byte[]{3, 1}, canonical);
     }
 
     /** Stable dedupe/FENCE locator for one deterministic TIME_FENCE proof. */

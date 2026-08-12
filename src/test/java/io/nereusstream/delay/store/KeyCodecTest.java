@@ -2,7 +2,12 @@ package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DestinationLaneId;
+import io.nereusstream.delay.protocol.KafkaSourcePosition;
+import io.nereusstream.delay.protocol.RouteIncarnation;
+import io.nereusstream.delay.protocol.ShardId;
 import org.junit.jupiter.api.Test;
+
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -50,6 +55,19 @@ class KeyCodecTest {
         assertThrows(IllegalArgumentException.class, () -> KeyCodec.metaQuota(6));
         assertThrows(IllegalArgumentException.class, () -> KeyCodec.dedupePosition(new byte[0]));
         assertThrows(IllegalArgumentException.class, () -> KeyCodec.gcTask(0, (byte) 11, proofId, 0));
+    }
+
+    @Test
+    void dedupePositionRequiresCanonicalSourcePositionBytes() {
+        final ShardId shard = new ShardId(new RouteIncarnation(bytes(16, 41)), 3);
+        final KafkaSourcePosition position = new KafkaSourcePosition(shard, "cluster",
+                UUID.fromString("00000000-0000-0000-0000-000000000042"), 7, null, 1_000);
+        final byte[] canonical = position.canonicalBytes();
+        assertArrayEquals(Bytes.concat(new byte[]{3, 1}, canonical), KeyCodec.dedupePosition(canonical));
+
+        final byte[] trailing = Bytes.concat(canonical, new byte[]{0});
+        assertThrows(IllegalArgumentException.class, () -> KeyCodec.dedupePosition(trailing));
+        assertThrows(IllegalArgumentException.class, () -> KeyCodec.dedupePosition(new byte[]{1}));
     }
 
     @Test
@@ -110,5 +128,11 @@ class KeyCodecTest {
         assertThrows(IllegalArgumentException.class, () -> KeyCodec.metaProducer(lane, 0, 0x1_0000_0000L));
         assertThrows(IllegalArgumentException.class, () -> KeyCodec.metaRecovery(0));
         assertThrows(IllegalArgumentException.class, () -> KeyCodec.metaRecovery(5));
+    }
+
+    private static byte[] bytes(final int length, final int lastByte) {
+        final byte[] result = new byte[length];
+        result[length - 1] = (byte) lastByte;
+        return result;
     }
 }
