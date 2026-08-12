@@ -7,6 +7,17 @@ normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20�
 the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
+Commit `c4391ca` closes the local checkpoint-download admission gap.  The
+`CheckpointRestoreCoordinator` now acquires one idempotent Worker-wide
+`CheckpointDownloadPermit` before invoking the provider and holds it through
+provider materialization, complete inventory validation and
+`ShardStore` Store-Incarnation installation.  The restore helper consumes the
+same permit without double-acquiring it, and the coordinator regression proves
+that a provider callback cannot acquire a second download slot while the
+first operation is active.  This is process-local concurrency evidence; remote
+Object Store authority, Owner Lease/session, Source Assignment and source
+replay remain release blockers.
+
 Commit `465d6de` adds a crash-durable byte backend to the local large-payload
 seam:
 `FilesystemPayloadObjectStore` reuses the exact reservation/handle/proof state

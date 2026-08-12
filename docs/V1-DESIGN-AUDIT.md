@@ -11,6 +11,16 @@ V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障
 
 **Open semantic questions: none.**
 
+After `c4391ca`, checkpoint restore admission covers the complete local
+download-to-install interval: `CheckpointRestoreCoordinator` acquires a
+Worker-wide idempotent permit before provider I/O, and the same permit remains
+held through inventory validation and `ShardStore` Store-Incarnation
+installation.  The focused coordinator regression rejects a nested second
+download-slot acquisition from inside the provider callback.  This closes the
+local process-level concurrency boundary only; it does not close remote Object
+Store, Owner Lease/session, Source Assignment, Source Log replay or real-broker
+release gates.
+
 The 2026-08-12 transport-source check is intentionally recorded as blocker
 evidence rather than a PASS claim.  Kafka source
 `76f62f3b83e882105219b6c7687dbde594a8b8a2` exposes Produce v13 topic-ID wire

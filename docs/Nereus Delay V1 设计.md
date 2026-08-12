@@ -2702,6 +2702,9 @@ AND RecoveryFloor.includedMutationSequence >= r within that lineage
    `checkpoint-download-tmp/<attempt>/db` staging boundary，确认 provider 没有返回
    越界或符号链接目录，重新校验完整 inventory 后才调用
    `ShardStore.restoreFromCheckpoint`；Store Incarnation 安装完成后才删除本次下载树。
+   协调器必须在调用 provider 之前取得 Worker 级 checkpoint-download permit，并一直
+   持有到 provider 返回、完整 inventory 校验和 `ShardStore` 安装结束；不能只在
+   `ShardStore` 内部限制 restore 阶段，否则实际 provider I/O 会绕过进程级并发边界。
    这闭合的是本地 download → restore 的调用顺序，不产生 Owner Lease、Source Assignment、
    RecoveryPin 或 Source Log replay authority。
 4. 生成全新 Store Incarnation，rename temp 到 `incarnations/<newStoreIncarnation>`；install-mode open，WAL-sync 写入新的 Store Incarnation、current Owner open metadata 和 unclean marker，再 close。
