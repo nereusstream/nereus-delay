@@ -216,6 +216,20 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
         } catch (KeyAlreadyExistsException | UnexpectedVersionIdException lostRace) {
             return Optional.empty();
         } catch (RuntimeException failure) {
+            // A response can be lost after the ephemeral record committed.
+            // Reread the exact candidate before deciding that acquisition is
+            // unknown; this is the only safe way to avoid stranding a lease
+            // that this caller actually owns.
+            try {
+                final StoredLease observed = readLease(shardId);
+                if (observed != null && candidate.sameIdentity(observed.lease)
+                        && observed.lease.state() == ShardLifecycleState.ACQUIRING
+                        && observed.lease.expiresAtEpochMs() == candidate.expiresAtEpochMs()) {
+                    return Optional.of(observed.lease);
+                }
+            } catch (RuntimeException rereadFailure) {
+                failure.addSuppressed(rereadFailure);
+            }
             // A malformed response must not strand an ephemeral record that
             // would block the next owner.  Cleanup is best effort; the
             // original integrity/transport failure remains authoritative.
@@ -245,6 +259,22 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
             return Optional.of(stored);
         } catch (KeyAlreadyExistsException | UnexpectedVersionIdException lostRace) {
             return Optional.empty();
+        } catch (RuntimeException failure) {
+            // Renew/transition have the same response-loss rule as acquire:
+            // only the exact candidate value observed after the failed write
+            // may be reported as success. A stale value, a new owner, or a
+            // reread failure leaves the original operation unknown.
+            try {
+                final StoredLease observed = readLease(lease.shardId());
+                if (observed != null && lease.sameIdentity(observed.lease)
+                        && observed.lease.state() == lease.state()
+                        && observed.lease.expiresAtEpochMs() == lease.expiresAtEpochMs()) {
+                    return Optional.of(observed.lease);
+                }
+            } catch (RuntimeException rereadFailure) {
+                failure.addSuppressed(rereadFailure);
+            }
+            throw failure;
         }
     }
 

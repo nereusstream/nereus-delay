@@ -3883,6 +3883,17 @@ After this path-guard change, `./gradlew clean check --rerun-tasks
 The same five opt-in real-Oxia methods remained skipped because
 `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this remains local evidence only.
 
+The concrete Oxia owner-lease backend now rereads an exact committed
+single-record successor after response loss for acquire, renewal and
+lifecycle transition. It accepts the reread only when shard, owner, epoch,
+token, assignment/session context, state and expiry match the requested value;
+otherwise it preserves the unknown/fenced outcome. The focused regressions are
+`OxiaSyncOwnerLeaseBackendTest.acquireResponseLossRereadsExactCommittedEphemeralLease`,
+`renewalResponseLossRereadsExactCommittedSuccessor` and
+`transitionResponseLossRereadsExactCommittedSuccessor`. This is per-record CAS
+evidence, not proof of source assignment, session orchestration or the required
+cross-record activation/pin transaction.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

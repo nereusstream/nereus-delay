@@ -4139,6 +4139,16 @@ After this path-guard change, `./gradlew clean check --rerun-tasks
 The same five opt-in real-Oxia methods remained skipped because
 `NEREUS_DELAY_OXIA_ENDPOINT` was unset.
 
+`OxiaSyncOwnerLeaseBackend` now handles Oxia response loss at the actual
+single-record CAS boundary. Acquire, renew and lifecycle transition reread the
+same shard/owner/epoch/token/context candidate and accept success only when
+the committed state and expiry are byte-equivalent; a stale value, replacement
+owner or failed reread remains unknown. `OxiaSyncOwnerLeaseBackendTest` covers
+exact committed acquire, renewal and transition response-loss paths. This
+closes only the per-record Oxia lease CAS seam; assignment publication,
+session lifecycle orchestration and the cross-record activation/pin
+transaction remain release blockers.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

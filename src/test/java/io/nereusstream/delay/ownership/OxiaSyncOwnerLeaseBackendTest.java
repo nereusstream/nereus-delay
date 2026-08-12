@@ -55,6 +55,48 @@ class OxiaSyncOwnerLeaseBackendTest {
     }
 
     @Test
+    void acquireResponseLossRereadsExactCommittedEphemeralLease() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final OxiaSyncOwnerLeaseBackend backend = new OxiaSyncOwnerLeaseBackend(records, "delay/test");
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 11);
+        records.failNextPutAfterCommit = true;
+
+        final OwnerLease acquired = backend.acquire(shard, "worker-response-loss", 100, 50).orElseThrow();
+
+        assertEquals(1, acquired.ownerEpoch());
+        assertEquals(150, acquired.expiresAtEpochMs());
+        assertTrue(acquired.sameIdentity(backend.current(shard).orElseThrow()));
+    }
+
+    @Test
+    void renewalResponseLossRereadsExactCommittedSuccessor() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final OxiaSyncOwnerLeaseBackend backend = new OxiaSyncOwnerLeaseBackend(records, "delay/test");
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 12);
+        final OwnerLease acquired = backend.acquire(shard, "worker-renew-loss", 100, 50).orElseThrow();
+        records.failNextPutAfterCommit = true;
+
+        final OwnerLease renewed = backend.renew(acquired, 110, 60).orElseThrow();
+
+        assertEquals(170, renewed.expiresAtEpochMs());
+        assertTrue(renewed.sameIdentity(backend.current(shard).orElseThrow()));
+    }
+
+    @Test
+    void transitionResponseLossRereadsExactCommittedSuccessor() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final OxiaSyncOwnerLeaseBackend backend = new OxiaSyncOwnerLeaseBackend(records, "delay/test");
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 13);
+        final OwnerLease acquired = backend.acquire(shard, "worker-transition-loss", 100, 50).orElseThrow();
+        records.failNextPutAfterCommit = true;
+
+        final OwnerLease restoring = backend.transition(acquired, ShardLifecycleState.RESTORING).orElseThrow();
+
+        assertEquals(ShardLifecycleState.RESTORING, restoring.state());
+        assertTrue(restoring.sameIdentity(backend.current(shard).orElseThrow()));
+    }
+
+    @Test
     void wrongSessionIdentityFailsClosedAndCleansTheEphemeralRecord() {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncOwnerLeaseBackend backend = new OxiaSyncOwnerLeaseBackend(records, "delay/test");
@@ -94,6 +136,7 @@ class OxiaSyncOwnerLeaseBackendTest {
     private static final class FakeRecordClient implements OxiaSyncOwnerLeaseBackend.RecordClient {
         private final Map<String, Entry> records = new HashMap<>();
         private long nextVersion = 1;
+        private boolean failNextPutAfterCommit;
 
         private Version ephemeralVersion() {
             return new Version(1, 0, 0, 1, Optional.of(7L), Optional.of("worker-session"));
@@ -129,6 +172,10 @@ class OxiaSyncOwnerLeaseBackendTest {
                     ephemeral ? Optional.of("worker-session") : Optional.empty());
             final GetResult result = new GetResult(key, Bytes.copy(value), version);
             records.put(key, new Entry(result));
+            if (failNextPutAfterCommit && ephemeral) {
+                failNextPutAfterCommit = false;
+                throw new IllegalStateException("simulated response loss");
+            }
             return new PutResult(key, version);
         }
 
