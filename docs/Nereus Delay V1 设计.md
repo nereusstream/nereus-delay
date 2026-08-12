@@ -2587,6 +2587,20 @@ wait a later descendant Recovery Floor
 then compact completion tombstone
 ```
 
+当前本地 `GC` work class 的外部追加入口是 `GcWorkClassExecutor`。GC/provider
+worker 必须先准备并签名 exact `RESOURCE_RETIRE_INTENT_V1` 或
+`RESOURCE_DELETE_CONFIRMED_V1`，再把完整 canonical mutation frame 交给该入口；它在
+queue admission 前校验 mutation type、Shard identity、retire logical identity、
+protection source shard 与 service AuthorIdentity，执行时重新读取 strict Owner Lease
+和 clock，然后只调用外部 `ShardLogMutationAppender`。它不执行 provider delete、
+不写本地 `gc_cf`、不调用 `DelayShard.applySystemMutation`、不分配 Source Position。
+task identity/byte charge 绑定 exact frame；queue rejection 不产生副作用。
+`PERSISTED` 必须返回并校验当前 source assignment/activation barrier 的 Source Position；
+`DEFINITIVELY_NOT_PERSISTED` 与 `UNKNOWN` 保持区分，append 或 position-proof failure
+一律 fence Owner 并保留 exact mutation 供恢复。只有 source-ordered apply 才能写入
+retire intent/delete-confirmed tombstone；provider delete、Recovery Floor、quiescence、
+quota release 和 tombstone compaction 仍是独立的外部/恢复边界。
+
 `RESOURCE_DELETE_CONFIRMED_V1` 携带的 nested RetireIntentRef 必须解析到与
 `RESOURCE_RETIRE_INTENT_V1` 完全相同的 canonical retire-intent record bytes，包含
 protection set、applied mutation sequence 和 applied Source Position；只比较 mutation

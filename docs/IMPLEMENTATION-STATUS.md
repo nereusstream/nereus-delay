@@ -389,6 +389,21 @@ This is a local callback-to-log composition seam only; real callback/evidence
 authority, Broker append/ACK/cursor, Oxia session, signing-key history and
 source-ordered outcome replay remain release blockers.
 
+After `aed3352`, resource GC mutations have their own bounded `GC` handoff in
+`GcWorkClassExecutor`, rather than sharing the result-callback class. It accepts
+only an already prepared and signed `RESOURCE_RETIRE_INTENT` or
+`RESOURCE_DELETE_CONFIRMED`, validates canonical body identity, protection
+Source-Position shard and service author branch before queue admission, then
+rereads Owner Lease/clock before calling the external-only
+`ShardLogMutationAppender`. It never performs provider deletion, writes local
+`gc_cf`, applies the mutation or allocates a Source Position. Persisted,
+definitively-not-persisted and unknown append outcomes remain distinct;
+append/position-proof failure fences the Owner and retains the exact mutation.
+`GcWorkClassExecutorTest` covers persisted retire without local GC apply,
+definitive delete non-persistence, queue rejection and expired-owner fencing.
+Provider ownership/quiescence, Recovery Floor, source-ordered tombstone apply,
+quota release and compaction remain release blockers.
+
 After `666f56a` and the corresponding design/status/audit synchronization, the full
 `GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew clean check
 --rerun-tasks --console=plain` gate passed on 2026-08-12: 1232 tests were

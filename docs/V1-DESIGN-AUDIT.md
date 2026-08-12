@@ -301,6 +301,19 @@ the appender. This is still local composition evidence: Broker append/ACK,
 callback/evidence authority, Oxia session, source replay and signing-key
 history remain OPEN.
 
+After `aed3352`, resource retirement has a separate strict `GC`-class bridge in
+`GcWorkClassExecutor`. It accepts only exact signed `RESOURCE_RETIRE_INTENT` or
+`RESOURCE_DELETE_CONFIRMED` mutations, binds their canonical frame/charge,
+checks retire identity, protection-source shard and service author before queue
+admission, then rereads the Owner Lease before the external Shard Log append.
+Queue rejection is side-effect free; the bridge does not call provider delete,
+write `gc_cf`, apply RocksDB state or allocate a local Source Position. Persisted
+positions are barrier-checked and non-persistence/unknown remain distinct;
+writer or proof failure fences the Owner. The focused test covers persisted
+retire with no local tombstone, definitive non-persistence, queue rejection and
+expired ownership. External delete/quiescence, Recovery Floor, source-ordered
+tombstone application, quota release and compaction remain OPEN.
+
 The synchronized full local gate after `666f56a` and this documentation update
 passed on 2026-08-12 with 1232 reported
 tests, zero failures/errors and five skipped opt-in real-Oxia methods because
