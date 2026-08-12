@@ -110,7 +110,7 @@ public final class FilesystemCheckpointUploadAdapter implements CheckpointUpload
         }
     }
 
-    private static String objectFileName(final byte[] objectKey, final byte[] objectVersion) {
+    static String objectFileName(final byte[] objectKey, final byte[] objectVersion) {
         return Bytes.hex(Bytes.sha256(OBJECT_PATH_DOMAIN, objectKey, Bytes.lp32(objectVersion)));
     }
 
