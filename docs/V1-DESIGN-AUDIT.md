@@ -3818,6 +3818,14 @@ real journal authority。
 这只是本地 Claim value integrity proof，完整 Claim materialization/recovery authority
 仍是 release blocker。
 
+`RecoveryPinV1` 现在在 value 构造和 decode 边界把显式 `ShardSubjectV1` 与
+`observedFloor.appliedSourcePosition` 的 Shard 绑定。一个带有 foreign-Shard
+Recovery Floor 的 pin 不能先作为看似有效的中间值被序列化，之后才等 Catalog
+authority 拒绝；`RecoveryPinV1Test.rejectsLineageGenerationAndDigestDrift` 覆盖了
+foreign-Shard 构造失败，并保留 lineage、generation、digest 的已有回归。这里闭合的
+仍是本地 recovery value integrity，不替代 Oxia session/CAS、Floor publication 或
+source replay authority。
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

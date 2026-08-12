@@ -4068,6 +4068,15 @@ Claim point at another Message; `ClaimRecordTest.claimRejectsTimelineKeyForAnoth
 covers this local value-integrity fence. Full Claim materialization/recovery
 authority remains a release blocker.
 
+`RecoveryPinV1` now binds its explicit `ShardSubjectV1` to the observed
+`RecoveryFloorRefV1.appliedSourcePosition` Shard during value construction and
+decode. A pin carrying a valid Floor from another Shard can no longer be
+serialized as a signed-looking intermediate value before the Catalog authority
+rejects it; `RecoveryPinV1Test.rejectsLineageGenerationAndDigestDrift` covers
+the foreign-Shard constructor path alongside the existing lineage and digest
+checks. This is local recovery-value integrity evidence only; Oxia session/CAS,
+Floor publication and source replay remain release blockers.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
