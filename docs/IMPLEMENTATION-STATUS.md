@@ -34,6 +34,13 @@ exact-claim schedule; the `CHECKPOINT` class is the bounded execution queue
 and turn/resource boundary, so scheduling a due shard cannot bypass the same
 queue, byte/record caps or shared-minimum protection as other Worker work.
 
+After `5f90f38`, `GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle
+./gradlew clean check --rerun-tasks --console=plain` completed successfully:
+1210 tests ran with zero failures/errors; the five opt-in real-Oxia methods
+were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset. The new
+`WorkClassSchedulerTest.checkpointHasItsOwnBoundedWorkClassQueue` is included
+in this full gate; the skipped external methods remain release evidence gaps.
+
 The Oxia transaction question was checked against the locked source and the
 Gradle-resolved `oxia-client:0.9.0` API.  Its public `SyncOxiaClient` and
 `AsyncOxiaClient` expose one-key `put`/CAS operations only.  The internal

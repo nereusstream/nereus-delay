@@ -65,6 +65,13 @@ the independent `CHECKPOINT` execution queue. `CheckpointScheduler` remains
 the process-local due-time/claim layer; a claimed checkpoint must still enter
 the bounded `CHECKPOINT` turn and resource path before physical checkpoint I/O.
 
+After `5f90f38`, the full local gate
+`GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew clean check
+--rerun-tasks --console=plain` completed with 1210 tests and zero
+failures/errors. The five opt-in real-Oxia methods were skipped because the
+endpoint was unset; this is local regression evidence, not a production
+Oxia or external-service PASS.
+
 After `c4391ca`, checkpoint restore admission covers the complete local
 download-to-install interval: `CheckpointRestoreCoordinator` acquires a
 Worker-wide idempotent permit before provider I/O, and the same permit remains
