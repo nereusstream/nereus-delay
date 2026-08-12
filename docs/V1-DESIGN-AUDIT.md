@@ -3726,6 +3726,14 @@ and `OwnerLeaseTest.drainFatalAuthorityFailureFencesTheLocalOwnerGate`.
 This closes only the local fail-closed edge; it does not prove process-fatal
 JVM/native recovery or production Oxia/source quiescence.
 
+`SystemMutationResult.from` now decodes the applied Source Position and rejects
+it when the position belongs to a different Shard than the signed System
+Mutation. The durable result factory therefore preserves the same source
+identity boundary as replay and Command-result projections; the focused
+`DurableResultTest.systemMutationResultFactoryBindsSourcePositionToMutationShard`
+covers both paths. This is local construction evidence only and does not
+replace source assignment, authenticated ingress, or production Oxia authority.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
