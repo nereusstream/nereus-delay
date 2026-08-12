@@ -17,5 +17,8 @@ public record WorkClassPolicy(
                 || nonBorrowableMinimumRecords < 0 || nonBorrowableMinimumBytes < 0) {
             throw new IllegalArgumentException("work-class limits must be positive and bounded");
         }
+        if (maxRecordsPerTurn > maxQueueRecords || maxBytesPerTurn > maxQueueBytes) {
+            throw new IllegalArgumentException("work-class turn limits must fit within the class queue limits");
+        }
     }
 }
