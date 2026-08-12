@@ -73,6 +73,15 @@ because the endpoint was unset. This includes the dispatcher regression and
 the complete repository check; skipped external evidence remains a release
 gap.
 
+After `da9a8ac`, mixed Source Log replay now constructs and validates the
+typed `SourceReplayOutcome` before advancing the caller-owned cursor or the
+in-memory `lastCatchupPosition`. A malformed post-WriteBatch command or
+System Mutation projection fences the local Owner instead of leaving a
+position projection ahead of the continuity cursor. The focused
+`OwnerLeaseTest` and `OwnerRecoveryCoordinatorTest` replay/recovery suites and
+`checkstyleMain` passed; this remains local fail-closed evidence and does not
+replace production source-adapter continuity or Oxia lease/session authority.
+
 The Oxia transaction question was checked against the locked source and the
 Gradle-resolved `oxia-client:0.9.0` API.  Its public `SyncOxiaClient` and
 `AsyncOxiaClient` expose one-key `put`/CAS operations only.  The internal

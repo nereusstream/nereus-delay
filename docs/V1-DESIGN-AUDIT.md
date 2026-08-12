@@ -94,6 +94,14 @@ because the endpoint was unset. The dispatcher tests are included in this
 gate, which is local regression evidence only and not a production Worker or
 external-service PASS.
 
+After `da9a8ac`, the mixed replay path validates the exact typed outcome
+projection before advancing either the caller-owned Source Replay cursor or
+the local last-position projection. A malformed post-WriteBatch projection
+now fences the Owner without creating a position-ahead-of-cursor state. The
+focused owner replay/recovery regressions and `checkstyleMain` passed. This
+closes a local ordering gap only; Broker source continuity and Oxia
+lease/session evidence remain external release gates.
+
 After `c4391ca`, checkpoint restore admission covers the complete local
 download-to-install interval: `CheckpointRestoreCoordinator` acquires a
 Worker-wide idempotent permit before provider I/O, and the same permit remains
