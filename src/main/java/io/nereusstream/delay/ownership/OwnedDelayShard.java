@@ -48,8 +48,8 @@ public final class OwnedDelayShard {
         this.state = ShardLifecycleState.RESTORING;
     }
 
-    public synchronized CommandResult apply(final PreparedCommand command, final SourcePosition position,
-                                            final long nowEpochMs) {
+    synchronized CommandResult apply(final PreparedCommand command, final SourcePosition position,
+                                     final long nowEpochMs) {
         return apply(command, position, nowEpochMs, null, null);
     }
 
@@ -59,9 +59,9 @@ public final class OwnedDelayShard {
      * can otherwise emit a position with the same physical topic identity.
      * Kafka has no connection-generation field and passes {@code null} proof.
      */
-    public synchronized CommandResult apply(final PreparedCommand command, final SourcePosition position,
-                                            final long nowEpochMs, final Long sourceConnectionGeneration,
-                                            final byte[] guardAttestationDigest) {
+    synchronized CommandResult apply(final PreparedCommand command, final SourcePosition position,
+                                     final long nowEpochMs, final Long sourceConnectionGeneration,
+                                     final byte[] guardAttestationDigest) {
         ensureActive(nowEpochMs);
         if (activationBarrier != null) {
             activationBarrier.validatePosition(position);
@@ -92,9 +92,9 @@ public final class OwnedDelayShard {
      * service; source writers with a live Owner Lease should use this boundary
      * so a same-process stale lease cannot outlive an Oxia owner change.
      */
-    public synchronized CommandResult applyAuthoritatively(final OxiaOwnerLeaseStore authority,
-                                                            final PreparedCommand command,
-                                                            final SourcePosition position, final long nowEpochMs) {
+    synchronized CommandResult applyAuthoritatively(final OxiaOwnerLeaseStore authority,
+                                                     final PreparedCommand command,
+                                                     final SourcePosition position, final long nowEpochMs) {
         return applyAuthoritatively(authority, command, position, nowEpochMs, null, null);
     }
 
@@ -104,33 +104,97 @@ public final class OwnedDelayShard {
      * writers must prove that the active lease was established by the
      * context-bound catch-up path before applying a command.
      */
-    public synchronized CommandResult applyAuthoritativelyStrict(final OxiaOwnerLeaseStore authority,
-                                                                  final PreparedCommand command,
-                                                                  final SourcePosition position,
-                                                                  final long nowEpochMs) {
+    synchronized CommandResult applyAuthoritativelyStrict(final OxiaOwnerLeaseStore authority,
+                                                           final PreparedCommand command,
+                                                           final SourcePosition position,
+                                                           final long nowEpochMs) {
         return applyAuthoritativelyStrict(authority, command, position, nowEpochMs, null, null);
     }
 
     /** Applies a command with the strict assignment/session-bound authority fence. */
-    public synchronized CommandResult applyAuthoritativelyStrict(final OxiaOwnerLeaseStore authority,
-                                                                  final PreparedCommand command,
-                                                                  final SourcePosition position,
-                                                                  final long nowEpochMs,
-                                                                  final Long sourceConnectionGeneration,
-                                                                  final byte[] guardAttestationDigest) {
+    synchronized CommandResult applyAuthoritativelyStrict(final OxiaOwnerLeaseStore authority,
+                                                           final PreparedCommand command,
+                                                           final SourcePosition position,
+                                                           final long nowEpochMs,
+                                                           final Long sourceConnectionGeneration,
+                                                           final byte[] guardAttestationDigest) {
         requireStrictActiveAuthority(authority);
         return applyAuthoritatively(authority, command, position, nowEpochMs,
                 sourceConnectionGeneration, guardAttestationDigest);
     }
 
     /** Applies one guarded command after an authoritative lease reread. */
-    public synchronized CommandResult applyAuthoritatively(final OxiaOwnerLeaseStore authority,
-                                                            final PreparedCommand command,
-                                                            final SourcePosition position, final long nowEpochMs,
-                                                            final Long sourceConnectionGeneration,
-                                                            final byte[] guardAttestationDigest) {
+    synchronized CommandResult applyAuthoritatively(final OxiaOwnerLeaseStore authority,
+                                                     final PreparedCommand command,
+                                                     final SourcePosition position, final long nowEpochMs,
+                                                     final Long sourceConnectionGeneration,
+                                                     final byte[] guardAttestationDigest) {
         ensureAuthoritativeActive(authority, nowEpochMs);
         return apply(command, position, nowEpochMs, sourceConnectionGeneration, guardAttestationDigest);
+    }
+
+    /**
+     * Pure local preflight used before a source record enters the bounded
+     * {@code SOURCE_APPLY} queue.  It validates the strict lifecycle and
+     * record/assignment identity without reading Oxia or mutating the Store;
+     * execution repeats every check after the queue wait.
+     */
+    synchronized void requireSourceApplySubmission(final OxiaOwnerLeaseStore authority,
+                                                   final SourceReplayEntry entry,
+                                                   final PublicKey verificationKey) {
+        requireStrictActiveAuthority(authority);
+        if (state != ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
+            throw new IllegalStateException("source apply requires an active shard");
+        }
+        validateActiveSourceEntry(entry, verificationKey);
+    }
+
+    /**
+     * Applies one active mixed Shard Log entry behind the WorkClass boundary.
+     * Ordinary/fatal failures fence this Owner before they escape; the caller
+     * retains the physical source record until the returned outcome proves a
+     * successful synchronous WriteBatch.
+     */
+    synchronized SourceReplayOutcome applySourceEntryAuthoritativelyStrict(
+            final OxiaOwnerLeaseStore authority,
+            final SourceReplayEntry entry,
+            final PublicKey verificationKey,
+            final LongSupplier clock) {
+        requireSourceApplySubmission(authority, entry, verificationKey);
+        final long nowEpochMs = readActiveSourceClock(clock);
+        ensureAuthoritativeActive(authority, nowEpochMs);
+        // Queue wait, lease reread and renewal may have changed local state;
+        // repeat the pure source/guard fence immediately before the WriteBatch.
+        validateActiveSourceEntry(entry, verificationKey);
+        final SourcePosition position = entry.position();
+        if (entry instanceof SourceReplayRecord commandRecord) {
+            final CommandResult applied = apply(commandRecord.command(), position, nowEpochMs,
+                    commandRecord.sourceConnectionGeneration(), commandRecord.guardAttestationDigest());
+            try {
+                return SourceReplayOutcome.command(position, replayCommandResultAt(position, applied));
+            } catch (RuntimeException | Error failure) {
+                state = ShardLifecycleState.FENCED;
+                throw failure;
+            }
+        }
+        final SourceReplayMutation mutationRecord = (SourceReplayMutation) entry;
+        final SystemMutationResult applied;
+        try {
+            applied = delegate.applySystemMutation(mutationRecord.mutation(), position, verificationKey);
+        } catch (ShardStore.RocksDbWriteFailure failure) {
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        } catch (RuntimeException | Error failure) {
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        }
+        try {
+            return SourceReplayOutcome.systemMutation(position,
+                    replaySystemMutationResultAt(position, applied));
+        } catch (RuntimeException | Error failure) {
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        }
     }
 
     public synchronized void updateLease(final OwnerLease renewed) {
@@ -770,6 +834,43 @@ public final class OwnedDelayShard {
             state = ShardLifecycleState.FENCED;
             throw failure;
         }
+    }
+
+    private long readActiveSourceClock(final LongSupplier clock) {
+        try {
+            final long nowEpochMs = Objects.requireNonNull(clock, "source apply clock").getAsLong();
+            if (nowEpochMs < 0) {
+                throw new IllegalArgumentException("source apply clock returned a negative time");
+            }
+            return nowEpochMs;
+        } catch (RuntimeException | Error failure) {
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        }
+    }
+
+    private void validateActiveSourceEntry(final SourceReplayEntry entry,
+                                           final PublicKey verificationKey) {
+        final SourceReplayEntry candidate = Objects.requireNonNull(entry, "source apply entry");
+        Objects.requireNonNull(verificationKey, "system mutation verification key");
+        final SourcePosition position = candidate.position();
+        if (!delegate.shardId().equals(position.shardId())) {
+            throw new IllegalArgumentException("source apply position does not belong to shard");
+        }
+        if (candidate instanceof SourceReplayRecord commandRecord
+                && !commandRecord.command().shardId().equals(delegate.shardId())) {
+            throw new IllegalArgumentException("source apply command does not belong to shard");
+        }
+        if (candidate instanceof SourceReplayMutation mutationRecord
+                && !mutationRecord.mutation().shardId().equals(delegate.shardId())) {
+            throw new IllegalArgumentException("source apply mutation does not belong to shard");
+        }
+        if (activationBarrier == null) {
+            throw new IllegalStateException("strict source apply requires an activation barrier");
+        }
+        activationBarrier.validatePosition(position);
+        validateSourceConnection(position, candidate.sourceConnectionGeneration(),
+                candidate.guardAttestationDigest());
     }
 
     private void validateReplayPosition(final SourcePosition position, final Long sourceConnectionGeneration,
