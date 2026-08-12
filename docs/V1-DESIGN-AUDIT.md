@@ -5304,6 +5304,21 @@ passed on 2026-08-13; five real-Oxia smokes were skipped because
 downgrade only; authenticated trust-set publication, catalog durability,
 signer ACL and Recovery-Floor historical key retention remain OPEN.
 
+The adjacent receipt/handle/attestation path now reuses the same exact Prepare
+authority instead of letting an adapter synthesize its own trust-set ref.
+`EmbeddedDelayService` reloads the durable `V1ScheduleBinding` before adapter
+registration, and `InMemoryPayloadObjectStore` rejects a full semantic-ref
+mismatch before it records the reservation or issues receipt/handle/proof
+state. The end-to-end regression applies a V1 Prepare, closes and reopens the
+same shard DB under the embedded source identity, then injects an adapter with
+the same trust-set/key versions but a different semantic hash; the facade
+returns `INTEGRITY_ERROR` and the foreign adapter remains unregistered. Code
+commit `3c2ed49a` and the complete six-task local Gradle gate passed on
+2026-08-13; five real-Oxia smokes were skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was unset. This is local authority-composition
+evidence only; real provider credentials, authenticated service routing and
+Oxia publication remain OPEN.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
