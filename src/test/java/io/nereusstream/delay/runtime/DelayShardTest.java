@@ -135,6 +135,7 @@ class DelayShardTest {
         assertMethodIsNotPublic("materializeReservationExpiry", byte[].class);
         assertMethodIsNotPublic("materializeClosedLane", DestinationLaneId.class, int.class);
         assertMethodIsNotPublic("updateLaneGate", DestinationLaneId.class, long.class, AdmissionGate.class);
+        assertMethodIsNotPublic("updateLaneReadiness", DestinationLaneId.class, RuntimeReadiness.class);
         assertMethodIsNotPublic("reserveControlCapacity", int.class, CapacityVectorV1.class);
         assertMethodIsNotPublic("reserveSystemWriterCapacity", CapacityVectorV1.class);
         assertMethodIsNotPublic("releaseControlCapacity", int.class, CapacityVectorV1.class);

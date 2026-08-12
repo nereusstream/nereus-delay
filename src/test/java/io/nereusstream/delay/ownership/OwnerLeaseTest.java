@@ -443,7 +443,8 @@ class OwnerLeaseTest {
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             final DelayShard delegate = new DelayShard(store, DelayShardConfig.defaults());
             assertEquals(StableCode.SCHEDULED, delegate.apply(schedule, position).stableCode());
-            delegate.updateLaneReadiness(lane, io.nereusstream.delay.runtime.RuntimeReadiness.READY);
+            io.nereusstream.delay.runtime.DelayShardTestSupport.updateLaneReadiness(
+                    delegate, lane, io.nereusstream.delay.runtime.RuntimeReadiness.READY);
             final ClaimRecord claim = delegate.claimForPublish(schedule.delayMessageId(), owner, 3_000,
                     new byte[0], chargeVector());
 

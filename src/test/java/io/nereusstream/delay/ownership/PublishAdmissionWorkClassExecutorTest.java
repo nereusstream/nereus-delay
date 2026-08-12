@@ -95,7 +95,8 @@ class PublishAdmissionWorkClassExecutorTest {
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
             shard.apply(schedule, schedulePosition);
-            shard.updateLaneReadiness(laneId, RuntimeReadiness.READY);
+            io.nereusstream.delay.runtime.DelayShardTestSupport.updateLaneReadiness(
+                    shard, laneId, RuntimeReadiness.READY);
             final OwnedDelayShard owned = new OwnedDelayShard(shard, lease);
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
             owned.recordCatchup(schedulePosition);

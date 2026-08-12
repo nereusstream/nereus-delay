@@ -6255,7 +6255,7 @@ public final class DelayShard {
     }
 
     /** Applies an owner/runtime readiness transition without changing admission semantics. */
-    public synchronized LaneRecord updateLaneReadiness(
+    synchronized LaneRecord updateLaneReadiness(
             final io.nereusstream.delay.protocol.DestinationLaneId laneId,
             final RuntimeReadiness readiness) {
         final LaneRecord current = readLane(laneId);
