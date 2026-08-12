@@ -2084,6 +2084,15 @@ Owner Lease、执行 `ShardStore.createCheckpoint(path, checkpointId)`，并在�
 保持 admission side-effect free 并允许用同一 identity 重试。不得把 final
 checkpoint 写成 coordinator 内层循环，也不得提供跨包 direct physical seam。
 
+`ShardStore.createCheckpoint(...)` 与全部
+`ShardStore.restoreFromCheckpoint(...)` overload 只是 `store` 包内 executor、
+coordinator 和物理存储测试使用的 primitive，V1 固定为 package-local，不能作为
+跨包生产 API。定时 checkpoint、planned-drain final checkpoint 和接管 restore
+必须分别由 `CheckpointWorkClassExecutor`、`CheckpointDrainWorkClassExecutor`
+和 `CheckpointRestoreWorkClassExecutor` 提交到共享 `CHECKPOINT` work-class；
+新增 Worker 组合不得把底层 primitive 重新暴露为 public wrapper 绕过 admission、
+fairness、lease reread 或 side-effect-free rejection 契约。
+
 `LEASE_FENCE` 是唯一允许抢占首个 bounded turn 的 work-class。每个 fence task
 必须绑定触发事件所观察到的完整 Owner Lease identity（Shard、owner、ownerEpoch、
 lease token、assignment/session context 和 lifecycle value）。进入队列前只做本地

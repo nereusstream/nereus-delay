@@ -3089,6 +3089,16 @@ This closes local drain/checkpoint work-class drift only; source quiescence, Oxi
 session fencing, external publication and production dynamic I/O attribution remain
 release gates.
 
+After `f05290d`, the bottom-most physical checkpoint seams are no longer public:
+all `ShardStore.createCheckpoint(...)` and `ShardStore.restoreFromCheckpoint(...)`
+overloads are package-local to `io.nereusstream.delay.store`. This makes the design's
+cross-package rule compiler-enforced: Worker composition must use the scheduled,
+planned-drain or restore `CHECKPOINT` executor rather than calling a RocksDB primitive
+directly. `ShardStoreTest` reflects over every declared method with those names and
+fails if public visibility returns; the focused RocksDB suite, compilation and
+Checkstyle passed. This proves the local API boundary only, not external Oxia/Object
+Store authority, Source Assignment integration or production dynamic I/O charging.
+
 Worker 资源侧现在还提供了本地 `WorkerLoadVector` 与
 `WorkerPlacementPolicy`：它们先按完整 committed capacity、固定/transition
 demand 以及 owned/open DB slots 做 hard filter，再以 dominant-resource/load

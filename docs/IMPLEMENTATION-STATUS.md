@@ -294,6 +294,16 @@ closes the local drain/checkpoint queue boundary only; source quiescence, Oxia s
 authority, Object Store publication and production dynamic I/O attribution remain
 release blockers.
 
+After `f05290d`, the physical `ShardStore.createCheckpoint(...)` and every
+`ShardStore.restoreFromCheckpoint(...)` overload are package-local primitives rather
+than public production APIs. Scheduled checkpoint, planned-drain checkpoint and restore
+composition must therefore enter through their bounded `CHECKPOINT` executors instead
+of exposing a cross-package direct RocksDB seam. `ShardStoreTest` includes a reflection
+regression over every declared method with either physical primitive name, and the
+focused RocksDB test plus main/test compilation and Checkstyle passed. This is a local
+Java visibility guarantee; it does not supply the still-missing production Oxia,
+Object Store, Source Assignment or dynamic I/O authority.
+
 After `a49b19a`, the durable `timeline_cf/EXPIRY` candidate has a matching
 bounded local handoff in `ExpiryWorkClassExecutor`. The caller supplies one
 candidate from `DelayShard.discoverExpiry` plus the certified UTC interval;
