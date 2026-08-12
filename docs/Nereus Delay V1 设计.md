@@ -1484,6 +1484,16 @@ ProfileRef，再由同一个 `ProfileCatalog` 的 immutable Destination/Delivery
 同一推导校验必须在 Prepare 保留配额、返回上传授权之前执行；若 certified fixed lead
 使 `actionAt` 下溢，Prepare 直接稳定拒绝为 `INVALID_DELIVERY_WINDOW`，不得先创建
 Reservation/Lane/V1 binding 或让客户端完成无效对象上传，再延迟到 Commit 才失败。
+同理，Registry Schedule/Prepare 的 source-ordered apply 不能信任 SDK 已做过 Profile
+校验：在 Lane resolver 和任何 shard 状态写入前，必须用 exact Destination Profile
+重验 Adapter metadata branch、allowed ordering-mode bit、`maxPayloadBytes` 和
+`maxAdapterMetadataBytes`；committed Schedule 与 Prepare 还必须重验 exact Object Store
+Profile 的 source-ordered first binding、current credential Head 与 `maxObjectBytes`。
+对应稳定拒绝分别是 `INVALID_METADATA`、`ORDERING_CAPABILITY_UNAVAILABLE` 或
+`PAYLOAD_TOO_LARGE`，且不得创建 Message/Reservation/Lane/`V1ScheduleBinding` 或增加
+quota。`maxTargetRecordBytes` 依赖最终 Adapter serialization/reserved metadata，必须在
+Claim/serialization prerequisite gate 对完整 `PreparedPublishDescriptorV1` 验证，不能在
+Schedule apply 用原始 payload 长度近似替代。
 这只是 shard-local projection evidence；Profile publication、Broker visibility
 guard 和真实 Producer authority 仍必须通过 release gate。
 

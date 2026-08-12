@@ -5460,6 +5460,24 @@ Code commit `c9600447` and the complete six-task local Gradle gate passed on
 underflow rejection; no wire/key/value or ADR change was needed. Real upload
 and external source authority remain OPEN.
 
+The adjacent immutable-Profile audit found four more source-apply bypasses.
+The embedded/native facade checked some size fields, but replay or another
+producer could reach the shard without proving that metadata matched the
+Destination Adapter, ordering was allowed, payload/metadata fitted the
+Destination limits, or a committed/large object fitted its exact Object Store
+Profile. `ProfileCatalogV1ScheduleResolver` now rejects those Destination
+violations before delegate resolution; `DelayShard` separately requires
+source-ordered activation, exact semantic/current Head and `maxObjectBytes` for
+the Object Store Profile used by direct committed Schedule and Prepare.
+Regressions cover all stable codes and prove no Message, Reservation, Lane,
+`V1ScheduleBinding` or reservation quota side effect. Code commit `8955510c`
+and the complete six-task local Gradle gate passed on 2026-08-13 in 1m11s;
+five real-Oxia smokes were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was
+unset. This deliberately does not claim `maxTargetRecordBytes`: the exact
+target-record limit requires final Adapter serialization plus reserved metadata
+and remains OPEN with the live prerequisite/Producer path. No wire/key/value or
+ADR change was required; real Profile/Oxia/Object Store authority remains OPEN.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

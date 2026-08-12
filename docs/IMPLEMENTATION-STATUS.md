@@ -5668,6 +5668,23 @@ Gradle gate passed on 2026-08-13 in 1m13s, with five real-Oxia smokes skipped
 because `NEREUS_DELAY_OXIA_ENDPOINT` was unset. Real upload/provider and
 external source authority remain OPEN.
 
+Source-ordered Registry Schedule/Prepare now revalidate every command field
+that is decidable from the immutable Profile before Lane resolution or shard
+state creation. The exact Destination semantic gates Adapter metadata branch,
+allowed ordering-mode bit, business payload length and canonical adapter
+metadata length. Committed Schedule and Prepare additionally require the exact
+source-activated Object Store Profile/current credential Head and enforce its
+`maxObjectBytes`. Stable failures are `INVALID_METADATA`,
+`ORDERING_CAPABILITY_UNAVAILABLE` or `PAYLOAD_TOO_LARGE`, with zero delegate
+calls and no Message, Reservation, Lane, binding or quota projection. Resolver
+and shard-level regressions passed in code commit `8955510c`; the complete
+six-task local Gradle gate passed on 2026-08-13 in 1m11s, with five real-Oxia
+smokes skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset. Final
+`maxTargetRecordBytes` validation remains in the still-OPEN Adapter
+serialization prerequisite because it depends on the complete prepared record,
+not raw payload length; real Profile/Oxia/Object Store authority also remains
+OPEN.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
