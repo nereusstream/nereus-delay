@@ -64,6 +64,16 @@ class ResourceGcGuardTest {
     }
 
     @Test
+    void retireIntentRecordRequiresCanonicalProtectionSet() {
+        final Fixture fixture = fixture();
+        assertThrows(IllegalArgumentException.class, () -> new ResourceRetireIntentRecord(
+                fixture.intent().mutationId(), fixture.intent().mutationHash(), fixture.intent().resourceKind(),
+                fixture.intent().resourceIdentity(), fixture.intent().resourceIdentityHash(),
+                fixture.intent().expectedResourceStateVersion(), fixture.intent().appliedMutationSequence(),
+                Bytes.utf8("not-a-protection-set"), fixture.intent().appliedSourcePosition()));
+    }
+
+    @Test
     void durableDeletedCheckpointEvidenceCannotOmitPinnedVersion() {
         final Fixture fixture = fixture();
         assertThrows(IllegalArgumentException.class, () -> new ResourceDeleteConfirmedRecord(
@@ -81,7 +91,7 @@ class ResourceGcGuardTest {
                 fixture.intent().mutationId(), fixture.intent().mutationHash(), fixture.intent().resourceKind(),
                 fixture.intent().resourceIdentity(), fixture.intent().resourceIdentityHash(),
                 fixture.intent().expectedResourceStateVersion(), fixture.intent().appliedMutationSequence(),
-                Bytes.utf8("different-protection-set"), fixture.intent().appliedSourcePosition());
+                protectionSet(id32(18)), fixture.intent().appliedSourcePosition());
         final ResourceDeleteConfirmedRecord confirmation = new ResourceDeleteConfirmedRecord(
                 fixture.confirmation().confirmationMutationId(), fixture.confirmation().confirmationMutationHash(),
                 altered, fixture.confirmation().outcome(), fixture.confirmation().appliedMutationSequence(),
@@ -162,7 +172,7 @@ class ResourceGcGuardTest {
                 resourceIdentity);
         final ResourceRetireIntentRecord intent = new ResourceRetireIntentRecord(
                 id32(3), id32(4), ResourceKind.CHECKPOINT, resourceIdentity, resourceIdentityHash,
-                Long.MIN_VALUE, Long.MIN_VALUE, Bytes.utf8("floor-protection"), intentPosition.canonicalBytes());
+                Long.MIN_VALUE, Long.MIN_VALUE, protectionSet(id32(17)), intentPosition.canonicalBytes());
         final TrustedUtcIntervalEvidence evidence = evidence();
         final ResourceDeleteConfirmedRecord confirmation = new ResourceDeleteConfirmedRecord(
                 id32(5), id32(6), intent,
@@ -291,6 +301,21 @@ class ResourceGcGuardTest {
 
     private static byte[] id32(final int seed) {
         return Bytes.sha256(Bytes.utf8("resource-gc-" + seed));
+    }
+
+    private static byte[] protectionSet(final byte[] protectedResourceId) {
+        final byte[] reference = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint32(output, 1, 3);
+            CanonicalProtobuf.bytes(output, 2, protectedResourceId);
+            CanonicalProtobuf.uint32(output, 3, 1);
+        });
+        final byte[] references = CanonicalProtobuf.message(output ->
+                CanonicalProtobuf.bytes(output, 1, reference));
+        final byte[] digest = Bytes.sha256(Bytes.utf8("nereus-delay-protection-set-v1\0"), references);
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, reference);
+            CanonicalProtobuf.bytes(output, 2, digest);
+        });
     }
 
     private record Fixture(ShardId shard, ResourceRetireIntentRecord intent,

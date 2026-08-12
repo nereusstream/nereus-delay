@@ -5888,6 +5888,35 @@ class DelayShardTest {
     }
 
     @Test
+    void resourceRetireIntentRejectsForeignProtectionSourceBeforePersistence() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("resource-retire-source-shard"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 33);
+        final ShardId foreignShard = new ShardId(RouteIncarnation.random(), 34);
+        final byte[] resource = localStoreResource(shardId);
+        final byte[] protections = resourceProtectionSet(Bytes.sha256(Bytes.utf8("foreign-protection")),
+                position(foreignShard, 1, 1_000).canonicalBytes());
+        final byte[] body = resourceRetireBody(shardId, resource, 1, protections);
+        final ResourceRetireIntentBody parsed = ResourceRetireIntentBody.decode(body);
+        final byte[] service = AuthorIdentity.service(Bytes.utf8("foreign-protection-service"), Bytes.utf8("run-1"), 1)
+                .canonicalBytes();
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = generator.generateKeyPair();
+        final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.RESOURCE_RETIRE_INTENT,
+                9_000, SystemMutation.computeResourceRetireLogicalIdentity(parsed.resourceKind(),
+                        parsed.resource().identityHash(), parsed.expectedResourceStateVersion()), body, service, 1,
+                keyPair.getPrivate());
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            final SystemMutationResult result = shard.applySystemMutation(mutation, position(shardId, 0, 1_001),
+                    keyPair.getPublic());
+            assertEquals(StableCode.STALE_SYSTEM_MUTATION, result.stableCode());
+            assertNull(shard.getResourceRetireIntent(ResourceKind.LOCAL_STORE, parsed.resource().identityHash(), 1));
+        }
+    }
+
+    @Test
     void gcRetireIntentLookupRejectsKeyValueIdentityMismatch() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("gc-key-mismatch"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 54);
@@ -7771,6 +7800,21 @@ class DelayShardTest {
             CanonicalProtobuf.uint32(output, 1, 3);
             CanonicalProtobuf.bytes(output, 2, protectedResourceId);
             CanonicalProtobuf.uint32(output, 3, 1);
+        });
+        final byte[] repeated = CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1, reference));
+        final byte[] digest = Bytes.sha256(Bytes.utf8("nereus-delay-protection-set-v1\0"), repeated);
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, reference);
+            CanonicalProtobuf.bytes(output, 2, digest);
+        });
+    }
+
+    private static byte[] resourceProtectionSet(final byte[] protectedResourceId, final byte[] sourcePosition) {
+        final byte[] reference = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint32(output, 1, 2);
+            CanonicalProtobuf.bytes(output, 2, protectedResourceId);
+            CanonicalProtobuf.uint32(output, 3, 1);
+            CanonicalProtobuf.bytes(output, 4, sourcePosition);
         });
         final byte[] repeated = CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1, reference));
         final byte[] digest = Bytes.sha256(Bytes.utf8("nereus-delay-protection-set-v1\0"), repeated);

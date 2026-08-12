@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -252,6 +253,28 @@ class ResourceRetireIntentBodyTest {
                 List.of(decodedRefs.get(0), decodedRefs.get(0)), protectionSet, valid.digest()));
         assertThrows(IllegalArgumentException.class, () -> new ResourceRetireIntentBody.ProtectionSet(
                 decodedRefs, protectionSet, new byte[32]));
+    }
+
+    @Test
+    void protectionSourcePositionsMustBelongToApplyingShard() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 31);
+        final ShardId foreignShard = new ShardId(RouteIncarnation.random(), 32);
+        final byte[] resource = localStoreIdentity(shard);
+        final byte[] resourceId = Bytes.sha256(Bytes.utf8("source-shard-protection"));
+        final byte[] localSource = new KafkaSourcePosition(shard, "cluster", UUID.randomUUID(), 1, null, 1_000)
+                .canonicalBytes();
+        final byte[] foreignSource = new KafkaSourcePosition(foreignShard, "cluster", UUID.randomUUID(), 1, null,
+                1_000).canonicalBytes();
+
+        final ResourceRetireIntentBody local = ResourceRetireIntentBody.decode(resourceBody(shard,
+                ResourceKind.LOCAL_STORE, resource, 1,
+                protectionSet(protectionRef(2, resourceId, 1, localSource, new byte[0], new byte[0], new byte[0]))));
+        assertDoesNotThrow(() -> local.validateProtectionSourceShard(shard));
+
+        final ResourceRetireIntentBody foreign = ResourceRetireIntentBody.decode(resourceBody(shard,
+                ResourceKind.LOCAL_STORE, resource, 1,
+                protectionSet(protectionRef(2, resourceId, 1, foreignSource, new byte[0], new byte[0], new byte[0]))));
+        assertThrows(IllegalArgumentException.class, () -> foreign.validateProtectionSourceShard(shard));
     }
 
     private static byte[] resourceBody(final ShardId shard, final ResourceKind kind, final byte[] resource,

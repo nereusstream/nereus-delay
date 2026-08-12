@@ -34,14 +34,13 @@ public record ResourceRetireIntentRecord(
                 Bytes.sha256(Bytes.utf8("nereus-delay-resource-identity-v1\0"), resourceIdentity))) {
             throw new IllegalArgumentException("resource identity hash does not match canonical identity");
         }
-        requireNonEmpty(protections, "protections");
+        protections = ResourceRetireIntentBody.ProtectionSet.decodeCanonical(protections).canonicalBytes();
         requireNonEmpty(appliedSourcePosition, "appliedSourcePosition");
         SourcePositionCodec.decode(appliedSourcePosition);
         mutationId = Bytes.copy(mutationId);
         mutationHash = Bytes.copy(mutationHash);
         resourceIdentity = Bytes.copy(resourceIdentity);
         resourceIdentityHash = Bytes.copy(resourceIdentityHash);
-        protections = Bytes.copy(protections);
         appliedSourcePosition = Bytes.copy(appliedSourcePosition);
     }
 

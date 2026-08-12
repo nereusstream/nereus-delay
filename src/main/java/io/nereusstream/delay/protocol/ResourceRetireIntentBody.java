@@ -60,6 +60,25 @@ public final class ResourceRetireIntentBody {
         return protections;
     }
 
+    /**
+     * Validates that every source-bearing protection reference belongs to the
+     * shard applying this retire intent. The protection-set codec can validate
+     * canonical Source Position bytes, but only the applying shard knows the
+     * ownership boundary that those positions must satisfy.
+     */
+    public void validateProtectionSourceShard(final ShardId expectedShard) {
+        Objects.requireNonNull(expectedShard, "expectedShard");
+        for (ProtectionRef reference : protections.references()) {
+            if (reference.minimumSourcePosition().length == 0) {
+                continue;
+            }
+            final SourcePosition sourcePosition = SourcePositionCodec.decode(reference.minimumSourcePosition());
+            if (!expectedShard.equals(sourcePosition.shardId())) {
+                throw new IllegalArgumentException("protection source position belongs to another shard");
+            }
+        }
+    }
+
     /** Decodes one closed identity outside the enclosing retire body. */
     public static ExactResourceIdentity decodeResourceIdentity(final ResourceKind kind, final byte[] encoded) {
         Objects.requireNonNull(kind, "kind");
@@ -288,6 +307,10 @@ public final class ResourceRetireIntentBody {
         @Override
         public byte[] digest() {
             return Bytes.copy(digest);
+        }
+
+        public static ProtectionSet decodeCanonical(final byte[] encoded) {
+            return decode(encoded);
         }
 
         private static ProtectionSet decode(final byte[] encoded) {

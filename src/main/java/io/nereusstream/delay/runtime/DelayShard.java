@@ -4936,6 +4936,7 @@ public final class DelayShard {
     private SystemMutationResult applyResourceRetireIntentMutation(final SystemMutation mutation,
                                                                     final SourcePosition sourcePosition) {
         final ResourceRetireIntentBody body = ResourceRetireIntentBody.decode(mutation.canonicalBody());
+        body.validateProtectionSourceShard(store.shardId());
         final byte[] expectedLogicalIdentity = SystemMutation.computeResourceRetireLogicalIdentity(
                 body.resourceKind(), body.resource().identityHash(), body.expectedResourceStateVersion());
         if (!Bytes.constantTimeEquals(mutation.logicalOperationIdentity(), expectedLogicalIdentity)) {
