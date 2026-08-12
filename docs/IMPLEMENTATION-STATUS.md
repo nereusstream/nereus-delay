@@ -7,7 +7,7 @@ normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20�
 the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
-The latest post-permit audit on 2026-08-12 ran from document commit
+The post-permit live-service audit on 2026-08-12 ran from document commit
 `b45045b` with a temporary standalone Oxia service built from source commit
 `37a17bef17202d5fd6e23282da5fd26d94865484`:
 ```text
@@ -17,10 +17,13 @@ GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew clean check --rerun-
 The command completed with 1205 tests, zero failures,
 errors or skips. All five opt-in real-Oxia methods executed successfully.
 `checkDocumentation` was the first verification task in the same live run.
-No additional local semantic gap was found in the ownership, replay,
-checkpoint, one-shard/one-DB, or Worker resource boundaries; the remaining
-incomplete rows below require cross-record Oxia transactions, Broker
-transports, provider authority, or release-scale evidence.
+That live-service evidence is pinned to `b45045b`. Subsequent local commits
+`3a4914f` and `07751ef` add only the Worker event-loop/resource composition
+seam and its package-local admission hook; a later `clean check --rerun-tasks`
+passed with the Oxia endpoint unset, so its five opt-in real-Oxia methods were
+skipped. The remaining incomplete rows below require cross-record Oxia
+transactions, Broker transports, provider authority, or release-scale
+evidence.
 
 The Oxia transaction question was checked against the locked source and the
 Gradle-resolved `oxia-client:0.9.0` API.  Its public `SyncOxiaClient` and
