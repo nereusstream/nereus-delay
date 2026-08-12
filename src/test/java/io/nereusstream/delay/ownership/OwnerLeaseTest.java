@@ -61,13 +61,16 @@ class OwnerLeaseTest {
     Path tempDir;
 
     @Test
-    void directReplaySeamsAreNotPublicProductionApi() throws Exception {
-        final Set<String> directReplayNames = Set.of(
+    void directReplayAndLifecyclePrimitivesAreNotPublicProductionApi() throws Exception {
+        final Set<String> packageOnlyPrimitiveNames = Set.of(
                 "replayCatchup", "replayCatchupTurn", "replaySystemMutations",
-                "replaySystemMutationsTurn", "replay", "replayTurn");
+                "replaySystemMutationsTurn", "replay", "replayTurn",
+                "updateLease", "markCatchingUp", "recordCatchup",
+                "activateForCommands", "activateForCommandsWithControlSnapshot",
+                "beginDrain", "beginDrainStrict");
 
         for (java.lang.reflect.Method method : OwnedDelayShard.class.getDeclaredMethods()) {
-            if (directReplayNames.contains(method.getName())) {
+            if (packageOnlyPrimitiveNames.contains(method.getName())) {
                 assertFalse(Modifier.isPublic(method.getModifiers()), method.toGenericString());
             }
         }

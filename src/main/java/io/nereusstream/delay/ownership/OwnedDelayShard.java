@@ -840,7 +840,7 @@ public final class OwnedDelayShard {
         }
     }
 
-    public synchronized void updateLease(final OwnerLease renewed) {
+    synchronized void updateLease(final OwnerLease renewed) {
         Objects.requireNonNull(renewed, "renewed");
         if (!lease.sameIdentity(renewed) || renewed.state() != lease.state()
                 || renewed.expiresAtEpochMs() < lease.expiresAtEpochMs()) {
@@ -921,7 +921,7 @@ public final class OwnedDelayShard {
      * {@link #markCatchingUp(SourceAssignment)}.
      */
     @Deprecated
-    public synchronized void markCatchingUp() {
+    synchronized void markCatchingUp() {
         markCatchingUp((SourceActivationBarrier) null);
     }
 
@@ -933,7 +933,7 @@ public final class OwnedDelayShard {
      * @deprecated use {@link #markCatchingUp(SourceAssignment)}.
      */
     @Deprecated
-    public synchronized void markCatchingUp(final SourceActivationBarrier barrier) {
+    synchronized void markCatchingUp(final SourceActivationBarrier barrier) {
         if (sourceAssignment == null) {
             throw new IllegalStateException("source assignment must be accepted before catch-up");
         }
@@ -951,7 +951,7 @@ public final class OwnedDelayShard {
      * {@link #markCatchingUp(SourceAssignment, SourceReplaySuccessor)} so a
      * source gap cannot be mistaken for a caught-up shard.</p>
      */
-    public synchronized void markCatchingUp(final SourceAssignment assignment) {
+    synchronized void markCatchingUp(final SourceAssignment assignment) {
         markCatchingUp(assignment, SourceReplaySuccessor.monotonic());
     }
 
@@ -961,8 +961,8 @@ public final class OwnedDelayShard {
      * through replay, which prevents a caller from weakening a gap proof after
      * the first record has been applied.
      */
-    public synchronized void markCatchingUp(final SourceAssignment assignment,
-                                             final SourceReplaySuccessor successor) {
+    synchronized void markCatchingUp(final SourceAssignment assignment,
+                                     final SourceReplaySuccessor successor) {
         if (state != ShardLifecycleState.RESTORING) {
             throw new IllegalStateException("shard is not restoring");
         }
@@ -998,10 +998,10 @@ public final class OwnedDelayShard {
      * successor.  The context-bound overload is the production boundary;
      * assignment-only overloads remain embedded compatibility seams.
      */
-    public synchronized void markCatchingUp(final OxiaOwnerLeaseStore authority,
-                                             final SourceAssignment assignment,
-                                             final SourceReplaySuccessor successor,
-                                             final long nowEpochMs) {
+    synchronized void markCatchingUp(final OxiaOwnerLeaseStore authority,
+                                     final SourceAssignment assignment,
+                                     final SourceReplaySuccessor successor,
+                                     final long nowEpochMs) {
         Objects.requireNonNull(authority, "authority");
         if (state != ShardLifecycleState.RESTORING) {
             throw new IllegalStateException("shard is not restoring");
@@ -1067,13 +1067,13 @@ public final class OwnedDelayShard {
         }
     }
 
-    public synchronized void recordCatchup(final SourcePosition position) {
+    synchronized void recordCatchup(final SourcePosition position) {
         recordCatchup(position, null, null);
     }
 
     /** Records catch-up from the exact guarded source connection generation. */
-    public synchronized void recordCatchup(final SourcePosition position, final Long sourceConnectionGeneration,
-                                           final byte[] guardAttestationDigest) {
+    synchronized void recordCatchup(final SourcePosition position, final Long sourceConnectionGeneration,
+                                    final byte[] guardAttestationDigest) {
         Objects.requireNonNull(position, "position");
         if (state != ShardLifecycleState.CATCHING_UP) {
             throw new IllegalStateException("shard is not catching up");
@@ -1638,7 +1638,7 @@ public final class OwnedDelayShard {
         pulsarBarrier.validateSourceConnection(connectionGeneration, guardAttestationDigest);
     }
 
-    public synchronized void activateForCommands(final long nowEpochMs) {
+    synchronized void activateForCommands(final long nowEpochMs) {
         ensureActivationPreconditions(nowEpochMs);
         // A restored CLAIMED record is only a reversible pre-Producer
         // reservation.  Requeue it before opening the command gate so a new
@@ -1672,14 +1672,14 @@ public final class OwnedDelayShard {
      * remains an embedded compatibility seam; production activation should
      * pass the exact snapshot obtained from the authoritative control path.
      */
-    public synchronized void activateForCommandsWithControlSnapshot(
+    synchronized void activateForCommandsWithControlSnapshot(
             final CompatibleControlSnapshotV1 expected, final long nowEpochMs) {
         requireControlSnapshot(expected);
         activateForCommands(nowEpochMs);
     }
 
     /** Completes activation only after the authority CASes the same lease to ACTIVE_FOR_COMMANDS. */
-    public synchronized void activateForCommands(final OxiaOwnerLeaseStore authority, final long nowEpochMs) {
+    synchronized void activateForCommands(final OxiaOwnerLeaseStore authority, final long nowEpochMs) {
         activateForCommands(authority, nowEpochMs, false);
     }
 
@@ -1727,9 +1727,9 @@ public final class OwnedDelayShard {
     }
 
     /** Strict V1 activation with both control-snapshot and Owner Lease CAS fences. */
-    public synchronized void activateForCommandsWithControlSnapshot(final OxiaOwnerLeaseStore authority,
-                                                                      final CompatibleControlSnapshotV1 expected,
-                                                                      final long nowEpochMs) {
+    synchronized void activateForCommandsWithControlSnapshot(final OxiaOwnerLeaseStore authority,
+                                                              final CompatibleControlSnapshotV1 expected,
+                                                              final long nowEpochMs) {
         requireStrictActivationAuthority(authority);
         requireControlSnapshot(expected);
         activateForCommands(authority, nowEpochMs, true);
@@ -1786,7 +1786,7 @@ public final class OwnedDelayShard {
         }
     }
 
-    public synchronized void beginDrain() {
+    synchronized void beginDrain() {
         if (state != ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
             throw new IllegalStateException("only an active shard can drain");
         }
@@ -1805,7 +1805,7 @@ public final class OwnedDelayShard {
      * release remain explicit drain steps owned by the surrounding worker
      * orchestration.</p>
      */
-    public synchronized void beginDrain(final OxiaOwnerLeaseStore authority, final long nowEpochMs) {
+    synchronized void beginDrain(final OxiaOwnerLeaseStore authority, final long nowEpochMs) {
         beginDrain(authority, nowEpochMs, false);
     }
 
@@ -1818,7 +1818,7 @@ public final class OwnedDelayShard {
      * accepted assignment.  The authority-less/assignment-only lifecycle
      * methods remain embedded compatibility seams.
      */
-    public synchronized void beginDrainStrict(final OxiaOwnerLeaseStore authority, final long nowEpochMs) {
+    synchronized void beginDrainStrict(final OxiaOwnerLeaseStore authority, final long nowEpochMs) {
         requireStrictLifecycleAuthority(authority);
         beginDrain(authority, nowEpochMs, true);
     }
