@@ -3064,6 +3064,24 @@ cross-package Worker production code cannot bypass the queue. This closes local
 restore work-class drift only and leaves RecoveryPin/Oxia CAS, Object Store,
 Source Assignment/replay and production dynamic IO authority as release blockers.
 
+After `de5601b`, planned-drain final checkpoint creation is also inside the
+shared `CHECKPOINT` boundary. `CheckpointDrainWorkClassExecutor` binds the
+normalized path, fixed checkpoint identity, exact DRAINING Owner Lease/session
+identity, owner clock and deadline before admission, and queue rejection leaves
+the Store, checkpoint projection and filesystem untouched. `OwnerDrainCoordinator`
+returns an explicit pending task when fairness selects another class, retains the
+same DRAINING lease and checkpoint identity, and resumes only the checkpoint/close
+continuation on the next call. The selected action rereads the lease before and
+after the physical RocksDB image; outcome failure is lease-proven before it is
+returned, and close/release is allowed only after success. The focused
+`OwnerDrainCoordinatorTest` covers fairness wait, queue rejection plus exact retry,
+successful continuation and lease replacement during checkpoint. The old
+package-local four-argument constructor is now a no-final-checkpoint compatibility
+seam; cross-package Worker production composition must supply the shared registry.
+This closes local drain/checkpoint work-class drift only; source quiescence, Oxia
+session fencing, external publication and production dynamic I/O attribution remain
+release gates.
+
 Worker 资源侧现在还提供了本地 `WorkerLoadVector` 与
 `WorkerPlacementPolicy`：它们先按完整 committed capacity、固定/transition
 demand 以及 owned/open DB slots 做 hard filter，再以 dominant-resource/load
@@ -3452,7 +3470,10 @@ Worker-wide drain semaphore 时两个 coordinator 并发关闭或释放同一 sh
 DB/lease；失败后 gate 可释放并保留 `DRAINING` 供重试。回归证据为
 `OwnerDrainCoordinatorTest.duplicateCoordinatorCannotDrainTheSameShardConcurrently`。
 如果 caller 提供 final checkpoint 的 exact 16-byte identity，coordinator 会把
-它传入 `ShardStore.createCheckpoint`，让完整镜像携带对应 `lastCheckpointId`；
+它提交到共享 `CHECKPOINT` work class，由选中的
+`CheckpointDrainWorkClassExecutor` 传入 `ShardStore.createCheckpoint`，让完整
+镜像携带对应 `lastCheckpointId`；队列拒绝或尚未公平选中时不会进行物理 I/O，
+也不会提前 close 或 release；
 `flushAndSync` 后的可选 `commitSourceHint` 只收到最后已持久化的
 `SourcePosition`，callback 返回后还会重新检查 draining lease；该 hint 仍不是
 recovery authority。物理 final checkpoint 安装完成后也会再次检查 lease，只有

@@ -276,6 +276,24 @@ the local restore work-class boundary only; RecoveryPin/Oxia CAS, Object Store
 authority, Source Assignment/replay and production dynamic IO attribution remain
 release blockers.
 
+After `de5601b`, the planned-drain final checkpoint no longer has a coordinator-level
+physical bypass. `CheckpointDrainWorkClassExecutor` binds the normalized target path,
+fixed 16-byte checkpoint identity, exact DRAINING Owner Lease/session identity, owner
+clock and drain deadline into a domain-separated `CHECKPOINT` task before queue
+admission. Queue rejection performs no Store/filesystem I/O and leaves the shard in
+retryable `DRAINING`; if another class wins the bounded turn, the coordinator returns
+the exact pending task without repeating Claim revoke, callback polling or flush. The
+selected action rereads the exact lease before and after `ShardStore.createCheckpoint`,
+and a failed outcome is lease-proven before it is exposed. Only after checkpoint success,
+post-action lease proof, Store close and exact release does the local Owner become
+`FENCED`. `OwnerDrainCoordinatorTest` covers successful continuation, fairness wait,
+queue-capacity rejection with exact retry and lease loss during checkpoint. The
+four-argument coordinator constructor is package-local and cannot create a final
+checkpoint; cross-package Worker composition must provide the shared registry. This
+closes the local drain/checkpoint queue boundary only; source quiescence, Oxia session
+authority, Object Store publication and production dynamic I/O attribution remain
+release blockers.
+
 After `a49b19a`, the durable `timeline_cf/EXPIRY` candidate has a matching
 bounded local handoff in `ExpiryWorkClassExecutor`. The caller supplies one
 candidate from `DelayShard.discoverExpiry` plus the certified UTC interval;
@@ -3280,9 +3298,11 @@ second coordinator receives `owner drain is already in progress for this shard`.
 `OwnerDrainCoordinatorTest.duplicateCoordinatorCannotDrainTheSameShardConcurrently`
 covers this same-shard boundary.
 When the caller supplies the final checkpoint's exact 16-byte identity,
-`OwnerDrainCoordinator` passes it into `ShardStore.createCheckpoint`; the
-identity is therefore present in the copied DB metadata, while the legacy
-path without an identity remains local-only.
+`OwnerDrainCoordinator` submits it through the shared `CHECKPOINT` work class;
+the selected `CheckpointDrainWorkClassExecutor` passes it into
+`ShardStore.createCheckpoint`, so the identity is present in the copied DB
+metadata. The package-local four-argument compatibility seam cannot create a
+final checkpoint without a shared registry.
 After `flushAndSync`, an optional `commitSourceHint` callback receives only the
 last persisted `SourcePosition`; the coordinator rereads the draining lease
 after that transport-owned callback before continuing.  The hint is never the

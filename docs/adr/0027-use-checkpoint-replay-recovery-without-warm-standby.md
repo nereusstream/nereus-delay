@@ -8,6 +8,7 @@ Nereus Delay V1 recovers one shard from a verified immutable RocksDB checkpoint 
 - Local creation uses a unique temporary directory and may hard-link immutable files on the same filesystem. The uploader writes to a unique immutable object prefix, records every relative filename, length, checksum, object version/etag, and total bytes, and reopens/verifies the checkpoint metadata before publication.
 - Upload completion alone has no recovery meaning. The Worker revalidates Source Assignment, exact Owner Lease, store/DB incarnation, source replay margin, and base catalog version, then uses Oxia CAS to add the manifest to the Recovery Set. Lost CAS response is resolved by rereading the exact checkpoint identity.
 - Creation and upload are staggered and bounded by per-Worker concurrency, bandwidth, temporary-disk, and object-request limits. Failure leaves an orphan candidate but never replaces the catalog.
+- Scheduled creation and planned-drain final creation both enter the shared bounded `CHECKPOINT` work class. A drain request carries one fixed checkpoint identity and exact DRAINING Owner Lease; queue rejection has no Store/filesystem side effect, and a queued final checkpoint must be selected before the Owner may close or release its lease.
 
 ## Restore
 

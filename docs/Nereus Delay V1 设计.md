@@ -1186,9 +1186,18 @@ planned drain：
    `writeOutcomeUncertain` 并停止该 incarnation 的后续复用；本地状态保留
    `DRAINING`，由下一次 drain 只执行 fencing、close 和 exact lease release
    retry，不得重新执行 Claim revoke、callback poll 或 checkpoint；
-5. 可选 final checkpoint；若编排器已取得该 manifest 的 16-byte `checkpointId`，
-   必须把 identity 传入物理 checkpoint primitive，使完整镜像中的
-   `lastCheckpointId` 与该产物绑定；
+5. 可选 final checkpoint；生产 Worker 必须先取得该 manifest 的 16-byte
+   `checkpointId`，再把包含 exact path、identity、DRAINING Owner Lease、owner
+   clock 和 deadline 的请求提交到共享 `CHECKPOINT` bounded work class。队列
+   admission 只做本地纯校验；拒绝时不得写 Store、创建文件或改变 lease。只有
+   被 event loop 选中的 action 才能把 identity 传入物理 checkpoint primitive，使
+   完整镜像中的 `lastCheckpointId` 与该产物绑定。若 action 尚未被选中，drain
+   返回显式 pending task 并保持 `DRAINING`；后续调用只继续同一个 checkpoint
+   handoff，不得重新执行 Claim revoke、callback poll 或 flush。action 成功后
+   必须重新证明 lease，才能 close DB 和 release lease；checkpoint action failure
+   也必须先重新证明或 fence 当前 Owner。没有共享 `CHECKPOINT` registry 的
+   contextless compatibility seam 不得创建 final checkpoint；不能由 coordinator
+   直接调用 `ShardStore.createCheckpoint` 绕过队列；
 6. close DB，释放 lease。
 
 生产编排在完成过 context-bound catch-up 后，planned drain 必须继续使用同一
@@ -2059,6 +2068,15 @@ Store-Incarnation install 区间放在 CHECKPOINT action 内；成功 outcome �
 仍交给 event-loop stop path。`CheckpointRestoreCoordinator` 的 direct restore 只保留为
 store 包内测试/组合 seam，跨包 Worker 生产组合必须使用
 `CheckpointRestoreWorkClassExecutor`，不得绕过 CHECKPOINT queue。
+
+planned drain 的 final checkpoint 也必须使用同一个 `CHECKPOINT` queue。生产
+组合通过 `CheckpointDrainWorkClassExecutor` 提交 exact checkpoint path、16-byte
+identity、DRAINING Owner Lease 和 deadline；它在 bounded action 内重新读取
+Owner Lease、执行 `ShardStore.createCheckpoint(path, checkpointId)`，并在物理
+镜像完成后再次读取 lease。`OwnerDrainCoordinator` 只能消费该 action 的成功或
+失败 outcome：公平调度尚未选中时返回 pending task 并保留 DRAINING，队列满时
+保持 admission side-effect free 并允许用同一 identity 重试。不得把 final
+checkpoint 写成 coordinator 内层循环，也不得提供跨包 direct physical seam。
 
 `LEASE_FENCE` 是唯一允许抢占首个 bounded turn 的 work-class。每个 fence task
 必须绑定触发事件所观察到的完整 Owner Lease identity（Shard、owner、ownerEpoch、
