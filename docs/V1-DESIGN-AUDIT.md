@@ -55,8 +55,8 @@ retire record. Focused evidence is
 `DelayShardTest.resourceRetireIntentRejectsForeignProtectionSourceBeforePersistence`;
 catalog/Floor and provider deletion authority remain open.
 
-After the retire identity/protection constructor fences (`18629dd`, `2a84e88`,
-`4a81566`, `7180153`), the full
+After the retire identity/protection constructor and persistence fences
+(`18629dd`, `2a84e88`, `4a81566`, `7180153`, `ac635b6`, `ede3ff3`), the full
 `./gradlew clean check --rerun-tasks --console=plain` recheck also passed on
 2026-08-12 (`BUILD SUCCESSFUL`, 5 tasks); the real-Oxia methods were still
 skipped because no endpoint was configured.

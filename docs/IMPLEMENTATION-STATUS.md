@@ -118,8 +118,8 @@ and `DelayShardTest.resourceRetireIntentRejectsForeignProtectionSourceBeforePers
 cover the local boundary. Recovery-Floor/catalog authority and external GC
 orchestration remain release blockers.
 
-After the retire identity/protection constructor fences (`18629dd`, `2a84e88`,
-`4a81566`, `7180153`),
+After the retire identity/protection constructor and persistence fences
+(`18629dd`, `2a84e88`, `4a81566`, `7180153`, `ac635b6`, `ede3ff3`),
 `./gradlew clean check --rerun-tasks --console=plain` passed again on
 2026-08-12 (`BUILD SUCCESSFUL`, 5 tasks). The five real-Oxia methods remained
 skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is local
