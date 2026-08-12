@@ -83,6 +83,12 @@ public final class ClaimRecord {
         this.instanceDigest = fixed(instanceDigest, HASH_LENGTH, "instanceDigest");
         this.sourceTimelineWork = optional(sourceTimelineWork);
 
+        final TimelineKeyIdentity timelineIdentity = decodeTimelineKey(this.timelineKey);
+        if (!Arrays.equals(timelineIdentity.laneId(), this.laneId.bytes())
+                || !timelineIdentity.messageId().equals(this.delayMessageId)
+                || timelineIdentity.generation() != this.generation) {
+            throw new IllegalArgumentException("Claim timeline key does not match its message identity");
+        }
         final ClaimResultBody.ClaimPrecondition precondition = ClaimResultBody.decodePrecondition(this.preconditionBytes);
         if (!Arrays.equals(precondition.claimId(), this.claimId)
                 || !Arrays.equals(precondition.messageId(), delayMessageId.bytes())
@@ -276,6 +282,32 @@ public final class ClaimRecord {
         }
         return Bytes.sha256(Bytes.utf8("nereus-delay-timeline-work-instance-v1\0"), preconditionBytes,
                 Bytes.lp32(timelineKey), Bytes.u64be(runtimeRevision));
+    }
+
+    private static TimelineKeyIdentity decodeTimelineKey(final byte[] encoded) {
+        final int tokenOffset = 2 + HASH_LENGTH + Long.BYTES;
+        if (encoded.length < tokenOffset + 1 || (encoded[0] != 1 && encoded[0] != 2) || encoded[1] != 1) {
+            throw new IllegalArgumentException("Claim timeline key is not a DUE/ORDERED key");
+        }
+        final int tokenLength = switch (encoded[tokenOffset]) {
+            case 1 -> 1 + Long.BYTES;
+            case 2 -> 1 + Long.BYTES + Long.BYTES + Integer.BYTES;
+            default -> throw new IllegalArgumentException("Claim timeline key has an unknown source token");
+        };
+        final int messageOffset = tokenOffset + tokenLength;
+        final int expectedLength = messageOffset + DelayMessageId.LENGTH + Integer.BYTES;
+        if (encoded.length != expectedLength) {
+            throw new IllegalArgumentException("Claim timeline key has an invalid length");
+        }
+        final byte[] lane = Arrays.copyOfRange(encoded, 2, 2 + HASH_LENGTH);
+        final DelayMessageId message = new DelayMessageId(Arrays.copyOfRange(encoded, messageOffset,
+                messageOffset + DelayMessageId.LENGTH));
+        final int generation = ByteBuffer.wrap(encoded, messageOffset + DelayMessageId.LENGTH,
+                Integer.BYTES).getInt();
+        return new TimelineKeyIdentity(lane, message, generation);
+    }
+
+    private record TimelineKeyIdentity(byte[] laneId, DelayMessageId messageId, int generation) {
     }
 
     @Override
