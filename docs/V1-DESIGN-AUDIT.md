@@ -4085,6 +4085,12 @@ upload-coordinator tests and the full `./gradlew clean check --rerun-tasks
 tasks). The five opt-in real-Oxia methods remained skipped because
 `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is local evidence only.
 
+The activation call-site audit found no production (`src/main`) caller of the
+legacy `OwnedDelayShard.activateForCommands(...)` overloads. They remain only
+for embedded ownership tests; V1 Worker/recovery wiring must use
+`activateForCommandsWithControlSnapshot(...)`, which proves the exact persisted
+shard control snapshot before exposing `ACTIVE_FOR_COMMANDS`.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

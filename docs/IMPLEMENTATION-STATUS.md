@@ -4349,6 +4349,12 @@ upload-coordinator tests and the full `./gradlew clean check --rerun-tasks
 tasks). The five opt-in real-Oxia methods remained skipped because
 `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is local regression evidence only.
 
+The activation call-site audit found no production (`src/main`) caller of the
+legacy `OwnedDelayShard.activateForCommands(...)` overloads. They remain only
+for embedded ownership tests; V1 Worker/recovery wiring must use
+`activateForCommandsWithControlSnapshot(...)`, which proves the exact persisted
+shard control snapshot before exposing `ACTIVE_FOR_COMMANDS`.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
