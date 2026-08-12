@@ -89,6 +89,15 @@ rejection. These are local adapter invariants only; authenticated Broker
 receipt/journal durability, response classification and real transport proofs
 remain release blockers.
 
+`ResourceRetireIntentBody.ProtectionRef` now applies the same constructor
+fence to source-bearing protection kinds: `minimumSourcePosition` is
+canonical-decoded, kind-specific field presence is checked, and the supplied
+canonical bytes must exactly re-encode those fields. Directly constructed
+Recovery-Floor, query-retention or replay-window references therefore cannot
+smuggle malformed source anchors into a protection set. The focused coverage is
+`ResourceRetireIntentBodyTest.protectionRefConstructorRequiresCanonicalSourceAndKindSpecificFields`;
+Recovery-Floor ancestry and external catalog authority remain release gates.
+
 The local `TIME_FENCE_V1` apply path now carries an explicit
 `DelayShardConfig.timeFenceSafetyMarginMs` input and checks the Trusted-UTC
 proof with checked addition before advancing the ingress watermark. A proof one

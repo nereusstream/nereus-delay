@@ -33,6 +33,13 @@ was rechecked with the same full command on 2026-08-12 and passed
 (`BUILD SUCCESSFUL`, 5 tasks). The real-Oxia methods remained skipped because
 the endpoint was unset, so this is only local regression evidence.
 
+The local GC protection projection now closes the public `ProtectionRef`
+construction boundary as well: source-bearing kinds canonical-decode
+`minimumSourcePosition`, reject incompatible optional fields and require the
+supplied canonical bytes to match the typed fields. The regression is
+`ResourceRetireIntentBodyTest.protectionRefConstructorRequiresCanonicalSourceAndKindSpecificFields`;
+Recovery-Floor ancestry and external catalog authority remain open.
+
 The Recovery Pin persistence audit now preserves the intended historical
 protection window: creating a session-bound pin records the exact Floor it
 observed, but later Floor advancement must not make a still-active pin
