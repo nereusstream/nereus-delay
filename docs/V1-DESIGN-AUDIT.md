@@ -80,6 +80,14 @@ the run. This confirms the implemented single-record Oxia smoke boundaries;
 it does not prove the V1-required cross-record Owner Lease/Upload
 Intent/Catalog/RecoveryPin transaction or production authority.
 
+After `9d37ad9`, `WorkClassDispatcher` closes the local handler-composition
+gap: all eight V1 classes must have a handler before work can be accepted,
+and each selected task still runs through `WorkClassEventLoop` resource and
+bounded-turn checks. The focused dispatcher regression covers missing-class
+rejection, `CHECKPOINT` routing and handler-failure cleanup. This is a local
+composition boundary; it does not claim shard-specific WriteBatch/IO or
+external Worker authority.
+
 After `c4391ca`, checkpoint restore admission covers the complete local
 download-to-install interval: `CheckpointRestoreCoordinator` acquires a
 Worker-wide idempotent permit before provider I/O, and the same permit remains
@@ -2738,7 +2746,9 @@ exact lease；后续任务 admission 失败会恢复 scheduler projection 并释
 已取得的 lease，上一 Turn 未关闭时下一次 poll 会 fail closed。`runTurn` 还在
 不持有 event-loop monitor 的情况下执行一个 bounded callback sequence，并在
 每个 callback 前后检查 borrowed hold、无论 callback 成功还是失败都关闭所有
-lease。`WorkClassScheduler`
+lease。`WorkClassDispatcher` 在这一层之上要求八类 handler 完整覆盖，并把
+selected task 路由到对应 handler；handler failure 仍沿用同一 lease cleanup，
+不会隐式 requeue。`WorkClassScheduler`
 现在会在任何 queue head removal、deficit 扣减或 fairness counter 推进之前
 读取用于 `lastServed` 的单调时钟样本；负值/回拨样本只会 fail closed，不会丢掉
 仍由 bounded queue 支持的 head，回归证据为
