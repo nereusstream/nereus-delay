@@ -4023,6 +4023,17 @@ covers the new fence. This is local timeline/source identity evidence only;
 authenticated control authority and production source assignment remain
 release blockers.
 
+`ResourceDeleteConfirmedRecord` now binds its confirmation Source Position to
+the nested retire intent's exact Shard Log identity: both the Shard and the
+authenticated Kafka topic or Pulsar resource identity must match before a
+delete-confirmation tombstone can be constructed or decoded. This prevents a
+foreign-shard or replacement-source confirmation from being accepted when the
+record is handled outside the `DelayShard` apply path;
+`ResourceGcGuardTest.deleteConfirmationSourcePositionMustMatchRetireIntentSource`
+covers both rejection branches. The check is local tombstone integrity only;
+provider delete attestation, Oxia CAS and external GC orchestration remain
+release blockers.
+
 After `93147c4`, the full wrapper `./gradlew clean check --rerun-tasks
 --console=plain` gate passed on 2026-08-12 (`BUILD SUCCESSFUL`, five executed
 tasks). The same five real-Oxia methods were skipped because

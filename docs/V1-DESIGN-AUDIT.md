@@ -3778,6 +3778,15 @@ become a durable timeline projection; the focused
 covers this boundary. This strengthens local source identity only and does not
 replace authenticated control authority or production source assignment.
 
+`ResourceDeleteConfirmedRecord` 现在还把 confirmation 的 Source Position 与嵌入的
+retire intent 绑定到同一个 Shard Log source identity：Shard、Kafka topic identity
+或 Pulsar resource/topic identity 任一不一致，构造和 decode 都 fail closed。这样
+脱离 `DelayShard` apply 路径读取的本地 GC tombstone 也不能接受 foreign-shard 或
+replacement-source 的删除确认。回归证据为
+`ResourceGcGuardTest.deleteConfirmationSourcePositionMustMatchRetireIntentSource`；
+这仍只是本地 tombstone integrity proof，不替代 provider delete attestation、
+Oxia CAS 或 external GC orchestration。
+
 After `93147c4`, `./gradlew clean check --rerun-tasks --console=plain` passed on
 2026-08-12 (`BUILD SUCCESSFUL`, five executed tasks). The five real-Oxia
 methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this
