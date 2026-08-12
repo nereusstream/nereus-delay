@@ -8,6 +8,7 @@ import io.nereusstream.delay.protocol.OpaquePayloadUploadHandleV1;
 import io.nereusstream.delay.protocol.PayloadAttestationOutcomeV1;
 import io.nereusstream.delay.protocol.PayloadAttestationResponseV1;
 import io.nereusstream.delay.protocol.PayloadCommitProofV1;
+import io.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
 import io.nereusstream.delay.protocol.PayloadProofTrustSetSemanticV1;
 import io.nereusstream.delay.protocol.PayloadProofVerifierKeyV1;
 import io.nereusstream.delay.protocol.PayloadReservationReceiptV1;
@@ -149,6 +150,22 @@ public final class InMemoryPayloadObjectStore {
             // integrity failure after a source-ordered state transition.
             previous.reservation = reservation.withReceiptAnchor(previous.receiptAnchor);
         }
+    }
+
+    /**
+     * Registers a Registry V1 reservation only when this adapter owns the
+     * exact trust-set semantic pinned by the durable Prepare binding. A
+     * version-only match is insufficient because two immutable semantics may
+     * intentionally share a version only in a corrupt or split authority
+     * graph.
+     */
+    public synchronized void register(final PayloadReservation reservation,
+                                      final PayloadProofTrustSetRefV1 pinnedTrustSet) {
+        Objects.requireNonNull(pinnedTrustSet, "pinnedTrustSet");
+        if (!trustSet.ref().equals(pinnedTrustSet)) {
+            throw new IllegalArgumentException("pinned reservation trust-set does not match adapter semantic");
+        }
+        register(reservation);
     }
 
     /**

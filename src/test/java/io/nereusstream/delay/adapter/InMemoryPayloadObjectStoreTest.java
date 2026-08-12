@@ -142,6 +142,28 @@ class InMemoryPayloadObjectStoreTest {
     }
 
     @Test
+    void registryRegistrationRequiresTheExactPinnedTrustSetSemantic() throws Exception {
+        final KeyPair adapterKey = keyPair();
+        final KeyPair foreignKey = keyPair();
+        final PayloadProofTrustSetSemanticV1 adapterTrust = trustSet(adapterKey, 9_000);
+        final PayloadProofTrustSetSemanticV1 foreignTrust = trustSet(foreignKey, 9_000);
+        final InMemoryPayloadObjectStore store = new InMemoryPayloadObjectStore(profile(),
+                Bytes.sha256(Bytes.utf8("tenant")), adapterTrust, 7, adapterKey.getPrivate());
+        final PayloadReservation reservation = reservation(5_000, Bytes.utf8("large"));
+
+        assertEquals(adapterTrust.version(), foreignTrust.version());
+        assertNotEquals(adapterTrust.ref(), foreignTrust.ref());
+        assertThrows(IllegalArgumentException.class,
+                () -> store.register(reservation, foreignTrust.ref()));
+        assertEquals(PayloadUploadHandleOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED,
+                store.issueUploadHandle(reservation.reservationId(), UploadHandleKindV1.OPAQUE_SINGLE_PUT,
+                        1_000).outcome());
+
+        store.register(reservation, adapterTrust.ref());
+        assertEquals(adapterTrust.ref(), store.reservationReceipt(reservation).trustSet());
+    }
+
+    @Test
     void receiptAnchorSurvivesSourceOrderedReservationLifecycleTransitions() throws Exception {
         final KeyPair keyPair = keyPair();
         final PayloadProofTrustSetSemanticV1 trust = trustSet(keyPair, 9_000);

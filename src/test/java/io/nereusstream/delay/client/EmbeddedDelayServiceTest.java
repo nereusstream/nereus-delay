@@ -73,7 +73,9 @@ import io.nereusstream.delay.runtime.GenerationAggregateState;
 import io.nereusstream.delay.runtime.MessageQuerySnapshot;
 import io.nereusstream.delay.runtime.MessageStatus;
 import io.nereusstream.delay.runtime.PayloadAvailability;
+import io.nereusstream.delay.runtime.PayloadReservation;
 import io.nereusstream.delay.runtime.CommandResult;
+import io.nereusstream.delay.runtime.V1ScheduleResolver;
 import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.ShardStoreConfig;
 import io.nereusstream.delay.store.SharedRocksDbResources;
@@ -378,6 +380,75 @@ class EmbeddedDelayServiceTest {
                     .toCompletableFuture().join();
             assertEquals(PayloadAttestationOutcomeV1.INTEGRITY_ERROR, attestationWithHandle.outcome());
             assertEquals(StableCode.INTEGRITY_ERROR, attestationWithHandle.error().code());
+        }
+    }
+
+    @Test
+    void payloadFacadeRejectsAdapterSemanticDriftFromDurableV1PrepareBinding() throws Exception {
+        final KeyPair pinnedKey = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final KeyPair foreignKey = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final PayloadProofTrustSetSemanticV1 pinnedTrustSet = payloadTrustSet(pinnedKey);
+        final PayloadProofTrustSetSemanticV1 foreignTrustSet = payloadTrustSet(foreignKey);
+        final ProfileSemanticEnvelopeV1 profile = payloadObjectStoreProfile();
+        final byte[] payload = new byte[(1 << 20) + 1];
+        payload[0] = 1;
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 46);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("payload-v1-semantic-drift"));
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("payload-v1-semantic-drift-lane"));
+        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+            @Override
+            public ResolvedSchedule resolveSchedule(final ShardId shard, final DelayMessageId messageId,
+                                                     final ScheduleIntentV1 intent,
+                                                     final io.nereusstream.delay.protocol.SourcePosition position) {
+                throw new AssertionError("Prepare regression must not resolve Schedule");
+            }
+
+            @Override
+            public ResolvedPrepare resolvePrepare(final ShardId shard, final DelayMessageId messageId,
+                                                  final io.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1 body,
+                                                  final io.nereusstream.delay.protocol.SourcePosition position) {
+                return new ResolvedPrepare(lane, Bytes.utf8("payload-v1-semantic-drift-lane"));
+            }
+        };
+        final ScheduleIntentV1 intent = ScheduleIntentV1.forPrepare(
+                new ProfileRefV1(Bytes.utf8("payload-v1-destination"), 1,
+                        Bytes.sha256(Bytes.utf8("payload-v1-destination-semantic")), ProfileKindV1.DESTINATION),
+                new RetryPolicyRefV1(Bytes.utf8("payload-v1-retry"), 1,
+                        Bytes.sha256(Bytes.utf8("payload-v1-retry-semantic"))),
+                2_000, 5_000, DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, new byte[0],
+                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())), null, null);
+        final PreparedCommand prepare = PreparedCommand.prepareLargeV1(shardId, intent, payload.length,
+                Bytes.sha256(payload), 4_000, pinnedTrustSet.ref(), 10_000);
+        final KafkaSourcePosition preparePosition = new KafkaSourcePosition(shardId, "embedded",
+                UUID.nameUUIDFromBytes(Bytes.utf8("embedded-command-topic")), 0, null, 1_000);
+        final PayloadReservation reservation;
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver);
+            assertEquals(StableCode.OK, shard.apply(prepare, preparePosition).stableCode());
+            reservation = shard.getReservation(Bytes.sha256(Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                    prepare.commandId().bytes(), prepare.delayMessageId().bytes(), prepare.commandHash()));
+        }
+
+        final InMemoryPayloadObjectStore receiptProjector = new InMemoryPayloadObjectStore(profile,
+                Bytes.sha256(Bytes.utf8("tenant")), pinnedTrustSet, 7, pinnedKey.getPrivate());
+        receiptProjector.register(reservation, pinnedTrustSet.ref());
+        final PayloadReservationReceiptV1 receipt = receiptProjector.reservationReceipt(reservation);
+        final InMemoryPayloadObjectStore foreignAdapter = new InMemoryPayloadObjectStore(profile,
+                Bytes.sha256(Bytes.utf8("tenant")), foreignTrustSet, 7, foreignKey.getPrivate());
+
+        assertEquals(pinnedTrustSet.version(), foreignTrustSet.version());
+        try (EmbeddedDelayService service = new EmbeddedDelayService(config, shardId,
+                Clock.fixed(Instant.ofEpochMilli(1_100), ZoneOffset.UTC),
+                EmbeddedDelayServiceConfig.defaults(), foreignAdapter)) {
+            final PayloadUploadHandleResponseV1 result = service.issuePayloadUploadHandle(receipt,
+                    UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_100).toCompletableFuture().join();
+            assertEquals(PayloadUploadHandleOutcomeV1.INTEGRITY_ERROR, result.outcome());
+            assertEquals(StableCode.INTEGRITY_ERROR, result.error().code());
+            assertEquals(PayloadUploadHandleOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED,
+                    foreignAdapter.issueUploadHandle(reservation.reservationId(),
+                            UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_100).outcome());
         }
     }
 

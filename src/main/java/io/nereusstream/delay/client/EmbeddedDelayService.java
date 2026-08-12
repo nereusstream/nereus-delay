@@ -9,6 +9,7 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.AdapterKindV1;
 import io.nereusstream.delay.protocol.CommandAppliedReceiptV1;
 import io.nereusstream.delay.protocol.CommandApplyStatusV1;
+import io.nereusstream.delay.protocol.CommandBodies;
 import io.nereusstream.delay.protocol.CommandCodec;
 import io.nereusstream.delay.protocol.CommandQueuedReceiptV1;
 import io.nereusstream.delay.protocol.CommandQueuedReceiptV1.KafkaQueuedAck;
@@ -64,6 +65,7 @@ import io.nereusstream.delay.protocol.TargetPartitionHashInputV1;
 import io.nereusstream.delay.protocol.TargetPartitionHashV1;
 import io.nereusstream.delay.protocol.TimingCapabilityV1;
 import io.nereusstream.delay.protocol.UploadHandleKindV1;
+import io.nereusstream.delay.protocol.V1ScheduleBinding;
 import io.nereusstream.delay.ownership.ControlOperationAuthority;
 import io.nereusstream.delay.ownership.ControlTargetRegistrationAuthority;
 import io.nereusstream.delay.ownership.InMemoryControlOperationAuthority;
@@ -766,7 +768,16 @@ public final class EmbeddedDelayService implements DelayClient {
             if (reservation == null) {
                 return PayloadReceiptBinding.notFound();
             }
-            payloadObjectStore.register(reservation);
+            final V1ScheduleBinding binding = shard.getV1ScheduleBinding(reservation.delayMessageId());
+            if (binding == null) {
+                payloadObjectStore.register(reservation);
+            } else {
+                if (binding.commandType() != io.nereusstream.delay.protocol.CommandType.PREPARE_LARGE_SCHEDULE) {
+                    throw new IllegalStateException("payload reservation has a non-Prepare V1 binding");
+                }
+                payloadObjectStore.register(reservation,
+                        CommandBodies.decodePrepareLargeV1(binding.canonicalBody()).trustSet());
+            }
             return payloadObjectStore.reservationReceipt(reservation).equals(receipt)
                     ? PayloadReceiptBinding.bound() : PayloadReceiptBinding.notFound();
         } catch (RuntimeException integrityFailure) {
