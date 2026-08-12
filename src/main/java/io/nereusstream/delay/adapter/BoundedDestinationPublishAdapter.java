@@ -2,6 +2,7 @@ package io.nereusstream.delay.adapter;
 
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.StableCode;
+import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -30,8 +31,8 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
     private final ExecutorService ownedExecutor;
     private final CloseGuard closeGuard = new CloseGuard();
 
-    public BoundedDestinationPublishAdapter(final DestinationPublishAdapter delegate,
-                                            final DestinationPhysicalAdmission admission) {
+    BoundedDestinationPublishAdapter(final DestinationPublishAdapter delegate,
+                                     final DestinationPhysicalAdmission admission) {
         this(delegate, admission, Executors.newVirtualThreadPerTaskExecutor(), true);
     }
 
@@ -41,10 +42,24 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
      * use a deterministic direct executor without changing the admission
      * semantics.
      */
+    BoundedDestinationPublishAdapter(final DestinationPublishAdapter delegate,
+                                     final DestinationPhysicalAdmission admission,
+                                     final Executor executor) {
+        this(delegate, admission, executor, false);
+    }
+
+    /**
+     * Cross-package Worker composition entrypoint. The exact physical pool is
+     * bound to the shared Worker execution graph before any adapter call.
+     */
     public BoundedDestinationPublishAdapter(final DestinationPublishAdapter delegate,
                                             final DestinationPhysicalAdmission admission,
+                                            final WorkClassExecutionRegistry workClasses,
                                             final Executor executor) {
         this(delegate, admission, executor, false);
+        Objects.requireNonNull(workClasses, "workClasses").bindWorkerSingleton(
+                WorkClassExecutionRegistry.WorkerSingleton.DESTINATION_PHYSICAL_ADMISSION,
+                this.admission);
     }
 
     private BoundedDestinationPublishAdapter(final DestinationPublishAdapter delegate,

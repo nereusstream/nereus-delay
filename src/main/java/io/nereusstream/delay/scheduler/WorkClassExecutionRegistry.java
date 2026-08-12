@@ -27,7 +27,7 @@ import java.util.function.LongSupplier;
 public final class WorkClassExecutionRegistry {
     private final WorkClassDispatcher dispatcher;
     private final Map<TaskKey, RegisteredAction> actions = new HashMap<>();
-    private ClaimExecutionAdmission claimExecutionAdmission;
+    private final EnumMap<WorkerSingleton, Object> workerSingletons = new EnumMap<>(WorkerSingleton.class);
 
     public WorkClassExecutionRegistry(final WorkClassRuntimeConfig config,
                                       final LongSupplier monotonicClockNanos) {
@@ -98,12 +98,17 @@ public final class WorkClassExecutionRegistry {
 
     /** Binds all Claim and Publish Admission actions on this Worker registry to one exact permit pool. */
     public synchronized void bindClaimExecutionAdmission(final ClaimExecutionAdmission admission) {
-        final ClaimExecutionAdmission requested = Objects.requireNonNull(admission, "admission");
-        if (claimExecutionAdmission == null) {
-            claimExecutionAdmission = requested;
-        } else if (claimExecutionAdmission != requested) {
-            throw new IllegalArgumentException(
-                    "work-class registry is already bound to another Claim admission pool");
+        bindWorkerSingleton(WorkerSingleton.CLAIM_EXECUTION_ADMISSION,
+                Objects.requireNonNull(admission, "admission"));
+    }
+
+    /** Binds one process-wide resource authority to this exact Worker registry. */
+    public synchronized void bindWorkerSingleton(final WorkerSingleton resource, final Object instance) {
+        final WorkerSingleton key = Objects.requireNonNull(resource, "resource");
+        final Object requested = Objects.requireNonNull(instance, "instance");
+        final Object existing = workerSingletons.putIfAbsent(key, requested);
+        if (existing != null && existing != requested) {
+            throw new IllegalArgumentException("work-class registry is already bound to another " + key);
         }
     }
 
@@ -162,6 +167,12 @@ public final class WorkClassExecutionRegistry {
         QUEUED,
         RUNNING,
         FAILED
+    }
+
+    /** Closed set of process-wide resource authorities bound to one Worker execution graph. */
+    public enum WorkerSingleton {
+        CLAIM_EXECUTION_ADMISSION,
+        DESTINATION_PHYSICAL_ADMISSION
     }
 
     private record TaskKey(WorkClass workClass, String taskId) {

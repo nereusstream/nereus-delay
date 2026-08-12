@@ -109,6 +109,22 @@ class WorkClassExecutionRegistryTest {
         assertEquals(0, registry.registeredActions());
     }
 
+    @Test
+    void workerSingletonBindingUsesExactInstancePerResourceKind() {
+        final WorkClassExecutionRegistry registry = registry(1);
+        final Object physicalAdmission = new Object();
+
+        registry.bindWorkerSingleton(
+                WorkClassExecutionRegistry.WorkerSingleton.DESTINATION_PHYSICAL_ADMISSION,
+                physicalAdmission);
+        registry.bindWorkerSingleton(
+                WorkClassExecutionRegistry.WorkerSingleton.DESTINATION_PHYSICAL_ADMISSION,
+                physicalAdmission);
+        assertThrows(IllegalArgumentException.class, () -> registry.bindWorkerSingleton(
+                WorkClassExecutionRegistry.WorkerSingleton.DESTINATION_PHYSICAL_ADMISSION,
+                new Object()));
+    }
+
     private static WorkClassExecutionRegistry registry(final int maxQueueRecords) {
         final EnumMap<WorkClass, WorkClassPolicy> policies = new EnumMap<>(WorkClass.class);
         for (WorkClass workClass : WorkClass.values()) {

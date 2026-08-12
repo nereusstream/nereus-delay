@@ -8,14 +8,21 @@ import io.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.StableCode;
+import io.nereusstream.delay.scheduler.WorkClass;
+import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
+import io.nereusstream.delay.scheduler.WorkClassPolicy;
+import io.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Modifier;
+import java.util.EnumMap;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 
@@ -26,6 +33,30 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class BoundedDestinationPublishAdapterTest {
+    @Test
+    void productionCompositionBindsOneWorkerPhysicalAdmissionPool() throws Exception {
+        assertFalse(Modifier.isPublic(BoundedDestinationPublishAdapter.class.getDeclaredConstructor(
+                DestinationPublishAdapter.class, DestinationPhysicalAdmission.class).getModifiers()));
+        assertFalse(Modifier.isPublic(BoundedDestinationPublishAdapter.class.getDeclaredConstructor(
+                DestinationPublishAdapter.class, DestinationPhysicalAdmission.class,
+                java.util.concurrent.Executor.class).getModifiers()));
+        assertTrue(Modifier.isPublic(BoundedDestinationPublishAdapter.class.getDeclaredConstructor(
+                DestinationPublishAdapter.class, DestinationPhysicalAdmission.class,
+                WorkClassExecutionRegistry.class, java.util.concurrent.Executor.class).getModifiers()));
+
+        final WorkClassExecutionRegistry workClasses = workClasses();
+        final DestinationPublishAdapter delegate = request -> CompletableFuture.completedFuture(published());
+        final DestinationPhysicalAdmission expected = admission(lane("worker-physical-first"), 1, 20, 1, 20);
+        new BoundedDestinationPublishAdapter(delegate, expected, workClasses, Runnable::run);
+        new BoundedDestinationPublishAdapter(delegate, expected, workClasses, Runnable::run);
+
+        final DestinationPhysicalAdmission foreign = admission(lane("worker-physical-foreign"), 1, 20, 1, 20);
+        assertThrows(IllegalArgumentException.class,
+                () -> new BoundedDestinationPublishAdapter(delegate, foreign, workClasses, Runnable::run));
+        assertEquals(0, expected.workerSnapshot().activeRequests());
+        assertEquals(0, foreign.workerSnapshot().activeRequests());
+    }
+
     @Test
     void callbackTimeoutRetainsPhysicalChargeUntilDelegateCompletes() {
         final DestinationLaneId lane = lane("timeout");
@@ -397,6 +428,22 @@ class BoundedDestinationPublishAdapterTest {
         result.registerLane(new DestinationPhysicalAdmission.LaneSpec(lane, new byte[16], "cluster-a", 0, 0,
                 maxRequests, maxBytes, maxZombieRequests, maxZombieBytes));
         return result;
+    }
+
+    private static WorkClassExecutionRegistry workClasses() {
+        final EnumMap<WorkClass, WorkClassPolicy> policies = new EnumMap<>(WorkClass.class);
+        for (WorkClass workClass : WorkClass.values()) {
+            final boolean protectedClass = switch (workClass) {
+                case LEASE_FENCE, SOURCE_APPLY, OUTCOME_AND_CONTROL, EXPIRY, DUE_SCHEDULER, GC -> true;
+                case QUERY, CHECKPOINT -> false;
+            };
+            policies.put(workClass, new WorkClassPolicy(1, 1, 1_000_000,
+                    1, 1_000_000, 1_000,
+                    protectedClass ? 1 : 0, protectedClass ? 8 : 0,
+                    workClass == WorkClass.LEASE_FENCE));
+        }
+        return new WorkClassExecutionRegistry(new WorkClassRuntimeConfig(
+                policies, 100, 100, 16, 8_000_000), new AtomicLong()::get);
     }
 
     private static DestinationPhysicalAdmission multiLaneAdmission(final DestinationLaneId first,
