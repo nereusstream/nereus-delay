@@ -2,9 +2,11 @@ package io.nereusstream.delay.adapter;
 
 import io.nereusstream.delay.protocol.OpaquePayloadUploadHandleV1;
 import io.nereusstream.delay.protocol.PayloadAttestationResponseV1;
+import io.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
 import io.nereusstream.delay.protocol.PayloadProofTrustSetSemanticV1;
 import io.nereusstream.delay.protocol.PayloadReservationReceiptV1;
 import io.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
+import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
 import io.nereusstream.delay.protocol.UploadHandleKindV1;
 import io.nereusstream.delay.runtime.PayloadReservation;
@@ -61,8 +63,19 @@ public final class FilesystemPayloadObjectStore {
                 maxUploadHandleLifetimeMs, proofSigningKey, backend);
     }
 
+    /** Legacy/local registration without a durable Registry Prepare binding. */
     public void register(final PayloadReservation reservation) {
         delegate.register(reservation);
+    }
+
+    /**
+     * Registers a Registry reservation only when this filesystem adapter is
+     * the exact Object Store Profile and proof authority pinned by Prepare.
+     */
+    public void register(final PayloadReservation reservation,
+                         final PayloadProofTrustSetRefV1 pinnedTrustSet,
+                         final ProfileRefV1 pinnedObjectStoreProfile) {
+        delegate.register(reservation, pinnedTrustSet, pinnedObjectStoreProfile);
     }
 
     public PayloadReservationReceiptV1 reservationReceipt(final PayloadReservation reservation) {

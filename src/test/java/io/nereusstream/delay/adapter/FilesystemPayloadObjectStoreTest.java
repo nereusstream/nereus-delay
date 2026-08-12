@@ -14,6 +14,7 @@ import io.nereusstream.delay.protocol.PayloadProofTrustSetSemanticV1;
 import io.nereusstream.delay.protocol.PayloadProofVerifierKeyV1;
 import io.nereusstream.delay.protocol.PayloadUploadHandleOutcomeV1;
 import io.nereusstream.delay.protocol.ProfileKindV1;
+import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
@@ -32,6 +33,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class FilesystemPayloadObjectStoreTest {
@@ -48,7 +50,7 @@ class FilesystemPayloadObjectStoreTest {
 
         final FilesystemPayloadObjectStore first = new FilesystemPayloadObjectStore(tempDir, profile, tenant,
                 trust, 7, keyPair.getPrivate());
-        first.register(reservation);
+        first.register(reservation, trust.ref(), profile.ref());
         final var handle = first.issueUploadHandle(reservation.reservationId(), UploadHandleKindV1.OPAQUE_SINGLE_PUT,
                 1_000).issued();
         first.upload(handle, Bytes.utf8("large"), 1_001);
@@ -57,13 +59,43 @@ class FilesystemPayloadObjectStoreTest {
 
         final FilesystemPayloadObjectStore reopened = new FilesystemPayloadObjectStore(tempDir, profile, tenant,
                 trust, 7, keyPair.getPrivate());
-        reopened.register(PayloadReservation.decode(reservation.encode()));
+        reopened.register(PayloadReservation.decode(reservation.encode()), trust.ref(), profile.ref());
         final var reopenedHandle = reopened.issueUploadHandle(reservation.reservationId(),
                 UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_000).issued();
         assertEquals(handle, reopenedHandle);
         final var reopenedAttestation = reopened.attest(reopenedHandle, 1_003);
         assertEquals(PayloadAttestationOutcomeV1.ATTESTED, reopenedAttestation.outcome());
         assertArrayEquals(firstAttestation.proof().canonicalBytes(), reopenedAttestation.proof().canonicalBytes());
+    }
+
+    @Test
+    void registryRegistrationRequiresExactPrepareAuthoritiesBeforeHandleOrFileState() throws Exception {
+        final KeyPair adapterKey = keyPair();
+        final KeyPair foreignKey = keyPair();
+        final PayloadProofTrustSetSemanticV1 adapterTrust = trustSet(adapterKey, 9_000);
+        final PayloadProofTrustSetSemanticV1 foreignTrust = trustSet(foreignKey, 9_000);
+        final ProfileSemanticEnvelopeV1 profile = profile();
+        final PayloadReservation reservation = reservation(5_000, Bytes.utf8("large"));
+        final FilesystemPayloadObjectStore store = new FilesystemPayloadObjectStore(tempDir, profile,
+                Bytes.sha256(Bytes.utf8("tenant")), adapterTrust, 7, adapterKey.getPrivate());
+
+        assertEquals(adapterTrust.version(), foreignTrust.version());
+        assertNotEquals(adapterTrust.ref(), foreignTrust.ref());
+        assertThrows(IllegalArgumentException.class,
+                () -> store.register(reservation, foreignTrust.ref(), profile.ref()));
+        final ProfileRefV1 foreignProfile = new ProfileRefV1(Bytes.utf8("foreign-object-store"), 1,
+                profile.ref().semanticHash(), ProfileKindV1.OBJECT_STORE);
+        assertThrows(IllegalArgumentException.class,
+                () -> store.register(reservation, adapterTrust.ref(), foreignProfile));
+        assertEquals(PayloadUploadHandleOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED,
+                store.issueUploadHandle(reservation.reservationId(), UploadHandleKindV1.OPAQUE_SINGLE_PUT,
+                        1_000).outcome());
+        try (var files = Files.walk(tempDir.resolve("objects"))) {
+            assertEquals(0, files.filter(Files::isRegularFile).count());
+        }
+
+        store.register(reservation, adapterTrust.ref(), profile.ref());
+        assertEquals(adapterTrust.ref(), store.reservationReceipt(reservation).trustSet());
     }
 
     @Test
