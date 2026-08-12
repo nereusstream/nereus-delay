@@ -92,6 +92,16 @@ Owner. `OwnerLeaseTest` covers both duplicate branches and verifies the
 first-position durable result. This is local replay evidence only; it does not
 replace Broker source continuity or Oxia lease/session authority.
 
+After `6bc3135`, `OwnedDelayShard` fences on unexpected `RuntimeException` as
+well as native `RocksDbWriteFailure`/`Error` across active apply and all three
+bounded replay paths. Deterministic business rejections still arrive as typed
+`CommandResult`/`SystemMutationResult`; an untyped runtime failure is treated
+as an unproven local projection or commit boundary and cannot leave the Owner
+in `ACTIVE_FOR_COMMANDS` or `CATCHING_UP`. `OwnerLeaseTest` proves a regressed
+source apply fences the Owner and leaves the rejected message unapplied. This
+is local fail-closed evidence only; it does not replace production Broker or
+Oxia authority.
+
 The Oxia transaction question was checked against the locked source and the
 Gradle-resolved `oxia-client:0.9.0` API.  Its public `SyncOxiaClient` and
 `AsyncOxiaClient` expose one-key `put`/CAS operations only.  The internal

@@ -111,6 +111,14 @@ fences the Owner. The focused `OwnerLeaseTest` covers both branches. This
 closes the local typed-replay ordering gap only and leaves Broker continuity,
 Oxia lease/session and production Worker authority as release gates.
 
+After `6bc3135`, active apply and all bounded replay branches also fence on
+unexpected `RuntimeException`, not only typed RocksDB/native failures. This
+keeps an unproven local state or commit boundary from retaining command or
+replay authority; deterministic business rejections remain typed results.
+`OwnerLeaseTest` covers a regressed active source position and confirms the
+message was not applied. The change closes only the local fail-closed fence;
+Broker/Oxia authority and release-scale evidence remain open.
+
 After `c4391ca`, checkpoint restore admission covers the complete local
 download-to-install interval: `CheckpointRestoreCoordinator` acquires a
 Worker-wide idempotent permit before provider I/O, and the same permit remains
