@@ -40,6 +40,11 @@ supplied canonical bytes to match the typed fields. The regression is
 `ResourceRetireIntentBodyTest.protectionRefConstructorRequiresCanonicalSourceAndKindSpecificFields`;
 Recovery-Floor ancestry and external catalog authority remain open.
 
+After this ProtectionRef fence (`18629dd`, `4a81566`), the full
+`./gradlew clean check --rerun-tasks --console=plain` recheck also passed on
+2026-08-12 (`BUILD SUCCESSFUL`, 5 tasks); the real-Oxia methods were still
+skipped because no endpoint was configured.
+
 The Recovery Pin persistence audit now preserves the intended historical
 protection window: creating a session-bound pin records the exact Floor it
 observed, but later Floor advancement must not make a still-active pin

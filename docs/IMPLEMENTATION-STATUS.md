@@ -98,6 +98,12 @@ smuggle malformed source anchors into a protection set. The focused coverage is
 `ResourceRetireIntentBodyTest.protectionRefConstructorRequiresCanonicalSourceAndKindSpecificFields`;
 Recovery-Floor ancestry and external catalog authority remain release gates.
 
+After the ProtectionRef source/field fence (`18629dd`, `4a81566`),
+`./gradlew clean check --rerun-tasks --console=plain` passed again on
+2026-08-12 (`BUILD SUCCESSFUL`, 5 tasks). The five real-Oxia methods remained
+skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is local
+regression evidence only.
+
 The local `TIME_FENCE_V1` apply path now carries an explicit
 `DelayShardConfig.timeFenceSafetyMarginMs` input and checks the Trusted-UTC
 proof with checked addition before advancing the ingress watermark. A proof one
