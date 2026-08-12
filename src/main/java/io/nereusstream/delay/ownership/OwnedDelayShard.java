@@ -1,6 +1,8 @@
 package io.nereusstream.delay.ownership;
 
 import io.nereusstream.delay.protocol.PreparedCommand;
+import io.nereusstream.delay.protocol.AuthorIdentity;
+import io.nereusstream.delay.protocol.ClaimMaterializationV1;
 import io.nereusstream.delay.protocol.CommandCodec;
 import io.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
 import io.nereusstream.delay.protocol.PulsarActivationBarrier;
@@ -10,6 +12,7 @@ import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.runtime.SystemMutationResult;
 import io.nereusstream.delay.runtime.CommandResult;
+import io.nereusstream.delay.runtime.ClaimRecord;
 import io.nereusstream.delay.runtime.DelayShard;
 import io.nereusstream.delay.scheduler.PersistentLaneScheduler;
 import io.nereusstream.delay.scheduler.ScheduleWorkItem;
@@ -238,6 +241,61 @@ public final class OwnedDelayShard {
         try {
             return scheduler.discoverReady(Objects.requireNonNull(evidence, "trusted UTC evidence"),
                     Objects.requireNonNull(budget, "scheduler budget"));
+        } catch (RuntimeException | Error failure) {
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        }
+    }
+
+    /**
+     * Side-effect-free preflight for one exact already-polled Claim handoff.
+     * It proves strict local ownership and revalidates the durable READY/
+     * certificate projection, but performs no Claim WriteBatch.
+     */
+    synchronized PersistentLaneScheduler.ClaimCandidate requireClaimSubmission(
+            final OxiaOwnerLeaseStore authority,
+            final PersistentLaneScheduler scheduler,
+            final ScheduleWorkItem item,
+            final TrustedUtcIntervalEvidence evidence) {
+        requireDueSchedulerSubmission(authority, scheduler);
+        return scheduler.requireClaimCandidate(Objects.requireNonNull(item, "Claim work item"),
+                Objects.requireNonNull(evidence, "trusted UTC evidence"));
+    }
+
+    /**
+     * Creates one reversible typed Claim after the queue wait and an exact
+     * execution-time Owner Lease/session reread.
+     *
+     * <p>The caller must already hold the matching logical Claim permit and
+     * prove any external Profile/Object-Store/Adapter/channel prerequisites.
+     * This method owns the final local authority window: it repeats READY and
+     * certificate validation immediately before the Claim WriteBatch, then
+     * completes the scheduler handoff only after that batch consumed READY.</p>
+     */
+    synchronized ClaimRecord claimAuthoritativelyStrict(
+            final OxiaOwnerLeaseStore authority,
+            final PersistentLaneScheduler scheduler,
+            final ScheduleWorkItem item,
+            final TrustedUtcIntervalEvidence evidence,
+            final long claimDeadlineEpochMs,
+            final ClaimMaterializationV1 materialization,
+            final byte[] claimedCharge,
+            final LongSupplier clock) {
+        requireClaimSubmission(authority, scheduler, item, evidence);
+        if (evidence.latestEpochMs() >= claimDeadlineEpochMs) {
+            throw new IllegalArgumentException("Claim deadline is not live through trusted UTC evidence");
+        }
+        final long nowEpochMs = readActiveWorkClock(clock, "Claim handoff");
+        ensureAuthoritativeActive(authority, nowEpochMs, "Claim handoff");
+        final var owner = scheduler.ownerIdentity();
+        final AuthorIdentity author = AuthorIdentity.owner(owner.deploymentId(), owner.workerRunId(),
+                owner.ownerEpoch(), owner.leaseFencingDigest());
+        try {
+            final ClaimRecord claim = delegate.claimForPublishV1(item.messageId(), author,
+                    claimDeadlineEpochMs, Objects.requireNonNull(materialization, "materialization"),
+                    Objects.requireNonNull(claimedCharge, "claimedCharge"));
+            scheduler.completeClaim(item);
+            return claim;
         } catch (RuntimeException | Error failure) {
             state = ShardLifecycleState.FENCED;
             throw failure;

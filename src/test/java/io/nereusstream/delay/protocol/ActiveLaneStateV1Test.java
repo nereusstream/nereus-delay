@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class ActiveLaneStateV1Test {
@@ -68,6 +69,35 @@ class ActiveLaneStateV1Test {
         final byte[] tampered = state.canonicalBytes();
         tampered[tampered.length - 1] ^= 1;
         assertThrows(IllegalArgumentException.class, () -> ActiveLaneStateV1.decode(tampered));
+    }
+
+    @Test
+    void readyCertificateMayRemainAfterTheCurrentReadyHeadIsConsumed() {
+        final ProfileRefV1 destination = profile(ProfileKindV1.DESTINATION, 17);
+        final ProfileRefV1 capability = profile(ProfileKindV1.DELIVERY_CAPABILITY, 18);
+        final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
+        final DestinationLaneId laneId = DestinationLaneId.derive(tuple);
+        final byte[] laneIncarnation = bytes(16, 20);
+        final ShardId certificateShard = new ShardId(RouteIncarnation.random(), 0);
+        final byte[] certificate = PublishAdmissionBody.decode(
+                PublishAdmissionBodyTest.Fixture.createForSourceWithLane(certificateShard,
+                        DelayMessageId.random(certificateShard), laneIncarnation, Bytes.utf8("timeline"), 1, 1, 0,
+                        Bytes.sha256(Bytes.utf8("obligations")), Bytes.sha256(Bytes.utf8("semantic")),
+                        laneId.bytes()).body()).readyCertificate().canonicalBytes();
+        final ActiveLaneStateV1 state = new ActiveLaneStateV1(
+                laneId, laneIncarnation, AdmissionGate.OPEN, RuntimeReadiness.READY, null, 1, 1,
+                destination, capability, tuple, 1, charge(), 100L, 200L, LaneCircuitStateV1.CLOSED,
+                0, 0, 0, 0, readyKey(laneId, 200, 1), certificate, null);
+
+        final ActiveLaneStateV1 afterClaim = state.withLocalProjection(
+                AdmissionGate.OPEN, RuntimeReadiness.READY, null, 1, 2, 1, charge(), null, null, null);
+
+        assertEquals(RuntimeReadiness.READY, afterClaim.runtimeReadiness());
+        assertNull(afterClaim.earliestActionAtEpochMs());
+        assertNull(afterClaim.nextEligibleAtEpochMs());
+        assertNull(afterClaim.encodedReadyKey());
+        assertArrayEquals(certificate, afterClaim.readyCertificate());
+        assertEquals(afterClaim, ActiveLaneStateV1.decode(afterClaim.canonicalBytes()));
     }
 
     @Test

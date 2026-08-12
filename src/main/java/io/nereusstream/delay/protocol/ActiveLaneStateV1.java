@@ -115,15 +115,25 @@ public final class ActiveLaneStateV1 {
         if (runtimeReadiness == RuntimeReadiness.READY && admissionGate != AdmissionGate.OPEN) {
             throw new IllegalArgumentException("READY Lane must have an OPEN admission gate");
         }
-        if (runtimeReadiness == RuntimeReadiness.READY
-                && (earliestActionAtEpochMs == null || nextEligibleAtEpochMs == null
-                || encodedReadyKey == null || readyCertificate == null)) {
-            throw new IllegalArgumentException("READY Lane must carry action/eligibility times, a ready key and certificate");
+        final boolean hasAnyTimingProjection = earliestActionAtEpochMs != null || nextEligibleAtEpochMs != null;
+        final boolean hasCompleteTimingProjection = earliestActionAtEpochMs != null
+                && nextEligibleAtEpochMs != null;
+        if (hasAnyTimingProjection != hasCompleteTimingProjection) {
+            throw new IllegalArgumentException("Lane action/eligibility projection must be complete or absent");
+        }
+        if (runtimeReadiness == RuntimeReadiness.READY && readyCertificate == null) {
+            throw new IllegalArgumentException("READY Lane must carry a Ready Certificate");
+        }
+        if (runtimeReadiness != RuntimeReadiness.READY && encodedReadyKey != null) {
+            throw new IllegalArgumentException("non-READY Lane cannot carry a physical READY key");
+        }
+        if (encodedReadyKey != null && !hasCompleteTimingProjection) {
+            throw new IllegalArgumentException("physical READY key requires action and eligibility times");
         }
         if (encodedReadyKey != null) {
             validateReadyKeyProjection(encodedReadyKey, laneId, laneVersion, nextEligibleAtEpochMs);
         }
-        if (runtimeReadiness != RuntimeReadiness.READY && (encodedReadyKey != null || readyCertificate != null)) {
+        if (runtimeReadiness != RuntimeReadiness.READY && readyCertificate != null) {
             throw new IllegalArgumentException("non-READY Lane cannot carry ready projections");
         }
         if (readyCertificate != null) {

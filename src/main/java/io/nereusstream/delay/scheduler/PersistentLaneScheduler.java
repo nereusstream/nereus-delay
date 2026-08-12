@@ -463,6 +463,33 @@ public final class PersistentLaneScheduler {
         discoveredHeads.remove(selected.laneId());
     }
 
+    /**
+     * Revalidates the exact polled head against its current durable READY,
+     * Message, Timeline, typed Lane and live Ready Certificate projections.
+     */
+    public synchronized ClaimCandidate requireClaimCandidate(
+            final ScheduleWorkItem item,
+            final TrustedUtcIntervalEvidence evidence) {
+        final ScheduleWorkItem selected = requirePolledClaimCandidate(item);
+        final TrustedUtcIntervalEvidence trusted = Objects.requireNonNull(evidence, "trusted UTC evidence");
+        final DiscoveredHead known = discoveredHeads.get(selected.laneId());
+        final byte[] encoded = store.get(ColumnFamily.TIMELINE, known.readyKey());
+        if (encoded == null) {
+            throw new IllegalStateException("Claim candidate READY key no longer exists");
+        }
+        final ReadyProjection projection = decodeReadyProjection(
+                new ShardStore.KeyValue(known.readyKey(), encoded), trusted);
+        if (!sameWork(projection.item(), selected)) {
+            throw new IllegalStateException("Claim candidate differs from current durable READY head");
+        }
+        final ActiveLaneStateV1 lane = readTypedLane(projection.lane());
+        if (lane == null || lane.readyCertificate() == null) {
+            throw new IllegalStateException("Claim candidate lacks a typed Ready Certificate");
+        }
+        final ReadyCertificateV1 certificate = ReadyCertificateV1.decode(lane.readyCertificate());
+        return new ClaimCandidate(selected, projection.lane().laneIncarnation(), certificate);
+    }
+
     private ScheduleWorkItem requirePolledClaimCandidate(final ScheduleWorkItem item) {
         final ScheduleWorkItem selected = Objects.requireNonNull(item, "Claim work item");
         final DiscoveredHead known = discoveredHeads.get(selected.laneId());
@@ -1170,6 +1197,22 @@ public final class PersistentLaneScheduler {
         @Override
         public byte[] readyKey() {
             return Bytes.copy(readyKey);
+        }
+    }
+
+    /** Exact live projection handed from scheduler selection to Claim admission. */
+    public record ClaimCandidate(ScheduleWorkItem item, byte[] laneIncarnation,
+                                 ReadyCertificateV1 readyCertificate) {
+        public ClaimCandidate {
+            Objects.requireNonNull(item, "item");
+            Bytes.requireLength(laneIncarnation, 16, "laneIncarnation");
+            Objects.requireNonNull(readyCertificate, "readyCertificate");
+            laneIncarnation = Bytes.copy(laneIncarnation);
+        }
+
+        @Override
+        public byte[] laneIncarnation() {
+            return Bytes.copy(laneIncarnation);
         }
     }
 
