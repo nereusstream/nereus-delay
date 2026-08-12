@@ -117,6 +117,15 @@ assignment/session identity preserved by a successful drain CAS. This is still
 local lifecycle evidence; Oxia session orchestration, source assignment
 publication and production planned-drain routing remain release blockers.
 
+The same strict context now covers authoritative Command mutation. The new
+`OwnedDelayShard.applyAuthoritativelyStrict` entrypoint requires the
+context-bound catch-up state before rereading the exact `ACTIVE_FOR_COMMANDS`
+lease and invoking the Delegate; a contextless compatibility lease is rejected
+without a local mutation. `OwnerLeaseTest` covers both rejection and a
+successful context-bound apply. The ordinary authoritative overload remains an
+explicit embedded seam; production source-writer wiring and real Broker
+assignment/session authority remain release blockers.
+
 After the terminal-Lane reservation/Commit, publish-charge ordering and typed
 READY recovery fencing fixes (`c619b38`, `f771f64`, `3527c89`), the repository
 verification command `./gradlew clean check --rerun-tasks --console=plain`

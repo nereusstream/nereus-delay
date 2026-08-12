@@ -1099,6 +1099,11 @@ control snapshot 或 lease-validity 等激活前置条件时，才保留 `CATCHI
    或 response-loss reread 成功，才打开本地 source replay gate。无 context 的 legacy
    lease 不能进入生产 V1 catch-up。
 6. 按 Adapter-defined replay successor 从 `appliedShardLogPosition` 恢复（Kafka 下一 offset；Pulsar containing entry + batch-aware skip）。严格 `CATCHING_UP` replay 在每个 bounded turn 及每条 record 前重新读取同一 Oxia session-bound Owner Lease；identity、assignment/session context、lifecycle state 或有效期不再精确匹配时，先把本地 Owner 置为 `FENCED`，再停止读取/应用 source record。兼容 assignment-only replay 不提供这条 authority reread 证明。
+   Source writer 对已激活 shard 的每次 Command mutation 也必须使用同一
+   context-bound strict owner gate；`applyAuthoritativelyStrict` 在进入 Delegate
+   前验证 strict catch-up context，再 reread `ACTIVE_FOR_COMMANDS` lease。普通
+   `applyAuthoritatively` 只保留给 embedded compatibility seam，不能作为生产
+   assignment/session authority 证明。
 7. 证明 exact Broker Resource Incarnation；Kafka 开启 pinned UUID Fetch，Pulsar 认证当前 connection generation；随后捕获 typed Activation Barrier，并按 Adapter 的 inclusive/exclusive reached predicate replay。
 8. 把每个 Destination Lane 恢复为 `RECOVERING_EVIDENCE`；baseline/strong capability 分别做自己的 channel fence/evidence barrier。
 9. 复核 assignment、lease、DB/store、source continuity 和 shard invariant。

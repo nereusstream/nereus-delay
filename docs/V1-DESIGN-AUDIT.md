@@ -100,6 +100,15 @@ cover the rejection and successful identity-preservation paths. This closes a
 local lifecycle ordering gap, not the production Oxia session/assignment or
 cross-worker drain orchestration gate.
 
+Authoritative Command mutation now has an equivalent strict entrypoint:
+`OwnedDelayShard.applyAuthoritativelyStrict` rejects a contextless lease before
+the Delegate and then rereads the exact active lease before applying. The
+context-bound success and contextless no-mutation regressions are in
+`OwnerLeaseTest.strictAuthoritativeApplyUsesTheContextBoundOwnerLease` and
+`OwnerLeaseTest.strictAuthoritativeApplyRejectsAContextlessCompatibilityLease`.
+This closes the local mutation gate, while production source-writer wiring and
+real assignment/session authority remain open.
+
 The post-`3527c89` local verification `./gradlew clean check --rerun-tasks
 --console=plain` passed on 2026-08-12. Five opt-in real-Oxia methods were
 skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is repository
