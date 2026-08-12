@@ -282,6 +282,50 @@ public final class OwnedDelayShard {
     }
 
     /**
+     * Side-effect-free preflight for one exact expiry candidate.  The
+     * candidate was discovered from the durable EXPIRY index by the caller;
+     * this boundary validates only the shard, trusted-time and owner identity
+     * before the bounded EXPIRY queue accepts the action.
+     */
+    synchronized void requireExpirySubmission(final OxiaOwnerLeaseStore authority,
+                                               final io.nereusstream.delay.runtime.DelayShard.ExpiryWork candidate,
+                                               final TrustedUtcIntervalEvidence evidence,
+                                               final OwnerIdentityV1 owner) {
+        requireStrictActiveAuthority(authority);
+        validateExpirySubmission(candidate, evidence, owner);
+    }
+
+    /** Rereads the authoritative Owner Lease immediately before appending expiry. */
+    synchronized void requireExpiryAuthoritativelyStrict(final OxiaOwnerLeaseStore authority,
+                                                         final io.nereusstream.delay.runtime.DelayShard.ExpiryWork candidate,
+                                                         final TrustedUtcIntervalEvidence evidence,
+                                                         final OwnerIdentityV1 owner,
+                                                         final LongSupplier clock) {
+        requireExpirySubmission(authority, candidate, evidence, owner);
+        final long nowEpochMs = readActiveWorkClock(clock, "expiry handoff");
+        ensureAuthoritativeActive(authority, nowEpochMs, "expiry handoff");
+        validateExpirySubmission(candidate, evidence, owner);
+    }
+
+    private void validateExpirySubmission(
+            final io.nereusstream.delay.runtime.DelayShard.ExpiryWork candidate,
+            final TrustedUtcIntervalEvidence evidence,
+            final OwnerIdentityV1 owner) {
+        final io.nereusstream.delay.runtime.DelayShard.ExpiryWork work =
+                Objects.requireNonNull(candidate, "expiry candidate");
+        final TrustedUtcIntervalEvidence trusted = Objects.requireNonNull(evidence, "expiry evidence");
+        final OwnerIdentityV1 author = Objects.requireNonNull(owner, "expiry owner");
+        if (!delegate.shardId().equals(work.messageId().routingId().shardId())
+                || !delegate.shardId().equals(lease.shardId())) {
+            throw new IllegalArgumentException("expiry candidate does not belong to this shard");
+        }
+        trusted.requireEarliestAtLeast(work.expireAtEpochMs());
+        if (author.ownerEpoch() != lease.ownerEpoch()) {
+            throw new IllegalArgumentException("expiry owner epoch does not match the active lease");
+        }
+    }
+
+    /**
      * Rechecks the exact Claim and authoritative Oxia Owner Lease immediately
      * before calling the external Shard Log writer.
      */
