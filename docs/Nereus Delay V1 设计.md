@@ -3188,6 +3188,15 @@ Worker 在 RocksDB 之上强制 per-shard ceiling 和 work-class reserve：
 
 每个 event-loop/work class 都有正 weight、bounded queue records/bytes、per-turn record/byte/time caps 和 `maxEventLoopClassDelay`。lease/fence closure 可抢占；correctness/outcome、expiry、flush 和 capacity-releasing GC minima 不可借。借出的 cache/I/O/job token 每个 bounded chunk 重取，并在 configured maximum hold time 内可回收；每个 DB 至少保留一个可产生 flush forward progress 的 job/token，compaction storm 不能占满全部 background slots。`maxWriteBufferBytesPerDb` 必须绑定 RocksDB 的 DB-level `db_write_buffer_size`；各 CF 的 `write_buffer_size` 只能作为单 CF ceiling，不能把八个 physical CF 的上限相加后冒充 DB 聚合上限。
 
+Work-class runtime configuration 没有未经认证的默认值：启动时必须一次性提供全部八类
+policy、`maxEventLoopClassDelay`、`maxBorrowedResourceHoldTime` 和共享 record/byte pool。
+每类 per-turn record/byte cap 必须不大于其 queue cap；只有 `LEASE_FENCE` 可标记为
+preemptive；`LEASE_FENCE`、`SOURCE_APPLY`、`OUTCOME_AND_CONTROL`、`EXPIRY`、
+`DUE_SCHEDULER` 与 capacity-releasing `GC` 的 record/byte non-borrowable minima
+都必须非零，且八类 minima 的 checked sum 不得超过共享 pool。任一 class 缺失、额外、
+错误抢占或超卖都必须在构造 event loop/handler dispatcher 前 fail closed。scheduler 与
+resource-pool 使用同一个注入的 monotonic clock authority，不能各自从未绑定时钟取样。
+
 降低 Worker/container memory、FD、disk、open-DB 或 Adapter envelope 必须 `STAGED -> DRAIN_OR_MIGRATE -> ACTIVE`：staged version 先拒绝新 ownership，等全部 committed envelope/fixed cost/transition demand fit 后才能激活。外部提前 hot-shrink 是 shared safety breach，不是 replay-dependent Schedule rejection。
 
 认证必须注入单 shard compaction/write-amplification storm，证明另一 shard 的 WAL sync、expiry 和健康 Lane service gap 仍满足容量文件。
@@ -3656,6 +3665,9 @@ scheduler:
     query: { weight: required, maxQueueRecords: required, maxQueueBytes: required, maxRecordsPerTurn: required, maxBytesPerTurn: required, maxTimePerTurn: required }
     gc: { weight: required, maxQueueRecords: required, maxQueueBytes: required, maxRecordsPerTurn: required, maxBytesPerTurn: required, maxTimePerTurn: required, capacityReleasingMinimum: required }
     checkpoint: { weight: required, maxQueueRecords: required, maxQueueBytes: required, maxRecordsPerTurn: required, maxBytesPerTurn: required, maxTimePerTurn: required }
+  # 八类必须一次性完整提供；V1 不带 benchmark 前的 fallback/default policy。
+  sharedWorkClassResourceRecords: required
+  sharedWorkClassResourceBytes: required
   maxHealthyLaneDiscoveryAge: required-from-capacity-artifact
   maxHealthyLaneServiceRounds: required-from-capacity-artifact
   maxHealthyLaneServiceGap: required-from-capacity-artifact

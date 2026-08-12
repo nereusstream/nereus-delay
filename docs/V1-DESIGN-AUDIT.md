@@ -113,7 +113,17 @@ the exact scheduler claim in flight. A later valid completion using that same
 handle succeeds. This confirms local claim consistency only; the process-local
 scheduler is not checkpoint durability or external publication authority.
 
-The synchronized full local gate then passed on 2026-08-12 with 1222 reported
+After `b4ba86e`, the eight-class runtime can no longer be assembled from a
+partial or implicit policy set. `WorkClassRuntimeConfig` requires exact class
+coverage, positive class-delay/borrowed-hold/shared-pool bounds, nonzero
+record/byte minima for the six correctness/progress classes, checked aggregate
+fit, and `LEASE_FENCE`-only preemption before constructing scheduler and pool
+from one monotonic clock. Its focused tests execute all eight classes and reject
+missing, oversubscribed or semantically invalid policies. This closes the local
+configuration/construction seam only; benchmark values, shard handlers and
+dynamic WriteBatch/IO authority remain release evidence gaps.
+
+The synchronized full local gate then passed on 2026-08-12 with 1225 reported
 tests, zero failures/errors and five skipped opt-in real-Oxia methods because
 the endpoint was unset. `checkDocumentation` and `checkstyleMain` passed in the
 same `clean check --rerun-tasks` run. This verifies the repository-local change
