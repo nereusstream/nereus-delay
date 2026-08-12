@@ -16,11 +16,18 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class StoreRecoveryMetadataTest {
     @TempDir
     Path tempDir;
+
+    @Test
+    void rejectsCatalogGenerationWithoutObservedFloor() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new StoreRecoveryMetadata(null, null, 1, null));
+    }
 
     @Test
     void persistsRecoveryProjectionsAtTheShardBoundary() {

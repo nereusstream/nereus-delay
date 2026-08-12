@@ -4095,6 +4095,16 @@ historical pin to survive a later descendant Floor). `RecoveryCatalogTest`
 covers both malformed-snapshot cases; this is crash-durable local projection
 integrity, not the missing Oxia cross-record pin/Floor transaction.
 
+`StoreRecoveryMetadata` now rejects a nonzero `meta/RECOVERY` catalog
+generation when no `lastObservedFloor` is present. The generation is only a
+projection of that exact typed Floor, so a dangling generation must fail closed
+on construction/reopen rather than remain as apparently valid local metadata;
+`StoreRecoveryMetadataTest.rejectsCatalogGenerationWithoutObservedFloor` and
+`ShardStoreTest.danglingRecoveryCatalogGenerationDoesNotLeaveRocksDbOpen`
+cover the constructor and native-reopen corruption boundaries. This is local
+projection integrity only and does not provide the external Oxia Floor/Owner
+Lease transaction.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

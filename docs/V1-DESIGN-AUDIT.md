@@ -3843,6 +3843,14 @@ branch 推进；因此允许 Floor 在同一分支上越过 candidate 的历史 
 两条 snapshot 回归覆盖该边界。这是本地 crash-durable projection proof，不是
 Oxia pin/Floor cross-record CAS 或 source replay authority。
 
+`StoreRecoveryMetadata` 现在还拒绝没有 `lastObservedFloor` 却携带非零
+`catalogGeneration` 的 `meta/RECOVERY` 投影。该 generation 只允许表示 exact
+observed typed Floor；dangling generation 会在构造和 shard DB reopen 时
+fail closed。`StoreRecoveryMetadataTest.rejectsCatalogGenerationWithoutObservedFloor`
+和 `ShardStoreTest.danglingRecoveryCatalogGenerationDoesNotLeaveRocksDbOpen`
+分别覆盖构造与 native reopen 的损坏边界。这仍是本地 projection integrity proof，
+不替代 Oxia Floor、Owner Lease/session 或 source replay authority。
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

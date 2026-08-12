@@ -280,6 +280,23 @@ class ShardStoreTest {
     }
 
     @Test
+    void danglingRecoveryCatalogGenerationDoesNotLeaveRocksDbOpen() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("dangling-recovery-generation"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 40);
+        final Path dbPath;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            dbPath = store.dbPath();
+        }
+        overwriteRawColumnFamilyValue(dbPath, "meta_cf", KeyCodec.metaRecovery(3),
+                ValueEnvelope.encode(1, Bytes.u64beBits(1)));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+            assertThrows(IllegalArgumentException.class, () -> ShardStore.open(config, shardId, resources));
+        }
+        assertRawRocksDbCanBeOpened(dbPath);
+    }
+
+    @Test
     void fixedControlMetadataIsValidatedBeforeShardActivation() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("fixed-control-metadata"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 35);
