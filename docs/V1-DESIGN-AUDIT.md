@@ -47,6 +47,14 @@ canonical bytes. The focused regression is
 `ResourceRetireIntentBodyTest.exactIdentityAndProtectionSetConstructorsRequireCanonicalDigestsAndOrdering`;
 provider and Recovery-Floor authority are still external gates.
 
+The persisted GC intent boundary now decodes the complete canonical
+`ProtectionSet` before writing `gc_cf/TASK`, and `DelayShard` checks every
+source-bearing protection position against its current Shard. A foreign-Shard
+anchor therefore becomes a source-ordered stale rejection without a durable
+retire record. Focused evidence is
+`DelayShardTest.resourceRetireIntentRejectsForeignProtectionSourceBeforePersistence`;
+catalog/Floor and provider deletion authority remain open.
+
 After the retire identity/protection constructor fences (`18629dd`, `2a84e88`,
 `4a81566`, `7180153`), the full
 `./gradlew clean check --rerun-tasks --console=plain` recheck also passed on

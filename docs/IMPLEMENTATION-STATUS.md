@@ -107,6 +107,17 @@ persisted. `ResourceRetireIntentBodyTest.exactIdentityAndProtectionSetConstructo
 covers the mismatch, duplicate and digest failures; external resource and
 Recovery-Floor authority remain release gates.
 
+The durable `ResourceRetireIntentRecord` now decodes and stores only a
+canonical `ProtectionSet`, rather than accepting arbitrary non-empty bytes.
+`DelayShard` additionally checks every source-bearing protection reference
+against the applying Shard before the retire WriteBatch; a valid Source
+Position from another Shard is rejected as `STALE_SYSTEM_MUTATION` and no GC
+intent is persisted. `ResourceGcGuardTest.retireIntentRecordRequiresCanonicalProtectionSet`,
+`ResourceRetireIntentBodyTest.protectionSourcePositionsMustBelongToApplyingShard`
+and `DelayShardTest.resourceRetireIntentRejectsForeignProtectionSourceBeforePersistence`
+cover the local boundary. Recovery-Floor/catalog authority and external GC
+orchestration remain release blockers.
+
 After the retire identity/protection constructor fences (`18629dd`, `2a84e88`,
 `4a81566`, `7180153`),
 `./gradlew clean check --rerun-tasks --console=plain` passed again on
