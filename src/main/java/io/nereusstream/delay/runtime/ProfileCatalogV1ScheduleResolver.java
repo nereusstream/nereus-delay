@@ -32,7 +32,18 @@ public final class ProfileCatalogV1ScheduleResolver implements V1ScheduleResolve
     public ProfileCatalogV1ScheduleResolver(final V1ScheduleResolver delegate,
                                             final ProfileCatalog profileCatalog) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
+        if (delegate instanceof ProfileCatalogV1ScheduleResolver) {
+            throw new IllegalArgumentException("Profile catalog Schedule resolver must not be nested");
+        }
         this.profileCatalog = Objects.requireNonNull(profileCatalog, "profileCatalog");
+    }
+
+    /** Requires the shard's later Admission/recovery lookups to use the exact same catalog authority. */
+    void requireProfileCatalog(final ProfileCatalog expected) {
+        if (profileCatalog != Objects.requireNonNull(expected, "expected")) {
+            throw new IllegalArgumentException(
+                    "Profile catalog Schedule resolver is bound to another Profile catalog");
+        }
     }
 
     @Override

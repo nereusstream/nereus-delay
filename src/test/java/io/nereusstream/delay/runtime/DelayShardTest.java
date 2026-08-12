@@ -117,6 +117,47 @@ class DelayShardTest {
     Path tempDir;
 
     @Test
+    void decoratedScheduleResolverRequiresTheExactShardProfileCatalog() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("profile-resolver-catalog-identity"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 58);
+        final ProfileCatalog expected = unavailableProfileCatalog();
+        final ProfileCatalog foreign = unavailableProfileCatalog();
+        final V1ScheduleResolver raw = new V1ScheduleResolver() {
+            @Override
+            public ResolvedSchedule resolveSchedule(final ShardId shard, final DelayMessageId messageId,
+                                                     final io.nereusstream.delay.protocol.ScheduleIntentV1 intent,
+                                                     final SourcePosition sourcePosition) {
+                throw new AssertionError("construction must not invoke the resolver");
+            }
+
+            @Override
+            public ResolvedPrepare resolvePrepare(final ShardId shard, final DelayMessageId messageId,
+                                                  final io.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1 body,
+                                                  final SourcePosition sourcePosition) {
+                throw new AssertionError("construction must not invoke the resolver");
+            }
+        };
+        final ProfileCatalogV1ScheduleResolver decorated =
+                new ProfileCatalogV1ScheduleResolver(raw, expected);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final long sequence = store.shardMutationSequence();
+
+            assertThrows(IllegalArgumentException.class,
+                    () -> new DelayShard(store, DelayShardConfig.defaults(), null, null, decorated));
+            assertThrows(IllegalArgumentException.class,
+                    () -> new DelayShard(store, DelayShardConfig.defaults(), null, null, decorated,
+                            null, null, null, foreign));
+            assertEquals(sequence, store.shardMutationSequence());
+
+            new DelayShard(store, DelayShardConfig.defaults(), null, null, decorated,
+                    null, null, null, expected);
+            assertEquals(sequence, store.shardMutationSequence());
+        }
+    }
+
+    @Test
     void physicalGcMutationPrimitivesAreNotPublicProductionApis() {
         final java.util.Set<String> expected = java.util.Set.of(
                 "retireMessageIdentity", "compactRetiredMessageIdentity",

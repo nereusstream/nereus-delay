@@ -41,6 +41,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ProfileCatalogV1ScheduleResolverTest {
     @Test
+    void decoratorCannotHideAnotherProfileCatalog() {
+        final ProfileSemanticEnvelopeV1 semantic = semantic(1);
+        final ProfileCatalog first = new StubProfileCatalog(semantic, true);
+        final ProfileCatalogV1ScheduleResolver decorated = new ProfileCatalogV1ScheduleResolver(
+                new RecordingResolver(), first);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> new ProfileCatalogV1ScheduleResolver(decorated,
+                        new StubProfileCatalog(semantic, true)));
+    }
+
+    @Test
     void delegatesOnlyAfterExactProfileAndHeadAreResolved() {
         final ProfileSemanticEnvelopeV1 semantic = semantic(1);
         final ProfileRefV1 profile = semantic.ref();

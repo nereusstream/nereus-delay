@@ -348,9 +348,7 @@ public final class DelayShard {
                 && sloObservationOutboxLimits == null ? null
                 : new SloObservationOutboxStore(store, sloObservationOutboxLimits);
         this.capacityEnvelope = capacityEnvelope;
-        this.v1ScheduleResolver = profileCatalog == null || v1ScheduleResolver == null
-                || v1ScheduleResolver instanceof ProfileCatalogV1ScheduleResolver
-                ? v1ScheduleResolver : new ProfileCatalogV1ScheduleResolver(v1ScheduleResolver, profileCatalog);
+        this.v1ScheduleResolver = bindProfileCatalogResolver(v1ScheduleResolver, profileCatalog);
         final var sourceValue = store.getValue(ColumnFamily.META, KeyCodec.metaFixed(META_APPLIED_SOURCE_POSITION), 1);
         final byte[] source = sourceValue == null ? null : sourceValue.payload();
         lastAppliedSourcePosition = source == null ? null : SourcePositionCodec.decode(source);
@@ -463,6 +461,22 @@ public final class DelayShard {
         // A failed open must not leave an identity marker behind that makes a
         // later repaired activation appear to be envelope drift.
         persistCapacityEnvelopeBindingIfAbsent(capacityEnvelope);
+    }
+
+    private static V1ScheduleResolver bindProfileCatalogResolver(final V1ScheduleResolver resolver,
+                                                                  final ProfileCatalog catalog) {
+        if (resolver == null) {
+            return null;
+        }
+        if (resolver instanceof ProfileCatalogV1ScheduleResolver decorated) {
+            if (catalog == null) {
+                throw new IllegalArgumentException(
+                        "Profile catalog Schedule resolver requires the shard Profile catalog");
+            }
+            decorated.requireProfileCatalog(catalog);
+            return decorated;
+        }
+        return catalog == null ? resolver : new ProfileCatalogV1ScheduleResolver(resolver, catalog);
     }
 
     /**
