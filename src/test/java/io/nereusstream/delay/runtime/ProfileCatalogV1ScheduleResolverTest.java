@@ -136,6 +136,32 @@ class ProfileCatalogV1ScheduleResolverTest {
         assertEquals(1_500L, result.actionAtEpochMs());
     }
 
+    @Test
+    void rejectsCertifiedPulsarPrepareUnderflowBeforeDelegateOrReservationProjection() {
+        final int version = 6;
+        final ProfileSemanticEnvelopeV1 capability = pulsarCapability(version);
+        final ProfileSemanticEnvelopeV1 destination = pulsarSemantic(version, capability);
+        final RecordingResolver delegate = new RecordingResolver();
+        final ProfileCatalogV1ScheduleResolver resolver = new ProfileCatalogV1ScheduleResolver(delegate,
+                new StubProfileCatalog(destination, true, capability));
+        final ShardId shard = new ShardId(io.nereusstream.delay.protocol.RouteIncarnation.random(), 6);
+        final ScheduleIntentV1 intent = ScheduleIntentV1.forPrepare(destination.ref(),
+                new RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 9)), 400, 1_000,
+                DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, new byte[0],
+                AdapterMetadataV1.pulsar(new PulsarMetadataV1(null, null, null, List.of())), null, null);
+        final PrepareLargeScheduleBodyV1 body = new PrepareLargeScheduleBodyV1(
+                DelayMessageId.random(shard), 2_000, intent, 10, bytes(32, 10), 100,
+                new PayloadProofTrustSetRefV1(1, bytes(32, 11)),
+                new ProfileRefV1(Bytes.utf8("object-store"), 1, bytes(32, 12),
+                        ProfileKindV1.OBJECT_STORE));
+
+        final V1CommandResolutionException exception = assertThrows(V1CommandResolutionException.class,
+                () -> resolver.resolvePrepare(shard, body.delayMessageId(), body, null));
+
+        assertEquals(StableCode.INVALID_DELIVERY_WINDOW, exception.stableCode());
+        assertFalse(delegate.prepareCalled);
+    }
+
     private static ScheduleIntentV1 intent(final ProfileRefV1 profile) {
         return ScheduleIntentV1.create(profile, new RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 3)),
                 10, 100, DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, new byte[0], Bytes.utf8("payload"),

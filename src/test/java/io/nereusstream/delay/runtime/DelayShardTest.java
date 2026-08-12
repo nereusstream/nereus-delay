@@ -1515,6 +1515,7 @@ class DelayShardTest {
                 Bytes.lp32(capability.ref().profileId()), Bytes.u64beBits(capability.ref().version()),
                 capability.ref().semanticHash(), Bytes.u8(2), Bytes.u32be(0));
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
+        final int[] prepareResolutions = {0};
         final V1ScheduleResolver rawResolver = new V1ScheduleResolver() {
             @Override
             public ResolvedSchedule resolveSchedule(final ShardId shard, final DelayMessageId messageId,
@@ -1527,6 +1528,7 @@ class DelayShardTest {
             public ResolvedPrepare resolvePrepare(final ShardId shard, final DelayMessageId messageId,
                                                   final PrepareLargeScheduleBodyV1 body,
                                                   final SourcePosition sourcePosition) {
+                prepareResolutions[0]++;
                 return new ResolvedPrepare(lane, tuple);
             }
         };
@@ -1547,6 +1549,14 @@ class DelayShardTest {
                 io.nereusstream.delay.protocol.AdapterMetadataV1.pulsar(
                         new PulsarMetadataV1(null, null, null, List.of())), null, null);
         final byte[] payloadSha = Bytes.sha256(Bytes.utf8("large-reopen-payload"));
+        final ScheduleIntentV1 underflowIntent = ScheduleIntentV1.forPrepare(destination.ref(),
+                intent.retryPolicy(), 400, 6_000, DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT,
+                new byte[0], intent.adapterMetadata(), null, null);
+        final PreparedCommand underflowPrepare = PreparedCommand.prepareLargeV1(shardId, underflowIntent,
+                2_000_000, payloadSha, 1_000, trustSet.ref(), objectStore.ref(), 9_000);
+        final byte[] underflowReservationId = Bytes.sha256(Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                underflowPrepare.commandId().bytes(), underflowPrepare.delayMessageId().bytes(),
+                underflowPrepare.commandHash());
         final PreparedCommand prepare = PreparedCommand.prepareLargeV1(shardId, intent, 2_000_000,
                 payloadSha, 1_000, trustSet.ref(), objectStore.ref(), 9_000);
         final byte[] reservationId = Bytes.sha256(Bytes.utf8("nereus-delay-reservation-id-v1\0"),
@@ -1579,7 +1589,15 @@ class DelayShardTest {
                     trustBody, control.canonicalBytes(), 1, controlKey.getPrivate());
             assertEquals(StableCode.OK, shard.applySystemMutation(trustMutation,
                     position(shardId, 2, 1_002), controlKey.getPublic()).stableCode());
-            assertEquals(StableCode.OK, shard.apply(prepare, position(shardId, 3, 1_003)).stableCode());
+            assertEquals(StableCode.INVALID_DELIVERY_WINDOW,
+                    shard.apply(underflowPrepare, position(shardId, 3, 1_003)).stableCode());
+            assertEquals(0, prepareResolutions[0]);
+            assertNull(shard.getReservation(underflowReservationId));
+            assertNull(shard.getV1ScheduleBinding(underflowPrepare.delayMessageId()));
+            assertNull(shard.getLane(lane));
+            assertEquals(0, shard.quota().reservationMessages());
+            assertEquals(StableCode.OK, shard.apply(prepare, position(shardId, 4, 1_004)).stableCode());
+            assertEquals(1, prepareResolutions[0]);
             assertNotNull(shard.getV1ScheduleBinding(prepare.delayMessageId()));
             assertNull(shard.getMessage(prepare.delayMessageId()));
         }
@@ -1596,7 +1614,7 @@ class DelayShardTest {
             final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults(), null, null, rawResolver,
                     trustCatalog, null, null, profileCatalog);
             assertEquals(StableCode.SCHEDULED,
-                    reopened.apply(commit, position(shardId, 4, 1_500)).stableCode());
+                    reopened.apply(commit, position(shardId, 5, 1_500)).stableCode());
             final MessageRecord message = reopened.getMessage(prepare.delayMessageId());
             assertEquals(3_000, message.deliverAtEpochMs());
             assertEquals(2_500, message.runtimeIndex().timeline().actionAtEpochMs());

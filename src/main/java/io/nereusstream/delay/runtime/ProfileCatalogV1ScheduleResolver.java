@@ -50,15 +50,12 @@ public final class ProfileCatalogV1ScheduleResolver implements V1ScheduleResolve
     public ResolvedSchedule resolveSchedule(final ShardId shardId, final DelayMessageId messageId,
                                             final ScheduleIntentV1 intent,
                                             final SourcePosition sourcePosition) {
-        final DestinationProfileSemanticV1 destination = requireDestinationProfile(intent.profile());
-        final ProfileSemanticEnvelopeV1 capabilityEnvelope = profileCatalog.resolve(destination.deliveryCapability());
-        final DeliveryCapabilitySemanticV1 capability = capabilityEnvelope == null
-                || !(capabilityEnvelope.body() instanceof DeliveryCapabilitySemanticV1 value)
-                ? null : value;
+        final ResolvedProfileSemantics semantics = requireDestinationProfile(intent.profile());
         final ResolvedSchedule resolved = Objects.requireNonNull(
                 delegate.resolveSchedule(shardId, messageId, intent, sourcePosition),
                 "resolved Schedule projection");
-        final long expectedActionAt = expectedActionAt(intent.deliverAtEpochMs(), destination, capability);
+        final long expectedActionAt = expectedActionAt(intent.deliverAtEpochMs(), semantics.destination(),
+                semantics.capability());
         if (resolved.actionAtEpochMs() != null && resolved.actionAtEpochMs() != expectedActionAt) {
             throw new V1CommandResolutionException(StableCode.INVALID_COMMAND,
                     "resolved Schedule actionAt does not match the immutable Destination Profile");
@@ -71,11 +68,17 @@ public final class ProfileCatalogV1ScheduleResolver implements V1ScheduleResolve
     public ResolvedPrepare resolvePrepare(final ShardId shardId, final DelayMessageId messageId,
                                           final PrepareLargeScheduleBodyV1 body,
                                           final SourcePosition sourcePosition) {
-        requireDestinationProfile(body.intentWithoutPayload().profile());
+        final ResolvedProfileSemantics semantics = requireDestinationProfile(
+                body.intentWithoutPayload().profile());
+        // Prepare reserves quota and authorizes a potentially expensive object
+        // upload. Reject an impossible certified handoff before either action;
+        // Commit will re-derive the same boundary from the durable binding.
+        expectedActionAt(body.intentWithoutPayload().deliverAtEpochMs(), semantics.destination(),
+                semantics.capability());
         return delegate.resolvePrepare(shardId, messageId, body, sourcePosition);
     }
 
-    private DestinationProfileSemanticV1 requireDestinationProfile(final ProfileRefV1 reference) {
+    private ResolvedProfileSemantics requireDestinationProfile(final ProfileRefV1 reference) {
         if (reference.profileKind() != ProfileKindV1.DESTINATION) {
             throw unavailable("V1 Schedule requires a Destination Profile");
         }
@@ -96,7 +99,11 @@ public final class ProfileCatalogV1ScheduleResolver implements V1ScheduleResolve
                 || deliveryCapability.adapterKind() != destination.adapterKind()) {
             throw unavailable("Delivery Capability semantic or adapter binding is unavailable");
         }
-        return destination;
+        return new ResolvedProfileSemantics(destination, deliveryCapability);
+    }
+
+    private record ResolvedProfileSemantics(DestinationProfileSemanticV1 destination,
+                                            DeliveryCapabilitySemanticV1 capability) {
     }
 
     private static long expectedActionAt(final long deliverAt,
