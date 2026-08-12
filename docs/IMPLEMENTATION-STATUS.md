@@ -4251,6 +4251,19 @@ full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
 real-Oxia methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was
 unset; this remains local regression evidence only.
 
+The Recovery Catalog snapshot encoder now rejects duplicate checkpoint
+identities before emitting canonical bytes, matching the decoder's existing
+duplicate-field fence. `OxiaSyncRecoveryCatalogBackendTest.rejectsDuplicateManifestIdentityBeforeEncodingSnapshot`
+covers a locally constructed invalid snapshot. This is a local
+serialization-integrity bound; it does not add the external upload-intent,
+Object Store or catalog transaction authority.
+
+After this duplicate-identity fence, the focused catalog test and the full
+`./gradlew clean check --rerun-tasks --console=plain` gate passed on 2026-08-12
+(`BUILD SUCCESSFUL`, five executed tasks). The five opt-in real-Oxia methods
+remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this remains
+local regression evidence only.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

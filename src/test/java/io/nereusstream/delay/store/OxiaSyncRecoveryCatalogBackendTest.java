@@ -188,6 +188,17 @@ class OxiaSyncRecoveryCatalogBackendTest {
     }
 
     @Test
+    void rejectsDuplicateManifestIdentityBeforeEncodingSnapshot() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 10);
+        final CheckpointManifest manifest = manifest(shard, id16(45), id16(46), 0, 1, 1, null);
+        final RecoveryCatalog.Snapshot snapshot = new RecoveryCatalog.Snapshot(
+                1, shard, java.util.List.of(manifest, manifest), Map.of(), null, null, null);
+
+        assertThrows(IllegalStateException.class,
+                () -> OxiaSyncRecoveryCatalogBackend.encodeSnapshot(snapshot));
+    }
+
+    @Test
     void rejectsResourceCountAboveBoundBeforeEncodingSnapshot() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 17);
         final CheckpointManifest manifest = manifest(shard, id16(42), id16(43), 0, 1, 1, null);

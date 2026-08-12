@@ -310,8 +310,13 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
                 .sorted(Comparator.comparing(resource -> Bytes.hex(resource.checkpointId())))
                 .toList();
         final Map<String, CheckpointManifest> manifestsById = new HashMap<>();
+        final HashSet<String> manifestIds = new HashSet<>();
         for (CheckpointManifest manifest : manifests) {
-            manifestsById.put(Bytes.hex(manifest.checkpointId()), manifest);
+            final String checkpointId = Bytes.hex(manifest.checkpointId());
+            if (!manifestIds.add(checkpointId)) {
+                throw new IllegalStateException("Oxia catalog contains duplicate checkpoint identity");
+            }
+            manifestsById.put(checkpointId, manifest);
         }
         final HashSet<String> resourceIds = new HashSet<>();
         for (CheckpointResourceV1 resource : resources) {
