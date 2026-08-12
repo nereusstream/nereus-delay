@@ -2,7 +2,9 @@ package io.nereusstream.delay.runtime;
 
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.ActiveLaneStateV1;
+import io.nereusstream.delay.protocol.AdapterKindV1;
 import io.nereusstream.delay.protocol.AuthorIdentity;
+import io.nereusstream.delay.protocol.BrokerResourceIdentityV1;
 import io.nereusstream.delay.protocol.CanonicalProtobuf;
 import io.nereusstream.delay.protocol.CapacityDimensionV1;
 import io.nereusstream.delay.protocol.CapacityGrantKindV1;
@@ -20,6 +22,9 @@ import io.nereusstream.delay.protocol.ControlTargetKindV1;
 import io.nereusstream.delay.protocol.ControlTargetRefV1;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.DelayMessageId;
+import io.nereusstream.delay.protocol.DeliveryCapabilitySemanticV1;
+import io.nereusstream.delay.protocol.DeliveryMode;
+import io.nereusstream.delay.protocol.DestinationProfileSemanticV1;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.EvidenceCursorV1;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
@@ -32,6 +37,9 @@ import io.nereusstream.delay.protocol.LaneTerminalGuardV1;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.MessagePreconditionV1;
 import io.nereusstream.delay.protocol.OrderingMode;
+import io.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
+import io.nereusstream.delay.protocol.ObjectStoreProviderKindV1;
+import io.nereusstream.delay.protocol.OutcomeCapabilityV1;
 import io.nereusstream.delay.protocol.OwnerIdentityV1;
 import io.nereusstream.delay.protocol.PayloadCommitProof;
 import io.nereusstream.delay.protocol.PayloadCommitProofV1;
@@ -50,7 +58,10 @@ import io.nereusstream.delay.protocol.ProfileBindingActivatePayloadV1;
 import io.nereusstream.delay.protocol.ProfileNewBindingClosePayloadV1;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
+import io.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
 import io.nereusstream.delay.protocol.ProtocolTestFixtures;
+import io.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
+import io.nereusstream.delay.protocol.PulsarMetadataV1;
 import io.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.PreparedControlOperationV1;
@@ -62,6 +73,7 @@ import io.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
 import io.nereusstream.delay.protocol.ResourceKind;
 import io.nereusstream.delay.protocol.ResourceRetireIntentBody;
 import io.nereusstream.delay.protocol.RetryJitterV1;
+import io.nereusstream.delay.protocol.RetryPolicyRefV1;
 import io.nereusstream.delay.protocol.RetryPolicySemanticV1;
 import io.nereusstream.delay.protocol.UncertainPolicyV1;
 import io.nereusstream.delay.protocol.DlqExportModeV1;
@@ -81,6 +93,9 @@ import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.SystemMutation;
 import io.nereusstream.delay.protocol.SystemMutationType;
+import io.nereusstream.delay.protocol.TargetPartitionHashInputV1;
+import io.nereusstream.delay.protocol.TargetPartitionPolicyV1;
+import io.nereusstream.delay.protocol.TimingCapabilityV1;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.ownership.ControlTargetRegistrationAuthority;
 import io.nereusstream.delay.ownership.InMemoryControlTargetRegistrationAuthority;
@@ -1421,6 +1436,174 @@ class DelayShardTest {
             final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver);
             assertNotNull(reopened.getV1ScheduleBinding(schedule.delayMessageId()));
             assertNotNull(reopened.getV1ScheduleBinding(prepare.delayMessageId()));
+        }
+    }
+
+    @Test
+    void largeCommitAfterReopenRecoversCertifiedActionAtFromDurablePrepareBinding() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("large-commit-reopen-action-at"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 60);
+        final byte[] resourceIncarnation = Bytes.sha256(Bytes.utf8("large-reopen-pulsar-resource"));
+        final BrokerResourceIdentityV1 target = BrokerResourceIdentityV1.pulsar(
+                new PulsarBrokerResourceIdentityV1("pulsar-cluster", resourceIncarnation,
+                        "persistent://tenant/ns/large-topic-partition-0", 17));
+        final DeliveryCapabilitySemanticV1 capabilityBody = new DeliveryCapabilitySemanticV1(
+                AdapterKindV1.PULSAR, OutcomeCapabilityV1.AT_LEAST_ONCE,
+                TimingCapabilityV1.ORDINARY_MANAGED | TimingCapabilityV1.PULSAR_GUARDED_HANDOFF,
+                null, 0, 0, 0, 0, bytes(32, 61), bytes(32, 62), 0, 0);
+        final ProfileSemanticEnvelopeV1 capability = new ProfileSemanticEnvelopeV1(
+                ProfileKindV1.DELIVERY_CAPABILITY, Bytes.utf8("large-reopen-capability"), 1, capabilityBody);
+        final DestinationProfileSemanticV1 destinationBody = new DestinationProfileSemanticV1(
+                AdapterKindV1.PULSAR, target, 1, TargetPartitionPolicyV1.HASH_ONLY,
+                TargetPartitionHashInputV1.ORDERING_KEY, List.of(), capability.ref(), 1,
+                500, 100, bytes(32, 63), 4_000_000, 1_024, 4_000_000, 1,
+                Bytes.utf8("large-reopen-destination"), 0, 0, 1, bytes(32, 64));
+        final ProfileSemanticEnvelopeV1 destination = new ProfileSemanticEnvelopeV1(
+                ProfileKindV1.DESTINATION, Bytes.utf8("large-reopen-destination"), 1, destinationBody);
+        final ObjectStoreProfileSemanticV1 objectStoreBody = new ObjectStoreProfileSemanticV1(
+                ObjectStoreProviderKindV1.S3, bytes(32, 65), bytes(32, 66), 1,
+                true, true, true, true, bytes(32, 67), 4_000_000,
+                ObjectStoreProfileSemanticV1.SINGLE_PUT, 1, bytes(32, 68));
+        final ProfileSemanticEnvelopeV1 objectStore = new ProfileSemanticEnvelopeV1(
+                ProfileKindV1.OBJECT_STORE, Bytes.utf8("large-reopen-object-store"), 1, objectStoreBody);
+        final ProfileCatalog profileCatalog = new ProfileCatalog() {
+            @Override
+            public ProfileSemanticEnvelopeV1 resolve(final ProfileRefV1 reference) {
+                if (destination.ref().equals(reference)) {
+                    return destination;
+                }
+                if (capability.ref().equals(reference)) {
+                    return capability;
+                }
+                return objectStore.ref().equals(reference) ? objectStore : null;
+            }
+
+            @Override
+            public io.nereusstream.delay.protocol.CredentialBindingV1 resolveBinding(
+                    final ProfileRefV1 reference, final long generation) {
+                return null;
+            }
+
+            @Override
+            public io.nereusstream.delay.protocol.CredentialBindingHeadV1 resolveHead(
+                    final ProfileRefV1 reference) {
+                if (destination.ref().equals(reference)) {
+                    return io.nereusstream.delay.protocol.CredentialBindingHeadV1.create(
+                            reference, 1, bytes(32, 69), 1);
+                }
+                if (objectStore.ref().equals(reference)) {
+                    return io.nereusstream.delay.protocol.CredentialBindingHeadV1.create(
+                            reference, 1, bytes(32, 70), 1);
+                }
+                return null;
+            }
+
+            @Override
+            public io.nereusstream.delay.protocol.CredentialBindingProtectionV1 resolveProtection(
+                    final ProfileRefV1 reference, final long generation) {
+                return null;
+            }
+        };
+        final byte[] tuple = Bytes.concat(
+                Bytes.sha256(Bytes.utf8("large-reopen-tenant-scope")),
+                Bytes.u8(AdapterKindV1.PULSAR.wireValue()),
+                Bytes.lp32(Bytes.utf8("pulsar-cluster")), Bytes.u8(2), resourceIncarnation,
+                Bytes.u64be(17), Bytes.lp32(Bytes.utf8("persistent://tenant/ns/large-topic-partition-0")),
+                Bytes.u32be(0), Bytes.lp32(destination.ref().profileId()),
+                Bytes.u64beBits(destination.ref().version()), destination.ref().semanticHash(),
+                Bytes.lp32(capability.ref().profileId()), Bytes.u64beBits(capability.ref().version()),
+                capability.ref().semanticHash(), Bytes.u8(2), Bytes.u32be(0));
+        final DestinationLaneId lane = DestinationLaneId.derive(tuple);
+        final V1ScheduleResolver rawResolver = new V1ScheduleResolver() {
+            @Override
+            public ResolvedSchedule resolveSchedule(final ShardId shard, final DelayMessageId messageId,
+                                                     final ScheduleIntentV1 intent,
+                                                     final SourcePosition sourcePosition) {
+                throw new AssertionError("large-payload recovery test must not resolve Schedule");
+            }
+
+            @Override
+            public ResolvedPrepare resolvePrepare(final ShardId shard, final DelayMessageId messageId,
+                                                  final PrepareLargeScheduleBodyV1 body,
+                                                  final SourcePosition sourcePosition) {
+                return new ResolvedPrepare(lane, tuple);
+            }
+        };
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair proofKey = generator.generateKeyPair();
+        final KeyPair controlKey = generator.generateKeyPair();
+        final PayloadProofTrustSetSemanticV1 trustSet = new PayloadProofTrustSetSemanticV1(4,
+                List.of(PayloadProofVerifierKeyV1.fromPublicKey(7, proofKey.getPublic(), 0, 10_000)));
+        final PayloadProofTrustSetControlCatalog trustCatalog = reference -> reference.equals(trustSet.ref())
+                ? trustSet : null;
+        final AuthorIdentity control = AuthorIdentity.control(
+                Bytes.sha256(Bytes.utf8("large-reopen-control-actor")),
+                Bytes.sha256(Bytes.utf8("large-reopen-control-roles")),
+                Bytes.sha256(Bytes.utf8("large-reopen-control-scope")));
+        final ScheduleIntentV1 intent = ScheduleIntentV1.forPrepare(destination.ref(),
+                new RetryPolicyRefV1(Bytes.utf8("large-reopen-retry"), 1, bytes(32, 71)),
+                3_000, 6_000, DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, new byte[0],
+                io.nereusstream.delay.protocol.AdapterMetadataV1.pulsar(
+                        new PulsarMetadataV1(null, null, null, List.of())), null, null);
+        final byte[] payloadSha = Bytes.sha256(Bytes.utf8("large-reopen-payload"));
+        final PreparedCommand prepare = PreparedCommand.prepareLargeV1(shardId, intent, 2_000_000,
+                payloadSha, 1_000, trustSet.ref(), objectStore.ref(), 9_000);
+        final byte[] reservationId = Bytes.sha256(Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                prepare.commandId().bytes(), prepare.delayMessageId().bytes(), prepare.commandHash());
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, rawResolver,
+                    trustCatalog, null, null, profileCatalog);
+            int offset = 0;
+            for (ProfileRefV1 profile : List.of(destination.ref(), objectStore.ref())) {
+                final ControlRef ref = new ControlRef(
+                        Bytes.sha256(Bytes.utf8("large-reopen-profile-op-" + offset)),
+                        Bytes.sha256(Bytes.utf8("large-reopen-profile-request-" + offset)), offset + 1L);
+                final byte[] body = profileControlBody(shardId, ref, 2, profile,
+                        new ProfileBindingActivatePayloadV1(profile).canonicalBytes());
+                final SystemMutation mutation = SystemMutation.signed(shardId,
+                        SystemMutationType.APPLY_SHARD_CONTROL, 9_000, ref.logicalOperationIdentity(2), body,
+                        control.canonicalBytes(), 1, controlKey.getPrivate());
+                assertEquals(StableCode.OK, shard.applySystemMutation(mutation,
+                        position(shardId, offset, 1_000 + offset), controlKey.getPublic()).stableCode());
+                offset++;
+            }
+            final ControlRef trustRef = new ControlRef(Bytes.sha256(Bytes.utf8("large-reopen-trust-op")),
+                    Bytes.sha256(Bytes.utf8("large-reopen-trust-request")), 3);
+            final byte[] trustBody = trustSetControlBody(shardId, trustRef, 12, trustSet.ref(),
+                    new PayloadProofTrustSetActivatePayloadV1(trustSet.ref()).canonicalBytes());
+            final SystemMutation trustMutation = SystemMutation.signed(shardId,
+                    SystemMutationType.APPLY_SHARD_CONTROL, 9_000, trustRef.logicalOperationIdentity(12),
+                    trustBody, control.canonicalBytes(), 1, controlKey.getPrivate());
+            assertEquals(StableCode.OK, shard.applySystemMutation(trustMutation,
+                    position(shardId, 2, 1_002), controlKey.getPublic()).stableCode());
+            assertEquals(StableCode.OK, shard.apply(prepare, position(shardId, 3, 1_003)).stableCode());
+            assertNotNull(shard.getV1ScheduleBinding(prepare.delayMessageId()));
+            assertNull(shard.getMessage(prepare.delayMessageId()));
+        }
+
+        final PayloadCommitProofV1 proof = PayloadCommitProofV1.signed(reservationId,
+                Bytes.sha256(Bytes.utf8("large-reopen-tenant-scope")), shardId.routeIncarnation().bytes(),
+                shardId.partition(), prepare.delayMessageId(), objectStore.ref(), 4, 7,
+                Bytes.utf8("bucket"), Bytes.utf8("key"), Bytes.utf8("v1"), new byte[0],
+                2_000_000, payloadSha, 1_900, proofKey.getPrivate());
+        final PreparedCommand commit = PreparedCommand.commitLargeV1(shardId, prepare.delayMessageId(),
+                reservationId, proof, 9_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults(), null, null, rawResolver,
+                    trustCatalog, null, null, profileCatalog);
+            assertEquals(StableCode.SCHEDULED,
+                    reopened.apply(commit, position(shardId, 4, 1_500)).stableCode());
+            final MessageRecord message = reopened.getMessage(prepare.delayMessageId());
+            assertEquals(3_000, message.deliverAtEpochMs());
+            assertEquals(2_500, message.runtimeIndex().timeline().actionAtEpochMs());
+            assertEquals(2_500, message.retryEligibilityAtEpochMs());
+            assertEquals(0, reopened.discoverReady(2_499, 10).size());
+            reopened.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            assertEquals(1, reopened.discoverReady(2_500, 10).size());
         }
     }
 
