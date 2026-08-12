@@ -926,7 +926,34 @@ public final class OwnedDelayShard {
      * orchestration.</p>
      */
     public synchronized void beginDrain(final OxiaOwnerLeaseStore authority, final long nowEpochMs) {
+        beginDrain(authority, nowEpochMs, false);
+    }
+
+    /**
+     * Strict V1 planned-drain entrypoint.  A production owner that opened its
+     * replay window through the context-bound catch-up path must retain that
+     * assignment/session fence through the ACTIVE -> DRAINING CAS.  The
+     * authority object may be a separate validating wrapper, but the local
+     * lease must still carry the exact context and the shard must have an
+     * accepted assignment.  The authority-less/assignment-only lifecycle
+     * methods remain embedded compatibility seams.
+     */
+    public synchronized void beginDrainStrict(final OxiaOwnerLeaseStore authority, final long nowEpochMs) {
+        requireStrictLifecycleAuthority(authority);
+        beginDrain(authority, nowEpochMs, true);
+    }
+
+    /** Returns whether this owner has the context-bound state required by strict drain. */
+    synchronized boolean hasStrictLifecycleAuthority() {
+        return lease.context() != null && sourceAssignment != null && replayAuthority != null;
+    }
+
+    private void beginDrain(final OxiaOwnerLeaseStore authority, final long nowEpochMs,
+                            final boolean strictLifecycle) {
         Objects.requireNonNull(authority, "authority");
+        if (strictLifecycle) {
+            requireStrictLifecycleAuthority(authority);
+        }
         if (state != ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
             throw new IllegalStateException("only an active shard can drain");
         }
@@ -949,6 +976,14 @@ public final class OwnedDelayShard {
         }
         lease = transitioned;
         state = ShardLifecycleState.DRAINING;
+    }
+
+    private void requireStrictLifecycleAuthority(final OxiaOwnerLeaseStore authority) {
+        Objects.requireNonNull(authority, "authority");
+        if (!hasStrictLifecycleAuthority()) {
+            throw new IllegalStateException("strict drain requires a context-bound strict catch-up lease");
+        }
+        validateCatchupAssignment(sourceAssignment);
     }
 
     /**

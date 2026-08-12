@@ -604,6 +604,63 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void strictDrainRequiresTheContextBoundCatchupLease() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 22);
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = backend.acquire(shardId, "worker-strict-drain-legacy", 100, 100).orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("strict-drain-legacy"));
+        final UUID topic = UUID.randomUUID();
+        final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 0);
+        final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster", topic, 0, null, 1_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            owned.markCatchingUp(new SourceAssignment(shardId,
+                    Bytes.sha256(Bytes.utf8("strict-drain-legacy-assignment")), 1, barrier));
+            owned.recordCatchup(position);
+            owned.activateForCommands(authority, 101);
+
+            assertThrows(IllegalStateException.class, () -> owned.beginDrainStrict(authority, 101));
+            assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, owned.state());
+            assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, backend.current(shardId).orElseThrow().state());
+        }
+    }
+
+    @Test
+    void strictDrainPreservesAssignmentAndSessionFenceThroughAuthorityCas() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 23);
+        final UUID topic = UUID.randomUUID();
+        final SourceAssignment assignment = new SourceAssignment(shardId,
+                Bytes.sha256(Bytes.utf8("strict-drain-assignment")), 3,
+                new KafkaActivationBarrier(shardId, "strict-drain-cluster", topic, 0));
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = backend.acquire(assignment, "worker-strict-drain",
+                Bytes.sha256(Bytes.utf8("strict-drain-session")), 100, 100).orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("strict-drain"));
+        final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "strict-drain-cluster", topic,
+                0, null, 1_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
+            owned.recordCatchup(position);
+            owned.activateForCommands(authority, 101);
+
+            owned.beginDrainStrict(authority, 101);
+
+            assertEquals(ShardLifecycleState.DRAINING, owned.state());
+            final OwnerLease drained = backend.current(shardId).orElseThrow();
+            assertEquals(ShardLifecycleState.DRAINING, drained.state());
+            assertTrue(lease.sameIdentity(drained));
+            assertEquals(assignment.assignmentEpoch(), drained.sourceAssignmentEpoch());
+            assertArrayEquals(assignment.assignmentId(), drained.sourceAssignmentId());
+            assertArrayEquals(lease.sessionIdentity(), drained.sessionIdentity());
+        }
+    }
+
+    @Test
     void authorityGatedActivationKeepsLocalGateClosedDuringLeaseCas() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 20);
         final ObservingLeaseStore backend = new ObservingLeaseStore();

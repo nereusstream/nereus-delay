@@ -120,7 +120,7 @@ public final class OwnerDrainCoordinator {
                     // authority CAS before treating the already-started
                     // Store as an emergency drain; otherwise the local Owner
                     // would remain ACTIVE while its DB is fenced.
-                    ownedShard.beginDrain(authority, startNow);
+                    beginAuthoritativeDrain(startNow);
                     externalCloseStopCompleted = false;
                 } else if (ownedShard.state() != ShardLifecycleState.DRAINING) {
                     throw new IllegalStateException("Store close already started outside drain lifecycle");
@@ -156,7 +156,7 @@ public final class OwnerDrainCoordinator {
             if (ownedShard.state() == ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
                 callbacks.stopSourceAndScheduling();
                 externalCloseStopCompleted = true;
-                ownedShard.beginDrain(authority, startNow);
+                beginAuthoritativeDrain(startNow);
             } else if (ownedShard.state() != ShardLifecycleState.DRAINING) {
                 throw new IllegalStateException("owner drain requires an active or already draining shard");
             }
@@ -278,6 +278,17 @@ public final class OwnerDrainCoordinator {
         }
         if (observed.expiresAtEpochMs() > ownedShard.lease().expiresAtEpochMs()) {
             ownedShard.updateLease(observed);
+        }
+    }
+
+    private void beginAuthoritativeDrain(final long nowEpochMs) {
+        if (ownedShard.hasStrictLifecycleAuthority()) {
+            ownedShard.beginDrainStrict(authority, nowEpochMs);
+        } else {
+            // Embedded compatibility owners may not carry an Oxia assignment
+            // and session context.  Keep that seam explicit; production
+            // context-bound owners always take the strict branch above.
+            ownedShard.beginDrain(authority, nowEpochMs);
         }
     }
 
