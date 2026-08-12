@@ -56,7 +56,7 @@ public final class SourceApplyWorkClassExecutor {
      * it never acknowledges a broker record and the caller retains the
      * source cursor until the returned outcome is proven.
      */
-    public Submission submitRecovery(final SourceReplayEntry entry, final LongSupplier clock) {
+    Submission submitRecovery(final SourceReplayEntry entry, final LongSupplier clock) {
         return submit(entry, clock, true);
     }
 

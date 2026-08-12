@@ -55,8 +55,7 @@ public final class OwnerRecoveryCoordinator {
                                      final CompatibleControlSnapshotV1 controlSnapshot,
                                      final LongSupplier clock,
                                      final ReplayTurnBudget turnBudget,
-                                     final WorkClassExecutionRegistry workClasses,
-                                     final SourceApplyWorkClassExecutor sourceApply) {
+                                     final WorkClassExecutionRegistry workClasses) {
         this.ownedShard = Objects.requireNonNull(ownedShard, "ownedShard");
         this.authority = Objects.requireNonNull(authority, "authority");
         this.assignment = Objects.requireNonNull(assignment, "assignment");
@@ -67,7 +66,8 @@ public final class OwnerRecoveryCoordinator {
         this.clock = Objects.requireNonNull(clock, "clock");
         this.turnBudget = Objects.requireNonNull(turnBudget, "turnBudget");
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
-        this.sourceApply = Objects.requireNonNull(sourceApply, "sourceApply");
+        this.sourceApply = new SourceApplyWorkClassExecutor(
+                this.workClasses, this.ownedShard, this.authority, this.verificationKey);
         if (!ownedShard.shard().shardId().equals(assignment.shardId())) {
             throw new IllegalArgumentException("recovery assignment belongs to another shard");
         }

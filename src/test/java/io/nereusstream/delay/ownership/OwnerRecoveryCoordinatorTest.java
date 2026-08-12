@@ -29,7 +29,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.lang.reflect.Modifier;
 import java.security.KeyPairGenerator;
+import java.util.Arrays;
 import java.util.List;
 import java.util.EnumMap;
 import java.util.UUID;
@@ -43,6 +45,20 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class OwnerRecoveryCoordinatorTest {
     @TempDir
     Path tempDir;
+
+    @Test
+    void publicConstructorBuildsTheSourceApplyExecutorFromItsExactDependencies() {
+        final var publicConstructors = Arrays.stream(OwnerRecoveryCoordinator.class.getDeclaredConstructors())
+                .filter(constructor -> Modifier.isPublic(constructor.getModifiers()))
+                .toList();
+
+        assertEquals(1, publicConstructors.size());
+        assertFalse(Arrays.asList(publicConstructors.get(0).getParameterTypes())
+                .contains(SourceApplyWorkClassExecutor.class));
+        assertFalse(Arrays.stream(SourceApplyWorkClassExecutor.class.getDeclaredMethods())
+                .filter(method -> method.getName().equals("submitRecovery"))
+                .anyMatch(method -> Modifier.isPublic(method.getModifiers())));
+    }
 
     @Test
     void runsOneBoundedTurnAndActivatesOnlyAfterTheCursorIsExhausted() throws Exception {
@@ -70,14 +86,12 @@ class OwnerRecoveryCoordinatorTest {
             final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
             final var keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
             final WorkClassExecutionRegistry workClasses = workClasses(1);
-            final SourceApplyWorkClassExecutor sourceApply = new SourceApplyWorkClassExecutor(
-                    workClasses, owned, authority, keyPair.getPublic());
             final OwnerRecoveryCoordinator coordinator = new OwnerRecoveryCoordinator(owned, authority, assignment,
                     SourceReplaySuccessor.strictKafka(), SourceReplayCursor.of(List.<SourceReplayEntry>of(
                             new SourceReplayRecord(first, firstPosition, null, null),
                             new SourceReplayRecord(second, secondPosition, null, null)).iterator()),
                     keyPair.getPublic(), snapshot, () -> 101,
-                    new ReplayTurnBudget(1, Long.MAX_VALUE, Long.MAX_VALUE), workClasses, sourceApply);
+                    new ReplayTurnBudget(1, Long.MAX_VALUE, Long.MAX_VALUE), workClasses);
 
             workClasses.submit(new WorkClassTask(WorkClass.LEASE_FENCE, "recovery-occupied", 1), () -> {
             });
@@ -130,13 +144,11 @@ class OwnerRecoveryCoordinatorTest {
             final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
             final var keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
             final WorkClassExecutionRegistry workClasses = workClasses(1);
-            final SourceApplyWorkClassExecutor sourceApply = new SourceApplyWorkClassExecutor(
-                    workClasses, owned, authority, keyPair.getPublic());
             final OwnerRecoveryCoordinator coordinator = new OwnerRecoveryCoordinator(owned, authority, assignment,
                     SourceReplaySuccessor.strictKafka(), SourceReplayCursor.of(List.<SourceReplayEntry>of().iterator()),
                     keyPair.getPublic(), snapshot,
                     () -> { throw new AssertionError("clock unavailable"); },
-                    ReplayTurnBudget.unbounded(), workClasses, sourceApply);
+                    ReplayTurnBudget.unbounded(), workClasses);
 
             assertThrows(AssertionError.class, coordinator::runTurn);
             assertEquals(ShardLifecycleState.FENCED, owned.state());
