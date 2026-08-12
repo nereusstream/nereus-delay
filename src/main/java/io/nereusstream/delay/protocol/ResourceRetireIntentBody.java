@@ -312,12 +312,33 @@ public final class ResourceRetireIntentBody {
             Objects.requireNonNull(checkpointId, "checkpointId");
             Objects.requireNonNull(manifestHash, "manifestHash");
             Objects.requireNonNull(canonicalBytes, "canonicalBytes");
+            if (protectionKind == 1) {
+                if (minimumSourcePosition.length == 0 || recoveryLineageId.length != INCARNATION_LENGTH
+                        || checkpointId.length != INCARNATION_LENGTH || manifestHash.length != HASH_LENGTH) {
+                    throw new IllegalArgumentException("Recovery Floor protection is incomplete");
+                }
+                minimumSourcePosition = SourcePositionCodec.decode(minimumSourcePosition).canonicalBytes();
+            } else if (protectionKind == 2 || protectionKind == 4) {
+                if (minimumSourcePosition.length == 0 || recoveryLineageId.length != 0
+                        || checkpointId.length != 0 || manifestHash.length != 0) {
+                    throw new IllegalArgumentException("time-bound protection fields are invalid");
+                }
+                minimumSourcePosition = SourcePositionCodec.decode(minimumSourcePosition).canonicalBytes();
+            } else if (minimumSourcePosition.length != 0 || recoveryLineageId.length != 0
+                    || checkpointId.length != 0 || manifestHash.length != 0) {
+                throw new IllegalArgumentException("non-time-bound protection carries source fields");
+            }
             protectedResourceId = Bytes.copy(protectedResourceId);
             minimumSourcePosition = Bytes.copy(minimumSourcePosition);
             recoveryLineageId = Bytes.copy(recoveryLineageId);
             checkpointId = Bytes.copy(checkpointId);
             manifestHash = Bytes.copy(manifestHash);
-            canonicalBytes = Bytes.copy(canonicalBytes);
+            final byte[] expectedCanonical = canonicalBytes(protectionKind, protectedResourceId,
+                    protectionGeneration, minimumSourcePosition, recoveryLineageId, checkpointId, manifestHash);
+            if (!Arrays.equals(canonicalBytes, expectedCanonical)) {
+                throw new IllegalArgumentException("ProtectionRef canonical bytes do not match fields");
+            }
+            canonicalBytes = expectedCanonical;
         }
 
         @Override
@@ -380,7 +401,18 @@ public final class ResourceRetireIntentBody {
             } else if (source.length != 0 || lineage.length != 0 || checkpoint.length != 0 || manifest.length != 0) {
                 throw new IllegalArgumentException("non-time-bound protection carries source fields");
             }
-            final byte[] canonical = CanonicalProtobuf.message(output -> {
+            final byte[] canonical = canonicalBytes(kind, resourceId, generation, source, lineage, checkpoint,
+                    manifest);
+            if (!Arrays.equals(encoded, canonical)) {
+                throw new IllegalArgumentException("non-canonical ProtectionRef");
+            }
+            return new ProtectionRef(kind, resourceId, generation, source, lineage, checkpoint, manifest, canonical);
+        }
+
+        private static byte[] canonicalBytes(final int kind, final byte[] resourceId, final long generation,
+                                             final byte[] source, final byte[] lineage, final byte[] checkpoint,
+                                             final byte[] manifest) {
+            return CanonicalProtobuf.message(output -> {
                 CanonicalProtobuf.uint32(output, 1, kind);
                 CanonicalProtobuf.bytes(output, 2, resourceId);
                 CanonicalProtobuf.uint64Bits(output, 3, generation);
@@ -397,10 +429,6 @@ public final class ResourceRetireIntentBody {
                     CanonicalProtobuf.bytes(output, 7, manifest);
                 }
             });
-            if (!Arrays.equals(encoded, canonical)) {
-                throw new IllegalArgumentException("non-canonical ProtectionRef");
-            }
-            return new ProtectionRef(kind, resourceId, generation, source, lineage, checkpoint, manifest, canonical);
         }
     }
 

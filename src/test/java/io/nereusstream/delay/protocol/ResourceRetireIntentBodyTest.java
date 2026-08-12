@@ -2,6 +2,8 @@ package io.nereusstream.delay.protocol;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.UUID;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -180,6 +182,29 @@ class ResourceRetireIntentBodyTest {
                 ResourceKind.LOCAL_STORE, localStore, 1, mismatchedProtectionSet)));
     }
 
+    @Test
+    void protectionRefConstructorRequiresCanonicalSourceAndKindSpecificFields() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 29);
+        final byte[] source = new KafkaSourcePosition(shard, "cluster", UUID.randomUUID(), 3, null, 1_000)
+                .canonicalBytes();
+        final byte[] resourceId = Bytes.sha256(Bytes.utf8("source-protection"));
+        final byte[] canonical = protectionRef(2, resourceId, 7, source, new byte[0], new byte[0], new byte[0]);
+
+        final ResourceRetireIntentBody.ProtectionRef ref = new ResourceRetireIntentBody.ProtectionRef(
+                2, resourceId, 7, source, new byte[0], new byte[0], new byte[0], canonical);
+        assertArrayEquals(source, ref.minimumSourcePosition());
+        assertArrayEquals(canonical, ref.canonicalBytes());
+
+        assertThrows(IllegalArgumentException.class, () -> new ResourceRetireIntentBody.ProtectionRef(
+                2, resourceId, 7, Bytes.concat(source, new byte[]{0}), new byte[0], new byte[0], new byte[0],
+                canonical));
+        assertThrows(IllegalArgumentException.class, () -> new ResourceRetireIntentBody.ProtectionRef(
+                3, resourceId, 7, source, new byte[0], new byte[0], new byte[0],
+                protectionRef(3, resourceId, 7, source, new byte[0], new byte[0], new byte[0])));
+        assertThrows(IllegalArgumentException.class, () -> new ResourceRetireIntentBody.ProtectionRef(
+                2, resourceId, 7, source, new byte[0], new byte[0], new byte[0], new byte[]{1}));
+    }
+
     private static byte[] resourceBody(final ShardId shard, final ResourceKind kind, final byte[] resource,
                                        final long expectedVersion, final byte[] protections) {
         return CanonicalProtobuf.message(output -> {
@@ -239,10 +264,28 @@ class ResourceRetireIntentBodyTest {
     }
 
     private static byte[] protectionRef(final int kind, final byte[] resourceId, final long generation) {
+        return protectionRef(kind, resourceId, generation, new byte[0], new byte[0], new byte[0], new byte[0]);
+    }
+
+    private static byte[] protectionRef(final int kind, final byte[] resourceId, final long generation,
+                                        final byte[] source, final byte[] lineage, final byte[] checkpoint,
+                                        final byte[] manifest) {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, kind);
             CanonicalProtobuf.bytes(output, 2, resourceId);
             CanonicalProtobuf.uint64Bits(output, 3, generation);
+            if (source.length != 0) {
+                CanonicalProtobuf.bytes(output, 4, source);
+            }
+            if (lineage.length != 0) {
+                CanonicalProtobuf.bytes(output, 5, lineage);
+            }
+            if (checkpoint.length != 0) {
+                CanonicalProtobuf.bytes(output, 6, checkpoint);
+            }
+            if (manifest.length != 0) {
+                CanonicalProtobuf.bytes(output, 7, manifest);
+            }
         });
     }
 
