@@ -5080,6 +5080,14 @@ projections remain public. Reflection regressions and the complete local gate
 passed on 2026-08-13; the production Worker scheduler coordinator is still an
 explicit OPEN integration item.
 
+The deterministic embedded-owner scheduler factory is no longer public. Its
+fixed `embedded-scheduler` identity and epoch 1 can support local fixtures but
+must not be mistaken for current Oxia ownership or used to mint production
+READY certificate bindings. Cross-package tests use a test-only factory; the
+public scheduler constructor requires explicit `OwnerIdentityV1`. Reflection
+coverage and the complete local gate passed on 2026-08-13; authenticated Owner
+construction remains OPEN.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

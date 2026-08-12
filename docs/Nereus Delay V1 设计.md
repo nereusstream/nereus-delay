@@ -2218,6 +2218,10 @@ blocked 切换、ring rebuild、snapshot restore、direct requeue、terminal unr
 READY replacement 均为 scheduler 包内组合 primitive。包外只保留构造、显式 timed
 poll 和只读 projection；生产 Worker scheduler coordinator 尚未实现前，不允许用这些
 裸方法拼出一条表面可运行但绕过 ownership/readiness authority 的接线路径。
+`PersistentLaneScheduler` 的生产构造还必须显式传入当前 `OwnerIdentityV1`；自动生成
+`embedded-scheduler/ownerEpoch=1` 的二参构造与 `defaults(store)` 只能 scheduler 包内
+和测试 fixture 使用。生产不得用伪 Owner 生成/校验 `ReadyCertificateV1`，否则 scheduler
+projection 虽自洽却不代表当前 Oxia ownership。
 
 一次 discovery 成功只返回本轮新 promote 的 due heads；它不等于 Claim，也不能越过
 Claim materialization、permit、Ready Certificate 或 Publish Admission gate。queue 拒绝

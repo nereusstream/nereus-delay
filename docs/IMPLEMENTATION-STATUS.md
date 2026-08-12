@@ -5388,6 +5388,16 @@ ownership tests plus the full local Gradle gate passed on 2026-08-13, with five
 real-Oxia smoke methods still skipped. A production Worker scheduler
 coordinator remains OPEN and must expose only authority-checked composition.
 
+The embedded-owner `PersistentLaneScheduler(store, delegate)` constructor and
+`defaults(store)` factory are now package-local. They derive a deterministic
+`embedded-scheduler` owner at epoch 1, which is suitable for local scheduler
+fixtures but cannot prove the current Owner Lease or bind production READY
+certificates. Cross-package tests obtain it through a test-only factory; the
+public constructor requires an explicit `OwnerIdentityV1`. Reflection coverage,
+focused runtime/scheduler/ownership tests and the full local Gradle gate passed
+on 2026-08-13; five real-Oxia smokes remained skipped. Actual scheduler Owner
+construction from authenticated lease/session state remains integration work.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
