@@ -1,0 +1,19 @@
+package io.nereusstream.delay.ownership;
+
+import java.util.List;
+import java.util.Objects;
+
+/** Result of one bounded strict owner recovery turn. */
+public record OwnerRecoveryTurn(List<SourceReplayOutcome> outcomes, boolean complete, int turnNumber) {
+    public OwnerRecoveryTurn {
+        outcomes = List.copyOf(Objects.requireNonNull(outcomes, "outcomes"));
+        if (turnNumber < 0 || (complete && turnNumber == 0)) {
+            throw new IllegalArgumentException("invalid recovery turn number");
+        }
+    }
+
+    /** Returns whether the caller must schedule another bounded turn. */
+    public boolean hasMore() {
+        return !complete;
+    }
+}
