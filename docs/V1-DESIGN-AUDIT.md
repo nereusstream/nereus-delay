@@ -203,6 +203,21 @@ branch, and apply/replay compares its typed nested projection to the body.
 Focused Admission/Certificate/Claim/runtime tests plus the full 1232-test local
 suite pass; five real-Oxia smoke methods remain skipped without the endpoint.
 
+After `9240f60`, the local READY-to-Claim handoff is no longer only a documented
+future bridge. `ClaimHandoffWorkClassExecutor` takes an exact scheduler-polled
+head, binds typed materialization/deadline/charge and trusted evidence into a
+bounded `DUE_SCHEDULER` action, and repeats the READY/Message/Timeline/typed
+Lane/Ready-Certificate checks after queue wait. `ClaimExecutionAdmission` proves
+the local Worker/Shard/Lane message-and-byte caps, READY-lane minima and exact
+message-generation reservation identity. Known queue/prerequisite/permit
+deferrals restore the exact head; unexpected failures fence the Owner rather
+than inventing a local retry authority. The focused Claim, permit, scheduler
+and typed-Lane regressions pass, including the legal post-Claim state where a
+READY certificate remains but the consumed physical key and timing projection
+are absent. This closes only the shard-local composition seam; external
+Profile/catalog, Object Store, Adapter serialization/size, channel/credential
+generations, real Oxia authority and Publish Admission/Producer remain open.
+
 The synchronized full local gate after `666f56a` and this documentation update
 passed on 2026-08-12 with 1232 reported
 tests, zero failures/errors and five skipped opt-in real-Oxia methods because

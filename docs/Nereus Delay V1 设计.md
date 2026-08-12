@@ -1562,6 +1562,24 @@ delivery window、current timeline 的 `actionAt` 以及 inline/object payload
 V1 typed Claim API；该绑定仍不替代 Profile/catalog、Adapter 序列化/大小证明或
 Producer ownership。
 
+Claim handoff 必须在 discovery 已经精确 poll 出一个 READY head 后，作为另一个
+有界 `DUE_SCHEDULER` action 完成。action identity 要绑定 shard、Lane/head
+identity、完整 trusted-time evidence、Claim deadline、typed
+`ClaimMaterializationV1` 与 canonical charge；queue wait 结束后必须重新读取
+READY value、Message、Timeline、typed Lane 和 `ReadyCertificateV1`，并再次检查
+Owner/Store/Shard/ownerEpoch。外部 Profile/catalog、payload/object、Adapter
+serialization/target-size、channel/credential generation 等 live prerequisite
+由注入的 authority gate 提供，不能从 shard-local bytes 推断。
+
+通过前置检查后，Claim 才能同时取得 Lane、Shard、Worker 的 logical message/byte
+permit，并调用不含 Producer 的 typed Claim WriteBatch。queue 拒绝、前置条件不可用
+或 permit 不足时，必须精确恢复同一个已 poll 的 READY head 和 scheduler projection；
+任何无法证明尚未发生 Claim 的异常都必须 fence Owner，交给恢复重建，不能制造第二个
+本地 retry authority。Claim WriteBatch 成功消费 READY 后才释放 scheduler 的 retained
+head identity；Claim 成功只表示可逆 reservation，Publish Admission 仍是后续独立的
+Shard Log action。当前实现的 handoff/permit seam 只提供本地可验证组合，不代表真实
+Profile/Object Store/Adapter/channel/Oxia authority 或 Producer/Admission 已接通。
+
 Claim 的纯撤销/超时和 transient pre-send failure 都回到相同 semantic timeline key/work kind/authority/candidate attempt，可更新可重建的 Lane circuit/backoff，不消耗 Publish Admission count，也不把 generation 伪造成 `RETRY_WAIT`；重新插入时 semantic digest 保持一致，必须 checked increment runtime revision 并重算 instance digest，不能 byte-reuse 旧 snapshot token。payload checksum/immutable object loss、deterministic serialization/record-size 等已证明 permanent pre-send 结果若要把 generation 改为 `DEAD_LETTER`，executor 只能准备 exact `CLAIM_RESULT_V1`并等它按 Shard Log Source Position apply。该 mutation 携 Claim precondition、`CLAIM_PERMANENT_FAILURE`、Trusted-UTC 和 charge transfer；它与 Cancel/Reschedule/Expiry/Close 以及同 Claim Admission 排序，callback 不得直写 terminal state。
 V1 中 field 20 的 `ChargeVectorV1 transfer` 必须与 Claim precondition field 12 的 `claimed_charge` 做 canonical byte-equality；它只能释放该 reversible Claim 已冻结的 charge projection，不能由 callback 另行改写 quota。完整 grant policy、外部 charge authority 与 materialization/recovery accounting 仍按本设计的 release boundary 单独完成。
 
@@ -1763,8 +1781,11 @@ Lane activation/credential renewal 先解析 immutable reference，再在一个 
 
 对 typed ACTIVE branch，上述 READY/key 更新必须同时更新 `ActiveLaneStateV1` 的
 `encodedReadyKey`、certificate 及 per-Lane `ChargeVector` projection；READY 必须
-同时具备 key 与 certificate，非 READY 必须清除二者。若当前本地输入无法无损提供
-这些字段，更新应停在 fail-closed，而不是写入一个看似可调度但缺少证明的 Lane。
+保留 certificate；仅当存在当前可调度 work 时才同时具备 key、action/eligibility
+时间投影与 certificate。当前 work 被 Claim/terminalize 消费后，READY 可以暂时只
+保留 certificate，物理 key 与当前时间投影必须清除；非 READY 必须清除 key 与
+certificate。若当前本地输入无法无损提供这些字段，更新应停在 fail-closed，而不是
+写入一个看似可调度但缺少证明的 Lane。
 
 生产 READY discovery 必须读取 typed `ActiveLaneStateV1`，并在 promote head 前把
 `ReadyCertificateV1.owner` byte-equal 绑定到当前 scheduler `OwnerIdentityV1`、把 Store
@@ -1977,6 +1998,11 @@ failure 必须 fence 当前 Owner，并把已开始的 exact WorkClass action �
 process-local evidence；authoritative READY/index 与新的 fenced recovery 才是重建来源，
 不能把内存 failure 当作 durable cursor advancement。Claim/Admission handoff 必须作为
 后续有界 action 单独闭合，不能因为 discovery 已接入就标记完整 publish path 已实现。
+当前 Claim handoff 复用 `DUE_SCHEDULER` 的 bounded action class，但不把 Claim
+伪装成 discovery：它只接受已经 poll 的 exact head，并在 queue wait 后重新验证
+typed READY/certificate、materialization、live prerequisite 与三层 logical permit。
+已知的 queue rejection、prerequisite/permit deferral 会 exact requeue；未知异常
+直接 fence Owner，避免本地 retry 与 Shard Log/恢复 authority 竞争。
 
 ## 13. Destination Profile 与 Adapter
 
