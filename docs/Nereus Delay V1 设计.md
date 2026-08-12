@@ -1686,7 +1686,12 @@ Profile/Object Store/Adapter/channel/Oxia authority 或 Producer/Admission 已�
 `PublishAdmissionWorkClassExecutor`，归入 `OUTCOME_AND_CONTROL` bounded work class。
 它在入队前固定 exact Claim、reservation、descriptor、Ready Certificate、Trusted UTC
 decision evidence 与 canonical `PUBLISH_ADMISSION_V1` body，完成签名并把完整 mutation
-identity 绑定到 task；queue wait 之后再次读取 Oxia owner/ownerEpoch、exact Claim 和
+identity 绑定到 task。在注册 work-class action 前，它必须要求
+`decision_time.earliest >= descriptor.actionAt` 且
+`decision_time.earliest >= ready_certificate.issued_at.latest`，同时保留已有的
+certificate/expire/Claim-deadline/retryUntil 上界检查；决策时间不得早于业务
+action 起点，也不得早于它依赖的 Ready Certificate 签发完成时间。queue
+wait 之后再次读取 Oxia owner/ownerEpoch、exact Claim 和
 注入的 admission prerequisite gate，只有通过后才调用外部
 `ShardLogMutationAppender`。该 appender 是唯一的 Shard Log/Source Position authority；
 本地 executor 不分配 Source Position，也不调用 `DelayShard.applySystemMutation`。

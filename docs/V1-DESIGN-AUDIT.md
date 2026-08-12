@@ -5417,6 +5417,18 @@ passed on 2026-08-13; five real-Oxia smokes were skipped because
 lease/resource continuity, Object Store fetch, Adapter/channel, Producer and
 recovery authority remain OPEN.
 
+The bounded Claim→Admission executor now enforces the missing causal lower
+bounds before action registration. `decision_time.earliest` must be at least
+descriptor `actionAt` and at least `ready_certificate.issued_at.latest`; the
+existing certificate-validity, expiry, Claim-deadline and retry-until upper
+bounds remain unchanged. Focused regressions prove that both an early business
+decision and a decision that predates certificate issuance leave zero queued
+actions and zero Shard Log append calls. Code commit `c568a041` and the complete
+six-task local Gradle gate passed on 2026-08-13; five real-Oxia smokes were
+skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset. The injected
+Profile/payload/channel prerequisite authorities, real Broker append and
+Producer ownership remain OPEN.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

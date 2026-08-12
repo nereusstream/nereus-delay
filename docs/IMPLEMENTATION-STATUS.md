@@ -507,7 +507,10 @@ After `1601053`, the local Claim→`PUBLISH_ADMISSION` handoff has a concrete
 bounded `OUTCOME_AND_CONTROL` executor. `PublishAdmissionWorkClassExecutor`
 prepares and signs the exact canonical mutation before queue admission, binding
 the exact Claim/reservation, descriptor, Ready Certificate, Trusted-UTC evidence
-and task identity. After queue wait it rereads the Oxia owner/ownerEpoch and
+and task identity. Preparation now also requires decision earliest to be no
+earlier than descriptor `actionAt` or certificate `issuedAt.latest`; both
+causality failures are rejected before work-class registration or append
+(`c568a041`). After queue wait it rereads the Oxia owner/ownerEpoch and
 Claim and applies an injected prerequisite gate before calling the external-only
 `ShardLogMutationAppender`. There is no local Source Position allocator and no
 `DelayShard.applySystemMutation` path; a persisted position is checked against
@@ -5626,6 +5629,18 @@ passed on 2026-08-13; five real-Oxia smokes were skipped because
 Schedule-time identity: live Profile/credential/resource availability, Object
 Store fetch, Adapter serialization/channel lease, Producer and recovery
 authority remain OPEN.
+
+Publish Admission preparation now enforces both lower time bounds that precede
+its existing expiry/certificate/deadline upper bounds. A decision interval
+whose earliest instant is before descriptor `actionAt`, or before the depended-on
+Ready Certificate finished issuance, is rejected synchronously before a
+work-class action exists and before `ShardLogMutationAppender` can run.
+`PublishAdmissionWorkClassExecutorTest` proves zero registered actions and zero
+append calls for both cases. Code commit `c568a041` and the complete six-task
+local Gradle gate passed on 2026-08-13; five real-Oxia smokes were skipped
+because `NEREUS_DELAY_OXIA_ENDPOINT` was unset. Profile/payload/channel
+prerequisite implementations, real Broker append and Producer ownership remain
+OPEN.
 
 ## Verification command
 
