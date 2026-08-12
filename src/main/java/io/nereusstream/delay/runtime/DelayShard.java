@@ -6584,7 +6584,7 @@ public final class DelayShard {
      *
      * @return number of schedulable lanes that received a READY key
      */
-    public synchronized int rebuildReadyIndexes() {
+    synchronized int rebuildReadyIndexes() {
         final int laneLimit = boundedLimitPlusOne(config.maxLanes());
         final List<io.nereusstream.delay.store.ShardStore.KeyValue> laneEntries = store.scan(ColumnFamily.META,
                 new byte[]{2, 1}, new byte[]{3, 1}, laneLimit);

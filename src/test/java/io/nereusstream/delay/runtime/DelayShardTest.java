@@ -120,7 +120,8 @@ class DelayShardTest {
     void physicalGcMutationPrimitivesAreNotPublicProductionApis() {
         final java.util.Set<String> expected = java.util.Set.of(
                 "retireMessageIdentity", "compactRetiredMessageIdentity",
-                "compactResourceDeleteConfirmation", "retireLaneWithTerminalGuard");
+                "compactResourceDeleteConfirmation", "retireLaneWithTerminalGuard",
+                "rebuildReadyIndexes");
         final java.util.Set<String> found = new java.util.HashSet<>();
         for (var method : DelayShard.class.getDeclaredMethods()) {
             if (expected.contains(method.getName())) {
