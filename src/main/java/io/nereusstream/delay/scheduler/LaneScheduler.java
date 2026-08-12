@@ -86,7 +86,7 @@ public final class LaneScheduler {
         lane.queue.addLast(item);
     }
 
-    public synchronized List<ScheduleWorkItem> poll(final SchedulerBudget budget) {
+    synchronized List<ScheduleWorkItem> poll(final SchedulerBudget budget) {
         Objects.requireNonNull(budget, "budget");
         // The legacy overload intentionally keeps its historical unbounded
         // eligibility behavior.  Production callers must use the overload
