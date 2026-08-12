@@ -178,6 +178,22 @@ does not claim a real Kafka/Pulsar consumer, Broker commit/rewind, pinned
 resource/session authority or dynamic production WriteBatch/IO admission;
 those release gates remain OPEN.
 
+After `a49b19a`, the independent expiry path has the corresponding local
+`EXPIRY` work-class handoff. `ExpiryWorkClassExecutor` accepts one candidate
+already validated by the durable `timeline_cf/EXPIRY` discovery boundary,
+prepares and signs the exact `EXPIRE_GENERATION_V1` body before queue
+admission, and binds task identity/bytes to that exact mutation. It performs
+no local expiry apply and never allocates a Source Position; after queue wait
+it rereads the strict Owner Lease, shard identity and Trusted-UTC boundary,
+then calls only `ShardLogMutationAppender`. Persisted append positions are
+checked against the active source barrier, definite non-persistence and
+unknown remain distinct, and append/runtime failure fences the local Owner.
+`ExpiryWorkClassExecutorTest` covers persisted, definite, unknown, queue
+rejection and failure/fencing outcomes, proving the queue boundary is
+side-effect free. This closes only the local candidate-to-log composition
+seam; production expiry scanner scheduling, Broker append/ACK, Oxia/clock
+authority and source-ordered `EXPIRE_GENERATION` apply remain release gates.
+
 After `3ba6fb6`, persistent READY discovery is also behind a concrete
 `DUE_SCHEDULER` action. The task identity binds the exact Shard, canonical
 trusted-UTC evidence and all scan-budget fields; its charge reserves canonical

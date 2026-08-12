@@ -245,6 +245,22 @@ adapter/composition boundary only: real Kafka/Pulsar Fetch/ACK/commit,
 rewind, pinned resource/session authority and dynamic production IO admission
 remain release blockers.
 
+After `a49b19a`, the durable `timeline_cf/EXPIRY` candidate has a matching
+bounded local handoff in `ExpiryWorkClassExecutor`. The caller supplies one
+candidate from `DelayShard.discoverExpiry` plus the certified UTC interval;
+the executor prepares and signs the exact `EXPIRE_GENERATION_V1` mutation
+before queue admission, charges the encoded mutation frame, and performs no
+local state transition or Source Position allocation. Execution rereads the
+strict Owner Lease/assignment fence and calls only the external
+`ShardLogMutationAppender`. A persisted append must carry a matching source
+position; definite non-persistence and unknown append outcomes retain the
+exact mutation distinction, while an append exception fences the local Owner.
+`ExpiryWorkClassExecutorTest` covers persisted, definite, unknown, queue
+rejection and failure/fencing branches, including proof that queue rejection
+does not consume the expiry projection. This is the shard-local handoff seam;
+production expiry scanning/Trusted-Time issuance, Broker append/ACK, Oxia
+authority and source-ordered replay remain release blockers.
+
 After `3ba6fb6`, persistent READY discovery has a concrete active-owner
 `DUE_SCHEDULER` entrypoint. `DueSchedulerWorkClassExecutor` binds the exact
 Shard, canonical trusted-UTC evidence and complete scan budget into the task
