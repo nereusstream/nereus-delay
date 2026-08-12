@@ -4187,6 +4187,22 @@ real-Oxia methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was
 unset; this is local regression evidence only, not real-service or release
 evidence.
 
+The single-record Oxia Recovery Catalog now bounds manifest-resource entries
+as well as manifests during both snapshot encoding and decoding. Encoding
+also rejects duplicate resource identities or a resource whose checkpoint,
+lineage or manifest hash does not match a published manifest;
+`OxiaSyncRecoveryCatalogBackendTest.rejectsResourceCountAboveBoundBeforeEncodingSnapshot`
+covers the oversized input. This closes only the local catalog snapshot
+serialization boundary; Object Store publication and upload-intent/catalog
+transaction gates remain open.
+
+After this catalog resource-bound change, the focused
+`OxiaSyncRecoveryCatalogBackendTest` run and the full
+`./gradlew clean check --rerun-tasks --console=plain` gate passed on
+2026-08-12 (`BUILD SUCCESSFUL`, five executed tasks). The five opt-in
+real-Oxia methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was
+unset; this is local regression evidence only, not release evidence.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

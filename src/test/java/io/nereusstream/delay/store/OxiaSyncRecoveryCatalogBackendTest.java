@@ -1,8 +1,11 @@
 package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.CheckpointResourceV1;
 import io.nereusstream.delay.protocol.EvidenceCursorV1;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
+import io.nereusstream.delay.protocol.ProfileKindV1;
+import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.RecoveryCandidateKindV1;
 import io.nereusstream.delay.protocol.RecoveryCandidateRefV1;
 import io.nereusstream.delay.protocol.RecoveryInstallPhaseV1;
@@ -157,6 +160,26 @@ class OxiaSyncRecoveryCatalogBackendTest {
         final CheckpointManifest manifest = manifest(shard, id16(40), id16(41), 0, 1, 1, null);
         final RecoveryCatalog.Snapshot snapshot = new RecoveryCatalog.Snapshot(
                 1, shard, java.util.Collections.nCopies(100_001, manifest), Map.of(), null, null, null);
+
+        assertThrows(IllegalStateException.class,
+                () -> OxiaSyncRecoveryCatalogBackend.encodeSnapshot(snapshot));
+    }
+
+    @Test
+    void rejectsResourceCountAboveBoundBeforeEncodingSnapshot() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 17);
+        final CheckpointManifest manifest = manifest(shard, id16(42), id16(43), 0, 1, 1, null);
+        final ProfileRefV1 profile = new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, id32(44),
+                ProfileKindV1.OBJECT_STORE);
+        final CheckpointResourceV1 resource = new CheckpointResourceV1(manifest.recoveryLineageId(),
+                manifest.checkpointId(), profile, Bytes.utf8("bucket"), Bytes.utf8("manifest"),
+                Bytes.utf8("version"), manifest.canonicalJsonBytes().length, manifest.manifestSha256());
+        final Map<String, CheckpointResourceV1> resources = new HashMap<>();
+        for (int index = 0; index <= 100_000; index++) {
+            resources.put("resource-" + index, resource);
+        }
+        final RecoveryCatalog.Snapshot snapshot = new RecoveryCatalog.Snapshot(
+                1, shard, java.util.List.of(manifest), resources, null, null, null);
 
         assertThrows(IllegalStateException.class,
                 () -> OxiaSyncRecoveryCatalogBackend.encodeSnapshot(snapshot));

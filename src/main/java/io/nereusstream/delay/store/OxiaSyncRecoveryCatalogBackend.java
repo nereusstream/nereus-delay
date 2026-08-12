@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -257,6 +258,9 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
                     manifests.add(manifest);
                 }
                 case 5 -> {
+                    if (resources.size() >= MAX_MANIFESTS) {
+                        throw new IllegalArgumentException("Oxia catalog resource count exceeds bound");
+                    }
                     final CheckpointResourceV1 resource = CheckpointResourceV1.decode(bytes(field, 5));
                     manifestLimits.validateResource(resource);
                     final String checkpointKey = Bytes.hex(resource.checkpointId());
@@ -294,12 +298,29 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
         if (snapshot.manifests().size() > MAX_MANIFESTS) {
             throw new IllegalStateException("Oxia catalog manifest count exceeds bound");
         }
+        if (snapshot.manifestResources().size() > MAX_MANIFESTS) {
+            throw new IllegalStateException("Oxia catalog resource count exceeds bound");
+        }
         final List<CheckpointManifest> manifests = snapshot.manifests().stream()
                 .sorted(Comparator.comparing(manifest -> Bytes.hex(manifest.checkpointId())))
                 .toList();
         final List<CheckpointResourceV1> resources = snapshot.manifestResources().values().stream()
                 .sorted(Comparator.comparing(resource -> Bytes.hex(resource.checkpointId())))
                 .toList();
+        final Map<String, CheckpointManifest> manifestsById = new HashMap<>();
+        for (CheckpointManifest manifest : manifests) {
+            manifestsById.put(Bytes.hex(manifest.checkpointId()), manifest);
+        }
+        final HashSet<String> resourceIds = new HashSet<>();
+        for (CheckpointResourceV1 resource : resources) {
+            final String checkpointId = Bytes.hex(resource.checkpointId());
+            final CheckpointManifest manifest = manifestsById.get(checkpointId);
+            if (!resourceIds.add(checkpointId) || manifest == null
+                    || !Bytes.constantTimeEquals(resource.recoveryLineageId(), manifest.recoveryLineageId())
+                    || !Bytes.constantTimeEquals(resource.manifestSha256(), manifest.manifestSha256())) {
+                throw new IllegalStateException("Oxia catalog resource identity does not match a manifest");
+            }
+        }
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, SNAPSHOT_VERSION);
             CanonicalProtobuf.uint64Bits(output, 2, snapshot.catalogGeneration());

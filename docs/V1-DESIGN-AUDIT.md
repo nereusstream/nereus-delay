@@ -3928,6 +3928,21 @@ full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
 methods were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is
 local regression evidence, not release evidence.
 
+The single-record Recovery Catalog snapshot now applies the manifest-resource
+count bound in both directions and validates each encoded resource against a
+published manifest's checkpoint, lineage and manifest hash. Duplicate or
+orphan resource identities fail before bytes are emitted; the focused
+regression is
+`OxiaSyncRecoveryCatalogBackendTest.rejectsResourceCountAboveBoundBeforeEncodingSnapshot`.
+This is local snapshot integrity evidence only, not Object Store or
+upload-intent/catalog transaction evidence.
+
+After this catalog resource-bound change, the focused catalog backend test and
+the full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
+2026-08-12 (`BUILD SUCCESSFUL`, five executed tasks). The five opt-in real-Oxia
+methods were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is
+local regression evidence, not release evidence.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
