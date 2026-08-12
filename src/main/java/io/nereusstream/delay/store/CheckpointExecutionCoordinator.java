@@ -48,8 +48,8 @@ public final class CheckpointExecutionCoordinator {
      * bounded {@code CHECKPOINT} queue; {@link #execute} repeats the same
      * checks after any queue wait.
      */
-    public void requireCurrentExecution(final CheckpointScheduler.ScheduledCheckpoint claim,
-                                        final CheckpointUploadIntentV1 pending) {
+    void requireCurrentExecution(final CheckpointScheduler.ScheduledCheckpoint claim,
+                                 final CheckpointUploadIntentV1 pending) {
         scheduler.requireCurrentClaim(Objects.requireNonNull(claim, "claim"));
         validatePendingIdentity(Objects.requireNonNull(pending, "pending"), claim);
     }
@@ -60,13 +60,13 @@ public final class CheckpointExecutionCoordinator {
      * proven, the scheduler deliberately retains the in-flight claim and the
      * failure is propagated.
      */
-    public ExecutionResult execute(final CheckpointScheduler.ScheduledCheckpoint claim,
-                                   final Path checkpointDirectory,
-                                   final CheckpointUploadIntentV1 pending,
-                                   final CheckpointManifestFactory manifestFactory,
-                                   final long uploadNowEpochMs,
-                                   final LongSupplier completionClock,
-                                   final CheckpointUploadAdapter adapter) {
+    ExecutionResult execute(final CheckpointScheduler.ScheduledCheckpoint claim,
+                            final Path checkpointDirectory,
+                            final CheckpointUploadIntentV1 pending,
+                            final CheckpointManifestFactory manifestFactory,
+                            final long uploadNowEpochMs,
+                            final LongSupplier completionClock,
+                            final CheckpointUploadAdapter adapter) {
         Objects.requireNonNull(claim, "claim");
         Objects.requireNonNull(checkpointDirectory, "checkpointDirectory");
         Objects.requireNonNull(pending, "pending");
