@@ -66,6 +66,13 @@ covers complete-class validation, `CHECKPOINT` dispatch and failure cleanup;
 actual shard-specific handlers, dynamic WriteBatch attribution and external
 Worker authority remain release gates.
 
+After `2f78bd9`, the full `GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle
+./gradlew clean check --rerun-tasks --console=plain` gate completed with 1213
+reported test cases, zero failures/errors, and five skipped real-Oxia methods
+because the endpoint was unset. This includes the dispatcher regression and
+the complete repository check; skipped external evidence remains a release
+gap.
+
 The Oxia transaction question was checked against the locked source and the
 Gradle-resolved `oxia-client:0.9.0` API.  Its public `SyncOxiaClient` and
 `AsyncOxiaClient` expose one-key `put`/CAS operations only.  The internal

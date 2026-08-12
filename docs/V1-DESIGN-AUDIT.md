@@ -88,6 +88,12 @@ rejection, `CHECKPOINT` routing and handler-failure cleanup. This is a local
 composition boundary; it does not claim shard-specific WriteBatch/IO or
 external Worker authority.
 
+After `2f78bd9`, the complete local `clean check --rerun-tasks` gate reported
+1213 test cases with zero failures/errors; five real-Oxia methods were skipped
+because the endpoint was unset. The dispatcher tests are included in this
+gate, which is local regression evidence only and not a production Worker or
+external-service PASS.
+
 After `c4391ca`, checkpoint restore admission covers the complete local
 download-to-install interval: `CheckpointRestoreCoordinator` acquires a
 Worker-wide idempotent permit before provider I/O, and the same permit remains
