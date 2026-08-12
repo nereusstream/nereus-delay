@@ -46,7 +46,7 @@ public final class OwnerDrainCoordinator {
      */
     OwnerDrainCoordinator(final OwnedDelayShard ownedShard, final ShardStore store,
                           final SharedRocksDbResources resources, final OxiaOwnerLeaseStore authority) {
-        this(ownedShard, store, resources, authority, null);
+        this(ownedShard, store, resources, authority, null, true);
     }
 
     /**
@@ -56,15 +56,31 @@ public final class OwnerDrainCoordinator {
     public OwnerDrainCoordinator(final OwnedDelayShard ownedShard, final ShardStore store,
                                  final SharedRocksDbResources resources, final OxiaOwnerLeaseStore authority,
                                  final WorkClassExecutionRegistry workClasses) {
+        this(ownedShard, store, resources, authority,
+                Objects.requireNonNull(workClasses, "workClasses"), false);
+    }
+
+    private OwnerDrainCoordinator(final OwnedDelayShard ownedShard, final ShardStore store,
+                                  final SharedRocksDbResources resources,
+                                  final OxiaOwnerLeaseStore authority,
+                                  final WorkClassExecutionRegistry workClasses,
+                                  final boolean compatibilityWithoutWorkClasses) {
         this.ownedShard = Objects.requireNonNull(ownedShard, "ownedShard");
         this.store = Objects.requireNonNull(store, "store");
         this.resources = Objects.requireNonNull(resources, "resources");
         this.authority = Objects.requireNonNull(authority, "authority");
+        if (!compatibilityWithoutWorkClasses && workClasses == null) {
+            throw new NullPointerException("workClasses");
+        }
         this.workClasses = workClasses;
         this.checkpointExecutor = workClasses == null ? null
                 : new CheckpointDrainWorkClassExecutor(workClasses, store);
         if (!ownedShard.shard().shardId().equals(store.shardId())) {
             throw new IllegalArgumentException("owned shard and Store belong to different shards");
+        }
+        if (!Bytes.constantTimeEquals(ownedShard.shard().storeIncarnation(),
+                store.metadata().storeIncarnation())) {
+            throw new IllegalArgumentException("owned shard and Store belong to different Store incarnations");
         }
         if (store.sharedResources() != resources) {
             throw new IllegalArgumentException("drain resources are not the Store resource envelope");

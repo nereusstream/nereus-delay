@@ -45,6 +45,29 @@ class OwnerDrainCoordinatorTest {
     Path tempDir;
 
     @Test
+    void constructorRejectsAnotherStoreIncarnationForTheSameShard() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 70);
+        final ShardStoreConfig firstConfig = ShardStoreConfig.defaults(tempDir.resolve("drain-first-store"));
+        final ShardStoreConfig secondConfig = ShardStoreConfig.defaults(tempDir.resolve("drain-second-store"));
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease acquired = backend.acquire(shardId, "worker-drain-store-fence", 100, 500)
+                .orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        try (SharedRocksDbResources firstResources = new SharedRocksDbResources(firstConfig);
+             SharedRocksDbResources secondResources = new SharedRocksDbResources(secondConfig);
+             ShardStore firstStore = ShardStore.open(firstConfig, shardId, firstResources);
+             ShardStore secondStore = ShardStore.open(secondConfig, shardId, secondResources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(
+                    new DelayShard(firstStore, DelayShardConfig.defaults()), acquired);
+
+            assertThrows(IllegalArgumentException.class, () -> new OwnerDrainCoordinator(
+                    owned, secondStore, secondResources, authority, workClasses(1)));
+            assertFalse(secondStore.isCloseStarted());
+            assertTrue(backend.current(shardId).isPresent());
+        }
+    }
+
+    @Test
     void drainStopsAdmissionFlushesCheckpointsClosesAndReleasesLease() throws Exception {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 46);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("drain"));
@@ -57,6 +80,8 @@ class OwnerDrainCoordinatorTest {
             final ShardStore store = ShardStore.open(config, shardId, resources);
             final OwnedDelayShard owned = activeOwnedShard(store, acquired, authority, shardId);
             final AtomicInteger stopCalls = new AtomicInteger();
+            assertThrows(NullPointerException.class,
+                    () -> new OwnerDrainCoordinator(owned, store, resources, authority, null));
             final OwnerDrainCoordinator coordinator = new OwnerDrainCoordinator(owned, store, resources,
                     authority, workClasses(1));
 
