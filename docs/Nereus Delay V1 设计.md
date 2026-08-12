@@ -2682,6 +2682,14 @@ AND RecoveryFloor.includedMutationSequence >= r within that lineage
    Java signed high-bit 值不能被当作非法负数，shard DB 重开后必须恢复同一
    generation 并继续执行 exact Floor 校验。
 3. 否则下载 newest permitted pinned checkpoint 到 `restore-tmp/<checkpointId>-<nonce>/db`，验证 canonical manifest/ancestry/object/file checksum、DB/shard/route、`sourceStoreIncarnation`、store format 和 source/evidence retention；打开 staged DB 后必须把 `meta_cf/FIXED` key 10 中已有的 `CompatibleControlSnapshotV1.snapshotDigest` 与 manifest 的 `controlStateDigest` 做 exact 校验，并把 `meta_cf/RECOVERY` 中已有的 lineage/base（`recoveryLineageId`、`checkpointId`、`manifestSha256`，以及 `LOCAL_STORE` 的 Store Incarnation）、last-observed Floor lineage 与 install-state checkpoint identity 同 manifest 的 recovery lineage/checkpoint 做 exact 校验，且 install-state 必须同时与 lineage/base 一致，拒绝把合法 DB 文件与另一条本地 recovery projection 拼接。V1 生产路径若缺少 key 10，不能证明完整 control prerequisite；仅为旧本地 DB 保留的兼容 seam 不得进入 `ACTIVE_FOR_COMMANDS`。
+   本地/测试 `FilesystemCheckpointDownloadAdapter` 接受已经由 Catalog 绑定的
+   `(CheckpointManifest, CheckpointResourceV1)`，先读取并验证 manifest object 的
+   canonical bytes、length 和 SHA-256，再按 manifest 中每个 opaque object key/version
+   流式下载文件到私有临时目录，重新 inventory 全部文件并逐项比较 length/checksum，
+   最后才以 atomic rename 发布目标目录。对象、manifest、目标路径中的符号链接、
+   traversal、现有目标目录、对象漂移或不完整文件集都必须 fail closed；失败只能清理
+   本次创建的临时目录。它只是本地 provider/download 证据，不能替代生产 Object Store
+   credentials、quiescence/attestation、RecoveryPin/Oxia transaction 或 Source Log replay。
 4. 生成全新 Store Incarnation，rename temp 到 `incarnations/<newStoreIncarnation>`；install-mode open，WAL-sync 写入新的 Store Incarnation、current Owner open metadata 和 unclean marker，再 close。
 5. 在替换 `ACTIVE` 前重读 exact pin/Floor/catalog/retention；Floor 已越过 candidate、session-bound pin 消失或 lineage 改变则关闭并丢弃安装、再重新选择。否则 fsync parent，写/fsync `ACTIVE.tmp`，atomic rename、fsync shard parent并 normal open。
 6. 按 Adapter successor seek/replay完整 Shard Log；普通 reversible `CLAIMED` 恢复为相同 semantic timeline work/authority/candidate attempt与 semantic digest、checked increment runtime revision/instance digest，并原样保留旧 attempt obligation set/aggregate projection（所以可能仍是 `UNCERTAIN`）；Close-overlay owned Claim 只续跑 materializer。合法 Admission 先确定性恢复 `PUBLISHING`，无 live first-send gate 的旧 owner attempt 再追加 exact recovery `UNKNOWN` Outcome，各 Lane 标记 `RECOVERING_EVIDENCE`。

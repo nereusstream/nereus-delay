@@ -51,6 +51,16 @@ ordering only; it does not change the audit result for remote credentials,
 provider quiescence/attestation/deletion, Owner Lease/session, cross-record
 Upload Intent/Catalog transaction or real Object Store conformance.
 
+After `4b1c2b0`, the matching local download boundary is explicit:
+`FilesystemCheckpointDownloadAdapter` validates the catalog-bound manifest
+object/resource identity, streams every immutable object into a private
+temporary tree, re-inventories the complete tree, and publishes the requested
+directory only after an atomic rename. Corrupt objects, path/symlink attacks and
+existing targets fail closed without leaving a partial restore tree. This closes
+the local provider-to-restore physical ordering gap only; it does not change the
+open gates for remote Object Store authority, RecoveryPin/Oxia transactions,
+source replay or real-service conformance.
+
 After `6efd89f`, the local checkpoint execution boundary is explicit rather
 than implicit: `CheckpointExecutionCoordinator` requires the exact scheduler
 claim before filesystem/provider I/O, creates or safely reuses the fixed-ID
