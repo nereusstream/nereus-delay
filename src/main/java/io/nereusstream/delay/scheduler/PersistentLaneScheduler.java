@@ -8,6 +8,7 @@ import io.nereusstream.delay.protocol.LaneRecordEnvelopeV1;
 import io.nereusstream.delay.protocol.OwnerIdentityV1;
 import io.nereusstream.delay.protocol.ReadyCertificateV1;
 import io.nereusstream.delay.protocol.SchedulerProjectionsV1;
+import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.runtime.AdmissionGate;
 import io.nereusstream.delay.runtime.LaneRecord;
@@ -82,6 +83,16 @@ public final class PersistentLaneScheduler {
 
     public static PersistentLaneScheduler defaults(final ShardStore store) {
         return new PersistentLaneScheduler(store, LaneScheduler.defaults());
+    }
+
+    /** Returns the physical shard whose READY and fairness projections this scheduler owns. */
+    public ShardId shardId() {
+        return store.shardId();
+    }
+
+    /** Returns the immutable Owner identity persisted in SchedulerRoundV1. */
+    public OwnerIdentityV1 ownerIdentity() {
+        return owner;
     }
 
     public synchronized void register(final LaneRecord lane) {

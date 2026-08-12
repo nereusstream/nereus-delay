@@ -6,10 +6,14 @@ import io.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
 import io.nereusstream.delay.protocol.PulsarActivationBarrier;
 import io.nereusstream.delay.protocol.SourceActivationBarrier;
 import io.nereusstream.delay.protocol.SourcePosition;
+import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.runtime.SystemMutationResult;
 import io.nereusstream.delay.runtime.CommandResult;
 import io.nereusstream.delay.runtime.DelayShard;
+import io.nereusstream.delay.scheduler.PersistentLaneScheduler;
+import io.nereusstream.delay.scheduler.ScheduleWorkItem;
+import io.nereusstream.delay.scheduler.SchedulerBudget;
 import io.nereusstream.delay.store.ShardStore;
 
 import java.util.ArrayList;
@@ -191,6 +195,49 @@ public final class OwnedDelayShard {
         try {
             return SourceReplayOutcome.systemMutation(position,
                     replaySystemMutationResultAt(position, applied));
+        } catch (RuntimeException | Error failure) {
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        }
+    }
+
+    /**
+     * Pure local preflight for one bounded READY-discovery action.  It reads
+     * neither Oxia nor RocksDB, so a rejected {@code DUE_SCHEDULER} queue
+     * admission cannot advance the durable discovery cursor or the Lane ring.
+     */
+    synchronized void requireDueSchedulerSubmission(final OxiaOwnerLeaseStore authority,
+                                                     final PersistentLaneScheduler scheduler) {
+        requireStrictActiveAuthority(authority);
+        if (state != ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
+            throw new IllegalStateException("due scheduler discovery requires an active shard");
+        }
+        if (!lease.shardId().equals(Objects.requireNonNull(scheduler, "scheduler").shardId())) {
+            throw new IllegalArgumentException("due scheduler belongs to a different shard");
+        }
+        if (scheduler.ownerIdentity().ownerEpoch() != lease.ownerEpoch()) {
+            throw new IllegalArgumentException("due scheduler belongs to a different owner epoch");
+        }
+    }
+
+    /**
+     * Runs one bounded persistent READY discovery after an execution-time
+     * Owner Lease/session reread.  Any malformed READY projection, scheduler
+     * persistence failure or authority failure stops this owner so recovery
+     * can rebuild the index while fenced.
+     */
+    synchronized List<ScheduleWorkItem> discoverReadyAuthoritativelyStrict(
+            final OxiaOwnerLeaseStore authority,
+            final PersistentLaneScheduler scheduler,
+            final TrustedUtcIntervalEvidence evidence,
+            final SchedulerBudget budget,
+            final LongSupplier clock) {
+        requireDueSchedulerSubmission(authority, scheduler);
+        final long nowEpochMs = readActiveWorkClock(clock, "due scheduler");
+        ensureAuthoritativeActive(authority, nowEpochMs, "due scheduler discovery");
+        try {
+            return scheduler.discoverReady(Objects.requireNonNull(evidence, "trusted UTC evidence")
+                    .earliestEpochMs(), Objects.requireNonNull(budget, "scheduler budget"));
         } catch (RuntimeException | Error failure) {
             state = ShardLifecycleState.FENCED;
             throw failure;
@@ -837,10 +884,14 @@ public final class OwnedDelayShard {
     }
 
     private long readActiveSourceClock(final LongSupplier clock) {
+        return readActiveWorkClock(clock, "source apply");
+    }
+
+    private long readActiveWorkClock(final LongSupplier clock, final String operation) {
         try {
-            final long nowEpochMs = Objects.requireNonNull(clock, "source apply clock").getAsLong();
+            final long nowEpochMs = Objects.requireNonNull(clock, operation + " clock").getAsLong();
             if (nowEpochMs < 0) {
-                throw new IllegalArgumentException("source apply clock returned a negative time");
+                throw new IllegalArgumentException(operation + " clock returned a negative time");
             }
             return nowEpochMs;
         } catch (RuntimeException | Error failure) {
@@ -1228,7 +1279,13 @@ public final class OwnedDelayShard {
     }
 
     private void ensureAuthoritativeActive(final OxiaOwnerLeaseStore authority, final long nowEpochMs) {
+        ensureAuthoritativeActive(authority, nowEpochMs, "command apply");
+    }
+
+    private void ensureAuthoritativeActive(final OxiaOwnerLeaseStore authority, final long nowEpochMs,
+                                           final String operation) {
         Objects.requireNonNull(authority, "authority");
+        Objects.requireNonNull(operation, "operation");
         ensureActive(nowEpochMs);
         try {
             final OwnerLease observed = authority.current(lease.shardId()).orElse(null);
@@ -1236,11 +1293,11 @@ public final class OwnedDelayShard {
                     || observed.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
                     || !observed.validAt(nowEpochMs)) {
                 state = ShardLifecycleState.FENCED;
-                throw new IllegalStateException("authoritative owner lease changed before command apply");
+                throw new IllegalStateException("authoritative owner lease changed before " + operation);
             }
             if (observed.expiresAtEpochMs() < lease.expiresAtEpochMs()) {
                 state = ShardLifecycleState.FENCED;
-                throw new IllegalStateException("authoritative owner lease expiry regressed before command apply");
+                throw new IllegalStateException("authoritative owner lease expiry regressed before " + operation);
             }
             if (observed.expiresAtEpochMs() > lease.expiresAtEpochMs()) {
                 lease = observed;
