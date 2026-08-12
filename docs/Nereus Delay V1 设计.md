@@ -2029,6 +2029,19 @@ fatal/hold stop 后从未开始的 trailing action 保持 `QUEUED`，并与 Even
 authority；进程丢失后必须从 shard/source/checkpoint 的权威索引重建，不得把
 内存中的 `FAILED` 当成唯一恢复来源。
 
+同一个进程内 Worker 的 execution graph 还必须与物理资源 graph 一一对应。exact
+`SharedRocksDbResources` 只能绑定一个 `WorkClassExecutionRegistry`，而一个 registry 的
+`STORE_RESOURCE_ENVELOPE` 也只能绑定该 exact resources 实例；Owner-side 的全部
+work-class executor，以及 scheduled checkpoint、restore 和 final-drain checkpoint 的
+生产构造入口，都必须在构造时经 Store/coordinator 回溯并建立该双向 identity fence。
+Claim 与 target physical admission 同样必须双向绑定：一个 exact
+`ClaimExecutionAdmission` 或 `DestinationPhysicalAdmission` 不能再被第二个 registry
+接受。任何误配必须在 action registration、queue admission、Store/provider I/O 或
+transport charge 前失败，不能通过为同一资源 authority 创建多套 registry 放大 queue
+records/bytes、权重或公平份额。这里证明的是同一资源对象图内部不可分叉；生产
+bootstrap 仍必须创建唯一 Worker 根图，它不等于 JVM 内全局 singleton、Oxia capacity
+authority、动态 I/O admission 或集群级 placement 证明。
+
 Worker 外层 bounded poll 也必须是一个完整的进程内 mutation boundary：它除了外层
 ring、cursor、Shard deficit、last-served、round generation 与 recovery-first-pass
 集合，还必须保存每个已注册 shard 的 inner cursor、inner deficit 和 inner round
@@ -2297,6 +2310,8 @@ typed READY/certificate、materialization、live prerequisite 与三层 logical 
 `ClaimExecutionAdmission` 实例；该 Worker 上所有 Shard 的 Claim handoff 和
 Publish Admission handoff 必须共享该实例。不得为每个 executor/shard 另行
 new 一个带完整 Worker max 的 permit pool，从而把 Worker cap 放大成 N 倍。
+该 exact permit pool 也只能反向绑定这一个 registry；把同一 pool 传给第二个 registry
+必须在 executor 构造时 fail closed，不能只依赖 registry 到 pool 的单向检查。
 Publish Admission 提交时还必须验证 `Reservation` 由该 exact pool 创建；
 仅 Message/Generation/Lane 字段相同不足以证明容量归属。这只是进程内
 Worker 组合不变量，不等于 Oxia capacity grant 或生产动态 I/O authority。
@@ -2451,6 +2466,8 @@ Adapter executor。该 registry 的 `DESTINATION_PHYSICAL_ADMISSION` singleton k
 共享它。不得为每个 Lane/adapter 另建一个带完整 Worker max 的 physical
 pool，从而放大 Worker request/byte cap。不携 Worker registry 的构造只能是
 `adapter` 包内算法/测试 seam，不能成为跨包生产入口。
+该 physical pool 也只能反向绑定这一个 registry；把同一 pool 接到第二套 queue graph
+必须在 adapter 构造时、transport invocation 和 physical charge 之前拒绝。
 
   Close gate 必须把“是否接受一次同步 transport invocation”与 close 请求放在同一个线性化边界内；禁止先独立读取 closed 标志、再在 gate 外调用 transport 的 check-then-call 竞态。已经在线性化点前接受的 invocation 可以在 close 请求后完成并按 UNKNOWN/physical charge 规则收敛，但 close 线性化后不得再开始新的 transport invocation。该 gate 不得为了同步 transport 而长期持有 adapter monitor；阻塞调用仍必须运行在 Lane-bounded Adapter executor。
 

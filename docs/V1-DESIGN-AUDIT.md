@@ -5250,6 +5250,26 @@ gate passed on 2026-08-13; five real-Oxia smokes were skipped. Production
 executor sizing, Producer/channel evidence, Oxia capacity and benchmarks remain
 OPEN.
 
+Worker execution and physical resource composition are now identity-bound in
+both directions. Every owner-side work-class executor and the scheduled,
+restore and final-drain checkpoint executors trace through their exact Store or
+coordinator and bind its `SharedRocksDbResources` to the supplied
+`WorkClassExecutionRegistry`. One resources object graph rejects a second
+registry, and one registry rejects a second Store resource envelope before
+queue admission or I/O. `ClaimExecutionAdmission` and
+`DestinationPhysicalAdmission` also reject reuse by a second registry, closing
+the reverse direction that registry-only singleton checks did not cover.
+`SharedRocksDbResourcesTest`,
+`WorkClassExecutionRegistryTest.oneClaimAdmissionPoolCannotMultiplyCapacityAcrossWorkerRegistries`
+and
+`BoundedDestinationPublishAdapterTest.onePhysicalAdmissionPoolCannotMultiplyCapacityAcrossWorkerRegistries`
+cover both directions. Code commit `52ba3091` and the complete six-task local
+Gradle gate passed on 2026-08-13; five real-Oxia smokes were skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was unset. This proves an existing object graph
+cannot fork its queue/resource authorities; production bootstrap uniqueness,
+JVM-wide root construction, dynamic I/O authority and external capacity remain
+OPEN.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
