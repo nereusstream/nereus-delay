@@ -228,6 +228,29 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void strictCatchupAcceptsOnlyAnExactResponseLossReread() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 183);
+        final UUID topic = UUID.randomUUID();
+        final SourceAssignment assignment = new SourceAssignment(shardId,
+                Bytes.sha256(Bytes.utf8("strict-catchup-response-loss-assignment")), 8,
+                new KafkaActivationBarrier(shardId, "strict-catchup-response-loss-cluster", topic, 0));
+        final ResponseLossTransitionBackend backend = new ResponseLossTransitionBackend();
+        final OwnerLease lease = backend.acquire(assignment, "worker-strict-catchup-response-loss",
+                Bytes.sha256(Bytes.utf8("strict-catchup-response-loss-session")), 100, 100).orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("strict-catchup-response-loss"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+
+            owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
+
+            assertEquals(ShardLifecycleState.CATCHING_UP, owned.state());
+            assertEquals(ShardLifecycleState.CATCHING_UP, authority.current(shardId).orElseThrow().state());
+        }
+    }
+
+    @Test
     void strictCatchupRejectsAContextlessLeaseBeforeChangingAuthority() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 182);
         final UUID topic = UUID.randomUUID();
@@ -1298,6 +1321,45 @@ class OwnerLeaseTest {
         @Override
         public Optional<OwnerLease> transition(final OwnerLease expected, final ShardLifecycleState nextState) {
             throw new AssertionError("simulated fatal Oxia transition failure");
+        }
+
+        @Override
+        public Optional<OwnerLease> current(final ShardId shardId) {
+            return delegate.current(shardId);
+        }
+    }
+
+    private static final class ResponseLossTransitionBackend implements OxiaOwnerLeaseStore.LeaseCasBackend {
+        private final InMemoryOwnerLeaseStore delegate = new InMemoryOwnerLeaseStore();
+
+        @Override
+        public Optional<OwnerLease> acquire(final ShardId shardId, final String ownerId,
+                                            final long nowEpochMs, final long leaseDurationMs) {
+            return delegate.acquire(shardId, ownerId, nowEpochMs, leaseDurationMs);
+        }
+
+        @Override
+        public Optional<OwnerLease> acquire(final SourceAssignment assignment, final String ownerId,
+                                            final byte[] sessionIdentity, final long nowEpochMs,
+                                            final long leaseDurationMs) {
+            return delegate.acquire(assignment, ownerId, sessionIdentity, nowEpochMs, leaseDurationMs);
+        }
+
+        @Override
+        public Optional<OwnerLease> renew(final OwnerLease expected, final long nowEpochMs,
+                                          final long leaseDurationMs) {
+            return delegate.renew(expected, nowEpochMs, leaseDurationMs);
+        }
+
+        @Override
+        public boolean release(final OwnerLease expected) {
+            return delegate.release(expected);
+        }
+
+        @Override
+        public Optional<OwnerLease> transition(final OwnerLease expected, final ShardLifecycleState nextState) {
+            delegate.transition(expected, nextState);
+            return Optional.empty();
         }
 
         @Override
