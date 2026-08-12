@@ -3107,8 +3107,10 @@ lineage/base 一致；没有 lineage/base 的 install state 不能带 checkpoint
 `CheckpointUploadCoordinator` 现在在本地上传边界内先校验完整 checkpoint
 inventory、intent deadline 和 shard/lineage/owner/store/parent identity，取得
 Worker upload slot 后才调用 typed adapter；对可识别的 RocksDB image，还会在
-provider I/O 前读取 key 10 并校验 `CompatibleControlSnapshotV1` 的 shard/digest
-与 manifest 一致；adapter 返回的 manifest object length/SHA-256/profile/lineage/checkpoint identity 不匹配时保持 PENDING_UPLOAD，
+provider I/O 前读取固定 format/store identity 和 key 10，校验
+`StoreMetadata` 的 shard、`dbIdentity`、Store Incarnation、format，以及
+`CompatibleControlSnapshotV1` 的 shard/digest 与 manifest 一致；adapter 返回的
+manifest object length/SHA-256/profile/lineage/checkpoint identity 不匹配时保持 PENDING_UPLOAD，
 只有校验通过才执行本地 PENDING_UPLOAD -> PUBLISHED CAS。这仍不是 provider
 attestation、Object Store immutability 或 Oxia intent/catalog transaction；
 同一 pending intent 在 response-loss 重试中会先精确重读已提交的
