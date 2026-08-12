@@ -134,6 +134,18 @@ class DelayShardTest {
         assertMethodIsNotPublic("revokeClaim", byte[].class, long.class);
         assertMethodIsNotPublic("materializeReservationExpiry", byte[].class);
         assertMethodIsNotPublic("materializeClosedLane", DestinationLaneId.class, int.class);
+        assertMethodIsNotPublic("updateLaneGate", DestinationLaneId.class, long.class, AdmissionGate.class);
+        assertMethodIsNotPublic("reserveControlCapacity", int.class, CapacityVectorV1.class);
+        assertMethodIsNotPublic("reserveSystemWriterCapacity", CapacityVectorV1.class);
+        assertMethodIsNotPublic("releaseControlCapacity", int.class, CapacityVectorV1.class);
+        assertMethodIsNotPublic("releaseSystemWriterCapacity", CapacityVectorV1.class);
+        assertMethodIsNotPublic("recordAttemptJournalMapping", byte[].class, long.class, long.class, byte[].class);
+        assertMethodIsNotPublic("markAttemptJournalRetirementPending", byte[].class, long.class);
+        assertMethodIsNotPublic("recordAttemptJournalRetirement", byte[].class, long.class, byte[].class);
+        assertMethodIsNotPublic("admitPublishAttempt", PublishAttemptLedger.class, SourcePosition.class);
+        assertMethodIsNotPublic("applyUnknownPublishOutcome", byte[].class, long.class, byte[].class,
+                byte[].class, SourcePosition.class);
+        assertMethodIsNotPublic("applyPublishedPublishOutcome", byte[].class, long.class, SourcePosition.class);
     }
 
     private static void assertMethodIsNotPublic(final String name, final Class<?>... parameterTypes) {

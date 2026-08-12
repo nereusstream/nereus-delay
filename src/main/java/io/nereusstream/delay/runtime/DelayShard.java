@@ -5310,7 +5310,7 @@ public final class DelayShard {
      * the fenced single-writer adapter event loop only after the exact Journal
      * append has returned a durable position.
      */
-    public synchronized PublishAttemptLedger recordAttemptJournalMapping(final byte[] publishAttemptId,
+    synchronized PublishAttemptLedger recordAttemptJournalMapping(final byte[] publishAttemptId,
                                                                            final long ownerEpoch,
                                                                            final long sequenceId,
                                                                            final byte[] journalPosition) {
@@ -5321,7 +5321,7 @@ public final class DelayShard {
     }
 
     /** Holds a mapped PUBLISHING attempt while a RETIRED_NOT_PUBLISHED append is in flight. */
-    public synchronized PublishAttemptLedger markAttemptJournalRetirementPending(final byte[] publishAttemptId,
+    synchronized PublishAttemptLedger markAttemptJournalRetirementPending(final byte[] publishAttemptId,
                                                                                     final long ownerEpoch) {
         final PublishAttemptLedger current = requirePublishingAttempt(publishAttemptId, ownerEpoch);
         final PublishAttemptLedger next = current.withRetirementPending();
@@ -5330,7 +5330,7 @@ public final class DelayShard {
     }
 
     /** Persists the acknowledged retirement position before source-ordered retry/terminalization. */
-    public synchronized PublishAttemptLedger recordAttemptJournalRetirement(final byte[] publishAttemptId,
+    synchronized PublishAttemptLedger recordAttemptJournalRetirement(final byte[] publishAttemptId,
                                                                              final long ownerEpoch,
                                                                              final byte[] journalPosition) {
         final PublishAttemptLedger current = requirePublishingAttempt(publishAttemptId, ownerEpoch);
@@ -5364,7 +5364,7 @@ public final class DelayShard {
      * ledger, while nested Claim/Certificate/Channel validation is deliberately owned by the pending admission
      * body codec. The message, timeline, READY projection, attempt key and source position commit in one batch.
      */
-    public synchronized PublishAttemptLedger admitPublishAttempt(final PublishAttemptLedger admission,
+    synchronized PublishAttemptLedger admitPublishAttempt(final PublishAttemptLedger admission,
                                                                   final SourcePosition sourcePosition) {
         return admitPublishAttempt(admission, sourcePosition, null, false, false,
                 OutcomeReserveUsage.empty(), null);
@@ -5580,7 +5580,7 @@ public final class DelayShard {
     }
 
     /** Atomically records an unknown target result and moves the exact key to UNCERTAIN. */
-    public synchronized PublishAttemptLedger applyUnknownPublishOutcome(final byte[] publishAttemptId,
+    synchronized PublishAttemptLedger applyUnknownPublishOutcome(final byte[] publishAttemptId,
                                                                          final long ownerEpoch,
                                                                          final byte[] canonicalOutcome,
                                                                          final byte[] evidence,
@@ -5729,7 +5729,7 @@ public final class DelayShard {
     }
 
     /** Atomically closes a PUBLISHING attempt after a verified publish success. */
-    public synchronized MessageRecord applyPublishedPublishOutcome(final byte[] publishAttemptId,
+    synchronized MessageRecord applyPublishedPublishOutcome(final byte[] publishAttemptId,
                                                                     final long ownerEpoch,
                                                                     final SourcePosition sourcePosition) {
         return applyPublishedPublishOutcome(publishAttemptId, ownerEpoch, sourcePosition, null);
@@ -6276,7 +6276,7 @@ public final class DelayShard {
     }
 
     /** Applies a local management-gate transition with an exact CAS version. */
-    public synchronized LaneRecord updateLaneGate(
+    synchronized LaneRecord updateLaneGate(
             final io.nereusstream.delay.protocol.DestinationLaneId laneId,
             final long expectedLaneControlVersion, final AdmissionGate gate) {
         final LaneRecord current = readLane(laneId);
@@ -6471,24 +6471,24 @@ public final class DelayShard {
      * ordered control mutation, Broker writer quota and Oxia placement
      * authority remain callers' responsibilities.
      */
-    public synchronized CapacityVectorV1 reserveControlCapacity(final int reserveClass,
+    synchronized CapacityVectorV1 reserveControlCapacity(final int reserveClass,
                                                                   final CapacityVectorV1 amount) {
         return mutateControlReserve(reserveClass, Objects.requireNonNull(amount, "amount"), true);
     }
 
     /** Charges the local class-6 system-writer projection. */
-    public synchronized CapacityVectorV1 reserveSystemWriterCapacity(final CapacityVectorV1 amount) {
+    synchronized CapacityVectorV1 reserveSystemWriterCapacity(final CapacityVectorV1 amount) {
         return reserveControlCapacity(CONTROL_RESERVE_SYSTEM_WRITER_CLASS, amount);
     }
 
     /** Releases an exact checked class-3/4/5/6 control reserve projection. */
-    public synchronized CapacityVectorV1 releaseControlCapacity(final int reserveClass,
+    synchronized CapacityVectorV1 releaseControlCapacity(final int reserveClass,
                                                                   final CapacityVectorV1 amount) {
         return mutateControlReserve(reserveClass, Objects.requireNonNull(amount, "amount"), false);
     }
 
     /** Releases an exact local class-6 system-writer projection. */
-    public synchronized CapacityVectorV1 releaseSystemWriterCapacity(final CapacityVectorV1 amount) {
+    synchronized CapacityVectorV1 releaseSystemWriterCapacity(final CapacityVectorV1 amount) {
         return releaseControlCapacity(CONTROL_RESERVE_SYSTEM_WRITER_CLASS, amount);
     }
 
