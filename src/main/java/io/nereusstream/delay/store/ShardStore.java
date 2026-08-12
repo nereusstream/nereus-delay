@@ -595,8 +595,10 @@ public final class ShardStore implements AutoCloseable {
             throw new IOException("restored evidence cursors do not match checkpoint manifest");
         }
         final CompatibleControlSnapshotV1 controlSnapshot = staged.controlSnapshot();
-        if (controlSnapshot != null
-                && !Bytes.constantTimeEquals(controlSnapshot.snapshotDigest(), manifest.controlStateDigest())) {
+        if (controlSnapshot == null) {
+            throw new IOException("restored control snapshot is missing");
+        }
+        if (!Bytes.constantTimeEquals(controlSnapshot.snapshotDigest(), manifest.controlStateDigest())) {
             throw new IOException("restored control snapshot does not match checkpoint manifest");
         }
     }

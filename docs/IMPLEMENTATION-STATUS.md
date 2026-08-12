@@ -4319,6 +4319,22 @@ boundary; session-bound RecoveryPin, upload-intent/catalog transaction,
 Object Store publication and external recovery authority remain release
 blockers.
 
+Manifest-backed `ShardStore.restoreFromCheckpoint` now requires the complete
+`meta_cf/FIXED` key 10 `CompatibleControlSnapshotV1` and requires its digest to
+equal `CheckpointManifest.controlStateDigest`; a missing snapshot can no longer
+silently pass restore validation. `ShardStoreTest.restoreWithManifestRejectsMissingControlSnapshot`
+covers the missing-key path, while the existing catalog/lineage restore fixtures
+now carry a matching snapshot so their later pin and recovery-integrity checks
+remain targeted. This closes the local restore activation boundary only; Oxia
+catalog/Owner Lease transaction authority, Object Store publication and real
+service evidence remain open.
+
+After this manifest control-snapshot fence, the focused `ShardStoreTest` and the
+full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
+2026-08-12 (`BUILD SUCCESSFUL`, five executed tasks). The five opt-in real-Oxia
+methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is
+local regression evidence only.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

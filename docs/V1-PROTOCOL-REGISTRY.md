@@ -1071,6 +1071,11 @@ and require field 2 to equal the DB's `meta/FIXED` shard identity. The local
 projection records the exact control input used for activation; it does not
 replace Oxia's authoritative Route/Profile/grant catalog or its session-bound
 lease checks.
+When a checkpoint manifest is supplied to restore, key 10 is mandatory and its
+snapshot digest must equal the manifest's `controlStateDigest`; a missing or
+different snapshot is a restore-integrity failure and cannot reach
+`ACTIVE_FOR_COMMANDS`. The no-manifest local-open compatibility seam does not
+weaken this manifest-backed restore requirement.
 - `meta/QUOTA quotaClass`: 1 grant identity/version, 2 aggregate usage vector, 3 per-Lane usage, 4 retained/object usage, 5 grandfathered transfer state.
 - `meta/SCHEDULER schedulerKeyKind`: 1 ready-discovery cursor, 2 active-ring descriptor, 3 capped deficits, 4 round generation, 5 last-served map.
 - `meta/CONTROL_RESERVE reserveClass`: 1 grant identity/digest, 2 charged outcome, 3 non-outcome/fence, 4 recovery working, 5 emergency headroom, 6 Broker system-writer reservation.

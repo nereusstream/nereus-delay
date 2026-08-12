@@ -843,12 +843,14 @@ class ShardStoreTest {
         final byte[] checkpointId = bytes(30);
         final KafkaSourcePosition appliedPosition = new KafkaSourcePosition(
                 shardId, "cluster", UUID.randomUUID(), 0, null, 1_000);
+        final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshotFor(shardId);
         final byte[] dbIdentity;
         final UUID sourceStoreIncarnation;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(sourceConfig);
              ShardStore store = ShardStore.open(sourceConfig, shardId, resources)) {
             dbIdentity = store.metadata().dbIdentity();
             sourceStoreIncarnation = store.metadata().storeIncarnationUuid();
+            store.recordControlSnapshot(controlSnapshot);
             store.write(batch -> {
                 batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(3), appliedPosition.canonicalBytes());
                 batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(5), Bytes.u64be(0));
@@ -865,7 +867,7 @@ class ShardStoreTest {
                 new CheckpointManifest.CreatedAt(1_000, 1_000, "CERTIFIED_HOST_CLOCK", bytes(34), 1, 0, 0,
                         Bytes.sha256(Bytes.utf8("evidence")), 0, null), shardId, dbIdentity, sourceStoreIncarnation,
                 1, 0, appliedPosition,
-                new byte[32], new byte[32], files);
+                controlSnapshot.snapshotDigest(), new byte[32], files);
         final RecoveryCatalog catalog = new RecoveryCatalog();
         final ShardStoreConfig unpublishedConfig = ShardStoreConfig.defaults(tempDir.resolve("unpublished-restore"));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(unpublishedConfig)) {
@@ -1304,6 +1306,45 @@ class ShardStoreTest {
     }
 
     @Test
+    void restoreWithManifestRejectsMissingControlSnapshot() throws Exception {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 42);
+        final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("missing-control-source"));
+        final Path checkpoint = tempDir.resolve("missing-control-checkpoint");
+        final byte[] checkpointId = bytes(100);
+        final KafkaSourcePosition appliedPosition = new KafkaSourcePosition(
+                shardId, "cluster", UUID.randomUUID(), 7, null, 1_007);
+        final byte[] dbIdentity;
+        final UUID sourceStoreIncarnation;
+        final long mutationSequence;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(sourceConfig);
+             ShardStore store = ShardStore.open(sourceConfig, shardId, resources)) {
+            dbIdentity = store.metadata().dbIdentity();
+            sourceStoreIncarnation = store.metadata().storeIncarnationUuid();
+            store.write(batch -> batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(3),
+                    appliedPosition.canonicalBytes()));
+            store.createCheckpoint(checkpoint, checkpointId);
+            mutationSequence = store.shardMutationSequence();
+        }
+        final List<CheckpointManifest.FileEntry> files = CheckpointFileInventory.collect(checkpoint).stream()
+                .map(file -> new CheckpointManifest.FileEntry(file.name(), file.length(), file.checksum(),
+                        Bytes.utf8("object/" + file.name()), Bytes.utf8("version"), null))
+                .toList();
+        final CheckpointManifest manifest = new CheckpointManifest(checkpointId, bytes(101), 0, null, null,
+                new CheckpointManifest.CreatedBy(bytes(102), bytes(103), 1),
+                new CheckpointManifest.CreatedAt(1_000, 1_000, "CERTIFIED_HOST_CLOCK", bytes(104), 1, 0, 0,
+                        Bytes.sha256(Bytes.utf8("evidence")), 0, null), shardId, dbIdentity, sourceStoreIncarnation,
+                1, mutationSequence, appliedPosition, bytes(32, 105), bytes(32, 106), files);
+
+        final ShardStoreConfig restoreConfig = ShardStoreConfig.defaults(tempDir.resolve("missing-control-restore"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(restoreConfig)) {
+            final IllegalStateException failure = assertThrows(IllegalStateException.class,
+                    () -> ShardStore.restoreFromCheckpoint(restoreConfig, shardId, resources, checkpoint, manifest));
+            assertNotNull(failure.getCause());
+            assertTrue(failure.getCause().getMessage().contains("control snapshot is missing"));
+        }
+    }
+
+    @Test
     void restoreWithManifestRejectsRecoveryProjectionLineageDrift() throws Exception {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 37);
         final ShardStoreConfig sourceConfig = ShardStoreConfig.defaults(tempDir.resolve("recovery-manifest-source"));
@@ -1311,12 +1352,14 @@ class ShardStoreTest {
         final byte[] checkpointId = bytes(50);
         final KafkaSourcePosition appliedPosition = new KafkaSourcePosition(
                 shardId, "cluster", UUID.randomUUID(), 4, null, 1_004);
+        final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshotFor(shardId);
         final byte[] dbIdentity;
         final UUID sourceStoreIncarnation;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(sourceConfig);
              ShardStore store = ShardStore.open(sourceConfig, shardId, resources)) {
             dbIdentity = store.metadata().dbIdentity();
             sourceStoreIncarnation = store.metadata().storeIncarnationUuid();
+            store.recordControlSnapshot(controlSnapshot);
             store.write(batch -> {
                 batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(3), appliedPosition.canonicalBytes());
                 batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(5), Bytes.u64be(9));
@@ -1333,7 +1376,7 @@ class ShardStoreTest {
                 new CheckpointManifest.CreatedBy(bytes(54), bytes(55), 1),
                 new CheckpointManifest.CreatedAt(1_000, 1_000, "CERTIFIED_HOST_CLOCK", bytes(56), 1, 0, 0,
                         Bytes.sha256(Bytes.utf8("evidence")), 0, null), shardId, dbIdentity, sourceStoreIncarnation,
-                1, 9, appliedPosition, new byte[32], new byte[32], files);
+                1, 9, appliedPosition, controlSnapshot.snapshotDigest(), new byte[32], files);
 
         final ShardStoreConfig restoreConfig = ShardStoreConfig.defaults(tempDir.resolve("recovery-manifest-restore"));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(restoreConfig)) {
@@ -1365,12 +1408,14 @@ class ShardStoreTest {
         final byte[] lineage = bytes(70 + partition);
         final KafkaSourcePosition appliedPosition = new KafkaSourcePosition(
                 shardId, "cluster", UUID.randomUUID(), partition, null, 1_000L + partition);
+        final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshotFor(shardId);
         final byte[] dbIdentity;
         final UUID sourceStoreIncarnation;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(sourceConfig);
              ShardStore store = ShardStore.open(sourceConfig, shardId, resources)) {
             dbIdentity = store.metadata().dbIdentity();
             sourceStoreIncarnation = store.metadata().storeIncarnationUuid();
+            store.recordControlSnapshot(controlSnapshot);
             store.write(batch -> {
                 batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(3), appliedPosition.canonicalBytes());
                 batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(5), Bytes.u64be(11));
@@ -1387,7 +1432,7 @@ class ShardStoreTest {
                 new CheckpointManifest.CreatedBy(bytes(80), bytes(81), 1),
                 new CheckpointManifest.CreatedAt(1_000, 1_000, "CERTIFIED_HOST_CLOCK", bytes(82), 1, 0, 0,
                         Bytes.sha256(Bytes.utf8("evidence")), 0, null), shardId, dbIdentity, sourceStoreIncarnation,
-                1, 11, appliedPosition, new byte[32], new byte[32], files);
+                1, 11, appliedPosition, controlSnapshot.snapshotDigest(), new byte[32], files);
 
         final ShardStoreConfig restoreConfig = ShardStoreConfig.defaults(tempDir.resolve(namespace + "-restore"));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(restoreConfig)) {
@@ -1416,6 +1461,15 @@ class ShardStoreTest {
         final byte[] result = new byte[length];
         java.util.Arrays.fill(result, (byte) value);
         return result;
+    }
+
+    private static CompatibleControlSnapshotV1 controlSnapshotFor(final ShardId shardId) {
+        return new CompatibleControlSnapshotV1(
+                new ShardSubjectV1(shardId),
+                List.of(new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1)),
+                List.of(new ProfileRefV1(bytes(32, 107), 1, bytes(32, 108), ProfileKindV1.DESTINATION)),
+                new QuotaGrantRefV1(bytes(32, 109), 1, new PublishAdmissionBody.ChargeVector(
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));
     }
 
     private static SloSampleStartV1 sloStart() {

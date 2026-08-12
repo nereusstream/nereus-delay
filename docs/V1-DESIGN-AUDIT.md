@@ -4054,6 +4054,22 @@ local serialization-integrity improvement only; it does not close the
 session-bound RecoveryPin, upload-intent/catalog transaction, Object Store or
 real-service recovery gates.
 
+Manifest-backed local restore now fails closed when `meta_cf/FIXED` key 10 is
+absent, and it checks the persisted `CompatibleControlSnapshotV1` digest
+against `CheckpointManifest.controlStateDigest` before staging can proceed to
+activation. `ShardStoreTest.restoreWithManifestRejectsMissingControlSnapshot`
+covers the missing projection; success/late-failure fixtures were updated to
+carry a matching snapshot so RecoveryPin and lineage assertions still exercise
+their intended boundary. This is local checkpoint/activation evidence only and
+does not claim external catalog, Owner Lease transaction or Object Store
+authority.
+
+After this manifest control-snapshot fence, the focused `ShardStoreTest` and the
+full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
+2026-08-12 (`BUILD SUCCESSFUL`, five executed tasks). The five opt-in real-Oxia
+methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is
+local evidence only.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
