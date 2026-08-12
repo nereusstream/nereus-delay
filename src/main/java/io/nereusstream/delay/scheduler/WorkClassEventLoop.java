@@ -157,7 +157,13 @@ public final class WorkClassEventLoop {
         private final WorkClassEventLoop owner;
         private final List<WorkClassTask> tasks;
         private final List<WorkClassResourcePool.ResourceLease> leases;
-        private boolean closed;
+        /**
+         * Poll reads this while holding the event-loop monitor.  Keep the read
+         * lock-free: close holds the Turn monitor and later enters the event
+         * loop to clear {@code activeTurn}, so taking the Turn monitor from
+         * poll would invert that order and deadlock concurrent close/poll.
+         */
+        private volatile boolean closed;
 
         private Turn(final WorkClassEventLoop owner,
                      final List<WorkClassTask> tasks,
@@ -189,7 +195,7 @@ public final class WorkClassEventLoop {
             return tasks.isEmpty();
         }
 
-        public synchronized boolean isClosed() {
+        public boolean isClosed() {
             return closed;
         }
 

@@ -4,6 +4,10 @@ import org.junit.jupiter.api.Test;
 
 import java.util.EnumMap;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -97,6 +101,55 @@ class WorkClassEventLoopTest {
     }
 
     @Test
+    void concurrentCloseAndPollDoNotInvertEventLoopAndTurnLocks() throws Exception {
+        final AtomicLong schedulerNow = new AtomicLong();
+        final AtomicBoolean blockResourceClock = new AtomicBoolean();
+        final CountDownLatch holdCheckEntered = new CountDownLatch(1);
+        final CountDownLatch allowHoldCheck = new CountDownLatch(1);
+        final WorkClassResourcePool resources = new WorkClassResourcePool(policies(), 1, 64, 100, () -> {
+            if (blockResourceClock.get()) {
+                holdCheckEntered.countDown();
+                try {
+                    if (!allowHoldCheck.await(5, TimeUnit.SECONDS)) {
+                        throw new AssertionError("timed out waiting to release the Turn hold check");
+                    }
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError("Turn hold check was interrupted", interrupted);
+                }
+            }
+            return 0;
+        });
+        final WorkClassEventLoop loop = new WorkClassEventLoop(
+                new WorkClassScheduler(policies(), 100, schedulerNow::get), resources);
+        loop.offer(new WorkClassTask(WorkClass.QUERY, "query-lock-order", 8));
+        final WorkClassEventLoop.Turn turn = loop.poll(new SchedulerBudget(1, 32, 1_000));
+        blockResourceClock.set(true);
+
+        final CompletableFuture<Void> closeCompleted = new CompletableFuture<>();
+        Thread.ofPlatform().daemon().start(() -> complete(closeCompleted, turn::close));
+        assertTrue(holdCheckEntered.await(5, TimeUnit.SECONDS));
+
+        final CompletableFuture<Void> pollCompleted = new CompletableFuture<>();
+        Thread.ofPlatform().daemon().start(() -> complete(pollCompleted, () -> {
+            final IllegalStateException failure = assertThrows(IllegalStateException.class,
+                    () -> loop.poll(new SchedulerBudget(1, 32, 1_000)));
+            assertEquals("previous WorkClass turn must be closed before polling again", failure.getMessage());
+        }));
+        try {
+            // poll must observe the still-open Turn without waiting for its
+            // monitor; close is deliberately blocked while holding that lock.
+            pollCompleted.get(2, TimeUnit.SECONDS);
+        } finally {
+            blockResourceClock.set(false);
+            allowHoldCheck.countDown();
+        }
+        closeCompleted.get(5, TimeUnit.SECONDS);
+        assertTrue(turn.isClosed());
+        assertEquals(0, resources.snapshot().activeLeases());
+    }
+
+    @Test
     void runTurnReleasesResourcesBeforeRethrowingExecutorFailure() {
         final AtomicLong now = new AtomicLong();
         final WorkClassResourcePool resources = new WorkClassResourcePool(policies(), 1, 64, 100, now::get);
@@ -130,5 +183,14 @@ class WorkClassEventLoopTest {
                     0, 0, workClass == WorkClass.LEASE_FENCE));
         }
         return policies;
+    }
+
+    private static void complete(final CompletableFuture<Void> completion, final Runnable action) {
+        try {
+            action.run();
+            completion.complete(null);
+        } catch (Throwable failure) {
+            completion.completeExceptionally(failure);
+        }
     }
 }
