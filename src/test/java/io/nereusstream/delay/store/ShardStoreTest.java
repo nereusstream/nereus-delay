@@ -41,6 +41,7 @@ import org.rocksdb.RocksDBException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.lang.reflect.Modifier;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -60,6 +61,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ShardStoreTest {
     @TempDir
     Path tempDir;
+
+    @Test
+    void physicalCheckpointPrimitivesAreNotPublicProductionApi() {
+        for (var method : ShardStore.class.getDeclaredMethods()) {
+            if (method.getName().equals("createCheckpoint")
+                    || method.getName().equals("restoreFromCheckpoint")) {
+                assertFalse(Modifier.isPublic(method.getModifiers()), method::toGenericString);
+            }
+        }
+    }
 
     @Test
     void oneShardUsesIndependentDbAndAtomicBatchSurvivesReopen() throws Exception {

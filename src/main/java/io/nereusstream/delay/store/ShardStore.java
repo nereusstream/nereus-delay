@@ -240,23 +240,23 @@ public final class ShardStore implements AutoCloseable {
      * The source directory is never opened in place and is never merged into a
      * running DB. A failed install leaves only a private restore-tmp orphan.
      */
-    public static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
-                                                   final SharedRocksDbResources resources,
-                                                   final Path checkpointPath) {
+    static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
+                                            final SharedRocksDbResources resources,
+                                            final Path checkpointPath) {
         return restoreWithRecoveryGuard(config, shardId, resources, checkpointPath, null, null, null);
     }
 
-    public static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
-                                                   final SharedRocksDbResources resources,
-                                                   final Path checkpointPath, final CheckpointManifest manifest) {
+    static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
+                                            final SharedRocksDbResources resources,
+                                            final Path checkpointPath, final CheckpointManifest manifest) {
         return restoreWithRecoveryGuard(config, shardId, resources, checkpointPath, manifest, null, null);
     }
 
     /** Restores a local manifest with an explicit finite manifest/file limit set. */
-    public static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
-                                                   final SharedRocksDbResources resources,
-                                                   final Path checkpointPath, final CheckpointManifest manifest,
-                                                   final CheckpointManifestLimits limits) {
+    static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
+                                            final SharedRocksDbResources resources,
+                                            final Path checkpointPath, final CheckpointManifest manifest,
+                                            final CheckpointManifestLimits limits) {
         return restoreWithRecoveryGuard(config, shardId, resources, checkpointPath, manifest, null, null,
                 Objects.requireNonNull(limits, "limits"));
     }
@@ -267,11 +267,11 @@ public final class ShardStore implements AutoCloseable {
      * and immediately before installing the new Store Incarnation; a missing
      * or changed pin fails closed and leaves only private restore-tmp state.
      */
-    public static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
-                                                   final SharedRocksDbResources resources,
-                                                   final Path checkpointPath, final CheckpointManifest manifest,
-                                                   final RecoveryCatalogAuthority catalog,
-                                                   final RecoveryPinV1 pin) {
+    static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
+                                            final SharedRocksDbResources resources,
+                                            final Path checkpointPath, final CheckpointManifest manifest,
+                                            final RecoveryCatalogAuthority catalog,
+                                            final RecoveryPinV1 pin) {
         Objects.requireNonNull(catalog, "catalog");
         Objects.requireNonNull(pin, "pin");
         Objects.requireNonNull(manifest, "manifest");
@@ -279,12 +279,12 @@ public final class ShardStore implements AutoCloseable {
     }
 
     /** Restores a pinned candidate with an explicit finite manifest limit set. */
-    public static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
-                                                   final SharedRocksDbResources resources,
-                                                   final Path checkpointPath, final CheckpointManifest manifest,
-                                                   final RecoveryCatalogAuthority catalog,
-                                                   final RecoveryPinV1 pin,
-                                                   final CheckpointManifestLimits limits) {
+    static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
+                                            final SharedRocksDbResources resources,
+                                            final Path checkpointPath, final CheckpointManifest manifest,
+                                            final RecoveryCatalogAuthority catalog,
+                                            final RecoveryPinV1 pin,
+                                            final CheckpointManifestLimits limits) {
         Objects.requireNonNull(catalog, "catalog");
         Objects.requireNonNull(pin, "pin");
         Objects.requireNonNull(manifest, "manifest");
@@ -599,19 +599,19 @@ public final class ShardStore implements AutoCloseable {
      * physical bytes.  Production wiring replaces the in-memory catalog with
      * the Oxia CAS/catalog read without changing this boundary.</p>
      */
-    public static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
-                                                   final SharedRocksDbResources resources,
-                                                   final Path checkpointPath, final CheckpointManifest manifest,
-                                                   final RecoveryCatalogAuthority catalog) {
+    static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
+                                            final SharedRocksDbResources resources,
+                                            final Path checkpointPath, final CheckpointManifest manifest,
+                                            final RecoveryCatalogAuthority catalog) {
         return restoreWithRecoveryGuard(config, shardId, resources, checkpointPath, manifest, catalog, null);
     }
 
     /** Restores with an explicit finite manifest/file inventory limit set. */
-    public static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
-                                                   final SharedRocksDbResources resources,
-                                                   final Path checkpointPath, final CheckpointManifest manifest,
-                                                   final RecoveryCatalogAuthority catalog,
-                                                   final CheckpointManifestLimits limits) {
+    static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
+                                            final SharedRocksDbResources resources,
+                                            final Path checkpointPath, final CheckpointManifest manifest,
+                                            final RecoveryCatalogAuthority catalog,
+                                            final CheckpointManifestLimits limits) {
         return restoreWithRecoveryGuard(config, shardId, resources, checkpointPath, manifest, catalog, null,
                 Objects.requireNonNull(limits, "limits"));
     }
@@ -621,21 +621,21 @@ public final class ShardStore implements AutoCloseable {
      * still raw bytes. Canonical decoding happens before catalog lookup or any
      * local checkpoint files are opened.
      */
-    public static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
-                                                   final SharedRocksDbResources resources,
-                                                   final Path checkpointPath, final byte[] manifestJson,
-                                                   final RecoveryCatalogAuthority catalog) {
+    static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
+                                            final SharedRocksDbResources resources,
+                                            final Path checkpointPath, final byte[] manifestJson,
+                                            final RecoveryCatalogAuthority catalog) {
         final CheckpointManifest manifest = CheckpointManifest.decodeCanonicalJson(
                 Objects.requireNonNull(manifestJson, "manifestJson"));
         return restoreFromCheckpoint(config, shardId, resources, checkpointPath, manifest, catalog);
     }
 
     /** Decodes and restores a manifest under an explicit finite limit set. */
-    public static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
-                                                   final SharedRocksDbResources resources,
-                                                   final Path checkpointPath, final byte[] manifestJson,
-                                                   final RecoveryCatalogAuthority catalog,
-                                                   final CheckpointManifestLimits limits) {
+    static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
+                                            final SharedRocksDbResources resources,
+                                            final Path checkpointPath, final byte[] manifestJson,
+                                            final RecoveryCatalogAuthority catalog,
+                                            final CheckpointManifestLimits limits) {
         final CheckpointManifestLimits checkedLimits = Objects.requireNonNull(limits, "limits");
         final CheckpointManifest manifest = CheckpointManifest.decodeCanonicalJson(
                 Objects.requireNonNull(manifestJson, "manifestJson"), checkedLimits);
@@ -1949,7 +1949,7 @@ public final class ShardStore implements AutoCloseable {
         void run() throws RocksDBException;
     }
 
-    public synchronized Path createCheckpoint(final Path checkpointPath) {
+    synchronized Path createCheckpoint(final Path checkpointPath) {
         // The V1 checkpoint identity is part of the physical image, not an
         // optional label.  Keep this convenience overload useful for embedded
         // callers, but still allocate the identity before any checkpoint I/O.
@@ -1971,7 +1971,7 @@ public final class ShardStore implements AutoCloseable {
      * a failed attempt must not leave a live DB claiming a checkpoint that was
      * never produced.</p>
      */
-    public synchronized Path createCheckpoint(final Path checkpointPath, final byte[] checkpointId) {
+    synchronized Path createCheckpoint(final Path checkpointPath, final byte[] checkpointId) {
         Objects.requireNonNull(checkpointPath, "checkpointPath");
         final byte[] effectiveCheckpointId = checkpointId == null
                 ? randomCheckpointId() : Bytes.copy(checkpointId);
