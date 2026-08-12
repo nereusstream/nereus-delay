@@ -2564,7 +2564,10 @@ verification 仍是 release blocker。
 CommitLargeSchedule V1 也有独立 canonical body 和嵌套
 `PayloadCommitProofV1` codec，校验 reservation/message identity、typed Object
 Store Profile、tenant scope、optional etag presence、proof ID/signature 后，
-通过统一 proof view 复用现有 reservation commit 状态机。新增的
+通过统一 proof view 复用现有 reservation commit 状态机。Prepare V1 现在还用
+required field 15 固定 exact `OBJECT_STORE ProfileRefV1`，并把它随 canonical
+body 持久化到 `V1ScheduleBinding`；typed proof/receipt 必须匹配完整 ref，legacy
+proof 只能匹配 semantic hash，首次 Commit 与已提交重试都不能绕过该绑定。新增的
 `InMemoryPayloadObjectStore` 是一个明确标注的 deterministic local seam：它
 只接受 canonical `PayloadReservation`，为同一预约固定 service-owned
 container/key/version，按配置的 max-handle-lifetime 与 reservation expiry
@@ -5318,6 +5321,42 @@ commit `3c2ed49a` and the complete six-task local Gradle gate passed on
 `NEREUS_DELAY_OXIA_ENDPOINT` was unset. This is local authority-composition
 evidence only; real provider credentials, authenticated service routing and
 Oxia publication remain OPEN.
+
+The Object Store half of the Prepare authority is now explicit on the wire as
+well. `PrepareLargeScheduleV1` required field 15 carries the complete
+`OBJECT_STORE ProfileRefV1`; catalog-backed apply resolves its immutable
+semantic/current credential Head, and the embedded adapter registration must
+match both this Profile ref and the pinned trust-set ref before recording any
+reservation or issuing object authority. Typed Commit proofs require full-ref
+equality, while the legacy proof adapter is limited to semantic-hash equality.
+The check runs before both the initial Commit transition and the
+`ALREADY_COMMITTED` fast path, so reusing the same semantic hash under another
+Profile identity fails closed. Protocol round-trip/kind rejection, same-hash
+foreign-Profile, legacy hash mismatch, accepted Commit, committed retry and
+close/reopen adapter-drift regressions passed. Code commit `5747e833` and the
+complete six-task local Gradle gate passed on 2026-08-13; five real-Oxia smokes
+were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset. This is a
+pre-activation incompatible schema correction: incomplete Prepare bytes are
+not migrated or reinterpreted. Authenticated Profile/trust-set publication,
+provider credentials, remote immutability and Oxia source authority remain
+OPEN.
+
+The committed projection now retains the Registry descriptor's ReservationId
+and accepted ProofId instead of collapsing it to Object Store bytes alone.
+`PayloadReference` writes a new local value version and continues to decode the
+prior identity-less value. Registry `ALREADY_COMMITTED` requires exact accepted
+ProofId/object identity and a valid signature under the retained historical
+key; a source-ordered issuer close still permits that historical retry but
+blocks a new first-seen proof. Both typed and legacy proof verification treat
+malformed 64-byte Ed25519 signatures as verification failure rather than a
+runtime exception. Value-codec, accepted-proof persistence, issuer-close exact
+retry, forged signature and same-hash foreign-Profile regressions passed. Code
+commit `db22d2e7` and the complete six-task local Gradle gate passed on
+2026-08-13; five real-Oxia smokes were skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was unset. Legacy identity-less committed local
+values remain readable but cannot claim Registry historical-proof idempotency
+or satisfy a typed committed-descriptor/Claim identity check; an external
+migration/activation policy for such state remains OPEN.
 
 ## Final gate
 

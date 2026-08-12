@@ -641,7 +641,7 @@ Intent creation compares the exact active Owner Lease/session/Store and base cat
 | Body | fields 10+ |
 |---|---|
 | `ScheduleV1` | 10 `ScheduleIntentV1 intent` |
-| `PrepareLargeScheduleV1` | 10 `ScheduleIntentV1 intent_without_payload_object`；11 `uint64 expected_payload_length`；12 `bytes payload_sha256`=32；13 `uint64 reservation_ttl_ms`；14 `PayloadProofTrustSetRefV1 trust_set` |
+| `PrepareLargeScheduleV1` | 10 `ScheduleIntentV1 intent_without_payload_object`；11 `uint64 expected_payload_length`；12 `bytes payload_sha256`=32；13 `uint64 reservation_ttl_ms`；14 `PayloadProofTrustSetRefV1 trust_set`；15 `ProfileRefV1 object_store_profile`，其 kind 必须为 `OBJECT_STORE` |
 | `CommitLargeScheduleV1` | 10 `bytes reservation_id`=32；11 `PayloadCommitProofV1 proof` |
 | `CancelV1` | 10 `MessagePreconditionV1 precondition` |
 | `RescheduleV1` | 10 `MessagePreconditionV1 precondition`；11 `int64 new_deliver_at`；12 `int64 new_expire_at` |
@@ -660,6 +660,30 @@ payloadProofSignatureDigest = SHA-256(
 ```
 
 Field 17 must equal `proofId`; field 18 is Ed25519 over `payloadProofSignatureDigest`. Thus ProofId excludes only signer field 9 plus identity/signature fields 17–18, while signature excludes only field 18. Every optional presence, Profile semantic hash and object identity field enters ProofId; provider display strings cannot replace exact values.
+
+`PrepareLargeScheduleV1` field 15 is the durable Object Store authority. An
+APPLIED Prepare's `PayloadReservationReceiptV1` field 8 and every typed
+`PayloadCommitProofV1` field 7 for that reservation must equal this complete
+`ProfileRefV1`, not merely its version or semantic hash. A legacy proof format
+that can carry only the Profile semantic hash must equal field 15's semantic
+hash and cannot change the pinned identity. This comparison precedes both the
+first Commit transition and an `ALREADY_COMMITTED` retry fast path.
+
+The committed local payload projection must retain
+`CommittedPayloadDescriptorV1` fields 8–9, ReservationId and the accepted
+ProofId, alongside fields 1–7. `ALREADY_COMMITTED` requires the incoming proof
+to reproduce that exact ProofId and object identity and to verify under the
+retained historical public key. An issuance-close marker blocks a new
+first-seen ProofId but does not invalidate historical verification of the
+already accepted one. A same-object proof with a different ProofId, or an
+invalid Ed25519 signature, cannot obtain idempotent success.
+
+Field 15 closes a pre-activation schema omission: the repository does not
+accept or migrate the earlier incomplete Prepare bytes. Any source-lock or
+activated tuple must be derived from the canonical schema containing field 15.
+If an external deployment can prove that an incomplete tuple was activated,
+it must allocate a new `bodyVersion` and independent activated tuple instead
+of reinterpreting those bytes.
 
 ### 5.3 System Mutation bodies
 
