@@ -6,7 +6,6 @@ import io.nereusstream.delay.protocol.AuthorIdentity;
 import io.nereusstream.delay.protocol.ClaimMaterializationV1;
 import io.nereusstream.delay.protocol.CommandCodec;
 import io.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
-import io.nereusstream.delay.protocol.CanonicalProtobuf;
 import io.nereusstream.delay.protocol.PulsarActivationBarrier;
 import io.nereusstream.delay.protocol.SourceActivationBarrier;
 import io.nereusstream.delay.protocol.SourcePosition;

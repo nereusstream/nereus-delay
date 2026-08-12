@@ -404,6 +404,20 @@ definitive delete non-persistence, queue rejection and expired-owner fencing.
 Provider ownership/quiescence, Recovery Floor, source-ordered tombstone apply,
 quota release and compaction remain release blockers.
 
+After `77f1587`, the four control-plane mutation types have a dedicated
+bounded `OUTCOME_AND_CONTROL` handoff in `ControlWorkClassExecutor`. It accepts
+only an already prepared and signed `APPLY_SHARD_CONTROL`, `REPLAY_DEAD_LETTER`,
+`RESOLVE_UNCERTAIN` or `TIME_FENCE`, validates canonical control/body identity
+and the `TIME_FENCE` proof before queue admission, then rereads Owner Lease/
+clock before calling the external-only `ShardLogMutationAppender`. It never
+registers control targets, applies local state, writes a control projection or
+allocates a Source Position. Persisted, definitively-not-persisted and unknown
+outcomes remain distinct; append/proof failure fences the Owner and retains the
+exact mutation. `ControlWorkClassExecutorTest` covers persisted TIME_FENCE
+without local apply, queue rejection and expired-owner fencing. Real control
+registration/authorization, Broker append/ACK/cursor, Oxia session, source
+replay and signing-key history remain release blockers.
+
 After `666f56a` and the corresponding design/status/audit synchronization, the full
 `GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew clean check
 --rerun-tasks --console=plain` gate passed on 2026-08-12: 1232 tests were

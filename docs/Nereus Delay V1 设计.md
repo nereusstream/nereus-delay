@@ -1621,6 +1621,18 @@ writer exception 或 position proof failure 一律 fence Owner 并保留 exact b
 source-ordered apply。该本地桥不宣称真实 callback/evidence authority、Broker
 append/ACK/cursor、Oxia session、签名 key history 或 recovery replay 已接通。
 
+控制面 mutation 使用同一 bounded class 的独立 `ControlWorkClassExecutor` 入口：
+`APPLY_SHARD_CONTROL_V1`、`REPLAY_DEAD_LETTER_V1`、`RESOLVE_UNCERTAIN_V1` 与
+`TIME_FENCE_V1` 必须由控制面先准备并签名 exact mutation，再按完整 canonical frame
+进入 `OUTCOME_AND_CONTROL`。入口只校验 mutation type、Shard identity、control
+body/target identity、`TIME_FENCE` proof/`signingKeyVersion` 和 AuthorIdentity branch，
+并在执行时重读 strict Owner Lease/clock 后调用外部 `ShardLogMutationAppender`。
+它不执行 Control Target registration、不会本地 apply、不会写控制状态或分配 Source
+Position；queue rejection 无副作用。外部追加的 `PERSISTED` position 必须通过当前
+source assignment/activation barrier，`DEFINITIVELY_NOT_PERSISTED` 与 `UNKNOWN` 保持
+区分，append/proof failure fence Owner 并保留 exact mutation。控制注册、授权和最终
+状态改变仍只能由 source-ordered apply 完成。
+
 Claim 的纯撤销/超时和 transient pre-send failure 都回到相同 semantic timeline key/work kind/authority/candidate attempt，可更新可重建的 Lane circuit/backoff，不消耗 Publish Admission count，也不把 generation 伪造成 `RETRY_WAIT`；重新插入时 semantic digest 保持一致，必须 checked increment runtime revision 并重算 instance digest，不能 byte-reuse 旧 snapshot token。payload checksum/immutable object loss、deterministic serialization/record-size 等已证明 permanent pre-send 结果若要把 generation 改为 `DEAD_LETTER`，executor 只能准备 exact `CLAIM_RESULT_V1`并等它按 Shard Log Source Position apply。该 mutation 携 Claim precondition、`CLAIM_PERMANENT_FAILURE`、Trusted-UTC 和 charge transfer；它与 Cancel/Reschedule/Expiry/Close 以及同 Claim Admission 排序，callback 不得直写 terminal state。
 V1 中 field 20 的 `ChargeVectorV1 transfer` 必须与 Claim precondition field 12 的 `claimed_charge` 做 canonical byte-equality；它只能释放该 reversible Claim 已冻结的 charge projection，不能由 callback 另行改写 quota。完整 grant policy、外部 charge authority 与 materialization/recovery accounting 仍按本设计的 release boundary 单独完成。
 

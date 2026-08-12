@@ -314,6 +314,18 @@ retire with no local tombstone, definitive non-persistence, queue rejection and
 expired ownership. External delete/quiescence, Recovery Floor, source-ordered
 tombstone application, quota release and compaction remain OPEN.
 
+After `77f1587`, control mutations have a separate strict bridge in
+`ControlWorkClassExecutor`. The bridge accepts only exact signed
+`APPLY_SHARD_CONTROL`, `REPLAY_DEAD_LETTER`, `RESOLVE_UNCERTAIN` or `TIME_FENCE`
+frames, checks control/body identity and the time-fence proof before queue
+admission, rereads Owner Lease/clock before external append, and preserves the
+three append outcomes. It does not register targets, apply RocksDB state or
+allocate a local Source Position; queue rejection is side-effect free and
+writer/proof failure fences the Owner. The focused test proves a persisted
+TIME_FENCE is not locally applied and expired ownership never calls the
+appender. Control authorization/registration, Broker/Oxia/source replay and
+signing-key history remain OPEN.
+
 The synchronized full local gate after `666f56a` and this documentation update
 passed on 2026-08-12 with 1232 reported
 tests, zero failures/errors and five skipped opt-in real-Oxia methods because
