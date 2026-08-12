@@ -74,6 +74,17 @@ class ResourceGcGuardTest {
     }
 
     @Test
+    void retireIntentRecordRejectsProtectionSourceFromAnotherShard() {
+        final Fixture fixture = fixture();
+        final ShardId foreignShard = new ShardId(RouteIncarnation.random(), fixture.shard().partition());
+        assertThrows(IllegalArgumentException.class, () -> new ResourceRetireIntentRecord(
+                fixture.intent().mutationId(), fixture.intent().mutationHash(), fixture.intent().resourceKind(),
+                fixture.intent().resourceIdentity(), fixture.intent().resourceIdentityHash(),
+                fixture.intent().expectedResourceStateVersion(), fixture.intent().appliedMutationSequence(),
+                protectionSetWithSource(foreignShard), fixture.intent().appliedSourcePosition()));
+    }
+
+    @Test
     void durableDeletedCheckpointEvidenceCannotOmitPinnedVersion() {
         final Fixture fixture = fixture();
         assertThrows(IllegalArgumentException.class, () -> new ResourceDeleteConfirmedRecord(
@@ -350,6 +361,22 @@ class ResourceGcGuardTest {
             CanonicalProtobuf.uint32(output, 1, 3);
             CanonicalProtobuf.bytes(output, 2, protectedResourceId);
             CanonicalProtobuf.uint32(output, 3, 1);
+        });
+        final byte[] references = CanonicalProtobuf.message(output ->
+                CanonicalProtobuf.bytes(output, 1, reference));
+        final byte[] digest = Bytes.sha256(Bytes.utf8("nereus-delay-protection-set-v1\0"), references);
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, reference);
+            CanonicalProtobuf.bytes(output, 2, digest);
+        });
+    }
+
+    private static byte[] protectionSetWithSource(final ShardId sourceShard) {
+        final byte[] reference = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint32(output, 1, 2);
+            CanonicalProtobuf.bytes(output, 2, id32(18));
+            CanonicalProtobuf.uint64(output, 3, 1);
+            CanonicalProtobuf.bytes(output, 4, position(sourceShard, 1, 1_001).canonicalBytes());
         });
         final byte[] references = CanonicalProtobuf.message(output ->
                 CanonicalProtobuf.bytes(output, 1, reference));

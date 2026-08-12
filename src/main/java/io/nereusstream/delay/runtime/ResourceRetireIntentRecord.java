@@ -3,6 +3,7 @@ package io.nereusstream.delay.runtime;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.ResourceKind;
 import io.nereusstream.delay.protocol.ResourceRetireIntentBody;
+import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
 
 import java.nio.ByteBuffer;
@@ -34,14 +35,25 @@ public record ResourceRetireIntentRecord(
                 Bytes.sha256(Bytes.utf8("nereus-delay-resource-identity-v1\0"), resourceIdentity))) {
             throw new IllegalArgumentException("resource identity hash does not match canonical identity");
         }
-        protections = ResourceRetireIntentBody.ProtectionSet.decodeCanonical(protections).canonicalBytes();
+        final ResourceRetireIntentBody.ProtectionSet protectionSet =
+                ResourceRetireIntentBody.ProtectionSet.decodeCanonical(protections);
         requireNonEmpty(appliedSourcePosition, "appliedSourcePosition");
-        SourcePositionCodec.decode(appliedSourcePosition);
+        final SourcePosition appliedPosition = SourcePositionCodec.decode(appliedSourcePosition);
+        for (ResourceRetireIntentBody.ProtectionRef reference : protectionSet.references()) {
+            if (reference.minimumSourcePosition().length == 0) {
+                continue;
+            }
+            final SourcePosition protectionPosition = SourcePositionCodec.decode(reference.minimumSourcePosition());
+            if (!appliedPosition.shardId().equals(protectionPosition.shardId())) {
+                throw new IllegalArgumentException("protection source position belongs to another shard");
+            }
+        }
+        protections = protectionSet.canonicalBytes();
         mutationId = Bytes.copy(mutationId);
         mutationHash = Bytes.copy(mutationHash);
         resourceIdentity = Bytes.copy(resourceIdentity);
         resourceIdentityHash = Bytes.copy(resourceIdentityHash);
-        appliedSourcePosition = Bytes.copy(appliedSourcePosition);
+        appliedSourcePosition = appliedPosition.canonicalBytes();
     }
 
     @Override
