@@ -11,15 +11,19 @@ V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障
 
 **Open semantic questions: none.**
 
-The post-permit audit on 2026-08-12 reran the complete repository gate from
-the current `137a3cf` document baseline:
-`GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew clean check
---rerun-tasks --console=plain` completed with 1205 tests, zero failures or
-errors, and the same 5 opt-in real-Oxia methods skipped because
-`NEREUS_DELAY_OXIA_ENDPOINT` was unset. The audit found no additional local
-semantic gap in ownership, replay, checkpoint, one-shard/one-DB, or Worker
-resource boundaries; external Oxia transaction/session, Broker transport,
-provider authority, and release-scale evidence gates remain open.
+The latest post-permit audit on 2026-08-12 ran from document commit
+`2138ca3` with a temporary standalone Oxia service built from source commit
+`37a17bef17202d5fd6e23282da5fd26d94865484`:
+```text
+NEREUS_DELAY_OXIA_ENDPOINT=127.0.0.1:6648 \
+GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew clean check --rerun-tasks --console=plain
+```
+The command completed with 1205 tests, zero failures,
+errors or skips. All five opt-in real-Oxia methods executed successfully.
+The audit found no additional local semantic gap in ownership, replay,
+checkpoint, one-shard/one-DB, or Worker resource boundaries; external
+cross-record Oxia transaction/session, Broker transport, provider authority,
+and release-scale evidence gates remain open.
 
 After `c4391ca`, checkpoint restore admission covers the complete local
 download-to-install interval: `CheckpointRestoreCoordinator` acquires a
