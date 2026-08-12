@@ -107,6 +107,45 @@ class CheckpointExecutionCoordinatorTest {
         }
     }
 
+    @Test
+    void executionFailureRemainsPrimaryWhenClaimCompletionAlsoFails() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 18);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("completion-failure-resources"));
+        final CheckpointScheduler scheduler = new CheckpointScheduler(100, 0, 1);
+        scheduler.register(shard, 0);
+        final CheckpointScheduler.ScheduledCheckpoint claim = scheduler.claimDue(100, 1).get(0);
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shard, resources)) {
+            final OwnerIdentityV1 owner = new OwnerIdentityV1(bytes(8, 30), bytes(8, 31), 42, bytes(32, 32));
+            final ProfileRefV1 objectStore = new ProfileRefV1(bytes(32, 33), 1, bytes(32, 34),
+                    ProfileKindV1.OBJECT_STORE);
+            final CheckpointUploadIntentV1 pending = new CheckpointUploadIntentV1(
+                    new ShardSubjectV1(shard), bytes(16, 35), bytes(16, 36), owner,
+                    uuidBytes(store.metadata().storeIncarnationUuid()), bytes(32, 37), 1,
+                    null, null, objectStore, evidence(100), 5_000,
+                    CheckpointUploadStateV1.PENDING_UPLOAD, 1, null, null);
+            final CheckpointExecutionCoordinator coordinator = new CheckpointExecutionCoordinator(scheduler, store,
+                    new CheckpointPublicationCoordinator(resources, new CheckpointUploadIntentStore(),
+                            new RecoveryCatalog()));
+
+            final IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                    () -> coordinator.execute(claim, tempDir.resolve("completion-failure-checkpoint"), pending,
+                            (directory, currentStore) -> {
+                                throw new AssertionError("negative upload time must fail before manifest creation");
+                            }, -1, () -> 99, request -> {
+                                throw new AssertionError("negative upload time must fail before provider I/O");
+                            }));
+
+            assertEquals("uploadNowEpochMs must be non-negative", failure.getMessage());
+            assertEquals(1, failure.getSuppressed().length);
+            assertEquals("checkpoint completion precedes its claim due time",
+                    failure.getSuppressed()[0].getMessage());
+            assertTrue(scheduler.isInFlight(shard));
+            assertEquals(200, scheduler.complete(claim, 100));
+        }
+    }
+
     private static CheckpointManifest parentManifest(final ShardStore store, final ShardId shard,
                                                      final byte[] lineage, final SourcePosition position,
                                                      final OwnerIdentityV1 owner,
