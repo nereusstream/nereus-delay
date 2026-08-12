@@ -168,6 +168,32 @@ class CheckpointUploadCoordinatorTest {
     }
 
     @Test
+    void rereadAfterUploadSlotRejectsPublishedResourceThatDoesNotBindTheManifest() throws Exception {
+        final Fixture fixture = fixture();
+        final CheckpointUploadIntentStore backing = new CheckpointUploadIntentStore();
+        backing.create(fixture.pending());
+        final CheckpointResourceV1 wrongManifestBinding = new CheckpointResourceV1(
+                fixture.pending().recoveryLineageId(), fixture.pending().checkpointId(), fixture.profile(),
+                bytes(4, 31), bytes(8, 32), bytes(8, 33),
+                fixture.manifest().canonicalJsonBytes().length + 1, fixture.manifest().manifestSha256());
+        final CheckpointUploadIntentAuthority authority = new PublishAfterFirstPendingRead(
+                backing, fixture.pending(), wrongManifestBinding);
+        final AtomicBoolean adapterCalled = new AtomicBoolean();
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(
+                ShardStoreConfig.defaults(tempDir.resolve("slot-race-wrong-manifest")))) {
+            final CheckpointUploadCoordinator coordinator = new CheckpointUploadCoordinator(resources, authority);
+            assertThrows(IllegalArgumentException.class, () -> coordinator.upload(fixture.directory(),
+                    fixture.pending(), fixture.manifest(), 1_000, request -> {
+                        adapterCalled.set(true);
+                        throw new AssertionError("a concurrently published intent must not call the provider");
+                    }));
+        }
+        assertEquals(false, adapterCalled.get());
+        assertEquals(CheckpointUploadStateV1.PUBLISHED, backing.current().orElseThrow().state());
+    }
+
+    @Test
     void publicationCoordinatorBindsPublishedIntentToCatalogAndRetriesCatalogResponseLoss() throws Exception {
         final Fixture fixture = fixture();
         final CheckpointUploadIntentStore intentStore = new CheckpointUploadIntentStore();

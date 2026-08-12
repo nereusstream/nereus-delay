@@ -91,7 +91,10 @@ public final class CheckpointUploadCoordinator {
             // invoke the provider a second time.
             final var publishedAfterSlot = intentStore.currentPublishedFor(pending);
             if (publishedAfterSlot.isPresent()) {
-                return publishedAfterSlot.orElseThrow();
+                final CheckpointUploadIntentV1 publishedIntent = publishedAfterSlot.orElseThrow();
+                limits.validateResource(publishedIntent.publishedManifest());
+                validatePublishedResource(pending, manifest, publishedIntent.publishedManifest(), manifestBytes);
+                return publishedIntent;
             }
             final var pendingAfterSlot = intentStore.current(pending);
             if (pendingAfterSlot.isEmpty() || !pendingAfterSlot.orElseThrow().equals(pending)) {
