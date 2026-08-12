@@ -47,6 +47,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -69,6 +70,36 @@ class ShardStoreTest {
                     || method.getName().equals("restoreFromCheckpoint")) {
                 assertFalse(Modifier.isPublic(method.getModifiers()), method::toGenericString);
             }
+        }
+    }
+
+    @Test
+    void boundedScanEnforcesActualBytesAndElapsedTime() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("bounded-scan"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 18);
+        final byte[] firstKey = scratchMetaQuotaKey(20);
+        final byte[] secondKey = scratchMetaQuotaKey(21);
+        final byte[] firstValue = Bytes.utf8("first-bounded-value");
+        final byte[] secondValue = Bytes.utf8("second-bounded-value");
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.META, 3, firstKey, firstValue);
+                batch.putValue(ColumnFamily.META, 3, secondKey, secondValue);
+            });
+            final byte[] encodedFirst = ValueEnvelope.encode(3, firstValue);
+            final long firstBytes = Math.addExact(firstKey.length, encodedFirst.length);
+
+            assertEquals(1, store.scan(ColumnFamily.META, firstKey, secondKey, 2,
+                    firstBytes, 100, () -> 0).size());
+            assertThrows(IllegalStateException.class, () -> store.scan(ColumnFamily.META,
+                    firstKey, secondKey, 1, firstBytes - 1, 100, () -> 0));
+
+            final AtomicLong clock = new AtomicLong();
+            assertTrue(store.scan(ColumnFamily.META, firstKey, null, 2,
+                    Long.MAX_VALUE, 1, clock::getAndIncrement).isEmpty());
+            assertThrows(IllegalStateException.class, () -> store.scan(ColumnFamily.META,
+                    firstKey, null, 1, Long.MAX_VALUE, 100, () -> -1));
         }
     }
 

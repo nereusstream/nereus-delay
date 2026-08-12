@@ -48,6 +48,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
 /** One independent RocksDB instance for exactly one Delay Shard. */
@@ -1817,24 +1818,65 @@ public final class ShardStore implements AutoCloseable {
     /** Returns a bounded snapshot of one column family in RocksDB key order. */
     public synchronized List<KeyValue> scan(final ColumnFamily family, final byte[] lowerInclusive,
                                             final byte[] upperExclusive, final int limit) {
+        return scan(family, lowerInclusive, upperExclusive, limit, Long.MAX_VALUE,
+                Long.MAX_VALUE, () -> 0);
+    }
+
+    /**
+     * Returns a snapshot bounded by record count, actual key/value bytes and
+     * monotonic elapsed time.
+     *
+     * <p>The elapsed check happens before each iterator entry is read. A
+     * single entry larger than the byte envelope fails closed because no
+     * caller could process it within the certified turn; a later entry that
+     * would exceed the remaining envelope is left for the next scan.</p>
+     */
+    public synchronized List<KeyValue> scan(final ColumnFamily family, final byte[] lowerInclusive,
+                                            final byte[] upperExclusive, final int maxRecords,
+                                            final long maxBytes, final long maxElapsedNanos,
+                                            final LongSupplier monotonicClockNanos) {
         ensureOpen();
         Objects.requireNonNull(family, "family");
-        if (limit <= 0) {
-            throw new IllegalArgumentException("scan limit must be positive");
+        final LongSupplier clock = Objects.requireNonNull(monotonicClockNanos, "monotonicClockNanos");
+        if (maxRecords <= 0 || maxBytes <= 0 || maxElapsedNanos <= 0) {
+            throw new IllegalArgumentException("scan bounds must be positive");
         }
         final List<KeyValue> result = new ArrayList<>();
+        final long startedNanos = readScanClock(clock);
+        long scannedBytes = 0;
         try (RocksIterator iterator = db.newIterator(handles.get(family))) {
             if (lowerInclusive == null) {
                 iterator.seekToFirst();
             } else {
                 iterator.seek(lowerInclusive);
             }
-            while (iterator.isValid() && result.size() < limit) {
+            while (iterator.isValid() && result.size() < maxRecords) {
+                final long nowNanos = readScanClock(clock);
+                if (nowNanos < startedNanos) {
+                    throw new IllegalStateException("RocksDB scan monotonic clock moved backwards");
+                }
+                if (nowNanos - startedNanos >= maxElapsedNanos) {
+                    break;
+                }
                 final byte[] key = iterator.key();
                 if (upperExclusive != null && compareUnsigned(key, upperExclusive) >= 0) {
                     break;
                 }
-                result.add(new KeyValue(key, iterator.value()));
+                final byte[] value = iterator.value();
+                final long entryBytes;
+                try {
+                    entryBytes = Math.addExact((long) key.length, value.length);
+                } catch (ArithmeticException overflow) {
+                    throw new IllegalStateException("RocksDB scan entry byte charge overflow", overflow);
+                }
+                if (entryBytes > maxBytes) {
+                    throw new IllegalStateException("RocksDB scan entry exceeds byte budget");
+                }
+                if (entryBytes > maxBytes - scannedBytes) {
+                    break;
+                }
+                scannedBytes = Math.addExact(scannedBytes, entryBytes);
+                result.add(new KeyValue(key, value));
                 iterator.next();
             }
             iterator.status();
@@ -1842,6 +1884,14 @@ public final class ShardStore implements AutoCloseable {
             throw new IllegalStateException("RocksDB scan failed", exception);
         }
         return List.copyOf(result);
+    }
+
+    private static long readScanClock(final LongSupplier clock) {
+        final long value = clock.getAsLong();
+        if (value < 0) {
+            throw new IllegalStateException("RocksDB scan monotonic clock returned a negative value");
+        }
+        return value;
     }
 
     public synchronized void write(final BatchOperation operation) {
