@@ -87,7 +87,17 @@ cleanup. The two-task dispatcher regression proves the trailing selected task
 is invoked rather than silently lost. This is local event-loop isolation
 evidence; it does not provide production handler durability or IO authority.
 
-The synchronized full local gate then passed on 2026-08-12 with 1217 reported
+After `9663927`, every exact `PUBLISHED` successor observed after acquiring the
+Worker checkpoint-upload slot is subjected to the same bounded-resource and
+canonical-manifest binding checks as the initial read. A concurrent publisher
+therefore suppresses duplicate provider I/O only when lineage, checkpoint,
+Object Store Profile, manifest length and SHA-256 all match. The focused
+`CheckpointUploadCoordinatorTest.rereadAfterUploadSlotRejectsPublishedResourceThatDoesNotBindTheManifest`
+regression covers the mismatched-length race. This is local fail-closed
+publication integrity evidence, not proof of production Object Store or Oxia
+cross-record transaction authority.
+
+The synchronized full local gate then passed on 2026-08-12 with 1218 reported
 tests, zero failures/errors and five skipped opt-in real-Oxia methods because
 the endpoint was unset. `checkDocumentation` and `checkstyleMain` passed in the
 same `clean check --rerun-tasks` run. This verifies the repository-local change

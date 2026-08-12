@@ -2636,6 +2636,14 @@ CAS，或 Object Store 的上传、quiescence、attestation 和删除 authority�
 完成 CAS 的 orphan object；这条本地 reread 仍不替代生产 Oxia 的跨 record
 Owner Lease/session、catalog 和 Object Store transaction。
 
+任何读取路径得到的 `PUBLISHED` successor——包括初次读取、取得 Worker upload
+slot 后的再次读取和 CAS response-loss reread——都必须重新执行完整
+`CheckpointResourceV1` 上限校验，并把其 recovery lineage、checkpoint、Object
+Store Profile、manifest object identity/version、exact manifest length 与 SHA-256
+绑定到当前 canonical manifest。并发 publication 只允许省略重复 provider I/O，
+不能成为跳过 manifest/resource validation 的信任捷径；绑定错误必须 fail closed，
+且本地协调器不得把外部 authority 已推进的 `PUBLISHED` 倒退或改写回 pending。
+
 上传未 catalog publish 的对象不是 recovery state，只是 orphan candidate。只有赢得 `REAPING` CAS 的 reaper 才可删除；仅 upload deadline 到达、callback 丢失或 watch 缺失都不够。旧 Owner 主动 abandon，或其 exact Owner Lease/session 已不再 current 且 Trusted UTC 越过 deadline，才可竞争该 CAS。`REAPING` 永久禁止后来 publish；reaper 还必须等待 `checkpointUploadRequestQuiescenceHorizon`、证明旧 Owner local guard 与 provider-owned request horizon 已关闭、确认无 active `RecoveryPinV1`/`PUBLISHED` catalog protection，再对 unique checkpoint prefix 做 exact-version delete 和 final empty-prefix sweep。任何 catalog、Floor 或 Recovery Pin 读取异常（包括适配器/进程边界抛出的 fatal `Error`）都只能解释为保护状态不可用，必须保持 `PENDING_UPLOAD` 或保留 GC tombstone，不能继续回收。这样旧 SDK/provider 的 late PUT 不能在一次 `HEAD not found` 后制造无主对象。
 
 本地 `CheckpointPublicationCoordinator` 把 upload 与 catalog 绑定的调用顺序固定为

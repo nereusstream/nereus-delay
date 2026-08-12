@@ -136,9 +136,20 @@ leaves the queue empty without masking the first failure. This closes a local
 selected-task loss/isolation path; durable production handler identities and
 Worker IO authority remain release gates.
 
+After `9663927`, the `CheckpointUploadCoordinator` no longer trusts an exact
+`PUBLISHED` successor merely because it appeared on the second intent reread
+after the Worker upload slot was acquired. It reapplies the bounded resource
+validation and binds lineage, checkpoint, Object Store Profile, manifest
+length and manifest SHA-256 to the canonical manifest before returning without
+provider I/O. `CheckpointUploadCoordinatorTest.rereadAfterUploadSlotRejectsPublishedResourceThatDoesNotBindTheManifest`
+proves a concurrent publication with a mismatched manifest length fails closed
+and does not invoke the provider. This is a local publication-race integrity
+fence; it does not provide the production Oxia multi-record transaction or
+Object Store authority.
+
 After the corresponding design/status/audit synchronization, the full
 `GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew clean check
---rerun-tasks --console=plain` gate passed on 2026-08-12: 1217 tests were
+--rerun-tasks --console=plain` gate passed on 2026-08-12: 1218 tests were
 reported with zero failures/errors and five skipped opt-in real-Oxia methods
 because `NEREUS_DELAY_OXIA_ENDPOINT` was unset. `checkDocumentation` and
 `checkstyleMain` passed in the same run. This is current local repository
