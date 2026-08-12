@@ -58,6 +58,20 @@ class BoundedDestinationPublishAdapterTest {
     }
 
     @Test
+    void onePhysicalAdmissionPoolCannotMultiplyCapacityAcrossWorkerRegistries() {
+        final WorkClassExecutionRegistry first = workClasses();
+        final WorkClassExecutionRegistry second = workClasses();
+        final DestinationLaneId lane = lane("worker-physical-cross-registry");
+        final DestinationPhysicalAdmission admission = admission(lane, 1, 20, 1, 20);
+        final DestinationPublishAdapter delegate = request -> CompletableFuture.completedFuture(published());
+
+        new BoundedDestinationPublishAdapter(delegate, admission, first, Runnable::run);
+        assertThrows(IllegalArgumentException.class,
+                () -> new BoundedDestinationPublishAdapter(delegate, admission, second, Runnable::run));
+        assertEquals(0, admission.workerSnapshot().activeRequests());
+    }
+
+    @Test
     void callbackTimeoutRetainsPhysicalChargeUntilDelegateCompletes() {
         final DestinationLaneId lane = lane("timeout");
         final DestinationPhysicalAdmission admission = admission(lane, 2, 40, 1, 20);

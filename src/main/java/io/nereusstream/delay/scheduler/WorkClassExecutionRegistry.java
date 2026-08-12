@@ -98,8 +98,14 @@ public final class WorkClassExecutionRegistry {
 
     /** Binds all Claim and Publish Admission actions on this Worker registry to one exact permit pool. */
     public synchronized void bindClaimExecutionAdmission(final ClaimExecutionAdmission admission) {
-        bindWorkerSingleton(WorkerSingleton.CLAIM_EXECUTION_ADMISSION,
-                Objects.requireNonNull(admission, "admission"));
+        final ClaimExecutionAdmission requested = Objects.requireNonNull(admission, "admission");
+        final Object existing = workerSingletons.get(WorkerSingleton.CLAIM_EXECUTION_ADMISSION);
+        if (existing != null && existing != requested) {
+            throw new IllegalArgumentException(
+                    "work-class registry is already bound to another CLAIM_EXECUTION_ADMISSION");
+        }
+        requested.bindWorkClassExecutionRegistry(this);
+        workerSingletons.put(WorkerSingleton.CLAIM_EXECUTION_ADMISSION, requested);
     }
 
     /** Binds one process-wide resource authority to this exact Worker registry. */
@@ -171,6 +177,7 @@ public final class WorkClassExecutionRegistry {
 
     /** Closed set of process-wide resource authorities bound to one Worker execution graph. */
     public enum WorkerSingleton {
+        STORE_RESOURCE_ENVELOPE,
         CLAIM_EXECUTION_ADMISSION,
         DESTINATION_PHYSICAL_ADMISSION
     }

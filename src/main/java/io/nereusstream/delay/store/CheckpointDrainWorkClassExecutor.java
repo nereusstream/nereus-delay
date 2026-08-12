@@ -36,6 +36,7 @@ public final class CheckpointDrainWorkClassExecutor {
                                              final ShardStore store) {
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
         this.store = Objects.requireNonNull(store, "store");
+        this.store.sharedResources().bindWorkClassExecutionRegistry(this.workClasses);
     }
 
     /** Registers one exact final-checkpoint action without Store or filesystem I/O. */

@@ -25,6 +25,7 @@ import io.nereusstream.delay.scheduler.PersistentLaneScheduler;
 import io.nereusstream.delay.scheduler.ScheduleWorkItem;
 import io.nereusstream.delay.scheduler.SchedulerBudget;
 import io.nereusstream.delay.scheduler.WorkClass;
+import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import io.nereusstream.delay.store.ShardStore;
 
 import java.util.ArrayList;
@@ -1909,6 +1910,11 @@ public final class OwnedDelayShard {
      */
     synchronized DelayShard shard() {
         return delegate;
+    }
+
+    /** Binds an ownership-package executor to this shard's exact Worker resource graph. */
+    synchronized void bindWorkClassExecutionRegistry(final WorkClassExecutionRegistry registry) {
+        delegate.bindWorkClassExecutionRegistry(registry);
     }
 
     public synchronized SourceAssignment sourceAssignment() {

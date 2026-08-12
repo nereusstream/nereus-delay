@@ -40,6 +40,7 @@ public final class CheckpointWorkClassExecutor {
                                        final CheckpointExecutionCoordinator checkpointExecutor) {
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
         this.checkpointExecutor = Objects.requireNonNull(checkpointExecutor, "checkpointExecutor");
+        this.checkpointExecutor.bindWorkClassExecutionRegistry(this.workClasses);
     }
 
     /** Registers one exact action; physical checkpoint work starts only when its bounded turn runs. */

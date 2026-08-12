@@ -2,6 +2,7 @@ package io.nereusstream.delay.adapter;
 
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DestinationLaneId;
+import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 
 import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
@@ -27,6 +28,7 @@ public final class DestinationPhysicalAdmission {
     private long workerActiveRequests;
     private long workerActiveBytes;
     private long nextReservationId = 1;
+    private WorkClassExecutionRegistry workClassExecutionRegistry;
 
     public DestinationPhysicalAdmission(final long workerMaxRequests, final long workerMaxBytes) {
         if (workerMaxRequests <= 0 || workerMaxBytes <= 0) {
@@ -34,6 +36,18 @@ public final class DestinationPhysicalAdmission {
         }
         this.workerMaxRequests = workerMaxRequests;
         this.workerMaxBytes = workerMaxBytes;
+    }
+
+    /** Prevents one physical admission pool from multiplying queue capacity through multiple registries. */
+    synchronized void bindWorkClassExecutionRegistry(final WorkClassExecutionRegistry registry) {
+        final WorkClassExecutionRegistry requested = Objects.requireNonNull(registry, "registry");
+        if (workClassExecutionRegistry != null && workClassExecutionRegistry != requested) {
+            throw new IllegalArgumentException(
+                    "destination physical admission is already bound to another work-class registry");
+        }
+        requested.bindWorkerSingleton(
+                WorkClassExecutionRegistry.WorkerSingleton.DESTINATION_PHYSICAL_ADMISSION, this);
+        workClassExecutionRegistry = requested;
     }
 
     /** Registers the hard target-cluster envelope before any Lane is opened. */

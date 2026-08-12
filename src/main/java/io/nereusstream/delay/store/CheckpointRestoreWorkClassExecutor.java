@@ -30,6 +30,7 @@ public final class CheckpointRestoreWorkClassExecutor {
                                               final CheckpointRestoreCoordinator restoreCoordinator) {
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
         this.restoreCoordinator = Objects.requireNonNull(restoreCoordinator, "restoreCoordinator");
+        this.restoreCoordinator.bindWorkClassExecutionRegistry(this.workClasses);
     }
 
     /** Registers an exact restore action; physical download starts only when selected. */

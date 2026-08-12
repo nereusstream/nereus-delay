@@ -50,6 +50,7 @@ public final class DueSchedulerWorkClassExecutor {
         this.ownedShard = Objects.requireNonNull(ownedShard, "ownedShard");
         this.authority = Objects.requireNonNull(authority, "authority");
         this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
+        this.ownedShard.bindWorkClassExecutionRegistry(this.workClasses);
     }
 
     /** Registers one exact bounded discovery action without touching scheduler state. */

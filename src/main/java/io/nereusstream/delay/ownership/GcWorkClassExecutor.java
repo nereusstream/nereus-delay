@@ -36,6 +36,7 @@ public final class GcWorkClassExecutor {
         this.ownedShard = Objects.requireNonNull(ownedShard, "ownedShard");
         this.authority = Objects.requireNonNull(authority, "authority");
         this.appender = Objects.requireNonNull(appender, "appender");
+        this.ownedShard.bindWorkClassExecutionRegistry(this.workClasses);
     }
 
     /** Registers one exact signed retire/delete-confirmation mutation. */

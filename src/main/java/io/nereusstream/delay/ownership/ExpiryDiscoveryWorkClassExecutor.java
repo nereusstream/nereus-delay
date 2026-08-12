@@ -29,6 +29,7 @@ public final class ExpiryDiscoveryWorkClassExecutor {
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
         this.ownedShard = Objects.requireNonNull(ownedShard, "ownedShard");
         this.authority = Objects.requireNonNull(authority, "authority");
+        this.ownedShard.bindWorkClassExecutionRegistry(this.workClasses);
     }
 
     /** Registers a discovery action without reading Oxia, clocks or RocksDB. */

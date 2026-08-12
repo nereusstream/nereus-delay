@@ -43,6 +43,7 @@ public final class SourceApplyWorkClassExecutor {
         this.ownedShard = Objects.requireNonNull(ownedShard, "ownedShard");
         this.authority = Objects.requireNonNull(authority, "authority");
         this.verificationKey = Objects.requireNonNull(verificationKey, "verificationKey");
+        this.ownedShard.bindWorkClassExecutionRegistry(this.workClasses);
     }
 
     /** Registers one exact source action; the WriteBatch starts only when its bounded turn runs. */

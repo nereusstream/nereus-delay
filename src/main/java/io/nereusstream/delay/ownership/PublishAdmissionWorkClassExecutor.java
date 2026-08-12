@@ -56,6 +56,7 @@ public final class PublishAdmissionWorkClassExecutor {
         this.appender = Objects.requireNonNull(appender, "appender");
         this.prerequisiteGate = Objects.requireNonNull(prerequisiteGate, "prerequisiteGate");
         this.workClasses.bindClaimExecutionAdmission(this.permits);
+        this.ownedShard.bindWorkClassExecutionRegistry(this.workClasses);
     }
 
     /**

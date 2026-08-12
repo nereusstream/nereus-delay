@@ -28,6 +28,7 @@ public final class LaneCloseDiscoveryWorkClassExecutor {
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
         this.ownedShard = Objects.requireNonNull(ownedShard, "ownedShard");
         this.authority = Objects.requireNonNull(authority, "authority");
+        this.ownedShard.bindWorkClassExecutionRegistry(this.workClasses);
     }
 
     /** Registers discovery without reading Oxia, clocks or RocksDB. */

@@ -1,6 +1,7 @@
 package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.ShardId;
+import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import org.rocksdb.Cache;
 import org.rocksdb.Env;
 import org.rocksdb.LRUCache;
@@ -65,6 +66,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
     private int checkpointUploadCount;
     private int checkpointDownloadCount;
     private int drainCount;
+    private WorkClassExecutionRegistry workClassExecutionRegistry;
 
     public SharedRocksDbResources(final ShardStoreConfig config) {
         this(config, null, null);
@@ -161,6 +163,23 @@ public final class SharedRocksDbResources implements AutoCloseable {
             throw new IllegalArgumentException(
                     "ShardStore config does not match the shared Worker resource envelope");
         }
+    }
+
+    /**
+     * Binds this complete Worker Store/resource envelope to one execution registry.
+     * Both directions are exact-identity fenced so neither queue capacity nor
+     * process-wide RocksDB limits can be multiplied by an accidental second graph.
+     */
+    public synchronized void bindWorkClassExecutionRegistry(final WorkClassExecutionRegistry registry) {
+        ensureOpen();
+        final WorkClassExecutionRegistry requested = Objects.requireNonNull(registry, "registry");
+        if (workClassExecutionRegistry != null && workClassExecutionRegistry != requested) {
+            throw new IllegalArgumentException(
+                    "Worker Store resources are already bound to another work-class registry");
+        }
+        requested.bindWorkerSingleton(
+                WorkClassExecutionRegistry.WorkerSingleton.STORE_RESOURCE_ENVELOPE, this);
+        workClassExecutionRegistry = requested;
     }
 
     /** Returns the native bucket ledger for envelope-bound Workers. */

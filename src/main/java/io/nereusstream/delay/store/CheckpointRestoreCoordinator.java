@@ -2,6 +2,7 @@ package io.nereusstream.delay.store;
 
 import io.nereusstream.delay.protocol.RecoveryPinV1;
 import io.nereusstream.delay.protocol.ShardId;
+import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -115,6 +116,11 @@ public final class CheckpointRestoreCoordinator {
         }
         exact.manifest().validateLimits(limits);
         limits.validateResource(exact.resource());
+    }
+
+    /** Binds restore/download execution to the exact Worker Store resource graph. */
+    void bindWorkClassExecutionRegistry(final WorkClassExecutionRegistry registry) {
+        resources.bindWorkClassExecutionRegistry(registry);
     }
 
     private void validateDownloadedInventory(final Path directory, final CheckpointManifest manifest) {

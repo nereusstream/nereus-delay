@@ -32,6 +32,7 @@ public final class ReservationExpiryWorkClassExecutor {
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
         this.ownedShard = Objects.requireNonNull(ownedShard, "ownedShard");
         this.authority = Objects.requireNonNull(authority, "authority");
+        this.ownedShard.bindWorkClassExecutionRegistry(this.workClasses);
     }
 
     /** Queues one exact durable reservation-expiry candidate without local I/O. */

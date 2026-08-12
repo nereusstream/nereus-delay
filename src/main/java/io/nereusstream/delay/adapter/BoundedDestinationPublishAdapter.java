@@ -57,9 +57,8 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                                             final WorkClassExecutionRegistry workClasses,
                                             final Executor executor) {
         this(delegate, admission, executor, false);
-        Objects.requireNonNull(workClasses, "workClasses").bindWorkerSingleton(
-                WorkClassExecutionRegistry.WorkerSingleton.DESTINATION_PHYSICAL_ADMISSION,
-                this.admission);
+        this.admission.bindWorkClassExecutionRegistry(
+                Objects.requireNonNull(workClasses, "workClasses"));
     }
 
     private BoundedDestinationPublishAdapter(final DestinationPublishAdapter delegate,

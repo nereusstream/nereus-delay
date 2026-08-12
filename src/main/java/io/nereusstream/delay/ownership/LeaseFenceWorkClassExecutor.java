@@ -33,6 +33,7 @@ public final class LeaseFenceWorkClassExecutor {
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
         this.ownedShard = Objects.requireNonNull(ownedShard, "ownedShard");
         this.authority = Objects.requireNonNull(authority, "authority");
+        this.ownedShard.bindWorkClassExecutionRegistry(this.workClasses);
     }
 
     /** Registers one exact lease-loss handoff in the preemptive class. */

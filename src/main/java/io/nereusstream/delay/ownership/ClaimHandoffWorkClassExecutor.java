@@ -52,6 +52,7 @@ public final class ClaimHandoffWorkClassExecutor {
         this.permits = Objects.requireNonNull(permits, "permits");
         this.prerequisiteGate = Objects.requireNonNull(prerequisiteGate, "prerequisiteGate");
         this.workClasses.bindClaimExecutionAdmission(this.permits);
+        this.ownedShard.bindWorkClassExecutionRegistry(this.workClasses);
     }
 
     /**

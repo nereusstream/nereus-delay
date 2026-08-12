@@ -110,6 +110,21 @@ class WorkClassExecutionRegistryTest {
     }
 
     @Test
+    void oneClaimAdmissionPoolCannotMultiplyCapacityAcrossWorkerRegistries() {
+        final WorkClassExecutionRegistry first = registry(1);
+        final WorkClassExecutionRegistry second = registry(1);
+        final ClaimExecutionAdmission admission = new ClaimExecutionAdmission(1, 1);
+
+        first.bindClaimExecutionAdmission(admission);
+        first.bindClaimExecutionAdmission(admission);
+        assertThrows(IllegalArgumentException.class,
+                () -> second.bindClaimExecutionAdmission(admission));
+
+        // A failed cross-registry bind must not poison the second registry.
+        second.bindClaimExecutionAdmission(new ClaimExecutionAdmission(1, 1));
+    }
+
+    @Test
     void workerSingletonBindingUsesExactInstancePerResourceKind() {
         final WorkClassExecutionRegistry registry = registry(1);
         final Object physicalAdmission = new Object();

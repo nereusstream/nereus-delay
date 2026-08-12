@@ -29,6 +29,17 @@ public final class ClaimExecutionAdmission {
     private long workerActiveMessages;
     private long workerActiveBytes;
     private long nextReservationId = 1;
+    private WorkClassExecutionRegistry workClassExecutionRegistry;
+
+    /** Prevents one Worker permit pool from multiplying queue capacity through multiple registries. */
+    synchronized void bindWorkClassExecutionRegistry(final WorkClassExecutionRegistry registry) {
+        final WorkClassExecutionRegistry requested = Objects.requireNonNull(registry, "registry");
+        if (workClassExecutionRegistry != null && workClassExecutionRegistry != requested) {
+            throw new IllegalArgumentException(
+                    "Claim execution admission is already bound to another work-class registry");
+        }
+        workClassExecutionRegistry = requested;
+    }
 
     public ClaimExecutionAdmission(final long maximumWorkerMessages,
                                    final long maximumWorkerBytes) {

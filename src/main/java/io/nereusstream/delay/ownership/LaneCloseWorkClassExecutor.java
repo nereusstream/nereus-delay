@@ -32,6 +32,7 @@ public final class LaneCloseWorkClassExecutor {
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
         this.ownedShard = Objects.requireNonNull(ownedShard, "ownedShard");
         this.authority = Objects.requireNonNull(authority, "authority");
+        this.ownedShard.bindWorkClassExecutionRegistry(this.workClasses);
     }
 
     /** Queues one exact close cursor without local Store I/O. */

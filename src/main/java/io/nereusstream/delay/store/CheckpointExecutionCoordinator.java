@@ -4,6 +4,7 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CheckpointUploadIntentV1;
 import io.nereusstream.delay.protocol.CheckpointUploadStateV1;
 import io.nereusstream.delay.protocol.SourcePosition;
+import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -56,6 +57,11 @@ public final class CheckpointExecutionCoordinator {
                                  final CheckpointUploadIntentV1 pending) {
         scheduler.requireCurrentClaim(Objects.requireNonNull(claim, "claim"));
         validatePendingIdentity(Objects.requireNonNull(pending, "pending"), claim);
+    }
+
+    /** Binds scheduled checkpoint execution to the Store's exact Worker queue graph. */
+    void bindWorkClassExecutionRegistry(final WorkClassExecutionRegistry registry) {
+        store.sharedResources().bindWorkClassExecutionRegistry(registry);
     }
 
     /**

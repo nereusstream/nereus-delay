@@ -33,6 +33,7 @@ public final class ControlWorkClassExecutor {
         this.ownedShard = Objects.requireNonNull(ownedShard, "ownedShard");
         this.authority = Objects.requireNonNull(authority, "authority");
         this.appender = Objects.requireNonNull(appender, "appender");
+        this.ownedShard.bindWorkClassExecutionRegistry(this.workClasses);
     }
 
     /** Registers one exact signed control mutation for external append. */

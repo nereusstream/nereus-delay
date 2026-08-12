@@ -80,6 +80,7 @@ import io.nereusstream.delay.protocol.UnsignedInt32;
 import io.nereusstream.delay.protocol.V1ScheduleBinding;
 import io.nereusstream.delay.ownership.ControlTargetRegistrationAuthority;
 import io.nereusstream.delay.scheduler.SchedulerBudget;
+import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import io.nereusstream.delay.store.BoundedReadBudget;
 import io.nereusstream.delay.store.ColumnFamily;
 import io.nereusstream.delay.store.IngressFenceState;
@@ -6408,6 +6409,11 @@ public final class DelayShard {
 
     public io.nereusstream.delay.protocol.ShardId shardId() {
         return store.shardId();
+    }
+
+    /** Binds owner-side work execution to this shard Store's exact Worker resource graph. */
+    public void bindWorkClassExecutionRegistry(final WorkClassExecutionRegistry registry) {
+        store.sharedResources().bindWorkClassExecutionRegistry(registry);
     }
 
     /** Returns the immutable local Store Incarnation used by Claim/Admission identity checks. */
