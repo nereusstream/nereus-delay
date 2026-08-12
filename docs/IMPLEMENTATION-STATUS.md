@@ -21,6 +21,12 @@ checkpoint, one-shard/one-DB, or Worker resource boundaries; the remaining
 incomplete rows below require cross-record Oxia transactions, Broker
 transports, provider authority, or release-scale evidence.
 
+The Gradle `checkDocumentation` task is now part of `check`. It verifies that
+the V1 authority documents exist, the document map still points at the main
+design, and the main design, Protocol Registry, ADR index, Status and Audit
+carry the same frozen spec revision. The task passed in the same gate; it is a
+document-governance check and does not relax any semantic or release gate.
+
 Commit `c4391ca` closes the local checkpoint-download admission gap.  The
 `CheckpointRestoreCoordinator` now acquires one idempotent Worker-wide
 `CheckpointDownloadPermit` before invoking the provider and holds it through

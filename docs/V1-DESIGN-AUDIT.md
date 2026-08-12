@@ -25,6 +25,12 @@ checkpoint, one-shard/one-DB, or Worker resource boundaries; external
 cross-record Oxia transaction/session, Broker transport, provider authority,
 and release-scale evidence gates remain open.
 
+The Gradle `checkDocumentation` verification task also passed in this run. It
+checks the required authority files, the document-map reference to the main
+design, and a single frozen spec revision across the main design, Registry,
+ADR index, Status and Audit. This is governance evidence only; it does not
+turn the remaining external release gates into PASS.
+
 After `c4391ca`, checkpoint restore admission covers the complete local
 download-to-install interval: `CheckpointRestoreCoordinator` acquires a
 Worker-wide idempotent permit before provider I/O, and the same permit remains

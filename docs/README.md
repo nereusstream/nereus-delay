@@ -33,3 +33,7 @@
 - 想做发布或评审：查 Design Audit，确认剩余 blocker 没有被误标为完成。
 
 当前仓库仍是单 Gradle Java 21 工程；文档中的多模块目标和真实 Broker/Oxia/Object Store 集成会随着实现逐项变成状态证据，但不会改变上述权威分工。
+
+Gradle 的 `checkDocumentation` verification task 会在 `check` 中执行，验证上述
+权威文件存在、文档地图没有丢失主设计入口，并且主设计、Protocol Registry、ADR、
+Status 与 Audit 使用同一个冻结 spec revision。

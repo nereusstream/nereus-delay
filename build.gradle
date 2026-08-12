@@ -61,6 +61,67 @@ tasks.named('checkstyleTest').configure {
     enabled = false
 }
 
+def v1DocumentPaths = [
+        'CONTEXT.md',
+        'docs/README.md',
+        'docs/Nereus Delay V1 设计.md',
+        'docs/V1-PROTOCOL-REGISTRY.md',
+        'docs/IMPLEMENTATION-STATUS.md',
+        'docs/V1-DESIGN-AUDIT.md',
+        'docs/adr/README.md'
+]
+
+tasks.register('checkDocumentation') {
+    group = 'verification'
+    description = 'Checks the V1 authority documents and their frozen revision markers.'
+    doLast {
+        v1DocumentPaths.each { path ->
+            if (!file(path).isFile()) {
+                throw new GradleException("required V1 document is missing: ${path}")
+            }
+        }
+        def read = { path -> file(path).getText('UTF-8') }
+        def revision = 'V1-FROZEN-2026-08-01'
+        def design = read('docs/Nereus Delay V1 设计.md')
+        def registry = read('docs/V1-PROTOCOL-REGISTRY.md')
+        def adrIndex = read('docs/adr/README.md')
+        def documentMap = read('docs/README.md')
+        def status = read('docs/IMPLEMENTATION-STATUS.md')
+        def audit = read('docs/V1-DESIGN-AUDIT.md')
+
+        [
+                [design, "本文是 Nereus Delay V1 的实现与验收基线"],
+                [design, '一个独立 RocksDB DB'],
+                [registry, '唯一数值注册表'],
+                [adrIndex, '0001'],
+                [adrIndex, '0042'],
+                [documentMap, '仍然有效'],
+                [documentMap, 'IMPLEMENTATION-STATUS.md'],
+                [status, revision],
+                [audit, revision]
+        ].each { entry ->
+            if (!entry[0].contains(entry[1])) {
+                throw new GradleException("V1 documentation invariant is missing: ${entry[1]}")
+            }
+        }
+
+        def revisionMarkers = [
+                design.find(/V1-FROZEN-\d{4}-\d{2}-\d{2}/),
+                registry.find(/V1-FROZEN-\d{4}-\d{2}-\d{2}/),
+                adrIndex.find(/V1-FROZEN-\d{4}-\d{2}-\d{2}/),
+                status.find(/V1-FROZEN-\d{4}-\d{2}-\d{2}/),
+                audit.find(/V1-FROZEN-\d{4}-\d{2}-\d{2}/)
+        ]
+        if (revisionMarkers.any { it != revision }) {
+            throw new GradleException("V1 document revision markers are inconsistent: ${revisionMarkers}")
+        }
+    }
+}
+
+tasks.named('check').configure {
+    dependsOn tasks.named('checkDocumentation')
+}
+
 jacocoTestReport {
     dependsOn test
     reports {
