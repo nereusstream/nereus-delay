@@ -4124,6 +4124,21 @@ full `./gradlew clean check --rerun-tasks --console=plain` gate both passed on
 2026-08-12 (`BUILD SUCCESSFUL`, five executed tasks). The five opt-in real-Oxia
 methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset.
 
+The shared `LocalStatePathGuard.ensureRealDirectoryPath` now validates every
+existing and newly-created path component from the filesystem root. An
+intermediate symbolic link that redirects a state/lock/temp directory outside
+its lexical parent is rejected even when the final target already exists;
+deployment-managed system links such as macOS `/var` remain usable;
+`LocalStatePathGuardTest.directoryPathRejectsExistingIntermediateSymlinkEvenWhenTargetExists`
+covers that previously untested branch. This is local physical-path evidence
+only; it does not replace deployment ownership, Oxia authority or provider
+filesystem guarantees.
+
+After this path-guard change, `./gradlew clean check --rerun-tasks
+--console=plain` passed on 2026-08-12 (`BUILD SUCCESSFUL`, five executed tasks).
+The same five opt-in real-Oxia methods remained skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was unset.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

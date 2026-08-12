@@ -9,8 +9,6 @@ import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Objects;
 
 /**
@@ -31,18 +29,34 @@ public final class LocalStatePathGuard {
         Objects.requireNonNull(path, "path");
         Objects.requireNonNull(description, "description");
         final Path absolute = path.toAbsolutePath().normalize();
-        final List<Path> missing = new ArrayList<>();
-        Path cursor = absolute;
-        while (!Files.exists(cursor, LinkOption.NOFOLLOW_LINKS)) {
-            missing.add(cursor);
-            cursor = cursor.getParent();
-            if (cursor == null) {
-                throw new IOException(description + " has no existing ancestor: " + path);
-            }
+        final Path root = absolute.getRoot();
+        if (root == null) {
+            throw new IOException(description + " has no filesystem root: " + path);
         }
+        Path cursor = root;
         requireRealDirectory(cursor, description);
-        for (int index = missing.size() - 1; index >= 0; index--) {
-            cursor = missing.get(index);
+        for (Path component : absolute) {
+            cursor = cursor.resolve(component);
+            if (Files.isSymbolicLink(cursor)) {
+                final Path target;
+                try {
+                    target = cursor.toRealPath();
+                } catch (IOException failure) {
+                    throw new IOException(description + " contains an unresolved symbolic-link component: " + cursor,
+                            failure);
+                }
+                final Path lexicalParent = cursor.getParent();
+                if (lexicalParent == null || !target.startsWith(lexicalParent)) {
+                    throw new IOException(description + " must not redirect outside its lexical parent: " + cursor);
+                }
+                if (!Files.isDirectory(target, LinkOption.NOFOLLOW_LINKS)) {
+                    throw new IOException(description + " symbolic-link target must be a directory: " + cursor);
+                }
+                // This existing component is deployment-managed. Continue
+                // checking descendants, but do not treat the symlink itself
+                // as a newly-created state directory.
+                continue;
+            }
             if (!Files.exists(cursor, LinkOption.NOFOLLOW_LINKS)) {
                 try {
                     Files.createDirectory(cursor);

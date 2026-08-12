@@ -3869,6 +3869,20 @@ full `./gradlew clean check --rerun-tasks --console=plain` gate both passed on
 methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this
 remains local evidence only.
 
+The local directory-path guard now walks and validates every component rather
+than checking only the nearest existing ancestor. An existing intermediate
+symlink that redirects outside its lexical parent is rejected before any
+state, lock or temporary directory can be created, while deployment-managed
+system links such as macOS `/var` remain usable;
+`LocalStatePathGuardTest.directoryPathRejectsExistingIntermediateSymlinkEvenWhenTargetExists`
+is the focused regression. This closes a local physical-boundary case only and
+does not claim external filesystem, Oxia or Object Store authority.
+
+After this path-guard change, `./gradlew clean check --rerun-tasks
+--console=plain` passed on 2026-08-12 (`BUILD SUCCESSFUL`, five executed tasks).
+The same five opt-in real-Oxia methods remained skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was unset; this remains local evidence only.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

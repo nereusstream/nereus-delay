@@ -46,4 +46,15 @@ class LocalStatePathGuardTest {
         assertThrows(IOException.class,
                 () -> LocalStatePathGuard.readRegularFileNoFollow(directory, 32, "state"));
     }
+
+    @Test
+    void directoryPathRejectsExistingIntermediateSymlinkEvenWhenTargetExists() throws Exception {
+        final Path outside = tempDirectory.resolve("outside");
+        Files.createDirectories(outside.resolve("nested"));
+        final Path linked = tempDirectory.resolve("linked");
+        Files.createSymbolicLink(linked, outside);
+
+        assertThrows(IOException.class,
+                () -> LocalStatePathGuard.ensureRealDirectoryPath(linked.resolve("nested"), "state parent"));
+    }
 }
