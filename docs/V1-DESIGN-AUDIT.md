@@ -184,7 +184,27 @@ local discovery-class bridge only; Claim/Admission handoff, production
 trusted-time issuance, dynamic IO attribution and external destination/Oxia
 authority remain release gates.
 
-The synchronized full local gate then passed on 2026-08-12 with 1232 reported
+After `120f462`, the active-owner discovery bridge passes the complete trusted
+interval into the persistent scanner. Production discovery requires typed
+`ActiveLaneStateV1`, exact current scheduler Owner and Store Incarnation,
+`evidence.earliest >= certificate.issuedAt.latest` and the strict
+`evidence.latest < certificate.validUntil` boundary before promotion. Wrong
+Owner and exact-expiry evidence both fail before a head is offered; scanner
+rollback leaves the queue empty, and `OwnedDelayShard` fences the local Owner.
+This is a discovery authorization fence, not Claim, permit, full channel/
+credential-generation validation or Publish Admission authority.
+
+After `666f56a`, the Registry distinction between outer `AuthorIdentityV1` and
+nested `OwnerIdentityV1` is executable rather than prose-only. Admission body
+field 10, Claim precondition field 14 and Ready Certificate field 2 now parse
+and retain bare `OwnerIdentityV1`; Claim records and canonical attempt ledgers
+carry the same bytes. The signed envelope alone retains the tagged Owner author
+branch, and apply/replay compares its typed nested projection to the body.
+Focused Admission/Certificate/Claim/runtime tests plus the full 1232-test local
+suite pass; five real-Oxia smoke methods remain skipped without the endpoint.
+
+The synchronized full local gate after `666f56a` and this documentation update
+passed on 2026-08-12 with 1232 reported
 tests, zero failures/errors and five skipped opt-in real-Oxia methods because
 the endpoint was unset. `checkDocumentation` and `checkstyleMain` passed in the
 same `clean check --rerun-tasks` run. This verifies the repository-local change

@@ -657,6 +657,13 @@ Privileged/System Mutation 闭集是：
 | `CLAIM_RESULT_V1` | exact Claim/precondition、permanent pre-send failure、Trusted-UTC/charge | source-ordered `DEAD_LETTER` before Admission |
 | `DLQ_EXPORT_RESULT_V1` | exact export ID/envelope、numbered attempt outcome 或 evidence resolution、retry/charge | source-ordered DLQ outbox state |
 
+System Mutation envelope 的 `author_identity` 是带 closed branch tag 的
+`AuthorIdentityV1`；body、`ClaimPreconditionV1`、`ReadyCertificateV1` 等字段表中写明的
+`OwnerIdentityV1` 则必须编码为裸 nested value。两者即使表达同一个 Owner 也不是相同
+bytes：签名 envelope 使用前者，body 内重复 Owner 使用后者，再按字段逐项验证相等。
+实现不得把 `AuthorIdentityV1.owner` wrapper 塞入一个声明为 `OwnerIdentityV1` 的字段，
+也不得用宽松 parser 同时接受两种编码。
+
 它们不是 tenant API；Route 固定 schema/signing-key set，service-only Broker ACL 与 canonical signature 同时通过才可应用。Callback/timer/evidence/GC worker 只能准备并 enqueue exact mutation，不能绕过 Shard Log 直接改变会影响未来 Command 的权威状态。
 
 `SCHEDULE`、`PREPARE_LARGE_SCHEDULE` 与 `REPLAY_DEAD_LETTER_V1` 必须携带精确的 Destination Profile/Retry Policy version，不允许 apply/replay 解析“latest”。Replay、Resolve 与 shard control body 引用 Oxia 中已认证、hash/scope/target 匹配的 immutable Control Operation；`TIME_FENCE_V1` 使用 Route 固定的 ingress-fence writer/key set，不为每次 fence 创建 operation。
@@ -1759,6 +1766,15 @@ Lane activation/credential renewal 先解析 immutable reference，再在一个 
 同时具备 key 与 certificate，非 READY 必须清除二者。若当前本地输入无法无损提供
 这些字段，更新应停在 fail-closed，而不是写入一个看似可调度但缺少证明的 Lane。
 
+生产 READY discovery 必须读取 typed `ActiveLaneStateV1`，并在 promote head 前把
+`ReadyCertificateV1.owner` byte-equal 绑定到当前 scheduler `OwnerIdentityV1`、把 Store
+Incarnation byte-equal 绑定到当前 shard DB。调用方必须传完整
+`TrustedUtcIntervalEvidenceV1`：`evidence.earliest >= certificate.issuedAt.latest` 且
+`evidence.latest < certificate.validUntil`；等于过期边界即不可授权。任一检查失败都在
+offer/cursor/ring 持久化前 fail closed，并回滚本轮进程内 queue/fairness 投影。只传
+`dueThroughEpochMs`、允许 legacy Lane value 的 overload 仅是 embedded/rebuild
+兼容 seam，不是生产 Claim authority。
+
 READY discovery 看 `GenerationRuntimeIndexV1.currentWork` 与 exact `TimelineWorkRefV1`，不能把 public aggregate `UNCERTAIN` 当作“一定没有 timeline”的捷径。unordered Lane 的 policy-authorized `UNCERTAIN_RETRY` 因而可以有 READY；ordered Lane 禁止该 work kind，旧 UNCERTAIN head 只保留 order barrier、没有 successor READY。Claim 前必须同时复核 work kind、candidate attempt number、runtime revision、obligation-set digest 和两类剩余 budget。
 
 ordered Lane 的 ready time 来自 blocking head；`ORDERED` key 按业务 `(deliverAt, effective Schedule Source Position, delayMessageId)` 选择该 head，而 `headEligibilityAt=max(actionAt,retryEligibilityAt)` 决定何时唤醒。后续消息不能越过 `CLAIMED/PUBLISHING/UNCERTAIN/RETRY_WAIT` head。
@@ -1948,9 +1964,11 @@ work-class runtime。task identity 用 domain-separated hash 绑定 exact Shard�
 是上述 canonical request envelope 与完整 scan `maxBytes` 上界的 checked sum，不能只按
 最终返回 head 大小计费。queue admission 前只允许检查本地 strict-owner lifecycle、Shard
 与 scheduler owner epoch，不得读 Oxia、scan RocksDB、offer Lane head 或推进 scheduler
-cursor/ring。bounded action 开始后必须用执行时时钟重读 exact Owner Lease/session，并以
-evidence 的 `earliestEpochMs` 作为 inclusive `dueThroughEpochMs`；随后只能调用持久
-READY scanner 自己的 byte/time/record cap 与全 projection rollback 边界。
+cursor/ring。bounded action 开始后必须用执行时时钟重读 exact Owner Lease/session，并把
+完整 evidence 交给 scanner：`earliestEpochMs` 是 inclusive `dueThroughEpochMs`，
+`latestEpochMs` 用于严格检查 certificate expiry；随后只能调用持久 READY scanner
+自己的 byte/time/record cap、typed ACTIVE/certificate binding 与全 projection rollback
+边界。
 
 一次 discovery 成功只返回本轮新 promote 的 due heads；它不等于 Claim，也不能越过
 Claim materialization、permit、Ready Certificate 或 Publish Admission gate。queue 拒绝
