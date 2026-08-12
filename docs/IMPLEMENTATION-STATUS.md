@@ -82,6 +82,16 @@ position projection ahead of the continuity cursor. The focused
 `checkstyleMain` passed; this remains local fail-closed evidence and does not
 replace production source-adapter continuity or Oxia lease/session authority.
 
+After `9405f7c`, the type-specific bounded replay paths apply the same
+post-WriteBatch physical-position projection used by mixed replay. A duplicate
+Command or System Mutation therefore returns a result anchored to the current
+physical Source Position while the durable logical result remains anchored at
+its first application. The projection is validated before the caller-owned
+cursor and `lastCatchupPosition` advance; malformed projection fences the
+Owner. `OwnerLeaseTest` covers both duplicate branches and verifies the
+first-position durable result. This is local replay evidence only; it does not
+replace Broker source continuity or Oxia lease/session authority.
+
 The Oxia transaction question was checked against the locked source and the
 Gradle-resolved `oxia-client:0.9.0` API.  Its public `SyncOxiaClient` and
 `AsyncOxiaClient` expose one-key `put`/CAS operations only.  The internal

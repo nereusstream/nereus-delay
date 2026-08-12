@@ -102,6 +102,15 @@ focused owner replay/recovery regressions and `checkstyleMain` passed. This
 closes a local ordering gap only; Broker source continuity and Oxia
 lease/session evidence remain external release gates.
 
+After `9405f7c`, `replayCatchupTurn` and
+`replaySystemMutationsTurn` now perform the same physical-entry result
+projection before advancing their shared cursor. Logical duplicate results
+remain durable at the first Source Position, while returned type-specific
+results are anchored to the current physical record; a malformed projection
+fences the Owner. The focused `OwnerLeaseTest` covers both branches. This
+closes the local typed-replay ordering gap only and leaves Broker continuity,
+Oxia lease/session and production Worker authority as release gates.
+
 After `c4391ca`, checkpoint restore admission covers the complete local
 download-to-install interval: `CheckpointRestoreCoordinator` acquires a
 Worker-wide idempotent permit before provider I/O, and the same permit remains
