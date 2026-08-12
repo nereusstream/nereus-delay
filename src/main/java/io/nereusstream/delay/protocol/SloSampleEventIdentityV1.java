@@ -69,6 +69,22 @@ public final class SloSampleEventIdentityV1 {
         return SloPathV1.fromWire(QueryCodecSupport.uint(fields.get(3), 4));
     }
 
+    /** Returns the exact Source Position embedded by a command-applied identity. */
+    public SourcePosition commandAppliedSourcePosition() {
+        if (objective != SloObjectiveNameV1.COMMAND_APPLIED_LATENCY) {
+            throw new IllegalStateException("identity is not a command-applied branch");
+        }
+        final var fields = QueryCodecSupport.read(branchPayload(), "SloCommandAppliedIdentityV1");
+        return QueryCodecSupport.decodeSourcePosition(QueryCodecSupport.nested(fields.get(0), 1));
+    }
+
+    /** Returns the self-routing Message ID embedded by a due-admission identity. */
+    public DelayMessageId dueAdmissionMessageId() {
+        requireDueAdmissionIdentity();
+        final var fields = QueryCodecSupport.read(branchPayload(), "SloDueAdmissionIdentityV1");
+        return new DelayMessageId(QueryCodecSupport.fixed(fields.get(0), 1, DelayMessageId.LENGTH));
+    }
+
     public static SloSampleEventIdentityV1 decode(final byte[] encoded) {
         final var fields = QueryCodecSupport.read(encoded, "SloSampleEventIdentityV1");
         if (fields.size() != 1) {

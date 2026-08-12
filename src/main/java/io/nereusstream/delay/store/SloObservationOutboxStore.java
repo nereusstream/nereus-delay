@@ -63,6 +63,7 @@ public final class SloObservationOutboxStore {
         if (!Bytes.constantTimeEquals(sampleId, outbox.sampleId())) {
             throw new IllegalStateException("SLO_OUTBOX key/value sample identity mismatch");
         }
+        validateShardBoundStart(outbox.start());
         return outbox;
     }
 
@@ -73,6 +74,7 @@ public final class SloObservationOutboxStore {
      */
     public synchronized SloObservationOutboxV1 ensureStart(final SloSampleStartV1 start) {
         Objects.requireNonNull(start, "start");
+        validateShardBoundStart(start);
         final byte[] key = KeyCodec.metaSloOutbox(start.sampleId());
         final SloObservationOutboxV1 existing = get(start.sampleId());
         if (existing != null) {
@@ -179,7 +181,9 @@ public final class SloObservationOutboxStore {
         Objects.requireNonNull(authoritativeStarts, "authoritativeStarts");
         final List<SloSampleStartV1> sorted = new ArrayList<>();
         for (SloSampleStartV1 start : authoritativeStarts) {
-            sorted.add(Objects.requireNonNull(start, "authoritativeStarts contains null"));
+            final SloSampleStartV1 checked = Objects.requireNonNull(start, "authoritativeStarts contains null");
+            validateShardBoundStart(checked);
+            sorted.add(checked);
         }
         sorted.sort((left, right) -> Arrays.compareUnsigned(left.sampleId(), right.sampleId()));
 
@@ -447,7 +451,7 @@ public final class SloObservationOutboxStore {
         }
     }
 
-    private static SloObservationOutboxV1 decodeEntry(final ShardStore.KeyValue entry) {
+    private SloObservationOutboxV1 decodeEntry(final ShardStore.KeyValue entry) {
         final byte[] key = entry.key();
         if (key.length != 34 || key[0] != 8 || key[1] != 1) {
             throw new IllegalStateException("invalid SLO_OUTBOX key shape");
@@ -457,7 +461,40 @@ public final class SloObservationOutboxStore {
         if (!Bytes.constantTimeEquals(Arrays.copyOfRange(key, 2, key.length), outbox.sampleId())) {
             throw new IllegalStateException("SLO_OUTBOX key/value sample identity mismatch");
         }
+        validateShardBoundStart(outbox.start());
         return outbox;
+    }
+
+    /**
+     * Applies the local Shard fence to the typed SLO branches whose identity
+     * carries a Source Position or self-routing Message ID. Opaque legacy Due
+     * projections remain readable because older compatibility fixtures did not
+     * carry a decodable self-routing ID; typed authority factory Starts are
+     * always decoded and checked here.
+     */
+    private void validateShardBoundStart(final SloSampleStartV1 start) {
+        switch (start.objective()) {
+            case COMMAND_APPLIED_LATENCY -> {
+                final SourcePosition position = start.eventIdentity().commandAppliedSourcePosition();
+                if (!store.shardId().equals(position.shardId())) {
+                    throw new IllegalArgumentException("SLO command-applied Start belongs to another shard");
+                }
+            }
+            case DUE_ADMISSION_LAG -> {
+                final DelayMessageId messageId;
+                try {
+                    messageId = start.eventIdentity().dueAdmissionMessageId();
+                } catch (IllegalArgumentException legacyOpaqueStart) {
+                    return;
+                }
+                if (!store.shardId().equals(messageId.routingId().shardId())) {
+                    throw new IllegalArgumentException("SLO due-admission Start belongs to another shard");
+                }
+            }
+            default -> {
+                // Other objectives do not embed a typed Source/Message route.
+            }
+        }
     }
 
     public record Usage(int recordCount, long encodedBytes) {

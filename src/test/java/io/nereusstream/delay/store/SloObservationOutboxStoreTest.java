@@ -20,6 +20,7 @@ import io.nereusstream.delay.protocol.SloTimeEndpointKindV1;
 import io.nereusstream.delay.protocol.SloTimeEndpointV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
+import io.nereusstream.delay.protocol.SloAuthoritativeStartFactory;
 
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -304,7 +305,41 @@ class SloObservationOutboxStoreTest {
             assertThrows(IllegalArgumentException.class,
                     () -> outbox.ensureDueAdmissionStart(due, DelayMessageId.random(foreignShard), 0,
                             SloPathV1.ORDINARY_MANAGED, 800, bytes(32, 33)));
+
+            final SloSampleStartV1 foreignApplied = SloAuthoritativeStartFactory.commandApplied(commandApplied,
+                    foreignSource);
+            final SloSampleStartV1 foreignDue = SloAuthoritativeStartFactory.dueAdmission(due,
+                    DelayMessageId.random(foreignShard), 0, SloPathV1.ORDINARY_MANAGED, 800, bytes(32, 33));
+            assertThrows(IllegalArgumentException.class, () -> outbox.ensureStart(foreignApplied));
+            assertThrows(IllegalArgumentException.class, () -> outbox.ensureStart(foreignDue));
+            assertThrows(IllegalArgumentException.class,
+                    () -> outbox.reconcileDurableStarts(List.of(foreignApplied, foreignDue)));
             assertEquals(2, outbox.usage().recordCount());
+        }
+    }
+
+    @Test
+    void readPathsRejectPersistedTypedStartFromAnotherShard() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("slo-outbox-read-shard-fence"));
+        final ShardId localShard = new ShardId(RouteIncarnation.random(), 13);
+        final ShardId foreignShard = new ShardId(RouteIncarnation.random(), 14);
+        final KafkaSourcePosition foreignSource = new KafkaSourcePosition(foreignShard, "cluster-slo",
+                UUID.randomUUID(), 12, null, 702);
+        final SloObjectiveV1 commandApplied = new SloObjectiveV1(SloObjectiveNameV1.COMMAND_APPLIED_LATENCY,
+                SloPopulationV1.ALL_ACCEPTED, SloThresholdDirectionV1.AT_MOST,
+                SloThresholdUnitV1.MILLISECONDS, 100, 99, 100, 60_000, 10, List.of(), 7, bytes(32, 34));
+        final SloSampleStartV1 foreignStart = SloAuthoritativeStartFactory.commandApplied(commandApplied,
+                foreignSource);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, localShard, resources)) {
+            store.write(batch -> batch.putValue(ColumnFamily.META, SloObservationOutboxStore.VALUE_TYPE,
+                    KeyCodec.metaSloOutbox(foreignStart.sampleId()),
+                    SloObservationOutboxV1.open(foreignStart).canonicalBytes()));
+            final SloObservationOutboxStore outbox = new SloObservationOutboxStore(store);
+
+            assertThrows(IllegalArgumentException.class, () -> outbox.get(foreignStart.sampleId()));
+            assertThrows(IllegalArgumentException.class, () -> outbox.scan(10));
+            assertThrows(IllegalArgumentException.class, outbox::usage);
         }
     }
 
