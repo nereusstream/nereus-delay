@@ -106,7 +106,14 @@ regression covers the mismatched-length race. This is local fail-closed
 publication integrity evidence, not proof of production Object Store or Oxia
 cross-record transaction authority.
 
-The synchronized full local gate then passed on 2026-08-12 with 1221 reported
+After `5175a68`, the checkpoint execution coordinator has direct evidence for
+the combined body/completion failure cut: the body error remains primary, the
+completion error is suppressed, and a completion that cannot be proven leaves
+the exact scheduler claim in flight. A later valid completion using that same
+handle succeeds. This confirms local claim consistency only; the process-local
+scheduler is not checkpoint durability or external publication authority.
+
+The synchronized full local gate then passed on 2026-08-12 with 1222 reported
 tests, zero failures/errors and five skipped opt-in real-Oxia methods because
 the endpoint was unset. `checkDocumentation` and `checkstyleMain` passed in the
 same `clean check --rerun-tasks` run. This verifies the repository-local change

@@ -159,9 +159,18 @@ and does not invoke the provider. This is a local publication-race integrity
 fence; it does not provide the production Oxia multi-record transaction or
 Object Store authority.
 
+After `5175a68`, the checkpoint execution failure/completion combination has a
+direct regression. If the execution body fails and the completion clock or
+exact-claim completion also fails, the execution error remains primary, the
+completion error is suppressed, and the scheduler retains the in-flight claim.
+`CheckpointExecutionCoordinatorTest.executionFailureRemainsPrimaryWhenClaimCompletionAlsoFails`
+also proves that the exact claim can be completed later with a valid timestamp.
+This is local scheduler consistency evidence, not durable production scheduling
+or external checkpoint authority.
+
 After the corresponding design/status/audit synchronization, the full
 `GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew clean check
---rerun-tasks --console=plain` gate passed on 2026-08-12: 1221 tests were
+--rerun-tasks --console=plain` gate passed on 2026-08-12: 1222 tests were
 reported with zero failures/errors and five skipped opt-in real-Oxia methods
 because `NEREUS_DELAY_OXIA_ENDPOINT` was unset. `checkDocumentation` and
 `checkstyleMain` passed in the same run. This is current local repository

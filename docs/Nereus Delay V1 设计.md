@@ -2670,7 +2670,10 @@ sequence、evidence cursors 和 control snapshot；物理 checkpoint verifier �
 `meta_cf` 重读这些字段并与 manifest 做 canonical 比较。只有这些检查通过才进入
 upload/catalog 编排。无论 provider 或 catalog 是否失败，执行器都用同一 exact
 claim 完成并安排下一次 due；完成时钟异常或 claim 已被替换则保持 in-flight 并
-fail closed。该执行器只闭合本地 create/upload/catalog 的顺序和 response-loss
+fail closed。若执行体已经失败而 completion 又失败，执行体 failure 保持 primary，
+completion failure 只作为 suppressed evidence；不能用清理错误掩盖原始 I/O/校验
+错误，也不能在 completion 未成功时把 claim 当成已清除。该执行器只闭合本地
+create/upload/catalog 的顺序和 response-loss
 重试，不产生 Owner Lease、Source Assignment、Object Store attestation 或生产
 Oxia 跨记录事务结论。
 
