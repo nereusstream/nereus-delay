@@ -1840,6 +1840,19 @@ handler 的 exact trailing tasks 必须按原 selection order 放回各自 class
 handler 或首个 borrowed-hold 检查既不会重复可能已有副作用的 task，也不会丢失从未
 开始的 task；requeue/cleanup 的后续 failure 只作为首个 failure 的 suppressed evidence。
 
+生产组合入口在向 bounded work-class queue 提交任务前，必须把 exact
+`(workClass, taskId, bytes)` 与一个同步、有界的本地 mutation 或 durable
+external handoff action 绑定。同一 class/task identity 已注册时不得被覆盖；
+queue admission 失败必须在返回前撤销该绑定。task 被选中时先从
+`QUEUED` 转为 `RUNNING`；action 成功才删除注册，已开始 action 的
+`RuntimeException` 或 fatal `Error` 都必须保留 exact action 并转为 `FAILED`。
+只有显式提交同一 complete task 的 retry 才能将 `FAILED` 重新入队；不得
+仅凭 `taskId`、改变 byte charge，或对 `QUEUED/RUNNING` action 执行隐式 retry。
+fatal/hold stop 后从未开始的 trailing action 保持 `QUEUED`，并与 EventLoop
+恢复的 exact task 一致。该 registry 只是进程内执行投影，不是任务的 durable
+authority；进程丢失后必须从 shard/source/checkpoint 的权威索引重建，不得把
+内存中的 `FAILED` 当成唯一恢复来源。
+
 Worker 外层 bounded poll 也必须是一个完整的进程内 mutation boundary：它除了外层
 ring、cursor、Shard deficit、last-served、round generation 与 recovery-first-pass
 集合，还必须保存每个已注册 shard 的 inner cursor、inner deficit 和 inner round

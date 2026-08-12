@@ -123,7 +123,19 @@ missing, oversubscribed or semantically invalid policies. This closes the local
 configuration/construction seam only; benchmark values, shard handlers and
 dynamic WriteBatch/IO authority remain release evidence gaps.
 
-The synchronized full local gate then passed on 2026-08-12 with 1225 reported
+After `bb09b2c`, the local handler-composition seam has an inspectable exact
+action lifecycle. `WorkClassExecutionRegistry` registers the complete
+class/task/byte-charge identity before queue admission, rolls the registration
+back when admission rejects it, removes only successful actions, and retains a
+started runtime or fatal failure as `FAILED` for an explicit exact retry.
+Never-started trailing actions remain `QUEUED` when fatal/hold termination
+causes the event loop to restore the same task suffix. Its four focused tests
+cover all eight classes, ordinary failure/retry, fatal suffix retention and
+admission rollback with identity-drift rejection. This is process-local
+evidence and deliberately does not replace restart rediscovery, shard-specific
+handlers, durable source authority or dynamic WriteBatch/IO admission.
+
+The synchronized full local gate then passed on 2026-08-12 with 1229 reported
 tests, zero failures/errors and five skipped opt-in real-Oxia methods because
 the endpoint was unset. `checkDocumentation` and `checkstyleMain` passed in the
 same `clean check --rerun-tasks` run. This verifies the repository-local change
@@ -2851,7 +2863,12 @@ lease。`WorkClassDispatcher` 在这一层之上要求八类 handler 完整覆�
 selected task 路由到对应 handler；已经进入 handler 的 task 不做隐式 requeue，
 fatal/hold stop 之后从未进入 handler 的 exact suffix 则按原 selection order 回到
 各 class 队首。active Turn 还保留 selected queue capacity，避免并发 offer 挤掉
-该安全 requeue 空间。`WorkClassScheduler`
+该安全 requeue 空间。`WorkClassExecutionRegistry` 还在 queue admission
+之前把 complete class/task/byte-charge identity 与 exact action 绑定：admission
+拒绝会撤销注册，成功 action 才删除，已开始的 runtime/fatal failure 保留为
+`FAILED` 并只允许 exact explicit retry，从未开始的 fatal suffix 则保持
+`QUEUED`。该 registry 只是可从 shard/source/checkpoint authority 重建的进程内
+projection，不冒充 durable retry authority。`WorkClassScheduler`
 现在会在任何 queue head removal、deficit 扣减或 fairness counter 推进之前
 读取用于 `lastServed` 的单调时钟样本；负值/回拨样本只会 fail closed，不会丢掉
 仍由 bounded queue 支持的 head，回归证据为
