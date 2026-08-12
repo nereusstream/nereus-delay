@@ -138,6 +138,12 @@ again on 2026-08-12 (`BUILD SUCCESSFUL`, 5 tasks). The five real-Oxia methods
 remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this confirms
 the local regression suite only and is not live-service or release evidence.
 
+`SourceReplayRecord` and `SourceReplayMutation` now reject a replay entry when
+its command or signed mutation belongs to a different Shard than the supplied
+Source Position. `SourceReplayEntryTest` covers both constructor fences. This
+keeps the typed replay cursor aligned with the one-shard Source Log boundary;
+adapter assignment and continuity proofs remain external release gates.
+
 The local `TIME_FENCE_V1` apply path now carries an explicit
 `DelayShardConfig.timeFenceSafetyMarginMs` input and checks the Trusted-UTC
 proof with checked addition before advancing the ingress watermark. A proof one

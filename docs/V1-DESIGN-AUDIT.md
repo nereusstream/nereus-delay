@@ -73,6 +73,12 @@ again on 2026-08-12 (`BUILD SUCCESSFUL`, 5 tasks). The five real-Oxia methods
 remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset, so this is
 local regression evidence rather than live-service or release evidence.
 
+`SourceReplayRecord` and `SourceReplayMutation` now reject entries whose
+command or signed mutation is bound to a different Shard than the supplied
+Source Position; `SourceReplayEntryTest` covers both constructor fences. The
+local typed replay boundary is therefore aligned with the one-shard Source
+Log model, while adapter assignment and continuity proofs remain release gates.
+
 The Recovery Pin persistence audit now preserves the intended historical
 protection window: creating a session-bound pin records the exact Floor it
 observed, but later Floor advancement must not make a still-active pin
