@@ -1140,12 +1140,15 @@ control snapshot 或 lease-validity 等激活前置条件时，才保留 `CATCHI
 仓库内的 `OwnerRecoveryCoordinator` 是上述接管顺序的本地编排边界：它从已完成
 Store Incarnation 选择、打开和本地 recovery 校验之后开始，首个 `runTurn()` 先
 用同一 assignment/session-bound Owner Lease CAS 到 `CATCHING_UP`，每次只执行一个
-受 `ReplayTurnBudget` 限制的 mixed replay turn；只有 source cursor exhausted 后，
-才用同一 control snapshot 进入 strict `ACTIVE_FOR_COMMANDS` CAS。调用方必须在
-`OwnerRecoveryTurn.complete=false` 时把下一 turn 重新交给 event loop，不能在协调器
-外层一次性循环来绕过 record/byte/elapsed 上限。Source Assignment 发布、Oxia session
-创建、checkpoint 选择/下载、Broker resource guard 和 Lane 外部 evidence 仍是该
-协调器的输入与生产集成边界，不由本地编排器臆造。
+受 `ReplayTurnBudget` 限制的 mixed replay turn；每条物理记录都经共享
+`SOURCE_APPLY` action，恢复 action 在 `CATCHING_UP` 下执行，source cursor 只有在
+action outcome 成功且 exact look-ahead identity 仍匹配时才推进。队列公平调度尚未
+选中该 action 时返回 waiting，不得通过协调器外层循环绕过 event-loop；只有 source
+cursor exhausted 后，才用同一 control snapshot 进入 strict `ACTIVE_FOR_COMMANDS`
+CAS。调用方必须在 `OwnerRecoveryTurn.complete=false` 时把下一 turn 重新交给 event
+loop，不能在协调器外层一次性循环来绕过 record/byte/elapsed 上限。Source Assignment
+发布、Oxia session 创建、checkpoint 选择/下载、Broker resource guard 和 Lane 外部
+evidence 仍是该协调器的输入与生产集成边界，不由本地编排器臆造。
 
 某 Lane 的 target/receipt/journal 不可用只让该 Lane 留在 `RECOVERING_EVIDENCE`/`BLOCKED`，不得阻止 shard Command application 或其他健康 Lane。Shard 生命周期只使用精确状态 `ACTIVE_FOR_COMMANDS`；Lane readiness 是独立闸门，不用含混的 `ACTIVE` 同时表示两者。
 
@@ -2031,6 +2034,19 @@ attempt failure outcome。物理 Broker record/cursor 是唯一 retry authority�
 必须正常结束并删除进程内 action，不得再产生一条 WorkClass `FAILED` retry
 流。fatal `Error` 仍记录 outcome 并重新抛出。绕过 queue 的 direct active apply
 方法只能保留为 ownership 包内的本地测试/组合 seam，不得暴露为跨包生产 API。
+
+严格接管 replay 也必须复用同一个 `SOURCE_APPLY` work-class，而不能由
+`OwnerRecoveryCoordinator` 直接调用绕过队列的 mixed `replayTurn`。恢复 action
+仍然绑定 exact Source Position/frame identity 和 checked byte charge，但只在
+`CATCHING_UP` lifecycle 下执行；它重新读取同一 context-bound Owner Lease、clock、
+assignment/barrier/guard，并在同一 shard WriteBatch 成功后返回当前物理位置的
+`SourceReplayOutcome`。恢复协调器保留 caller-owned source look-ahead：队列未选中时
+返回 `WAITING_FOR_WORK_CLASS`，queue rejection 或 action failure 不推进 cursor；只有
+action outcome 已证明且 look-ahead identity 未变化时才调用 `next()` 并更新
+`lastCatchupPosition`。恢复 replay 不发送 Broker ACK，也不创建第二条 generic retry
+流；cursor/physical source record 仍是唯一恢复 retry authority。这样 active apply 和
+takeover replay 共享公平性、资源限额和 fencing 边界，同时保持 `CATCHING_UP` 与
+`ACTIVE_FOR_COMMANDS` 的 lifecycle 语义分离。
 
 `LEASE_FENCE` 是唯一允许抢占首个 bounded turn 的 work-class。每个 fence task
 必须绑定触发事件所观察到的完整 Owner Lease identity（Shard、owner、ownerEpoch、

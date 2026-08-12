@@ -2997,6 +2997,15 @@ claim of Source Assignment publication, Oxia session creation, checkpoint or
 Object Store selection, Broker guard, Lane evidence, or production Worker
 integration.
 
+The follow-up `0798f73` closes the remaining local queue-boundary drift in that
+seam: recovery no longer invokes direct mixed replay. Each `CATCHING_UP`
+entry is an exact shared `SOURCE_APPLY` action; a fairness wait is surfaced as
+a retained task, and cursor/`lastCatchupPosition` advancement occurs only
+after the action outcome and look-ahead identity are proven. The focused
+coordinator regression covers the occupied-class wait before continuation.
+This is still local orchestration evidence; it does not promote the external
+source, Oxia, checkpoint, Object Store or Worker integration blockers to PASS.
+
 V1 的 assignment 接管路径现在还会显式 pin `SourceReplaySuccessor`：同一
 canonical Source Position 的 broker redelivery 可以由 durable apply 幂等处理，
 但任何后继位置都必须由 adapter proof 判定为 immediate successor；内置的
@@ -3026,6 +3035,21 @@ failure 由 Submission outcome 返回，不留下与 Broker cursor 竞争的 gen
 `OwnedDelayShard` 的 direct active apply overload 和原始 `DelayShard` delegate accessor 现都是
 ownership 包内可见的本地测试/组合 seam；包外调用方不能绕过 work-class、
 owner lifecycle 和 lease gate。该收口仍不是真实 Broker consumer/ACK 或 Oxia session 证据。
+
+After `0798f73`, the takeover path is also inside the same `SOURCE_APPLY`
+work-class boundary. `OwnerRecoveryCoordinator` no longer calls the direct
+mixed `replayTurn`; it submits each exact recovery entry through
+`SourceApplyWorkClassExecutor.submitRecovery`, which requires `CATCHING_UP`,
+rereads the context-bound lease/clock and source guard before the WriteBatch,
+and returns the physical-position-projected outcome. A source cursor is
+advanced only after the action is selected and succeeds and the caller-owned
+look-ahead still has the same position/frame/guard/generation identity. If
+fairness selects another class, the coordinator returns an explicit waiting
+task without consuming the source entry; recovery never sends a Broker ACK or
+creates a generic process retry. `OwnerRecoveryCoordinatorTest` covers the
+waiting and continuation path. This removes the local active/recovery queue
+drift; it remains local evidence and does not prove production Broker,
+Oxia-session, checkpoint/Object Store, Lane evidence or dynamic IO authority.
 
 Worker 资源侧现在还提供了本地 `WorkerLoadVector` 与
 `WorkerPlacementPolicy`：它们先按完整 committed capacity、固定/transition
