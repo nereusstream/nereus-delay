@@ -22,6 +22,20 @@ checkpoint, one-shard/one-DB, or Worker resource boundaries; the remaining
 incomplete rows below require cross-record Oxia transactions, Broker
 transports, provider authority, or release-scale evidence.
 
+The Oxia transaction question was checked against the locked source and the
+Gradle-resolved `oxia-client:0.9.0` API.  Its public `SyncOxiaClient` and
+`AsyncOxiaClient` expose one-key `put`/CAS operations only.  The internal
+client-side `WriteBatch` emits a `WriteRequest` containing multiple puts, but
+the factory/implementation is not a public application API and the request is
+only a per-Oxia-shard batch; it is not a cross-record transaction.  Oxia's
+server `ProcessWrite` commits that request as one local database batch, which
+does not prove that independently keyed Owner Lease, Upload Intent, Catalog or
+Recovery Pin records share a shard or can be submitted atomically.  We keep
+`OxiaSyncRecoveryCatalogBackend.publishUploadedCheckpoint` and the
+session-bound pin/activation paths fail-closed until a supported transaction
+or an equivalent single-record authority is available; no reflection or
+best-effort concurrent puts are used to manufacture V1 atomicity.
+
 The Gradle `checkDocumentation` task is now part of `check`. It verifies that
 the V1 authority documents exist, the document map still points at the main
 design, and the main design, Protocol Registry, ADR index, Status and Audit

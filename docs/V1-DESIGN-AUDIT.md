@@ -26,6 +26,16 @@ checkpoint, one-shard/one-DB, or Worker resource boundaries; external
 cross-record Oxia transaction/session, Broker transport, provider authority,
 and release-scale evidence gates remain open.
 
+The Oxia transaction gate was rechecked against the locked Oxia source and the
+resolved `oxia-client:0.9.0` API.  Public client methods are single-record
+`put`/CAS calls.  The internal `WriteBatch`/`WriteRequest` path is a
+per-Oxia-shard request batch, not a public cross-record transaction; server
+`ProcessWrite` atomically commits only the records that already belong to
+that one shard.  Therefore it cannot safely bind separately keyed Owner Lease,
+Upload Intent, Catalog and Recovery Pin records.  The production adapters stay
+fail-closed rather than treating concurrent puts, internal reflection or
+coincidental shard co-location as V1 transaction evidence.
+
 The Gradle `checkDocumentation` verification task also passed in this run. It
 checks the required authority files, the document-map reference to the main
 design, and a single frozen spec revision across the main design, Registry,
