@@ -13,6 +13,7 @@ import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.EvidenceKindV1;
 import io.nereusstream.delay.protocol.EvidenceVerificationStatusV1;
 import io.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
+import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
@@ -63,6 +64,18 @@ class KafkaReceiptJournalTest {
             return CompletableFuture.completedFuture("sent");
         }).toCompletableFuture().join());
         assertTrue(senderCalled.get());
+    }
+
+    @Test
+    void attemptIdentityRequiresCanonicalSourcePositionAndMatchingShard() {
+        final ShardId shard = shard();
+        assertThrows(IllegalArgumentException.class, () -> new KafkaReceiptJournal.AttemptIdentity(
+                DelayMessageId.random(shard), 0, bytes(32, 1), Bytes.sha256(Bytes.utf8("prepared")), 1,
+                Bytes.utf8("not-a-source-position")));
+        final ShardId foreign = shard();
+        final KafkaReceiptJournal.AttemptIdentity identity = identity(foreign, 2);
+        assertThrows(IllegalArgumentException.class, () -> KafkaReceiptJournal.Mapping.create(shard, producer(), 0,
+                identity));
     }
 
     @Test
@@ -386,7 +399,12 @@ class KafkaReceiptJournalTest {
 
     private static KafkaReceiptJournal.AttemptIdentity identity(final ShardId shard, final int seed) {
         return new KafkaReceiptJournal.AttemptIdentity(DelayMessageId.random(shard), 0, bytes(32, seed),
-                Bytes.sha256(Bytes.utf8("prepared-" + seed)), 900 + seed, bytes(4, seed + 1));
+                Bytes.sha256(Bytes.utf8("prepared-" + seed)), 900 + seed, sourcePosition(shard, seed));
+    }
+
+    private static byte[] sourcePosition(final ShardId shard, final int seed) {
+        return new KafkaSourcePosition(shard, "test", UUID.nameUUIDFromBytes(Bytes.utf8("source-" + seed)), seed,
+                null, 1_000 + seed).canonicalBytes();
     }
 
     private static byte[] bytes(final int length, final int firstByte) {

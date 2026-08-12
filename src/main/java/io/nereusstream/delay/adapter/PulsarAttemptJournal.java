@@ -16,6 +16,7 @@ import io.nereusstream.delay.protocol.PublishEvidenceV1;
 import io.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.StableCode;
+import io.nereusstream.delay.protocol.SourcePositionCodec;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -738,12 +739,9 @@ public final class PulsarAttemptJournal {
             }
             Bytes.requireLength(publishAttemptId, HASH_LENGTH, "publishAttemptId");
             Bytes.requireLength(preparedPublishHash, HASH_LENGTH, "preparedPublishHash");
-            if (sourcePosition == null || sourcePosition.length == 0) {
-                throw new IllegalArgumentException("sourcePosition must be non-empty");
-            }
             publishAttemptId = Bytes.copy(publishAttemptId);
             preparedPublishHash = Bytes.copy(preparedPublishHash);
-            sourcePosition = Bytes.copy(sourcePosition);
+            sourcePosition = SourcePositionCodec.decode(sourcePosition).canonicalBytes();
         }
 
         @Override
@@ -778,6 +776,10 @@ public final class PulsarAttemptJournal {
                         final AttemptIdentity identity) {
             this.shard = Objects.requireNonNull(shard, "shard");
             this.producer = Objects.requireNonNull(producer, "producer");
+            if (!shard.equals(identity.delayMessageId().routingId().shardId())
+                    || !shard.equals(SourcePositionCodec.decode(identity.sourcePosition()).shardId())) {
+                throw new IllegalArgumentException("Pulsar Attempt Journal identity belongs to another Shard");
+            }
             if (sequenceId < 0) {
                 throw new IllegalArgumentException("sequenceId must be non-negative");
             }

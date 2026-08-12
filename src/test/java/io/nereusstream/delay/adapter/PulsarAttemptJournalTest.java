@@ -9,6 +9,7 @@ import io.nereusstream.delay.protocol.CredentialUseKindV1;
 import io.nereusstream.delay.protocol.CredentialUseLeaseV1;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DestinationLaneId;
+import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.PulsarJournalGenerationResourceV1;
@@ -21,6 +22,7 @@ import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
 import org.junit.jupiter.api.Test;
 
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -84,6 +86,18 @@ class PulsarAttemptJournalTest {
         }).toCompletableFuture().join();
         assertEquals("sent", result);
         assertTrue(senderCalled.get());
+    }
+
+    @Test
+    void attemptIdentityRequiresCanonicalSourcePositionAndMatchingShard() {
+        final ShardId shard = shard();
+        assertThrows(IllegalArgumentException.class, () -> new PulsarAttemptJournal.AttemptIdentity(
+                DelayMessageId.random(shard), 0, bytes(32, 1), Bytes.sha256(Bytes.utf8("prepared")), 1,
+                Bytes.utf8("not-a-source-position")));
+        final ShardId foreign = shard();
+        final PulsarAttemptJournal.AttemptIdentity identity = identity(foreign, 2);
+        assertThrows(IllegalArgumentException.class, () -> PulsarAttemptJournal.Mapping.create(shard, producer(), 0,
+                identity));
     }
 
     @Test
@@ -514,7 +528,12 @@ class PulsarAttemptJournalTest {
 
     private static PulsarAttemptJournal.AttemptIdentity identity(final ShardId shard, final int seed) {
         return new PulsarAttemptJournal.AttemptIdentity(DelayMessageId.random(shard), 0, bytes(32, seed),
-                Bytes.sha256(Bytes.utf8("prepared-" + seed)), 900 + seed, bytes(4, seed + 1));
+                Bytes.sha256(Bytes.utf8("prepared-" + seed)), 900 + seed, sourcePosition(shard, seed));
+    }
+
+    private static byte[] sourcePosition(final ShardId shard, final int seed) {
+        return new KafkaSourcePosition(shard, "test", UUID.nameUUIDFromBytes(Bytes.utf8("source-" + seed)), seed,
+                null, 1_000 + seed).canonicalBytes();
     }
 
     private static byte[] bytes(final int length, final int firstByte) {
