@@ -1,10 +1,15 @@
 package io.nereusstream.delay.scheduler;
 
 import io.nereusstream.delay.runtime.LaneRecord;
+import io.nereusstream.delay.store.ShardStore;
 
 /** Test-classpath-only bridge for package-local scheduler fixture setup. */
 public final class PersistentLaneSchedulerTestSupport {
     private PersistentLaneSchedulerTestSupport() {
+    }
+
+    public static PersistentLaneScheduler defaults(final ShardStore store) {
+        return PersistentLaneScheduler.defaults(store);
     }
 
     public static void register(final PersistentLaneScheduler scheduler, final LaneRecord lane) {

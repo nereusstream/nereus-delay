@@ -61,7 +61,7 @@ public final class PersistentLaneScheduler {
     private boolean recoveryFirstPass = true;
     private boolean persistedRestored;
 
-    public PersistentLaneScheduler(final ShardStore store, final LaneScheduler delegate) {
+    PersistentLaneScheduler(final ShardStore store, final LaneScheduler delegate) {
         this(store, delegate, defaultOwner(store), System::nanoTime);
     }
 
@@ -82,7 +82,7 @@ public final class PersistentLaneScheduler {
         this.wrapGeneration = persisted == null ? 0 : persisted.discovery().wrapGeneration();
     }
 
-    public static PersistentLaneScheduler defaults(final ShardStore store) {
+    static PersistentLaneScheduler defaults(final ShardStore store) {
         return new PersistentLaneScheduler(store, LaneScheduler.defaults());
     }
 

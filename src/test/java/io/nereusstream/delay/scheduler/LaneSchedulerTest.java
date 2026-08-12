@@ -75,6 +75,11 @@ class LaneSchedulerTest {
                 .getDeclaredMethod("requeueFirst", ScheduleWorkItem.class).getModifiers()));
         assertFalse(java.lang.reflect.Modifier.isPublic(PersistentLaneScheduler.class
                 .getDeclaredMethod("persist").getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(PersistentLaneScheduler.class
+                .getDeclaredConstructor(io.nereusstream.delay.store.ShardStore.class, LaneScheduler.class)
+                .getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(PersistentLaneScheduler.class
+                .getDeclaredMethod("defaults", io.nereusstream.delay.store.ShardStore.class).getModifiers()));
         assertFalse(java.lang.reflect.Modifier.isPublic(LaneScheduler.class
                 .getDeclaredMethod("register", LaneRecord.class).getModifiers()));
         assertFalse(java.lang.reflect.Modifier.isPublic(LaneScheduler.class

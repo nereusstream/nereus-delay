@@ -105,7 +105,8 @@ class ClaimHandoffWorkClassExecutorTest {
             final LaneRecord lane = shard.getLane(laneId);
             final byte[] readyKey = KeyCodec.timelineReady(lane.nextEligibleAtEpochMs(), laneId,
                     lane.laneVersion());
-            final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
+            final PersistentLaneScheduler scheduler =
+                    io.nereusstream.delay.scheduler.PersistentLaneSchedulerTestSupport.defaults(store);
             final byte[] certificate = bindReadyCertificate(PublishAdmissionBody.decode(
                     PublishAdmissionBodyTest.Fixture.createForSourceWithLane(shardId,
                             schedule.delayMessageId(), lane.laneIncarnation(),

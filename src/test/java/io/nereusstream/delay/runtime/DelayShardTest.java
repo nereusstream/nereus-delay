@@ -855,7 +855,7 @@ class DelayShardTest {
                     LaneRecordEnvelopeV1.active(stale).canonicalBytes()));
             assertThrows(IllegalStateException.class, () -> shard.discoverReady(10_000, 1));
             final io.nereusstream.delay.scheduler.PersistentLaneScheduler scheduler =
-                    io.nereusstream.delay.scheduler.PersistentLaneScheduler.defaults(store);
+                    io.nereusstream.delay.scheduler.PersistentLaneSchedulerTestSupport.defaults(store);
             io.nereusstream.delay.scheduler.PersistentLaneSchedulerTestSupport.register(
                     scheduler, shard.getLane(lane));
             assertThrows(IllegalStateException.class,

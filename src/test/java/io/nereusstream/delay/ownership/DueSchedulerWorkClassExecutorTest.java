@@ -103,7 +103,8 @@ class DueSchedulerWorkClassExecutorTest {
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
             owned.recordCatchup(source);
             owned.activateForCommands(authority, 101);
-            final PersistentLaneScheduler scheduler = PersistentLaneScheduler.defaults(store);
+            final PersistentLaneScheduler scheduler =
+                    io.nereusstream.delay.scheduler.PersistentLaneSchedulerTestSupport.defaults(store);
             final byte[] certificate = bindReadyCertificate(PublishAdmissionBody.decode(
                     PublishAdmissionBodyTest.Fixture.createForSourceWithLane(shard, messageId, incarnation(),
                             timelineKey, 1, 0, 0, Bytes.sha256(Bytes.utf8("due-work-obligations")),
