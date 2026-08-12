@@ -2093,6 +2093,17 @@ coordinator 和物理存储测试使用的 primitive，V1 固定为 package-loca
 新增 Worker 组合不得把底层 primitive 重新暴露为 public wrapper 绕过 admission、
 fairness、lease reread 或 side-effect-free rejection 契约。
 
+同样，定时 checkpoint pipeline 内的
+`CheckpointExecutionCoordinator.execute(...)`、
+`CheckpointPublicationCoordinator.publish(...)` 和
+`CheckpointUploadCoordinator.upload(...)` 只允许作为 `store` 包内组合动作，
+全部为 package-local。跨包 Worker 只能提交
+`CheckpointWorkClassExecutor.ExecutionRequest`；不能跳过 bounded turn 后直接执行
+RocksDB 创建、Object Store upload、upload-intent CAS 或 catalog publication。
+`CheckpointUploadAdapter`、`CheckpointUploadIntentAuthority` 与
+`RecoveryCatalogAuthority` 仍是可替换的外部 authority/transport 接口，这一可见性
+收口不改变它们的实现边界。
+
 `LEASE_FENCE` 是唯一允许抢占首个 bounded turn 的 work-class。每个 fence task
 必须绑定触发事件所观察到的完整 Owner Lease identity（Shard、owner、ownerEpoch、
 lease token、assignment/session context 和 lifecycle value）。进入队列前只做本地

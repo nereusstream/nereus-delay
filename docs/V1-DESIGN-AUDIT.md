@@ -3099,6 +3099,16 @@ fails if public visibility returns; the focused RocksDB suite, compilation and
 Checkstyle passed. This proves the local API boundary only, not external Oxia/Object
 Store authority, Source Assignment integration or production dynamic I/O charging.
 
+After `4b0489e`, the same compiler-enforced boundary covers the scheduled
+checkpoint pipeline above the physical primitive. The direct `execute`, `publish` and
+`upload` actions on `CheckpointExecutionCoordinator`,
+`CheckpointPublicationCoordinator` and `CheckpointUploadCoordinator` are package-local;
+only `CheckpointWorkClassExecutor` remains the cross-package production handoff. The
+external adapter and authority interfaces remain public and replaceable. A reflection
+regression requires all three named methods to exist and be non-public, and the focused
+execution/upload tests, compilation and Checkstyle passed. This removes the local API
+bypass but does not close real Object Store/Oxia authority or dynamic I/O evidence.
+
 Worker 资源侧现在还提供了本地 `WorkerLoadVector` 与
 `WorkerPlacementPolicy`：它们先按完整 committed capacity、固定/transition
 demand 以及 owned/open DB slots 做 hard filter，再以 dominant-resource/load

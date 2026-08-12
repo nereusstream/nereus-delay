@@ -304,6 +304,18 @@ focused RocksDB test plus main/test compilation and Checkstyle passed. This is a
 Java visibility guarantee; it does not supply the still-missing production Oxia,
 Object Store, Source Assignment or dynamic I/O authority.
 
+After `4b0489e`, the remaining scheduled-checkpoint action seams are also
+package-local: `CheckpointExecutionCoordinator.execute(...)`,
+`CheckpointPublicationCoordinator.publish(...)` and
+`CheckpointUploadCoordinator.upload(...)`. Cross-package Worker composition can no
+longer start RocksDB creation, provider upload, upload-intent CAS or catalog binding
+outside `CheckpointWorkClassExecutor`; the adapter and authority interfaces remain
+public replacement boundaries. `CheckpointExecutionCoordinatorTest` asserts that all
+three named actions exist and are non-public, while the focused execution/upload suites,
+compilation and Checkstyle passed. This closes a local API bypass only and does not
+prove real Object Store or Oxia authority, Source Assignment integration or production
+dynamic I/O attribution.
+
 After `a49b19a`, the durable `timeline_cf/EXPIRY` candidate has a matching
 bounded local handoff in `ExpiryWorkClassExecutor`. The caller supplies one
 candidate from `DelayShard.discoverExpiry` plus the certified UTC interval;
