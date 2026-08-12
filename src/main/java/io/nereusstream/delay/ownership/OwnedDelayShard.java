@@ -689,6 +689,34 @@ public final class OwnedDelayShard {
         }
     }
 
+    /** Validates a read-only query admission without reading Oxia or RocksDB. */
+    synchronized void requireQuerySubmission(final OxiaOwnerLeaseStore authority,
+                                              final io.nereusstream.delay.protocol.ShardId queryShard) {
+        requireStrictActiveAuthority(authority);
+        if (state != ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
+            throw new IllegalStateException("query requires an active shard");
+        }
+        if (!delegate.shardId().equals(Objects.requireNonNull(queryShard, "queryShard"))
+                || !lease.shardId().equals(queryShard)) {
+            throw new IllegalArgumentException("query belongs to another shard");
+        }
+    }
+
+    /**
+     * Rereads the authoritative Owner Lease immediately around one local
+     * read.  The returned timestamp is the execution-time owner clock passed
+     * to the caller's read-only projection; no Store mutation is performed.
+     */
+    synchronized long requireQueryAuthoritativelyStrict(
+            final OxiaOwnerLeaseStore authority,
+            final io.nereusstream.delay.protocol.ShardId queryShard,
+            final LongSupplier clock) {
+        requireQuerySubmission(authority, queryShard);
+        final long nowEpochMs = readActiveWorkClock(clock, "query");
+        ensureAuthoritativeActive(authority, nowEpochMs, "query");
+        return nowEpochMs;
+    }
+
     /**
      * @deprecated V1 requires an explicit source assignment; use
      * {@link #markCatchingUp(SourceAssignment)}.
