@@ -72,6 +72,14 @@ failures/errors. The five opt-in real-Oxia methods were skipped because the
 endpoint was unset; this is local regression evidence, not a production
 Oxia or external-service PASS.
 
+After `0081e9d`, those five opt-in methods were rerun against a temporary
+standalone Oxia service built from source commit
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The focused Gradle run completed
+with 5 tests, zero failures/errors/skips, and the service was stopped after
+the run. This confirms the implemented single-record Oxia smoke boundaries;
+it does not prove the V1-required cross-record Owner Lease/Upload
+Intent/Catalog/RecoveryPin transaction or production authority.
+
 After `c4391ca`, checkpoint restore admission covers the complete local
 download-to-install interval: `CheckpointRestoreCoordinator` acquires a
 Worker-wide idempotent permit before provider I/O, and the same permit remains

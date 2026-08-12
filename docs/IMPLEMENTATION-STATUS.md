@@ -41,6 +41,22 @@ were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset. The new
 `WorkClassSchedulerTest.checkpointHasItsOwnBoundedWorkClassQueue` is included
 in this full gate; the skipped external methods remain release evidence gaps.
 
+After `0081e9d`, the five opt-in real-Oxia smoke methods were rerun against a
+temporary standalone service built from Oxia source commit
+`37a17bef17202d5fd6e23282da5fd26d94865484`:
+```text
+NEREUS_DELAY_OXIA_ENDPOINT=127.0.0.1:6648 \
+GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle \
+./gradlew test --tests io.nereusstream.delay.ownership.OxiaRealServiceSmokeTest \
+  --tests io.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest \
+  --tests io.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
+  --console=plain
+```
+All 5 test cases completed with zero failures, errors or skips. The service
+used only temporary local data and was stopped after the run; this is current
+single-record Oxia smoke evidence, not cross-record transaction or production
+authority evidence.
+
 The Oxia transaction question was checked against the locked source and the
 Gradle-resolved `oxia-client:0.9.0` API.  Its public `SyncOxiaClient` and
 `AsyncOxiaClient` expose one-key `put`/CAS operations only.  The internal
