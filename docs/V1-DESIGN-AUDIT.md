@@ -61,6 +61,15 @@ the local provider-to-restore physical ordering gap only; it does not change the
 open gates for remote Object Store authority, RecoveryPin/Oxia transactions,
 source replay or real-service conformance.
 
+After `f9e8583`, `CheckpointRestoreCoordinator` connects that provider boundary
+to the existing finite-limit `ShardStore` restore protocol. It rejects provider
+paths outside a per-attempt staging directory, verifies the complete downloaded
+inventory before opening RocksDB, and deletes the provider tree only after the
+new Store Incarnation is installed. The real-checkpoint regression covers both
+the round trip and the out-of-bound return; this remains local orchestration
+evidence and does not close Owner Lease/Source Assignment, RecoveryPin/Oxia
+transaction, Source Log replay or real Object Store gates.
+
 After `6efd89f`, the local checkpoint execution boundary is explicit rather
 than implicit: `CheckpointExecutionCoordinator` requires the exact scheduler
 claim before filesystem/provider I/O, creates or safely reuses the fixed-ID

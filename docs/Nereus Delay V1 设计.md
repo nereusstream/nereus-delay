@@ -2690,6 +2690,12 @@ AND RecoveryFloor.includedMutationSequence >= r within that lineage
    traversal、现有目标目录、对象漂移或不完整文件集都必须 fail closed；失败只能清理
    本次创建的临时目录。它只是本地 provider/download 证据，不能替代生产 Object Store
    credentials、quiescence/attestation、RecoveryPin/Oxia transaction 或 Source Log replay。
+   `CheckpointRestoreCoordinator` 再把该下载结果限制在每次独立的
+   `checkpoint-download-tmp/<attempt>/db` staging boundary，确认 provider 没有返回
+   越界或符号链接目录，重新校验完整 inventory 后才调用
+   `ShardStore.restoreFromCheckpoint`；Store Incarnation 安装完成后才删除本次下载树。
+   这闭合的是本地 download → restore 的调用顺序，不产生 Owner Lease、Source Assignment、
+   RecoveryPin 或 Source Log replay authority。
 4. 生成全新 Store Incarnation，rename temp 到 `incarnations/<newStoreIncarnation>`；install-mode open，WAL-sync 写入新的 Store Incarnation、current Owner open metadata 和 unclean marker，再 close。
 5. 在替换 `ACTIVE` 前重读 exact pin/Floor/catalog/retention；Floor 已越过 candidate、session-bound pin 消失或 lineage 改变则关闭并丢弃安装、再重新选择。否则 fsync parent，写/fsync `ACTIVE.tmp`，atomic rename、fsync shard parent并 normal open。
 6. 按 Adapter successor seek/replay完整 Shard Log；普通 reversible `CLAIMED` 恢复为相同 semantic timeline work/authority/candidate attempt与 semantic digest、checked increment runtime revision/instance digest，并原样保留旧 attempt obligation set/aggregate projection（所以可能仍是 `UNCERTAIN`）；Close-overlay owned Claim 只续跑 materializer。合法 Admission 先确定性恢复 `PUBLISHING`，无 live first-send gate 的旧 owner attempt 再追加 exact recovery `UNKNOWN` Outcome，各 Lane 标记 `RECOVERING_EVIDENCE`。
