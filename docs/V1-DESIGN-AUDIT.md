@@ -141,6 +141,11 @@ from an exact `CheckpointScheduler` claim to
 `CheckpointExecutionCoordinator`. It validates the claim and pending
 intent/Store identity before admission, starts no directory/provider work when
 the queue rejects the action, and repeats the fence after the queue wait. The
+caller can no longer provide `workClassBytes`: the exact Shard, claim due time,
+normalized absolute checkpoint directory, complete canonical pending intent
+and upload time form one canonical value identity. Its domain-separated hash
+is the task ID and its exact length is the static queue charge; malformed
+negative upload time fails before admission. The
 direct preflight/physical execution methods are package-private, leaving the
 bounded executor as the cross-package production composition entrypoint.
 Ordinary attempt failure is returned as a checkpoint-owned outcome because the
@@ -149,7 +154,7 @@ fatal `Error` is still rethrown into WorkClass cleanup/fencing. The focused
 regression proves queue rejection is side-effect free, an ordinary failed
 attempt leaves no stale generic action, and the next exact claim executes
 through the bounded turn. This closes one concrete class wiring, not the
-remaining shard handlers, dynamic WriteBatch/IO admission, Owner Lease/session
+remaining shard handlers, dynamic checkpoint-file/upload/WriteBatch I/O admission, Owner Lease/session
 or external publication authority.
 
 After `6921ad8`, `SOURCE_APPLY` also has a concrete bounded action rather than
@@ -5166,6 +5171,20 @@ persists the exact epoch before submission. Direct zero-filesystem rejection,
 normal drain/checkpoint coverage and the complete six-task local gate passed
 on 2026-08-13; five real-Oxia smokes skipped. Real session, catalog and Object
 Store authority remain OPEN.
+
+Scheduled checkpoint admission now derives its static accounting from the
+request rather than trusting the caller. `CheckpointWorkClassExecutor` encodes
+the exact Shard route incarnation/partition, scheduler due time, normalized
+absolute checkpoint directory, complete canonical pending upload intent and
+upload time into one value identity. `taskId` is the domain-separated SHA-256
+of those bytes and the work-class charge is their exact length;
+`ExecutionRequest` has no `workClassBytes` component and rejects negative upload
+time before queueing. Reflection/API-shape and bounded rejection/execution
+coverage plus the complete six-task local Gradle gate passed on 2026-08-13;
+five real-Oxia smokes were skipped. This closes caller-controlled static queue
+undercharging only: actual checkpoint-file, temp-headroom and Object Store
+upload bytes/latency still require production dynamic I/O authority and remain
+OPEN.
 
 ## Final gate
 

@@ -3088,6 +3088,16 @@ shard/Store/identity preflight，再把完整 action 提交到独立的 `CHECKPO
 work-class queue。queue admission 拒绝时不得创建目录、改写 Store metadata 或调用
 provider，且原 scheduler claim 必须保持 current，以便同一请求重新入队。action
 真正运行时还必须在任何 filesystem/provider I/O 前重复检查 exact claim 与 intent。
+`ExecutionRequest` 不允许 caller 自报 work-class byte charge。admission 的 canonical
+value identity 必须绑定 exact Shard route incarnation/partition、claim due time、normalized
+absolute checkpoint directory、完整 canonical `CheckpointUploadIntentV1` 和 upload time；
+`taskId` 是该 identity 的 domain-separated SHA-256，byte charge 就是同一 identity
+的实际长度。manifest factory、completion clock 和 upload adapter 作为同一注册
+action 的 capability 保持强引用，不另外导出不稳定的进程对象 identity。负的
+upload time 属于本地格式错误，必须在 request 构造时拒绝，不得占用
+`CHECKPOINT` queue。这个静态 charge 只覆盖排队 request envelope；实际 checkpoint
+文件、upload bytes 和占用时间仍必须由 Worker 的动态 I/O/temp-headroom authority
+独立计费，不得用该静态值冒充。
 普通 checkpoint attempt failure 已由 `CheckpointExecutionCoordinator` 用同一 claim 完成或
 保留 in-flight，因此 work-class handler 只返回一个可查询的 attempt outcome，不得另外
 留下一份通用 `FAILED` retry authority；下次物理尝试只能使用 scheduler 返回的
