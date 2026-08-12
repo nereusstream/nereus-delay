@@ -168,6 +168,42 @@ class CheckpointUploadCoordinatorTest {
     }
 
     @Test
+    void publicationCoordinatorBindsPublishedIntentToCatalogAndRetriesCatalogResponseLoss() throws Exception {
+        final Fixture fixture = fixture();
+        final CheckpointUploadIntentStore intentStore = new CheckpointUploadIntentStore();
+        intentStore.create(fixture.pending());
+        final RecoveryCatalog catalog = new RecoveryCatalog();
+        // The fixture's intent deliberately carries the post-genesis catalog
+        // generation. Seed the same manifest so the local catalog is at that
+        // generation; publication then exercises the exact object binding and
+        // idempotent retry path rather than inventing a second checkpoint.
+        catalog.publish(fixture.manifest(), 0);
+        final AtomicBoolean retryAdapterCalled = new AtomicBoolean();
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(
+                ShardStoreConfig.defaults(tempDir.resolve("publication")))) {
+            final CheckpointPublicationCoordinator coordinator = new CheckpointPublicationCoordinator(resources,
+                    intentStore, catalog);
+            final CheckpointPublicationCoordinator.CheckpointPublication first = coordinator.publish(
+                    fixture.directory(), fixture.pending(), fixture.manifest(), 1, 1_000,
+                    request -> fixture.resource());
+            assertEquals(CheckpointUploadStateV1.PUBLISHED, first.uploadIntent().state());
+            assertArrayEquals(fixture.manifest().checkpointId(), first.catalogPublication().manifest().checkpointId());
+            assertEquals(fixture.resource(), catalog.snapshot().manifestResources()
+                    .get(Bytes.hex(fixture.manifest().checkpointId())));
+
+            final CheckpointPublicationCoordinator.CheckpointPublication retry = coordinator.publish(
+                    fixture.directory(), fixture.pending(), fixture.manifest(), 1,
+                    fixture.pending().uploadDeadlineEpochMs(), request -> {
+                        retryAdapterCalled.set(true);
+                        throw new AssertionError("published upload must not call provider on catalog retry");
+                    });
+            assertEquals(first.uploadIntent(), retry.uploadIntent());
+            assertEquals(first.catalogPublication(), retry.catalogPublication());
+            assertEquals(false, retryAdapterCalled.get());
+        }
+    }
+
+    @Test
     void explicitManifestLimitsRejectBeforeProviderIo() throws Exception {
         final Fixture fixture = fixture();
         final CheckpointUploadIntentStore intentStore = new CheckpointUploadIntentStore();
@@ -240,7 +276,7 @@ class CheckpointUploadCoordinatorTest {
                 bytes(32, 11), bytes(32, 12), List.of(), files);
         final CheckpointUploadIntentV1 pending = new CheckpointUploadIntentV1(
                 new ShardSubjectV1(shard.routeIncarnation(), shard.partition()), lineage, checkpoint, owner,
-                uuidBytes(storeIncarnation), bytes(32, 13), 11, null, null, profile,
+                uuidBytes(storeIncarnation), bytes(32, 13), 1, null, null, profile,
                 evidence(900), 5_000, CheckpointUploadStateV1.PENDING_UPLOAD,
                 1, null, null);
         final CheckpointResourceV1 resource = new CheckpointResourceV1(lineage, checkpoint, profile,
