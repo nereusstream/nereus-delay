@@ -4363,6 +4363,17 @@ regression proves that a file-complete image cannot be published with a foreign
 DB identity. This is local upload-integrity evidence only; Object Store
 publication and upload-intent/catalog transaction authority remain blockers.
 
+The strict local reuse entrypoint `ShardStore.openForLocalRecoveryReuse` now resolves
+only an existing checksummed `ACTIVE` Store Incarnation, opens it with the normal
+one-shard DB/resource fences, and calls `RecoveryCatalogAuthority.validateLocalStoreRecovery`
+before returning the Store. A missing ACTIVE incarnation never creates a fresh DB;
+catalog/Floor rejection closes the native Store and releases its Worker slots before
+the error escapes. `ShardStoreTest.localRecoveryReuseOpensOnlyCatalogValidatedActiveStore`
+and `ShardStoreTest.localRecoveryReuseDoesNotCreateAFreshDbWithoutActiveIncarnation`
+cover the success, rejection/close and no-fresh-DB paths. This is only the local
+catalog/Floor reuse gate; Owner Lease/session fencing, source replay and final
+`ACTIVE_FOR_COMMANDS` activation remain external.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

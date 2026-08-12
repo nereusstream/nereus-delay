@@ -184,6 +184,52 @@ public final class ShardStore implements AutoCloseable {
     }
 
     /**
+     * Opens an already ACTIVE Store Incarnation only after the supplied
+     * catalog authority validates its persisted local recovery projection.
+     *
+     * <p>This is the local half of the V1 recovery-reuse gate. It never
+     * creates a fresh DB when no ACTIVE incarnation exists, and it closes the
+     * native Store again when the catalog/Floor proof is rejected. Owner
+     * Lease/session fencing and the final activation CAS remain outside this
+     * method.</p>
+     */
+    public static ShardStore openForLocalRecoveryReuse(final ShardStoreConfig config,
+                                                       final ShardId shardId,
+                                                       final SharedRocksDbResources resources,
+                                                       final RecoveryCatalogAuthority catalog) {
+        Objects.requireNonNull(config, "config");
+        Objects.requireNonNull(shardId, "shardId");
+        Objects.requireNonNull(resources, "resources");
+        Objects.requireNonNull(catalog, "catalog");
+        final Path activeDb;
+        try {
+            final Path shardRoot = prepareShardRoot(config, shardId);
+            activeDb = existingActiveDbPath(shardRoot);
+            if (activeDb == null) {
+                throw new IOException("cannot reuse a shard without an ACTIVE DB: " + shardId);
+            }
+        } catch (IOException failure) {
+            throw new IllegalStateException("cannot locate ACTIVE shard DB for recovery reuse: " + shardId,
+                    failure);
+        }
+
+        final ShardStore opened;
+        try {
+            opened = openAtPath(config, shardId, activeDb, resources, null, true);
+        } catch (IOException | RocksDBException failure) {
+            throw new IllegalStateException("cannot open ACTIVE shard DB for recovery reuse: " + shardId,
+                    failure);
+        }
+        try {
+            catalog.validateLocalStoreRecovery(shardId, opened.recoveryMetadata());
+            return opened;
+        } catch (RuntimeException | Error failure) {
+            closeAfterRecoveryValidationFailure(opened, failure);
+            throw failure;
+        }
+    }
+
+    /**
      * Installs a complete physical checkpoint as a new local Store Incarnation.
      * The source directory is never opened in place and is never merged into a
      * running DB. A failed install leaves only a private restore-tmp orphan.
@@ -694,6 +740,31 @@ public final class ShardStore implements AutoCloseable {
         return incarnations.resolve(UUID.randomUUID().toString()).resolve("db");
     }
 
+    /** Returns the existing ACTIVE DB path without creating a new incarnation. */
+    private static Path existingActiveDbPath(final Path shardRoot) throws IOException {
+        final Path activePointer = shardRoot.resolve("ACTIVE");
+        if (!Files.exists(activePointer, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            return null;
+        }
+        if (Files.isSymbolicLink(activePointer)) {
+            throw new IOException("ACTIVE pointer must not be a symbolic link");
+        }
+        final UUID activeStore = readActivePointer(activePointer);
+        final Path incarnations = shardRoot.resolve("incarnations");
+        final Path activeIncarnation = incarnations.resolve(activeStore.toString());
+        final Path activeDb = activeIncarnation.resolve("db");
+        if (Files.isSymbolicLink(incarnations) || Files.isSymbolicLink(activeIncarnation)
+                || Files.isSymbolicLink(activeDb)
+                || !Files.isDirectory(incarnations, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                || !Files.isDirectory(activeIncarnation, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                || !Files.isDirectory(activeDb, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                || !Files.isRegularFile(activeDb.resolve("CURRENT"),
+                java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("ACTIVE points to a missing or unsafe DB: " + activeDb);
+        }
+        return activeDb;
+    }
+
     /**
      * Resolves the fixed local shard path without following a symbolic link in
      * the worker-owned directory components.  The configured root itself may
@@ -755,28 +826,7 @@ public final class ShardStore implements AutoCloseable {
     }
 
     private static boolean hasActiveDb(final Path shardRoot) throws IOException {
-        final Path activePointer = shardRoot.resolve("ACTIVE");
-        if (!Files.exists(activePointer, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
-            return false;
-        }
-        if (Files.isSymbolicLink(activePointer)) {
-            throw new IOException("ACTIVE pointer must not be a symbolic link");
-        }
-        final UUID activeStore = readActivePointer(activePointer);
-        final Path incarnations = shardRoot.resolve("incarnations");
-        final Path activeIncarnation = incarnations.resolve(activeStore.toString());
-        final Path activeDb = activeIncarnation.resolve("db");
-        if (Files.isSymbolicLink(incarnations) || Files.isSymbolicLink(activeIncarnation)
-                || Files.isSymbolicLink(activeDb)
-                || !Files.isDirectory(incarnations, java.nio.file.LinkOption.NOFOLLOW_LINKS)
-                || !Files.isDirectory(activeIncarnation, java.nio.file.LinkOption.NOFOLLOW_LINKS)
-                || !Files.isDirectory(activeDb, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
-            throw new IOException("active shard path must not contain a symbolic link: " + activeDb);
-        }
-        if (!Files.isRegularFile(activeDb.resolve("CURRENT"), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
-            throw new IOException("ACTIVE points to a missing DB: " + activeDb);
-        }
-        return true;
+        return existingActiveDbPath(shardRoot) != null;
     }
 
     private static UUID storeUuidFromPath(final Path dbPath) throws IOException {
@@ -1487,6 +1537,10 @@ public final class ShardStore implements AutoCloseable {
     }
 
     private static void closeAfterActivePointerFailure(final ShardStore opened, final IOException failure) {
+        closeAfterRecoveryValidationFailure(opened, failure);
+    }
+
+    private static void closeAfterRecoveryValidationFailure(final ShardStore opened, final Throwable failure) {
         for (int attempt = 0; attempt < 2; attempt++) {
             try {
                 opened.close();

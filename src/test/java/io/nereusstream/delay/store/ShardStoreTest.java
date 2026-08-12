@@ -92,6 +92,72 @@ class ShardStoreTest {
     }
 
     @Test
+    void localRecoveryReuseOpensOnlyCatalogValidatedActiveStore() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("local-reuse"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 43);
+        final byte[] lineage = bytes(44);
+        final byte[] checkpointId = bytes(45);
+        final RecoveryCatalog catalog = new RecoveryCatalog();
+        final RecoveryFloorRefV1 observedFloor;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final KafkaSourcePosition appliedPosition = new KafkaSourcePosition(
+                    shardId, "cluster", UUID.randomUUID(), 0, null, 1_000);
+            final CheckpointManifest manifest = new CheckpointManifest(checkpointId, lineage, 0, null, null,
+                    new CheckpointManifest.CreatedBy(bytes(46), bytes(47), 1),
+                    new CheckpointManifest.CreatedAt(1_000, 1_001, "CERTIFIED_HOST_CLOCK", bytes(48), 1,
+                            0, 0, bytes(32, 49), 0, null), shardId, store.metadata().dbIdentity(),
+                    store.metadata().storeIncarnationUuid(), 1, 0, appliedPosition, bytes(32, 50),
+                    bytes(32, 51), List.of(new CheckpointManifest.FileEntry("CURRENT", 1, bytes(32, 52),
+                            Bytes.utf8("object/current"), Bytes.utf8("version"), null)));
+            catalog.publish(manifest, 0);
+            observedFloor = catalog.advanceFloor(checkpointId, 1, List.of());
+            store.recordRecoveryMetadata(new RecoveryCandidateRefV1(RecoveryCandidateKindV1.LOCAL_STORE,
+                    lineage, checkpointId, manifest.manifestSha256(), store.metadata().storeIncarnation()),
+                    observedFloor);
+        }
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore reused = ShardStore.openForLocalRecoveryReuse(config, shardId, resources, catalog)) {
+            assertEquals(observedFloor, reused.recoveryMetadata().lastObservedFloor());
+            assertEquals(RecoveryInstallPhaseV1.OPEN, reused.recoveryMetadata().installState().phase());
+        }
+
+        final RecoveryCatalog unavailable = new RecoveryCatalog();
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> ShardStore.openForLocalRecoveryReuse(config, shardId, resources, unavailable));
+            assertEquals(0, resources.registeredPhysicalUsageSources());
+        }
+        // Rejection must close the native DB and release its Worker slots so a
+        // later restore/open attempt can retry the same ACTIVE incarnation.
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore reopened = ShardStore.open(config, shardId, resources)) {
+            assertEquals(shardId, reopened.shardId());
+        }
+    }
+
+    @Test
+    void localRecoveryReuseDoesNotCreateAFreshDbWithoutActiveIncarnation() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("local-reuse-empty"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 44);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
+            assertThrows(IllegalStateException.class,
+                    () -> ShardStore.openForLocalRecoveryReuse(config, shardId, resources,
+                            new RecoveryCatalog()));
+        }
+        final Path shardRoot = config.rootPath().resolve("shards")
+                .resolve(shardId.routeIncarnation().uuid().toString())
+                .resolve(Integer.toUnsignedString(shardId.partition()));
+        assertTrue(Files.isDirectory(shardRoot));
+        try (var paths = Files.walk(shardRoot)) {
+            assertTrue(paths.noneMatch(path -> path.getFileName().toString().equals("CURRENT")));
+        } catch (java.io.IOException failure) {
+            throw new IllegalStateException("cannot inspect empty recovery root", failure);
+        }
+    }
+
+    @Test
     void closedShardStoreFailsClosedForAllRocksDbOperations() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("closed-lifecycle"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 18);

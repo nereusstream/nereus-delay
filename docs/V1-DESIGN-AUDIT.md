@@ -1783,6 +1783,15 @@ evidence，后四者仍是 release gates。
 以及 install-state/store-incarnation tuple 全部 exact match；stale Floor 或非
 descendant projection 会 fail closed。这只是 catalog-side reuse proof，不推断
 Owner Lease/session，也不替代跨 record activation transaction。
+`ShardStore.openForLocalRecoveryReuse` 现在把这一条本地 proof 接到打开边界：
+它只解析已有的 checksummed `ACTIVE` incarnation，不在没有可复用 Store 时
+创建 fresh DB；打开后先执行 catalog/Floor reuse validation，失败会关闭 Store
+并释放 Worker DB/owned-shard/physical-usage 注册，再把错误交给上层选择
+checkpoint restore。对应回归为
+`ShardStoreTest.localRecoveryReuseOpensOnlyCatalogValidatedActiveStore` 和
+`ShardStoreTest.localRecoveryReuseDoesNotCreateAFreshDbWithoutActiveIncarnation`。
+这仍只是本地复用入口，不能替代 Owner Lease/session、Recovery Pin 的
+跨记录 CAS、source replay 或最终 `ACTIVE_FOR_COMMANDS` activation。
 这仍不是 Oxia 的 Owner Lease/session、lineage-head、catalog-generation
 transaction，也不执行 Object Store upload/attestation/delete。现有 `DelayShard` 仍
 通过兼容 `LaneRecord` 写入 ACTIVE 分支，因此这不被误报为已经完成 full
