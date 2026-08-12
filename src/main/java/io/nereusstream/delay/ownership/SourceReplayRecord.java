@@ -18,6 +18,9 @@ public record SourceReplayRecord(PreparedCommand command, SourcePosition positio
     public SourceReplayRecord {
         Objects.requireNonNull(command, "command");
         Objects.requireNonNull(position, "position");
+        if (!command.shardId().equals(position.shardId())) {
+            throw new IllegalArgumentException("replay command and source position belong to different shards");
+        }
         if ((sourceConnectionGeneration == null) != (guardAttestationDigest == null)) {
             throw new IllegalArgumentException("source connection proof fields must be present together");
         }

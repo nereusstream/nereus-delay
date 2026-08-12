@@ -13,6 +13,9 @@ public record SourceReplayMutation(SystemMutation mutation, SourcePosition posit
     public SourceReplayMutation {
         Objects.requireNonNull(mutation, "mutation");
         Objects.requireNonNull(position, "position");
+        if (!mutation.shardId().equals(position.shardId())) {
+            throw new IllegalArgumentException("replay mutation and source position belong to different shards");
+        }
         if ((sourceConnectionGeneration == null) != (guardAttestationDigest == null)) {
             throw new IllegalArgumentException("source connection proof fields must be present together");
         }
