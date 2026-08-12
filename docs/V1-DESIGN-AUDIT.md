@@ -5053,6 +5053,14 @@ boundary. The reflection regression, focused scheduler/due/Claim suites and
 complete local gate passed; this still does not prove production trusted-clock
 authority.
 
+All three scheduler `offer(ScheduleWorkItem)` methods are now package-local.
+They had no cross-package production caller and accepted caller-constructed
+work without independently proving the READY index, typed certificate, Owner
+or Store identity. Authoritative discovery still injects internally after the
+complete persistent validation, while scheduler tests retain package access.
+The reflection regressions, focused scheduler/due/Claim suites and complete
+local gate passed on 2026-08-13; external trusted time and Oxia remain open.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

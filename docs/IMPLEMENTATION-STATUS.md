@@ -5353,6 +5353,17 @@ public polling now uniformly requires a due-through timestamp. The shared
 scheduler reflection fence, focused Lane/Worker/due/Claim tests and complete
 local Gradle gate passed; five real-Oxia smoke methods remained skipped.
 
+Direct `ScheduleWorkItem` injection is no longer public at any scheduler layer:
+`LaneScheduler.offer`, `PersistentLaneScheduler.offer` and
+`WorkerScheduler.offer` are package-local. Production main sources never call
+these methods across the scheduler package; authoritative READY discovery
+validates the persisted key/value, Message, Timeline, typed Lane/certificate,
+Owner and Store identity before the persistent scheduler offers internally.
+Scheduler algorithm tests retain package access. Reflection fences, focused
+Lane/Worker/due/Claim coverage and the full local Gradle gate passed on
+2026-08-13; five real-Oxia smoke methods remained opt-in and skipped without
+an endpoint.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

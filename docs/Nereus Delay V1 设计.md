@@ -2205,6 +2205,9 @@ due-through，不能用 `Long.MAX_VALUE` 隐式选择尚未到期的 head。Work
 due-through，并把它原样传到 shard-local scheduler。
 Lane、Persistent Shard、Worker 三层 scheduler 的对外 poll 契约因此完全一致：
 必须传显式 due-through；三层无时间 overload 都只是 scheduler 包内算法/兼容测试面。
+三层 `offer(ScheduleWorkItem)` 也只能包内可见：生产 READY work 必须由持久索引扫描
+验证 READY key/value、Message、Timeline、Lane、certificate 与 Owner/Store identity 后
+在 scheduler 内部注入，外部 Worker/ownership 代码不得自造 work item 绕过该链路。
 
 一次 discovery 成功只返回本轮新 promote 的 due heads；它不等于 Claim，也不能越过
 Claim materialization、permit、Ready Certificate 或 Publish Admission gate。queue 拒绝
