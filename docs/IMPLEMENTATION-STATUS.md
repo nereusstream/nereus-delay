@@ -19,6 +19,13 @@ corruption fencing and symlinked-root rejection. Reservation metadata remains
 source-ordered in the shard and remote Object Store credentials, quiescence,
 attestation, Oxia protection and deletion authority remain release blockers.
 
+After `da3146c`, the full repository gate was rerun with
+`GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew clean check
+--rerun-tasks --console=plain`: `BUILD SUCCESSFUL` in 1m 1s, 1205 tests
+completed with no failures, and 5 opt-in real-Oxia tests skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was unset. The skipped external smoke tests remain
+release evidence gaps rather than local test failures.
+
 Commit `f9e8583` adds `CheckpointDownloadAdapter` and
 `CheckpointRestoreCoordinator`. The coordinator allocates a per-attempt local
 download staging boundary, rejects a provider path outside that boundary,

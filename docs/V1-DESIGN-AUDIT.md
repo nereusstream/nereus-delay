@@ -81,6 +81,12 @@ closed. This is physical local/test evidence only and does not close remote
 Object Store credentials, provider quiescence/attestation/deletion, Oxia
 protection or source-ordered reservation authority.
 
+After `da3146c`, the full Gradle gate completed successfully (`clean check
+--rerun-tasks`, 1205 tests, no failures). Five opt-in real-Oxia smoke methods
+were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this confirms the
+local regression suite only and does not close the external Oxia, Object Store,
+Kafka/Pulsar, chaos, benchmark, soak or upgrade gates.
+
 After `6efd89f`, the local checkpoint execution boundary is explicit rather
 than implicit: `CheckpointExecutionCoordinator` requires the exact scheduler
 claim before filesystem/provider I/O, creates or safely reuses the fixed-ID
