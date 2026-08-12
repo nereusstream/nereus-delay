@@ -130,6 +130,23 @@ class ResourceGcGuardTest {
     }
 
     @Test
+    void deleteConfirmationSourcePositionMustFollowRetireIntent() {
+        final Fixture fixture = fixture();
+        final KafkaSourcePosition samePosition = position(fixture.shard(), 1, 1_002);
+        final KafkaSourcePosition earlierPosition = position(fixture.shard(), 0, 1_002);
+        for (KafkaSourcePosition invalid : List.of(samePosition, earlierPosition)) {
+            assertThrows(IllegalArgumentException.class, () -> new ResourceDeleteConfirmedRecord(
+                    fixture.confirmation().confirmationMutationId(),
+                    fixture.confirmation().confirmationMutationHash(), fixture.intent(),
+                    fixture.confirmation().outcome(), fixture.confirmation().appliedMutationSequence(),
+                    fixture.confirmation().providerRequestIdHash(),
+                    fixture.confirmation().observedImmutableVersion(), fixture.confirmation().observedEtag(),
+                    fixture.confirmation().responseHash(), fixture.confirmation().observedAt(),
+                    fixture.confirmation().confirmedAt(), invalid.canonicalBytes()));
+        }
+    }
+
+    @Test
     void checkpointGcRetainsCheckpointPinnedAsCandidateOrObservedFloor() {
         final Fixture fixture = fixture();
         final RecoveryPinV1 candidatePin = pin(fixture, fixture.floor().checkpointId(),

@@ -56,6 +56,9 @@ public record ResourceDeleteConfirmedRecord(
                 || !intentSourcePosition.sameSourceIdentity(confirmationSourcePosition)) {
             throw new IllegalArgumentException("delete confirmation source position does not match retire intent");
         }
+        if (confirmationSourcePosition.compareTo(intentSourcePosition) <= 0) {
+            throw new IllegalArgumentException("delete confirmation must follow retire intent");
+        }
         confirmationMutationId = Bytes.copy(confirmationMutationId);
         confirmationMutationHash = Bytes.copy(confirmationMutationHash);
         providerRequestIdHash = Bytes.copy(providerRequestIdHash);
