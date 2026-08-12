@@ -237,7 +237,7 @@ public final class PersistentLaneScheduler {
      *
      * @return newly promoted work items in discovery order
      */
-    public synchronized List<ScheduleWorkItem> discoverReady(final SchedulerBudget budget) {
+    synchronized List<ScheduleWorkItem> discoverReady(final SchedulerBudget budget) {
         // The legacy overload intentionally keeps its historical unbounded
         // discovery behavior.  Production callers must provide the trusted
         // due-through timestamp below.
@@ -252,8 +252,8 @@ public final class PersistentLaneScheduler {
      * downstream time-aware poll still fences them. Equality is due and
      * therefore allowed.
      */
-    public synchronized List<ScheduleWorkItem> discoverReady(final long dueThroughEpochMs,
-                                                              final SchedulerBudget budget) {
+    synchronized List<ScheduleWorkItem> discoverReady(final long dueThroughEpochMs,
+                                                       final SchedulerBudget budget) {
         return discoverReady(dueThroughEpochMs, null, budget);
     }
 
