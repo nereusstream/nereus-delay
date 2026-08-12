@@ -287,6 +287,20 @@ passes. This is local composition evidence, not production Shard Log
 append/ACK/cursor, Oxia, source-session, Profile/Object Store, Producer or
 source-ordered outcome evidence, so those release gates remain OPEN.
 
+After `187c18c`, `OutcomeWorkClassExecutor` closes the corresponding local
+queue boundary for already prepared `PUBLISH_OUTCOME`, `EVIDENCE_RESOLUTION`,
+`CLAIM_RESULT` and `DLQ_EXPORT_RESULT` mutations. It binds the exact canonical
+frame and charge, rejects wrong type/shard/author/owner-epoch submissions before
+queue admission, rereads the strict Owner Lease before the external append,
+and preserves `PERSISTED`, `DEFINITIVELY_NOT_PERSISTED` and `UNKNOWN` as separate
+outcomes. It does not generate callback semantics, apply RocksDB state or
+allocate a local Source Position; a writer/proof failure fences the local
+Owner. The focused test proves queue rejection is side-effect free, persisted
+handoff does not locally apply the mutation, and expired ownership never calls
+the appender. This is still local composition evidence: Broker append/ACK,
+callback/evidence authority, Oxia session, source replay and signing-key
+history remain OPEN.
+
 The synchronized full local gate after `666f56a` and this documentation update
 passed on 2026-08-12 with 1232 reported
 tests, zero failures/errors and five skipped opt-in real-Oxia methods because

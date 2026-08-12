@@ -372,6 +372,23 @@ real Broker append/ACK/cursor, source adapter session, Oxia authority, external
 Profile/Object Store/channel credentials, Producer call and source-ordered
 outcome apply remain release blockers.
 
+After `187c18c`, the remaining result-mutation callbacks have a shared bounded
+`OUTCOME_AND_CONTROL` handoff in `OutcomeWorkClassExecutor`. It accepts only an
+already prepared and signed `PUBLISH_OUTCOME`, `EVIDENCE_RESOLUTION`,
+`CLAIM_RESULT` or `DLQ_EXPORT_RESULT`, binds the complete canonical mutation
+frame to task identity and byte charge, and performs strict local Shard/
+AuthorIdentity/Owner-epoch validation before queue admission. Execution rereads
+the Owner Lease/clock and calls only the external `ShardLogMutationAppender`;
+it never applies the mutation locally or allocates a Source Position. Persisted
+positions are checked against the active source assignment/barrier, while
+definitive non-persistence and unknown outcomes remain distinct and append or
+proof failures fence the Owner with the exact mutation retained for recovery.
+`OutcomeWorkClassExecutorTest` covers persisted-without-local-apply,
+definitive/unknown append outcomes, queue rejection and expired-owner fencing.
+This is a local callback-to-log composition seam only; real callback/evidence
+authority, Broker append/ACK/cursor, Oxia session, signing-key history and
+source-ordered outcome replay remain release blockers.
+
 After `666f56a` and the corresponding design/status/audit synchronization, the full
 `GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew clean check
 --rerun-tasks --console=plain` gate passed on 2026-08-12: 1232 tests were

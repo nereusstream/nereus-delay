@@ -1606,6 +1606,21 @@ Admission apply 或显式 Claim revoke；未知结果仍必须 fence Owner。这
 Claim→Admission 的本地边界，不宣称真实 Broker append/ACK/cursor、Oxia authority、
 Producer 或外部 Profile/Object Store 已接通。
 
+除 Claim→Admission 外，`PUBLISH_OUTCOME_V1`、`EVIDENCE_RESOLUTION_V1`、
+`CLAIM_RESULT_V1` 与 `DLQ_EXPORT_RESULT_V1` 的 callback/evidence producer 也只能把
+已经准备并签名的 exact System Mutation 交给 `OutcomeWorkClassExecutor`，进入同一个
+`OUTCOME_AND_CONTROL` bounded work class。该入口只校验允许的 mutation type、Shard
+identity、AuthorIdentity branch、strict Owner/ownerEpoch 与执行时 Oxia lease，再调用
+外部 `ShardLogMutationAppender`；它不生成业务结果、不调用
+`DelayShard.applySystemMutation`、不分配本地 Source Position。task identity 和 byte
+charge 绑定完整 canonical mutation frame；queue rejection 不产生 Store/append 副作用。
+外部追加返回 `PERSISTED` 时必须携带并通过当前 source assignment/activation barrier
+校验的 Source Position；`DEFINITIVELY_NOT_PERSISTED` 与 `UNKNOWN` 必须保持可区分，
+writer exception 或 position proof failure 一律 fence Owner 并保留 exact bytes 供恢复。
+真正改变 outcome、evidence、Claim terminal state 或 DLQ outbox 的唯一入口仍是
+source-ordered apply。该本地桥不宣称真实 callback/evidence authority、Broker
+append/ACK/cursor、Oxia session、签名 key history 或 recovery replay 已接通。
+
 Claim 的纯撤销/超时和 transient pre-send failure 都回到相同 semantic timeline key/work kind/authority/candidate attempt，可更新可重建的 Lane circuit/backoff，不消耗 Publish Admission count，也不把 generation 伪造成 `RETRY_WAIT`；重新插入时 semantic digest 保持一致，必须 checked increment runtime revision 并重算 instance digest，不能 byte-reuse 旧 snapshot token。payload checksum/immutable object loss、deterministic serialization/record-size 等已证明 permanent pre-send 结果若要把 generation 改为 `DEAD_LETTER`，executor 只能准备 exact `CLAIM_RESULT_V1`并等它按 Shard Log Source Position apply。该 mutation 携 Claim precondition、`CLAIM_PERMANENT_FAILURE`、Trusted-UTC 和 charge transfer；它与 Cancel/Reschedule/Expiry/Close 以及同 Claim Admission 排序，callback 不得直写 terminal state。
 V1 中 field 20 的 `ChargeVectorV1 transfer` 必须与 Claim precondition field 12 的 `claimed_charge` 做 canonical byte-equality；它只能释放该 reversible Claim 已冻结的 charge projection，不能由 callback 另行改写 quota。完整 grant policy、外部 charge authority 与 materialization/recovery accounting 仍按本设计的 release boundary 单独完成。
 
