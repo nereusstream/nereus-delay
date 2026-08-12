@@ -6681,10 +6681,37 @@ public final class DelayShard {
         if (earliestEpochMs < 0 || limit <= 0) {
             throw new IllegalArgumentException("invalid reservation expiry discovery bounds");
         }
+        return discoverReservationExpiry(earliestEpochMs,
+                new SchedulerBudget(limit, Long.MAX_VALUE, Long.MAX_VALUE), () -> 0);
+    }
+
+    /**
+     * Discovers source-fence-decided reservation expiry under record, actual-byte
+     * and elapsed scan bounds. The cutoff is the persisted TIME_FENCE watermark,
+     * never caller-provided wall-clock time.
+     */
+    public synchronized List<ReservationExpiryWork> discoverReservationExpiry(
+            final SchedulerBudget budget, final LongSupplier monotonicClockNanos) {
+        final SchedulerBudget bounded = Objects.requireNonNull(budget,
+                "reservation expiry discovery budget");
+        final LongSupplier clock = Objects.requireNonNull(monotonicClockNanos,
+                "reservation expiry discovery monotonic clock");
+        if (closedIngressDeadlineThrough < 0) {
+            return List.of();
+        }
+        return discoverReservationExpiry(closedIngressDeadlineThrough, bounded, clock);
+    }
+
+    private List<ReservationExpiryWork> discoverReservationExpiry(final long cutoffEpochMs,
+                                                                   final SchedulerBudget budget,
+                                                                   final LongSupplier monotonicClockNanos) {
         final List<ReservationExpiryWork> result = new ArrayList<>();
-        final List<io.nereusstream.delay.store.ShardStore.KeyValue> entries = store.scan(ColumnFamily.TIMELINE,
-                new byte[]{5, 1}, new byte[]{6, 1}, limit);
-        for (var entry : entries) {
+        final BoundedReadBudget readBudget = new BoundedReadBudget(budget.maxBytes(),
+                budget.maxElapsedNanos(), monotonicClockNanos);
+        final long[] completedCharge = {0};
+        store.visit(ColumnFamily.TIMELINE, new byte[]{5, 1}, new byte[]{6, 1}, budget.maxMessages(),
+                readBudget, (entry, sharedBudget) -> {
+            final long indexCharge = sharedBudget.chargedBytes() - completedCharge[0];
             final byte[] key = entry.key();
             if (key.length != 2 + 8 + 32 || key[0] != 5 || key[1] != 1) {
                 throw new IllegalStateException("invalid RESERVATION_EXPIRY key");
@@ -6694,16 +6721,34 @@ public final class DelayShard {
             final long expiry = input.getLong();
             final byte[] reservationId = new byte[32];
             input.get(reservationId);
-            if (expiry > earliestEpochMs) {
-                break;
+            if (expiry > cutoffEpochMs) {
+                return false;
             }
-            final PayloadReservation reservation = PayloadReservation.decode(
-                    io.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), 5).payload());
+            final PayloadReservation reservation = validateReservationIdentity(reservationId,
+                    PayloadReservation.decode(ValueEnvelope.decode(entry.value(), 5).payload()),
+                    "RESERVATION_EXPIRY discovery");
             if (!Arrays.equals(reservation.reservationId(), reservationId)
                     || reservation.reservationExpiryEpochMs() != expiry) {
                 throw new IllegalStateException("RESERVATION_EXPIRY key/value identity mismatch");
             }
-            final PayloadReservation current = readStoredReservation(reservationId);
+            if (!sharedBudget.beforeRead()) {
+                return false;
+            }
+            final byte[] reservationKey = KeyCodec.idReservation(reservationId);
+            final byte[] rawReservation = store.get(ColumnFamily.ID, reservationKey);
+            final int reservationValueBytes = rawReservation == null ? 0 : rawReservation.length;
+            if (!sharedBudget.tryCharge(reservationKey.length, reservationValueBytes)) {
+                final long candidateBytes = Math.addExact(indexCharge,
+                        Math.addExact((long) reservationKey.length, reservationValueBytes));
+                if (candidateBytes > sharedBudget.maxBytes()) {
+                    throw new IllegalStateException("RESERVATION_EXPIRY discovery candidate exceeds byte budget");
+                }
+                return false;
+            }
+            final PayloadReservation current = rawReservation == null ? null
+                    : validateReservationIdentity(reservationId,
+                    PayloadReservation.decode(ValueEnvelope.decode(rawReservation, 2).payload()),
+                    "RESERVATION_EXPIRY current projection");
             if (current == null || !Arrays.equals(current.encode(), reservation.encode())) {
                 throw new IllegalStateException("RESERVATION_EXPIRY is not the current reservation projection");
             }
@@ -6711,10 +6756,9 @@ public final class DelayShard {
                 result.add(new ReservationExpiryWork(reservation.reservationId(), reservation.delayMessageId(),
                         reservation.reservationExpiryEpochMs(), reservation.stateVersion()));
             }
-            if (result.size() >= limit) {
-                break;
-            }
-        }
+            completedCharge[0] = sharedBudget.chargedBytes();
+            return true;
+        });
         return List.copyOf(result);
     }
 

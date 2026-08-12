@@ -454,6 +454,34 @@ public final class OwnedDelayShard {
         validateReservationExpiryCandidate(candidate);
     }
 
+    /** Pure local preflight for one bounded RESERVATION_EXPIRY discovery action. */
+    synchronized void requireReservationExpiryDiscoverySubmission(final OxiaOwnerLeaseStore authority) {
+        requireStrictActiveAuthority(authority);
+        if (state != ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
+            throw new IllegalStateException("reservation expiry discovery requires an active shard");
+        }
+    }
+
+    /** Rereads Owner authority before scanning through the persisted TIME_FENCE watermark. */
+    synchronized List<io.nereusstream.delay.runtime.DelayShard.ReservationExpiryWork>
+            discoverReservationExpiryAuthoritativelyStrict(
+                    final OxiaOwnerLeaseStore authority,
+                    final SchedulerBudget budget,
+                    final LongSupplier ownerClock,
+                    final LongSupplier scanClockNanos) {
+        requireReservationExpiryDiscoverySubmission(authority);
+        final long nowEpochMs = readActiveWorkClock(ownerClock, "reservation expiry discovery");
+        ensureAuthoritativeActive(authority, nowEpochMs, "reservation expiry discovery");
+        try {
+            return delegate.discoverReservationExpiry(
+                    Objects.requireNonNull(budget, "reservation expiry discovery budget"),
+                    Objects.requireNonNull(scanClockNanos, "reservation expiry discovery scan clock"));
+        } catch (RuntimeException | Error failure) {
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        }
+    }
+
     /** Rereads the Owner Lease before the GC-class materializer touches RocksDB. */
     synchronized io.nereusstream.delay.runtime.DelayShard.ReservationExpiryMaterializationResult
             materializeReservationExpiryAuthoritativelyStrict(
