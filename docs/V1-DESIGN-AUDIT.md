@@ -1253,6 +1253,16 @@ the full `DelayShardTest`, compilation and Checkstyle passed. This visibility ch
 does not implement the still-open production repair coordinator or dynamic I/O
 admission.
 
+After `ae1224f`, the raw mutation boundary is narrower again. The overloads that
+revoke one Claim by ID, materialize one reservation by ID, or advance Lane-close by
+Lane ID are package-local. Production reservation/Lane-close composition must retain
+the exact discovered candidate and pass through the strict Owner/work-class wrapper;
+it cannot replace that identity with an unguarded ID after queue wait. Drain and
+recovery may still use the package-local Claim primitive internally. Signature-level
+reflection checks plus complete `DelayShardTest`, Lane-close/Reservation strict
+executor suites, compilation and Checkstyle passed. Exact-candidate public primitive
+visibility remains a separate audit item.
+
 The command/runtime projection audit also closes a `RESCHEDULE` drift: the
 apply path and its persistence normalization now use the prior generation's
 same pinned `actionAt` (or re-derive the pinned Profile handoff boundary),
@@ -3219,6 +3229,12 @@ methods from becoming public again without an explicit design change. No replace
 production authority was invented: strict Route retention, Oxia/session, provider
 quiescence, grant release, bounded admission and Recovery-Floor orchestration remain
 OPEN and must precede any future public GC coordinator.
+
+After `ae1224f`, direct ID-based materialization/revocation also cannot be called from
+cross-package Worker code. The strict candidate-based Lane-close and reservation
+executors remain the production-facing paths; their queue-time identity and
+execution-time Owner checks are no longer bypassable by calling the simpler overload.
+This is an API-boundary change only, not new Oxia, Floor or drain authority.
 
 Worker 资源侧现在还提供了本地 `WorkerLoadVector` 与
 `WorkerPlacementPolicy`：它们先按完整 committed capacity、固定/transition

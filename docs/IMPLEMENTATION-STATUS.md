@@ -1378,6 +1378,17 @@ compilation and Checkstyle passed. The READY key/value/timeline integrity checks
 unchanged; a future public repair coordinator still needs fenced lifecycle,
 Owner/Oxia authority and record/actual-byte/elapsed I/O admission.
 
+After `ae1224f`, three raw local mutation overloads are no longer cross-package
+production APIs: single-Claim `revokeClaim(claimId, ownerEpoch)`, reservation expiry
+materialization by reservation ID, and Lane-close materialization by Lane ID. They
+remain package-local algorithms for drain/recovery/runtime tests. Cross-package
+reservation and Lane-close paths retain only the exact-candidate overloads used by
+their strict Owner/work-class wrappers, including stale cursor/projection rechecks.
+The visibility regression covers all three exact signatures; complete
+`DelayShardTest`, both strict materialization suites, compilation and Checkstyle
+passed. This does not yet hide the exact-candidate primitives themselves or replace
+the documented embedded drain/recovery compatibility seams.
+
 The local command projection now preserves the pinned timeline action boundary
 across `RESCHEDULE`. Apply-time validation and the later persistence
 normalization derive the new generation's `actionAt` from the prior runtime

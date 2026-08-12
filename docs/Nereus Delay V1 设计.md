@@ -2092,6 +2092,8 @@ source-ordered `closedIngressDeadlineThrough`。同一个 `BoundedReadBudget` �
 和 elapsed time；过大单 candidate fail closed，剩余预算不足则留到下一 turn。
 discovery 不物化、不释放 quota；每个 byte-identical candidate 仍须经
 `ReservationExpiryWorkClassExecutor` 的第二个 strict `GC` handoff 才能写 batch。
+按 `reservationId` 直接调用的本地 materialization overload 只允许作为 `runtime`
+包内算法/测试 seam；跨包调用方必须携 exact candidate 进入上述 strict handoff。
 
 Lane Close 的 source-ordered marker 已经冻结语义结果，但 cursor discovery 与物化
 都属于 `GC` work-class。`LaneCloseDiscoveryWorkClassExecutor` 的 submission 只做
@@ -2109,6 +2111,8 @@ closed，后续 candidate 仅因剩余预算不足时留给下一 turn；discove
 `runtime` 包内算法/测试 seam，类与动作均为 package-local，不能成为无 authority、
 无 bounded queue 的生产入口。底层单候选 primitive 只保留给 strict owner wrapper；
 这不替代生产 GC scanner、Recovery Floor protection 或 Oxia owner orchestration。
+按 Lane ID 直接推进 cursor 的 overload 也只允许作为 `runtime` 包内算法/测试 seam；
+跨包路径必须携 exact cursor candidate，不能绕过 stale identity recheck。
 
 checkpoint 的物理创建/上传与接管时的下载/restore 都属于同一个独立的
 `CHECKPOINT` work-class。Restore task 的 identity 必须绑定 exact canonical manifest、
