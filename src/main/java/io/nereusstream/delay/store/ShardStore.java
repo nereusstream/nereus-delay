@@ -166,7 +166,7 @@ public final class ShardStore implements AutoCloseable {
         try {
             final Path shardRoot = prepareShardRoot(config, shardId);
             final Path dbPath = locateOrCreateDbPath(shardRoot);
-            final ShardStore opened = openAtPath(config, shardId, dbPath, resources, null, true);
+            final ShardStore opened = openAtPath(config, shardId, dbPath, resources, null, true, true);
             try {
                 // A fresh/opened Store Incarnation must be durable before the
                 // checksummed ACTIVE pointer publishes it.  This also covers
@@ -215,13 +215,19 @@ public final class ShardStore implements AutoCloseable {
 
         final ShardStore opened;
         try {
-            opened = openAtPath(config, shardId, activeDb, resources, null, true);
+            // Do not publish a local OPEN/unclean projection until the
+            // catalog/Floor authority has validated the persisted recovery
+            // projection.  The native DB is still opened for validation, but
+            // proof failure must not first mutate the recovery evidence it is
+            // supposed to validate.
+            opened = openAtPath(config, shardId, activeDb, resources, null, true, false);
         } catch (IOException | RocksDBException failure) {
             throw new IllegalStateException("cannot open ACTIVE shard DB for recovery reuse: " + shardId,
                     failure);
         }
         try {
             catalog.validateLocalStoreRecovery(shardId, opened.recoveryMetadata());
+            opened.publishOpenMarkersAfterRecoveryValidation();
             return opened;
         } catch (RuntimeException | Error failure) {
             closeAfterRecoveryValidationFailure(opened, failure);
@@ -351,7 +357,7 @@ public final class ShardStore implements AutoCloseable {
             if (manifest != null) {
                 validateCheckpointManifest(shardId, stagedDb, manifest, limits);
             }
-            staged = openAtPath(config, shardId, stagedDb, resources, null, false);
+            staged = openAtPath(config, shardId, stagedDb, resources, null, false, true);
             if (!staged.shardId().equals(shardId)) {
                 throw new IOException("restored DB shard identity mismatch");
             }
@@ -374,7 +380,7 @@ public final class ShardStore implements AutoCloseable {
                     manifest.recoveryLineageId(), manifest.checkpointId(), manifest.manifestSha256(),
                     uuidBytes(storeUuid));
             final RecoveryFloorRefV1 observedFloor = pin == null ? null : pin.observedFloor();
-            prepared = openAtPath(config, shardId, stagedDb, resources, storeUuid, false);
+            prepared = openAtPath(config, shardId, stagedDb, resources, storeUuid, false, true);
             if (!prepared.shardId().equals(shardId)) {
                 throw new IOException("install-mode DB shard identity mismatch");
             }
@@ -399,7 +405,7 @@ public final class ShardStore implements AutoCloseable {
             // pointing at an incarnation whose directory entry was not yet
             // durable, violating the restore install protocol.
             forceDirectory(activeDb.getParent());
-            installed = openAtPath(config, shardId, activeDb, resources, null, true);
+            installed = openAtPath(config, shardId, activeDb, resources, null, true, true);
             if (!installed.shardId().equals(shardId)) {
                 throw new IOException("install-mode DB shard identity mismatch");
             }
@@ -884,7 +890,8 @@ public final class ShardStore implements AutoCloseable {
     private static ShardStore openAtPath(final ShardStoreConfig config, final ShardId shardId, final Path dbPath,
                                          final SharedRocksDbResources resources,
                                          final UUID restoreStoreIncarnation,
-                                         final boolean acquireOwnedSlot) throws IOException, RocksDBException {
+                                         final boolean acquireOwnedSlot,
+                                         final boolean publishOpenMarkers) throws IOException, RocksDBException {
         boolean acquireSlotAcquired = false;
         boolean ownedSlotAcquired = false;
         boolean dbSlotAcquired = false;
@@ -899,7 +906,7 @@ public final class ShardStore implements AutoCloseable {
             resources.acquireDbSlot();
             dbSlotAcquired = true;
             opened = openAtPathWithSlot(config, shardId, dbPath, resources,
-                    restoreStoreIncarnation, acquireOwnedSlot);
+                    restoreStoreIncarnation, acquireOwnedSlot, publishOpenMarkers);
             resources.releaseShardAcquireSlot();
             acquireSlotAcquired = false;
             return opened;
@@ -965,7 +972,8 @@ public final class ShardStore implements AutoCloseable {
     private static ShardStore openAtPathWithSlot(final ShardStoreConfig config, final ShardId shardId,
                                                  final Path dbPath, final SharedRocksDbResources resources,
                                                  final UUID restoreStoreIncarnation,
-                                                 final boolean ownsShardSlot)
+                                                 final boolean ownsShardSlot,
+                                                 final boolean publishOpenMarkers)
             throws IOException, RocksDBException {
         // Files.createDirectories(dbPath) follows a symlink in any missing
         // parent component. That would let a raced or pre-planted
@@ -1096,18 +1104,20 @@ public final class ShardStore implements AutoCloseable {
             StoreRecoveryMetadata recoveryMetadata = readRecoveryMetadata(db, handles.get(ColumnFamily.META),
                     metadata, restoreStoreIncarnation != null);
             final long closedIngressDeadlineThrough = runtimeRead.closedIngressDeadlineThrough();
-            if (runtimeMetadata.cleanCloseMarker()) {
-                runtimeMetadata = runtimeMetadata.withCleanCloseMarker(false);
-            }
-            final RecoveryInstallPhaseV1 openPhase = restoreStoreIncarnation == null
-                    ? RecoveryInstallPhaseV1.OPEN : RecoveryInstallPhaseV1.INSTALLED;
-            recoveryMetadata = recoveryMetadata.withInstallState(new RecoveryInstallStateV1(openPhase,
-                    uuidBytes(metadata.storeIncarnationUuid()), recoveryMetadata.checkpointId()));
-            try (WriteBatch batch = new WriteBatch(); WriteOptions writeOptions = new WriteOptions().setSync(true)) {
-                putRuntimeMetadata(batch, handles.get(ColumnFamily.META), runtimeMetadata,
-                        closedIngressDeadlineThrough);
-                putRecoveryMetadata(batch, handles.get(ColumnFamily.META), recoveryMetadata);
-                db.write(writeOptions, batch);
+            if (publishOpenMarkers) {
+                if (runtimeMetadata.cleanCloseMarker()) {
+                    runtimeMetadata = runtimeMetadata.withCleanCloseMarker(false);
+                }
+                final RecoveryInstallPhaseV1 openPhase = restoreStoreIncarnation == null
+                        ? RecoveryInstallPhaseV1.OPEN : RecoveryInstallPhaseV1.INSTALLED;
+                recoveryMetadata = recoveryMetadata.withInstallState(new RecoveryInstallStateV1(openPhase,
+                        uuidBytes(metadata.storeIncarnationUuid()), recoveryMetadata.checkpointId()));
+                try (WriteBatch batch = new WriteBatch(); WriteOptions writeOptions = new WriteOptions().setSync(true)) {
+                    putRuntimeMetadata(batch, handles.get(ColumnFamily.META), runtimeMetadata,
+                            closedIngressDeadlineThrough);
+                    putRecoveryMetadata(batch, handles.get(ColumnFamily.META), recoveryMetadata);
+                    db.write(writeOptions, batch);
+                }
             }
             final ShardStore result = new ShardStore(config, shardId, dbPath, resources, db, dbOptions,
                     openedHandles.get(0), cfOptions, handles, metadata, ownsShardSlot, runtimeMetadata,
@@ -1641,6 +1651,24 @@ public final class ShardStore implements AutoCloseable {
      */
     public synchronized boolean hasReusableRecoveryProof() {
         return recoveryMetadata.hasReusableProof();
+    }
+
+    /**
+     * Publishes the local OPEN projection after an external recovery
+     * authority has validated the persisted recovery evidence.  This is kept
+     * separate from the native open path so a rejected catalog proof cannot
+     * be preceded by a misleading OPEN marker.
+     */
+    private synchronized void publishOpenMarkersAfterRecoveryValidation() {
+        ensureOpen();
+        final StoreRuntimeMetadata nextRuntimeMetadata = runtimeMetadata.withCleanCloseMarker(false);
+        final StoreRecoveryMetadata nextRecoveryMetadata = recoveryMetadata.withInstallState(
+                new RecoveryInstallStateV1(RecoveryInstallPhaseV1.OPEN,
+                        metadata.storeIncarnation(), recoveryMetadata.checkpointId()));
+        write(batch -> {
+            batch.putRuntimeMetadata(nextRuntimeMetadata);
+            batch.putRecoveryMetadata(nextRecoveryMetadata);
+        });
     }
 
     /**

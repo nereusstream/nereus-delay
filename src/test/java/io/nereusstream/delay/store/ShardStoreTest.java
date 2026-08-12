@@ -30,6 +30,7 @@ import io.nereusstream.delay.protocol.SloThresholdDirectionV1;
 import io.nereusstream.delay.protocol.SloThresholdUnitV1;
 import io.nereusstream.delay.protocol.SloTimeEndpointKindV1;
 import io.nereusstream.delay.protocol.SloTimeEndpointV1;
+import io.nereusstream.delay.protocol.SourcePosition;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ColumnFamilyOptions;
@@ -117,8 +118,58 @@ class ShardStoreTest {
                     observedFloor);
         }
 
+        // The catalog must see the persisted recovery projection, not an
+        // OPEN marker written speculatively by the native open path.  A
+        // previously cleanly closed store therefore reaches validation as
+        // CLOSED_CLEAN and is only published OPEN after this callback returns.
+        final RecoveryCatalogAuthority proofBeforeOpen = new RecoveryCatalogAuthority() {
+            @Override
+            public RecoveryCatalog.Publication publish(final CheckpointManifest candidate,
+                                                       final long expectedCatalogGeneration) {
+                return catalog.publish(candidate, expectedCatalogGeneration);
+            }
+
+            @Override
+            public RecoveryFloor advanceFloor(final byte[] candidateCheckpointId,
+                                               final long expectedCatalogGeneration,
+                                               final byte[] evidenceCursorDigest) {
+                return catalog.advanceFloor(candidateCheckpointId, expectedCatalogGeneration, evidenceCursorDigest);
+            }
+
+            @Override
+            public Optional<CheckpointManifest> manifest(final byte[] candidateCheckpointId) {
+                return catalog.manifest(candidateCheckpointId);
+            }
+
+            @Override
+            public Optional<RecoveryFloor> currentFloor() {
+                return catalog.currentFloor();
+            }
+
+            @Override
+            public Optional<RecoveryCatalog.FloorCoverage> proveFloorCoverage(final byte[] candidateCheckpointId,
+                                                                                final long requiredMutationSequence,
+                                                                                final SourcePosition... requiredPositions) {
+                return catalog.proveFloorCoverage(candidateCheckpointId, requiredMutationSequence, requiredPositions);
+            }
+
+            @Override
+            public void validatePublishedRestoreCandidate(final CheckpointManifest candidate) {
+                catalog.validatePublishedRestoreCandidate(candidate);
+            }
+
+            @Override
+            public void validateLocalStoreRecovery(final ShardId candidateShard,
+                                                   final StoreRecoveryMetadata localMetadata) {
+                assertNotNull(localMetadata.installState());
+                assertEquals(RecoveryInstallPhaseV1.CLOSED_CLEAN, localMetadata.installState().phase());
+                catalog.validateLocalStoreRecovery(candidateShard, localMetadata);
+            }
+        };
+
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
-             ShardStore reused = ShardStore.openForLocalRecoveryReuse(config, shardId, resources, catalog)) {
+             ShardStore reused = ShardStore.openForLocalRecoveryReuse(config, shardId, resources,
+                     proofBeforeOpen)) {
             assertEquals(observedFloor, reused.recoveryMetadata().lastObservedFloor());
             assertEquals(RecoveryInstallPhaseV1.OPEN, reused.recoveryMetadata().installState().phase());
         }
