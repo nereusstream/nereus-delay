@@ -4355,6 +4355,14 @@ for embedded ownership tests; V1 Worker/recovery wiring must use
 `activateForCommandsWithControlSnapshot(...)`, which proves the exact persisted
 shard control snapshot before exposing `ACTIVE_FOR_COMMANDS`.
 
+`CheckpointUploadCoordinator` now also validates the recognized RocksDB image's
+fixed store-format marker and `StoreMetadata` against the manifest's shard,
+`dbIdentity` and `sourceStoreIncarnation`, before provider I/O. The focused
+`CheckpointControlSnapshotVerifierTest.rejectsManifestWhenCheckpointStoreIdentityDrifts`
+regression proves that a file-complete image cannot be published with a foreign
+DB identity. This is local upload-integrity evidence only; Object Store
+publication and upload-intent/catalog transaction authority remain blockers.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

@@ -4091,6 +4091,15 @@ for embedded ownership tests; V1 Worker/recovery wiring must use
 `activateForCommandsWithControlSnapshot(...)`, which proves the exact persisted
 shard control snapshot before exposing `ACTIVE_FOR_COMMANDS`.
 
+Checkpoint upload now binds the recognized RocksDB image's fixed store-format
+marker and `StoreMetadata` (shard identity, DB identity and Store Incarnation)
+to the corresponding `CheckpointManifest` before provider I/O. A file-complete
+image can no longer be published with a manifest for another DB identity or
+Store Incarnation; `CheckpointControlSnapshotVerifierTest`
+`rejectsManifestWhenCheckpointStoreIdentityDrifts` covers the local fence.
+This remains an upload-integrity check and does not claim Object Store or
+upload-intent/catalog transaction authority.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

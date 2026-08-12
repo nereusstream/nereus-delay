@@ -18,6 +18,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Read-only validation of the complete shard-bound control snapshot inside a
@@ -34,6 +35,25 @@ final class CheckpointControlSnapshotVerifier {
 
     static void validate(final Path checkpointDirectory, final ShardId expectedShard,
                          final byte[] expectedDigest) {
+        validate(checkpointDirectory, expectedShard, expectedDigest, null, null, null);
+    }
+
+    /**
+     * Validates the physical identity of a checkpoint against its complete
+     * manifest.  A manifest must describe the DB image that is actually being
+     * uploaded; file checksums and the control snapshot alone are not enough
+     * because an image can otherwise be paired with another Store Incarnation
+     * or DB identity.
+     */
+    static void validate(final Path checkpointDirectory, final CheckpointManifest manifest) {
+        Objects.requireNonNull(manifest, "manifest");
+        validate(checkpointDirectory, manifest.shardId(), manifest.controlStateDigest(),
+                manifest.dbIdentity(), manifest.sourceStoreIncarnation(), manifest.storeFormatVersion());
+    }
+
+    private static void validate(final Path checkpointDirectory, final ShardId expectedShard,
+                                 final byte[] expectedDigest, final byte[] expectedDbIdentity,
+                                 final UUID expectedStoreIncarnation, final Integer expectedStoreFormat) {
         Objects.requireNonNull(checkpointDirectory, "checkpointDirectory");
         Objects.requireNonNull(expectedShard, "expectedShard");
         Bytes.requireLength(expectedDigest, 32, "expectedDigest");
@@ -70,7 +90,41 @@ final class CheckpointControlSnapshotVerifier {
                     .setCreateIfMissing(false)
                     .setCreateMissingColumnFamilies(false);
                  RocksDB db = RocksDB.openReadOnly(dbOptions, checkpointDirectory.toString(), descriptors, handles)) {
-                final byte[] encoded = db.get(handles.get(metaIndex), KeyCodec.metaFixed(META_CONTROL_SNAPSHOT));
+                final ColumnFamilyHandle meta = handles.get(metaIndex);
+                final byte[] formatEncoded = db.get(meta, KeyCodec.metaFixed(1));
+                if (formatEncoded == null) {
+                    throw new IllegalArgumentException("checkpoint RocksDB is missing store format");
+                }
+                final byte[] format = ValueEnvelope.decode(formatEncoded, META_FIXED_VALUE_TYPE).payload();
+                if (format.length != Integer.BYTES || Bytes.readU32be(format, 0) != 1) {
+                    throw new IllegalArgumentException("checkpoint RocksDB has an unsupported store format");
+                }
+                final byte[] identityEncoded = db.get(meta, KeyCodec.metaFixed(2));
+                if (identityEncoded == null) {
+                    throw new IllegalArgumentException("checkpoint RocksDB is missing shard identity");
+                }
+                final StoreMetadata metadata;
+                try {
+                    metadata = StoreMetadata.decode(
+                            ValueEnvelope.decode(identityEncoded, META_FIXED_VALUE_TYPE).payload());
+                } catch (IllegalArgumentException malformed) {
+                    throw new IllegalArgumentException("checkpoint RocksDB has malformed shard identity", malformed);
+                }
+                if (!expectedShard.equals(metadata.shardId())) {
+                    throw new IllegalArgumentException("checkpoint store identity belongs to another shard");
+                }
+                if (expectedStoreFormat != null && metadata.storeFormatVersion() != expectedStoreFormat) {
+                    throw new IllegalArgumentException("checkpoint store format does not match manifest");
+                }
+                if (expectedDbIdentity != null
+                        && !Bytes.constantTimeEquals(metadata.dbIdentity(), expectedDbIdentity)) {
+                    throw new IllegalArgumentException("checkpoint DB identity does not match manifest");
+                }
+                if (expectedStoreIncarnation != null
+                        && !expectedStoreIncarnation.equals(metadata.storeIncarnationUuid())) {
+                    throw new IllegalArgumentException("checkpoint Store Incarnation does not match manifest");
+                }
+                final byte[] encoded = db.get(meta, KeyCodec.metaFixed(META_CONTROL_SNAPSHOT));
                 if (encoded == null) {
                     throw new IllegalArgumentException("checkpoint RocksDB is missing control snapshot");
                 }
