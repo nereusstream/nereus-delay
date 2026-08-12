@@ -1050,6 +1050,13 @@ identity 的本地兼容构造不能进入这些严格实时路径。V1 不从�
 未冻结公式推导该 identity；其与认证 Oxia lease/session 的组装仍由生产 Worker
 coordinator 明确完成并提供可审计证据。
 
+`PersistentLaneScheduler` 还必须持有与 `OwnedDelayShard` runtime byte-equal 的
+Store Incarnation。due discovery 和 READY-to-Claim handoff 共用的无 I/O preflight
+必须同时比较 ShardId、完整 Owner identity 和 Store Incarnation；同一逻辑
+Shard、同一 Owner 但来自另一 DB incarnation 的 scheduler 必须在 action 注册和
+任何 scheduler/Store 读写前 fail closed。不得在一个 Store 读 READY/公平投影后，
+把 Claim WriteBatch 写入另一 Store。
+
 包外 Worker 组装不得直接调用 lease renewal、`RESTORING -> CATCHING_UP`、catch-up
 cursor 记录、activation 或 `ACTIVE -> DRAINING` 的 shard-local lifecycle primitive；
 这些原语只能由 ownership 包内、完成相应 Oxia/source/control/Store 顺序校验的

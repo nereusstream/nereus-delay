@@ -291,6 +291,17 @@ composition. The count-only `DelayShard.discoverReady` query is package-local
 as well; production READY scanning is the scheduler evidence+budget path behind
 the work-class executor.
 
+After `1759405f`, due/Claim composition also binds the physical Store identity.
+The shared `OwnedDelayShard.requireDueSchedulerSubmission` preflight compares
+the scheduler and owned runtime's exact ShardId, complete Owner identity and
+byte-equal Store Incarnation. A same-Shard/same-Owner scheduler backed by a
+different DB incarnation is rejected before action registration and before any
+scheduler/Store read or write; Claim handoff inherits the same fence. The
+foreign-Store regression preserves its RocksDB sequence and leaves the action
+registry empty. Focused due/Claim tests and the complete six-task local gate
+passed on 2026-08-13; five real-Oxia smokes were skipped. Production scheduler
+assembly, Oxia/trusted-time authority and dynamic I/O attribution remain OPEN.
+
 After `120f462`, the active-owner discovery bridge passes the complete trusted
 interval into the persistent scanner. Production discovery requires typed
 `ActiveLaneStateV1`, exact current scheduler Owner and Store Incarnation,
@@ -5185,6 +5196,17 @@ five real-Oxia smokes were skipped. This closes caller-controlled static queue
 undercharging only: actual checkpoint-file, temp-headroom and Object Store
 upload bytes/latency still require production dynamic I/O authority and remain
 OPEN.
+
+The active READY/Claim runtime now rejects physical scheduler drift. A public
+`PersistentLaneScheduler.storeIncarnation()` exposes only a defensive 16-byte
+identity projection, and the shared due/Claim preflight compares it with the
+owned `DelayShard` Store Incarnation in addition to ShardId and full Owner
+identity. A scheduler for the same logical Shard and Owner but a different DB
+cannot discover READY in one Store and write a Claim into another. The
+zero-action/unchanged-sequence regression, focused due/Claim suites and the
+complete six-task local Gradle gate passed on 2026-08-13; five real-Oxia smokes
+were skipped. External Worker construction, trusted-time and Oxia authority
+remain OPEN.
 
 ## Final gate
 
