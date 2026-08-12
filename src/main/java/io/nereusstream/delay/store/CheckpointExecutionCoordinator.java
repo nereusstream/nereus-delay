@@ -42,6 +42,19 @@ public final class CheckpointExecutionCoordinator {
     }
 
     /**
+     * Validates the process-local claim and immutable execution identity
+     * without starting filesystem or provider I/O.  Work-class admission uses
+     * this preflight before it places the exact checkpoint action in the
+     * bounded {@code CHECKPOINT} queue; {@link #execute} repeats the same
+     * checks after any queue wait.
+     */
+    public void requireCurrentExecution(final CheckpointScheduler.ScheduledCheckpoint claim,
+                                        final CheckpointUploadIntentV1 pending) {
+        scheduler.requireCurrentClaim(Objects.requireNonNull(claim, "claim"));
+        validatePendingIdentity(Objects.requireNonNull(pending, "pending"), claim);
+    }
+
+    /**
      * Executes one exact scheduler claim. A failed publication still clears
      * the claim and schedules a later retry; if that completion cannot be
      * proven, the scheduler deliberately retains the in-flight claim and the

@@ -18,15 +18,23 @@ import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.ShardSubjectV1;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
+import io.nereusstream.delay.scheduler.SchedulerBudget;
+import io.nereusstream.delay.scheduler.WorkClass;
+import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
+import io.nereusstream.delay.scheduler.WorkClassPolicy;
+import io.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
+import io.nereusstream.delay.scheduler.WorkClassTask;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -146,6 +154,108 @@ class CheckpointExecutionCoordinatorTest {
         }
     }
 
+    @Test
+    void checkpointWorkClassRejectsBeforeIoThenExecutesTheExactClaim() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 19);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("work-class-resources"));
+        final CheckpointScheduler scheduler = new CheckpointScheduler(100, 0, 1);
+        scheduler.register(shard, 0);
+        final CheckpointScheduler.ScheduledCheckpoint claim = scheduler.claimDue(100, 1).get(0);
+        final Path checkpointDirectory = tempDir.resolve("work-class-checkpoint");
+        final byte[] lineage = bytes(16, 40);
+        final byte[] checkpointId = bytes(16, 41);
+        final OwnerIdentityV1 owner = new OwnerIdentityV1(bytes(8, 42), bytes(8, 43), 44, bytes(32, 44));
+        final ProfileRefV1 objectStore = new ProfileRefV1(bytes(32, 45), 1, bytes(32, 46),
+                ProfileKindV1.OBJECT_STORE);
+        final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshot(shard);
+        final UUID topicUuid = UUID.randomUUID();
+        final KafkaSourcePosition parentPosition = new KafkaSourcePosition(shard, "cluster", topicUuid,
+                0, null, 901);
+        final KafkaSourcePosition applied = new KafkaSourcePosition(shard, "cluster", topicUuid,
+                1, null, 902);
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shard, resources)) {
+            store.recordControlSnapshot(controlSnapshot);
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(3), applied.canonicalBytes());
+                batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(5), Bytes.u64beBits(1));
+            });
+            final CheckpointManifest parent = parentManifest(store, shard, lineage, parentPosition, owner,
+                    controlSnapshot);
+            final RecoveryCatalog catalog = new RecoveryCatalog();
+            catalog.publish(parent, 0);
+            final CheckpointUploadIntentV1 pending = new CheckpointUploadIntentV1(
+                    new ShardSubjectV1(shard), lineage, checkpointId, owner,
+                    uuidBytes(store.metadata().storeIncarnationUuid()), bytes(32, 47), 1,
+                    parent.checkpointId(), parent.manifestSha256(), objectStore, evidence(1_000), 5_000,
+                    CheckpointUploadStateV1.PENDING_UPLOAD, 1, null, null);
+            final CheckpointUploadIntentStore intents = new CheckpointUploadIntentStore();
+            intents.create(pending);
+            final CheckpointExecutionCoordinator coordinator = new CheckpointExecutionCoordinator(scheduler, store,
+                    new CheckpointPublicationCoordinator(resources, intents, catalog));
+            final WorkClassExecutionRegistry workClasses = workClasses(1);
+            final CheckpointWorkClassExecutor executor = new CheckpointWorkClassExecutor(workClasses, coordinator);
+            final AtomicBoolean adapterCalled = new AtomicBoolean();
+            final CheckpointWorkClassExecutor.ExecutionRequest firstRequest =
+                    new CheckpointWorkClassExecutor.ExecutionRequest(claim, checkpointDirectory, pending,
+                            (directory, currentStore) -> childManifest(directory, currentStore, pending, parent,
+                                    owner, controlSnapshot),
+                            1_000, () -> 100, upload -> {
+                                adapterCalled.set(true);
+                                return resource(upload, pending, objectStore);
+                            }, 8);
+
+            workClasses.submit(new WorkClassTask(WorkClass.CHECKPOINT, "occupied", 8), () -> {
+            });
+            assertThrows(IllegalStateException.class, () -> executor.submit(firstRequest));
+            assertFalse(adapterCalled.get());
+            assertFalse(Files.exists(checkpointDirectory));
+            assertTrue(scheduler.isInFlight(shard));
+            assertEquals(1, workClasses.registeredActions());
+
+            workClasses.runTurn(new SchedulerBudget(1, 8, 1_000));
+            final CheckpointWorkClassExecutor.ExecutionRequest failingRequest =
+                    new CheckpointWorkClassExecutor.ExecutionRequest(claim, checkpointDirectory, pending,
+                            (directory, currentStore) -> {
+                                throw new AssertionError("invalid upload time must fail before manifest creation");
+                            }, -1, () -> 100, upload -> {
+                                throw new AssertionError("invalid upload time must fail before provider I/O");
+                            }, 8);
+            final CheckpointWorkClassExecutor.Submission failed = executor.submit(failingRequest);
+            assertEquals(List.of(failed.task()),
+                    workClasses.runTurn(new SchedulerBudget(1, 8, 1_000)));
+            final CheckpointWorkClassExecutor.AttemptOutcome failedOutcome = failed.outcome().orElseThrow();
+            assertTrue(failedOutcome.result() == null);
+            assertEquals("uploadNowEpochMs must be non-negative", failedOutcome.failure().getMessage());
+            assertFalse(scheduler.isInFlight(shard));
+            assertEquals(0, workClasses.registeredActions());
+            assertFalse(Files.exists(checkpointDirectory));
+
+            final CheckpointScheduler.ScheduledCheckpoint retryClaim = scheduler.claimDue(200, 1).get(0);
+            final CheckpointWorkClassExecutor.ExecutionRequest retryRequest =
+                    new CheckpointWorkClassExecutor.ExecutionRequest(retryClaim, checkpointDirectory, pending,
+                            (directory, currentStore) -> childManifest(directory, currentStore, pending, parent,
+                                    owner, controlSnapshot),
+                            1_000, () -> 200, upload -> {
+                                adapterCalled.set(true);
+                                return resource(upload, pending, objectStore);
+                            }, 8);
+            final CheckpointWorkClassExecutor.Submission submitted = executor.submit(retryRequest);
+            assertTrue(submitted.outcome().isEmpty());
+            assertEquals(List.of(submitted.task()),
+                    workClasses.runTurn(new SchedulerBudget(1, 8, 1_000)));
+
+            final CheckpointWorkClassExecutor.AttemptOutcome outcome = submitted.outcome().orElseThrow();
+            assertTrue(outcome.failure() == null);
+            assertEquals(300, outcome.result().nextDueEpochMs());
+            assertTrue(adapterCalled.get());
+            assertTrue(Files.isDirectory(checkpointDirectory));
+            assertFalse(scheduler.isInFlight(shard));
+            assertEquals(0, workClasses.registeredActions());
+        }
+    }
+
     private static CheckpointManifest parentManifest(final ShardStore store, final ShardId shard,
                                                      final byte[] lineage, final SourcePosition position,
                                                      final OwnerIdentityV1 owner,
@@ -174,6 +284,22 @@ class CheckpointExecutionCoordinatorTest {
                 store.metadata().storeIncarnationUuid(), 1, store.shardMutationSequence(),
                 store.appliedShardLogPosition(), controlSnapshot.snapshotDigest(), bytes(32, 12),
                 store.runtimeMetadata().evidenceCursors(), files);
+    }
+
+    private static WorkClassExecutionRegistry workClasses(final int maxQueueRecords) {
+        final EnumMap<WorkClass, WorkClassPolicy> policies = new EnumMap<>(WorkClass.class);
+        for (WorkClass workClass : WorkClass.values()) {
+            final boolean protectedClass = switch (workClass) {
+                case LEASE_FENCE, SOURCE_APPLY, OUTCOME_AND_CONTROL, EXPIRY, DUE_SCHEDULER, GC -> true;
+                case QUERY, CHECKPOINT -> false;
+            };
+            policies.put(workClass, new WorkClassPolicy(1, maxQueueRecords, maxQueueRecords * 8L,
+                    maxQueueRecords, maxQueueRecords * 8L, 1_000,
+                    protectedClass ? 1 : 0, protectedClass ? 8 : 0,
+                    workClass == WorkClass.LEASE_FENCE));
+        }
+        return new WorkClassExecutionRegistry(new WorkClassRuntimeConfig(policies, 100, 100,
+                16, 256), new AtomicLong()::get);
     }
 
     private static CheckpointResourceV1 resource(final CheckpointUploadRequest request,
