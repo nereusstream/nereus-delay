@@ -2293,6 +2293,13 @@ process-local evidence；authoritative READY/index 与新的 fenced recovery 才
 typed READY/certificate、materialization、live prerequisite 与三层 logical permit。
 已知的 queue rejection、prerequisite/permit deferral 会 exact requeue；未知异常
 直接 fence Owner，避免本地 retry 与 Shard Log/恢复 authority 竞争。
+同一 Worker 的 `WorkClassExecutionRegistry` 必须只绑定一个 exact
+`ClaimExecutionAdmission` 实例；该 Worker 上所有 Shard 的 Claim handoff 和
+Publish Admission handoff 必须共享该实例。不得为每个 executor/shard 另行
+new 一个带完整 Worker max 的 permit pool，从而把 Worker cap 放大成 N 倍。
+Publish Admission 提交时还必须验证 `Reservation` 由该 exact pool 创建；
+仅 Message/Generation/Lane 字段相同不足以证明容量归属。这只是进程内
+Worker 组合不变量，不等于 Oxia capacity grant 或生产动态 I/O authority。
 
 ## 13. Destination Profile 与 Adapter
 

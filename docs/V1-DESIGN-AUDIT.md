@@ -336,6 +336,17 @@ are absent. This closes only the shard-local composition seam; external
 Profile/catalog, Object Store, Adapter serialization/size, channel/credential
 generations, real Oxia authority and Publish Admission/Producer remain open.
 
+After `ecf65c30`, the process-local Worker cap cannot be multiplied by injecting
+a different `ClaimExecutionAdmission` into each shard executor. One
+`WorkClassExecutionRegistry` binds one exact permit-pool instance; Claim and
+Publish Admission construction must reuse it. Publish Admission additionally
+verifies that the supplied Reservation was created by that exact pool before
+action registration or external append. Registry rebinding and foreign-pool
+Reservation regressions, focused Claim/Publish Admission suites and the
+complete six-task local gate passed on 2026-08-13; five real-Oxia smokes were
+skipped. This proves only a process-local composition invariant, not Oxia
+capacity grants, production Worker assembly or dynamic I/O authority.
+
 After `1601053`, the local Claim→`PUBLISH_ADMISSION` seam is executable through
 `PublishAdmissionWorkClassExecutor` in the bounded `OUTCOME_AND_CONTROL` class.
 The executor binds the exact Claim/reservation, descriptor, Ready Certificate,
@@ -5207,6 +5218,15 @@ zero-action/unchanged-sequence regression, focused due/Claim suites and the
 complete six-task local Gradle gate passed on 2026-08-13; five real-Oxia smokes
 were skipped. External Worker construction, trusted-time and Oxia authority
 remain OPEN.
+
+Claim capacity is now bound to one process-local Worker graph. A
+`WorkClassExecutionRegistry` accepts only one exact `ClaimExecutionAdmission`
+instance, and both Claim and Publish Admission executors bind to it. Publish
+Admission also rejects an otherwise identity-matching Reservation from another
+pool before task registration or Shard Log append. Exact-pool/rebinding
+regressions, focused suites and the complete six-task local Gradle gate passed
+on 2026-08-13; five real-Oxia smokes were skipped. Cluster-wide/Oxia capacity,
+production Worker construction and dynamic I/O admission remain OPEN.
 
 ## Final gate
 
