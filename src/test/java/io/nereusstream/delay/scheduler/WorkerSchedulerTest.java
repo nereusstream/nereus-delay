@@ -19,6 +19,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class WorkerSchedulerTest {
     @Test
+    void untimedWorkerPollIsNotPublicProductionApi() throws Exception {
+        assertFalse(java.lang.reflect.Modifier.isPublic(WorkerScheduler.class
+                .getDeclaredMethod("poll", SchedulerBudget.class).getModifiers()));
+    }
+
+    @Test
     void blockedShardDoesNotPauseAnotherShard() {
         final ShardId blockedShard = shard(1);
         final ShardId healthyShard = shard(2);

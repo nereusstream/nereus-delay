@@ -81,7 +81,7 @@ public final class WorkerScheduler {
         requireShard(shardId).scheduler.offer(item);
     }
 
-    public synchronized List<ScheduleWorkItem> poll(final SchedulerBudget budget) {
+    synchronized List<ScheduleWorkItem> poll(final SchedulerBudget budget) {
         // Compatibility overload; production scheduling must pass the
         // trusted due-through timestamp below.
         return poll(Long.MAX_VALUE, budget);
