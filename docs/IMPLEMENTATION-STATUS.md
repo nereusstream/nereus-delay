@@ -4264,6 +4264,19 @@ After this duplicate-identity fence, the focused catalog test and the full
 remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this remains
 local regression evidence only.
 
+Recovery Catalog encoding now also requires each `manifestResources` map key
+to equal the resource's canonical checkpoint identity. An alias key would
+otherwise be silently discarded while producing bytes; the focused regression
+is `OxiaSyncRecoveryCatalogBackendTest.rejectsResourceMapKeyThatDoesNotMatchCheckpointIdentityBeforeEncodingSnapshot`.
+This remains a local snapshot-integrity fence and does not claim external
+catalog or Object Store authority.
+
+After this resource-map identity fence, the focused catalog test and the full
+`./gradlew clean check --rerun-tasks --console=plain` gate passed on 2026-08-12
+(`BUILD SUCCESSFUL`, five executed tasks). The five opt-in real-Oxia methods
+remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this remains
+local regression evidence only.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

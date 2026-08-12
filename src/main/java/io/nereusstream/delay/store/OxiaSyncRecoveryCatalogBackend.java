@@ -319,6 +319,12 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
             manifestsById.put(checkpointId, manifest);
         }
         final HashSet<String> resourceIds = new HashSet<>();
+        for (Map.Entry<String, CheckpointResourceV1> entry : snapshot.manifestResources().entrySet()) {
+            final CheckpointResourceV1 resource = entry.getValue();
+            if (!Bytes.hex(resource.checkpointId()).equals(entry.getKey())) {
+                throw new IllegalStateException("Oxia catalog resource map key does not match checkpoint identity");
+            }
+        }
         for (CheckpointResourceV1 resource : resources) {
             final String checkpointId = Bytes.hex(resource.checkpointId());
             final CheckpointManifest manifest = manifestsById.get(checkpointId);

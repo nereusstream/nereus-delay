@@ -218,6 +218,22 @@ class OxiaSyncRecoveryCatalogBackendTest {
                 () -> OxiaSyncRecoveryCatalogBackend.encodeSnapshot(snapshot));
     }
 
+    @Test
+    void rejectsResourceMapKeyThatDoesNotMatchCheckpointIdentityBeforeEncodingSnapshot() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 20);
+        final CheckpointManifest manifest = manifest(shard, id16(47), id16(48), 0, 1, 1, null);
+        final ProfileRefV1 profile = new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, id32(49),
+                ProfileKindV1.OBJECT_STORE);
+        final CheckpointResourceV1 resource = new CheckpointResourceV1(manifest.recoveryLineageId(),
+                manifest.checkpointId(), profile, Bytes.utf8("bucket"), Bytes.utf8("manifest"),
+                Bytes.utf8("version"), manifest.canonicalJsonBytes().length, manifest.manifestSha256());
+        final RecoveryCatalog.Snapshot snapshot = new RecoveryCatalog.Snapshot(
+                1, shard, java.util.List.of(manifest), Map.of("alias", resource), null, null, null);
+
+        assertThrows(IllegalStateException.class,
+                () -> OxiaSyncRecoveryCatalogBackend.encodeSnapshot(snapshot));
+    }
+
     private static CheckpointManifest manifest(final ShardId shard, final byte[] lineage,
                                                final byte[] checkpointId, final long lineageGeneration,
                                                final long offset, final long mutationSequence,
