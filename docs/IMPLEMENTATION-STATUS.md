@@ -4111,6 +4111,14 @@ tasks). The five opt-in real-Oxia methods were skipped because
 `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is local regression evidence only,
 not real-service or release evidence.
 
+The single-record Oxia Recovery Catalog now applies the same bounded manifest
+count on both decode and encode. A locally constructed snapshot with more than
+100,000 manifests fails closed before canonical bytes are produced;
+`OxiaSyncRecoveryCatalogBackendTest.rejectsManifestCountAboveBoundBeforeEncodingSnapshot`
+covers the boundary. This closes only the local catalog serialization bound;
+the production upload-intent/catalog transaction and immutable Object Store
+publication gates remain open.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

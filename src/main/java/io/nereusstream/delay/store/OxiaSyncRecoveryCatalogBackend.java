@@ -288,7 +288,11 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
         return catalog.snapshot();
     }
 
-    private static byte[] encodeSnapshot(final RecoveryCatalog.Snapshot snapshot) {
+    static byte[] encodeSnapshot(final RecoveryCatalog.Snapshot snapshot) {
+        Objects.requireNonNull(snapshot, "snapshot");
+        if (snapshot.manifests().size() > MAX_MANIFESTS) {
+            throw new IllegalStateException("Oxia catalog manifest count exceeds bound");
+        }
         final List<CheckpointManifest> manifests = snapshot.manifests().stream()
                 .sorted(Comparator.comparing(manifest -> Bytes.hex(manifest.checkpointId())))
                 .toList();

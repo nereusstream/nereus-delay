@@ -121,6 +121,17 @@ class OxiaSyncRecoveryCatalogBackendTest {
                 () -> backend.publishUploadedCheckpoint(null, null, 0));
     }
 
+    @Test
+    void rejectsManifestCountAboveBoundBeforeEncodingSnapshot() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 7);
+        final CheckpointManifest manifest = manifest(shard, id16(40), id16(41), 0, 1, 1, null);
+        final RecoveryCatalog.Snapshot snapshot = new RecoveryCatalog.Snapshot(
+                1, shard, java.util.Collections.nCopies(100_001, manifest), Map.of(), null, null, null);
+
+        assertThrows(IllegalStateException.class,
+                () -> OxiaSyncRecoveryCatalogBackend.encodeSnapshot(snapshot));
+    }
+
     private static CheckpointManifest manifest(final ShardId shard, final byte[] lineage,
                                                final byte[] checkpointId, final long lineageGeneration,
                                                final long offset, final long mutationSequence,
