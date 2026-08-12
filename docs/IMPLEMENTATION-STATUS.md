@@ -5642,6 +5642,20 @@ because `NEREUS_DELAY_OXIA_ENDPOINT` was unset. Profile/payload/channel
 prerequisite implementations, real Broker append and Producer ownership remain
 OPEN.
 
+Large-payload certified timing now has explicit restart evidence. After a
+catalog-backed V1 Prepare has durably stored its `V1ScheduleBinding`, the test
+closes the shard DB, reopens a fresh `DelayShard`, and applies the signed Commit
+without any Prepare-turn resolver scratch. Commit reloads the exact Destination
+Profile from the Prepare body, resolves the pinned Delivery Capability through
+the same catalog, and persists `deliverAt=3000` with the fixed-lead
+`actionAt=2500`; ready discovery rejects 2499 and accepts 2500.
+`DelayShardTest.largeCommitAfterReopenRecoversCertifiedActionAtFromDurablePrepareBinding`
+passed in code commit `59c4e6de`; the complete six-task local Gradle gate passed
+on 2026-08-13 in 1m13s, with five real-Oxia smokes skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was unset. This closes the local durable-binding
+recovery proof only; real Profile/Oxia publication, Object Store provider,
+Broker visibility guard and Producer authority remain OPEN.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

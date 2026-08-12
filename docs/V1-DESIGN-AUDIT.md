@@ -5429,6 +5429,22 @@ skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset. The injected
 Profile/payload/channel prerequisite authorities, real Broker append and
 Producer ownership remain OPEN.
 
+The large-payload timing audit found no production-code split between inline
+Schedule and Prepare→Commit, but it did find a missing direct recovery proof.
+Commit does not consume `lastResolvedPrepare`; after reopen it decodes the
+durable Prepare body from `V1ScheduleBinding`, resolves the exact pinned
+Destination and Delivery Capability semantics, and re-derives the certified
+fixed-lead `actionAt`, failing closed if either semantic is unavailable. The new
+end-to-end regression applies source-ordered Profile and trust-set activation,
+persists Prepare, closes the DB, opens a new shard instance and commits a signed
+object proof. It verifies `deliverAt=3000`, `actionAt=2500`, no discovery at
+2499 and discovery at 2500. Code commit `59c4e6de` and the complete six-task
+local Gradle gate passed on 2026-08-13 in 1m13s; five real-Oxia smokes were
+skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset. No wire, key or value
+format changed, so no Registry or ADR update is required. Real Profile/Oxia
+publication, Object Store provider behavior, Broker visibility guard and
+Producer authority remain OPEN.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

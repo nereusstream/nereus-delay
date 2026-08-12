@@ -1473,6 +1473,14 @@ decorator 绑定的 exact 同一 `ProfileCatalog` 实例时才允许复用；缺
 的 `actionAt` 推导、Publish Admission timing/profile 校验以及 Commit/Reschedule/recovery
 的 actionAt 重建必须使用一个 authority graph，不能由两份内容暂时相同但生命周期可
 独立变化的 catalog 分别提供语义。
+Prepare→Commit 也必须遵守同一恢复边界：Prepare 成功后即使 Worker 退出并重新打开
+shard DB，Commit 也必须从持久化的 `V1ScheduleBinding` 重新取得 exact Destination
+ProfileRef，再由同一个 `ProfileCatalog` 的 immutable Destination/Delivery Capability
+语义重算固定 handoff `actionAt`；不得依赖 Prepare apply turn 的进程内 resolver scratch，
+也不得在 Profile/Capability 缺失时回退到 `deliverAt`。本地恢复回归
+`DelayShardTest.largeCommitAfterReopenRecoversCertifiedActionAtFromDurablePrepareBinding`
+以 `deliverAt=3000`、fixed lead `500` 证明重开后 Commit 仍持久化
+`actionAt=2500`，且 scheduler 不会在该边界前发现消息。
 这只是 shard-local projection evidence；Profile publication、Broker visibility
 guard 和真实 Producer authority 仍必须通过 release gate。
 
