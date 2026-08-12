@@ -152,7 +152,21 @@ through the bounded turn. This closes one concrete class wiring, not the
 remaining shard handlers, dynamic WriteBatch/IO admission, Owner Lease/session
 or external publication authority.
 
-The synchronized full local gate then passed on 2026-08-12 with 1230 reported
+After `6921ad8`, `SOURCE_APPLY` also has a concrete bounded action rather than
+only a configured queue. `SourceApplyWorkClassExecutor` binds task identity and
+charge to exact canonical position/frame bytes, performs a side-effect-free
+strict assignment/barrier/guard preflight, and rereads the execution-time Owner
+Lease/session before either active Command or signed System Mutation reaches
+the Shard WriteBatch path. Ordinary failure returns a source-owned outcome and
+removes the process action instead of competing with the Broker cursor as a
+second retry authority; fatal `Error` remains visible to event-loop cleanup.
+The direct active apply methods are package-private. The focused regression
+also proves queue rejection is mutation-free, both record kinds receive exact
+charges/current-position outcomes, and lease expiry fences without retaining a
+generic failed action. This is local composition evidence, not real Broker
+consumer/ACK, production Oxia session or dynamic WriteBatch/IO authority.
+
+The synchronized full local gate then passed on 2026-08-12 with 1231 reported
 tests, zero failures/errors and five skipped opt-in real-Oxia methods because
 the endpoint was unset. `checkDocumentation` and `checkstyleMain` passed in the
 same `clean check --rerun-tasks` run. This verifies the repository-local change
@@ -2821,12 +2835,16 @@ epoch-ms，Command、System Mutation 和 mixed 三条 bounded replay 路径都�
 `lastCatchupPosition`。`OwnerLeaseTest.replayClockFailureFencesEveryReplayPathBeforeReadingSource`
 覆盖该 pre-read fence；这仍是本地 fail-closed 证据，trusted-clock、Broker
 assignment 和 Oxia lease/session authority 仍是 release gate。
-正常 source apply 还可使用 `OwnedDelayShard.applyAuthoritatively`，在每次
-delegate WriteBatch 前 reread Oxia lease；同 identity 的续租可以更新本地 expiry，
-而 owner/epoch/token/session、状态或 expiry 回退都会在写入前 fence。旧的本地
-apply overload 仍明确只是 embedded seam。原始 `DelayShard` delegate accessor
-现为 ownership 包内可见，仅供 drain/inspection 实现使用，包外调用方不能绕过
-owner lifecycle 和 lease gate。
+正常 active source apply 现在使用 `SourceApplyWorkClassExecutor`：Command 与
+System Mutation 的 task identity 绑定 exact canonical position/frame hash，资源 byte
+charge 是两者长度的 checked sum。queue admission 只做本地 strict
+assignment/barrier/guard preflight，不读 Oxia、不写 Store；bounded action 运行时才
+读取时钟并 reread exact Oxia lease/session，同 identity 续租可更新本地 expiry，
+而 owner/epoch/token/session、状态或 expiry 回退都会在 WriteBatch 前 fence。普通
+failure 由 Submission outcome 返回，不留下与 Broker cursor 竞争的 generic retry。
+`OwnedDelayShard` 的 direct active apply overload 和原始 `DelayShard` delegate accessor 现都是
+ownership 包内可见的本地测试/组合 seam；包外调用方不能绕过 work-class、
+owner lifecycle 和 lease gate。该收口仍不是真实 Broker consumer/ACK 或 Oxia session 证据。
 
 Worker 资源侧现在还提供了本地 `WorkerLoadVector` 与
 `WorkerPlacementPolicy`：它们先按完整 committed capacity、固定/transition

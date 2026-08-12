@@ -1925,6 +1925,23 @@ minDeliveryWindow
 
 Shard Log apply、lease event、callback-to-System-Mutation、expiry、scheduler、query、GC、checkpoint 使用独立有界 queue/pool。Shard event loop 仍是单 writer，但按配置的 class weight 和 record/byte/elapsed caps 轮转；lease loss 可立即关闭 gate。一个 source/expiry/outcome/due turn 都有硬上限，任何持续有 work 的 class 在 `maxEventLoopClassDelay` 内获得 turn；due burst 不能无限推迟 source，Command flood 也不能饿死 outcome/expiry。`LEASE_FENCE` 的 preemptive 语义只保证首个 bounded turn 可抢占；若它持续有队列，scheduler 必须跨小预算 poll 保留一次未偿还的 preemption debt，并在存在可服务普通 class 时先让出一个 turn；只有没有其他可服务 work 时才可继续 preempt。
 
+active Shard Log reader 对 Client Command 和 System Mutation 使用同一
+`SOURCE_APPLY` FIFO/action 入口。每个 task 的 identity 必须用 domain-separated
+hash 同时绑定 exact canonical Source Position 与 NDL1 frame，byte charge 必须是
+两者 exact byte length 的 checked sum；不允许 source adapter 用估算值少计费。queue
+admission 拒绝不得读写 Store、改变 lease 或提交 Broker ACK/offset，exact source
+record 仍由调用方保留。bounded action 开始后，必须用执行时时钟重读 exact
+Owner Lease/session，重新校验 assignment、Activation Barrier、physical source identity
+和 Pulsar connection/guard，然后才允许 Command 或签名 System Mutation 进入同一
+Shard 的同步 WriteBatch 路径。返回 outcome 必须投影到当前物理 Source Position；
+逻辑 duplicate 的 durable result 仍保持首次 apply anchor。
+
+普通 apply/lease/WriteBatch failure 会先 fence 本地 Owner，再返回可查询的 source
+attempt failure outcome。物理 Broker record/cursor 是唯一 retry authority，该 handler
+必须正常结束并删除进程内 action，不得再产生一条 WorkClass `FAILED` retry
+流。fatal `Error` 仍记录 outcome 并重新抛出。绕过 queue 的 direct active apply
+方法只能保留为 ownership 包内的本地测试/组合 seam，不得暴露为跨包生产 API。
+
 ## 13. Destination Profile 与 Adapter
 
 ### 13.1 Versioned binding
