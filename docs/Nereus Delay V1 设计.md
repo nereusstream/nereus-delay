@@ -2198,7 +2198,9 @@ count-only `discoverReady(earliest, limit)` 也只保留包内用于索引语义
 READY scan 由 `PersistentLaneScheduler` 的完整 evidence+budget overload 执行，
 外部只能从 `DueSchedulerWorkClassExecutor` 提交 bounded action。scheduler 自身的
 无 evidence `discoverReady(budget)` 与仅有 due-through scalar 的 overload 同样是
-包内兼容面，不能从 Worker/ownership 包直接调用。
+包内兼容面，不能从 Worker/ownership 包直接调用。持久 scheduler 的无时间
+`poll(budget)` 也只允许包内兼容测试；跨包 Worker 必须显式传递 trusted
+due-through，不能用 `Long.MAX_VALUE` 隐式选择尚未到期的 head。
 
 一次 discovery 成功只返回本轮新 promote 的 due heads；它不等于 Claim，也不能越过
 Claim materialization、permit、Ready Certificate 或 Publish Admission gate。queue 拒绝

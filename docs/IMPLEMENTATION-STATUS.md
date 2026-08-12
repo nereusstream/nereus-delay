@@ -5327,6 +5327,15 @@ regression locks both overloads. Focused scheduler, due-work and Claim-handoff
 tests plus the full local Gradle gate passed; five real-Oxia smoke methods
 remained opt-in and skipped.
 
+The untimed `PersistentLaneScheduler.poll(SchedulerBudget)` compatibility
+overload is now package-local. It delegated with `dueThrough=Long.MAX_VALUE`
+and could therefore remove future work from the active ring if used as a
+production shortcut. `WorkerScheduler` already calls the explicit
+`poll(dueThroughEpochMs, budget)` form; same-package scheduler tests retain the
+compatibility overload. The scheduler reflection fence, focused Lane/Worker,
+due-executor and Claim-handoff tests, and the full local Gradle gate passed;
+five real-Oxia smoke methods remained skipped without an endpoint.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
