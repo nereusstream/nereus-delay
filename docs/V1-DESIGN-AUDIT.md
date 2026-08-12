@@ -3789,6 +3789,14 @@ confirmation 还必须严格晚于 retire intent，回归证据为
 本地 tombstone integrity proof，不替代 provider delete attestation、Oxia CAS 或
 external GC orchestration。
 
+`ResourceRetireIntentRecord` 的 durable `ProtectionSet` 也会逐个检查其中带
+minimum Source Position 的 Recovery-Floor/time-bound reference，确保它们属于
+retire record 的 applied Source Position Shard；foreign-shard protection 在 canonical
+bytes 被保留前即拒绝。回归证据为
+`ResourceGcGuardTest.retireIntentRecordRejectsProtectionSourceFromAnotherShard`。
+这只闭合本地 value integrity，不替代 source-resource authority 或 external Floor
+publication。
+
 After `93147c4`, `./gradlew clean check --rerun-tasks --console=plain` passed on
 2026-08-12 (`BUILD SUCCESSFUL`, five executed tasks). The five real-Oxia
 methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this

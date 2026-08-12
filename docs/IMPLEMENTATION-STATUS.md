@@ -4036,6 +4036,15 @@ cover the fences. The check is local tombstone integrity only;
 provider delete attestation, Oxia CAS and external GC orchestration remain
 release blockers.
 
+`ResourceRetireIntentRecord` now performs the same shard-boundary check for
+source-bearing `ProtectionSet` references: every Recovery-Floor or time-bound
+minimum Source Position must belong to the retire record's applied Source
+Position Shard before the canonical protection bytes are retained. This keeps
+the durable value safe even when decoded outside the `DelayShard` apply helper;
+`ResourceGcGuardTest.retireIntentRecordRejectsProtectionSourceFromAnotherShard`
+covers the foreign-shard branch. Source-resource authority and external Floor
+publication remain release blockers.
+
 After `93147c4`, the full wrapper `./gradlew clean check --rerun-tasks
 --console=plain` gate passed on 2026-08-12 (`BUILD SUCCESSFUL`, five executed
 tasks). The same five real-Oxia methods were skipped because
