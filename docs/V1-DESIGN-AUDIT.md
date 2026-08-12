@@ -2984,6 +2984,13 @@ source consumer 的 bounded turn。实现先 `peek()` 并完成 shard WriteBatch
 cursor continuation、single-record byte overflow，以及 source-gap 后的 cursor
 保留。
 
+The direct replay visibility is now closed as well: all
+`OwnedDelayShard.replayCatchup*`, `replaySystemMutations*` and mixed `replay*`
+overloads are package-local ownership seams, including fixed-time, bounded and
+whole-iterable compatibility forms. `OwnerLeaseTest.directReplaySeamsAreNotPublicProductionApi`
+guards that none is re-exposed as a public API. Cross-package production source
+and recovery composition must use `SourceApplyWorkClassExecutor`.
+
 Commit `43e61c6` adds `OwnerRecoveryCoordinator`/`OwnerRecoveryTurn` to compose
 that local replay seam with the takeover lifecycle. The coordinator starts
 only after a caller supplies an already selected and locally validated Store,

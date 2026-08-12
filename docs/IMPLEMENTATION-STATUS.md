@@ -3168,6 +3168,13 @@ duplicate's result to the current physical Source Position while leaving the
 durable first-result anchor unchanged; `OwnerLeaseTest` covers command and
 System Mutation duplicates plus canonical-metadata mismatch rejection.
 
+All `replayCatchup*`, `replaySystemMutations*` and mixed `replay*` methods are
+package-local ownership seams, including their fixed-time and whole-iterable
+compatibility overloads; the direct-replay API visibility regression in
+`OwnerLeaseTest.directReplaySeamsAreNotPublicProductionApi` prevents a future
+public bypass of `SOURCE_APPLY`. Cross-package production composition must use
+`SourceApplyWorkClassExecutor`.
+
 `CheckpointScheduler` now provides a bounded process-local schedule for each
 owned shard: interval and deterministic per-shard jitter are validated, due
 claims are sorted and capped, an in-flight shard cannot be claimed twice, and

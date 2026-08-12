@@ -2057,6 +2057,12 @@ action outcome 已证明且 look-ahead identity 未变化时才调用 `next()` �
 takeover replay 共享公平性、资源限额和 fencing 边界，同时保持 `CATCHING_UP` 与
 `ACTIVE_FOR_COMMANDS` 的 lifecycle 语义分离。
 
+`OwnedDelayShard` 的 `replayCatchup*`、`replaySystemMutations*` 和 mixed `replay*`
+方法只保留为 ownership 包内的本地测试/组合 seam，全部为 package-local；包外
+Worker 不能通过 whole-iterable、fixed-time 或 bounded direct replay overload 绕过
+`SOURCE_APPLY` queue。生产 source/recovery 入口必须使用相应的
+`SourceApplyWorkClassExecutor` handoff。
+
 checkpoint 的物理创建/上传与接管时的下载/restore 都属于同一个独立的
 `CHECKPOINT` work-class。Restore task 的 identity 必须绑定 exact canonical manifest、
 checkpoint resource 和可选 `RecoveryPinV1`，byte charge 使用该 request envelope 的
