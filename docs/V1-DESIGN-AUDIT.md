@@ -5358,6 +5358,18 @@ values remain readable but cannot claim Registry historical-proof idempotency
 or satisfy a typed committed-descriptor/Claim identity check; an external
 migration/activation policy for such state remains OPEN.
 
+`FilesystemPayloadObjectStore` now mirrors the strict Prepare registration
+boundary of its in-memory delegate instead of exposing only the legacy
+one-argument registration surface. Its restart/proof-stability test supplies
+the exact pinned Profile/trust-set refs, while a dedicated regression rejects
+same-version foreign trust semantics and same-hash foreign Profile identity
+before any reservation, handle or regular payload file exists. Code commit
+`c4af3096` and the complete six-task local Gradle gate passed on 2026-08-13;
+five real-Oxia smokes were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was
+unset. This closes local adapter API parity only; the filesystem class remains
+a test seam outside the embedded facade and does not prove production provider
+credentials, remote immutability or Oxia authority.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

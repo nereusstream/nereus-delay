@@ -5580,6 +5580,20 @@ migration/activation policy remains OPEN. Production Profile/trust-set
 publication, Object Store credential and provider authority, Oxia source
 ordering and external service evidence remain OPEN.
 
+The crash-durable filesystem payload seam now exposes the same strict Registry
+registration boundary as the in-memory adapter. A caller can supply the exact
+trust-set and Object Store Profile refs reloaded from durable Prepare state;
+same-version/different-semantic trust sets and same-hash/different-identity
+Profiles fail before reservation registration, handle issuance or payload-file
+creation. The existing one-argument registration remains explicitly legacy/
+local compatibility only. Restart/proof stability now exercises the strict
+path, and the negative regression proves zero handle and regular-file state.
+Code commit `c4af3096` and the complete six-task local Gradle gate passed on
+2026-08-13; five real-Oxia smokes were skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was unset. `FilesystemPayloadObjectStore` remains
+a local test seam and is not yet the embedded facade type or a production
+provider/credential/Oxia authority.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
