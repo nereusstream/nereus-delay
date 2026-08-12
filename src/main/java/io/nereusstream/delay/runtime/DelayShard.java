@@ -7032,7 +7032,6 @@ public final class DelayShard {
 
     private CommandResult applyCommitLarge(final PreparedCommand command, final SourcePosition sourcePosition) {
         final PayloadCommitProofView proof;
-        final boolean registryBody = CommandBodies.isRegistryClientBodyV1(command.canonicalBody());
         if (CommandBodies.isRegistryClientBodyV1(command.canonicalBody())) {
             final CommitLargeScheduleBodyV1 body = CommandBodies.decodeCommitLargeV1(command.canonicalBody());
             requireV1BodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
@@ -7085,8 +7084,11 @@ public final class DelayShard {
                 || !Bytes.constantTimeEquals(proof.payloadSha256(), reservation.intent().payloadSha256())) {
             return persistRejected(command, sourcePosition, StableCode.PAYLOAD_PROOF_INVALID);
         }
-        final PayloadProofTrustSetRefV1 pinnedTrustSet = registryBody && payloadProofTrustSetControlCatalog != null
-                ? pinnedPrepareTrustSet(command.delayMessageId()) : null;
+        // The durable Prepare binding chooses the verification authority. A
+        // client must not downgrade a Registry Prepare by encoding the later
+        // Commit with the legacy proof body.
+        final PayloadProofTrustSetRefV1 pinnedTrustSet = payloadProofTrustSetControlCatalog == null
+                ? null : pinnedPrepareTrustSetIfPresent(command.delayMessageId());
         final boolean proofAuthorized;
         if (pinnedTrustSet != null && payloadProofTrustSetControlCatalog != null) {
             if (proof.trustSetVersion() != pinnedTrustSet.version()
@@ -7124,11 +7126,14 @@ public final class DelayShard {
         return result;
     }
 
-    private PayloadProofTrustSetRefV1 pinnedPrepareTrustSet(final DelayMessageId messageId) {
+    private PayloadProofTrustSetRefV1 pinnedPrepareTrustSetIfPresent(final DelayMessageId messageId) {
         final V1ScheduleBinding binding = getV1ScheduleBinding(messageId);
-        if (binding == null || binding.commandType() != io.nereusstream.delay.protocol.CommandType.PREPARE_LARGE_SCHEDULE) {
+        if (binding == null) {
+            return null;
+        }
+        if (binding.commandType() != io.nereusstream.delay.protocol.CommandType.PREPARE_LARGE_SCHEDULE) {
             throw new V1CommandResolutionException(StableCode.ROUTE_SNAPSHOT_UNAVAILABLE,
-                    "V1 Commit has no durable Prepare trust-set binding");
+                    "large payload reservation has a non-Prepare V1 binding");
         }
         return CommandBodies.decodePrepareLargeV1(binding.canonicalBody()).trustSet();
     }

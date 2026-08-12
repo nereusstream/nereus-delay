@@ -1421,6 +1421,93 @@ class DelayShardTest {
     }
 
     @Test
+    void registryPrepareCannotDowngradeTrustSetAuthorityWithLegacyCommitBody() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("registry-prepare-legacy-commit-trust-set"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 59);
+        final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair semanticKey = generator.generateKeyPair();
+        final KeyPair fallbackKey = generator.generateKeyPair();
+        final PayloadProofTrustSetSemanticV1 semantic = new PayloadProofTrustSetSemanticV1(4,
+                List.of(PayloadProofVerifierKeyV1.fromPublicKey(7, semanticKey.getPublic(), 0, 10_000)));
+        final PayloadProofTrustSetControlCatalog catalog = reference -> reference.equals(semantic.ref())
+                ? semantic : null;
+        final PayloadProofTrustSet fallback = new PayloadProofTrustSet(4,
+                Map.of(7, fallbackKey.getPublic()));
+        final byte[] tuple = Bytes.utf8("registry-prepare-trust-set-lane");
+        final DestinationLaneId lane = DestinationLaneId.derive(tuple);
+        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+            @Override
+            public ResolvedSchedule resolveSchedule(final ShardId shard, final DelayMessageId messageId,
+                                                     final ScheduleIntentV1 intent,
+                                                     final SourcePosition sourcePosition) {
+                throw new AssertionError("Prepare test must not resolve Schedule");
+            }
+
+            @Override
+            public ResolvedPrepare resolvePrepare(final ShardId shard, final DelayMessageId messageId,
+                                                  final PrepareLargeScheduleBodyV1 body,
+                                                  final SourcePosition sourcePosition) {
+                return new ResolvedPrepare(lane, tuple);
+            }
+        };
+        final ScheduleIntentV1 intent = ScheduleIntentV1.forPrepare(
+                new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 59),
+                        ProfileKindV1.DESTINATION),
+                new io.nereusstream.delay.protocol.RetryPolicyRefV1(
+                        Bytes.utf8("retry"), 1, bytes(32, 60)),
+                3_000, 6_000, io.nereusstream.delay.protocol.DeliveryMode.MANAGED,
+                OrderingMode.BEST_EFFORT, Bytes.utf8("ordering"),
+                io.nereusstream.delay.protocol.AdapterMetadataV1.kafka(
+                        new io.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())),
+                null, null);
+        final byte[] payloadSha = Bytes.sha256(Bytes.utf8("registry-prepare-large-payload"));
+        final PreparedCommand prepare = PreparedCommand.prepareLargeV1(shardId, intent, 2_000_000,
+                payloadSha, 1_000, semantic.ref(), 9_000);
+        final byte[] reservationId = Bytes.sha256(Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                prepare.commandId().bytes(), prepare.delayMessageId().bytes(), prepare.commandHash());
+        final AuthorIdentity control = AuthorIdentity.control(
+                Bytes.sha256(Bytes.utf8("trust-downgrade-control-actor")),
+                Bytes.sha256(Bytes.utf8("trust-downgrade-control-roles")),
+                Bytes.sha256(Bytes.utf8("trust-downgrade-control-scope")));
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), fallback,
+                    null, resolver, catalog);
+            final ControlRef activateRef = new ControlRef(
+                    Bytes.sha256(Bytes.utf8("trust-downgrade-activate-op")),
+                    Bytes.sha256(Bytes.utf8("trust-downgrade-activate-request")), 1);
+            final byte[] activateBody = trustSetControlBody(shardId, activateRef, 12, semantic.ref(),
+                    new PayloadProofTrustSetActivatePayloadV1(semantic.ref()).canonicalBytes());
+            final SystemMutation activate = SystemMutation.signed(shardId,
+                    SystemMutationType.APPLY_SHARD_CONTROL, 9_000,
+                    activateRef.logicalOperationIdentity(12), activateBody,
+                    control.canonicalBytes(), 1, semanticKey.getPrivate());
+            assertEquals(StableCode.OK, shard.applySystemMutation(activate,
+                    position(shardId, 0, 1_000), semanticKey.getPublic()).stableCode());
+            assertEquals(StableCode.OK,
+                    shard.apply(prepare, position(shardId, 1, 1_001)).stableCode());
+            assertNotNull(shard.getV1ScheduleBinding(prepare.delayMessageId()));
+
+            final PayloadCommitProof downgradeProof = PayloadCommitProof.signed(4, 7,
+                    shardId.routeIncarnation().bytes(), shardId.partition(), prepare.delayMessageId(),
+                    reservationId, Bytes.sha256(Bytes.utf8("object-store-profile")),
+                    Bytes.utf8("bucket"), Bytes.utf8("key"), Bytes.utf8("v1"), new byte[0],
+                    2_000_000, payloadSha, 1_900, fallbackKey.getPrivate());
+            final PreparedCommand legacyCommit = PreparedCommand.commitLarge(shardId,
+                    prepare.delayMessageId(), downgradeProof, 9_000);
+
+            assertEquals(StableCode.PAYLOAD_PROOF_KEY_NOT_AUTHORIZED_AT_SOURCE_POSITION,
+                    shard.apply(legacyCommit, position(shardId, 2, 1_500)).stableCode());
+            assertEquals(PayloadReservationStatus.RESERVED,
+                    shard.getReservation(reservationId).status());
+            assertEquals(1, shard.quota().reservationMessages());
+            assertNull(shard.getMessage(prepare.delayMessageId()));
+        }
+    }
+
+    @Test
     void resolvedActionAtIsEarlierThanDeliverAtButOrderedKeyKeepsBusinessVisibilityOrder() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("resolved-action-at"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 86);
