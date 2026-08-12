@@ -81,6 +81,14 @@ public final class AuthorIdentity {
         return Bytes.copy(digest);
     }
 
+    /** Returns the Registry nested OwnerIdentityV1 value for the OWNER branch. */
+    public OwnerIdentityV1 asOwnerIdentity() {
+        if (kind != Kind.OWNER) {
+            throw new IllegalStateException("author identity is not an Owner");
+        }
+        return new OwnerIdentityV1(first, second, generation, digest);
+    }
+
     public byte[] canonicalBytes() {
         final byte[] body = switch (kind) {
             case OWNER -> CanonicalProtobuf.message(output -> {

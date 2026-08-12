@@ -68,8 +68,7 @@ public final class PublishAdmissionBody {
         final List<CanonicalProtobuf.Reader.Field> fields =
                 SystemMutationBodyCodec.fields(SystemMutationType.PUBLISH_ADMISSION, canonicalBody);
         final byte[] owner = nested(field(fields, 10), 10);
-        final AuthorIdentity ownerIdentity = AuthorIdentity.decode(owner);
-        ownerIdentity.requireFor(SystemMutationType.PUBLISH_ADMISSION);
+        OwnerIdentityV1.decode(owner);
         final int generation = QueryCodecSupport.uint32Bits(field(fields, 16), 16);
         final byte[] reserveCharge = nested(field(fields, 19), 19);
         validateChargeVector(reserveCharge);
@@ -421,7 +420,7 @@ public final class PublishAdmissionBody {
             throw new IllegalArgumentException("unsupported ReadyCertificate version");
         }
         final byte[] owner = nested(field(fields, 2), 2);
-        AuthorIdentity.decode(owner).requireFor(SystemMutationType.PUBLISH_ADMISSION);
+        OwnerIdentityV1.decode(owner);
         final byte[] channel = nested(field(fields, 6), 6);
         decodeChannel(channel);
         ActivationBarrierV1.decode(nested(field(fields, 7), 7));
@@ -474,7 +473,7 @@ public final class PublishAdmissionBody {
             throw new IllegalArgumentException("Claim materialization digest mismatch");
         }
         final byte[] owner = nested(field(fields, 14), 14);
-        AuthorIdentity.decode(owner).requireFor(SystemMutationType.PUBLISH_ADMISSION);
+        OwnerIdentityV1.decode(owner);
         validateChargeVector(nested(field(fields, 12), 12));
         return new ClaimPrecondition(encoded, bytes(field(fields, 1), 1), bytes(field(fields, 2), 2),
                 QueryCodecSupport.uint32Bits(field(fields, 3), 3), bytes(field(fields, 5), 5),

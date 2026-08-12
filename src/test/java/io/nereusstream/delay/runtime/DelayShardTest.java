@@ -31,6 +31,7 @@ import io.nereusstream.delay.protocol.LaneTerminalGuardV1;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.MessagePreconditionV1;
 import io.nereusstream.delay.protocol.OrderingMode;
+import io.nereusstream.delay.protocol.OwnerIdentityV1;
 import io.nereusstream.delay.protocol.PayloadCommitProof;
 import io.nereusstream.delay.protocol.PayloadCommitProofV1;
 import io.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
@@ -1539,11 +1540,11 @@ class DelayShardTest {
                     StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, new byte[0], observedAt.canonicalBytes(),
                     unknownRetryDecisionWithFirstAttempt(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, 2_001, 3_000));
             final SystemMutation mutation = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME, 9_000,
-                    publishOutcomeLogicalIdentity(outcomeBody), outcomeBody, admissionBody.ownerIdentity(), 1,
+                    publishOutcomeLogicalIdentity(outcomeBody), outcomeBody, fixture.owner(), 1,
                     keyPair.getPrivate());
             final PublishAttemptLedger admission = PublishAttemptLedger.publishing(
                     schedule.delayMessageId(), 0, attemptId, admissionBody.claimId(),
-                    AuthorIdentity.decode(admissionBody.ownerIdentity()).generation(),
+                    OwnerIdentityV1.decode(admissionBody.ownerIdentity()).ownerEpoch(),
                     admissionBody.descriptor().attemptNo(), lane, admissionBody.laneIncarnation(),
                     admissionBody.ownerIdentity(), admissionBody.storeIncarnation(),
                     admissionBody.preparedPublishHash(), fixture.body(), admissionPosition.canonicalBytes());
@@ -1692,10 +1693,11 @@ class DelayShardTest {
                     Bytes.sha256(Bytes.utf8("retry-decision-semantic")), lane.bytes());
             final PublishAdmissionBody admissionBody = PublishAdmissionBody.decode(fixture.body());
             final byte[] attemptId = admissionBody.publishAttemptId();
-            final byte[] owner = admissionBody.ownerIdentity();
+            final byte[] ownerIdentity = admissionBody.ownerIdentity();
+            final byte[] ownerAuthor = fixture.owner();
             final PublishAttemptLedger admission = PublishAttemptLedger.publishingWithRetryWindow(
                     schedule.delayMessageId(), 0, attemptId, admissionBody.claimId(), 7, 1, lane,
-                    admissionBody.laneIncarnation(), owner, admissionBody.storeIncarnation(),
+                    admissionBody.laneIncarnation(), ownerIdentity, admissionBody.storeIncarnation(),
                     admissionBody.preparedPublishHash(), fixture.body(), admissionBody.decisionTime().latestEpochMs(),
                     5_000, admissionPosition.canonicalBytes());
             assertTrue(admission.hasRetryWindow());
@@ -1710,7 +1712,7 @@ class DelayShardTest {
                     StableCode.DESTINATION_DEFINITIVE_RETRIABLE, new byte[0], outcomeObservedAt, wrongRetry,
                     admissionCharge);
             final SystemMutation wrongOutcome = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME,
-                    9_000, publishOutcomeLogicalIdentity(wrongOutcomeBody), wrongOutcomeBody, owner, 1,
+                    9_000, publishOutcomeLogicalIdentity(wrongOutcomeBody), wrongOutcomeBody, ownerAuthor, 1,
                     keyPair.getPrivate());
             final SystemMutationResult rejected = shard.applySystemMutation(wrongOutcome,
                     rejectedOutcomePosition, keyPair.getPublic());
@@ -1726,7 +1728,7 @@ class DelayShardTest {
                     wrongFirstAttemptRetry, admissionCharge);
             final SystemMutation wrongFirstAttempt = SystemMutation.signed(shardId,
                     SystemMutationType.PUBLISH_OUTCOME, 9_000,
-                    publishOutcomeLogicalIdentity(wrongFirstAttemptBody), wrongFirstAttemptBody, owner, 1,
+                    publishOutcomeLogicalIdentity(wrongFirstAttemptBody), wrongFirstAttemptBody, ownerAuthor, 1,
                     keyPair.getPrivate());
             assertEquals(StableCode.STALE_SYSTEM_MUTATION,
                     shard.applySystemMutation(wrongFirstAttempt, rejectedFirstAttemptPosition,
@@ -1739,7 +1741,7 @@ class DelayShardTest {
                     StableCode.DESTINATION_DEFINITIVE_RETRIABLE, new byte[0], outcomeObservedAt, validRetry,
                     admissionCharge);
             final SystemMutation validOutcome = SystemMutation.signed(shardId, SystemMutationType.PUBLISH_OUTCOME,
-                    9_000, publishOutcomeLogicalIdentity(validOutcomeBody), validOutcomeBody, owner, 1,
+                    9_000, publishOutcomeLogicalIdentity(validOutcomeBody), validOutcomeBody, ownerAuthor, 1,
                     keyPair.getPrivate());
             assertEquals(StableCode.DESTINATION_DEFINITIVE_RETRIABLE,
                     shard.applySystemMutation(validOutcome, acceptedOutcomePosition, keyPair.getPublic()).stableCode());
@@ -3946,7 +3948,7 @@ class DelayShardTest {
             shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
             final PublishAttemptLedger admission = PublishAttemptLedger.publishing(schedule.delayMessageId(), 0,
                     attemptId, Bytes.sha256(Bytes.utf8("recovery-owner-claim")), admittedOwner.generation(), 1,
-                    lane, shard.getLane(lane).laneIncarnation(), admittedOwner.canonicalBytes(),
+                    lane, shard.getLane(lane).laneIncarnation(), admittedOwner.asOwnerIdentity().canonicalBytes(),
                     store.metadata().storeIncarnation(), Bytes.sha256(Bytes.utf8("recovery-owner-prepared")),
                     Bytes.utf8("admission"), admissionPosition.canonicalBytes());
             shard.admitPublishAttempt(admission, admissionPosition);
@@ -6743,7 +6745,7 @@ class DelayShardTest {
             final byte[] attemptId = Bytes.sha256(Bytes.utf8("claim-admission-attempt"));
             final PublishAttemptLedger admission = PublishAttemptLedger.publishing(schedule.delayMessageId(), 0,
                     attemptId, claim.claimId(), owner.generation(), 1, lane, claim.laneIncarnation(),
-                    owner.canonicalBytes(), store.metadata().storeIncarnation(),
+                    owner.asOwnerIdentity().canonicalBytes(), store.metadata().storeIncarnation(),
                     Bytes.sha256(Bytes.utf8("prepared")), Bytes.utf8("admission"), admissionPosition.canonicalBytes());
 
             shard.admitPublishAttempt(admission, admissionPosition);
@@ -7436,7 +7438,7 @@ class DelayShardTest {
             CanonicalProtobuf.bytes(output, 9, Bytes.sha256(timelineKey));
             CanonicalProtobuf.bytes(output, 12, chargeVector());
             CanonicalProtobuf.int64(output, 13, claimDeadline);
-            CanonicalProtobuf.bytes(output, 14, owner);
+            CanonicalProtobuf.bytes(output, 14, AuthorIdentity.decode(owner).asOwnerIdentity().canonicalBytes());
             CanonicalProtobuf.bytes(output, 15, storeIncarnation);
             CanonicalProtobuf.uint32(output, 16, sourceWorkKind);
             CanonicalProtobuf.uint32(output, 17, 0);

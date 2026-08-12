@@ -29,6 +29,7 @@ import io.nereusstream.delay.protocol.LaneRecordEnvelopeV1;
 import io.nereusstream.delay.protocol.LaneQuotaUsageEntryV1;
 import io.nereusstream.delay.protocol.LaneRetirementProgressV1;
 import io.nereusstream.delay.protocol.LaneTerminalGuardV1;
+import io.nereusstream.delay.protocol.OwnerIdentityV1;
 import io.nereusstream.delay.protocol.PayloadCommitProofView;
 import io.nereusstream.delay.protocol.PayloadForPublishV1;
 import io.nereusstream.delay.protocol.PayloadProofTrustSet;
@@ -1271,7 +1272,8 @@ public final class DelayShard {
                 current.payloadReference(), current.retryEligibilityAtEpochMs());
         final ClaimRecord claim = ClaimRecord.claimed(messageId, current.generation(), claimId, owner.generation(),
                 nextClaimSequence, current.laneId(), lane.laneIncarnation(), lane.laneControlVersion(),
-                lane.laneVersion(), owner.canonicalBytes(), store.metadata().storeIncarnation(), precondition,
+                lane.laneVersion(), owner.asOwnerIdentity().canonicalBytes(),
+                store.metadata().storeIncarnation(), precondition,
                 timelineKey, next.stateVersion(), currentTimeline == null ? null : currentTimeline.canonicalBytes());
         next = next.withRuntimeIndex(GenerationRuntimeIndex.claimed(claim.claimId(), current.runtimeIndex()
                 .attemptObligations(), current.runtimeIndex().admissionsUsed(),
@@ -2496,7 +2498,7 @@ public final class DelayShard {
         }
         final io.nereusstream.delay.protocol.AuthorIdentity author =
                 io.nereusstream.delay.protocol.AuthorIdentity.decode(mutation.authorIdentity());
-        if (!Arrays.equals(body.ownerIdentity(), author.canonicalBytes())) {
+        if (!Arrays.equals(body.ownerIdentity(), author.asOwnerIdentity().canonicalBytes())) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
@@ -2677,7 +2679,7 @@ public final class DelayShard {
             if (revokeClaim) {
                 batch.delete(ColumnFamily.INFLIGHT, claim == null
                         ? KeyCodec.inflight(INFLIGHT_CLAIMED_KIND,
-                        AuthorIdentity.decode(body.ownerIdentity()).generation(), body.claimId())
+                        OwnerIdentityV1.decode(body.ownerIdentity()).ownerEpoch(), body.claimId())
                         : claim.encodedKey());
                 batch.delete(ColumnFamily.TIMELINE, priorTimelineKey);
                 batch.delete(ColumnFamily.TIMELINE, expiryKey(messageId, current));
@@ -2784,7 +2786,7 @@ public final class DelayShard {
                     && ledger != null && ledger.state() == AttemptLedgerState.PUBLISHING
                     && ledger.ownerEpoch() != author.generation()
                     && canonicalOwnerIdentity(ledger.ownerIdentity()) != null
-                    && canonicalOwnerIdentity(ledger.ownerIdentity()).generation() == ledger.ownerEpoch();
+                    && canonicalOwnerIdentity(ledger.ownerIdentity()).ownerEpoch() == ledger.ownerEpoch();
         }
         if (ledger == null || ledger.state() != AttemptLedgerState.PUBLISHING) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
@@ -2858,10 +2860,9 @@ public final class DelayShard {
                 && !outcome.retryDecision().hasNextRetryAt();
     }
 
-    private static AuthorIdentity canonicalOwnerIdentity(final byte[] encoded) {
+    private static OwnerIdentityV1 canonicalOwnerIdentity(final byte[] encoded) {
         try {
-            final AuthorIdentity identity = AuthorIdentity.decode(encoded);
-            return identity.kind() == AuthorIdentity.Kind.OWNER ? identity : null;
+            return OwnerIdentityV1.decode(encoded);
         } catch (IllegalArgumentException exception) {
             return null;
         }
@@ -2874,10 +2875,10 @@ public final class DelayShard {
      */
     private static boolean matchesAdmittedOwner(final PublishAttemptLedger ledger,
                                                  final AuthorIdentity author) {
-        final AuthorIdentity admittedOwner = canonicalOwnerIdentity(ledger.ownerIdentity());
+        final OwnerIdentityV1 admittedOwner = canonicalOwnerIdentity(ledger.ownerIdentity());
         if (admittedOwner != null) {
-            return admittedOwner.generation() == ledger.ownerEpoch()
-                    && Arrays.equals(ledger.ownerIdentity(), author.canonicalBytes());
+            return admittedOwner.ownerEpoch() == ledger.ownerEpoch()
+                    && Arrays.equals(ledger.ownerIdentity(), author.asOwnerIdentity().canonicalBytes());
         }
         return ledger.ownerEpoch() == author.generation();
     }
@@ -3009,8 +3010,8 @@ public final class DelayShard {
                 || !Arrays.equals(body.laneIncarnation(), lane.laneIncarnation())) {
             throw new IllegalArgumentException("typed retry window Lane identity is stale");
         }
-        final AuthorIdentity owner = AuthorIdentity.decode(body.ownerIdentity());
-        if (owner.generation() != admission.ownerEpoch()) {
+        final OwnerIdentityV1 owner = OwnerIdentityV1.decode(body.ownerIdentity());
+        if (owner.ownerEpoch() != admission.ownerEpoch()) {
             throw new IllegalArgumentException("typed retry window owner generation is stale");
         }
         if (body.descriptor().deliverAtEpochMs() != current.deliverAtEpochMs()
@@ -3897,7 +3898,7 @@ public final class DelayShard {
         }
         final io.nereusstream.delay.protocol.AuthorIdentity author =
                 io.nereusstream.delay.protocol.AuthorIdentity.decode(mutation.authorIdentity());
-        if (!Arrays.equals(author.canonicalBytes(), body.precondition().ownerIdentity())) {
+        if (!Arrays.equals(author.asOwnerIdentity().canonicalBytes(), body.precondition().ownerIdentity())) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
                     StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
@@ -8737,7 +8738,7 @@ public final class DelayShard {
             }
             CanonicalProtobuf.bytes(output, 12, normalizedCharge);
             CanonicalProtobuf.int64(output, 13, claimDeadlineEpochMs);
-            CanonicalProtobuf.bytes(output, 14, owner.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 14, owner.asOwnerIdentity().canonicalBytes());
             CanonicalProtobuf.bytes(output, 15, store.metadata().storeIncarnation());
             CanonicalProtobuf.uint32(output, 16, workKind);
             CanonicalProtobuf.uint32(output, 17, admissionsUsed);

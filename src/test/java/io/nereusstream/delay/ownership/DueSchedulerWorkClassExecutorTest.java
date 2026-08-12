@@ -1,7 +1,6 @@
 package io.nereusstream.delay.ownership;
 
 import io.nereusstream.delay.protocol.ActiveLaneStateV1;
-import io.nereusstream.delay.protocol.AuthorIdentity;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CanonicalProtobuf;
 import io.nereusstream.delay.protocol.DestinationLaneId;
@@ -191,8 +190,7 @@ class DueSchedulerWorkClassExecutorTest {
 
     private static byte[] bindReadyCertificate(final byte[] encoded, final OwnerIdentityV1 owner,
                                                final byte[] storeIncarnation) {
-        final byte[] ownerAuthor = AuthorIdentity.owner(owner.deploymentId(), owner.workerRunId(),
-                owner.ownerEpoch(), owner.leaseFencingDigest()).canonicalBytes();
+        final byte[] ownerAuthor = owner.canonicalBytes();
         final byte[] prefix = CanonicalProtobuf.message(output -> {
             final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(encoded);
             while (reader.hasRemaining()) {

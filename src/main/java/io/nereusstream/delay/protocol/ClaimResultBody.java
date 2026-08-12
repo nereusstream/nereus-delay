@@ -152,7 +152,7 @@ public final class ClaimResultBody {
             }
         }
         final byte[] owner = nested(field(fields, 14), 14);
-        AuthorIdentity.decode(owner).requireFor(SystemMutationType.CLAIM_RESULT);
+        OwnerIdentityV1.decode(owner);
         final int sourceWorkKind = intValue(field(fields, 16), 16);
         if (sourceWorkKind < 1 || sourceWorkKind > 3) {
             throw new IllegalArgumentException("invalid Claim source work kind");

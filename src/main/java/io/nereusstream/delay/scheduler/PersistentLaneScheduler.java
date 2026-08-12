@@ -4,7 +4,6 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.ActiveLaneStateV1;
-import io.nereusstream.delay.protocol.AuthorIdentity;
 import io.nereusstream.delay.protocol.LaneRecordEnvelopeV1;
 import io.nereusstream.delay.protocol.OwnerIdentityV1;
 import io.nereusstream.delay.protocol.ReadyCertificateV1;
@@ -851,8 +850,7 @@ public final class PersistentLaneScheduler {
 
     private void validateLiveReadyCertificate(final ReadyCertificateV1 certificate,
                                                final TrustedUtcIntervalEvidence evidence) {
-        final byte[] expectedOwner = AuthorIdentity.owner(owner.deploymentId(), owner.workerRunId(),
-                owner.ownerEpoch(), owner.leaseFencingDigest()).canonicalBytes();
+        final byte[] expectedOwner = owner.canonicalBytes();
         if (!Arrays.equals(certificate.ownerIdentity(), expectedOwner)) {
             throw new IllegalArgumentException("READY certificate belongs to a different scheduler Owner");
         }

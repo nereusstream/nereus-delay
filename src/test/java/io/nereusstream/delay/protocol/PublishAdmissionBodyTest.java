@@ -33,7 +33,11 @@ public class PublishAdmissionBodyTest {
 
         final PublishAdmissionBody admission = PublishAdmissionBody.decode(fixture.body());
 
-        assertArrayEquals(fixture.owner(), admission.ownerIdentity());
+        assertArrayEquals(fixture.ownerIdentity(), admission.ownerIdentity());
+        assertDoesNotThrow(() -> OwnerIdentityV1.decode(admission.ownerIdentity()));
+        assertDoesNotThrow(() -> OwnerIdentityV1.decode(admission.readyCertificate().ownerIdentity()));
+        assertDoesNotThrow(() -> OwnerIdentityV1.decode(admission.claimPrecondition().ownerIdentity()));
+        assertThrows(IllegalArgumentException.class, () -> AuthorIdentity.decode(admission.ownerIdentity()));
         assertArrayEquals(fixture.messageId().bytes(), admission.messageId());
         assertEquals(1, admission.descriptor().attemptNo());
         assertArrayEquals(fixture.descriptor(), admission.descriptor().canonicalBytes());
@@ -552,6 +556,10 @@ public class PublishAdmissionBodyTest {
     }
 
     public record Fixture(byte[] body, byte[] owner, DelayMessageId messageId, byte[] descriptor, byte[] lane) {
+        public byte[] ownerIdentity() {
+            return ownerBody(owner);
+        }
+
         public static Fixture create(final ShardId shard) {
             return create(shard, DelayMessageId.random(shard));
         }
@@ -776,13 +784,7 @@ public class PublishAdmissionBodyTest {
         }
 
         private static byte[] ownerBody(final byte[] encoded) {
-            return CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1,
-                    CanonicalProtobuf.message(inner -> {
-                        CanonicalProtobuf.bytes(inner, 1, Bytes.utf8("deployment"));
-                        CanonicalProtobuf.bytes(inner, 2, Bytes.utf8("worker"));
-                        CanonicalProtobuf.uint32(inner, 3, 7);
-                        CanonicalProtobuf.bytes(inner, 4, Bytes.sha256(Bytes.utf8("lease")));
-                    })));
+            return AuthorIdentity.decode(encoded).asOwnerIdentity().canonicalBytes();
         }
 
         private static byte[] subject(final ShardId shard) {

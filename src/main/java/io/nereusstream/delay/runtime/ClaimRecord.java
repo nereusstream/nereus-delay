@@ -1,11 +1,11 @@
 package io.nereusstream.delay.runtime;
 
-import io.nereusstream.delay.protocol.AuthorIdentity;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.ClaimMaterializationV1;
 import io.nereusstream.delay.protocol.ClaimResultBody;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DestinationLaneId;
+import io.nereusstream.delay.protocol.OwnerIdentityV1;
 import io.nereusstream.delay.store.KeyCodec;
 
 import java.nio.ByteBuffer;
@@ -110,9 +110,8 @@ public final class ClaimRecord {
                 throw new IllegalArgumentException("Claim source timeline does not match its precondition");
             }
         }
-        final AuthorIdentity owner = AuthorIdentity.decode(this.ownerIdentity);
-        owner.requireFor(io.nereusstream.delay.protocol.SystemMutationType.CLAIM_RESULT);
-        if (owner.generation() != ownerEpoch) {
+        final OwnerIdentityV1 owner = OwnerIdentityV1.decode(this.ownerIdentity);
+        if (owner.ownerEpoch() != ownerEpoch) {
             throw new IllegalArgumentException("Claim owner epoch does not match OwnerIdentity");
         }
         if (!Arrays.equals(this.instanceDigest, computeInstanceDigest(this.preconditionBytes, this.timelineKey,

@@ -146,7 +146,8 @@ class ClaimResultBodyTest {
             CanonicalProtobuf.bytes(output, 12, chargeVector());
             CanonicalProtobuf.int64(output, 13, 3_000);
             CanonicalProtobuf.bytes(output, 14, AuthorIdentity.owner(Bytes.utf8("claim-deployment"),
-                    Bytes.utf8("claim-worker"), 1, Bytes.sha256(Bytes.utf8("claim-lease"))).canonicalBytes());
+                    Bytes.utf8("claim-worker"), 1, Bytes.sha256(Bytes.utf8("claim-lease")))
+                    .asOwnerIdentity().canonicalBytes());
             CanonicalProtobuf.bytes(output, 15, new byte[16]);
             CanonicalProtobuf.uint32(output, 16, 1);
             CanonicalProtobuf.uint32(output, 17, 0);
