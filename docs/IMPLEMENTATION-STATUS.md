@@ -125,6 +125,14 @@ After the retire identity/protection constructor and persistence fences
 skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is local
 regression evidence only.
 
+The `dedupe_cf/POSITION` key boundary now canonical-decodes its Source
+Position before constructing the physical-position audit locator. Malformed or
+trailing-byte positions therefore cannot create look-alike dedupe keys from a
+direct caller; `KeyCodecTest.dedupePositionRequiresCanonicalSourcePositionBytes`
+covers the valid and fail-closed paths (`0259ffb`). This is local key-codec
+evidence only; source assignment and Broker receipt authority remain release
+gates.
+
 The local `TIME_FENCE_V1` apply path now carries an explicit
 `DelayShardConfig.timeFenceSafetyMarginMs` input and checks the Trusted-UTC
 proof with checked addition before advancing the ingress watermark. A proof one

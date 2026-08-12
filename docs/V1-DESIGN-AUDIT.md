@@ -61,6 +61,13 @@ After the retire identity/protection constructor and persistence fences
 2026-08-12 (`BUILD SUCCESSFUL`, 5 tasks); the real-Oxia methods were still
 skipped because no endpoint was configured.
 
+The physical `dedupe_cf/POSITION` key now accepts only a canonical decoded
+Source Position, so a malformed or trailing-byte input cannot create a
+look-alike audit locator. The focused evidence is
+`KeyCodecTest.dedupePositionRequiresCanonicalSourcePositionBytes` in
+`0259ffb`; this closes the local key-codec boundary without claiming source
+assignment, Broker receipt or external durability authority.
+
 The Recovery Pin persistence audit now preserves the intended historical
 protection window: creating a session-bound pin records the exact Floor it
 observed, but later Floor advancement must not make a still-active pin
