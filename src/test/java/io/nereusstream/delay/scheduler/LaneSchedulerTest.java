@@ -49,6 +49,8 @@ class LaneSchedulerTest {
                 .getDeclaredMethod("discoverReady", SchedulerBudget.class).getModifiers()));
         assertFalse(java.lang.reflect.Modifier.isPublic(PersistentLaneScheduler.class
                 .getDeclaredMethod("discoverReady", long.class, SchedulerBudget.class).getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(PersistentLaneScheduler.class
+                .getDeclaredMethod("poll", SchedulerBudget.class).getModifiers()));
     }
 
     @Test
