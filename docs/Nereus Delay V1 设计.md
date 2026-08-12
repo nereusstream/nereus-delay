@@ -1467,6 +1467,12 @@ Profile/Delivery Capability 推导固定 handoff 的 `actionAt`，并把它持�
 `MessageRecord`/`TimelineWorkRefV1`；catalog-less 或普通 managed compatibility
 path 明确归一化为 `actionAt=deliverAt`。因此 ORDERED 物理 key 仍只按业务
 `deliverAt` 排序，而 Lane READY/唤醒使用 `max(actionAt,retryEligibility)`。
+调用方若已经提供 `ProfileCatalogV1ScheduleResolver`，`DelayShard` 只有在同时收到该
+decorator 绑定的 exact 同一 `ProfileCatalog` 实例时才允许复用；缺少 catalog、传入另一
+实例或嵌套第二个 Profile decorator 都必须在读取 Store projection 前拒绝。Schedule
+的 `actionAt` 推导、Publish Admission timing/profile 校验以及 Commit/Reschedule/recovery
+的 actionAt 重建必须使用一个 authority graph，不能由两份内容暂时相同但生命周期可
+独立变化的 catalog 分别提供语义。
 这只是 shard-local projection evidence；Profile publication、Broker visibility
 guard 和真实 Producer authority 仍必须通过 release gate。
 

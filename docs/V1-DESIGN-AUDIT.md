@@ -1725,8 +1725,12 @@ and Head prerequisite gate, and now exact-resolves the referenced Delivery
 Capability semantic with the same Adapter before delegating Lane resolution;
 missing/wrong-kind/mismatched capability is fail-closed. `DelayShard` applies
 this decorator automatically when a raw resolver and exact Profile catalog are
-provided, while preserving an already decorated resolver. It does not turn a
-catalog lookup into a source position activation receipt.
+provided. An already decorated resolver is preserved only when it is paired
+with the exact same catalog instance; missing/foreign catalog injection and a
+nested second Profile decorator are rejected before Store projection reads.
+This prevents Schedule actionAt and later Admission/recovery timing validation
+from observing independently mutable Profile semantic sources. It does not turn
+a catalog lookup into a source position activation receipt.
 When a persisted V1 binding is revisited for Commit, Reschedule or recovery,
 the same exact Profile/Capability lookup fence protects `actionAt`; a missing
 or mismatched catalog entry is `ROUTE_SNAPSHOT_UNAVAILABLE`, never an ordinary
@@ -5269,6 +5273,21 @@ Gradle gate passed on 2026-08-13; five real-Oxia smokes were skipped because
 cannot fork its queue/resource authorities; production bootstrap uniqueness,
 JVM-wide root construction, dynamic I/O authority and external capacity remain
 OPEN.
+
+Profile timing composition now has one exact local authority graph as well.
+`ProfileCatalogV1ScheduleResolver` rejects nested Profile decorators and exposes
+only a package-local exact-instance check. `DelayShard` automatically decorates
+a raw resolver when a catalog is supplied, but a pre-decorated resolver is
+accepted only with the exact same shard `ProfileCatalog`; no catalog or a
+foreign catalog fails before any Store projection read. The focused
+`ProfileCatalogV1ScheduleResolverTest.decoratorCannotHideAnotherProfileCatalog`
+and `DelayShardTest.decoratedScheduleResolverRequiresTheExactShardProfileCatalog`
+regressions plus the complete six-task local Gradle gate passed at code commit
+`832bec13` on 2026-08-13; five real-Oxia smokes were skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was unset. This closes local split-brain semantic
+injection between Schedule actionAt and Admission/recovery timing only;
+authenticated Profile publication, source-ordered activation and external Oxia
+authority remain OPEN.
 
 ## Final gate
 
