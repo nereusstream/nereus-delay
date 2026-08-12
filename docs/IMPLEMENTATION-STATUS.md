@@ -435,7 +435,10 @@ claiming cursor advancement. The focused regression covers rejection without
 scheduler mutation, exact charge, due-boundary success and execution-time
 lease expiry. Claim/materialization/Admission handoff, production trusted-time
 issuance, dynamic RocksDB/IO attribution and real destination authority remain
-release blockers.
+release blockers. The old `DelayShard.discoverDue(earliest, limit)` timeline
+scan is package-local because it has only a record cap and cannot satisfy the
+trusted-time, Owner-reread or byte/elapsed-budget contract; production callers
+cannot use it as a shortcut around this executor.
 
 After `120f462`, that production discovery path passes the complete
 `TrustedUtcIntervalEvidenceV1` into `PersistentLaneScheduler` instead of
@@ -5274,6 +5277,17 @@ full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
 2026-08-12 (`BUILD SUCCESSFUL`, six executed tasks). Five opt-in real-Oxia
 methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this
 is local API-boundary evidence only.
+
+The legacy timeline `DelayShard.discoverDue(...)` scan is now package-local.
+It has no production main-source caller and lacks the trusted-UTC evidence,
+execution-time Owner reread and byte/elapsed scan envelope required by the
+active READY-discovery contract. `DelayShardTest.legacyTimelineDiscoveryIsNotPublicProductionApi`
+locks the visibility while existing same-package tests retain its compatibility
+semantics. Production discovery remains exclusively routed through
+`DueSchedulerWorkClassExecutor`, `OwnedDelayShard` and
+`PersistentLaneScheduler`. Focused runtime/scheduler tests and the full local
+Gradle gate passed after the change; five opt-in real-Oxia smoke methods were
+still skipped without `NEREUS_DELAY_OXIA_ENDPOINT`.
 
 ## Verification command
 

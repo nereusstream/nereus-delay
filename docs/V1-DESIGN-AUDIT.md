@@ -277,7 +277,9 @@ The focused regression proves rejection without scheduler mutation, exact
 charge, due-boundary success and execution-time lease expiry. This closes the
 local discovery-class bridge only; Claim/Admission handoff, production
 trusted-time issuance, dynamic IO attribution and external destination/Oxia
-authority remain release gates.
+authority remain release gates. The record-count-only legacy timeline
+`discoverDue` scan is package-local and cannot serve as a public production
+shortcut around these boundaries.
 
 After `120f462`, the active-owner discovery bridge passes the complete trusted
 interval into the persistent scanner. Production discovery requires typed
@@ -4989,6 +4991,14 @@ re-exposure. Focused Claim/ownership coverage and the complete local Gradle gate
 passed after the change; the five real-Oxia smoke methods remained opt-in and
 skipped without `NEREUS_DELAY_OXIA_ENDPOINT`, so external authority is still
 unverified.
+
+The legacy timeline `DelayShard.discoverDue(...)` scan is no longer public.
+There is no production main-source caller, and its record-only limit cannot
+meet the active READY path's trusted-time evidence, execution-time Owner reread
+or byte/elapsed budget. A reflection regression locks package-local visibility;
+same-package compatibility tests remain unchanged. Focused scheduler/runtime
+coverage and the complete local Gradle gate passed, while the five real-Oxia
+smoke tests stayed opt-in and skipped without an endpoint.
 
 ## Final gate
 

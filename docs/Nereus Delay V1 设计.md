@@ -2188,7 +2188,9 @@ cursor/ring。bounded action 开始后必须用执行时时钟重读 exact Owner
 完整 evidence 交给 scanner：`earliestEpochMs` 是 inclusive `dueThroughEpochMs`，
 `latestEpochMs` 用于严格检查 certificate expiry；随后只能调用持久 READY scanner
 自己的 byte/time/record cap、typed ACTIVE/certificate binding 与全 projection rollback
-边界。
+边界。旧的 timeline `discoverDue(earliest, limit)` 只有条数边界，不能证明 trusted
+time、Owner authority 或 byte/elapsed scan envelope，因而只保留为 runtime 包内的
+兼容/语义测试 primitive；它不是 Worker 可调用的生产调度 API。
 
 一次 discovery 成功只返回本轮新 promote 的 due heads；它不等于 Claim，也不能越过
 Claim materialization、permit、Ready Certificate 或 Publish Admission gate。queue 拒绝
