@@ -142,6 +142,16 @@ class PublishAdmissionWorkClassExecutorTest {
             final PublishAdmissionWorkClassExecutor executor = new PublishAdmissionWorkClassExecutor(
                     workClasses, owned, authority, permits, appender, ignored -> gate.get());
 
+            assertThrows(IllegalArgumentException.class, () -> executor.submit(claim, reservation,
+                    descriptor, certificate, evidence(1_999, 2_000), 2_500, 1, keyPair.getPrivate(), () -> 101));
+            final ReadyCertificateV1 certificateIssuedAfterDecision = certificate(owner,
+                    store.metadata().storeIncarnation(), descriptor, sourceTopic, evidence(2_200, 2_201));
+            assertThrows(IllegalArgumentException.class, () -> executor.submit(claim, reservation,
+                    descriptor, certificateIssuedAfterDecision, evidence(2_100, 2_101), 2_500, 1,
+                    keyPair.getPrivate(), () -> 101));
+            assertEquals(0, workClasses.registeredActions());
+            assertEquals(0, appendCalls.get());
+
             final ClaimExecutionAdmission foreignPermits = new ClaimExecutionAdmission(1, payload.length);
             foreignPermits.registerShard(new ClaimExecutionAdmission.ShardSpec(shardId, 1, payload.length));
             foreignPermits.registerLane(new ClaimExecutionAdmission.LaneSpec(shardId, laneId,
@@ -250,7 +260,13 @@ class PublishAdmissionWorkClassExecutorTest {
 
     private static ReadyCertificateV1 certificate(final OwnerIdentityV1 owner, final byte[] storeIncarnation,
                                                    final PreparedPublishDescriptorV1 descriptor, final UUID sourceTopic) {
-        final TrustedUtcIntervalEvidence issuedAt = evidence(1_000, 1_001);
+        return certificate(owner, storeIncarnation, descriptor, sourceTopic, evidence(1_000, 1_001));
+    }
+
+    private static ReadyCertificateV1 certificate(final OwnerIdentityV1 owner, final byte[] storeIncarnation,
+                                                   final PreparedPublishDescriptorV1 descriptor,
+                                                   final UUID sourceTopic,
+                                                   final TrustedUtcIntervalEvidence issuedAt) {
         final byte[] barrier = ActivationBarrierV1.kafka(descriptor.targetResource(),
                 (int) descriptor.physicalPartition(), 0, 0).canonicalBytes();
         final byte[] topicUuid = uuidBytes(sourceTopic);

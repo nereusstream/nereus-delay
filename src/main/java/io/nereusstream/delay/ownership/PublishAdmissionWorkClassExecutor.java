@@ -322,7 +322,9 @@ public final class PublishAdmissionWorkClassExecutor {
                     || !Arrays.equals(typedDescriptor.channel().canonicalBytes(), typedCertificate.channel())) {
                 throw new IllegalArgumentException("Ready Certificate does not match Claim/descriptor");
             }
-            if (typedDecision.latestEpochMs() >= typedCertificate.validUntilEpochMs()
+            if (typedDecision.earliestEpochMs() < typedDescriptor.actionAtEpochMs()
+                    || typedDecision.earliestEpochMs() < typedCertificate.issuedAt().latestEpochMs()
+                    || typedDecision.latestEpochMs() >= typedCertificate.validUntilEpochMs()
                     || typedDecision.latestEpochMs() >= typedDescriptor.expireAtEpochMs()
                     || typedDecision.latestEpochMs() >= precondition.claimDeadline()
                     || retryUntilEpochMs < typedDecision.latestEpochMs()
