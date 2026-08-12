@@ -60,6 +60,22 @@ idempotent release, hold-time failure and callback-failure cleanup. This is
 local evidence only; dynamic RocksDB attribution, WriteBatch/IO admission and
 production Worker wiring remain open release gates.
 
+After `e531eb8`, that cleanup guarantee also covers fatal `Error`, not only
+`RuntimeException`. A fatal hold-clock sample or lease close cannot stop later
+lease-release attempts or strand the event loop's active Turn; the first
+failure is rethrown after the Turn is closed and later cleanup failures remain
+suppressed. `WorkClassEventLoopTest.fatalHoldCheckStillReleasesEveryLeaseAndClosesTheTurn`
+proves the fatal-clock branch leaves the shared pool with zero active leases
+and reopens the next-poll gate. This closes a local resource-leak/fairness path;
+it does not establish production WriteBatch/IO admission or Worker authority.
+
+The synchronized full local gate then passed on 2026-08-12 with 1215 reported
+tests, zero failures/errors and five skipped opt-in real-Oxia methods because
+the endpoint was unset. `checkDocumentation` and `checkstyleMain` passed in the
+same `clean check --rerun-tasks` run. This verifies the repository-local change
+set; it does not convert skipped real-service or external authority gates into
+PASS.
+
 After `fe7d484`, this local seam covers all eight V1 work classes, including
 the independent `CHECKPOINT` execution queue. `CheckpointScheduler` remains
 the process-local due-time/claim layer; a claimed checkpoint must still enter

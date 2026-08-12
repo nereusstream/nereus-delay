@@ -102,6 +102,26 @@ source apply fences the Owner and leaves the rejected message unapplied. This
 is local fail-closed evidence only; it does not replace production Broker or
 Oxia authority.
 
+After `e531eb8`, `WorkClassEventLoop` treats fatal `Error` as part of the same
+cleanup boundary as `RuntimeException`. A fatal borrowed-hold/clock check or
+lease close no longer aborts the cleanup loop: every lease is attempted, the
+active Turn is cleared and marked closed, the first failure remains primary,
+and later cleanup failures are attached as suppressed evidence. The focused
+`WorkClassEventLoopTest.fatalHoldCheckStillReleasesEveryLeaseAndClosesTheTurn`
+regression proves that a fatal hold check leaves zero active leases and permits
+the next bounded poll. This is process-local resource cleanup evidence; dynamic
+RocksDB WriteBatch attribution, checkpoint/compaction I/O authority and
+production Worker wiring remain release gates.
+
+After the corresponding design/status/audit synchronization, the full
+`GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew clean check
+--rerun-tasks --console=plain` gate passed on 2026-08-12: 1215 tests were
+reported with zero failures/errors and five skipped opt-in real-Oxia methods
+because `NEREUS_DELAY_OXIA_ENDPOINT` was unset. `checkDocumentation` and
+`checkstyleMain` passed in the same run. This is current local repository
+evidence; the skipped real-service and other external release gates remain
+open.
+
 The Oxia transaction question was checked against the locked source and the
 Gradle-resolved `oxia-client:0.9.0` API.  Its public `SyncOxiaClient` and
 `AsyncOxiaClient` expose one-key `put`/CAS operations only.  The internal

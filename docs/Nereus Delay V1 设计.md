@@ -1817,6 +1817,13 @@ preemption-debt projection，再把原异常返回；不能因为异常发生在
 之后就丢失该 task，调用方也不能拿到一个未返回的部分结果。时钟的 monotonic
 high-water 可以保留为保守观测，但不能把未返回的 poll 记成已服务。
 
+work-class resource acquisition 与 Turn close 的清理边界必须同时覆盖
+`RuntimeException` 和 fatal `Error`。即使 borrowed-hold/单调时钟检查本身抛出
+fatal error，也必须尝试释放本 turn 的每个 exact lease、清除 active-turn fence
+并把 Turn 标记为 closed 后再重新抛出首个 failure；后续 cleanup failure 只作为
+suppressed evidence 保留，不能中断剩余 lease 的释放尝试。否则一次本地 fatal
+检查会把共享 record/byte token 永久留给失败 class，并间接饿死健康 work class。
+
 Worker 外层 bounded poll 也必须是一个完整的进程内 mutation boundary：它除了外层
 ring、cursor、Shard deficit、last-served、round generation 与 recovery-first-pass
 集合，还必须保存每个已注册 shard 的 inner cursor、inner deficit 和 inner round
