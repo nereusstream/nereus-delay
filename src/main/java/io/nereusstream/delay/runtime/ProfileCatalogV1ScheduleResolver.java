@@ -51,6 +51,7 @@ public final class ProfileCatalogV1ScheduleResolver implements V1ScheduleResolve
                                             final ScheduleIntentV1 intent,
                                             final SourcePosition sourcePosition) {
         final ResolvedProfileSemantics semantics = requireDestinationProfile(intent.profile());
+        requireIntentProfileLimits(intent, payloadLength(intent), semantics.destination());
         final ResolvedSchedule resolved = Objects.requireNonNull(
                 delegate.resolveSchedule(shardId, messageId, intent, sourcePosition),
                 "resolved Schedule projection");
@@ -70,6 +71,8 @@ public final class ProfileCatalogV1ScheduleResolver implements V1ScheduleResolve
                                           final SourcePosition sourcePosition) {
         final ResolvedProfileSemantics semantics = requireDestinationProfile(
                 body.intentWithoutPayload().profile());
+        requireIntentProfileLimits(body.intentWithoutPayload(), body.expectedPayloadLength(),
+                semantics.destination());
         // Prepare reserves quota and authorizes a potentially expensive object
         // upload. Reject an impossible certified handoff before either action;
         // Commit will re-derive the same boundary from the durable binding.
@@ -100,6 +103,38 @@ public final class ProfileCatalogV1ScheduleResolver implements V1ScheduleResolve
             throw unavailable("Delivery Capability semantic or adapter binding is unavailable");
         }
         return new ResolvedProfileSemantics(destination, deliveryCapability);
+    }
+
+    private static void requireIntentProfileLimits(final ScheduleIntentV1 intent, final long payloadLength,
+                                                   final DestinationProfileSemanticV1 destination) {
+        final boolean adapterMatches = switch (destination.adapterKind()) {
+            case KAFKA -> intent.adapterMetadata().kind()
+                    == io.nereusstream.delay.protocol.AdapterMetadataV1.Kind.KAFKA;
+            case PULSAR -> intent.adapterMetadata().kind()
+                    == io.nereusstream.delay.protocol.AdapterMetadataV1.Kind.PULSAR;
+        };
+        if (!adapterMatches) {
+            throw new V1CommandResolutionException(StableCode.INVALID_METADATA,
+                    "Schedule metadata branch does not match the immutable Destination Profile");
+        }
+        final int orderingBit = intent.orderingMode() == io.nereusstream.delay.protocol.OrderingMode.BEST_EFFORT
+                ? 0x01 : 0x02;
+        if ((destination.allowedOrderingModeBits() & orderingBit) == 0) {
+            throw new V1CommandResolutionException(StableCode.ORDERING_CAPABILITY_UNAVAILABLE,
+                    "Schedule ordering mode is not allowed by the immutable Destination Profile");
+        }
+        if (payloadLength > destination.maxPayloadBytes()) {
+            throw new V1CommandResolutionException(StableCode.PAYLOAD_TOO_LARGE,
+                    "Schedule payload exceeds the immutable Destination Profile maximum");
+        }
+        if (intent.adapterMetadata().canonicalBytes().length > destination.maxAdapterMetadataBytes()) {
+            throw new V1CommandResolutionException(StableCode.INVALID_METADATA,
+                    "Schedule metadata exceeds the immutable Destination Profile maximum");
+        }
+    }
+
+    private static long payloadLength(final ScheduleIntentV1 intent) {
+        return intent.hasInlinePayload() ? intent.inlinePayload().length : intent.committedPayload().length();
     }
 
     private record ResolvedProfileSemantics(DestinationProfileSemanticV1 destination,

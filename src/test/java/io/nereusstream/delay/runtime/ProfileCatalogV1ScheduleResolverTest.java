@@ -162,6 +162,56 @@ class ProfileCatalogV1ScheduleResolverTest {
         assertFalse(delegate.prepareCalled);
     }
 
+    @Test
+    void rejectsCommandFieldsOutsideDestinationProfileBeforeDelegate() {
+        final ProfileSemanticEnvelopeV1 destination = semantic(7);
+        final RecordingResolver delegate = new RecordingResolver();
+        final ProfileCatalogV1ScheduleResolver resolver = new ProfileCatalogV1ScheduleResolver(delegate,
+                new StubProfileCatalog(destination, true));
+        final RetryPolicyRefV1 retry = new RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 13));
+
+        final ScheduleIntentV1 wrongAdapter = ScheduleIntentV1.create(destination.ref(), retry, 10, 100,
+                DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, new byte[0], Bytes.utf8("payload"), null,
+                AdapterMetadataV1.pulsar(new PulsarMetadataV1(null, null, null, List.of())), null, null);
+        assertEquals(StableCode.INVALID_METADATA, assertThrows(V1CommandResolutionException.class,
+                () -> resolver.resolveSchedule(null, null, wrongAdapter, null)).stableCode());
+
+        final ScheduleIntentV1 disallowedOrdering = ScheduleIntentV1.create(destination.ref(), retry, 10, 100,
+                DeliveryMode.MANAGED, OrderingMode.DELIVERY_TIME_FIFO, new byte[0], Bytes.utf8("payload"), null,
+                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())), null, null);
+        assertEquals(StableCode.ORDERING_CAPABILITY_UNAVAILABLE,
+                assertThrows(V1CommandResolutionException.class,
+                        () -> resolver.resolveSchedule(null, null, disallowedOrdering, null)).stableCode());
+
+        final ScheduleIntentV1 oversizedPayload = ScheduleIntentV1.create(destination.ref(), retry, 10, 100,
+                DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, new byte[0], new byte[513], null,
+                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())), null, null);
+        assertEquals(StableCode.PAYLOAD_TOO_LARGE, assertThrows(V1CommandResolutionException.class,
+                () -> resolver.resolveSchedule(null, null, oversizedPayload, null)).stableCode());
+
+        final ScheduleIntentV1 oversizedMetadata = ScheduleIntentV1.create(destination.ref(), retry, 10, 100,
+                DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, new byte[0], Bytes.utf8("payload"), null,
+                AdapterMetadataV1.kafka(new KafkaMetadataV1(new byte[129], List.of())), null, null);
+        assertEquals(StableCode.INVALID_METADATA, assertThrows(V1CommandResolutionException.class,
+                () -> resolver.resolveSchedule(null, null, oversizedMetadata, null)).stableCode());
+
+        final ScheduleIntentV1 oversizedPrepareIntent = ScheduleIntentV1.forPrepare(destination.ref(), retry,
+                10, 100, DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, new byte[0],
+                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())), null, null);
+        final PrepareLargeScheduleBodyV1 oversizedPrepare = new PrepareLargeScheduleBodyV1(
+                DelayMessageId.random(new ShardId(io.nereusstream.delay.protocol.RouteIncarnation.random(), 7)),
+                200, oversizedPrepareIntent, 513, bytes(32, 14), 100,
+                new PayloadProofTrustSetRefV1(1, bytes(32, 15)),
+                new ProfileRefV1(Bytes.utf8("object-store"), 1, bytes(32, 16),
+                        ProfileKindV1.OBJECT_STORE));
+        assertEquals(StableCode.PAYLOAD_TOO_LARGE, assertThrows(V1CommandResolutionException.class,
+                () -> resolver.resolvePrepare(null, oversizedPrepare.delayMessageId(), oversizedPrepare, null))
+                .stableCode());
+
+        assertFalse(delegate.scheduleCalled);
+        assertFalse(delegate.prepareCalled);
+    }
+
     private static ScheduleIntentV1 intent(final ProfileRefV1 profile) {
         return ScheduleIntentV1.create(profile, new RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 3)),
                 10, 100, DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, new byte[0], Bytes.utf8("payload"),

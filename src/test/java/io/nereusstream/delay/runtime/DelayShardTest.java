@@ -1467,6 +1467,13 @@ class DelayShardTest {
                 ObjectStoreProfileSemanticV1.SINGLE_PUT, 1, bytes(32, 68));
         final ProfileSemanticEnvelopeV1 objectStore = new ProfileSemanticEnvelopeV1(
                 ProfileKindV1.OBJECT_STORE, Bytes.utf8("large-reopen-object-store"), 1, objectStoreBody);
+        final ObjectStoreProfileSemanticV1 limitedObjectStoreBody = new ObjectStoreProfileSemanticV1(
+                ObjectStoreProviderKindV1.S3, bytes(32, 72), bytes(32, 73), 1,
+                true, true, true, true, bytes(32, 74), 1_000_000,
+                ObjectStoreProfileSemanticV1.SINGLE_PUT, 1, bytes(32, 75));
+        final ProfileSemanticEnvelopeV1 limitedObjectStore = new ProfileSemanticEnvelopeV1(
+                ProfileKindV1.OBJECT_STORE, Bytes.utf8("large-reopen-limited-object-store"), 1,
+                limitedObjectStoreBody);
         final ProfileCatalog profileCatalog = new ProfileCatalog() {
             @Override
             public ProfileSemanticEnvelopeV1 resolve(final ProfileRefV1 reference) {
@@ -1476,7 +1483,10 @@ class DelayShardTest {
                 if (capability.ref().equals(reference)) {
                     return capability;
                 }
-                return objectStore.ref().equals(reference) ? objectStore : null;
+                if (objectStore.ref().equals(reference)) {
+                    return objectStore;
+                }
+                return limitedObjectStore.ref().equals(reference) ? limitedObjectStore : null;
             }
 
             @Override
@@ -1495,6 +1505,10 @@ class DelayShardTest {
                 if (objectStore.ref().equals(reference)) {
                     return io.nereusstream.delay.protocol.CredentialBindingHeadV1.create(
                             reference, 1, bytes(32, 70), 1);
+                }
+                if (limitedObjectStore.ref().equals(reference)) {
+                    return io.nereusstream.delay.protocol.CredentialBindingHeadV1.create(
+                            reference, 1, bytes(32, 76), 1);
                 }
                 return null;
             }
@@ -1557,6 +1571,19 @@ class DelayShardTest {
         final byte[] underflowReservationId = Bytes.sha256(Bytes.utf8("nereus-delay-reservation-id-v1\0"),
                 underflowPrepare.commandId().bytes(), underflowPrepare.delayMessageId().bytes(),
                 underflowPrepare.commandHash());
+        final PreparedCommand objectOversizedPrepare = PreparedCommand.prepareLargeV1(shardId, intent,
+                2_000_000, payloadSha, 1_000, trustSet.ref(), limitedObjectStore.ref(), 9_000);
+        final byte[] objectOversizedReservationId = Bytes.sha256(
+                Bytes.utf8("nereus-delay-reservation-id-v1\0"), objectOversizedPrepare.commandId().bytes(),
+                objectOversizedPrepare.delayMessageId().bytes(), objectOversizedPrepare.commandHash());
+        final CommittedPayloadDescriptorV1 objectOversizedDescriptor = new CommittedPayloadDescriptorV1(
+                limitedObjectStore.ref(), Bytes.utf8("bucket"), Bytes.utf8("oversized-key"),
+                Bytes.utf8("v1"), null, 2_000_000, payloadSha, bytes(32, 77), bytes(32, 78));
+        final ScheduleIntentV1 objectOversizedScheduleIntent = ScheduleIntentV1.create(destination.ref(),
+                intent.retryPolicy(), 3_000, 6_000, DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT,
+                new byte[0], null, objectOversizedDescriptor, intent.adapterMetadata(), null, null);
+        final PreparedCommand objectOversizedSchedule = PreparedCommand.scheduleV1(shardId,
+                objectOversizedScheduleIntent, 9_000);
         final PreparedCommand prepare = PreparedCommand.prepareLargeV1(shardId, intent, 2_000_000,
                 payloadSha, 1_000, trustSet.ref(), objectStore.ref(), 9_000);
         final byte[] reservationId = Bytes.sha256(Bytes.utf8("nereus-delay-reservation-id-v1\0"),
@@ -1567,7 +1594,7 @@ class DelayShardTest {
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, rawResolver,
                     trustCatalog, null, null, profileCatalog);
             int offset = 0;
-            for (ProfileRefV1 profile : List.of(destination.ref(), objectStore.ref())) {
+            for (ProfileRefV1 profile : List.of(destination.ref(), objectStore.ref(), limitedObjectStore.ref())) {
                 final ControlRef ref = new ControlRef(
                         Bytes.sha256(Bytes.utf8("large-reopen-profile-op-" + offset)),
                         Bytes.sha256(Bytes.utf8("large-reopen-profile-request-" + offset)), offset + 1L);
@@ -1581,22 +1608,33 @@ class DelayShardTest {
                 offset++;
             }
             final ControlRef trustRef = new ControlRef(Bytes.sha256(Bytes.utf8("large-reopen-trust-op")),
-                    Bytes.sha256(Bytes.utf8("large-reopen-trust-request")), 3);
+                    Bytes.sha256(Bytes.utf8("large-reopen-trust-request")), 4);
             final byte[] trustBody = trustSetControlBody(shardId, trustRef, 12, trustSet.ref(),
                     new PayloadProofTrustSetActivatePayloadV1(trustSet.ref()).canonicalBytes());
             final SystemMutation trustMutation = SystemMutation.signed(shardId,
                     SystemMutationType.APPLY_SHARD_CONTROL, 9_000, trustRef.logicalOperationIdentity(12),
                     trustBody, control.canonicalBytes(), 1, controlKey.getPrivate());
             assertEquals(StableCode.OK, shard.applySystemMutation(trustMutation,
-                    position(shardId, 2, 1_002), controlKey.getPublic()).stableCode());
+                    position(shardId, 3, 1_003), controlKey.getPublic()).stableCode());
             assertEquals(StableCode.INVALID_DELIVERY_WINDOW,
-                    shard.apply(underflowPrepare, position(shardId, 3, 1_003)).stableCode());
+                    shard.apply(underflowPrepare, position(shardId, 4, 1_004)).stableCode());
             assertEquals(0, prepareResolutions[0]);
             assertNull(shard.getReservation(underflowReservationId));
             assertNull(shard.getV1ScheduleBinding(underflowPrepare.delayMessageId()));
             assertNull(shard.getLane(lane));
             assertEquals(0, shard.quota().reservationMessages());
-            assertEquals(StableCode.OK, shard.apply(prepare, position(shardId, 4, 1_004)).stableCode());
+            assertEquals(StableCode.PAYLOAD_TOO_LARGE,
+                    shard.apply(objectOversizedPrepare, position(shardId, 5, 1_005)).stableCode());
+            assertEquals(0, prepareResolutions[0]);
+            assertNull(shard.getReservation(objectOversizedReservationId));
+            assertNull(shard.getV1ScheduleBinding(objectOversizedPrepare.delayMessageId()));
+            assertEquals(StableCode.PAYLOAD_TOO_LARGE,
+                    shard.apply(objectOversizedSchedule, position(shardId, 6, 1_006)).stableCode());
+            assertNull(shard.getMessage(objectOversizedSchedule.delayMessageId()));
+            assertNull(shard.getV1ScheduleBinding(objectOversizedSchedule.delayMessageId()));
+            assertNull(shard.getLane(lane));
+            assertEquals(0, shard.quota().reservationMessages());
+            assertEquals(StableCode.OK, shard.apply(prepare, position(shardId, 7, 1_007)).stableCode());
             assertEquals(1, prepareResolutions[0]);
             assertNotNull(shard.getV1ScheduleBinding(prepare.delayMessageId()));
             assertNull(shard.getMessage(prepare.delayMessageId()));
@@ -1614,7 +1652,7 @@ class DelayShardTest {
             final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults(), null, null, rawResolver,
                     trustCatalog, null, null, profileCatalog);
             assertEquals(StableCode.SCHEDULED,
-                    reopened.apply(commit, position(shardId, 5, 1_500)).stableCode());
+                    reopened.apply(commit, position(shardId, 8, 1_500)).stableCode());
             final MessageRecord message = reopened.getMessage(prepare.delayMessageId());
             assertEquals(3_000, message.deliverAtEpochMs());
             assertEquals(2_500, message.runtimeIndex().timeline().actionAtEpochMs());

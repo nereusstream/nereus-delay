@@ -6896,7 +6896,7 @@ public final class DelayShard {
         requireV1BodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
         requireProfileFirstBinding(body.intentWithoutPayload().profile(), sourcePosition);
         requireProfileFirstBinding(body.objectStoreProfile(), sourcePosition);
-        requireObjectStoreProfile(body.objectStoreProfile());
+        requireObjectStorePayloadLimit(body.objectStoreProfile(), body.expectedPayloadLength());
         requireRetryPolicy(body.intentWithoutPayload().retryPolicy(), body.intentWithoutPayload().orderingMode(),
                 sourcePosition);
         final V1ScheduleResolver resolver = requireV1ScheduleResolver();
@@ -6916,18 +6916,22 @@ public final class DelayShard {
                 body.trustSet().version());
     }
 
-    /** Requires the exact immutable Object Store semantic and current credential Head when catalog-backed. */
-    private void requireObjectStoreProfile(final ProfileRefV1 reference) {
+    /** Requires the exact Object Store semantic/current Head and its immutable object-size bound. */
+    private void requireObjectStorePayloadLimit(final ProfileRefV1 reference, final long payloadLength) {
         if (profileCatalog == null) {
             return;
         }
         final ProfileSemanticEnvelopeV1 semantic = profileCatalog.resolve(reference);
         final CredentialBindingHeadV1 head = profileCatalog.resolveHead(reference);
         if (semantic == null || !semantic.ref().equals(reference)
-                || !(semantic.body() instanceof ObjectStoreProfileSemanticV1)
+                || !(semantic.body() instanceof ObjectStoreProfileSemanticV1 objectStore)
                 || head == null || !head.profile().equals(reference)) {
             throw new V1CommandResolutionException(StableCode.ROUTE_SNAPSHOT_UNAVAILABLE,
                     "Object Store Profile semantic or credential Head is unavailable");
+        }
+        if (payloadLength > objectStore.maxObjectBytes()) {
+            throw new V1CommandResolutionException(StableCode.PAYLOAD_TOO_LARGE,
+                    "payload exceeds the immutable Object Store Profile maximum");
         }
     }
 
@@ -6941,6 +6945,11 @@ public final class DelayShard {
         final ScheduleCommandBodyV1 body = CommandBodies.decodeScheduleV1(command.canonicalBody());
         requireV1BodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
         requireProfileFirstBinding(body.intent().profile(), sourcePosition);
+        if (!body.intent().hasInlinePayload()) {
+            requireProfileFirstBinding(body.intent().committedPayload().objectStoreProfile(), sourcePosition);
+            requireObjectStorePayloadLimit(body.intent().committedPayload().objectStoreProfile(),
+                    body.intent().committedPayload().length());
+        }
         requireRetryPolicy(body.intent().retryPolicy(), body.intent().orderingMode(), sourcePosition);
         final V1ScheduleResolver resolver = requireV1ScheduleResolver();
         final V1ScheduleResolver.ResolvedSchedule resolved = Objects.requireNonNull(
