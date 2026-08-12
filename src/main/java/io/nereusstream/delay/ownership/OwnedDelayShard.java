@@ -25,6 +25,13 @@ public final class OwnedDelayShard {
     private ShardLifecycleState state;
     private SourceActivationBarrier activationBarrier;
     private SourceAssignment sourceAssignment;
+    /**
+     * Authority bound by the strict catch-up entrypoint.  Compatibility
+     * assignment-only paths intentionally leave this unset; production
+     * replay must reread the same Oxia lease before each bounded turn and
+     * record so a local clock cannot outlive an ownership change.
+     */
+    private OxiaOwnerLeaseStore replayAuthority;
     private SourceReplaySuccessor replaySuccessor = SourceReplaySuccessor.monotonic();
     private SourcePosition lastCatchupPosition;
     private ShardFailureReason failureReason = ShardFailureReason.NONE;
@@ -182,6 +189,7 @@ public final class OwnedDelayShard {
         }
         sourceAssignment = assignment;
         activationBarrier = assignment.activationBarrier();
+        replayAuthority = null;
         replaySuccessor = successor;
         lastCatchupPosition = delegate.lastAppliedSourcePosition();
         failureReason = ShardFailureReason.NONE;
@@ -235,6 +243,7 @@ public final class OwnedDelayShard {
         try {
             sourceAssignment = assignment;
             activationBarrier = assignment.activationBarrier();
+            replayAuthority = authority;
             replaySuccessor = successor;
             lastCatchupPosition = delegate.lastAppliedSourcePosition();
             failureReason = ShardFailureReason.NONE;
@@ -655,6 +664,25 @@ public final class OwnedDelayShard {
             state = ShardLifecycleState.FENCED;
             throw new IllegalStateException("owner lease expired during source catch-up");
         }
+        if (replayAuthority == null) {
+            return;
+        }
+        try {
+            final OwnerLease observed = replayAuthority.current(lease.shardId()).orElse(null);
+            if (observed == null || !lease.sameIdentity(observed)
+                    || observed.state() != ShardLifecycleState.CATCHING_UP
+                    || observed.expiresAtEpochMs() < lease.expiresAtEpochMs()
+                    || !observed.validAt(nowEpochMs)) {
+                state = ShardLifecycleState.FENCED;
+                throw new IllegalStateException("authoritative owner lease changed during source catch-up");
+            }
+            if (observed.expiresAtEpochMs() > lease.expiresAtEpochMs()) {
+                lease = observed;
+            }
+        } catch (RuntimeException | Error failure) {
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        }
     }
 
     private long readClock(final LongSupplier clock) {
@@ -952,19 +980,24 @@ public final class OwnedDelayShard {
     private void ensureAuthoritativeActive(final OxiaOwnerLeaseStore authority, final long nowEpochMs) {
         Objects.requireNonNull(authority, "authority");
         ensureActive(nowEpochMs);
-        final OwnerLease observed = authority.current(lease.shardId()).orElse(null);
-        if (observed == null || !lease.sameIdentity(observed)
-                || observed.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
-                || !observed.validAt(nowEpochMs)) {
+        try {
+            final OwnerLease observed = authority.current(lease.shardId()).orElse(null);
+            if (observed == null || !lease.sameIdentity(observed)
+                    || observed.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
+                    || !observed.validAt(nowEpochMs)) {
+                state = ShardLifecycleState.FENCED;
+                throw new IllegalStateException("authoritative owner lease changed before command apply");
+            }
+            if (observed.expiresAtEpochMs() < lease.expiresAtEpochMs()) {
+                state = ShardLifecycleState.FENCED;
+                throw new IllegalStateException("authoritative owner lease expiry regressed before command apply");
+            }
+            if (observed.expiresAtEpochMs() > lease.expiresAtEpochMs()) {
+                lease = observed;
+            }
+        } catch (RuntimeException | Error failure) {
             state = ShardLifecycleState.FENCED;
-            throw new IllegalStateException("authoritative owner lease changed before command apply");
-        }
-        if (observed.expiresAtEpochMs() < lease.expiresAtEpochMs()) {
-            state = ShardLifecycleState.FENCED;
-            throw new IllegalStateException("authoritative owner lease expiry regressed before command apply");
-        }
-        if (observed.expiresAtEpochMs() > lease.expiresAtEpochMs()) {
-            lease = observed;
+            throw failure;
         }
     }
 }

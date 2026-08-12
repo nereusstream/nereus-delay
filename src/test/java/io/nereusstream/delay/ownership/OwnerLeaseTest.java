@@ -251,6 +251,82 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void strictReplayFencesBeforeApplyingAfterAuthoritativeOwnerReplacement() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 184);
+        final UUID topic = UUID.randomUUID();
+        final SourceAssignment assignment = new SourceAssignment(shardId,
+                Bytes.sha256(Bytes.utf8("strict-replay-authority-assignment")), 9,
+                new KafkaActivationBarrier(shardId, "strict-replay-authority-cluster", topic, 2));
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = backend.acquire(assignment, "worker-strict-replay-authority",
+                Bytes.sha256(Bytes.utf8("strict-replay-authority-session")), 100, 100).orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("strict-replay-authority"));
+        final KafkaSourcePosition firstPosition = new KafkaSourcePosition(shardId,
+                "strict-replay-authority-cluster", topic, 0, null, 1_000);
+        final KafkaSourcePosition secondPosition = new KafkaSourcePosition(shardId,
+                "strict-replay-authority-cluster", topic, 1, null, 1_001);
+        final PreparedCommand first = PreparedCommand.schedule(shardId,
+                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("strict-replay-authority-first")),
+                        2_000, 5_000, OrderingMode.BEST_EFFORT, Bytes.utf8("first")), 10_000);
+        final PreparedCommand second = PreparedCommand.schedule(shardId,
+                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("strict-replay-authority-second")),
+                        2_000, 5_000, OrderingMode.BEST_EFFORT, Bytes.utf8("second")), 10_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
+            final SourceReplayCursor<SourceReplayRecord> cursor = SourceReplayCursor.of(List.of(
+                    new SourceReplayRecord(first, firstPosition, null, null),
+                    new SourceReplayRecord(second, secondPosition, null, null)).iterator());
+
+            final SourceReplayTurn<io.nereusstream.delay.runtime.CommandResult> firstTurn =
+                    owned.replayCatchupTurn(cursor, 101, new ReplayTurnBudget(1, Long.MAX_VALUE, Long.MAX_VALUE));
+            assertTrue(firstTurn.hasMore());
+            assertEquals(firstPosition, owned.lastCatchupPosition());
+
+            assertTrue(backend.release(owned.lease()));
+            backend.acquire(shardId, "replacement-owner", 150, 100).orElseThrow();
+
+            assertThrows(IllegalStateException.class,
+                    () -> owned.replayCatchupTurn(cursor, 101,
+                            new ReplayTurnBudget(1, Long.MAX_VALUE, Long.MAX_VALUE)));
+            assertEquals(ShardLifecycleState.FENCED, owned.state());
+            assertEquals(firstPosition, owned.lastCatchupPosition());
+            assertNull(owned.shard().getMessage(second.delayMessageId()));
+        }
+    }
+
+    @Test
+    void authoritativeApplyFencesWhenLeaseReadFails() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 185);
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = backend.acquire(shardId, "worker-authority-read-failure", 100, 100).orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(
+                new FailingCurrentOwnerLeaseStore(backend));
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("authority-read-failure"));
+        final UUID topic = UUID.randomUUID();
+        final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster", topic, 0, null, 1_000);
+        final PreparedCommand command = PreparedCommand.schedule(shardId,
+                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("authority-read-failure-lane")),
+                        2_000, 5_000, OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            owned.markCatchingUp(new SourceAssignment(shardId,
+                    Bytes.sha256(Bytes.utf8("authority-read-failure-assignment")), 1,
+                    new KafkaActivationBarrier(shardId, "cluster", topic, 0)));
+            owned.recordCatchup(position);
+            owned.activateForCommands(101);
+
+            assertThrows(AssertionError.class,
+                    () -> owned.applyAuthoritatively(authority, command, position, 101));
+            assertEquals(ShardLifecycleState.FENCED, owned.state());
+            assertNull(owned.shard().getMessage(command.delayMessageId()));
+        }
+    }
+
+    @Test
     void strictCatchupRejectsAContextlessLeaseBeforeChangingAuthority() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 182);
         final UUID topic = UUID.randomUUID();
@@ -1326,6 +1402,41 @@ class OwnerLeaseTest {
         @Override
         public Optional<OwnerLease> current(final ShardId shardId) {
             return delegate.current(shardId);
+        }
+    }
+
+    private static final class FailingCurrentOwnerLeaseStore implements OwnerLeaseStore {
+        private final InMemoryOwnerLeaseStore delegate;
+
+        private FailingCurrentOwnerLeaseStore(final InMemoryOwnerLeaseStore delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public Optional<OwnerLease> acquire(final ShardId shardId, final String ownerId,
+                                            final long nowEpochMs, final long leaseDurationMs) {
+            return delegate.acquire(shardId, ownerId, nowEpochMs, leaseDurationMs);
+        }
+
+        @Override
+        public Optional<OwnerLease> renew(final OwnerLease expected, final long nowEpochMs,
+                                          final long leaseDurationMs) {
+            return delegate.renew(expected, nowEpochMs, leaseDurationMs);
+        }
+
+        @Override
+        public boolean release(final OwnerLease expected) {
+            return delegate.release(expected);
+        }
+
+        @Override
+        public Optional<OwnerLease> transition(final OwnerLease expected, final ShardLifecycleState nextState) {
+            return delegate.transition(expected, nextState);
+        }
+
+        @Override
+        public Optional<OwnerLease> current(final ShardId shardId) {
+            throw new AssertionError("simulated owner lease read failure");
         }
     }
 
