@@ -73,6 +73,30 @@ class WorkClassEventLoopTest {
     }
 
     @Test
+    void fatalHoldCheckStillReleasesEveryLeaseAndClosesTheTurn() {
+        final AtomicLong schedulerNow = new AtomicLong();
+        final AtomicReference<Error> resourceClockFailure = new AtomicReference<>();
+        final WorkClassResourcePool resources = new WorkClassResourcePool(policies(), 2, 64, 10, () -> {
+            final Error failure = resourceClockFailure.getAndSet(null);
+            if (failure != null) {
+                throw failure;
+            }
+            return 0;
+        });
+        final WorkClassEventLoop loop = new WorkClassEventLoop(
+                new WorkClassScheduler(policies(), 100, schedulerNow::get), resources);
+        loop.offer(new WorkClassTask(WorkClass.GC, "gc-fatal-clock", 8));
+        final WorkClassEventLoop.Turn turn = loop.poll(new SchedulerBudget(1, 32, 1_000));
+        final AssertionError fatalClockFailure = new AssertionError("resource clock failed");
+
+        resourceClockFailure.set(fatalClockFailure);
+        assertEquals(fatalClockFailure, assertThrows(AssertionError.class, turn::close));
+        assertTrue(turn.isClosed());
+        assertEquals(0, resources.snapshot().activeLeases());
+        assertTrue(loop.poll(new SchedulerBudget(1, 32, 1_000)).isEmpty());
+    }
+
+    @Test
     void runTurnReleasesResourcesBeforeRethrowingExecutorFailure() {
         final AtomicLong now = new AtomicLong();
         final WorkClassResourcePool resources = new WorkClassResourcePool(policies(), 1, 64, 100, now::get);

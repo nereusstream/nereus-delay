@@ -60,8 +60,10 @@ public final class WorkClassEventLoop {
         } catch (RuntimeException | Error failure) {
             try {
                 builder.release();
-            } catch (RuntimeException releaseFailure) {
-                failure.addSuppressed(releaseFailure);
+            } catch (RuntimeException | Error releaseFailure) {
+                if (releaseFailure != failure) {
+                    failure.addSuppressed(releaseFailure);
+                }
             }
             throw failure;
         }
@@ -131,21 +133,21 @@ public final class WorkClassEventLoop {
         }
 
         private void release() {
-            RuntimeException failure = null;
+            Throwable failure = null;
             for (int index = leases.size() - 1; index >= 0; index--) {
                 try {
                     leases.get(index).close();
-                } catch (RuntimeException closeFailure) {
+                } catch (RuntimeException | Error closeFailure) {
                     if (failure == null) {
                         failure = closeFailure;
-                    } else {
+                    } else if (closeFailure != failure) {
                         failure.addSuppressed(closeFailure);
                     }
                 }
             }
             leases.clear();
             if (failure != null) {
-                throw failure;
+                throwUnchecked(failure);
             }
         }
     }
@@ -209,15 +211,15 @@ public final class WorkClassEventLoop {
             if (closed) {
                 return;
             }
-            RuntimeException failure = null;
+            Throwable failure = null;
             if (owner != null) {
                 for (WorkClassResourcePool.ResourceLease lease : leases) {
                     try {
                         owner.resources.requireWithinBorrowedHold(lease);
-                    } catch (RuntimeException holdFailure) {
+                    } catch (RuntimeException | Error holdFailure) {
                         if (failure == null) {
                             failure = holdFailure;
-                        } else {
+                        } else if (holdFailure != failure) {
                             failure.addSuppressed(holdFailure);
                         }
                     }
@@ -225,10 +227,10 @@ public final class WorkClassEventLoop {
                 for (int index = leases.size() - 1; index >= 0; index--) {
                     try {
                         leases.get(index).close();
-                    } catch (RuntimeException releaseFailure) {
+                    } catch (RuntimeException | Error releaseFailure) {
                         if (failure == null) {
                             failure = releaseFailure;
-                        } else {
+                        } else if (releaseFailure != failure) {
                             failure.addSuppressed(releaseFailure);
                         }
                     }
@@ -237,7 +239,7 @@ public final class WorkClassEventLoop {
             }
             closed = true;
             if (failure != null) {
-                throw failure;
+                throwUnchecked(failure);
             }
         }
 
@@ -249,5 +251,15 @@ public final class WorkClassEventLoop {
                 throw new IllegalStateException("empty WorkClass turn has no resource hold");
             }
         }
+    }
+
+    private static void throwUnchecked(final Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error errorFailure) {
+            throw errorFailure;
+        }
+        throw new IllegalStateException("unexpected checked work-class cleanup failure", failure);
     }
 }
