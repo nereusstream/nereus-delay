@@ -5656,6 +5656,18 @@ on 2026-08-13 in 1m13s, with five real-Oxia smokes skipped because
 recovery proof only; real Profile/Oxia publication, Object Store provider,
 Broker visibility guard and Producer authority remain OPEN.
 
+Certified large-payload timing is also rejected at the earliest stateful
+boundary. `ProfileCatalogV1ScheduleResolver.resolvePrepare` now uses the same
+single resolved Destination/Capability semantic pair as Schedule and runs the
+fixed-lead `expectedActionAt` check before invoking the Lane resolver. An
+underflow therefore returns stable `INVALID_DELIVERY_WINDOW` before any
+Reservation, Lane, `V1ScheduleBinding` or reservation-quota projection exists;
+the subsequent valid Prepare still succeeds. Resolver and `DelayShard.apply`
+regressions passed in code commit `c9600447`; the complete six-task local
+Gradle gate passed on 2026-08-13 in 1m13s, with five real-Oxia smokes skipped
+because `NEREUS_DELAY_OXIA_ENDPOINT` was unset. Real upload/provider and
+external source authority remain OPEN.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

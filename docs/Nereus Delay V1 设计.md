@@ -1481,6 +1481,9 @@ ProfileRef，再由同一个 `ProfileCatalog` 的 immutable Destination/Delivery
 `DelayShardTest.largeCommitAfterReopenRecoversCertifiedActionAtFromDurablePrepareBinding`
 以 `deliverAt=3000`、fixed lead `500` 证明重开后 Commit 仍持久化
 `actionAt=2500`，且 scheduler 不会在该边界前发现消息。
+同一推导校验必须在 Prepare 保留配额、返回上传授权之前执行；若 certified fixed lead
+使 `actionAt` 下溢，Prepare 直接稳定拒绝为 `INVALID_DELIVERY_WINDOW`，不得先创建
+Reservation/Lane/V1 binding 或让客户端完成无效对象上传，再延迟到 Commit 才失败。
 这只是 shard-local projection evidence；Profile publication、Broker visibility
 guard 和真实 Producer authority 仍必须通过 release gate。
 

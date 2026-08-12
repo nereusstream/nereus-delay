@@ -5445,6 +5445,21 @@ format changed, so no Registry or ADR update is required. Real Profile/Oxia
 publication, Object Store provider behavior, Broker visibility guard and
 Producer authority remain OPEN.
 
+The same audit exposed a late-rejection gap for invalid certified timing.
+Schedule already ran `expectedActionAt` during resolution, while Prepare only
+checked that the Profile existed; `deliverAt < fixedLead` could therefore
+reserve quota and authorize an object upload before Commit rejected the
+underflow. `resolvePrepare` now validates the fixed lead before delegating Lane
+resolution, using the same once-resolved Destination/Capability pair as
+Schedule. The shard-level regression proves stable
+`INVALID_DELIVERY_WINDOW`, zero delegate calls, no Reservation, Lane or
+`V1ScheduleBinding`, and unchanged reservation quota before a valid Prepare.
+Code commit `c9600447` and the complete six-task local Gradle gate passed on
+2026-08-13 in 1m13s; five real-Oxia smokes were skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was unset. Registry §1234 already freezes
+underflow rejection; no wire/key/value or ADR change was needed. Real upload
+and external source authority remain OPEN.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
