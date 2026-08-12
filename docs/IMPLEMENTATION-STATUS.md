@@ -4087,6 +4087,14 @@ reconciliation and read-side corruption. This is local SLO outbox integrity
 only; production receipt/evidence authority and collector routing remain
 release blockers.
 
+`RecoveryCatalog` snapshot installation now rejects a non-empty catalog at
+generation zero and a non-empty generation without any published manifest.
+Active RecoveryPin restore also requires the current Floor to remain on the
+same ancestry branch as the pinned candidate (while allowing the documented
+historical pin to survive a later descendant Floor). `RecoveryCatalogTest`
+covers both malformed-snapshot cases; this is crash-durable local projection
+integrity, not the missing Oxia cross-record pin/Floor transaction.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

@@ -22,6 +22,7 @@ import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -32,6 +33,45 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
 class RecoveryCatalogTest {
+    @Test
+    void snapshotRejectsPublishedStateAtCatalogGenerationZero() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 31);
+        final CheckpointManifest manifest = manifest(shard, UUID.randomUUID(), id16(310), id16(311), 0,
+                1, 1, null);
+
+        assertThrows(IllegalArgumentException.class, () -> RecoveryCatalog.fromSnapshot(
+                new RecoveryCatalog.Snapshot(0, shard, List.of(manifest), Map.of(), null, null, null)));
+    }
+
+    @Test
+    void snapshotRejectsCurrentFloorOnAnotherBranchOfPinnedObservedFloor() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 32);
+        final UUID topic = UUID.randomUUID();
+        final byte[] lineage = id16(320);
+        final CheckpointManifest genesis = manifest(shard, topic, lineage, id16(321), 0, 1, 1, null);
+        final CheckpointManifest first = manifest(shard, topic, lineage, id16(322), 1, 2, 2,
+                new CheckpointManifest.ParentCheckpoint(genesis.checkpointId(), Bytes.hex(genesis.manifestSha256())));
+        final CheckpointManifest sibling = manifest(shard, topic, lineage, id16(323), 1, 3, 3,
+                new CheckpointManifest.ParentCheckpoint(genesis.checkpointId(), Bytes.hex(genesis.manifestSha256())));
+        final RecoveryFloorRefV1 currentTypedFloor = new RecoveryFloorRefV1(sibling.recoveryLineageId(),
+                sibling.checkpointId(), sibling.manifestSha256(), 4, sibling.appliedShardLogPosition(),
+                sibling.shardMutationSequence(), List.of());
+        final RecoveryFloor currentFloor = RecoveryFloor.create(sibling.recoveryLineageId(), sibling.checkpointId(),
+                sibling.manifestSha256(), 4, sibling.appliedShardLogPosition(), sibling.shardMutationSequence(),
+                currentTypedFloor.floorDigest());
+        final RecoveryFloorRefV1 observedGenesisFloor = new RecoveryFloorRefV1(genesis.recoveryLineageId(),
+                genesis.checkpointId(), genesis.manifestSha256(), 4, genesis.appliedShardLogPosition(),
+                genesis.shardMutationSequence(), List.of());
+        final RecoveryPinV1 pin = new RecoveryPinV1(id16(324), new ShardSubjectV1(shard),
+                new OwnerIdentityV1(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(325)),
+                new RecoveryCandidateRefV1(RecoveryCandidateKindV1.CATALOG_CHECKPOINT, lineage,
+                        first.checkpointId(), first.manifestSha256(), null), observedGenesisFloor, 4, id32(326));
+
+        assertThrows(IllegalArgumentException.class, () -> RecoveryCatalog.fromSnapshot(
+                new RecoveryCatalog.Snapshot(4, shard, List.of(genesis, first, sibling), Map.of(), currentFloor,
+                        currentTypedFloor, pin)));
+    }
+
     @Test
     void publishesAncestryAdvancesFloorAndSelectsOnlyDescendants() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 0);

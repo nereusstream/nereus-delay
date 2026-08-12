@@ -3835,6 +3835,14 @@ fail closed；旧的 opaque synthetic Due fixture 仍明确保留为 compatibili
 corruption 回归。该边界只证明本地 outbox 完整性，真实 receipt/evidence
 authority、collector 路由与 production observability 仍是 release blocker。
 
+`RecoveryCatalog` 的 snapshot install 现在拒绝 generation 为零却包含已发布
+manifest/Floor/pin 的状态，也拒绝没有 manifest 却带有非零 catalog generation 的
+状态。active RecoveryPin 还要求当前 Floor 沿 pinned candidate 的同一 ancestry
+branch 推进；因此允许 Floor 在同一分支上越过 candidate 的历史 pin 保留，但拒绝
+从 observed Floor 分叉到 sibling checkpoint 的损坏快照。`RecoveryCatalogTest` 的
+两条 snapshot 回归覆盖该边界。这是本地 crash-durable projection proof，不是
+Oxia pin/Floor cross-record CAS 或 source replay authority。
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

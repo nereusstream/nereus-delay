@@ -422,6 +422,17 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
     }
 
     private synchronized void installSnapshot(final Snapshot snapshot) {
+        final boolean hasPublishedState = !snapshot.manifests().isEmpty()
+                || snapshot.floor() != null
+                || snapshot.typedFloorRef() != null
+                || snapshot.activeRecoveryPin() != null
+                || !snapshot.manifestResources().isEmpty();
+        if (snapshot.catalogGeneration() == 0 && hasPublishedState) {
+            throw new IllegalArgumentException("snapshot has published state at catalog generation zero");
+        }
+        if (snapshot.catalogGeneration() != 0 && snapshot.manifests().isEmpty()) {
+            throw new IllegalArgumentException("snapshot has a catalog generation without a manifest");
+        }
         manifests.clear();
         manifestResources.clear();
         catalogGeneration = snapshot.catalogGeneration();
@@ -531,6 +542,18 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
                 || !Bytes.constantTimeEquals(ancestry.get(observedFloorIndex).manifestSha256(),
                 observedFloor.manifestSha256())) {
             throw new IllegalArgumentException("snapshot RecoveryPin candidate does not descend from its observed Floor");
+        }
+        final List<CheckpointManifest> currentFloorAncestry = fullAncestry(floor.checkpointId());
+        final int currentObservedFloorIndex = indexOf(currentFloorAncestry, observedFloor.checkpointId());
+        if (currentObservedFloorIndex < 0
+                || !Bytes.constantTimeEquals(currentFloorAncestry.get(currentObservedFloorIndex).manifestSha256(),
+                observedFloor.manifestSha256())) {
+            throw new IllegalArgumentException("snapshot RecoveryPin observed Floor is not an ancestor of current Floor");
+        }
+        final boolean currentFloorOnCandidateBranch = indexOf(ancestry, floor.checkpointId()) >= 0
+                || indexOf(currentFloorAncestry, candidate.checkpointId()) >= 0;
+        if (!currentFloorOnCandidateBranch) {
+            throw new IllegalArgumentException("snapshot RecoveryPin current Floor is on another branch");
         }
         if (pin.candidate().kind() == RecoveryCandidateKindV1.CATALOG_CHECKPOINT
                 && pin.candidate().storeIncarnation() != null) {
