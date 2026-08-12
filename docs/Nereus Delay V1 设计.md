@@ -2213,6 +2213,11 @@ Lane、Persistent Shard、Worker 三层 scheduler 的对外 poll 契约因此完
 `persist`）也只能 scheduler 包内可见。它们本身没有 Owner、source-ordered Lane
 lifecycle 或 terminal-guard authority；未来生产接线必须由明确 coordinator 在完成相应
 authority 复核后组合这些 primitive，不能直接把它们重新公开给 Worker。
+同一原则适用于内层 `LaneScheduler` 和外层 `WorkerScheduler`：register、readiness/
+blocked 切换、ring rebuild、snapshot restore、direct requeue、terminal unregister 与
+READY replacement 均为 scheduler 包内组合 primitive。包外只保留构造、显式 timed
+poll 和只读 projection；生产 Worker scheduler coordinator 尚未实现前，不允许用这些
+裸方法拼出一条表面可运行但绕过 ownership/readiness authority 的接线路径。
 
 一次 discovery 成功只返回本轮新 promote 的 due heads；它不等于 Claim，也不能越过
 Claim materialization、permit、Ready Certificate 或 Publish Admission gate。queue 拒绝

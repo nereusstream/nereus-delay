@@ -5071,6 +5071,15 @@ API, and reflection tests lock the visibility. Full runtime/scheduler/ownership
 coverage and the complete local gate passed on 2026-08-13; dedicated production
 recovery/readiness/retirement coordination remains OPEN.
 
+The same public-surface fence now covers inner `LaneScheduler` and outer
+`WorkerScheduler` lifecycle mutation. Their registration, readiness/block,
+ring rebuild, snapshot restore, direct requeue/replacement and unregister
+methods had no main cross-package caller and could otherwise be used to bypass
+the persistent/ownership coordinator. Constructors, timed poll and read-only
+projections remain public. Reflection regressions and the complete local gate
+passed on 2026-08-13; the production Worker scheduler coordinator is still an
+explicit OPEN integration item.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

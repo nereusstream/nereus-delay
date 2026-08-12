@@ -5377,6 +5377,17 @@ on 2026-08-13; five real-Oxia smoke methods remained skipped. Production
 recovery/readiness/retirement coordinators and their external authority remain
 release work, not implied by these local primitives.
 
+Raw lifecycle mutation on `LaneScheduler` and `WorkerScheduler` is now
+package-local too: registration, readiness/block transitions, ring rebuild,
+snapshot restore, direct requeue, READY replacement and terminal/shard
+unregister cannot be called from a future Worker package as authority-free
+wiring. No current main source outside the scheduler package depended on these
+methods. Constructors, explicit timed poll and read-only snapshots/queries
+remain public. Reflection tests lock the two surfaces; focused scheduler and
+ownership tests plus the full local Gradle gate passed on 2026-08-13, with five
+real-Oxia smoke methods still skipped. A production Worker scheduler
+coordinator remains OPEN and must expose only authority-checked composition.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
