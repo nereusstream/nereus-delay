@@ -5419,6 +5419,15 @@ identity 构造、只读 lease/assignment/lifecycle/failure projection，以及�
 2026-08-13 通过；5 个真实 Oxia smoke 仍因缺少 endpoint 跳过。此项只关闭 API-level
 authority bypass，生产 Worker、真实 source quiescence 和 placement/Oxia 集成仍 OPEN。
 
+`OwnerRecoveryCoordinator` 不再接受调用方预构造的
+`SourceApplyWorkClassExecutor`。它从同一组 exact owned shard、Oxia authority、
+verification key 和 shared WorkClass registry 内部构造恢复 executor，消除了 coordinator
+与 executor 绑定到不同 Shard/authority/key/queue 的混装面；`submitRecovery(...)` 同时
+降为 ownership 包内入口，包外活动 source `submit(...)` 保持公开。构造器形状与恢复
+入口可见性由反射测试锁定，聚焦 recovery/source-apply 测试和完整 6-task Gradle 门禁
+于 2026-08-13 通过；5 个真实 Oxia smoke 跳过。真实 Broker cursor、Worker event loop
+和 session-bound authority 仍是 OPEN 集成证据。
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

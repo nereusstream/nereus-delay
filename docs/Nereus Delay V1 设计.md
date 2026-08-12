@@ -1052,6 +1052,13 @@ assignment projection 可以暴露；显式 `fence()` 也可以暴露，因为�
 authority，不能推进 lifecycle 或延长租约。该 API 边界不代表生产 Worker、真实
 consumer stop/rewind 或跨进程 placement 已完成。
 
+`OwnerRecoveryCoordinator` 必须用其自身接收的 exact `OwnedDelayShard`、
+`OxiaOwnerLeaseStore`、verification key 与 shared `WorkClassExecutionRegistry` 在内部
+构造 recovery source executor；禁止调用方再注入一份可能绑定到其它 Shard、authority、
+key 或 registry 的 executor。活动 source apply 可以保留独立公开入口，但
+recovery-only submit 必须是 coordinator 内部原语，避免绕过 cursor 保留、bounded turn
+和最终 activation 顺序。
+
 Renewal CAS 必须保留 exact fencing/assignment/session identity 与当前
 lifecycle state；旧 Owner 携带的 stale state 不能通过续租把状态投影回退，expiry
 也只能单调延长。response loss 只能 reread 同一 identity、同一 state 的 successor。

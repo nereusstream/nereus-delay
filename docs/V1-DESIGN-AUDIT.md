@@ -5112,6 +5112,17 @@ tests and the complete six-task local gate passed on 2026-08-13, with five
 real-Oxia smokes skipped. This prevents API-level lifecycle bypass but does not
 provide production Worker, source-quiescence, placement or Oxia evidence.
 
+Recovery composition now uses one dependency authority graph:
+`OwnerRecoveryCoordinator` constructs its recovery
+`SourceApplyWorkClassExecutor` from the exact owned shard, Oxia authority,
+verification key and shared WorkClass registry already passed to the
+coordinator. Callers can no longer inject an executor bound to a different
+shard, authority, key or queue, and recovery-only submission is package-local.
+Reflection and focused recovery/source-apply coverage plus the complete
+six-task local gate passed on 2026-08-13; five real-Oxia smokes were skipped.
+Real Broker cursor ownership, Worker event-loop wiring and external session
+authority remain OPEN.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
