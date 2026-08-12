@@ -75,6 +75,26 @@ class GenerationRuntimeIndexTest {
     }
 
     @Test
+    void controlOverrideTimelineRejectsSourcePositionFromAnotherShard() {
+        final var timelineShard = new io.nereusstream.delay.protocol.ShardId(
+                new io.nereusstream.delay.protocol.RouteIncarnation(new byte[16]), 0);
+        final var foreignShard = new io.nereusstream.delay.protocol.ShardId(
+                new io.nereusstream.delay.protocol.RouteIncarnation(new byte[16]), 1);
+        final KafkaSourcePosition foreignSource = new KafkaSourcePosition(foreignShard, "cluster",
+                UUID.randomUUID(), 4, null, 1_000);
+        final ControlRef control = new ControlRef(Bytes.sha256(Bytes.utf8("operation-foreign")),
+                Bytes.sha256(Bytes.utf8("request-foreign")), 3);
+        final byte[] key = KeyCodec.timelineDue(new DestinationLaneId(new byte[32]), 1_000,
+                Bytes.concat(new byte[]{1}, new byte[8]),
+                io.nereusstream.delay.protocol.DelayMessageId.random(timelineShard), 2);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> new TimelineWorkRef(TimelineWorkKind.UNCERTAIN_RETRY, key, 900, 1_000, 2, 7,
+                        false, UncertainRetryAuthority.CONTROL_OVERRIDE, control.canonicalBytes(),
+                        foreignSource.canonicalBytes()));
+    }
+
+    @Test
     void runtimeIndexRoundTripsRepeatedObligationsInCanonicalOrder() {
         final byte[] firstId = Bytes.sha256(Bytes.utf8("attempt-1"));
         final byte[] secondId = Bytes.sha256(Bytes.utf8("attempt-2"));

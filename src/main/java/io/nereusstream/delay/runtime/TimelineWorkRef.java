@@ -304,6 +304,9 @@ public final class TimelineWorkRef {
                     || !Arrays.equals(uncertainRetryControlPosition, sourcePosition.canonicalBytes())) {
                 throw new IllegalArgumentException("control retry nested values are not canonical");
             }
+            if (!sourcePosition.shardId().equals(timelineMessageId().routingId().shardId())) {
+                throw new IllegalArgumentException("control retry source position belongs to another shard");
+            }
         }
         if (workKind == TimelineWorkKind.UNCERTAIN_RETRY && uncertainRetryAuthority == UncertainRetryAuthority.NONE) {
             throw new IllegalArgumentException("uncertain retry requires an authority");
@@ -338,6 +341,18 @@ public final class TimelineWorkRef {
         // V1 time values are non-negative and therefore fit Java's signed
         // long domain here.
         return java.nio.ByteBuffer.wrap(key, 2 + 32, Long.BYTES).getLong();
+    }
+
+    /**
+     * Returns the self-routing Message identity embedded in a DUE/ORDERED
+     * timeline key.  The key shape is validated before this helper is used.
+     */
+    private DelayMessageId timelineMessageId() {
+        final int tokenOffset = 2 + 32 + Long.BYTES;
+        final int tokenLength = encodedTimelineKey[tokenOffset] == 1 ? 9 : 21;
+        final int messageOffset = tokenOffset + tokenLength;
+        return new DelayMessageId(Arrays.copyOfRange(encodedTimelineKey, messageOffset,
+                messageOffset + DelayMessageId.LENGTH));
     }
 
     private static byte[] requireTimelineKey(final byte[] value) {
