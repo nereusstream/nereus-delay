@@ -194,9 +194,28 @@ retry, fatal suffix retention and admission rollback/identity drift. This is
 a process-local execution projection only; restart rediscovery, actual shard
 handlers and dynamic WriteBatch/IO authority remain open release gates.
 
+After `e20409d` and `d595324`, a scheduled checkpoint can no longer reach the
+local physical executor without an explicit `CHECKPOINT` work-class action.
+`CheckpointWorkClassExecutor` preflights the exact scheduler claim and pending
+intent before queue admission, performs no filesystem/provider I/O on queue
+rejection, and repeats the same claim/Store/intent fence when the bounded turn
+runs. The direct preflight/physical execution methods are package-private, so
+cross-package Worker composition cannot bypass this public entrypoint. Ordinary
+attempt failures are captured in the submission outcome because
+`CheckpointExecutionCoordinator` already owns exact-claim completion or
+retention; this avoids creating a second generic `FAILED` retry authority. A
+later physical retry requires the next exact scheduler claim, while fatal
+`Error` remains visible to the WorkClass fatal-stop path. The regression
+fills the `CHECKPOINT` queue, proves rejection leaves the claim and filesystem
+unchanged, captures an ordinary failed attempt with no stale action, then
+executes the next exact claim through the bounded turn. This closes the local
+checkpoint-class wiring only; Owner Lease/session, external Object Store/Oxia
+authority, the other shard-specific work classes and dynamic WriteBatch/IO
+attribution remain release gates.
+
 After the corresponding design/status/audit synchronization, the full
 `GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew clean check
---rerun-tasks --console=plain` gate passed on 2026-08-12: 1229 tests were
+--rerun-tasks --console=plain` gate passed on 2026-08-12: 1230 tests were
 reported with zero failures/errors and five skipped opt-in real-Oxia methods
 because `NEREUS_DELAY_OXIA_ENDPOINT` was unset. `checkDocumentation` and
 `checkstyleMain` passed in the same run. This is current local repository
@@ -3820,6 +3839,7 @@ covers this ordering.
 | Worker dynamic per-DB physical-usage observer | Implemented (local monitor lifecycle and aggregate guard; authority pending) | `WorkerRocksDbUsageMonitor`, `SharedRocksDbResources.startRocksDbUsageMonitor`, `ShardStore`, `WorkerRocksDbUsageMonitorTest`; every open shard Store registers one identity-bound physical source, the source is removed before native teardown, fixed-delay observations validate per-DB and Worker WAL/MANIFEST/SST/L0/compaction/file caps plus filesystem free-space floor, and missing/invalid/over-capacity evidence fences the shared sticky runtime gate; production write-time reserve attribution, checkpoint/compaction scheduling authority and Oxia placement capacity remain release gates |
 | Worker event-loop work-class queue/turn seam | Implemented (local scheduler/resource/config/action lifecycle; production authority pending) | `WorkClass`, `WorkClassPolicy`, `WorkClassRuntimeConfig`, `WorkClassTask`, `WorkClassScheduler`, `WorkClassEventLoop`, `WorkClassDispatcher`, `WorkClassExecutionRegistry`, `WorkClassSchedulerTest`, `WorkClassRuntimeConfigTest`, `WorkClassEventLoopTest`, `WorkClassDispatcherTest`, `WorkClassExecutionRegistryTest`; all eight V1 classes require positive weights and bounded queue/turn records, bytes and time, including the independent `CHECKPOINT` execution class; the runtime config has no fallback defaults, requires exact eight-class coverage, only permits `LEASE_FENCE` preemption, requires nonzero minima for the six correctness/progress classes, checks aggregate minima against the shared record/byte pool and constructs scheduler/resource pool from one monotonic clock; `LEASE_FENCE` gets the first bounded preemptive turn but carries a cross-poll preemption debt so a continuously queued fence class yields to a runnable ordinary class (`WorkClassSchedulerTest.continuousPreemptiveQueueYieldsAcrossSmallPolls`), and stale queued classes are selected after the configured maximum delay; `WorkClassEventLoop` acquires one exact resource lease per task immediately before queue removal, restores the scheduler snapshot and releases earlier leases on a later admission rejection, fences a second poll until the prior turn closes, reserves the selected queue capacity against concurrent offers, and `runTurn` executes the bounded callback sequence outside the monitor while closing all leases on success or failure; a fatal/hold stop requeues only the exact trailing tasks whose handlers were never invoked, while an invoked task is not requeued; `WorkClassDispatcher` rejects incomplete class coverage and routes selected tasks through those same boundaries; `WorkClassExecutionRegistry` binds the complete task identity and byte charge before queue admission, rolls registration back on rejection, removes successful actions, retains started failures for exact explicit retry and leaves unstarted fatal suffix actions queued; it remains a rebuildable process-local projection, while actual shard handlers, dynamic RocksDB WriteBatch admission and WriteBatch/IO authority remain release gates |
 | Worker work-class reserve token seam | Implemented (local checked pool plus bounded-turn binding; production wiring pending) | `WorkClassResourcePool`, `WorkClassEventLoop`, `WorkClassResourcePoolTest`, `WorkClassEventLoopTest`; exact record/byte leases protect every other class' configured non-borrowable minima, convert acquisition-sum overflow into a closed resource rejection, mark borrowed capacity, bound borrowed hold time, release idempotently and are reacquired per bounded turn rather than held while queueing; production dynamic RocksDB attribution and WriteBatch/IO admission authority remain release gates |
+| Scheduled checkpoint work-class admission | Implemented (local concrete handler wiring; production authority pending) | `CheckpointWorkClassExecutor`, `CheckpointExecutionCoordinator`, `WorkClassExecutionRegistry`, `CheckpointExecutionCoordinatorTest.checkpointWorkClassRejectsBeforeIoThenExecutesTheExactClaim`; exact scheduler claim and pending intent are fenced before `CHECKPOINT` queue admission and repeated before I/O, direct preflight/execution methods are package-private so cross-package composition must use the bounded entrypoint, queue rejection leaves the current claim and filesystem/provider state unchanged, ordinary attempt failure returns a checkpoint-owned outcome without a stale generic work action, and only the next exact scheduler claim can start the next physical attempt; Owner Lease/session, Source Assignment, external Object Store/Oxia authority, the other shard-specific handlers and dynamic WriteBatch/IO attribution remain release gates |
 | Shard identity and local Store Incarnation validation | Implemented | `StoreMetadata`, `ShardStoreTest` |
 | Synchronous atomic WriteBatch | Implemented | `ShardStore.write`, `ShardStoreTest` |
 | Native RocksDB checkpoint creation | Implemented | `ShardStore.createCheckpoint`, `ShardStoreTest`; checkpoint creation is staged under the same-filesystem `checkpoint-tmp` namespace, rejects an existing target, installs only through an atomic rename, and removes a target that was moved but failed the subsequent parent-directory durability step, with failed-stage cleanup |

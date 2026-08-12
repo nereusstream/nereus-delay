@@ -2690,6 +2690,18 @@ create/upload/catalog 的顺序和 response-loss
 重试，不产生 Owner Lease、Source Assignment、Object Store attestation 或生产
 Oxia 跨记录事务结论。
 
+scheduled checkpoint 不得从 `CheckpointScheduler` claim 直接跳到上述物理执行器。
+生产组合路径必须先用 exact claim 和 `PENDING_UPLOAD` intent 做无 I/O 的
+shard/Store/identity preflight，再把完整 action 提交到独立的 `CHECKPOINT`
+work-class queue。queue admission 拒绝时不得创建目录、改写 Store metadata 或调用
+provider，且原 scheduler claim 必须保持 current，以便同一请求重新入队。action
+真正运行时还必须在任何 filesystem/provider I/O 前重复检查 exact claim 与 intent。
+普通 checkpoint attempt failure 已由 `CheckpointExecutionCoordinator` 用同一 claim 完成或
+保留 in-flight，因此 work-class handler 只返回一个可查询的 attempt outcome，不得另外
+留下一份通用 `FAILED` retry authority；下次物理尝试只能使用 scheduler 返回的
+新 exact claim。fatal `Error` 仍必须记录 outcome 并重新抛出，不得吞掉
+EventLoop 的 fatal-stop/fencing 语义。
+
 本地/测试 provider seam `FilesystemCheckpointUploadAdapter` 只模拟上述上传阶段的
 物理边界：它在配置的本地 root 下为每个 opaque `(objectKey, objectVersion)` 生成
 domain-separated immutable object path，流式复制并重新计算完整文件 SHA-256，拒绝

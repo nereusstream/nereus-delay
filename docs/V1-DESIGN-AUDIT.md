@@ -135,7 +135,24 @@ admission rollback with identity-drift rejection. This is process-local
 evidence and deliberately does not replace restart rediscovery, shard-specific
 handlers, durable source authority or dynamic WriteBatch/IO admission.
 
-The synchronized full local gate then passed on 2026-08-12 with 1229 reported
+After `e20409d` and `d595324`, the independent `CHECKPOINT` class is no longer
+only a configured queue: `CheckpointWorkClassExecutor` is the concrete local bridge
+from an exact `CheckpointScheduler` claim to
+`CheckpointExecutionCoordinator`. It validates the claim and pending
+intent/Store identity before admission, starts no directory/provider work when
+the queue rejects the action, and repeats the fence after the queue wait. The
+direct preflight/physical execution methods are package-private, leaving the
+bounded executor as the cross-package production composition entrypoint.
+Ordinary attempt failure is returned as a checkpoint-owned outcome because the
+execution coordinator already completed/rescheduled or retained that claim;
+fatal `Error` is still rethrown into WorkClass cleanup/fencing. The focused
+regression proves queue rejection is side-effect free, an ordinary failed
+attempt leaves no stale generic action, and the next exact claim executes
+through the bounded turn. This closes one concrete class wiring, not the
+remaining shard handlers, dynamic WriteBatch/IO admission, Owner Lease/session
+or external publication authority.
+
+The synchronized full local gate then passed on 2026-08-12 with 1230 reported
 tests, zero failures/errors and five skipped opt-in real-Oxia methods because
 the endpoint was unset. `checkDocumentation` and `checkstyleMain` passed in the
 same `clean check --rerun-tasks` run. This verifies the repository-local change
@@ -301,6 +318,13 @@ physical checkpoint, verifies the physical checkpoint's source/mutation,
 evidence and control projections against the canonical manifest, and completes
 the same claim after either outcome. Its response-loss regression reuses the
 same local image and PUBLISHED intent without invoking the provider twice.
+`CheckpointWorkClassExecutor` now adds the previously missing bounded
+execution admission: it preflights the same claim/intent without I/O, queues an
+exact `CHECKPOINT` action, repeats the fence at execution, and leaves queue
+rejection side-effect free. The underlying execution method is package-private,
+so cross-package composition cannot bypass that public entrypoint. Ordinary
+attempt failure remains owned by the checkpoint claim/outcome path rather than
+creating a second WorkClass retry.
 This closes a local orchestration/documentation gap in §16.2; it does not
 upgrade the audit to a production checkpoint PASS because the Owner
 Lease/session + Upload Intent + Catalog transaction, Object Store
