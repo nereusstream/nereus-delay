@@ -3908,6 +3908,12 @@ released; `OxiaSyncOwnerLeaseBackendTest.releaseResponseLossRereadsAbsenceAfterC
 covers the committed-delete case. This is per-record CAS evidence, not a
 session/assignment or cross-record activation proof.
 
+Recovery Catalog reads now require both the exact record key and a non-null
+Oxia version before returning a snapshot. A valid-looking snapshot without a
+CAS version is rejected at the boundary by
+`OxiaSyncRecoveryCatalogBackendTest.catalogReadRejectsARecordWithoutAnOxiaVersion`;
+this remains local single-record integrity evidence.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

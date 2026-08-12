@@ -4163,6 +4163,12 @@ owner is reported as not released. `OxiaSyncOwnerLeaseBackendTest`
 `releaseResponseLossRereadsAbsenceAfterCommittedDelete` covers the committed
 delete/response-loss path. This remains per-record Oxia evidence only.
 
+`OxiaSyncRecoveryCatalogBackend.decodeCatalog` now rejects a remote catalog
+record whose Oxia response has no version, before exposing the snapshot to
+read or mutation callers; `OxiaSyncRecoveryCatalogBackendTest.catalogReadRejectsARecordWithoutAnOxiaVersion`
+covers the malformed record. This keeps the single-record CAS projection
+fail-closed and does not add the missing cross-record transaction.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

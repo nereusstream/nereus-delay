@@ -98,6 +98,21 @@ class OxiaSyncRecoveryCatalogBackendTest {
     }
 
     @Test
+    void catalogReadRejectsARecordWithoutAnOxiaVersion() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final OxiaSyncRecoveryCatalogBackend backend = new OxiaSyncRecoveryCatalogBackend(records,
+                "delay/no-version", LIMITS);
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 9);
+        final CheckpointManifest manifest = manifest(shard, id16(8), id16(9), 0, 1, 1, null);
+        final RecoveryCatalog.Snapshot snapshot = new RecoveryCatalog.Snapshot(1, shard,
+                java.util.List.of(manifest), Map.of(), null, null, null);
+        records.putRawWithoutVersion("delay/no-version/catalog",
+                OxiaSyncRecoveryCatalogBackend.encodeSnapshot(snapshot));
+
+        assertThrows(IllegalStateException.class, backend::currentFloor);
+    }
+
+    @Test
     void validatesLocalStoreRecoveryAgainstTheCurrentRemoteFloorSnapshot() {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncRecoveryCatalogBackend backend = new OxiaSyncRecoveryCatalogBackend(records,
@@ -230,6 +245,10 @@ class OxiaSyncRecoveryCatalogBackendTest {
         private void putRaw(final String key, final byte[] value) {
             final Version version = new Version(nextVersion++, 0, 0, 1, Optional.empty(), Optional.empty());
             records.put(key, new GetResult(key, Bytes.copy(value), version));
+        }
+
+        private void putRawWithoutVersion(final String key, final byte[] value) {
+            records.put(key, new GetResult(key, Bytes.copy(value), null));
         }
     }
 }

@@ -203,8 +203,8 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
             return RecoveryCatalog.fromSnapshot(new RecoveryCatalog.Snapshot(0, null, List.of(), Map.of(),
                     null, null, null));
         }
-        if (!recordKey.equals(result.key())) {
-            throw new IllegalStateException("Oxia catalog response belongs to another key");
+        if (!recordKey.equals(result.key()) || result.version() == null) {
+            throw new IllegalStateException("Oxia catalog response has an invalid key or version");
         }
         final byte[] encoded = result.value();
         if (encoded == null || encoded.length == 0 || encoded.length > MAX_SNAPSHOT_BYTES) {
