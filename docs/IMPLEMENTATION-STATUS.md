@@ -5336,6 +5336,15 @@ compatibility overload. The scheduler reflection fence, focused Lane/Worker,
 due-executor and Claim-handoff tests, and the full local Gradle gate passed;
 five real-Oxia smoke methods remained skipped without an endpoint.
 
+The untimed `WorkerScheduler.poll(SchedulerBudget)` overload is now
+package-local as well. It also mapped to `Long.MAX_VALUE`, so exposing it would
+let a Worker-level caller bypass due eligibility before DRR delegates to each
+shard scheduler. The explicit `poll(dueThroughEpochMs, budget)` form remains
+public and propagates the same inclusive boundary to shard-local polling.
+`WorkerSchedulerTest.untimedWorkerPollIsNotPublicProductionApi`, the focused
+Worker/Lane/due/Claim suites and the full local Gradle gate passed; five
+real-Oxia smoke methods remained opt-in and skipped.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

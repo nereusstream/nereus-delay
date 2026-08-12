@@ -2200,7 +2200,9 @@ READY scan 由 `PersistentLaneScheduler` 的完整 evidence+budget overload 执�
 无 evidence `discoverReady(budget)` 与仅有 due-through scalar 的 overload 同样是
 包内兼容面，不能从 Worker/ownership 包直接调用。持久 scheduler 的无时间
 `poll(budget)` 也只允许包内兼容测试；跨包 Worker 必须显式传递 trusted
-due-through，不能用 `Long.MAX_VALUE` 隐式选择尚未到期的 head。
+due-through，不能用 `Long.MAX_VALUE` 隐式选择尚未到期的 head。Worker 级 DRR
+的 `poll(budget)` 同样只保留 scheduler 包内；对外唯一 poll 形式必须显式携带
+due-through，并把它原样传到 shard-local scheduler。
 
 一次 discovery 成功只返回本轮新 promote 的 due heads；它不等于 Claim，也不能越过
 Claim materialization、permit、Ready Certificate 或 Publish Admission gate。queue 拒绝

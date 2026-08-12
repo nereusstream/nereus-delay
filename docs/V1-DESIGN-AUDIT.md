@@ -5039,6 +5039,13 @@ due-through boundary. The reflection regression prevents re-exposure. Focused
 Lane/Worker scheduler, due and Claim tests plus the complete local gate passed;
 real trusted time and Oxia remain external evidence.
 
+The Worker-level untimed poll is package-local too. It previously translated
+to `Long.MAX_VALUE` before delegating through DRR, allowing an external caller
+to remove future work despite the shard-level time fence. Only
+`poll(dueThroughEpochMs, budget)` remains public. The Worker reflection
+regression, focused scheduler/due/Claim tests and complete local gate passed;
+production trusted-time issuance remains an external gate.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
