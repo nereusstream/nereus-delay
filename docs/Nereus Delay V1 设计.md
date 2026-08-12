@@ -2215,6 +2215,14 @@ Reservation expiry 不是本地 timer 的直接状态写入。`TIME_FENCE_V1` �
 
 Payload Object 是 caller application-serialized 的原始 bytes；V1 不增加服务层压缩编码。Checksum 固定为 SHA-256 over exact bytes，length 是未改写 bytes 长度。Object Store 自身的透明传输/静态加密不改变这个身份。
 
+仓库提供的 `FilesystemPayloadObjectStore` 是上述 Object Store adapter 的本地/测试
+物理 seam：它把 service-owned payload identity 映射到受保护的本地目录，使用
+no-follow 文件句柄、完整字节校验、临时文件 fsync、atomic rename 和
+immutable-if-absent 重试。它只持久化 payload bytes；重启后仍必须由当前
+Source-ordered reservation 重新注册，不能把本地文件当成 reservation、Oxia
+protection、credential lease 或 provider availability authority。真实 Object
+Store 的认证、quiescence、远端不可变性和删除 evidence 仍按本节的生产边界执行。
+
 `PayloadUploadHandle` 是 scoped capability，不允许 caller 选择 bucket/key/endpoint/credential。Upload 采用 if-absent；已存在 exact length/SHA-256/etag 视为幂等，different bytes 为 conflict。
 
 只有 `PREPARE_LARGE_SCHEDULE` 已 durable APPLIED 后，`PayloadReservationReceipt` 才返回 reservation identity、exact object identity、expiry 和 length/SHA-256。短期 `PayloadUploadHandle` 由 authenticated API 针对仍有效 reservation 按需签发；issuer 必须在一个 Oxia transaction compare current Head triplet，并把 exact Object Store binding generation 的 `CredentialBindingProtectionV1.uploadHandleProtectionUntil` monotonic max-CAS 到 handle expiry，durable reread 后才暴露 capability。rotation-before-protection 迫使 issuer 用 new binding；CAS uncertain 只重试相同 transaction intent/maximum。Handle 可重签但不进入 Command result、DB、checkpoint、日志或普通 receipt。

@@ -70,6 +70,17 @@ the round trip and the out-of-bound return; this remains local orchestration
 evidence and does not close Owner Lease/Source Assignment, RecoveryPin/Oxia
 transaction, Source Log replay or real Object Store gates.
 
+After `465d6de`, the large-payload local adapter also has a durable filesystem
+byte backend:
+`FilesystemPayloadObjectStore` preserves the existing reservation/handle/proof
+contract while publishing immutable payload bytes through no-follow reads,
+private temporary files, fsync and atomic rename. Its restart regression proves
+that re-registering the same source-ordered reservation reproduces the exact
+handle and proof; corruption, conflicting bytes and a symlinked root fail
+closed. This is physical local/test evidence only and does not close remote
+Object Store credentials, provider quiescence/attestation/deletion, Oxia
+protection or source-ordered reservation authority.
+
 After `6efd89f`, the local checkpoint execution boundary is explicit rather
 than implicit: `CheckpointExecutionCoordinator` requires the exact scheduler
 claim before filesystem/provider I/O, creates or safely reuses the fixed-ID
