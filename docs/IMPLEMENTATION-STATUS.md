@@ -8,7 +8,7 @@ the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
 The latest post-permit audit on 2026-08-12 ran from document commit
-`2138ca3` with a temporary standalone Oxia service built from source commit
+`b45045b` with a temporary standalone Oxia service built from source commit
 `37a17bef17202d5fd6e23282da5fd26d94865484`:
 ```text
 NEREUS_DELAY_OXIA_ENDPOINT=127.0.0.1:6648 \
@@ -16,6 +16,7 @@ GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew clean check --rerun-
 ```
 The command completed with 1205 tests, zero failures,
 errors or skips. All five opt-in real-Oxia methods executed successfully.
+`checkDocumentation` was the first verification task in the same live run.
 No additional local semantic gap was found in the ownership, replay,
 checkpoint, one-shard/one-DB, or Worker resource boundaries; the remaining
 incomplete rows below require cross-record Oxia transactions, Broker
