@@ -116,6 +116,28 @@ class OxiaSyncRecoveryCatalogBackendTest {
     }
 
     @Test
+    void directManifestReadRejectsCheckpointIdentityWithWrongWidth() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final OxiaSyncRecoveryCatalogBackend backend = new OxiaSyncRecoveryCatalogBackend(records,
+                "delay/manifest-width", LIMITS);
+
+        assertThrows(IllegalArgumentException.class, () -> backend.manifest(new byte[15]));
+        assertThrows(IllegalArgumentException.class, () -> backend.manifest(new byte[17]));
+    }
+
+    @Test
+    void directFloorCoverageReadRejectsCandidateIdentityWithWrongWidth() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final OxiaSyncRecoveryCatalogBackend backend = new OxiaSyncRecoveryCatalogBackend(records,
+                "delay/coverage-width", LIMITS);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> backend.proveFloorCoverage(new byte[15], 0));
+        assertThrows(IllegalArgumentException.class,
+                () -> backend.proveFloorCoverage(new byte[17], 0));
+    }
+
+    @Test
     void validatesLocalStoreRecoveryAgainstTheCurrentRemoteFloorSnapshot() {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncRecoveryCatalogBackend backend = new OxiaSyncRecoveryCatalogBackend(records,

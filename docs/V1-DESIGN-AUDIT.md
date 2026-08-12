@@ -3943,6 +3943,21 @@ the full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
 methods were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is
 local regression evidence, not release evidence.
 
+The public single-record Recovery Catalog backend now rejects a checkpoint ID
+with any width other than the Registry's 16 bytes before issuing a direct
+manifest or Floor-coverage read. This closes the concrete backend boundary in
+addition to the wrapper validation; the focused regressions are
+`OxiaSyncRecoveryCatalogBackendTest.directManifestReadRejectsCheckpointIdentityWithWrongWidth`
+and `directFloorCoverageReadRejectsCandidateIdentityWithWrongWidth`. The
+change is local input validation and does not claim cross-record Oxia,
+upload-intent, Object Store or recovery-session authority.
+
+After this direct-backend identity fence, the focused catalog test and the
+full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
+2026-08-12 (`BUILD SUCCESSFUL`, five executed tasks). The five opt-in real-Oxia
+methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this
+is local evidence only.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

@@ -100,6 +100,7 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
 
     @Override
     public Optional<CheckpointManifest> manifest(final byte[] checkpointId) {
+        Bytes.requireLength(checkpointId, 16, "checkpointId");
         return readCatalog().manifest(Bytes.copy(checkpointId));
     }
 
@@ -136,6 +137,7 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
     public Optional<RecoveryCatalog.FloorCoverage> proveFloorCoverage(final byte[] candidateCheckpointId,
                                                                         final long requiredMutationSequence,
                                                                         final SourcePosition... requiredPositions) {
+        Bytes.requireLength(candidateCheckpointId, 16, "candidateCheckpointId");
         final byte[] requestedCandidate = Bytes.copy(candidateCheckpointId);
         final SourcePosition[] requestedPositions = Arrays.copyOf(
                 Objects.requireNonNull(requiredPositions, "requiredPositions"), requiredPositions.length);

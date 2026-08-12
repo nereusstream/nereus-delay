@@ -4203,6 +4203,22 @@ After this catalog resource-bound change, the focused
 real-Oxia methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was
 unset; this is local regression evidence only, not release evidence.
 
+The concrete public `OxiaSyncRecoveryCatalogBackend` now validates the fixed
+16-byte checkpoint identity before direct `manifest` and `proveFloorCoverage`
+calls reach the Oxia read path. The outer `OxiaRecoveryCatalog` already had
+this fence, but the backend itself is also a public `CasBackend` implementation
+and must fail closed when used directly. The focused regressions are
+`OxiaSyncRecoveryCatalogBackendTest.directManifestReadRejectsCheckpointIdentityWithWrongWidth`
+and `directFloorCoverageReadRejectsCandidateIdentityWithWrongWidth`. This is a
+local API-boundary check only; it does not add upload-intent transactions,
+Object Store publication or external recovery authority.
+
+After this direct-backend identity fence, the focused catalog test and the
+full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
+2026-08-12 (`BUILD SUCCESSFUL`, five executed tasks). The five opt-in
+real-Oxia methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was
+unset; this remains local regression evidence only.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
