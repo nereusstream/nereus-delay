@@ -209,6 +209,17 @@ candidate and Owner-expiry fencing. This closes only the local scanner-to-store
 composition seam; production GC scheduling, Oxia authority, Recovery-Floor and
 Object Store deletion evidence remain open.
 
+After `5eedd9d`, Lane-close cursor advancement has the matching strict
+`GC`-class bridge. `LaneCloseWorkClassExecutor` binds the canonical cursor and
+bounded batch size before queue admission, rereads the Owner Lease before the
+turn, and delegates only the existing source-marker materializer. Queue
+rejection is side-effect free; a cursor that was advanced or removed while
+queued is reported as `STALE` or `NOT_FOUND` and cannot be applied to another
+close version. The focused regression covers successful message terminalization,
+rejection, stale cursor and Owner-expiry fencing. This is local evidence only;
+production close scheduling, admitted-obligation/object cleanup, Oxia authority
+and Recovery-Floor protection remain open.
+
 After `3ba6fb6`, persistent READY discovery is also behind a concrete
 `DUE_SCHEDULER` action. The task identity binds the exact Shard, canonical
 trusted-UTC evidence and all scan-budget fields; its charge reserves canonical
