@@ -1651,13 +1651,18 @@ Destination Profile、business metadata 和交付窗口必须精确一致；普�
 Schedule 的 inline/committed payload 必须与原始 payload branch 精确一致；
 Prepare→Commit 分支必须使用 Prepare 冻结的完整 Object Store ProfileRef，并匹配
 expected length 与 SHA-256。不得用“相同 semantic hash、不同 Profile 身份”的
-descriptor 替换已接受的 command 语义。旧的 `byte[]` primitive 已降为 runtime
+descriptor 替换已接受的 command 语义。Claim 还必须解析该 binding 中保留的
+exact `canonicalLaneTupleV1`，并要求 materialization 的 Destination Profile、Delivery
+Capability Profile、Broker target resource 和 physical partition 与 tuple 投影完全一致；
+Kafka tuple 中重复的 native-topic UUID/physical-topic identity 也必须一致。旧的
+`byte[]` primitive 已降为 runtime
 包内可见，只供 typed 实现和测试搭建本地状态使用；`claimForPublishV1` 是
 `DelayShard` 唯一公开的 Claim 创建入口，生产调度仍必须经
 `ClaimHandoffWorkClassExecutor` 与 `OwnedDelayShard` 的 authority/lifecycle
-复核。这些本地比较仍不会自行证明 Delivery Capability Profile、target
-resource/physical partition、Object Store fetch/immutability、Adapter 序列化/大小或
-Producer ownership；这些仍由后续外部 authority gate 闭合。
+复核。tuple 比较只证明 Schedule apply 时已冻结的 immutable identity，仍不会
+自行证明 Profile semantic/current credential 仍可用、Broker resource 未被替换、
+Object Store fetch/immutability、Adapter 序列化/大小、channel/credential lease 或 Producer
+ownership；这些 live authority 仍由后续外部 gate 闭合。
 
 Claim handoff 必须在 discovery 已经精确 poll 出一个 READY head 后，作为另一个
 有界 `DUE_SCHEDULER` action 完成。action identity 要绑定 shard、Lane/head

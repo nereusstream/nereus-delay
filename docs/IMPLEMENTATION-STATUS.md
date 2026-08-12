@@ -4295,7 +4295,7 @@ covers this ordering.
 |---|---|---|
 | Queued receipt Route-policy boundary | Implemented (local strict adapter seam; Route authority pending) | `QueuedReceiptQueryPolicy`, `PolicyBoundWireCommandIngressAdapter`, `PinnedKafkaCommandIngress`, `PinnedPulsarCommandIngress`, `PreparedSubmissionAdapter`, `EmbeddedDelayService`, `AdapterIngressTest`, `NativeSubmissionAdapterTest`; strict paths derive `receipt_query_until` from authenticated Broker persistence time with checked addition, reject missing/drifting policy snapshots before transport ownership, and retain post-persistence overflow as `ENQUEUE_UNCERTAIN`/integrity evidence; absolute-boundary overloads are compatibility-only and checked against a bound policy; Route policy publication, source-time authority and concrete production transports remain release blockers |
 | Full command-result retention boundary | Implemented (local strict query seam; retention authority pending) | `CommandResultRetentionPolicy`, `DelayClient`, `EmbeddedDelayService`, `BoundedLocalQueryProjector`, `EmbeddedDelayServiceTest.embeddedQueryDerivesFullResultRetentionFromAppliedSourceTime`, `CommandResultRetentionPolicyTest`; strict query/await/applied-receipt projections derive `full_result_retain_until` from the applied Source Position Broker persistence time with checked addition, while absolute-boundary overloads remain compatibility-only; policy publication, source-time authority and production query routing remain release blockers |
-| Strict typed Claim runtime binding | Implemented (local Message plus durable V1 command binding and public-API fence; external authority pending) | `DelayShard.claimForPublishV1`, `DelayShardTest.physicalGcMutationPrimitivesAreNotPublicProductionApis`, `DelayShardTest.registryPrepareCannotDowngradeTrustSetAuthorityWithLegacyCommitBody`, `ClaimMaterializationRuntimeTest`; strict Claim entrypoint binds message identity, generation, delivery window, timeline `actionAt` and inline/object payload reference before persistence, then, when a `V1ScheduleBinding` exists, exactly rebinds Destination Profile, business metadata, delivery window and the original Schedule payload branch or Prepare Object Store Profile/length/SHA-256. Same-semantic-hash foreign Destination/Object Store Profile identities are rejected before Claim state changes; the legacy byte-array primitive is package-local and reachable across packages only from the test-classpath bridge. Production Claim creation remains routed through `ClaimHandoffWorkClassExecutor`/`OwnedDelayShard`; Delivery Capability/target/partition authority, Object Store fetch, Adapter serialization/size certification, Producer ownership and crash recovery remain release blockers |
+| Strict typed Claim runtime binding | Implemented (local Message plus durable V1 command/Lane-tuple binding and public-API fence; live authority pending) | `DelayShard.claimForPublishV1`, `V1ScheduleBinding.requireClaimLaneProjection`, `CanonicalLaneTupleV1Test`, `DelayShardTest.physicalGcMutationPrimitivesAreNotPublicProductionApis`, `DelayShardTest.registryPrepareCannotDowngradeTrustSetAuthorityWithLegacyCommitBody`, `ClaimMaterializationRuntimeTest`; strict Claim entrypoint binds message identity, generation, delivery window, timeline `actionAt` and inline/object payload reference before persistence, then, when a `V1ScheduleBinding` exists, exactly rebinds Destination Profile, business metadata, delivery window and the original Schedule payload branch or Prepare Object Store Profile/length/SHA-256. It also parses the exact durable canonical Lane tuple and requires byte-identical Destination/Capability Profiles, Kafka/Pulsar Broker target resource and physical partition; same-hash foreign Profile identities, target or partition drift are rejected before Claim state changes. The legacy byte-array primitive is package-local and reachable across packages only from the test-classpath bridge. Production Claim creation remains routed through `ClaimHandoffWorkClassExecutor`/`OwnedDelayShard`; live Profile/credential/resource authority, Object Store fetch, Adapter serialization/size certification, channel lease, Producer ownership and crash recovery remain release blockers |
 | Gradle Java 21 build | Implemented | `gradle compileJava`, `gradle test` |
 | Self-routing IDs and CRC32C | Implemented | `ProtocolCodecTest` |
 | `commandId + commandHash` prepared before I/O | Implemented | `PreparedCommand`, `CommandHash`, `ProtocolCodecTest` |
@@ -5607,8 +5607,25 @@ and reject the equivalent Profile substitution after a signed large-payload
 Commit, without changing `SCHEDULED` state. Code commit `abc6fec1` and the
 complete six-task local Gradle gate passed on 2026-08-13; five real-Oxia smokes
 were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset. Delivery Capability,
-target resource/partition, Object Store fetch/immutability, Adapter
-serialization/size and Producer/recovery authority remain OPEN.
+target resource and partition immutable identity are covered by the tuple
+projection below; live Profile/credential/resource availability, Object Store
+fetch/immutability, Adapter serialization/size and Producer/recovery authority
+remain OPEN.
+
+The same typed Claim boundary now consumes the complete immutable Lane identity
+already stored in `V1ScheduleBinding.canonicalLaneTuple`. The shared parser
+reconstructs the exact Destination and Delivery Capability Profile refs,
+Kafka/Pulsar Broker target resource and physical partition, then rejects any
+materialization drift before the Claim batch. Kafka's repeated native-topic
+UUID and physical-topic identity are also cross-checked. Protocol tests cover
+both Kafka and Pulsar tuple reconstruction plus an internally inconsistent
+Kafka tuple; runtime tests independently cover Capability, target and partition
+substitution. Code commit `dc5cc765` and the complete six-task local Gradle gate
+passed on 2026-08-13; five real-Oxia smokes were skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was unset. This proves only the immutable
+Schedule-time identity: live Profile/credential/resource availability, Object
+Store fetch, Adapter serialization/channel lease, Producer and recovery
+authority remain OPEN.
 
 ## Verification command
 

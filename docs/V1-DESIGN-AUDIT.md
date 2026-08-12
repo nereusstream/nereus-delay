@@ -1533,6 +1533,12 @@ window equality. Ordinary Schedule requires the complete original payload
 branch/descriptor; Prepare→Commit requires the complete pinned Object Store
 ProfileRef plus expected length and SHA-256. Therefore a foreign Profile
 identity cannot pass merely by reusing the same semantic hash.
+The same binding's exact canonical Lane tuple is parsed before Claim persistence
+and must project byte-identical Destination/Capability Profile refs,
+Kafka/Pulsar Broker target resource and physical partition. Kafka's duplicated
+native-topic UUID and physical-topic identity must also agree. This is an
+immutable Schedule-time identity check, not evidence that the current Profile,
+credential lease or Broker resource remains live.
 `ClaimMaterializationRuntimeTest` covers both payload branches and ordinary
 Schedule Profile substitution; the large-payload regression in
 `DelayShardTest.registryPrepareCannotDowngradeTrustSetAuthorityWithLegacyCommitBody`
@@ -1540,8 +1546,8 @@ covers the post-Commit Prepare binding. The raw byte-array primitive is now
 package-local; `DelayShardTest.physicalGcMutationPrimitivesAreNotPublicProductionApis`
 locks that visibility, and the only cross-package compatibility access lives in
 test sources for recovery-fixture construction. This is a local durable-command
-binding and API-surface proof only: Delivery Capability/target/partition
-authority, Object Store fetch/immutability, Adapter serialization/size
+binding and API-surface proof only: live Profile/credential/resource authority,
+Object Store fetch/immutability, Adapter serialization/size/channel lease
 certification and Producer ownership/recovery remain release gates.
 
 `PublishAdmissionBody` now parses its descriptor through the complete canonical
@@ -5393,8 +5399,23 @@ and Object Store Profile identities on both ordinary Schedule and committed
 Prepare paths and prove no Claim state transition. Code commit `abc6fec1` and
 the complete six-task local Gradle gate passed on 2026-08-13; five real-Oxia
 smokes were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset. Delivery
-Capability/target partition, Object Store fetch, Adapter/Producer and recovery
-authority remain OPEN.
+Capability/target/partition immutable identity is covered by the tuple
+projection below; current Profile/credential/resource continuity, Object Store
+fetch, Adapter/Producer and recovery authority remain OPEN.
+
+Typed Claim now also closes the immutable Lane-identity half of materialization.
+`V1ScheduleBinding` retains the exact §4.1 canonical tuple, and the shared
+parser reconstructs Destination/Delivery Capability refs, Kafka or Pulsar
+Broker target identity and physical partition. Claim persistence requires all
+four projections to match; Kafka additionally requires its two UUID
+projections to agree. `CanonicalLaneTupleV1Test` covers Kafka and Pulsar plus
+the internally inconsistent Kafka tuple, while `ClaimMaterializationRuntimeTest`
+covers Capability, target and partition substitution before any Claim state
+change. Code commit `dc5cc765` and the complete six-task local Gradle gate
+passed on 2026-08-13; five real-Oxia smokes were skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was unset. Current Profile semantics, credential
+lease/resource continuity, Object Store fetch, Adapter/channel, Producer and
+recovery authority remain OPEN.
 
 ## Final gate
 
