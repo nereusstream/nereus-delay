@@ -2,6 +2,7 @@ package io.nereusstream.delay.runtime;
 
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DelayMessageId;
+import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
 
 import java.nio.ByteBuffer;
@@ -32,7 +33,11 @@ public record RetiredMessageIdentityRecord(
                 || appliedSourcePosition.length == 0) {
             throw new IllegalArgumentException("invalid retired Message identity record");
         }
-        appliedSourcePosition = SourcePositionCodec.decode(appliedSourcePosition).canonicalBytes();
+        final SourcePosition decodedSourcePosition = SourcePositionCodec.decode(appliedSourcePosition);
+        if (!messageId.routingId().shardId().equals(decodedSourcePosition.shardId())) {
+            throw new IllegalArgumentException("retired Message source position belongs to another shard");
+        }
+        appliedSourcePosition = decodedSourcePosition.canonicalBytes();
     }
 
     @Override

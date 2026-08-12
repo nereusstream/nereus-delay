@@ -59,6 +59,14 @@ class RetiredMessageIdentityRecordTest {
                         Bytes.utf8("not-a-source-position")));
     }
 
+    @Test
+    void sourcePositionMustBelongToRetiredMessageShard() {
+        final ShardId messageShard = new ShardId(RouteIncarnation.random(), 9);
+        final ShardId foreignShard = new ShardId(RouteIncarnation.random(), 10);
+        assertThrows(IllegalArgumentException.class, () -> new RetiredMessageIdentityRecord(
+                DelayMessageId.random(messageShard), 42, 1, sourcePosition(foreignShard)));
+    }
+
     private static byte[] sourcePosition(final ShardId shard) {
         return new KafkaSourcePosition(shard, "test", UUID.randomUUID(), 0, null, 1_000).canonicalBytes();
     }

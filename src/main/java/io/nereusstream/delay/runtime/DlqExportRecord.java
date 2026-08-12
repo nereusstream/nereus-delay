@@ -4,6 +4,7 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.PublishAdmissionBody;
+import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
 
 import java.nio.ByteBuffer;
@@ -54,14 +55,17 @@ public record DlqExportRecord(
             throw new IllegalArgumentException("DLQ export physical attempt does not match state");
         }
         Objects.requireNonNull(appliedSourcePosition, "appliedSourcePosition");
-        SourcePositionCodec.decode(appliedSourcePosition);
+        final SourcePosition decodedSourcePosition = SourcePositionCodec.decode(appliedSourcePosition);
+        if (!messageId.routingId().shardId().equals(decodedSourcePosition.shardId())) {
+            throw new IllegalArgumentException("DLQ export source position belongs to another shard");
+        }
         if (!Arrays.equals(dlqExportId, deriveId(messageId, generation, terminalRevision))) {
             throw new IllegalArgumentException("DLQ export ID does not match terminal identity");
         }
         dlqExportId = Bytes.copy(dlqExportId);
         exportEnvelopeHash = Bytes.copy(exportEnvelopeHash);
         retainedCharge = Bytes.copy(retainedCharge);
-        appliedSourcePosition = Bytes.copy(appliedSourcePosition);
+        appliedSourcePosition = decodedSourcePosition.canonicalBytes();
     }
 
     /** Source-compatible constructor for the legacy zero-charge projection. */

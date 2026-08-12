@@ -570,22 +570,13 @@ class DelayShardTest {
     }
 
     @Test
-    void terminalGenerationLookupRejectsForeignSourcePosition() {
-        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("terminal-source-shard-mismatch"));
+    void terminalGenerationConstructionRejectsForeignSourcePosition() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 64);
         final ShardId otherShardId = new ShardId(RouteIncarnation.random(), 65);
         final DelayMessageId messageId = DelayMessageId.random(shardId);
-        final TerminalGenerationRecord misplaced = new TerminalGenerationRecord(messageId, 0,
+        assertThrows(IllegalArgumentException.class, () -> new TerminalGenerationRecord(messageId, 0,
                 MessageStatus.CANCELED, StableCode.CANCELED, 1,
-                position(otherShardId, 0, 1_000).canonicalBytes(), false);
-        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
-             ShardStore store = ShardStore.open(config, shardId, resources)) {
-            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
-            store.write(batch -> batch.putValue(ColumnFamily.TERMINAL, 1,
-                    KeyCodec.terminalGeneration(messageId, 0), misplaced.encode()));
-
-            assertThrows(IllegalStateException.class, () -> shard.getTerminalGeneration(messageId, 0));
-        }
+                position(otherShardId, 0, 1_000).canonicalBytes(), false));
     }
 
     @Test

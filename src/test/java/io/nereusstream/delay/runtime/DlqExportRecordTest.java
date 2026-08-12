@@ -100,4 +100,13 @@ class DlqExportRecordTest {
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0).canonicalBytes(),
                 decodedLegacy.retainedCharge());
     }
+
+    @Test
+    void sourcePositionMustBelongToExportMessageShard() {
+        final ShardId messageShard = new ShardId(RouteIncarnation.random(), 11);
+        final ShardId foreignShard = new ShardId(RouteIncarnation.random(), 12);
+        assertThrows(IllegalArgumentException.class, () -> DlqExportRecord.notConfigured(
+                DelayMessageId.random(messageShard), 0, 1, new KafkaSourcePosition(foreignShard, "cluster",
+                        UUID.randomUUID(), 9, null, 1_000).canonicalBytes()));
+    }
 }

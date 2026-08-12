@@ -78,6 +78,15 @@ class TerminalGenerationRecordTest {
                 StableCode.ALREADY_DEAD_LETTERED, 1, Bytes.utf8("not-a-source-position"), false));
     }
 
+    @Test
+    void sourcePositionMustBelongToTerminalMessageShard() {
+        final ShardId messageShard = new ShardId(RouteIncarnation.random(), 4);
+        final ShardId foreignShard = new ShardId(RouteIncarnation.random(), 5);
+        assertThrows(IllegalArgumentException.class, () -> new TerminalGenerationRecord(
+                DelayMessageId.random(messageShard), 0, MessageStatus.DEAD_LETTER,
+                StableCode.ALREADY_DEAD_LETTERED, 1, sourcePosition(foreignShard), false));
+    }
+
     private static byte[] sourcePosition(final ShardId shardId) {
         return new KafkaSourcePosition(shardId, "test", UUID.randomUUID(), 0, null, 1_000).canonicalBytes();
     }
