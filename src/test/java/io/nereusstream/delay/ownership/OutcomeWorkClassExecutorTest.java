@@ -5,6 +5,7 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CanonicalProtobuf;
 import io.nereusstream.delay.protocol.KafkaActivationBarrier;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
+import io.nereusstream.delay.protocol.OwnerIdentityV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.SourcePosition;
@@ -138,11 +139,15 @@ class OutcomeWorkClassExecutorTest {
                 ShardStoreConfig.defaults(tempDir.resolve(name + "-resources")));
         final ShardStore store = ShardStore.open(ShardStoreConfig.defaults(tempDir.resolve(name + "-store")),
                 shard, resources);
-        final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+        final OwnerIdentityV1 owner = new OwnerIdentityV1(Bytes.utf8("outcome-deployment"),
+                Bytes.utf8("outcome-worker"), lease.ownerEpoch(),
+                Bytes.sha256(Bytes.utf8("outcome-fence")));
+        final OwnedDelayShard owned = new OwnedDelayShard(
+                new DelayShard(store, DelayShardConfig.defaults()), lease, owner);
         owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
         owned.recordCatchup(new KafkaSourcePosition(shard, "outcome-cluster", topic, 0, null, 1_000));
         owned.activateForCommands(authority, 101);
-        return new Fixture(shard, topic, lease, authority, owned, workClasses(1), resources, store);
+        return new Fixture(shard, topic, lease, owner, authority, owned, workClasses(1), resources, store);
     }
 
     private static SystemMutation mutation(final Fixture fixture, final int identity) throws Exception {
@@ -165,9 +170,8 @@ class OutcomeWorkClassExecutorTest {
             CanonicalProtobuf.bytes(output, 16, nested);
             CanonicalProtobuf.bytes(output, 17, nested);
         });
-        final AuthorIdentity author = AuthorIdentity.owner(Bytes.utf8("outcome-deployment"),
-                Bytes.utf8("outcome-worker"), fixture.lease.ownerEpoch(),
-                Bytes.sha256(Bytes.utf8("outcome-fence")));
+        final AuthorIdentity author = AuthorIdentity.owner(fixture.owner.deploymentId(),
+                fixture.owner.workerRunId(), fixture.owner.ownerEpoch(), fixture.owner.leaseFencingDigest());
         return SystemMutation.signed(fixture.shard, SystemMutationType.PUBLISH_OUTCOME, 9_000,
                 logicalIdentity, body, author.canonicalBytes(), 1, keyPair.getPrivate());
     }
@@ -187,7 +191,8 @@ class OutcomeWorkClassExecutorTest {
                 16, 2_000_000), () -> 0);
     }
 
-    private record Fixture(ShardId shard, UUID topic, OwnerLease lease, OxiaOwnerLeaseStore authority,
+    private record Fixture(ShardId shard, UUID topic, OwnerLease lease, OwnerIdentityV1 owner,
+                           OxiaOwnerLeaseStore authority,
                            OwnedDelayShard owned, WorkClassExecutionRegistry workClasses,
                            SharedRocksDbResources resources, ShardStore store) implements AutoCloseable {
         private KafkaSourcePosition position(final long offset) {

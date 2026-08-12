@@ -10,6 +10,7 @@ import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.KafkaActivationBarrier;
 import io.nereusstream.delay.protocol.OrderingMode;
+import io.nereusstream.delay.protocol.OwnerIdentityV1;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.ProtocolTupleV1;
@@ -60,7 +61,7 @@ class OwnerLeaseTest {
     Path tempDir;
 
     @Test
-    void directReplaySeamsAreNotPublicProductionApi() {
+    void directReplaySeamsAreNotPublicProductionApi() throws Exception {
         final Set<String> directReplayNames = Set.of(
                 "replayCatchup", "replayCatchupTurn", "replaySystemMutations",
                 "replaySystemMutationsTurn", "replay", "replayTurn");
@@ -69,6 +70,37 @@ class OwnerLeaseTest {
             if (directReplayNames.contains(method.getName())) {
                 assertFalse(Modifier.isPublic(method.getModifiers()), method.toGenericString());
             }
+        }
+        assertFalse(Modifier.isPublic(OwnedDelayShard.class
+                .getDeclaredConstructor(DelayShard.class, OwnerLease.class).getModifiers()));
+        assertTrue(Modifier.isPublic(OwnedDelayShard.class
+                .getDeclaredConstructor(DelayShard.class, OwnerLease.class, OwnerIdentityV1.class).getModifiers()));
+    }
+
+    @Test
+    void publicOwnedShardBindingRequiresAnExactProtocolOwnerAndShard() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 26);
+        final OwnerLease lease = new OwnerLease(shard, "worker-owner-binding", 7,
+                Bytes.sha256(Bytes.utf8("owner-binding-lease")), 1_000);
+        final OwnerIdentityV1 matching = new OwnerIdentityV1(Bytes.utf8("owner-binding-deployment"),
+                Bytes.utf8("owner-binding-worker"), lease.ownerEpoch(),
+                Bytes.sha256(Bytes.utf8("owner-binding-fence")));
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("owner-binding"));
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shard, resources)) {
+            final DelayShard delayShard = new DelayShard(store, DelayShardConfig.defaults());
+
+            assertThrows(NullPointerException.class,
+                    () -> new OwnedDelayShard(delayShard, lease, null));
+            assertThrows(IllegalArgumentException.class, () -> new OwnedDelayShard(delayShard, lease,
+                    new OwnerIdentityV1(matching.deploymentId(), matching.workerRunId(),
+                            lease.ownerEpoch() + 1, matching.leaseFencingDigest())));
+            assertThrows(IllegalArgumentException.class, () -> new OwnedDelayShard(delayShard,
+                    new OwnerLease(new ShardId(RouteIncarnation.random(), shard.partition()), lease.ownerId(),
+                            lease.ownerEpoch(), lease.leaseToken(), lease.expiresAtEpochMs()), matching));
+
+            final OwnedDelayShard owned = new OwnedDelayShard(delayShard, lease, matching);
+            assertEquals(ShardLifecycleState.RESTORING, owned.state());
         }
     }
 

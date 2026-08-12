@@ -36,6 +36,7 @@ import java.util.function.LongSupplier;
 /** Fenced owner view; lease loss closes all new local authority gates. */
 public final class OwnedDelayShard {
     private final DelayShard delegate;
+    private final OwnerIdentityV1 ownerIdentity;
     private OwnerLease lease;
     private ShardLifecycleState state;
     private SourceActivationBarrier activationBarrier;
@@ -57,10 +58,31 @@ public final class OwnedDelayShard {
      */
     private boolean drainAttemptInProgress;
 
-    public OwnedDelayShard(final DelayShard delegate, final OwnerLease lease) {
+    OwnedDelayShard(final DelayShard delegate, final OwnerLease lease) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
         this.lease = Objects.requireNonNull(lease, "lease");
+        this.ownerIdentity = null;
+        validateShardIdentity(delegate, lease);
         this.state = ShardLifecycleState.RESTORING;
+    }
+
+    /** Binds the complete protocol Owner identity used by new live Owner-authored actions. */
+    public OwnedDelayShard(final DelayShard delegate, final OwnerLease lease,
+                           final OwnerIdentityV1 ownerIdentity) {
+        this.delegate = Objects.requireNonNull(delegate, "delegate");
+        this.lease = Objects.requireNonNull(lease, "lease");
+        this.ownerIdentity = Objects.requireNonNull(ownerIdentity, "ownerIdentity");
+        validateShardIdentity(delegate, lease);
+        if (ownerIdentity.ownerEpoch() != lease.ownerEpoch()) {
+            throw new IllegalArgumentException("protocol Owner epoch does not match lease");
+        }
+        this.state = ShardLifecycleState.RESTORING;
+    }
+
+    private static void validateShardIdentity(final DelayShard delegate, final OwnerLease lease) {
+        if (!delegate.shardId().equals(lease.shardId())) {
+            throw new IllegalArgumentException("owned shard and lease identity mismatch");
+        }
     }
 
     synchronized CommandResult apply(final PreparedCommand command, final SourcePosition position,
@@ -310,8 +332,8 @@ public final class OwnedDelayShard {
         if (!lease.shardId().equals(Objects.requireNonNull(scheduler, "scheduler").shardId())) {
             throw new IllegalArgumentException("due scheduler belongs to a different shard");
         }
-        if (scheduler.ownerIdentity().ownerEpoch() != lease.ownerEpoch()) {
-            throw new IllegalArgumentException("due scheduler belongs to a different owner epoch");
+        if (!scheduler.ownerIdentity().equals(requireBoundOwnerIdentity())) {
+            throw new IllegalArgumentException("due scheduler belongs to a different Owner identity");
         }
     }
 
@@ -441,8 +463,8 @@ public final class OwnedDelayShard {
             throw new IllegalArgumentException("expiry candidate does not belong to this shard");
         }
         trusted.requireEarliestAtLeast(work.expireAtEpochMs());
-        if (author.ownerEpoch() != lease.ownerEpoch()) {
-            throw new IllegalArgumentException("expiry owner epoch does not match the active lease");
+        if (!author.equals(requireBoundOwnerIdentity())) {
+            throw new IllegalArgumentException("expiry Owner identity does not match the active owner");
         }
     }
 
@@ -638,8 +660,8 @@ public final class OwnedDelayShard {
         final AuthorIdentity author = AuthorIdentity.decode(exact.authorIdentity());
         author.requireFor(exact.type());
         if (author.kind() == AuthorIdentity.Kind.OWNER
-                && author.asOwnerIdentity().ownerEpoch() != lease.ownerEpoch()) {
-            throw new IllegalArgumentException("outcome mutation Owner epoch does not match the active lease");
+                && !author.asOwnerIdentity().equals(requireBoundOwnerIdentity())) {
+            throw new IllegalArgumentException("outcome mutation Owner identity does not match the active owner");
         }
     }
 
@@ -769,8 +791,8 @@ public final class OwnedDelayShard {
             throw new IllegalArgumentException("Publish Admission Claim identity does not belong to this owner/store");
         }
         final OwnerIdentityV1 owner = OwnerIdentityV1.decode(expected.ownerIdentity());
-        if (owner.ownerEpoch() != expected.ownerEpoch()) {
-            throw new IllegalArgumentException("Publish Admission Claim Owner epoch mismatch");
+        if (owner.ownerEpoch() != expected.ownerEpoch() || !owner.equals(requireBoundOwnerIdentity())) {
+            throw new IllegalArgumentException("Publish Admission Claim Owner identity mismatch");
         }
         if (!expected.hasMaterialization()) {
             throw new IllegalArgumentException("Publish Admission requires Claim materialization");
@@ -803,7 +825,7 @@ public final class OwnedDelayShard {
         }
         final long nowEpochMs = readActiveWorkClock(clock, "Claim handoff");
         ensureAuthoritativeActive(authority, nowEpochMs, "Claim handoff");
-        final var owner = scheduler.ownerIdentity();
+        final OwnerIdentityV1 owner = requireBoundOwnerIdentity();
         final AuthorIdentity author = AuthorIdentity.owner(owner.deploymentId(), owner.workerRunId(),
                 owner.ownerEpoch(), owner.leaseFencingDigest());
         try {
@@ -825,6 +847,13 @@ public final class OwnedDelayShard {
             throw new IllegalArgumentException("lease renewal changed owner identity/epoch");
         }
         lease = renewed;
+    }
+
+    private OwnerIdentityV1 requireBoundOwnerIdentity() {
+        if (ownerIdentity == null) {
+            throw new IllegalStateException("strict live Owner action requires an explicit OwnerIdentityV1");
+        }
+        return ownerIdentity;
     }
 
     public synchronized void fence() {

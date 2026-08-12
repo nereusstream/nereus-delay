@@ -189,6 +189,7 @@ class ExpiryWorkClassExecutorTest {
         private final ShardStore store;
         private final DelayShard shard;
         private final OwnedDelayShard owned;
+        private final OwnerIdentityV1 owner;
         private final WorkClassExecutionRegistry workClasses;
         private final KeyPair keyPair;
         private final DelayShard.ExpiryWork candidate;
@@ -214,7 +215,8 @@ class ExpiryWorkClassExecutorTest {
             shard.apply(schedule, position(0, 1_000));
             candidate = io.nereusstream.delay.runtime.DelayShardTestSupport.discoverExpiry(
                     shard, 5_000, 1).get(0);
-            owned = new OwnedDelayShard(shard, lease);
+            owner = owner(lease.ownerEpoch());
+            owned = new OwnedDelayShard(shard, lease, owner);
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
             owned.activateForCommands(authority, 101);
             workClasses = workClasses(maxQueueRecords);
@@ -226,7 +228,7 @@ class ExpiryWorkClassExecutorTest {
         }
 
         private ExpiryWorkClassExecutor.Submission submit(final ExpiryWorkClassExecutor executor) {
-            return executor.submit(candidate, evidence(), 9_000, owner(lease.ownerEpoch()),
+            return executor.submit(candidate, evidence(), 9_000, owner,
                     1, keyPair.getPrivate(), () -> 101);
         }
 

@@ -98,13 +98,16 @@ class DueSchedulerWorkClassExecutorTest {
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shard, resources)) {
+            final OwnerIdentityV1 owner = new OwnerIdentityV1(Bytes.utf8("due-work-deployment"),
+                    Bytes.utf8("due-work-worker"), lease.ownerEpoch(),
+                    Bytes.sha256(Bytes.utf8("due-work-owner-fence")));
             final OwnedDelayShard owned = new OwnedDelayShard(
-                    new DelayShard(store, DelayShardConfig.defaults()), lease);
+                    new DelayShard(store, DelayShardConfig.defaults()), lease, owner);
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
             owned.recordCatchup(source);
             owned.activateForCommands(authority, 101);
-            final PersistentLaneScheduler scheduler =
-                    io.nereusstream.delay.scheduler.PersistentLaneSchedulerTestSupport.defaults(store);
+            final PersistentLaneScheduler scheduler = new PersistentLaneScheduler(
+                    store, LaneScheduler.defaults(), owner);
             final byte[] certificate = bindReadyCertificate(PublishAdmissionBody.decode(
                     PublishAdmissionBodyTest.Fixture.createForSourceWithLane(shard, messageId, incarnation(),
                             timelineKey, 1, 0, 0, Bytes.sha256(Bytes.utf8("due-work-obligations")),
@@ -145,13 +148,17 @@ class DueSchedulerWorkClassExecutorTest {
 
             final byte[] otherWorker = Bytes.utf8("due-work-other-owner");
             final OwnerIdentityV1 otherOwner = new OwnerIdentityV1(Bytes.utf8("embedded-scheduler"),
-                    otherWorker, 2, Bytes.sha256(Bytes.utf8("due-work-other-owner-fence")));
+                    otherWorker, lease.ownerEpoch(), Bytes.sha256(Bytes.utf8("due-work-other-owner-fence")));
             final PersistentLaneScheduler otherOwnerScheduler = new PersistentLaneScheduler(
                     store, LaneScheduler.defaults(), otherOwner);
             io.nereusstream.delay.scheduler.PersistentLaneSchedulerTestSupport.register(otherOwnerScheduler, lane);
             assertThrows(IllegalStateException.class,
                     () -> otherOwnerScheduler.discoverReady(evidence, budget));
             assertEquals(0, otherOwnerScheduler.snapshot().lanes().get(0).pendingItems());
+            final DueSchedulerWorkClassExecutor wrongOwnerExecutor = new DueSchedulerWorkClassExecutor(
+                    workClasses, owned, authority, otherOwnerScheduler);
+            assertThrows(IllegalArgumentException.class,
+                    () -> wrongOwnerExecutor.submit(evidence, budget, () -> 101));
 
             final DueSchedulerWorkClassExecutor.Submission submitted =
                     executor.submit(evidence, budget, () -> 101);

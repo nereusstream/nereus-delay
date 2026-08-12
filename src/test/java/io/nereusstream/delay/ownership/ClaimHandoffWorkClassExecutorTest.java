@@ -34,6 +34,7 @@ import io.nereusstream.delay.runtime.MessageRecord;
 import io.nereusstream.delay.runtime.MessageStatus;
 import io.nereusstream.delay.runtime.RuntimeReadiness;
 import io.nereusstream.delay.scheduler.ClaimExecutionAdmission;
+import io.nereusstream.delay.scheduler.LaneScheduler;
 import io.nereusstream.delay.scheduler.PersistentLaneScheduler;
 import io.nereusstream.delay.scheduler.ScheduleWorkItem;
 import io.nereusstream.delay.scheduler.SchedulerBudget;
@@ -93,11 +94,14 @@ class ClaimHandoffWorkClassExecutorTest {
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnerIdentityV1 owner = new OwnerIdentityV1(Bytes.utf8("claim-work-deployment"),
+                    Bytes.utf8("claim-work-worker"), lease.ownerEpoch(),
+                    Bytes.sha256(Bytes.utf8("claim-work-owner-fence")));
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
             shard.apply(schedule, source);
             io.nereusstream.delay.runtime.DelayShardTestSupport.updateLaneReadiness(
                     shard, laneId, RuntimeReadiness.READY);
-            final OwnedDelayShard owned = new OwnedDelayShard(shard, lease);
+            final OwnedDelayShard owned = new OwnedDelayShard(shard, lease, owner);
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
             owned.recordCatchup(source);
             owned.activateForCommands(authority, 101);
@@ -105,8 +109,8 @@ class ClaimHandoffWorkClassExecutorTest {
             final LaneRecord lane = shard.getLane(laneId);
             final byte[] readyKey = KeyCodec.timelineReady(lane.nextEligibleAtEpochMs(), laneId,
                     lane.laneVersion());
-            final PersistentLaneScheduler scheduler =
-                    io.nereusstream.delay.scheduler.PersistentLaneSchedulerTestSupport.defaults(store);
+            final PersistentLaneScheduler scheduler = new PersistentLaneScheduler(
+                    store, LaneScheduler.defaults(), owner);
             final byte[] certificate = bindReadyCertificate(PublishAdmissionBody.decode(
                     PublishAdmissionBodyTest.Fixture.createForSourceWithLane(shardId,
                             schedule.delayMessageId(), lane.laneIncarnation(),

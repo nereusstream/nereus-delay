@@ -93,19 +93,19 @@ class PublishAdmissionWorkClassExecutorTest {
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnerIdentityV1 owner = new OwnerIdentityV1(Bytes.utf8("publish-admission-deployment"),
+                    Bytes.utf8("publish-admission-worker"), lease.ownerEpoch(),
+                    Bytes.sha256(Bytes.utf8("publish-admission-fence")));
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
             shard.apply(schedule, schedulePosition);
             io.nereusstream.delay.runtime.DelayShardTestSupport.updateLaneReadiness(
                     shard, laneId, RuntimeReadiness.READY);
-            final OwnedDelayShard owned = new OwnedDelayShard(shard, lease);
+            final OwnedDelayShard owned = new OwnedDelayShard(shard, lease, owner);
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
             owned.recordCatchup(schedulePosition);
             owned.activateForCommands(authority, 101);
 
             final MessageRecord message = shard.getMessage(schedule.delayMessageId());
-            final OwnerIdentityV1 owner = new OwnerIdentityV1(Bytes.utf8("publish-admission-deployment"),
-                    Bytes.utf8("publish-admission-worker"), lease.ownerEpoch(),
-                    Bytes.sha256(Bytes.utf8("publish-admission-fence")));
             final ClaimMaterializationV1 materialization = materialization(destination, capability,
                     schedule.delayMessageId(), message, payload);
             final ClaimRecord claim = shard.claimForPublishV1(schedule.delayMessageId(),
