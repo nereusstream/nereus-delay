@@ -235,6 +235,32 @@ public final class SystemMutation {
                 fixed(mutationHash, HASH_LENGTH, "mutationHash"));
     }
 
+    /** Computes the registered logical identity for one Publish Admission. */
+    public static byte[] computePublishAttemptLogicalIdentity(final byte[] claimId,
+                                                               final byte[] messageId,
+                                                               final long generation,
+                                                               final long attemptNo) {
+        if (generation < 0 || generation > 0xffff_ffffL) {
+            throw new IllegalArgumentException("generation is outside uint32 range");
+        }
+        if (attemptNo <= 0 || attemptNo > 0xffff_ffffL) {
+            throw new IllegalArgumentException("attemptNo must be a positive uint32");
+        }
+        return Bytes.sha256(Bytes.utf8("nereus-delay-publish-attempt-id-v1\0"),
+                fixed(claimId, HASH_LENGTH, "claimId"),
+                fixed(messageId, DelayMessageId.LENGTH, "messageId"),
+                Bytes.u32be(generation), Bytes.u32be(attemptNo));
+    }
+
+    /** Computes the registered logical identity for one Publish Admission. */
+    public static byte[] computePublishAttemptLogicalIdentity(final byte[] claimId,
+                                                               final DelayMessageId messageId,
+                                                               final long generation,
+                                                               final long attemptNo) {
+        return computePublishAttemptLogicalIdentity(claimId,
+                Objects.requireNonNull(messageId, "messageId").bytes(), generation, attemptNo);
+    }
+
     /** Computes the registered logical identity for RESOURCE_RETIRE_INTENT_V1. */
     public static byte[] computeResourceRetireLogicalIdentity(final ResourceKind resourceKind,
                                                                final byte[] resourceIdentityHash,

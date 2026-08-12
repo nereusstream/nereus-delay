@@ -86,6 +86,60 @@ public final class PublishAdmissionBody {
                 bytes(field(fields, 20), 20), channel, descriptor, certificate, decision, claim);
     }
 
+    /**
+     * Builds the one canonical PUBLISH_ADMISSION body from typed projections.
+     *
+     * <p>The result is decoded again before it is returned.  This keeps the
+     * producer-side construction path behind the same cross-object equality
+     * and canonical-byte checks used by source-ordered replay.</p>
+     */
+    public static byte[] canonicalBytes(final ShardId shardId, final long retryUntilEpochMs,
+                                        final OwnerIdentityV1 owner, final byte[] storeIncarnation,
+                                        final byte[] claimId, final DestinationLaneId laneId,
+                                        final byte[] laneIncarnation, final DelayMessageId messageId,
+                                        final long generation, final byte[] publishAttemptId,
+                                        final PreparedPublishDescriptorV1 descriptor,
+                                        final ChargeVector reserveCharge,
+                                        final ReadyCertificateV1 readyCertificate,
+                                        final TrustedUtcIntervalEvidence decisionTime,
+                                        final byte[] claimPrecondition) {
+        final ShardId subject = Objects.requireNonNull(shardId, "shardId");
+        final OwnerIdentityV1 typedOwner = Objects.requireNonNull(owner, "owner");
+        final PreparedPublishDescriptorV1 typedDescriptor = Objects.requireNonNull(descriptor, "descriptor");
+        final ReadyCertificateV1 typedCertificate = Objects.requireNonNull(readyCertificate,
+                "readyCertificate");
+        final TrustedUtcIntervalEvidence typedDecision = Objects.requireNonNull(decisionTime, "decisionTime");
+        if (retryUntilEpochMs < 0) {
+            throw new IllegalArgumentException("retryUntil must be non-negative");
+        }
+        final byte[] encoded = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, new ShardSubjectV1(subject).canonicalBytes());
+            CanonicalProtobuf.uint32(output, 2, SystemMutationType.PUBLISH_ADMISSION.wireValue());
+            CanonicalProtobuf.int64(output, 3, retryUntilEpochMs);
+            CanonicalProtobuf.bytes(output, 10, typedOwner.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 11, fixed(storeIncarnation, INCARNATION_LENGTH,
+                    "storeIncarnation"));
+            CanonicalProtobuf.bytes(output, 12, fixed(claimId, HASH_LENGTH, "claimId"));
+            CanonicalProtobuf.bytes(output, 13, Objects.requireNonNull(laneId, "laneId").bytes());
+            CanonicalProtobuf.bytes(output, 14, fixed(laneIncarnation, INCARNATION_LENGTH,
+                    "laneIncarnation"));
+            CanonicalProtobuf.bytes(output, 15, Objects.requireNonNull(messageId, "messageId").bytes());
+            CanonicalProtobuf.uint32(output, 16, checkedUint32(generation, "generation"));
+            CanonicalProtobuf.bytes(output, 17, fixed(publishAttemptId, HASH_LENGTH, "publishAttemptId"));
+            CanonicalProtobuf.bytes(output, 18, typedDescriptor.preparedPublishHash());
+            CanonicalProtobuf.bytes(output, 19, Objects.requireNonNull(reserveCharge, "reserveCharge")
+                    .canonicalBytes());
+            CanonicalProtobuf.bytes(output, 20, typedCertificate.certificateDigest());
+            CanonicalProtobuf.bytes(output, 21, typedDescriptor.channel().canonicalBytes());
+            CanonicalProtobuf.bytes(output, 22, typedDescriptor.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 23, typedCertificate.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 24, typedDecision.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 25, requireNonEmpty(claimPrecondition, "claimPrecondition"));
+        });
+        decode(encoded);
+        return encoded;
+    }
+
     public byte[] ownerIdentity() {
         return copy(ownerIdentity);
     }
@@ -740,6 +794,21 @@ public final class PublishAdmissionBody {
 
     private static byte[] copy(final byte[] value) {
         return Bytes.copy(Objects.requireNonNull(value, "value"));
+    }
+
+    private static byte[] requireNonEmpty(final byte[] value, final String name) {
+        Objects.requireNonNull(value, name);
+        if (value.length == 0) {
+            throw new IllegalArgumentException(name + " must not be empty");
+        }
+        return Bytes.copy(value);
+    }
+
+    private static int checkedUint32(final long value, final String name) {
+        if (value < 0 || value > 0xffff_ffffL) {
+            throw new IllegalArgumentException(name + " is outside uint32 range");
+        }
+        return (int) value;
     }
 
     public static final class Channel {

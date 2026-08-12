@@ -27,6 +27,42 @@ public class PublishAdmissionBodyTest {
     }
 
     @Test
+    void canonicalBuilderRoundTripsTheTypedAdmissionProjection() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 2);
+        final Fixture fixture = Fixture.create(shard);
+        final PublishAdmissionBody admission = PublishAdmissionBody.decode(fixture.body());
+        final List<CanonicalProtobuf.Reader.Field> fields = SystemMutationBodyCodec.fields(
+                SystemMutationType.PUBLISH_ADMISSION, fixture.body());
+        final long retryUntil = fields.stream().filter(field -> field.number() == 3)
+                .findFirst().orElseThrow().unsignedValue();
+
+        final byte[] rebuilt = PublishAdmissionBody.canonicalBytes(shard, retryUntil,
+                OwnerIdentityV1.decode(admission.ownerIdentity()), admission.storeIncarnation(),
+                admission.claimId(), new DestinationLaneId(admission.laneId()), admission.laneIncarnation(),
+                new DelayMessageId(admission.messageId()), Integer.toUnsignedLong(admission.generation()),
+                admission.publishAttemptId(), admission.descriptor().value(), admission.chargeVector(),
+                ReadyCertificateV1.decode(admission.readyCertificate().canonicalBytes()), admission.decisionTime(),
+                admission.claimPrecondition().canonicalBytes());
+
+        assertArrayEquals(fixture.body(), rebuilt);
+        assertArrayEquals(admission.descriptor().value().materialization().canonicalBytes(),
+                admission.claimPrecondition().materialization());
+    }
+
+    @Test
+    void derivesPublishAttemptIdFromTheRegistryVector() {
+        final byte[] derived = SystemMutation.computePublishAttemptLogicalIdentity(
+                new byte[32], new byte[DelayMessageId.LENGTH], 0, 1);
+
+        assertEquals("888d8b8e428f28ac7a090c9bdf872983d8b52e545022961a5fee2fafe3497509",
+                Bytes.hex(derived));
+        assertThrows(IllegalArgumentException.class, () -> SystemMutation.computePublishAttemptLogicalIdentity(
+                new byte[32], new byte[DelayMessageId.LENGTH], 0, 0));
+        assertThrows(IllegalArgumentException.class, () -> SystemMutation.computePublishAttemptLogicalIdentity(
+                new byte[32], new byte[DelayMessageId.LENGTH], 0x1_0000_0000L, 1));
+    }
+
+    @Test
     void validatesCanonicalAdmissionProjectionsAndTiming() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
         final Fixture fixture = Fixture.create(shard);

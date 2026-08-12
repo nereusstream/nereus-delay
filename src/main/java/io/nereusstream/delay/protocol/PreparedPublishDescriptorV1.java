@@ -166,6 +166,13 @@ public final class PreparedPublishDescriptorV1 {
         return actionAtEpochMs;
     }
 
+    /** Returns the replay-stable materialization projection carried by this descriptor. */
+    public ClaimMaterializationV1 materialization() {
+        return new ClaimMaterializationV1(destinationProfile, capabilityProfile, targetResource,
+                physicalPartition, messageId, generation, payload, businessMetadata,
+                deliverAtEpochMs, expireAtEpochMs, actionAtEpochMs);
+    }
+
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, 1);
