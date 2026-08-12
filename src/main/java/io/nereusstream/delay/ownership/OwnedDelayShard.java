@@ -213,6 +213,90 @@ public final class OwnedDelayShard {
     }
 
     /**
+     * Pure local preflight for one recovery replay action.  Recovery uses the
+     * same {@link WorkClass#SOURCE_APPLY} queue as the active source reader,
+     * but its lifecycle is still {@code CATCHING_UP}; accepting that state in
+     * the active method would accidentally open command-time apply semantics
+     * during takeover.
+     */
+    synchronized void requireRecoverySourceApplySubmission(final OxiaOwnerLeaseStore authority,
+                                                            final SourceReplayEntry entry,
+                                                            final PublicKey verificationKey) {
+        requireStrictLifecycleAuthority(authority);
+        if (state != ShardLifecycleState.CATCHING_UP) {
+            throw new IllegalStateException("recovery source apply requires a catching-up shard");
+        }
+        validateActiveSourceEntry(entry, verificationKey);
+    }
+
+    /**
+     * Revalidates the strict catch-up lease and applies exactly one replay
+     * entry behind the bounded SOURCE_APPLY action.  The caller-owned cursor
+     * is deliberately not advanced here; the coordinator advances it only
+     * after this method returns a valid physical-position outcome.
+     */
+    synchronized SourceReplayOutcome applyRecoverySourceEntryAuthoritativelyStrict(
+            final OxiaOwnerLeaseStore authority,
+            final SourceReplayEntry entry,
+            final PublicKey verificationKey,
+            final LongSupplier clock) {
+        requireRecoverySourceApplySubmission(authority, entry, verificationKey);
+        final long nowEpochMs = readClock(clock);
+        ensureReplayWindow(nowEpochMs);
+        ensureAuthoritativeCatchup(authority, nowEpochMs);
+        // Queue wait may have changed the assignment, lease expiry or source
+        // connection proof.  Repeat the exact entry fence immediately before
+        // the recovery WriteBatch.
+        validateActiveSourceEntry(entry, verificationKey);
+        final SourcePosition position = entry.position();
+        validateReplayPosition(position, entry.sourceConnectionGeneration(), entry.guardAttestationDigest());
+        try {
+            if (entry instanceof SourceReplayRecord commandRecord) {
+                final CommandResult applied = delegate.apply(commandRecord.command(), position);
+                final CommandResult projected = replayCommandResultAt(position, applied);
+                return SourceReplayOutcome.command(position, projected);
+            }
+            final SourceReplayMutation mutationRecord = (SourceReplayMutation) entry;
+            final SystemMutationResult applied = delegate.applySystemMutation(
+                    mutationRecord.mutation(), position, verificationKey);
+            final SystemMutationResult projected = replaySystemMutationResultAt(position, applied);
+            return SourceReplayOutcome.systemMutation(position, projected);
+        } catch (ShardStore.RocksDbWriteFailure failure) {
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        } catch (RuntimeException | Error failure) {
+            // A durable write or its result projection is not proven.  Keep
+            // the source cursor at the exact entry and close local authority.
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        }
+    }
+
+    /** Rechecks the strict replay window before a recovery turn can yield. */
+    synchronized void requireRecoveryTurn(final OxiaOwnerLeaseStore authority,
+                                           final LongSupplier clock) {
+        requireStrictLifecycleAuthority(authority);
+        final long nowEpochMs = readClock(clock);
+        ensureReplayWindow(nowEpochMs);
+        ensureAuthoritativeCatchup(authority, nowEpochMs);
+    }
+
+    /**
+     * Publishes the in-memory catch-up position only after the caller-owned
+     * source cursor has advanced.  If cursor advancement fails, the durable
+     * WriteBatch remains retryable from the previous position in a fresh
+     * Store incarnation rather than creating a position-ahead-of-cursor
+     * continuity claim.
+     */
+    synchronized void recordRecoverySourceCursorAdvanced(final SourceReplayEntry entry) {
+        if (state != ShardLifecycleState.CATCHING_UP) {
+            throw new IllegalStateException("recovery source cursor requires a catching-up shard");
+        }
+        final SourceReplayEntry exact = Objects.requireNonNull(entry, "recovery source entry");
+        lastCatchupPosition = exact.position();
+    }
+
+    /**
      * Pure local preflight for one bounded READY-discovery action.  It reads
      * neither Oxia nor RocksDB, so a rejected {@code DUE_SCHEDULER} queue
      * admission cannot advance the durable discovery cursor or the Lane ring.

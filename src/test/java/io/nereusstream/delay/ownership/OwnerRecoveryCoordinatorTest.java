@@ -17,6 +17,11 @@ import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.ShardSubjectV1;
 import io.nereusstream.delay.runtime.DelayShard;
 import io.nereusstream.delay.runtime.DelayShardConfig;
+import io.nereusstream.delay.scheduler.WorkClass;
+import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
+import io.nereusstream.delay.scheduler.WorkClassPolicy;
+import io.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
+import io.nereusstream.delay.scheduler.WorkClassTask;
 import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.ShardStoreConfig;
 import io.nereusstream.delay.store.SharedRocksDbResources;
@@ -26,7 +31,9 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import java.security.KeyPairGenerator;
 import java.util.List;
+import java.util.EnumMap;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -61,16 +68,29 @@ class OwnerRecoveryCoordinatorTest {
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             store.recordControlSnapshot(snapshot);
             final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            final var keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+            final WorkClassExecutionRegistry workClasses = workClasses(1);
+            final SourceApplyWorkClassExecutor sourceApply = new SourceApplyWorkClassExecutor(
+                    workClasses, owned, authority, keyPair.getPublic());
             final OwnerRecoveryCoordinator coordinator = new OwnerRecoveryCoordinator(owned, authority, assignment,
                     SourceReplaySuccessor.strictKafka(), SourceReplayCursor.of(List.<SourceReplayEntry>of(
                             new SourceReplayRecord(first, firstPosition, null, null),
                             new SourceReplayRecord(second, secondPosition, null, null)).iterator()),
-                    KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPublic(), snapshot,
-                    () -> 101, new ReplayTurnBudget(1, Long.MAX_VALUE, Long.MAX_VALUE));
+                    keyPair.getPublic(), snapshot, () -> 101,
+                    new ReplayTurnBudget(1, Long.MAX_VALUE, Long.MAX_VALUE), workClasses, sourceApply);
+
+            workClasses.submit(new WorkClassTask(WorkClass.LEASE_FENCE, "recovery-occupied", 1), () -> {
+            });
+            final OwnerRecoveryTurn waitingTurn = coordinator.runTurn();
+            assertTrue(waitingTurn.waitingForWorkClass());
+            assertEquals(WorkClass.SOURCE_APPLY, waitingTurn.pendingTask().workClass());
+            assertTrue(waitingTurn.outcomes().isEmpty());
+            assertEquals(ShardLifecycleState.CATCHING_UP, owned.state());
 
             final OwnerRecoveryTurn firstTurn = coordinator.runTurn();
             assertEquals(1, firstTurn.outcomes().size());
             assertFalse(firstTurn.complete());
+            assertFalse(firstTurn.waitingForWorkClass());
             assertTrue(firstTurn.hasMore());
             assertEquals(ShardLifecycleState.CATCHING_UP, owned.state());
             assertEquals(ShardLifecycleState.CATCHING_UP, backend.current(shardId).orElseThrow().state());
@@ -79,7 +99,7 @@ class OwnerRecoveryCoordinatorTest {
             assertEquals(1, secondTurn.outcomes().size());
             assertTrue(secondTurn.complete());
             assertFalse(secondTurn.hasMore());
-            assertEquals(2, secondTurn.turnNumber());
+            assertEquals(3, secondTurn.turnNumber());
             assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, owned.state());
             assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, backend.current(shardId).orElseThrow().state());
             assertEquals(secondPosition, owned.lastCatchupPosition());
@@ -87,7 +107,7 @@ class OwnerRecoveryCoordinatorTest {
             final OwnerRecoveryTurn idempotent = coordinator.runTurn();
             assertTrue(idempotent.complete());
             assertTrue(idempotent.outcomes().isEmpty());
-            assertEquals(2, idempotent.turnNumber());
+            assertEquals(3, idempotent.turnNumber());
         }
     }
 
@@ -108,11 +128,15 @@ class OwnerRecoveryCoordinatorTest {
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             store.recordControlSnapshot(snapshot);
             final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            final var keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+            final WorkClassExecutionRegistry workClasses = workClasses(1);
+            final SourceApplyWorkClassExecutor sourceApply = new SourceApplyWorkClassExecutor(
+                    workClasses, owned, authority, keyPair.getPublic());
             final OwnerRecoveryCoordinator coordinator = new OwnerRecoveryCoordinator(owned, authority, assignment,
                     SourceReplaySuccessor.strictKafka(), SourceReplayCursor.of(List.<SourceReplayEntry>of().iterator()),
-                    KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPublic(), snapshot,
+                    keyPair.getPublic(), snapshot,
                     () -> { throw new AssertionError("clock unavailable"); },
-                    ReplayTurnBudget.unbounded());
+                    ReplayTurnBudget.unbounded(), workClasses, sourceApply);
 
             assertThrows(AssertionError.class, coordinator::runTurn);
             assertEquals(ShardLifecycleState.FENCED, owned.state());
@@ -141,5 +165,21 @@ class OwnerRecoveryCoordinatorTest {
             value[index] = (byte) (seed + index);
         }
         return value;
+    }
+
+    private static WorkClassExecutionRegistry workClasses(final int maxQueueRecords) {
+        final EnumMap<WorkClass, WorkClassPolicy> policies = new EnumMap<>(WorkClass.class);
+        for (WorkClass workClass : WorkClass.values()) {
+            final boolean protectedClass = switch (workClass) {
+                case LEASE_FENCE, SOURCE_APPLY, OUTCOME_AND_CONTROL, EXPIRY, DUE_SCHEDULER, GC -> true;
+                case QUERY, CHECKPOINT -> false;
+            };
+            policies.put(workClass, new WorkClassPolicy(1, maxQueueRecords, 1_000_000,
+                    maxQueueRecords, 1_000_000, 1_000,
+                    protectedClass ? 1 : 0, protectedClass ? 1 : 0,
+                    workClass == WorkClass.LEASE_FENCE));
+        }
+        return new WorkClassExecutionRegistry(new WorkClassRuntimeConfig(policies, 100, 100,
+                16, 2_000_000), new AtomicLong()::get);
     }
 }

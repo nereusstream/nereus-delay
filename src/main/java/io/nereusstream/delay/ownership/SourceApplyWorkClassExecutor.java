@@ -47,28 +47,51 @@ public final class SourceApplyWorkClassExecutor {
 
     /** Registers one exact source action; the WriteBatch starts only when its bounded turn runs. */
     public Submission submit(final SourceReplayEntry entry, final LongSupplier clock) {
+        return submit(entry, clock, false);
+    }
+
+    /**
+     * Registers one exact recovery replay action in the same SOURCE_APPLY
+     * queue.  Recovery differs only in its local lifecycle (CATCHING_UP);
+     * it never acknowledges a broker record and the caller retains the
+     * source cursor until the returned outcome is proven.
+     */
+    public Submission submitRecovery(final SourceReplayEntry entry, final LongSupplier clock) {
+        return submit(entry, clock, true);
+    }
+
+    private Submission submit(final SourceReplayEntry entry, final LongSupplier clock,
+                               final boolean recovery) {
         final SourceReplayEntry submitted = Objects.requireNonNull(entry, "entry");
         final LongSupplier submittedClock = Objects.requireNonNull(clock, "clock");
         final byte[] positionBytes = submitted.position().canonicalBytes();
         final byte[] frameBytes = frame(submitted);
         final long chargedBytes = Math.addExact((long) positionBytes.length, frameBytes.length);
-        ownedShard.requireSourceApplySubmission(authority, submitted, verificationKey);
+        if (recovery) {
+            ownedShard.requireRecoverySourceApplySubmission(authority, submitted, verificationKey);
+        } else {
+            ownedShard.requireSourceApplySubmission(authority, submitted, verificationKey);
+        }
         final String taskId = "source-apply/" + Bytes.hex(Bytes.sha256(
                 TASK_ID_DOMAIN, positionBytes, frameBytes));
         final WorkClassTask task = new WorkClassTask(WorkClass.SOURCE_APPLY, taskId, chargedBytes);
         final Submission result = new Submission(task);
-        workClasses.submit(task, () -> execute(submitted, submittedClock, result));
+        workClasses.submit(task, () -> execute(submitted, submittedClock, result, recovery));
         return result;
     }
 
     private void execute(final SourceReplayEntry entry, final LongSupplier clock,
-                         final Submission submission) {
+                         final Submission submission, final boolean recovery) {
         if (submission.outcome().isPresent()) {
             throw new IllegalStateException("source apply work-class action already completed");
         }
         try {
-            submission.complete(ApplyOutcome.succeeded(ownedShard.applySourceEntryAuthoritativelyStrict(
-                    authority, entry, verificationKey, clock)));
+            final SourceReplayOutcome outcome = recovery
+                    ? ownedShard.applyRecoverySourceEntryAuthoritativelyStrict(
+                            authority, entry, verificationKey, clock)
+                    : ownedShard.applySourceEntryAuthoritativelyStrict(
+                            authority, entry, verificationKey, clock);
+            submission.complete(ApplyOutcome.succeeded(outcome));
         } catch (RuntimeException failure) {
             submission.complete(ApplyOutcome.failed(failure));
         } catch (Error failure) {
