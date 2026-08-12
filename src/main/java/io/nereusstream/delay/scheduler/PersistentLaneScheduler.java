@@ -96,6 +96,11 @@ public final class PersistentLaneScheduler {
         return owner;
     }
 
+    /** Returns the immutable physical Store Incarnation that owns this scheduler projection. */
+    public byte[] storeIncarnation() {
+        return store.metadata().storeIncarnation();
+    }
+
     synchronized void register(final LaneRecord lane) {
         Objects.requireNonNull(lane, "lane");
         delegate.register(lane);

@@ -332,6 +332,9 @@ public final class OwnedDelayShard {
         if (!lease.shardId().equals(Objects.requireNonNull(scheduler, "scheduler").shardId())) {
             throw new IllegalArgumentException("due scheduler belongs to a different shard");
         }
+        if (!Bytes.constantTimeEquals(scheduler.storeIncarnation(), delegate.storeIncarnation())) {
+            throw new IllegalArgumentException("due scheduler belongs to a different Store Incarnation");
+        }
         if (!scheduler.ownerIdentity().equals(requireBoundOwnerIdentity())) {
             throw new IllegalArgumentException("due scheduler belongs to a different Owner identity");
         }

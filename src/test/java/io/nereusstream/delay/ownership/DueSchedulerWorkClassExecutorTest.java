@@ -95,9 +95,13 @@ class DueSchedulerWorkClassExecutorTest {
                 1, 1, 1, Bytes.sha256(Bytes.utf8("due-work-time-proof")), 0, null);
         final SchedulerBudget budget = new SchedulerBudget(1, 4_096, 1_000_000_000);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("due-work-store"));
+        final ShardStoreConfig foreignConfig = ShardStoreConfig.defaults(
+                tempDir.resolve("due-work-foreign-store"));
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
-             ShardStore store = ShardStore.open(config, shard, resources)) {
+             SharedRocksDbResources foreignResources = new SharedRocksDbResources(foreignConfig);
+             ShardStore store = ShardStore.open(config, shard, resources);
+             ShardStore foreignStore = ShardStore.open(foreignConfig, shard, foreignResources)) {
             final OwnerIdentityV1 owner = new OwnerIdentityV1(Bytes.utf8("due-work-deployment"),
                     Bytes.utf8("due-work-worker"), lease.ownerEpoch(),
                     Bytes.sha256(Bytes.utf8("due-work-owner-fence")));
@@ -159,6 +163,16 @@ class DueSchedulerWorkClassExecutorTest {
                     workClasses, owned, authority, otherOwnerScheduler);
             assertThrows(IllegalArgumentException.class,
                     () -> wrongOwnerExecutor.submit(evidence, budget, () -> 101));
+
+            final PersistentLaneScheduler foreignStoreScheduler = new PersistentLaneScheduler(
+                    foreignStore, LaneScheduler.defaults(), owner);
+            final DueSchedulerWorkClassExecutor foreignStoreExecutor = new DueSchedulerWorkClassExecutor(
+                    workClasses, owned, authority, foreignStoreScheduler);
+            final long foreignSequence = foreignStore.latestSequenceNumber();
+            assertThrows(IllegalArgumentException.class,
+                    () -> foreignStoreExecutor.submit(evidence, budget, () -> 101));
+            assertEquals(foreignSequence, foreignStore.latestSequenceNumber());
+            assertEquals(0, workClasses.registeredActions());
 
             final DueSchedulerWorkClassExecutor.Submission submitted =
                     executor.submit(evidence, budget, () -> 101);
