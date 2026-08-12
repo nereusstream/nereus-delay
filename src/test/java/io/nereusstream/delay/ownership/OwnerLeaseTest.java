@@ -638,6 +638,38 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void unexpectedRuntimeDuringActiveApplyFencesOwner() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 193);
+        final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = authority.acquire(shardId, "worker-runtime-fence", 100, 100).orElseThrow();
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("runtime-fence"));
+        final UUID topic = UUID.randomUUID();
+        final KafkaSourcePosition firstPosition = new KafkaSourcePosition(shardId, "cluster", topic, 1,
+                null, 1_001);
+        final KafkaSourcePosition regressedPosition = new KafkaSourcePosition(shardId, "cluster", topic, 0,
+                null, 1_000);
+        final PreparedCommand first = PreparedCommand.schedule(shardId,
+                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("runtime-fence-first")), 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("first")), 10_000);
+        final PreparedCommand regressed = PreparedCommand.schedule(shardId,
+                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("runtime-fence-regressed")), 2_000, 5_000,
+                        OrderingMode.BEST_EFFORT, Bytes.utf8("regressed")), 10_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            owned.markCatchingUp(new SourceAssignment(shardId,
+                    Bytes.sha256(Bytes.utf8("runtime-fence-assignment")), 1,
+                    new KafkaActivationBarrier(shardId, "cluster", topic, 0)));
+            owned.activateForCommands(101);
+
+            assertEquals(StableCode.SCHEDULED, owned.apply(first, firstPosition, 101).stableCode());
+            assertThrows(IllegalStateException.class, () -> owned.apply(regressed, regressedPosition, 101));
+            assertEquals(ShardLifecycleState.FENCED, owned.state());
+            assertNull(owned.shard().getMessage(regressed.delayMessageId()));
+        }
+    }
+
+    @Test
     void authorityGatedDrainRequiresTheExactLeaseSuccessor() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 18);
         final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();

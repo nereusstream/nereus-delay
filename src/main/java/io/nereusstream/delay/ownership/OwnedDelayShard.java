@@ -75,11 +75,12 @@ public final class OwnedDelayShard {
             // physical record until a fresh Store incarnation is opened.
             state = ShardLifecycleState.FENCED;
             throw failure;
-        } catch (Error failure) {
-            // JNI/native fatal failures have the same owner-authority
-            // consequence as a typed storage failure.  The Store fences its
-            // write outcome; close this local gate before rethrowing so a
-            // caller cannot admit another command on an uncertain image.
+        } catch (RuntimeException | Error failure) {
+            // Any unexpected runtime/native failure leaves the local
+            // projection or its commit boundary unproven. Close the owner
+            // gate before rethrowing so a caller cannot continue from an
+            // uncertain image. Deterministic command rejections are returned
+            // by DelayShard as CommandResult and do not reach this branch.
             state = ShardLifecycleState.FENCED;
             throw failure;
         }
@@ -392,7 +393,7 @@ public final class OwnedDelayShard {
             } catch (ShardStore.RocksDbWriteFailure failure) {
                 state = ShardLifecycleState.FENCED;
                 throw failure;
-            } catch (Error failure) {
+            } catch (RuntimeException | Error failure) {
                 state = ShardLifecycleState.FENCED;
                 throw failure;
             }
@@ -488,7 +489,7 @@ public final class OwnedDelayShard {
             } catch (ShardStore.RocksDbWriteFailure failure) {
                 state = ShardLifecycleState.FENCED;
                 throw failure;
-            } catch (Error failure) {
+            } catch (RuntimeException | Error failure) {
                 // A fatal dependency/JNI failure has the same owner-authority
                 // consequence as an uncertain native WriteBatch: the source
                 // record must remain available for a fresh Store incarnation,
@@ -583,7 +584,7 @@ public final class OwnedDelayShard {
                 } catch (ShardStore.RocksDbWriteFailure failure) {
                     state = ShardLifecycleState.FENCED;
                     throw failure;
-                } catch (Error failure) {
+                } catch (RuntimeException | Error failure) {
                     state = ShardLifecycleState.FENCED;
                     throw failure;
                 }
@@ -604,7 +605,7 @@ public final class OwnedDelayShard {
                 } catch (ShardStore.RocksDbWriteFailure failure) {
                     state = ShardLifecycleState.FENCED;
                     throw failure;
-                } catch (Error failure) {
+                } catch (RuntimeException | Error failure) {
                     state = ShardLifecycleState.FENCED;
                     throw failure;
                 }
