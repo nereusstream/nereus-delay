@@ -252,6 +252,15 @@ public final class ShardStore implements AutoCloseable {
         return restoreWithRecoveryGuard(config, shardId, resources, checkpointPath, manifest, null, null);
     }
 
+    /** Restores a local manifest with an explicit finite manifest/file limit set. */
+    public static ShardStore restoreFromCheckpoint(final ShardStoreConfig config, final ShardId shardId,
+                                                   final SharedRocksDbResources resources,
+                                                   final Path checkpointPath, final CheckpointManifest manifest,
+                                                   final CheckpointManifestLimits limits) {
+        return restoreWithRecoveryGuard(config, shardId, resources, checkpointPath, manifest, null, null,
+                Objects.requireNonNull(limits, "limits"));
+    }
+
     /**
      * Restores an exact published checkpoint only while the caller still owns
      * the exact session-bound RecoveryPin.  The pin is reread before staging

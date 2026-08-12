@@ -28,7 +28,7 @@ import java.util.UUID;
  * local provider/recovery ordering without claiming remote credentials,
  * provider consistency, catalog authority, or source replay.</p>
  */
-public final class FilesystemCheckpointDownloadAdapter {
+public final class FilesystemCheckpointDownloadAdapter implements CheckpointDownloadAdapter {
     private static final int BUFFER_BYTES = 64 * 1024;
 
     private final Path root;
@@ -45,6 +45,7 @@ public final class FilesystemCheckpointDownloadAdapter {
     }
 
     /** Downloads one exact checkpoint into a new directory and returns it. */
+    @Override
     public synchronized Path download(final CheckpointDownloadRequest request, final Path targetDirectory) {
         Objects.requireNonNull(request, "request");
         final CheckpointManifest manifest = request.manifest();
