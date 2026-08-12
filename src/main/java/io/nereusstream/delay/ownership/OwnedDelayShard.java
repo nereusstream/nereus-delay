@@ -11,6 +11,8 @@ import io.nereusstream.delay.protocol.SourceActivationBarrier;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.SystemMutation;
+import io.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
+import io.nereusstream.delay.protocol.ResourceRetireIntentBody;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.runtime.SystemMutationResult;
@@ -467,6 +469,51 @@ public final class OwnedDelayShard {
                 && author.asOwnerIdentity().ownerEpoch() != lease.ownerEpoch()) {
             throw new IllegalArgumentException("outcome mutation Owner epoch does not match the active lease");
         }
+    }
+
+    /** Side-effect-free preflight for an exact resource-GC System Mutation. */
+    synchronized void requireGcMutationSubmission(final OxiaOwnerLeaseStore authority,
+                                                   final SystemMutation mutation) {
+        requireStrictActiveAuthority(authority);
+        validateGcMutation(mutation);
+    }
+
+    /** Rereads the authoritative Owner Lease immediately before a GC append. */
+    synchronized void requireGcMutationAuthoritativelyStrict(final OxiaOwnerLeaseStore authority,
+                                                              final SystemMutation mutation,
+                                                              final LongSupplier clock) {
+        requireGcMutationSubmission(authority, mutation);
+        final long nowEpochMs = readActiveWorkClock(clock, "GC mutation handoff");
+        ensureAuthoritativeActive(authority, nowEpochMs, "GC mutation handoff");
+        validateGcMutation(mutation);
+    }
+
+    private void validateGcMutation(final SystemMutation mutation) {
+        final SystemMutation exact = Objects.requireNonNull(mutation, "GC mutation");
+        switch (exact.type()) {
+            case RESOURCE_RETIRE_INTENT -> {
+                final ResourceRetireIntentBody body = ResourceRetireIntentBody.decode(exact.canonicalBody());
+                body.validateProtectionSourceShard(delegate.shardId());
+                final byte[] expected = SystemMutation.computeResourceRetireLogicalIdentity(
+                        body.resourceKind(), body.resource().identityHash(), body.expectedResourceStateVersion());
+                if (!Bytes.constantTimeEquals(exact.logicalOperationIdentity(), expected)) {
+                    throw new IllegalArgumentException("GC retire mutation logical identity mismatch");
+                }
+            }
+            case RESOURCE_DELETE_CONFIRMED -> {
+                final ResourceDeleteConfirmedBody body = ResourceDeleteConfirmedBody.decode(exact.canonicalBody());
+                if (!Bytes.constantTimeEquals(exact.logicalOperationIdentity(), body.intent().mutationId())) {
+                    throw new IllegalArgumentException("GC delete confirmation logical identity mismatch");
+                }
+            }
+            default -> throw new IllegalArgumentException(
+                    "mutation type is not a GC result: " + exact.type());
+        }
+        if (!delegate.shardId().equals(exact.shardId()) || !lease.shardId().equals(exact.shardId())) {
+            throw new IllegalArgumentException("GC mutation does not belong to this shard");
+        }
+        final AuthorIdentity author = AuthorIdentity.decode(exact.authorIdentity());
+        author.requireFor(exact.type());
     }
 
     /**
