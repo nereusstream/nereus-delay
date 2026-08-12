@@ -3252,6 +3252,15 @@ limits 的 total-byte checked addition 溢出也会统一 fail closed，而不�
 overload 保留为 embedded compatibility seam，不能作为 production activated
 limits；这仍只是本地文件完整性边界，不替代 Object Store 内容证明。
 
+After `eca483b`, `CheckpointPublicationCoordinator` 进一步把本地调用顺序固定为先完成 exact
+Upload Intent 的 `PUBLISHED` successor，再把相同 manifest/resource identity
+提交给 `RecoveryCatalogAuthority.publishUploadedCheckpoint`；请求在 provider I/O
+前还必须匹配 intent 的 `baseCatalogGeneration`。它允许本地 Catalog 对已存在的
+byte-identical manifest 做幂等重试，但明确不把 Upload Intent、Owner
+Lease/session 与 Catalog 的多个单记录 CAS 当成跨记录原子事务。生产 Oxia
+publication transaction、Object Store attestation/quiescence 和 owner-abandonment
+authority 仍保持 release blocker。
+
 `SharedRocksDbResources` 现在也把 checkpoint create/upload slot 纳入进程级
 关闭保护；后台 checkpoint 或上传操作持有 slot 时，资源 close 会 fail closed。
 `ShardStore.createCheckpoint(checkpointId)` 还会在写入 live Store 的 checkpoint

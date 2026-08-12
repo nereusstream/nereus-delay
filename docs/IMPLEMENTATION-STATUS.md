@@ -59,6 +59,17 @@ only local orchestration evidence: Source Assignment publication, Oxia session
 creation, checkpoint/Object Store selection and download, Broker guards, Lane
 evidence and production Worker scheduling remain release blockers.
 
+Commit `eca483b` adds `CheckpointPublicationCoordinator` as the matching local
+checkpoint publication seam. It checks the pending intent's catalog generation
+before provider I/O, reuses the exact `PUBLISHED` intent on retry, and then
+binds that manifest/resource identity through
+`RecoveryCatalogAuthority.publishUploadedCheckpoint`. The focused
+`CheckpointUploadCoordinatorTest.publicationCoordinatorBindsPublishedIntentToCatalogAndRetriesCatalogResponseLoss`
+regression covers the catalog binding and confirms a retry does not call the
+provider again. This remains local ordering/idempotency evidence; the
+cross-record Oxia transaction, Object Store attestation/quiescence and owner
+abandonment proof remain release blockers.
+
 Commit `4e2cf94` tightens the local recovery-reuse open boundary: an ACTIVE
 Store is opened without rewriting its runtime/recovery OPEN projection, the
 persisted recovery metadata is passed to `RecoveryCatalogAuthority` for
