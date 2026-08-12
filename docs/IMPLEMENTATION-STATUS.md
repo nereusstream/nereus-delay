@@ -316,6 +316,17 @@ compilation and Checkstyle passed. This closes a local API bypass only and does 
 prove real Object Store or Oxia authority, Source Assignment integration or production
 dynamic I/O attribution.
 
+After `d943e0b`, the authority-free whole-turn Lane-close helper is no longer a
+cross-package production surface. `LaneCloseMaterializer` and its `runTurn(...)`
+action are package-local to the runtime algorithm/tests, while the production-facing
+handoff remains `LaneCloseWorkClassExecutor`: one exact cursor candidate, bounded
+record count, strict Owner Lease reread and `GC` queue admission. The single-candidate
+`DelayShard` primitive remains available to the strict `OwnedDelayShard` wrapper.
+`LaneCloseMaterializerTest` reflects over the helper class/action visibility, and the
+focused materializer/executor suites, main/test compilation and Checkstyle passed.
+Production cursor discovery, Recovery Floor protection and Oxia owner orchestration
+remain release blockers.
+
 After `a49b19a`, the durable `timeline_cf/EXPIRY` candidate has a matching
 bounded local handoff in `ExpiryWorkClassExecutor`. The caller supplies one
 candidate from `DelayShard.discoverExpiry` plus the certified UTC interval;

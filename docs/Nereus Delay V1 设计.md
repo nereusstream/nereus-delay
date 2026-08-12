@@ -2063,6 +2063,16 @@ Worker 不能通过 whole-iterable、fixed-time 或 bounded direct replay overlo
 `SOURCE_APPLY` queue。生产 source/recovery 入口必须使用相应的
 `SourceApplyWorkClassExecutor` handoff。
 
+Lane Close 的 source-ordered marker 已经冻结语义结果，但 cursor 物化仍属于
+`GC` work-class。跨包 Worker 每次只能把一个 exact
+`LaneCloseMaterializationWork` 与 `maxRecords`、Owner Lease 和执行时钟提交给
+`LaneCloseWorkClassExecutor`；queue admission 不得 discover 或写 Store，action
+开始后必须重读 strict Owner Lease 并重新验证 cursor identity。会自行 discover
+多个 Lane 并连续调用 Store primitive 的 `LaneCloseMaterializer.runTurn` 只允许作为
+`runtime` 包内算法/测试 seam，类与动作均为 package-local，不能成为无 authority、
+无 bounded queue 的生产入口。底层单候选 primitive 只保留给 strict owner wrapper；
+这不替代生产 GC scanner、Recovery Floor protection 或 Oxia owner orchestration。
+
 checkpoint 的物理创建/上传与接管时的下载/restore 都属于同一个独立的
 `CHECKPOINT` work-class。Restore task 的 identity 必须绑定 exact canonical manifest、
 checkpoint resource 和可选 `RecoveryPinV1`，byte charge 使用该 request envelope 的

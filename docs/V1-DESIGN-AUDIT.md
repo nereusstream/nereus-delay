@@ -3109,6 +3109,15 @@ regression requires all three named methods to exist and be non-public, and the 
 execution/upload tests, compilation and Checkstyle passed. This removes the local API
 bypass but does not close real Object Store/Oxia authority or dynamic I/O evidence.
 
+After `d943e0b`, the legacy whole-turn Lane-close materializer can no longer be
+called from cross-package Worker code without the strict `GC` handoff. Both the
+`LaneCloseMaterializer` class and `runTurn(...)` are package-local; production-facing
+composition must submit one exact candidate through `LaneCloseWorkClassExecutor`,
+which binds the cursor/batch identity and rereads Owner authority before the Store
+primitive. The focused visibility regression plus materializer/executor tests,
+compilation and Checkstyle passed. This removes the local no-authority bypass only;
+production scanner, Floor protection and Oxia orchestration remain open gates.
+
 Worker 资源侧现在还提供了本地 `WorkerLoadVector` 与
 `WorkerPlacementPolicy`：它们先按完整 committed capacity、固定/transition
 demand 以及 owned/open DB slots 做 hard filter，再以 dominant-resource/load
