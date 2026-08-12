@@ -136,8 +136,24 @@ public final class ResourceRetireIntentBody {
                 throw new IllegalArgumentException("resource identity must not be empty");
             }
             Bytes.requireLength(identityHash, HASH_LENGTH, "resource identity hash");
-            canonicalBytes = Bytes.copy(canonicalBytes);
-            identityHash = Bytes.copy(identityHash);
+            final List<CanonicalProtobuf.Reader.Field> outer = read(canonicalBytes, "ExactResourceIdentity");
+            if (outer.size() != 1 || outer.get(0).wireType() != 2
+                    || outer.get(0).number() != kind.wireValue()) {
+                throw new IllegalArgumentException("resource identity branch does not match resource kind");
+            }
+            final byte[] branch = outer.get(0).rawValue();
+            validateBranch(kind, branch);
+            final byte[] expectedCanonical = canonicalBytes(kind, branch);
+            if (!Arrays.equals(canonicalBytes, expectedCanonical)) {
+                throw new IllegalArgumentException("non-canonical ExactResourceIdentity");
+            }
+            final byte[] expectedHash = Bytes.sha256(Bytes.utf8("nereus-delay-resource-identity-v1\0"),
+                    expectedCanonical);
+            if (!Bytes.constantTimeEquals(identityHash, expectedHash)) {
+                throw new IllegalArgumentException("resource identity hash does not match canonical identity");
+            }
+            canonicalBytes = expectedCanonical;
+            identityHash = expectedHash;
         }
 
         @Override
@@ -158,13 +174,16 @@ public final class ResourceRetireIntentBody {
             }
             final byte[] branch = outer.get(0).rawValue();
             validateBranch(kind, branch);
-            final byte[] canonical = CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output,
-                    kind.wireValue(), branch));
+            final byte[] canonical = canonicalBytes(kind, branch);
             if (!Arrays.equals(encoded, canonical)) {
                 throw new IllegalArgumentException("non-canonical ExactResourceIdentity");
             }
             return new ExactResourceIdentity(kind, canonical,
                     Bytes.sha256(Bytes.utf8("nereus-delay-resource-identity-v1\0"), canonical));
+        }
+
+        private static byte[] canonicalBytes(final ResourceKind kind, final byte[] branch) {
+            return CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, kind.wireValue(), branch));
         }
 
         private static void validateBranch(final ResourceKind kind, final byte[] branch) {
@@ -238,8 +257,27 @@ public final class ResourceRetireIntentBody {
             Objects.requireNonNull(canonicalBytes, "canonicalBytes");
             Bytes.requireLength(digest, HASH_LENGTH, "protection set digest");
             references = List.copyOf(references);
-            canonicalBytes = Bytes.copy(canonicalBytes);
-            digest = Bytes.copy(digest);
+            final Comparator<ProtectionRef> comparator = Comparator.comparing(ref -> Bytes.hex(ref.canonicalBytes()));
+            for (int index = 1; index < references.size(); index++) {
+                final int order = comparator.compare(references.get(index - 1), references.get(index));
+                if (order > 0) {
+                    throw new IllegalArgumentException("ProtectionSet references are not canonical-byte sorted");
+                }
+                if (order == 0) {
+                    throw new IllegalArgumentException("ProtectionSet contains duplicate references");
+                }
+            }
+            final byte[] canonicalRefs = canonicalReferences(references);
+            final byte[] expectedDigest = Bytes.sha256(Bytes.utf8("nereus-delay-protection-set-v1\0"), canonicalRefs);
+            if (!Bytes.constantTimeEquals(digest, expectedDigest)) {
+                throw new IllegalArgumentException("ProtectionSet digest mismatch");
+            }
+            final byte[] expectedCanonical = canonicalBytes(references, expectedDigest);
+            if (!Arrays.equals(canonicalBytes, expectedCanonical)) {
+                throw new IllegalArgumentException("non-canonical ProtectionSet");
+            }
+            canonicalBytes = expectedCanonical;
+            digest = expectedDigest;
         }
 
         @Override
@@ -265,11 +303,7 @@ public final class ResourceRetireIntentBody {
                     throw new IllegalArgumentException("unknown ProtectionSet field " + field.number());
                 }
             }
-            final byte[] canonicalRefs = CanonicalProtobuf.message(output -> {
-                for (ProtectionRef ref : refs) {
-                    CanonicalProtobuf.bytes(output, 1, ref.canonicalBytes());
-                }
-            });
+            final byte[] canonicalRefs = canonicalReferences(refs);
             final byte[] digest = fixed(bytes(field(fields, 2), 2), HASH_LENGTH, 2);
             final byte[] expected = Bytes.sha256(Bytes.utf8("nereus-delay-protection-set-v1\0"), canonicalRefs);
             if (!Bytes.constantTimeEquals(digest, expected)) {
@@ -285,16 +319,28 @@ public final class ResourceRetireIntentBody {
                     throw new IllegalArgumentException("ProtectionSet contains duplicate references");
                 }
             }
-            final byte[] canonical = CanonicalProtobuf.message(output -> {
-                for (ProtectionRef ref : refs) {
-                    CanonicalProtobuf.bytes(output, 1, ref.canonicalBytes());
-                }
-                CanonicalProtobuf.bytes(output, 2, digest);
-            });
+            final byte[] canonical = canonicalBytes(refs, digest);
             if (!Arrays.equals(encoded, canonical)) {
                 throw new IllegalArgumentException("non-canonical ProtectionSet");
             }
             return new ProtectionSet(refs, canonical, digest);
+        }
+
+        private static byte[] canonicalReferences(final List<ProtectionRef> references) {
+            return CanonicalProtobuf.message(output -> {
+                for (ProtectionRef ref : references) {
+                    CanonicalProtobuf.bytes(output, 1, ref.canonicalBytes());
+                }
+            });
+        }
+
+        private static byte[] canonicalBytes(final List<ProtectionRef> references, final byte[] digest) {
+            return CanonicalProtobuf.message(output -> {
+                for (ProtectionRef ref : references) {
+                    CanonicalProtobuf.bytes(output, 1, ref.canonicalBytes());
+                }
+                CanonicalProtobuf.bytes(output, 2, digest);
+            });
         }
     }
 

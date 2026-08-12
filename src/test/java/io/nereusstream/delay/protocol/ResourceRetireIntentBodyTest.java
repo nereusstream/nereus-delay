@@ -2,6 +2,8 @@ package io.nereusstream.delay.protocol;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -203,6 +205,53 @@ class ResourceRetireIntentBodyTest {
                 protectionRef(3, resourceId, 7, source, new byte[0], new byte[0], new byte[0])));
         assertThrows(IllegalArgumentException.class, () -> new ResourceRetireIntentBody.ProtectionRef(
                 2, resourceId, 7, source, new byte[0], new byte[0], new byte[0], new byte[]{1}));
+    }
+
+    @Test
+    void exactIdentityAndProtectionSetConstructorsRequireCanonicalDigestsAndOrdering() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 30);
+        final byte[] branch = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, subject(shard));
+            CanonicalProtobuf.bytes(output, 2, new byte[16]);
+            CanonicalProtobuf.bytes(output, 3, Bytes.sha256(Bytes.utf8("db")));
+            CanonicalProtobuf.bytes(output, 4, Bytes.sha256(Bytes.utf8("root-policy")));
+        });
+        final byte[] identity = branch(ResourceKind.LOCAL_STORE, branch);
+        final byte[] identityHash = Bytes.sha256(Bytes.utf8("nereus-delay-resource-identity-v1\0"), identity);
+        final ResourceRetireIntentBody.ExactResourceIdentity exact =
+                new ResourceRetireIntentBody.ExactResourceIdentity(ResourceKind.LOCAL_STORE, identity, identityHash);
+        assertArrayEquals(identity, exact.canonicalBytes());
+        assertArrayEquals(identityHash, exact.identityHash());
+        assertThrows(IllegalArgumentException.class, () ->
+                new ResourceRetireIntentBody.ExactResourceIdentity(ResourceKind.LOCAL_STORE, identity, new byte[32]));
+        assertThrows(IllegalArgumentException.class, () ->
+                new ResourceRetireIntentBody.ExactResourceIdentity(ResourceKind.LOCAL_STORE,
+                        Bytes.concat(identity, new byte[]{0}), identityHash));
+
+        final byte[] first = protectionRef(3, Bytes.sha256(Bytes.utf8("first")), 1);
+        final byte[] second = protectionRef(3, Bytes.sha256(Bytes.utf8("second")), 2);
+        final List<byte[]> refs = new ArrayList<>(List.of(first, second));
+        refs.sort((left, right) -> Bytes.hex(left).compareTo(Bytes.hex(right)));
+        final byte[] protectionSet = protectionSet(refs.toArray(byte[][]::new));
+        final List<ResourceRetireIntentBody.ProtectionRef> decodedRefs = new ArrayList<>();
+        for (byte[] ref : refs) {
+            decodedRefs.add(ResourceRetireIntentBody.decode(resourceBody(shard, ResourceKind.LOCAL_STORE, identity, 1,
+                    protectionSet(ref))).protections().references().get(0));
+        }
+        decodedRefs.sort((left, right) -> Bytes.hex(left.canonicalBytes())
+                .compareTo(Bytes.hex(right.canonicalBytes())));
+        final ResourceRetireIntentBody.ProtectionSet valid = new ResourceRetireIntentBody.ProtectionSet(
+                decodedRefs, protectionSet, Bytes.sha256(Bytes.utf8("nereus-delay-protection-set-v1\0"),
+                        CanonicalProtobuf.message(output -> {
+                            for (ResourceRetireIntentBody.ProtectionRef ref : decodedRefs) {
+                                CanonicalProtobuf.bytes(output, 1, ref.canonicalBytes());
+                            }
+                        })));
+        assertArrayEquals(protectionSet, valid.canonicalBytes());
+        assertThrows(IllegalArgumentException.class, () -> new ResourceRetireIntentBody.ProtectionSet(
+                List.of(decodedRefs.get(0), decodedRefs.get(0)), protectionSet, valid.digest()));
+        assertThrows(IllegalArgumentException.class, () -> new ResourceRetireIntentBody.ProtectionSet(
+                decodedRefs, protectionSet, new byte[32]));
     }
 
     private static byte[] resourceBody(final ShardId shard, final ResourceKind kind, final byte[] resource,
