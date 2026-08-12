@@ -441,7 +441,10 @@ trusted-time, Owner-reread or byte/elapsed-budget contract; production callers
 cannot use it as a shortcut around this executor. The same visibility fence now
 applies to count-only expiry, reservation-expiry and Lane-close discovery;
 their strict `SchedulerBudget`/monotonic-clock overloads remain the
-cross-package primitives used by the owner/work-class composition.
+cross-package primitives used by the owner/work-class composition. The
+count-only `DelayShard.discoverReady` index query is package-local too;
+production READY scanning occurs in `PersistentLaneScheduler` under complete
+trusted evidence and `SchedulerBudget`, submitted only through the executor.
 
 After `120f462`, that production discovery path passes the complete
 `TrustedUtcIntervalEvidenceV1` into `PersistentLaneScheduler` instead of
@@ -5302,6 +5305,17 @@ only a test-classpath bridge. The reflection regression locks all four
 record-only discovery seams. Focused discovery/materialization tests and the
 complete local Gradle gate passed; the five real-Oxia methods remained opt-in
 and skipped without an endpoint.
+
+`DelayShard.discoverReady(earliest, limit)` is now package-local. It has no
+production main-source caller and provides neither actual-byte/elapsed charging
+nor the typed trusted-time/Owner/certificate composition required for active
+scheduling. Existing runtime tests retain it as an index-semantics oracle, with
+the only cross-package recovery assertion using the test-classpath bridge.
+Production READY discovery remains `DueSchedulerWorkClassExecutor` ->
+`OwnedDelayShard` -> `PersistentLaneScheduler.discoverReady(evidence, budget)`.
+The reflection API fence, runtime/ownership/scheduler focused suites and full
+local Gradle gate passed; five real-Oxia smoke methods remained skipped without
+an endpoint.
 
 ## Verification command
 

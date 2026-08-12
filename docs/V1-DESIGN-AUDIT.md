@@ -282,7 +282,9 @@ authority remain release gates. The record-count-only legacy timeline
 shortcut around these boundaries. Count-only expiry, reservation-expiry and
 Lane-close discovery are package-local for the same reason; only strict
 budget/clock overloads remain available to the cross-package owner/work-class
-composition.
+composition. The count-only `DelayShard.discoverReady` query is package-local
+as well; production READY scanning is the scheduler evidence+budget path behind
+the work-class executor.
 
 After `120f462`, the active-owner discovery bridge passes the complete trusted
 interval into the persistent scanner. Production discovery requires typed
@@ -5012,6 +5014,15 @@ tests but did not satisfy the V1 bounded-turn contract. The strict
 without enlarging the main artifact API. The reflection regression, focused
 discovery/materialization suites and full local gate passed; external Oxia
 evidence remains open.
+
+The legacy count-only `DelayShard.discoverReady(...)` index scan is no longer
+public. No main production source calls it; unlike the persistent scheduler
+path, it has no byte/elapsed envelope or complete trusted-time/Owner/certificate
+binding. Same-package runtime tests continue to exercise READY projection
+invariants, and one ownership recovery fixture uses the test-only bridge. The
+reflection regression and focused runtime/ownership/scheduler tests plus the
+complete local gate passed. This API fence does not close real Oxia or trusted
+clock evidence.
 
 ## Final gate
 

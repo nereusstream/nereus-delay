@@ -2193,7 +2193,10 @@ time、Owner authority 或 byte/elapsed scan envelope，因而只保留为 runti
 兼容/语义测试 primitive；它不是 Worker 可调用的生产调度 API。同理，expiry、
 reservation-expiry 与 Lane-close 的 count-only discovery overload 也只能包内可见；
 跨包生产组合只能调用携带 `SchedulerBudget + monotonic clock`、再由对应
-work-class/Owner wrapper 补齐 authority 的严格 overload。
+work-class/Owner wrapper 补齐 authority 的严格 overload。`DelayShard` 自身的
+count-only `discoverReady(earliest, limit)` 也只保留包内用于索引语义测试；生产
+READY scan 由 `PersistentLaneScheduler` 的完整 evidence+budget overload 执行，
+外部只能从 `DueSchedulerWorkClassExecutor` 提交 bounded action。
 
 一次 discovery 成功只返回本轮新 promote 的 due heads；它不等于 Claim，也不能越过
 Claim materialization、permit、Ready Certificate 或 Publish Admission gate。queue 拒绝
