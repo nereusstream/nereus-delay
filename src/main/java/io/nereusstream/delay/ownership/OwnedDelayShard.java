@@ -1,6 +1,7 @@
 package io.nereusstream.delay.ownership;
 
 import io.nereusstream.delay.protocol.PreparedCommand;
+import io.nereusstream.delay.protocol.OwnerIdentityV1;
 import io.nereusstream.delay.protocol.AuthorIdentity;
 import io.nereusstream.delay.protocol.ClaimMaterializationV1;
 import io.nereusstream.delay.protocol.CommandCodec;
@@ -260,6 +261,79 @@ public final class OwnedDelayShard {
         requireDueSchedulerSubmission(authority, scheduler);
         return scheduler.requireClaimCandidate(Objects.requireNonNull(item, "Claim work item"),
                 Objects.requireNonNull(evidence, "trusted UTC evidence"));
+    }
+
+    /**
+     * Side-effect-free preflight for a prepared Publish Admission.  The
+     * Claim must still be the exact local durable Claim; this method does not
+     * append a mutation or synthesize a Source Position.
+     */
+    synchronized void requirePublishAdmissionSubmission(final OxiaOwnerLeaseStore authority,
+                                                         final ClaimRecord expectedClaim) {
+        requireStrictActiveAuthority(authority);
+        if (state != ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
+            throw new IllegalStateException("Publish Admission requires an active shard");
+        }
+        final ClaimRecord expected = validateAdmissionClaimIdentity(expectedClaim);
+        final ClaimRecord current = delegate.getClaim(expected.claimId(), expected.ownerEpoch());
+        if (current == null || !current.equals(expected)) {
+            throw new IllegalStateException("Publish Admission Claim is no longer the exact durable Claim");
+        }
+    }
+
+    /**
+     * Rechecks the exact Claim and authoritative Oxia Owner Lease immediately
+     * before calling the external Shard Log writer.
+     */
+    synchronized void requirePublishAdmissionAuthoritativelyStrict(
+            final OxiaOwnerLeaseStore authority, final ClaimRecord expectedClaim,
+            final LongSupplier clock) {
+        requirePublishAdmissionSubmission(authority, expectedClaim);
+        final long nowEpochMs = readActiveWorkClock(clock, "Publish Admission handoff");
+        ensureAuthoritativeActive(authority, nowEpochMs, "Publish Admission handoff");
+        final ClaimRecord current = delegate.getClaim(expectedClaim.claimId(), expectedClaim.ownerEpoch());
+        if (current == null || !current.equals(expectedClaim)) {
+            state = ShardLifecycleState.FENCED;
+            throw new IllegalStateException("Publish Admission Claim changed before Shard Log append");
+        }
+    }
+
+    /**
+     * Validates a Source Position returned by the external Shard Log writer.
+     * A ShardId match alone is insufficient because a replacement Kafka topic
+     * or Pulsar resource can retain the same logical route and partition.
+     */
+    synchronized void requireCurrentShardLogPosition(final SourcePosition position,
+                                                      final io.nereusstream.delay.protocol.ShardId expectedShard,
+                                                      final Long sourceConnectionGeneration,
+                                                      final byte[] guardAttestationDigest) {
+        final SourcePosition persisted = Objects.requireNonNull(position, "persisted Source Position");
+        if (!Objects.requireNonNull(expectedShard, "expectedShard").equals(persisted.shardId())
+                || !delegate.shardId().equals(persisted.shardId())) {
+            throw new IllegalStateException("Shard Log writer returned a foreign Source Position");
+        }
+        if (activationBarrier == null) {
+            throw new IllegalStateException("Publish Admission requires an active source assignment");
+        }
+        activationBarrier.validatePosition(persisted);
+        validateSourceConnection(persisted, sourceConnectionGeneration, guardAttestationDigest);
+    }
+
+    private ClaimRecord validateAdmissionClaimIdentity(final ClaimRecord claim) {
+        final ClaimRecord expected = Objects.requireNonNull(claim, "Claim");
+        if (!delegate.shardId().equals(expected.delayMessageId().routingId().shardId())
+                || expected.ownerEpoch() != lease.ownerEpoch()
+                || !java.util.Arrays.equals(expected.storeIncarnation(), delegate.storeIncarnation())) {
+            throw new IllegalArgumentException("Publish Admission Claim identity does not belong to this owner/store");
+        }
+        final OwnerIdentityV1 owner = OwnerIdentityV1.decode(expected.ownerIdentity());
+        if (owner.ownerEpoch() != expected.ownerEpoch()) {
+            throw new IllegalArgumentException("Publish Admission Claim Owner epoch mismatch");
+        }
+        if (!expected.hasMaterialization()) {
+            throw new IllegalArgumentException("Publish Admission requires Claim materialization");
+        }
+        return expected;
     }
 
     /**

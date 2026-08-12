@@ -6311,6 +6311,11 @@ public final class DelayShard {
         return store.shardId();
     }
 
+    /** Returns the immutable local Store Incarnation used by Claim/Admission identity checks. */
+    public synchronized byte[] storeIncarnation() {
+        return Bytes.copy(store.metadata().storeIncarnation());
+    }
+
     /** Returns the shard-bound control snapshot required by strict activation. */
     public synchronized CompatibleControlSnapshotV1 controlSnapshot() {
         return store.controlSnapshot();
