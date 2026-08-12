@@ -292,6 +292,21 @@ public final class ShardStore implements AutoCloseable {
                 Objects.requireNonNull(limits, "limits"));
     }
 
+    /**
+     * Restores through a caller-held permit that already covers provider
+     * download. The helper consumes the permit before returning or throwing;
+     * callers may close it again because the permit is idempotent.
+     */
+    static ShardStore restoreFromCheckpointWithDownloadPermit(
+            final ShardStoreConfig config, final ShardId shardId, final SharedRocksDbResources resources,
+            final Path checkpointPath, final CheckpointManifest manifest, final RecoveryCatalogAuthority catalog,
+            final RecoveryPinV1 pin, final CheckpointManifestLimits limits,
+            final SharedRocksDbResources.CheckpointDownloadPermit downloadPermit) {
+        Objects.requireNonNull(downloadPermit, "downloadPermit");
+        return restoreWithRecoveryGuard(config, shardId, resources, checkpointPath, manifest, catalog, pin,
+                Objects.requireNonNull(limits, "limits"), downloadPermit);
+    }
+
     private static ShardStore restoreWithRecoveryGuard(final ShardStoreConfig config, final ShardId shardId,
                                                        final SharedRocksDbResources resources,
                                                        final Path checkpointPath, final CheckpointManifest manifest,
@@ -307,11 +322,26 @@ public final class ShardStore implements AutoCloseable {
                                                        final RecoveryCatalogAuthority catalog,
                                                        final RecoveryPinV1 pin,
                                                        final CheckpointManifestLimits limits) {
+        return restoreWithRecoveryGuard(config, shardId, resources, checkpointPath, manifest, catalog, pin, limits,
+                null);
+    }
+
+    private static ShardStore restoreWithRecoveryGuard(final ShardStoreConfig config, final ShardId shardId,
+                                                       final SharedRocksDbResources resources,
+                                                       final Path checkpointPath, final CheckpointManifest manifest,
+                                                       final RecoveryCatalogAuthority catalog,
+                                                       final RecoveryPinV1 pin,
+                                                       final CheckpointManifestLimits limits,
+                                                       final SharedRocksDbResources.CheckpointDownloadPermit
+                                                               downloadPermit) {
         Objects.requireNonNull(config, "config");
         Objects.requireNonNull(shardId, "shardId");
         Objects.requireNonNull(resources, "resources");
         Objects.requireNonNull(checkpointPath, "checkpointPath");
         Objects.requireNonNull(limits, "limits");
+        if (downloadPermit != null) {
+            downloadPermit.requireActive(resources);
+        }
         if (manifest != null) {
             manifest.validateLimits(limits);
         }
@@ -333,7 +363,7 @@ public final class ShardStore implements AutoCloseable {
         final Path restoreRoot = shardRoot.resolve("restore-tmp").resolve(storeUuid.toString());
         final Path stagedDb = restoreRoot.resolve("db");
         final Path activeDb = shardRoot.resolve("incarnations").resolve(storeUuid.toString()).resolve("db");
-        boolean downloadSlotAcquired = false;
+        boolean downloadSlotAcquired = downloadPermit != null;
         boolean activeDbMoved = false;
         ShardStore staged = null;
         ShardStore prepared = null;
@@ -341,8 +371,10 @@ public final class ShardStore implements AutoCloseable {
         Throwable primaryFailure = null;
         boolean returningInstalled = false;
         try {
-            resources.acquireCheckpointDownloadSlot();
-            downloadSlotAcquired = true;
+            if (downloadPermit == null) {
+                resources.acquireCheckpointDownloadSlot();
+                downloadSlotAcquired = true;
+            }
             if (Files.isSymbolicLink(checkpointPath)
                     || !Files.isDirectory(checkpointPath)
                     || !Files.isRegularFile(checkpointPath.resolve("CURRENT"),
@@ -462,7 +494,20 @@ public final class ShardStore implements AutoCloseable {
             }
             throw exception;
         } finally {
-            if (downloadSlotAcquired) {
+            if (downloadPermit != null) {
+                try {
+                    downloadPermit.close();
+                } catch (RuntimeException | Error cleanupFailure) {
+                    if (returningInstalled && installed != null && !installed.isClosed()) {
+                        closeForRestoreCleanup(installed, cleanupFailure);
+                    }
+                    if (primaryFailure != null && cleanupFailure != primaryFailure) {
+                        primaryFailure.addSuppressed(cleanupFailure);
+                    } else if (primaryFailure == null) {
+                        throwUnchecked(cleanupFailure);
+                    }
+                }
+            } else if (downloadSlotAcquired) {
                 try {
                     resources.releaseCheckpointDownloadSlot();
                 } catch (RuntimeException | Error cleanupFailure) {

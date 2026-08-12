@@ -464,6 +464,46 @@ public final class SharedRocksDbResources implements AutoCloseable {
         checkpointDownloadSlots.release();
     }
 
+    /**
+     * Acquires the worker-wide permit that covers provider download through
+     * local checkpoint restore. The permit is idempotently closeable so an
+     * orchestration layer and the restore helper can both release it safely.
+     */
+    public synchronized CheckpointDownloadPermit acquireCheckpointDownloadPermit() {
+        acquireCheckpointDownloadSlot();
+        return new CheckpointDownloadPermit(this);
+    }
+
+    /** A close-once worker-wide checkpoint download/restore permit. */
+    public static final class CheckpointDownloadPermit implements AutoCloseable {
+        private final SharedRocksDbResources owner;
+        private boolean closed;
+
+        private CheckpointDownloadPermit(final SharedRocksDbResources owner) {
+            this.owner = owner;
+        }
+
+        void requireActive(final SharedRocksDbResources expectedOwner) {
+            if (owner != expectedOwner) {
+                throw new IllegalArgumentException("checkpoint download permit belongs to another resource set");
+            }
+            synchronized (this) {
+                if (closed) {
+                    throw new IllegalStateException("checkpoint download permit is already closed");
+                }
+            }
+        }
+
+        @Override
+        public synchronized void close() {
+            if (closed) {
+                return;
+            }
+            owner.releaseCheckpointDownloadSlot();
+            closed = true;
+        }
+    }
+
     /** Reserves one process-wide slot for the complete owner-drain window. */
     public synchronized void acquireDrainSlot() {
         ensureOpen();

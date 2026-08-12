@@ -65,7 +65,9 @@ public final class CheckpointRestoreCoordinator {
         }
 
         ShardStore restored = null;
+        SharedRocksDbResources.CheckpointDownloadPermit downloadPermit = null;
         try {
+            downloadPermit = resources.acquireCheckpointDownloadPermit();
             final Path materialized = downloader.download(request, target);
             if (materialized == null || !materialized.toAbsolutePath().normalize().equals(target)
                     || Files.isSymbolicLink(materialized)
@@ -73,16 +75,8 @@ public final class CheckpointRestoreCoordinator {
                 throw new IllegalStateException("checkpoint downloader returned an invalid target directory");
             }
             validateDownloadedInventory(materialized, request.manifest());
-            if (catalog == null) {
-                restored = ShardStore.restoreFromCheckpoint(config, shardId, resources, materialized,
-                        request.manifest(), limits);
-            } else if (pin == null) {
-                restored = ShardStore.restoreFromCheckpoint(config, shardId, resources, materialized,
-                        request.manifest(), catalog, limits);
-            } else {
-                restored = ShardStore.restoreFromCheckpoint(config, shardId, resources, materialized,
-                        request.manifest(), catalog, pin, limits);
-            }
+            restored = ShardStore.restoreFromCheckpointWithDownloadPermit(config, shardId, resources, materialized,
+                    request.manifest(), catalog, pin, limits, downloadPermit);
             deleteTree(attemptRoot);
             return restored;
         } catch (RuntimeException | Error failure) {
@@ -99,6 +93,10 @@ public final class CheckpointRestoreCoordinator {
                 failure.addSuppressed(cleanupFailure);
             }
             throw failure;
+        } finally {
+            if (downloadPermit != null) {
+                downloadPermit.close();
+            }
         }
     }
 

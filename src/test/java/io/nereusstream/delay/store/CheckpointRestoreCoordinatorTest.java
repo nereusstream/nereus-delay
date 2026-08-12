@@ -85,8 +85,13 @@ class CheckpointRestoreCoordinatorTest {
 
         final ShardStoreConfig restoreConfig = ShardStoreConfig.defaults(tempDir.resolve("restore"));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(restoreConfig)) {
+            final FilesystemCheckpointDownloadAdapter filesystemDownloader =
+                    new FilesystemCheckpointDownloadAdapter(objectRoot, limits);
             final CheckpointRestoreCoordinator coordinator = new CheckpointRestoreCoordinator(restoreConfig, shardId,
-                    resources, new FilesystemCheckpointDownloadAdapter(objectRoot, limits), null, limits);
+                    resources, (downloadRequest, target) -> {
+                        assertThrows(IllegalStateException.class, resources::acquireCheckpointDownloadSlot);
+                        return filesystemDownloader.download(downloadRequest, target);
+                    }, null, limits);
             try (ShardStore restored = coordinator.restore(request, null)) {
                 assertArrayEquals(payload, restored.getValue(ColumnFamily.META, Bytes.utf8("restore-key"), 3).payload());
                 assertEquals(checkpointId.length, restored.runtimeMetadata().lastCheckpointId().length);
