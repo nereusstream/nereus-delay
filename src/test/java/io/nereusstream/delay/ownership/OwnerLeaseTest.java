@@ -462,25 +462,56 @@ class OwnerLeaseTest {
     @Test
     void strictActivationRequiresThePersistedShardControlSnapshot() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 42);
-        final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
-        final OwnerLease lease = authority.acquire(shardId, "worker-control-snapshot", 100, 100).orElseThrow();
-        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("strict-control-activation"));
         final UUID topic = UUID.randomUUID();
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final SourceAssignment assignment = new SourceAssignment(shardId,
+                Bytes.sha256(Bytes.utf8("strict-control-assignment")), 1,
+                new KafkaActivationBarrier(shardId, "cluster", topic, 0));
+        final OwnerLease lease = backend.acquire(assignment, "worker-control-snapshot",
+                Bytes.sha256(Bytes.utf8("strict-control-session")), 100, 100).orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("strict-control-activation"));
         final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster", topic, 0, null, 1_000);
         final CompatibleControlSnapshotV1 snapshot = controlSnapshot(shardId);
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
-            owned.markCatchingUp(new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("strict-control-assignment")),
-                    1, new KafkaActivationBarrier(shardId, "cluster", topic, 0)));
+            owned.markCatchingUp(authority, new SourceAssignment(shardId,
+                    assignment.assignmentId(), assignment.assignmentEpoch(),
+                    new KafkaActivationBarrier(shardId, "cluster", topic, 0)),
+                    SourceReplaySuccessor.strictKafka(), 101);
             owned.recordCatchup(position);
             assertThrows(IllegalStateException.class,
-                    () -> owned.activateForCommandsWithControlSnapshot(snapshot, 101));
+                    () -> owned.activateForCommandsWithControlSnapshot(authority, snapshot, 101));
             assertEquals(ShardLifecycleState.CATCHING_UP, owned.state());
 
             store.recordControlSnapshot(snapshot);
-            owned.activateForCommandsWithControlSnapshot(snapshot, 101);
+            owned.activateForCommandsWithControlSnapshot(authority, snapshot, 101);
             assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, owned.state());
+        }
+    }
+
+    @Test
+    void strictActivationRejectsAContextlessLeaseBeforeAuthorityTransition() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 43);
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = backend.acquire(shardId, "worker-contextless-activation", 100, 100).orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("contextless-activation"));
+        final UUID topic = UUID.randomUUID();
+        final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 0);
+        final CompatibleControlSnapshotV1 snapshot = controlSnapshot(shardId);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            owned.markCatchingUp(new SourceAssignment(shardId,
+                    Bytes.sha256(Bytes.utf8("contextless-activation-assignment")), 1, barrier));
+            store.recordControlSnapshot(snapshot);
+
+            assertThrows(IllegalStateException.class,
+                    () -> owned.activateForCommandsWithControlSnapshot(authority, snapshot, 101));
+            assertEquals(ShardLifecycleState.CATCHING_UP, owned.state());
+            assertEquals(ShardLifecycleState.ACQUIRING, backend.current(shardId).orElseThrow().state());
         }
     }
 

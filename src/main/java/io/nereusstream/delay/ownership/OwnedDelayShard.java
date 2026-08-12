@@ -842,8 +842,17 @@ public final class OwnedDelayShard {
     public synchronized void activateForCommandsWithControlSnapshot(final OxiaOwnerLeaseStore authority,
                                                                       final CompatibleControlSnapshotV1 expected,
                                                                       final long nowEpochMs) {
+        requireStrictActivationAuthority(authority);
         requireControlSnapshot(expected);
         activateForCommands(authority, nowEpochMs);
+    }
+
+    private void requireStrictActivationAuthority(final OxiaOwnerLeaseStore authority) {
+        Objects.requireNonNull(authority, "authority");
+        if (lease.context() == null || sourceAssignment == null || replayAuthority == null) {
+            throw new IllegalStateException("strict activation requires a context-bound strict catch-up lease");
+        }
+        validateCatchupAssignment(sourceAssignment);
     }
 
     private void requireControlSnapshot(final CompatibleControlSnapshotV1 expected) {
