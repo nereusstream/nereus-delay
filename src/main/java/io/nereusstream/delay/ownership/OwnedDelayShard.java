@@ -6,11 +6,14 @@ import io.nereusstream.delay.protocol.AuthorIdentity;
 import io.nereusstream.delay.protocol.ClaimMaterializationV1;
 import io.nereusstream.delay.protocol.CommandCodec;
 import io.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
+import io.nereusstream.delay.protocol.CanonicalProtobuf;
 import io.nereusstream.delay.protocol.PulsarActivationBarrier;
 import io.nereusstream.delay.protocol.SourceActivationBarrier;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.SystemMutation;
+import io.nereusstream.delay.protocol.SystemMutationBodyCodec;
+import io.nereusstream.delay.protocol.SystemMutationType;
 import io.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
 import io.nereusstream.delay.protocol.ResourceRetireIntentBody;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
@@ -511,6 +514,58 @@ public final class OwnedDelayShard {
         }
         if (!delegate.shardId().equals(exact.shardId()) || !lease.shardId().equals(exact.shardId())) {
             throw new IllegalArgumentException("GC mutation does not belong to this shard");
+        }
+        final AuthorIdentity author = AuthorIdentity.decode(exact.authorIdentity());
+        author.requireFor(exact.type());
+    }
+
+    /** Side-effect-free preflight for an exact control-plane mutation. */
+    synchronized void requireControlMutationSubmission(final OxiaOwnerLeaseStore authority,
+                                                        final SystemMutation mutation) {
+        requireStrictActiveAuthority(authority);
+        validateControlMutation(mutation);
+    }
+
+    /** Rereads the authoritative Owner Lease immediately before a control append. */
+    synchronized void requireControlMutationAuthoritativelyStrict(final OxiaOwnerLeaseStore authority,
+                                                                   final SystemMutation mutation,
+                                                                   final LongSupplier clock) {
+        requireControlMutationSubmission(authority, mutation);
+        final long nowEpochMs = readActiveWorkClock(clock, "control mutation handoff");
+        ensureAuthoritativeActive(authority, nowEpochMs, "control mutation handoff");
+        validateControlMutation(mutation);
+    }
+
+    private void validateControlMutation(final SystemMutation mutation) {
+        final SystemMutation exact = Objects.requireNonNull(mutation, "control mutation");
+        switch (exact.type()) {
+            case APPLY_SHARD_CONTROL, REPLAY_DEAD_LETTER, RESOLVE_UNCERTAIN -> {
+                // Allowed control mutations.
+            }
+            case TIME_FENCE -> {
+                final var fields = SystemMutationBodyCodec.fields(SystemMutationType.TIME_FENCE,
+                        exact.canonicalBody());
+                if (fields.isEmpty() || fields.get(0).number() != 1) {
+                    throw new IllegalArgumentException("TIME_FENCE body subject is missing");
+                }
+                final long closeThrough = fields.get(3).unsignedValue();
+                final int keyVersion = Math.toIntExact(fields.get(4).unsignedValue());
+                final byte[] proofId = fields.get(5).rawValue();
+                final TrustedUtcIntervalEvidence proof = TrustedUtcIntervalEvidence.decode(fields.get(6).rawValue());
+                final byte[] expectedProofId = Bytes.sha256(Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                        delegate.shardId().routeIncarnation().bytes(), Bytes.u32beBits(delegate.shardId().partition()),
+                        Bytes.i64be(closeThrough), Bytes.u32beBits(keyVersion), Bytes.lp32(proof.canonicalBytes()));
+                if (keyVersion != exact.signingKeyVersion()
+                        || !Bytes.constantTimeEquals(proofId, expectedProofId)
+                        || !Bytes.constantTimeEquals(exact.logicalOperationIdentity(), proofId)) {
+                    throw new IllegalArgumentException("TIME_FENCE identity/proof does not match mutation");
+                }
+            }
+            default -> throw new IllegalArgumentException(
+                    "mutation type is not a control mutation: " + exact.type());
+        }
+        if (!delegate.shardId().equals(exact.shardId()) || !lease.shardId().equals(exact.shardId())) {
+            throw new IllegalArgumentException("control mutation does not belong to this shard");
         }
         final AuthorIdentity author = AuthorIdentity.decode(exact.authorIdentity());
         author.requireFor(exact.type());
