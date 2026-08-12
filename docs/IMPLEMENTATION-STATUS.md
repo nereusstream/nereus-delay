@@ -4219,6 +4219,21 @@ full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
 real-Oxia methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was
 unset; this remains local regression evidence only.
 
+Ephemeral Owner Lease acquire, renew and lifecycle-transition writes now also
+require the exact lease record key, a non-null Oxia version and the expected
+session metadata in their `PutResult`; a malformed write response is accepted
+only if the subsequent reread proves the exact candidate. The focused
+regression `OxiaSyncOwnerLeaseBackendTest.leaseWriteRejectsWrongResponseAndWrongRereadIdentity`
+covers the fail-closed path and cleanup. This is a per-record response fence;
+source assignment publication, session orchestration and cross-record
+activation authority remain release blockers.
+
+After this ephemeral-write identity fence, the focused owner-lease test and
+the full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
+2026-08-12 (`BUILD SUCCESSFUL`, five executed tasks). The five opt-in
+real-Oxia methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was
+unset; this remains local regression evidence only.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

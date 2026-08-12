@@ -224,7 +224,7 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
         try {
             result = client.put(leaseKey(shardId), encodeLease(candidate),
                     Set.of(PutOption.IfRecordDoesNotExist, PutOption.AsEphemeralRecord));
-            validateEphemeralVersion(result.version(), context);
+            validateLeasePutResult(result, leaseKey(shardId), context);
             final OwnerLease stored = decodeLease(resultValue(result, candidate));
             if (!candidate.sameIdentity(stored) || stored.state() != ShardLifecycleState.ACQUIRING) {
                 throw new IllegalStateException("Oxia lease create response changed its identity");
@@ -267,7 +267,7 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
         try {
             final PutResult result = client.put(leaseKey(lease.shardId()), encodeLease(lease),
                     Set.of(PutOption.IfVersionIdEquals(versionId), PutOption.AsEphemeralRecord));
-            validateEphemeralVersion(result.version(), lease.context());
+            validateLeasePutResult(result, leaseKey(lease.shardId()), lease.context());
             final OwnerLease stored = decodeLease(resultValue(result, lease));
             if (!lease.sameIdentity(stored) || lease.state() != stored.state()
                     || lease.expiresAtEpochMs() != stored.expiresAtEpochMs()) {
@@ -357,6 +357,14 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
         if (context != null && !Bytes.constantTimeEquals(context.sessionIdentity(), sessionIdentity(version))) {
             throw new IllegalStateException("Oxia lease session identity does not match the request");
         }
+    }
+
+    private void validateLeasePutResult(final PutResult result, final String expectedKey,
+                                        final OwnerLeaseContext context) {
+        if (result == null || !expectedKey.equals(result.key()) || result.version() == null) {
+            throw new IllegalStateException("Oxia lease put returned an invalid record identity");
+        }
+        validateEphemeralVersion(result.version(), context);
     }
 
     private static byte[] resultValue(final PutResult result, final OwnerLease fallback) {

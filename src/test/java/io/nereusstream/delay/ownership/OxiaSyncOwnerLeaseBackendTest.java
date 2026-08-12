@@ -154,6 +154,18 @@ class OxiaSyncOwnerLeaseBackendTest {
     }
 
     @Test
+    void leaseWriteRejectsWrongResponseAndWrongRereadIdentity() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final OxiaSyncOwnerLeaseBackend backend = new OxiaSyncOwnerLeaseBackend(records, "delay/test");
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 17);
+        records.wrongKeyOnNextPut = true;
+        records.wrongKeyOnNextGet = true;
+
+        assertThrows(IllegalStateException.class, () -> backend.acquire(shard, "worker-a", 100, 50));
+        assertTrue(backend.current(shard).isEmpty());
+    }
+
+    @Test
     void ownerEpochUsesTheCompleteUnsigned64Domain() {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncOwnerLeaseBackend backend = new OxiaSyncOwnerLeaseBackend(records, "delay/test");
@@ -174,6 +186,7 @@ class OxiaSyncOwnerLeaseBackendTest {
         private boolean failNextPutAfterCommit;
         private boolean failNextDeleteAfterCommit;
         private boolean wrongKeyOnNextGet;
+        private boolean wrongKeyOnNextPut;
 
         private Version ephemeralVersion() {
             return new Version(1, 0, 0, 1, Optional.of(7L), Optional.of("worker-session"));
@@ -219,6 +232,10 @@ class OxiaSyncOwnerLeaseBackendTest {
             if (failNextPutAfterCommit && ephemeral) {
                 failNextPutAfterCommit = false;
                 throw new IllegalStateException("simulated response loss");
+            }
+            if (wrongKeyOnNextPut && ephemeral) {
+                wrongKeyOnNextPut = false;
+                return new PutResult(key + "/wrong", version);
             }
             return new PutResult(key, version);
         }
