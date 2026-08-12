@@ -166,7 +166,25 @@ charges/current-position outcomes, and lease expiry fences without retaining a
 generic failed action. This is local composition evidence, not real Broker
 consumer/ACK, production Oxia session or dynamic WriteBatch/IO authority.
 
-The synchronized full local gate then passed on 2026-08-12 with 1231 reported
+After `3ba6fb6`, persistent READY discovery is also behind a concrete
+`DUE_SCHEDULER` action. The task identity binds the exact Shard, canonical
+trusted-UTC evidence and all scan-budget fields; its charge reserves canonical
+request bytes plus the complete configured scan-byte envelope. Submission
+preflight is local and mutation-free, while execution rereads the exact Owner
+Lease/session and uses the evidence earliest bound as inclusive due-through.
+`PersistentLaneScheduler` remains responsible for bounded READY decoding and
+atomic rollback of queue, cursor, ring and fairness projections. Queue
+rejection therefore cannot consume READY work, and a failed selected action
+fences the Owner and remains exact failed process evidence rather than
+advancing the durable cursor. Success exposes only newly promoted due heads;
+it does not establish Claim, materialization, permit or Publish Admission.
+The focused regression proves rejection without scheduler mutation, exact
+charge, due-boundary success and execution-time lease expiry. This closes the
+local discovery-class bridge only; Claim/Admission handoff, production
+trusted-time issuance, dynamic IO attribution and external destination/Oxia
+authority remain release gates.
+
+The synchronized full local gate then passed on 2026-08-12 with 1232 reported
 tests, zero failures/errors and five skipped opt-in real-Oxia methods because
 the endpoint was unset. `checkDocumentation` and `checkstyleMain` passed in the
 same `clean check --rerun-tasks` run. This verifies the repository-local change

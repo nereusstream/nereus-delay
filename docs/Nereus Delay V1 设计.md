@@ -1942,6 +1942,24 @@ attempt failure outcome。物理 Broker record/cursor 是唯一 retry authority�
 流。fatal `Error` 仍记录 outcome 并重新抛出。绕过 queue 的 direct active apply
 方法只能保留为 ownership 包内的本地测试/组合 seam，不得暴露为跨包生产 API。
 
+active shard 的持久 READY discovery 必须通过 `DUE_SCHEDULER` action 进入
+work-class runtime。task identity 用 domain-separated hash 绑定 exact Shard、canonical
+`TrustedUtcIntervalEvidenceV1` 与本轮 `maxMessages/maxBytes/maxElapsedNanos`；byte charge
+是上述 canonical request envelope 与完整 scan `maxBytes` 上界的 checked sum，不能只按
+最终返回 head 大小计费。queue admission 前只允许检查本地 strict-owner lifecycle、Shard
+与 scheduler owner epoch，不得读 Oxia、scan RocksDB、offer Lane head 或推进 scheduler
+cursor/ring。bounded action 开始后必须用执行时时钟重读 exact Owner Lease/session，并以
+evidence 的 `earliestEpochMs` 作为 inclusive `dueThroughEpochMs`；随后只能调用持久
+READY scanner 自己的 byte/time/record cap 与全 projection rollback 边界。
+
+一次 discovery 成功只返回本轮新 promote 的 due heads；它不等于 Claim，也不能越过
+Claim materialization、permit、Ready Certificate 或 Publish Admission gate。queue 拒绝
+以及 future-only scan 都不得消费唯一 future READY key。scanner/authority/WriteBatch
+failure 必须 fence 当前 Owner，并把已开始的 exact WorkClass action 留作 failed
+process-local evidence；authoritative READY/index 与新的 fenced recovery 才是重建来源，
+不能把内存 failure 当作 durable cursor advancement。Claim/Admission handoff 必须作为
+后续有界 action 单独闭合，不能因为 discovery 已接入就标记完整 publish path 已实现。
+
 ## 13. Destination Profile 与 Adapter
 
 ### 13.1 Versioned binding
