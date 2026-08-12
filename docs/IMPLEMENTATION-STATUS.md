@@ -133,6 +133,11 @@ covers the valid and fail-closed paths (`0259ffb`). This is local key-codec
 evidence only; source assignment and Broker receipt authority remain release
 gates.
 
+After `0259ffb`, `./gradlew clean check --rerun-tasks --console=plain` passed
+again on 2026-08-12 (`BUILD SUCCESSFUL`, 5 tasks). The five real-Oxia methods
+remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this confirms
+the local regression suite only and is not live-service or release evidence.
+
 The local `TIME_FENCE_V1` apply path now carries an explicit
 `DelayShardConfig.timeFenceSafetyMarginMs` input and checks the Trusted-UTC
 proof with checked addition before advancing the ingress watermark. A proof one

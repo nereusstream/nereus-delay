@@ -68,6 +68,11 @@ look-alike audit locator. The focused evidence is
 `0259ffb`; this closes the local key-codec boundary without claiming source
 assignment, Broker receipt or external durability authority.
 
+After `0259ffb`, `./gradlew clean check --rerun-tasks --console=plain` passed
+again on 2026-08-12 (`BUILD SUCCESSFUL`, 5 tasks). The five real-Oxia methods
+remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset, so this is
+local regression evidence rather than live-service or release evidence.
+
 The Recovery Pin persistence audit now preserves the intended historical
 protection window: creating a session-bound pin records the exact Floor it
 observed, but later Floor advancement must not make a still-active pin
