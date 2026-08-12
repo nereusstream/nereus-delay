@@ -164,6 +164,16 @@ class DueSchedulerWorkClassExecutorTest {
             assertEquals(0, workClasses.registeredActions());
             assertEquals(1, scheduler.snapshot().lanes().get(0).pendingItems());
 
+            final ScheduleWorkItem selected = scheduler.poll(evidence.earliestEpochMs(), budget).get(0);
+            scheduler.requeueFailedClaim(selected);
+            assertEquals(1, scheduler.snapshot().lanes().get(0).pendingItems());
+            final ScheduleWorkItem retried = scheduler.poll(evidence.earliestEpochMs(), budget).get(0);
+            assertEquals(selected, retried);
+            assertThrows(IllegalStateException.class, () -> scheduler.completeClaim(retried));
+            store.write(batch -> batch.delete(ColumnFamily.TIMELINE, readyKey));
+            scheduler.completeClaim(retried);
+            assertThrows(IllegalArgumentException.class, () -> scheduler.requeueFailedClaim(retried));
+
             final DueSchedulerWorkClassExecutor.Submission expired =
                     executor.submit(evidence, budget, () -> 200);
             final IllegalStateException failure = assertThrows(IllegalStateException.class,

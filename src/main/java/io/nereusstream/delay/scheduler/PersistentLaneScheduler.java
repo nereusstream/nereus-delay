@@ -416,6 +416,66 @@ public final class PersistentLaneScheduler {
     }
 
     /**
+     * Restores one exact head after a selected Claim handoff failed before its
+     * shard WriteBatch committed.
+     *
+     * <p>{@link #poll(long, SchedulerBudget)} deliberately retains the
+     * authoritative READY identity in {@code discoveredHeads} while the
+     * process hands the selected item to the Claim executor.  A pre-commit
+     * materialization, permit or Claim validation failure must use this method
+     * instead of a bare {@link #requeueFirst(ScheduleWorkItem)}: the queue and
+     * fairness projection are persisted together, and a duplicate/mismatched
+     * handoff fails closed.</p>
+     */
+    public synchronized void requeueFailedClaim(final ScheduleWorkItem item) {
+        final ScheduleWorkItem selected = requirePolledClaimCandidate(item);
+        final DiscoveredHead known = discoveredHeads.get(selected.laneId());
+        if (store.get(ColumnFamily.TIMELINE, known.readyKey()) == null) {
+            throw new IllegalStateException("cannot requeue Claim after its READY key was consumed");
+        }
+        final RuntimeSnapshot before = runtimeSnapshot();
+        final Map<DestinationLaneId, List<ScheduleWorkItem>> queuesBefore = delegate.queueSnapshot();
+        try {
+            delegate.requeueFirst(selected);
+            persist();
+        } catch (RuntimeException | Error failure) {
+            rollbackRuntime(before, List.of(), List.of(), null, failure, queuesBefore);
+            throw failure;
+        }
+    }
+
+    /**
+     * Completes the process-local half of an exact Claim handoff after the
+     * shard Claim WriteBatch has consumed its READY key.
+     *
+     * <p>The durable Claim and Message runtime index remain authoritative.
+     * This method only releases the retained discovery identity so a later
+     * READY head for the Lane can be promoted.  Observing the old READY key is
+     * a caller ordering error: completion must never run before the Claim
+     * WriteBatch is known to have succeeded.</p>
+     */
+    public synchronized void completeClaim(final ScheduleWorkItem item) {
+        final ScheduleWorkItem selected = requirePolledClaimCandidate(item);
+        final DiscoveredHead known = discoveredHeads.get(selected.laneId());
+        if (store.get(ColumnFamily.TIMELINE, known.readyKey()) != null) {
+            throw new IllegalStateException("cannot complete Claim while its READY key still exists");
+        }
+        discoveredHeads.remove(selected.laneId());
+    }
+
+    private ScheduleWorkItem requirePolledClaimCandidate(final ScheduleWorkItem item) {
+        final ScheduleWorkItem selected = Objects.requireNonNull(item, "Claim work item");
+        final DiscoveredHead known = discoveredHeads.get(selected.laneId());
+        if (known == null || !sameWork(known.item(), selected)) {
+            throw new IllegalArgumentException("Claim work item is not the discovered Lane head");
+        }
+        if (delegate.pendingHead(selected.laneId()) != null) {
+            throw new IllegalStateException("Claim work item has not been polled from its Lane");
+        }
+        return selected;
+    }
+
+    /**
      * A due head that is larger than this turn's global byte budget cannot be
      * claimed in this turn.  It must not keep the recovery first pass open and
      * thereby prevent smaller healthy lanes from receiving later turns.
