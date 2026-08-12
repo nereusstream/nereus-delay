@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -69,6 +70,33 @@ class WorkClassEventLoopTest {
         assertThrows(IllegalStateException.class, turn::close);
         assertTrue(turn.isClosed());
         assertEquals(0, resources.snapshot().activeLeases());
+    }
+
+    @Test
+    void runTurnReleasesResourcesBeforeRethrowingExecutorFailure() {
+        final AtomicLong now = new AtomicLong();
+        final WorkClassResourcePool resources = new WorkClassResourcePool(policies(), 1, 64, 100, now::get);
+        final WorkClassEventLoop loop = new WorkClassEventLoop(
+                new WorkClassScheduler(policies(), 100, now::get), resources);
+        loop.offer(new WorkClassTask(WorkClass.QUERY, "query-1", 8));
+        loop.offer(new WorkClassTask(WorkClass.QUERY, "query-2", 8));
+        final AtomicReference<WorkClassTask> executed = new AtomicReference<>();
+        final IllegalStateException failure = new IllegalStateException("executor failed");
+
+        assertThrows(IllegalStateException.class, () -> loop.runTurn(
+                new SchedulerBudget(1, 32, 1_000), task -> {
+                    executed.set(task);
+                    throw failure;
+                }));
+
+        assertEquals(new WorkClassTask(WorkClass.QUERY, "query-1", 8), executed.get());
+        assertEquals(0, resources.snapshot().activeLeases());
+        assertEquals(1, loop.pending(WorkClass.QUERY));
+
+        loop.runTurn(new SchedulerBudget(1, 32, 1_000), task ->
+                assertEquals(new WorkClassTask(WorkClass.QUERY, "query-2", 8), task));
+        assertEquals(0, resources.snapshot().activeLeases());
+        assertEquals(0, loop.pending(WorkClass.QUERY));
     }
 
     private static EnumMap<WorkClass, WorkClassPolicy> policies() {

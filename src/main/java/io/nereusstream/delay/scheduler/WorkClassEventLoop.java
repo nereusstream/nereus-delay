@@ -2,6 +2,7 @@ package io.nereusstream.delay.scheduler;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Consumer;
 
 /**
  * Local composition seam for the V1 Worker event loop.
@@ -64,6 +65,39 @@ public final class WorkClassEventLoop {
             }
             throw failure;
         }
+    }
+
+    /**
+     * Runs one bounded turn and always closes its resource leases.
+     *
+     * <p>The callback executes outside the event-loop monitor, so producers
+     * may offer later work while this bounded chunk is running.  A callback
+     * failure does not leave the selected chunk's shared capacity borrowed:
+     * the turn is closed before the original failure is rethrown.  The
+     * callback is still responsible for keeping its own RocksDB/Oxia and
+     * external I/O operations within the V1 chunk boundary.</p>
+     */
+    public void runTurn(final SchedulerBudget budget, final Consumer<WorkClassTask> executor) {
+        Objects.requireNonNull(executor, "executor");
+        final Turn turn = poll(budget);
+        if (turn.isEmpty()) {
+            return;
+        }
+        try {
+            for (WorkClassTask task : turn.tasks()) {
+                turn.requireWithinBorrowedHold();
+                executor.accept(task);
+                turn.requireWithinBorrowedHold();
+            }
+        } catch (RuntimeException | Error failure) {
+            try {
+                turn.close();
+            } catch (RuntimeException | Error closeFailure) {
+                failure.addSuppressed(closeFailure);
+            }
+            throw failure;
+        }
+        turn.close();
     }
 
     public synchronized int pending(final WorkClass workClass) {
