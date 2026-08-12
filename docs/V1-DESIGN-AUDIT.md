@@ -4044,6 +4044,16 @@ full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
 real-Oxia methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was
 unset; this remains local evidence only.
 
+The local crash-durable Recovery Catalog encoder now validates the complete
+Snapshot projection before serialization, matching the fail-closed intent of
+the single-record Oxia encoder. Resource-map aliases and a catalog shard that
+does not match its manifests are rejected by
+`PersistentRecoveryCatalogTest.snapshotEncoderRejectsResourceMapAliasBeforeEmittingBytes`
+and `snapshotEncoderRejectsForeignCatalogShardBeforeEmittingBytes`. This is a
+local serialization-integrity improvement only; it does not close the
+session-bound RecoveryPin, upload-intent/catalog transaction, Object Store or
+real-service recovery gates.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

@@ -4308,6 +4308,17 @@ full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
 real-Oxia methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was
 unset; this remains local regression evidence only.
 
+The crash-durable local `PersistentRecoveryCatalog` encoder now applies the
+same complete Snapshot projection validation before emitting bytes. It rejects
+resource-map aliases and foreign catalog-shard identities instead of silently
+normalizing them into a different local state; `PersistentRecoveryCatalogTest`
+`snapshotEncoderRejectsResourceMapAliasBeforeEmittingBytes` and
+`snapshotEncoderRejectsForeignCatalogShardBeforeEmittingBytes` cover the two
+direct-encoder fences. This strengthens only the local catalog serialization
+boundary; session-bound RecoveryPin, upload-intent/catalog transaction,
+Object Store publication and external recovery authority remain release
+blockers.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

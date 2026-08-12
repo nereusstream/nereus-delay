@@ -285,7 +285,20 @@ public final class PersistentRecoveryCatalog implements RecoveryCatalogAuthority
         LocalStatePathGuard.ensureRealDirectoryPath(parent, "Recovery Catalog state parent");
     }
 
-    private static byte[] encodeSnapshot(final RecoveryCatalog.Snapshot snapshot) {
+    static byte[] encodeSnapshot(final RecoveryCatalog.Snapshot snapshot) {
+        Objects.requireNonNull(snapshot, "snapshot");
+        // Validate the complete projection before encoding.  The normal
+        // delegate path already produces a validated Snapshot, but this
+        // boundary is also used while decoding/rechecking state and must not
+        // silently normalize an alias resource key, foreign shard or broken
+        // Floor/ancestry projection into a different durable value.
+        for (Map.Entry<String, CheckpointResourceV1> entry : snapshot.manifestResources().entrySet()) {
+            final CheckpointResourceV1 resource = Objects.requireNonNull(entry.getValue(), "snapshot resource");
+            if (!Bytes.hex(resource.checkpointId()).equals(entry.getKey())) {
+                throw new IllegalStateException("Recovery Catalog resource map key does not match checkpoint identity");
+            }
+        }
+        RecoveryCatalog.fromSnapshot(snapshot);
         final List<CheckpointManifest> manifests = new ArrayList<>(snapshot.manifests());
         manifests.sort(Comparator.comparing(manifest -> Bytes.hex(manifest.checkpointId())));
         if (manifests.size() > MAX_MANIFESTS) {

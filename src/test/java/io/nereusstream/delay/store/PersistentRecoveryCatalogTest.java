@@ -138,6 +138,36 @@ class PersistentRecoveryCatalogTest {
     }
 
     @Test
+    void snapshotEncoderRejectsResourceMapAliasBeforeEmittingBytes() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 90);
+        final CheckpointManifest checkpoint = manifest(shard, UUID.randomUUID(), id16(91), id16(92),
+                0, 1, 1, null);
+        final ProfileRefV1 profile = new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, id32(93),
+                ProfileKindV1.OBJECT_STORE);
+        final CheckpointResourceV1 resource = new CheckpointResourceV1(checkpoint.recoveryLineageId(),
+                checkpoint.checkpointId(), profile, Bytes.utf8("bucket"), Bytes.utf8("manifest"),
+                Bytes.utf8("version"), checkpoint.canonicalJsonBytes().length, checkpoint.manifestSha256());
+        final RecoveryCatalog.Snapshot snapshot = new RecoveryCatalog.Snapshot(1, shard,
+                List.of(checkpoint), java.util.Map.of("alias", resource), null, null, null);
+
+        assertThrows(IllegalStateException.class,
+                () -> PersistentRecoveryCatalog.encodeSnapshot(snapshot));
+    }
+
+    @Test
+    void snapshotEncoderRejectsForeignCatalogShardBeforeEmittingBytes() {
+        final ShardId manifestShard = new ShardId(RouteIncarnation.random(), 94);
+        final ShardId catalogShard = new ShardId(RouteIncarnation.random(), 95);
+        final CheckpointManifest checkpoint = manifest(manifestShard, UUID.randomUUID(), id16(96), id16(97),
+                0, 1, 1, null);
+        final RecoveryCatalog.Snapshot snapshot = new RecoveryCatalog.Snapshot(1, catalogShard,
+                List.of(checkpoint), java.util.Map.of(), null, null, null);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> PersistentRecoveryCatalog.encodeSnapshot(snapshot));
+    }
+
+    @Test
     void rejectsSymbolicParentComponentBeforeCreatingStateOutsideBoundary() throws Exception {
         final Path parentRoot = tempDirectory.resolve("catalog-parent");
         final Path outside = tempDirectory.resolve("catalog-outside");
