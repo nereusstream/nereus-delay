@@ -982,7 +982,7 @@ messageIdentityReuseUntil =
 
 只要实体仍 active/retained，`id_cf/MESSAGE` 指向它；完整 terminal/history/payload 可按各自 retention 回收后，该 key 仍降级保留 compact `RETIRED_IDENTITY(messageIdentityReuseUntil, retirementMutationSequence)`，阻止另一个 first-seen Schedule 复用 ID。该 tombstone 只有在 `closedIngressDeadlineThrough >= messageIdentityReuseUntil`、source 已越过形成关闭水位的 fence、Recovery Floor 包含 retirement 且最小 identity retention 已过后才可删。此后任何携旧 ID 的 first Schedule 即使 Broker timestamp 回拨，也因 closed deadline 稳定 `REJECTED(DELAY_MESSAGE_ID_EXPIRED)`；因此不存在 terminal GC 与 UUID age check 之间的复活窗口。
 
-本地 Store 对上述 identity branch 已固定为 `id_cf/MESSAGE` 同 key、valueType=1、payload version=5 的 compact record；它携带 `delayMessageId`、`messageIdentityReuseUntil`、`retirementMutationSequence` 和 applied Source Position。`getMessage` 将其视为非当前实体，Message query 返回 `IDENTITY_RETIRED`，重启扫描必须校验后跳过而不能把它当作 live Message。`DelayShard.retireMessageIdentity` 只负责 shard-local terminal/history/DLQ projection 的原子压缩；`compactRetiredMessageIdentity` 仅在 source fence 与 Recovery Floor coverage 都可证明时删除。Route policy 的 maximum preparation age、Oxia CAS、provider quiescence、minimum identity retention 和完整外部 GC authority 仍是生产接线与发布门槛，不能由这个本地 helper 推断完成。
+本地 Store 对上述 identity branch 已固定为 `id_cf/MESSAGE` 同 key、valueType=1、payload version=5 的 compact record；它携带 `delayMessageId`、`messageIdentityReuseUntil`、`retirementMutationSequence` 和 applied Source Position。`getMessage` 将其视为非当前实体，Message query 返回 `IDENTITY_RETIRED`，重启扫描必须校验后跳过而不能把它当作 live Message。`DelayShard.retireMessageIdentity` 只负责 shard-local terminal/history/DLQ projection 的原子压缩；`compactRetiredMessageIdentity` 仅在 source fence 与 Recovery Floor coverage 都可证明时删除。两者都只是 `runtime` 包内算法/测试 seam，不是跨包生产 API。Route policy 的 maximum preparation age、Oxia CAS、provider quiescence、minimum identity retention 和完整外部 GC authority 仍是生产接线与发布门槛；生产 Worker 在这些 authority 闭合前不能直接触发对应本地 WriteBatch。
 
 ### 8.7 Retention invariant
 
@@ -2738,6 +2738,14 @@ task identity/byte charge 绑定 exact frame；queue rejection 不产生副作�
 一律 fence Owner 并保留 exact mutation 供恢复。只有 source-ordered apply 才能写入
 retire intent/delete-confirmed tombstone；provider delete、Recovery Floor、quiescence、
 quota release 和 tombstone compaction 仍是独立的外部/恢复边界。
+
+底层物理 GC 写动作 `retireMessageIdentity`、`compactRetiredMessageIdentity`、
+`compactResourceDeleteConfirmation` 和 `retireLaneWithTerminalGuard` 全部只允许作为
+`runtime` 包内算法/测试 seam，不能成为跨包 Worker API。它们分别缺少 Route
+identity-retention policy、Oxia CAS/session、provider ownership/quiescence、grant
+release 或完整 Recovery-Floor authority；公开本地 WriteBatch 会制造错误的生产授权边界。
+V1 必须等相应 strict `GC` coordinator 把这些外部证明、Owner fencing、bounded
+resource admission 与本地动作绑定为一个可审计入口后，才能暴露生产组合面。
 
 `RESOURCE_DELETE_CONFIRMED_V1` 携带的 nested RetireIntentRef 必须解析到与
 `RESOURCE_RETIRE_INTENT_V1` 完全相同的 canonical retire-intent record bytes，包含

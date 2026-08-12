@@ -1234,6 +1234,16 @@ returns a non-compacting decision when either authority is unavailable. This
 is local Store evidence only; Route freshness/retention policy, Oxia CAS,
 provider quiescence and production GC remain release blockers.
 
+After `a0d97cc`, the four physical local GC mutation methods are compiler-hidden
+from cross-package production composition: `retireMessageIdentity`,
+`compactRetiredMessageIdentity`, `compactResourceDeleteConfirmation` and
+`retireLaneWithTerminalGuard` are package-local. A reflection regression locks all
+four names to non-public visibility, and the one embedded cross-package fixture uses
+a test-only bridge absent from the main artifact. Complete `DelayShardTest` and
+`EmbeddedDelayServiceTest` suites plus compilation and Checkstyle passed. This
+removes an API-authority mismatch only; Route retention, Oxia, provider quiescence,
+grant release and Recovery-Floor coordinators are still release gates.
+
 The command/runtime projection audit also closes a `RESCHEDULE` drift: the
 apply path and its persistence normalization now use the prior generation's
 same pinned `actionAt` (or re-derive the pinned Profile handoff boundary),
@@ -3191,6 +3201,15 @@ bound exists; the production bounded overload leaves additional valid work durab
 Discovery is state-neutral and materialization remains a separate exact
 `LaneCloseWorkClassExecutor` action. This closes local cursor-discovery drift only,
 not the external close scheduler, Oxia, Object Store or Floor authorities.
+
+After `a0d97cc`, `DelayShard` no longer exposes uncoordinated physical GC writes to
+cross-package Worker code. Message identity retirement/compaction, resource
+delete-confirmation compaction and Lane terminal-guard replacement remain usable by
+runtime-package algorithms/tests only. The visibility regression prevents these
+methods from becoming public again without an explicit design change. No replacement
+production authority was invented: strict Route retention, Oxia/session, provider
+quiescence, grant release, bounded admission and Recovery-Floor orchestration remain
+OPEN and must precede any future public GC coordinator.
 
 Worker 资源侧现在还提供了本地 `WorkerLoadVector` 与
 `WorkerPlacementPolicy`：它们先按完整 committed capacity、固定/transition

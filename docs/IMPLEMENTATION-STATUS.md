@@ -1359,6 +1359,17 @@ evidence is `RetiredMessageIdentityRecordTest` and
 plus the positive fence/Floor/delete/reuse boundary in
 `DelayShardTest.retiredMessageIdentityCompactsOnlyAfterFenceAndFloorThenExpiresOldId`.
 
+After `a0d97cc`, this local evidence can no longer be mistaken for a production
+GC authority. `retireMessageIdentity`, `compactRetiredMessageIdentity`,
+`compactResourceDeleteConfirmation` and `retireLaneWithTerminalGuard` are
+package-local to the runtime algorithms/tests. A reflection regression requires
+all four named methods to exist and remain non-public; the only cross-package
+fixture uses a test-classpath bridge that is absent from the main artifact. The
+complete `DelayShardTest` and `EmbeddedDelayServiceTest` suites, compilation and
+Checkstyle passed. Production Route retention, Oxia CAS/session, provider
+ownership/quiescence, grant release and Recovery-Floor orchestration remain OPEN;
+no strict replacement coordinator is claimed by this visibility change.
+
 The local command projection now preserves the pinned timeline action boundary
 across `RESCHEDULE`. Apply-time validation and the later persistence
 normalization derive the new generation's `actionAt` from the prior runtime
@@ -4061,8 +4072,8 @@ canonical body decoding through logical identity, GC locator, durable record,
 lookup and local compaction APIs; this does not relax the separate bounded
 mutation-sequence counter. It deliberately does not perform an external
 delete, apply `RESOURCE_DELETE_CONFIRMED_V1`, or infer Recovery Floor release.
-The local same-key Lane terminal-guard replacement is implemented by
-`DelayShard.retireLaneWithTerminalGuard`; external deletion/confirmation,
+The local same-key Lane terminal-guard replacement is implemented as the package-local
+`DelayShard.retireLaneWithTerminalGuard` algorithm/test seam; external deletion/confirmation,
 Oxia grant release and Recovery-Floor authority remain release blockers.
 Protection-set `ProtectionRefV1.protection_generation` now follows the same
 full-width rule through nested canonical bytes and the `gc_cf/PROTECTION` key;
