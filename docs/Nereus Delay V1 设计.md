@@ -1119,6 +1119,16 @@ control snapshot 或 lease-validity 等激活前置条件时，才保留 `CATCHI
     read failure 时先 `FENCED`，不得留下旧 Owner 的 activation projection。
 11. 每个 Lane 独立完成 evidence/capability 验证后进入 `runtimeReadiness=READY`；Scheduler 只 scan/Claim/Admission `admissionGate=OPEN && runtimeReadiness=READY` 的 Lane。
 
+仓库内的 `OwnerRecoveryCoordinator` 是上述接管顺序的本地编排边界：它从已完成
+Store Incarnation 选择、打开和本地 recovery 校验之后开始，首个 `runTurn()` 先
+用同一 assignment/session-bound Owner Lease CAS 到 `CATCHING_UP`，每次只执行一个
+受 `ReplayTurnBudget` 限制的 mixed replay turn；只有 source cursor exhausted 后，
+才用同一 control snapshot 进入 strict `ACTIVE_FOR_COMMANDS` CAS。调用方必须在
+`OwnerRecoveryTurn.complete=false` 时把下一 turn 重新交给 event loop，不能在协调器
+外层一次性循环来绕过 record/byte/elapsed 上限。Source Assignment 发布、Oxia session
+创建、checkpoint 选择/下载、Broker resource guard 和 Lane 外部 evidence 仍是该
+协调器的输入与生产集成边界，不由本地编排器臆造。
+
 某 Lane 的 target/receipt/journal 不可用只让该 Lane 留在 `RECOVERING_EVIDENCE`/`BLOCKED`，不得阻止 shard Command application 或其他健康 Lane。Shard 生命周期只使用精确状态 `ACTIVE_FOR_COMMANDS`；Lane readiness 是独立闸门，不用含混的 `ACTIVE` 同时表示两者。
 
 嵌入式/一致性测试可以使用 `PersistentOwnerLeaseStore` 验证 Owner Lease

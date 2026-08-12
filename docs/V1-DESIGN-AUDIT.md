@@ -2499,6 +2499,19 @@ source consumer 的 bounded turn。实现先 `peek()` 并完成 shard WriteBatch
 cursor continuation、single-record byte overflow，以及 source-gap 后的 cursor
 保留。
 
+Commit `43e61c6` adds `OwnerRecoveryCoordinator`/`OwnerRecoveryTurn` to compose
+that local replay seam with the takeover lifecycle. The coordinator starts
+only after a caller supplies an already selected and locally validated Store,
+performs the context-bound `CATCHING_UP` CAS once, yields exactly one bounded
+mixed replay turn per call, and performs strict control-snapshot activation only
+after the cursor is exhausted. `OwnerRecoveryCoordinatorTest` proves that a
+record-cap yield leaves the authority in `CATCHING_UP`, that the next turn is
+the one that activates, and that a clock failure before the first CAS fences
+the local Owner. This closes local ordering/orchestration drift; it is not a
+claim of Source Assignment publication, Oxia session creation, checkpoint or
+Object Store selection, Broker guard, Lane evidence, or production Worker
+integration.
+
 V1 的 assignment 接管路径现在还会显式 pin `SourceReplaySuccessor`：同一
 canonical Source Position 的 broker redelivery 可以由 durable apply 幂等处理，
 但任何后继位置都必须由 adapter proof 判定为 immediate successor；内置的

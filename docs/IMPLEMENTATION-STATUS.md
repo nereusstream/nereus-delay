@@ -46,6 +46,19 @@ smoke evidence for the implemented single-record authorities, but it does
 not close the cross-record Owner Lease/catalog/pin transaction, Object Store,
 Kafka/Pulsar, chaos, benchmark, soak or upgrade release gates.
 
+Commit `43e61c6` adds `OwnerRecoveryCoordinator` and `OwnerRecoveryTurn` as the
+local bounded takeover orchestration seam. After the caller has selected,
+opened and locally validated a Store Incarnation, one `runTurn()` performs the
+context-bound `CATCHING_UP` Owner Lease CAS, delegates exactly one bounded mixed
+source replay turn, and only on cursor exhaustion performs the strict persisted
+control-snapshot/`ACTIVE_FOR_COMMANDS` CAS. The regression
+`OwnerRecoveryCoordinatorTest.runsOneBoundedTurnAndActivatesOnlyAfterTheCursorIsExhausted`
+covers turn continuation, authority state and idempotent completion; the clock
+failure test proves the local Owner is fenced before catch-up begins. This is
+only local orchestration evidence: Source Assignment publication, Oxia session
+creation, checkpoint/Object Store selection and download, Broker guards, Lane
+evidence and production Worker scheduling remain release blockers.
+
 Commit `4e2cf94` tightens the local recovery-reuse open boundary: an ACTIVE
 Store is opened without rewriting its runtime/recovery OPEN projection, the
 persisted recovery metadata is passed to `RecoveryCatalogAuthority` for
