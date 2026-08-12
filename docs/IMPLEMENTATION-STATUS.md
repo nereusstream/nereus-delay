@@ -85,6 +85,17 @@ replacement and authority-read failure paths. Compatibility assignment-only
 replay remains explicitly local-only, and real Oxia session orchestration,
 source assignment publication and Broker replay remain release blockers.
 
+Commit `b387648` closes the matching activation seam: the
+`activateForCommandsWithControlSnapshot(OxiaOwnerLeaseStore, ...)` entrypoint
+now requires a context-bound lease and a strict catch-up replay authority before
+it can validate the persisted control snapshot or write the local owner-open
+projection. A contextless compatibility lease is rejected before either local
+mutation or the `ACTIVE_FOR_COMMANDS` authority CAS; the focused
+`OwnerLeaseTest` covers both the strict success path and unchanged `ACQUIRING`
+authority on rejection. The no-snapshot/assignment-only activation overloads
+remain embedded compatibility seams, while the production control catalog and
+atomic RecoveryPin/lease transaction remain external blockers.
+
 After the terminal-Lane reservation/Commit, publish-charge ordering and typed
 READY recovery fencing fixes (`c619b38`, `f771f64`, `3527c89`), the repository
 verification command `./gradlew clean check --rerun-tasks --console=plain`

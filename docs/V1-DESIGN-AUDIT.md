@@ -74,6 +74,14 @@ proves the authoritative apply path fences before mutation. This closes only
 the local replay guard; production session orchestration, assignment/barrier
 publication and real Broker replay remain open.
 
+After `b387648`, the control-snapshot activation entrypoint rejects a
+contextless lease before local Store writes or the authoritative lifecycle CAS;
+only a context-bound strict catch-up window can open `ACTIVE_FOR_COMMANDS` on
+that path. `OwnerLeaseTest` covers the strict snapshot success and unchanged
+`ACQUIRING` authority on rejection. The legacy activation overloads remain
+explicit embedded seams, and the production control catalog plus atomic
+RecoveryPin/lease transaction are still open.
+
 The post-`3527c89` local verification `./gradlew clean check --rerun-tasks
 --console=plain` passed on 2026-08-12. Five opt-in real-Oxia methods were
 skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is repository
