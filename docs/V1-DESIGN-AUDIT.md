@@ -60,6 +60,11 @@ idempotent release, hold-time failure and callback-failure cleanup. This is
 local evidence only; dynamic RocksDB attribution, WriteBatch/IO admission and
 production Worker wiring remain open release gates.
 
+After `fe7d484`, this local seam covers all eight V1 work classes, including
+the independent `CHECKPOINT` execution queue. `CheckpointScheduler` remains
+the process-local due-time/claim layer; a claimed checkpoint must still enter
+the bounded `CHECKPOINT` turn and resource path before physical checkpoint I/O.
+
 After `c4391ca`, checkpoint restore admission covers the complete local
 download-to-install interval: `CheckpointRestoreCoordinator` acquires a
 Worker-wide idempotent permit before provider I/O, and the same permit remains
@@ -2706,7 +2711,7 @@ bucket，再移除 allocation identity；underflow 会保留 active reservation 
 Shared resource close 还会在 cache/WBM native teardown 成功后独立重试尚未释放的
 shared reservation，并以 `WorkerNativeResourceLedgerTest.sharedResourceCloseRetriesReservationsAfterReleaseFailure`
 证明只有两个 reservation 都释放后才完成 Worker close。
-`WorkClassScheduler` 对七个冻结 work class
+`WorkClassScheduler` 对八个冻结 work class
 提供 bounded queue/turn record-byte-time caps、`LEASE_FENCE` 首个 bounded turn
 抢占和跨小预算 poll 的 preemption-debt yield（连续 fence queue 不会饿死
 普通 class），以及 stale-class
@@ -3084,7 +3089,7 @@ activation；`WorkerRuntimeResourceMonitor` 将固定间隔 probe 接入同一 g
 probe 异常或 envelope mismatch 都会进入 drain/migrate，并可显式关闭调度器；
 `WorkerRuntimeResourceProbeTest`、`WorkerRuntimeSafetyGateTest` 与
 `WorkerRuntimeResourceMonitorTest` 覆盖解析、envelope rejection、周期探针
-生命周期和共享资源 ownership fencing；`WorkClassSchedulerTest` 覆盖七个
+生命周期和共享资源 ownership fencing；`WorkClassSchedulerTest` 覆盖八个
 work-class 的 bounded queue/turn caps、lease/fence 抢占和 stale-class 选择。
 `WorkClassResourcePoolTest` 还覆盖 non-borrowable minimum、borrowed hold
 bound 和 acquisition overflow rejection，`WorkClassEventLoopTest` 覆盖组合层
