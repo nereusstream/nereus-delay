@@ -5445,6 +5445,18 @@ owner-drain/checkpoint 测试和完整 6-task Gradle 门禁于 2026-08-13 通过
 Oxia smoke 跳过。Object Store upload/catalog publication、真实 callback quiescence 与
 Worker drain wiring 仍为 OPEN release evidence。
 
+Store 与 Worker resource envelope 现在有统一 exact-config fence：`ShardStore.open`、
+local recovery reuse、全部 restore helper、内部 `openAtPath` 以及
+`CheckpointRestoreCoordinator` 都要求调用 config 与创建 `SharedRocksDbResources` 的
+完整 `ShardStoreConfig` equality。混用另一 root/limits 的请求在文件系统、slot 或
+provider I/O 前失败。`CheckpointExecutionCoordinator` 还要求 publication/upload
+coordinator 的 `SharedRocksDbResources` 与 active Store 的资源实例相同，防止上传槽位/
+rate limit 计入另一 Worker。测试覆盖 open 零文件系统副作用、restore 零 provider
+调用及 foreign publication envelope；一个历史 Outcome fixture 也改为使用同一 config。
+聚焦 Store/restore/checkpoint/outcome 测试和完整 6-task Gradle 门禁于 2026-08-13
+通过；5 个真实 Oxia smoke 跳过。生产 envelope 数值、基准测试与真实 Object Store/
+Oxia authority 仍 OPEN。
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

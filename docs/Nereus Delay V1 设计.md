@@ -1071,6 +1071,14 @@ recovery-only submit 必须是 coordinator 内部原语，避免绕过 cursor �
 `WorkClassExecutionRegistry`，使可选 final checkpoint 必然经过 bounded `CHECKPOINT`
 action；无 registry 的兼容构造只能包内使用，不能成为包外静默降级。
 
+任何 `ShardStore.open`、local reuse 或 restore 必须使用创建当前
+`SharedRocksDbResources` 时的 exact `ShardStoreConfig`；root、DB limits、共享 cache/
+memtable、后台线程、文件句柄、checkpoint/drain/acquire slots 与 rate limiter 不得来自
+两套 config。mismatch 必须在目录创建、slot acquisition 或 provider download 前拒绝。
+同理，`CheckpointExecutionCoordinator` 使用的 publication/upload coordinator 必须与
+active Store 共享同一个 `SharedRocksDbResources` 实例，不能把上传并发/I/O 计入另一
+Worker envelope。
+
 Renewal CAS 必须保留 exact fencing/assignment/session identity 与当前
 lifecycle state；旧 Owner 携带的 stale state 不能通过续租把状态投影回退，expiry
 也只能单调延长。response loss 只能 reread 同一 identity、同一 state 的 successor。

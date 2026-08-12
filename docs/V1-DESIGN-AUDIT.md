@@ -5145,6 +5145,18 @@ coverage and the complete six-task local gate passed on 2026-08-13; five
 real-Oxia smokes skipped. External callbacks, Object Store/catalog publication
 and production Worker drain authority remain OPEN.
 
+The physical Worker resource graph now has exact configuration identity.
+Every Store open, local reuse and restore path requires the complete
+`ShardStoreConfig` to equal the config that created its
+`SharedRocksDbResources`; mismatch fails before directory mutation, slot
+acquisition or provider download. Checkpoint execution also requires its
+publication/upload coordinator to use the exact same resource-envelope
+instance as the active Store, so upload concurrency and rate limiting cannot
+be charged to another Worker. Open/restore zero-side-effect and foreign
+publication-envelope regressions, focused suites and the complete six-task
+local gate passed on 2026-08-13; five real-Oxia smokes skipped. Benchmark-backed
+production limits and external Object Store/Oxia evidence remain OPEN.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
