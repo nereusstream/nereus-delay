@@ -22,6 +22,25 @@ resource-incarnation and send-evidence contract.  Consequently the audit's
 Kafka/Pulsar real-service gate remains open until pinned transports, response
 classification, source assignment/barrier proof and real-broker tests exist.
 
+The latest real-service check on 2026-08-12 built Oxia source commit
+`37a17bef17202d5fd6e23282da5fd26d94865484`, started a temporary standalone
+service, and ran:
+
+```text
+NEREUS_DELAY_OXIA_ENDPOINT=127.0.0.1:6648 \
+GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle \
+./gradlew clean check --rerun-tasks --console=plain
+BUILD SUCCESSFUL in 1m 1s
+```
+
+The five opt-in real-Oxia methods all executed with zero skips, failures and
+errors: Owner Lease/ephemeral session; Control Target/Operation CAS; Recovery
+Catalog/Floor plus local-reuse validation; and Checkpoint Upload Intent
+create/publish/reopen. This upgrades the Oxia single-record smoke evidence
+from environment-skipped to live-service PASS, but remains only repository
+evidence. It does not close cross-record authority transactions, Object Store
+publication, Kafka/Pulsar transport, chaos, benchmark, soak or upgrade gates.
+
 The post-`3527c89` local verification `./gradlew clean check --rerun-tasks
 --console=plain` passed on 2026-08-12. Five opt-in real-Oxia methods were
 skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is repository

@@ -25,6 +25,27 @@ guarded send evidence required by V1.  These source inspections keep the
 Kafka/Pulsar rows below as release blockers until concrete pinned transports
 and real-broker evidence are added.
 
+Latest real-service verification on 2026-08-12 ran the repository gate with a
+temporary Oxia standalone service built from source commit
+`37a17bef17202d5fd6e23282da5fd26d94865484`:
+
+```text
+NEREUS_DELAY_OXIA_ENDPOINT=127.0.0.1:6648 \
+GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle \
+./gradlew clean check --rerun-tasks --console=plain
+BUILD SUCCESSFUL in 1m 1s
+```
+
+All five opt-in real-Oxia methods ran rather than being assumed or skipped:
+Owner Lease/ephemeral session (1), Control Target/Operation CAS (2),
+Recovery Catalog/Floor and local-reuse validation (1), and Checkpoint Upload
+Intent create/publish/reopen (1); every method reported `skipped=0`,
+`failures=0`, `errors=0`. The Oxia process used only a temporary local data
+directory and was stopped after the run. This closes the current real-Oxia
+smoke evidence for the implemented single-record authorities, but it does
+not close the cross-record Owner Lease/catalog/pin transaction, Object Store,
+Kafka/Pulsar, chaos, benchmark, soak or upgrade release gates.
+
 After the terminal-Lane reservation/Commit, publish-charge ordering and typed
 READY recovery fencing fixes (`c619b38`, `f771f64`, `3527c89`), the repository
 verification command `./gradlew clean check --rerun-tasks --console=plain`
