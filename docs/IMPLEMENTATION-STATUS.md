@@ -73,6 +73,16 @@ malformed-source and trailing-byte rejection. This remains local retention
 evidence; Recovery-Floor and Route identity-retention authority remain release
 gates.
 
+The local Kafka Receipt Journal and Pulsar Attempt Journal now apply the same
+Source Position canonical decode to `AttemptIdentity`; creating a Mapping also
+requires the DelayMessageId and decoded source position to belong to the
+journal Shard. This prevents a valid-looking Journal mapping from carrying a
+foreign or malformed ingress anchor. `KafkaReceiptJournalTest` and
+`PulsarAttemptJournalTest` cover malformed identities and cross-Shard mapping
+rejection. These are local adapter invariants only; authenticated Broker
+receipt/journal durability, response classification and real transport proofs
+remain release blockers.
+
 The local `TIME_FENCE_V1` apply path now carries an explicit
 `DelayShardConfig.timeFenceSafetyMarginMs` input and checks the Trusted-UTC
 proof with checked addition before advancing the ingress watermark. A proof one

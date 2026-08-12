@@ -1276,6 +1276,13 @@ that decoded anchor against the current Shard before exposing identity-reuse
 state. `RetiredMessageIdentityRecordTest` covers canonical round-trip and
 malformed/trailing-byte rejection. This is local retention evidence only;
 Recovery-Floor and Route identity-retention authority remain release gates.
+The local Kafka Receipt Journal and Pulsar Attempt Journal now canonicalize
+their `AttemptIdentity` Source Position and require both the DelayMessageId and
+decoded source position to match the journal Shard before constructing a
+mapping. Focused `KafkaReceiptJournalTest` and `PulsarAttemptJournalTest`
+vectors cover malformed source bytes and cross-Shard mapping rejection. This
+does not claim Broker receipt/journal durability or authenticated transport
+evidence.
 Its `COMMITTED` branch also rejects a payload reference whose length or
 SHA-256 differs from the Prepare intent, so a damaged durable value cannot
 cross the reservation-to-message boundary as a false object binding. The
