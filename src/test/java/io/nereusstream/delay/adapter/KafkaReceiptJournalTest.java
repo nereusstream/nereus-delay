@@ -73,6 +73,9 @@ class KafkaReceiptJournalTest {
                 DelayMessageId.random(shard), 0, bytes(32, 1), Bytes.sha256(Bytes.utf8("prepared")), 1,
                 Bytes.utf8("not-a-source-position")));
         final ShardId foreign = shard();
+        assertThrows(IllegalArgumentException.class, () -> new KafkaReceiptJournal.AttemptIdentity(
+                DelayMessageId.random(shard), 0, bytes(32, 2), Bytes.sha256(Bytes.utf8("prepared-2")), 2,
+                sourcePosition(foreign, 2)));
         final KafkaReceiptJournal.AttemptIdentity identity = identity(foreign, 2);
         assertThrows(IllegalArgumentException.class, () -> KafkaReceiptJournal.Mapping.create(shard, producer(), 0,
                 identity));

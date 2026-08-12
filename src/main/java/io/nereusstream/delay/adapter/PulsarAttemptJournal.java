@@ -741,7 +741,11 @@ public final class PulsarAttemptJournal {
             Bytes.requireLength(preparedPublishHash, HASH_LENGTH, "preparedPublishHash");
             publishAttemptId = Bytes.copy(publishAttemptId);
             preparedPublishHash = Bytes.copy(preparedPublishHash);
-            sourcePosition = SourcePositionCodec.decode(sourcePosition).canonicalBytes();
+            final var decodedSourcePosition = SourcePositionCodec.decode(sourcePosition);
+            if (!delayMessageId.routingId().shardId().equals(decodedSourcePosition.shardId())) {
+                throw new IllegalArgumentException("Pulsar Attempt Journal source belongs to another Shard");
+            }
+            sourcePosition = decodedSourcePosition.canonicalBytes();
         }
 
         @Override
