@@ -1891,7 +1891,7 @@ Expiry discovery 与 publish readiness 完全分离。每个仍可能因 `expire
 [EXPIRY][v1][expireAt][destinationLaneId][delayMessageId][generation]
 ```
 
-`ADMIN_PAUSED`、`ORDERING_BROKEN`、`BLOCKED`、`RECOVERING_EVIDENCE`、circuit-open 或远期 retry 都不能删除/推迟该 key。独立 bounded expiry scanner 只在 `earliestUtcNow >= expireAt` 后准备 exact `EXPIRE_GENERATION_V1`；其 Shard Log Source Position 与 Cancel/Reschedule/Admission 决定胜者。无 unresolved attempt 时该 record 终态为 `EXPIRED`；仍有 possible-delivery attempt 时只关闭新 Admission/retry 并保持 `UNCERTAIN` 或执行 pinned possible-delivery terminal policy。Terminal/Reschedule/Close 同 batch 删除旧 expiry key；stale generation event 是 no-op。当前本地组合入口 `ExpiryWorkClassExecutor` 只接收一个已从 durable `EXPIRY` index 发现的 candidate：它在进入 `EXPIRY` bounded queue 前准备并签名 exact mutation，queue rejection 不读取/写入 Store；执行时重新校验 Owner Lease、Trusted-UTC boundary 和 Shard identity，只调用外部 `ShardLogMutationAppender`，不本地 apply、不分配 Source Position。`PERSISTED` 必须返回并校验外部 Source Position，`DEFINITIVELY_NOT_PERSISTED` 与 `UNKNOWN` 保留 exact mutation 语义；source-ordered apply 仍是唯一能够改变 Message generation 状态的路径。真实 scanner 调度、Broker append/ACK、Oxia/Trusted-Time authority 和 source replay 接线仍须由生产适配器完成。Payload Reservation 使用独立 `[RESERVATION_EXPIRY=0x05][v1][reservationExpireAt][reservationId]`，由 reservation scanner 解码并走同样的 Trusted-Time/source-fence GC 规则；它不能与 Message Generation `EXPIRY` 共用 tag。
+`ADMIN_PAUSED`、`ORDERING_BROKEN`、`BLOCKED`、`RECOVERING_EVIDENCE`、circuit-open 或远期 retry 都不能删除/推迟该 key。独立 bounded expiry scanner 只在 `earliestUtcNow >= expireAt` 后准备 exact `EXPIRE_GENERATION_V1`；其 Shard Log Source Position 与 Cancel/Reschedule/Admission 决定胜者。无 unresolved attempt 时该 record 终态为 `EXPIRED`；仍有 possible-delivery attempt 时只关闭新 Admission/retry 并保持 `UNCERTAIN` 或执行 pinned possible-delivery terminal policy。Terminal/Reschedule/Close 同 batch 删除旧 expiry key；stale generation event 是 no-op。当前本地 scanner 入口 `ExpiryDiscoveryWorkClassExecutor` 把 exact Shard、canonical Trusted-UTC evidence 以及完整 record/byte/elapsed scan budget 绑定进 `EXPIRY` task；task byte charge 是 canonical request identity 与完整 `maxBytes` envelope 的 checked sum。queue admission 只做本地 lifecycle preflight，不读取 Oxia、时钟或 RocksDB；bounded action 开始后才重读 strict Owner Lease，并用独立 monotonic clock 扫描。一次 candidate 的预算同时覆盖 `timeline_cf/EXPIRY` key/value 与对应 `id_cf/MESSAGE` key/value 的实际字节；首个 candidate 本身超过 byte envelope 时 fail closed，后续 candidate 只因剩余预算不足时留给下一 turn。discovery 只返回仍与 Message projection 完全一致的 candidate，不改变 Message 状态。随后 `ExpiryWorkClassExecutor` 接收一个 candidate，在进入同一 `EXPIRY` bounded queue 前准备并签名 exact mutation，queue rejection 不读取/写入 Store；执行时重新校验 Owner Lease、Trusted-UTC boundary 和 Shard identity，只调用外部 `ShardLogMutationAppender`，不本地 apply、不分配 Source Position。`PERSISTED` 必须返回并校验外部 Source Position，`DEFINITIVELY_NOT_PERSISTED` 与 `UNKNOWN` 保留 exact mutation 语义；source-ordered apply 仍是唯一能够改变 Message generation 状态的路径。真实 scanner 调度、Broker append/ACK、Oxia/Trusted-Time authority 和 source replay 接线仍须由生产适配器完成。Payload Reservation 使用独立 `[RESERVATION_EXPIRY=0x05][v1][reservationExpireAt][reservationId]`，由 reservation scanner 解码并走同样的 Trusted-Time/source-fence GC 规则；它不能与 Message Generation `EXPIRY` 共用 tag。
 
 ### 12.3 两级 DRR
 
@@ -2062,6 +2062,19 @@ takeover replay 共享公平性、资源限额和 fencing 边界，同时保持 
 Worker 不能通过 whole-iterable、fixed-time 或 bounded direct replay overload 绕过
 `SOURCE_APPLY` queue。生产 source/recovery 入口必须使用相应的
 `SourceApplyWorkClassExecutor` handoff。
+
+Message expiry 的 durable index discovery 也必须在 `EXPIRY` work-class 内完成，
+不能由跨包 Worker 先直接扫描 RocksDB、再只把发现结果送入 queue。
+`ExpiryDiscoveryWorkClassExecutor` 的 submission 只做 strict-active 本地 preflight，
+并把 exact Shard、canonical Trusted-UTC evidence 与 record/byte/elapsed scan budget
+绑定进 task；queue rejection 不得读取 Oxia、owner clock、scan clock 或 Store。
+action 开始后重读 Owner Lease，以 evidence 的 `earliestEpochMs` 为 inclusive cutoff，
+并使用与 owner UTC clock 分离的 monotonic scan clock。共享 `BoundedReadBudget`
+必须同时计入每个 `EXPIRY` index key/value 和 dependent `id_cf/MESSAGE` key/value
+的实际字节及 elapsed time，不能只限制返回 candidate 数。首个完整 candidate 本身
+超过 envelope 时必须 fence/fail closed；后续 candidate 仅因剩余预算不足时停止 turn，
+由下次从 durable index 重新发现。discovery 不改变 Message；每个 exact candidate
+仍须交给 `ExpiryWorkClassExecutor` 签名并 append source-ordered mutation。
 
 Lane Close 的 source-ordered marker 已经冻结语义结果，但 cursor 物化仍属于
 `GC` work-class。跨包 Worker 每次只能把一个 exact

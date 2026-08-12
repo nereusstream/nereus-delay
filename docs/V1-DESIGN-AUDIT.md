@@ -194,6 +194,20 @@ side-effect free. This closes only the local candidate-to-log composition
 seam; production expiry scanner scheduling, Broker append/ACK, Oxia/clock
 authority and source-ordered `EXPIRE_GENERATION` apply remain release gates.
 
+After `45b99dd` and `5f1eae3`, the candidate-discovery side is bounded as well.
+`ExpiryDiscoveryWorkClassExecutor` binds Shard identity, canonical Trusted-UTC
+evidence and the complete record/byte/elapsed scan envelope before `EXPIRY`
+admission; queue rejection reads no Oxia, clock or Store state. Execution rereads
+the strict Owner Lease and uses a separate monotonic scan clock. One shared
+`BoundedReadBudget` charges actual key/value bytes for both the durable EXPIRY
+entry and its dependent Message projection, so a candidate cannot be admitted by
+count alone. An individually oversized candidate fails closed, while a later
+candidate that exhausts remaining budget is left for a later turn. Discovery does
+not mutate Message state and each returned candidate still requires the exact
+signed append handoff above. Focused discovery/append/Store tests, compilation and
+Checkstyle passed; production scanner scheduling, Trusted-Time/Oxia authority,
+Broker append/ACK and source replay remain open.
+
 After `8eb97e4`, the independent reservation-expiry path has a bounded
 `GC`-class materializer. `ReservationExpiryWorkClassExecutor` binds the exact
 reservation id, Message id, expiry and state version before queue admission,
@@ -3117,6 +3131,17 @@ which binds the cursor/batch identity and rereads Owner authority before the Sto
 primitive. The focused visibility regression plus materializer/executor tests,
 compilation and Checkstyle passed. This removes the local no-authority bypass only;
 production scanner, Floor protection and Oxia orchestration remain open gates.
+
+After `45b99dd` and `5f1eae3`, Message expiry discovery no longer relies on a
+cross-package unbounded `DelayShard.discoverExpiry` call. The strict public
+composition path is `ExpiryDiscoveryWorkClassExecutor`: pure local preflight before
+queueing, execution-time Owner reread, separate monotonic scan clock and one
+record/actual-byte/elapsed budget shared across index and dependent Message reads.
+The compatibility count-only overload remains for local callers/tests, but it is not
+the production Worker boundary. Returned candidates remain state-neutral and must
+pass through `ExpiryWorkClassExecutor`; no new Source Position or competing mutation
+authority was introduced. This closes local discovery/work-class drift only and
+does not close real Trusted-Time, Oxia, Broker or replay gates.
 
 Worker 资源侧现在还提供了本地 `WorkerLoadVector` 与
 `WorkerPlacementPolicy`：它们先按完整 committed capacity、固定/transition
