@@ -97,6 +97,31 @@ public final class OwnedDelayShard {
         return applyAuthoritatively(authority, command, position, nowEpochMs, null, null);
     }
 
+    /**
+     * Strict V1 command mutation entrypoint.  The ordinary authoritative
+     * overload remains an embedded compatibility seam; production source
+     * writers must prove that the active lease was established by the
+     * context-bound catch-up path before applying a command.
+     */
+    public synchronized CommandResult applyAuthoritativelyStrict(final OxiaOwnerLeaseStore authority,
+                                                                  final PreparedCommand command,
+                                                                  final SourcePosition position,
+                                                                  final long nowEpochMs) {
+        return applyAuthoritativelyStrict(authority, command, position, nowEpochMs, null, null);
+    }
+
+    /** Applies a command with the strict assignment/session-bound authority fence. */
+    public synchronized CommandResult applyAuthoritativelyStrict(final OxiaOwnerLeaseStore authority,
+                                                                  final PreparedCommand command,
+                                                                  final SourcePosition position,
+                                                                  final long nowEpochMs,
+                                                                  final Long sourceConnectionGeneration,
+                                                                  final byte[] guardAttestationDigest) {
+        requireStrictActiveAuthority(authority);
+        return applyAuthoritatively(authority, command, position, nowEpochMs,
+                sourceConnectionGeneration, guardAttestationDigest);
+    }
+
     /** Applies one guarded command after an authoritative lease reread. */
     public synchronized CommandResult applyAuthoritatively(final OxiaOwnerLeaseStore authority,
                                                             final PreparedCommand command,
@@ -982,6 +1007,14 @@ public final class OwnedDelayShard {
         Objects.requireNonNull(authority, "authority");
         if (!hasStrictLifecycleAuthority()) {
             throw new IllegalStateException("strict drain requires a context-bound strict catch-up lease");
+        }
+        validateCatchupAssignment(sourceAssignment);
+    }
+
+    private void requireStrictActiveAuthority(final OxiaOwnerLeaseStore authority) {
+        Objects.requireNonNull(authority, "authority");
+        if (!hasStrictLifecycleAuthority()) {
+            throw new IllegalStateException("strict apply requires a context-bound strict catch-up lease");
         }
         validateCatchupAssignment(sourceAssignment);
     }

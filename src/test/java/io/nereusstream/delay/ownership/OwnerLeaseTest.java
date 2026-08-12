@@ -204,6 +204,64 @@ class OwnerLeaseTest {
     }
 
     @Test
+    void strictAuthoritativeApplyRejectsAContextlessCompatibilityLease() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 24);
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = backend.acquire(shardId, "worker-strict-apply-legacy", 100, 100).orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("strict-apply-legacy"));
+        final UUID topic = UUID.randomUUID();
+        final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 0);
+        final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster", topic, 0, null, 1_000);
+        final PreparedCommand command = PreparedCommand.schedule(shardId,
+                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("strict-apply-legacy-lane")),
+                        2_000, 5_000, OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            owned.markCatchingUp(new SourceAssignment(shardId,
+                    Bytes.sha256(Bytes.utf8("strict-apply-legacy-assignment")), 1, barrier));
+            owned.recordCatchup(position);
+            owned.activateForCommands(authority, 101);
+
+            assertThrows(IllegalStateException.class,
+                    () -> owned.applyAuthoritativelyStrict(authority, command, position, 101));
+            assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, owned.state());
+            assertNull(owned.shard().getMessage(command.delayMessageId()));
+        }
+    }
+
+    @Test
+    void strictAuthoritativeApplyUsesTheContextBoundOwnerLease() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 25);
+        final UUID topic = UUID.randomUUID();
+        final SourceAssignment assignment = new SourceAssignment(shardId,
+                Bytes.sha256(Bytes.utf8("strict-apply-assignment")), 4,
+                new KafkaActivationBarrier(shardId, "strict-apply-cluster", topic, 0));
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease lease = backend.acquire(assignment, "worker-strict-apply",
+                Bytes.sha256(Bytes.utf8("strict-apply-session")), 100, 100).orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("strict-apply"));
+        final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "strict-apply-cluster", topic,
+                0, null, 1_000);
+        final PreparedCommand command = PreparedCommand.schedule(shardId,
+                new ScheduleIntent(DestinationLaneId.derive(Bytes.utf8("strict-apply-lane")),
+                        2_000, 5_000, OrderingMode.BEST_EFFORT, Bytes.utf8("payload")), 10_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = new OwnedDelayShard(new DelayShard(store, DelayShardConfig.defaults()), lease);
+            owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
+            owned.recordCatchup(position);
+            owned.activateForCommands(authority, 101);
+
+            assertEquals(StableCode.SCHEDULED,
+                    owned.applyAuthoritativelyStrict(authority, command, position, 101).stableCode());
+            assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, owned.state());
+        }
+    }
+
+    @Test
     void strictCatchupCasPublishesTheAuthoritativeLifecycleBeforeReplay() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 181);
         final UUID topic = UUID.randomUUID();
