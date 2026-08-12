@@ -1824,6 +1824,13 @@ runtimeReadiness (owner/runtime-derived):
 
 `READY` 只表示当前 Owner 已取得该 Lane 的发送权与证据前置条件，不保证目标此刻健康；普通 publish failure 进入 circuit/backoff。Capability/auth/topic drift 只把 runtimeReadiness 写为 `BLOCKED`，不改 admissionGate 或已应用 Command 结果；修复后重新 `RECOVERING_EVIDENCE -> READY`。Owner/Store 改变时所有未 retired Lane 的 runtimeReadiness 都回到 `RECOVERING_EVIDENCE`，但 source-ordered `ADMIN_PAUSED/ORDERING_BROKEN/CLOSED` 绝不因恢复被清除。
 
+本地 `DelayShard.updateLaneReadiness` 只允许作为 `runtime` 包内 projection
+算法/测试 seam，不是生产 activator API。跨包 Worker 不能在没有 pinned
+Profile/capability/credential generation、Lane-scoped channel fencing、evidence barrier、
+Owner authority 和 event-loop admission 的情况下直接写 `READY` 或 `BLOCKED`。
+生产 Lane activator 仍是发布门槛；未来入口必须把上述证明与同一 READY projection
+WriteBatch 绑定，而不能重新公开 raw readiness setter。
+
 `READY` 不是无期限 boolean。每次 transition 写 exact `ReadyCertificateV1`：
 
 ```text

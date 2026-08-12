@@ -1273,6 +1273,15 @@ cross-package Worker from treating local Store integrity checks as Control, Brok
 adapter or capacity authority. The corresponding production coordinators and
 dynamic reserve attribution remain release gates.
 
+After `581faba`, `DelayShard.updateLaneReadiness` is no longer a cross-package
+mutation surface. The repository has the durable projection algorithm but no
+production Lane activator that proves pinned Profile/capability/credential state,
+fences the Lane channel, crosses the evidence barrier and rereads Owner authority.
+The method is therefore runtime-package-only; a test-classpath bridge supports
+ownership fixtures without entering the main artifact. The shared reflection
+regression and affected Owner/Claim/Admission suites, complete `DelayShardTest`,
+compilation and Checkstyle passed. Production readiness authority remains OPEN.
+
 The command/runtime projection audit also closes a `RESCHEDULE` drift: the
 apply path and its persistence normalization now use the prior generation's
 same pinned `actionAt` (or re-derive the pinned Profile handoff boundary),
@@ -3251,6 +3260,11 @@ capacity-reserve, Attempt Journal or Publish state transitions. Exact source han
 inside `DelayShard` continue to use the algorithms, but public production composition
 must enter through the existing Control/Publish work-class and future adapter/capacity
 coordinators. This removes API drift without claiming the missing external authority.
+
+After `581faba`, the same rule applies to runtime readiness. Cross-package code can
+no longer make a Lane schedulable by writing `READY` directly; only a future strict
+Lane activator may expose that transition after proving all pinned prerequisites.
+This closes a misleading API seam, not the activator implementation itself.
 
 Worker 资源侧现在还提供了本地 `WorkerLoadVector` 与
 `WorkerPlacementPolicy`：它们先按完整 committed capacity、固定/transition

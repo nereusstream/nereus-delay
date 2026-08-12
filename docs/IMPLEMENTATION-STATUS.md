@@ -1400,6 +1400,16 @@ immutable capacity-grant admission. Signature-level visibility regression, compl
 `DelayShardTest`, compilation and Checkstyle passed. Production coordinators for
 adapter journal authority and dynamic reserve charging remain OPEN.
 
+After `581faba`, the raw Lane runtime-readiness setter is also package-local.
+No main-source Lane activator/capability coordinator currently exists, so leaving
+`updateLaneReadiness` public would incorrectly imply that any cross-package Worker
+could establish `READY` without pinned Profile/capability/credential generations,
+channel fencing, evidence barrier, Owner authority or event-loop admission. The
+non-public signature is covered by the shared reflection regression; ownership
+fixtures use a test-classpath-only bridge absent from the main artifact. Complete
+`DelayShardTest`, the affected Owner/Claim/Admission suites, compilation and
+Checkstyle passed. The production Lane activator remains an explicit release blocker.
+
 The local command projection now preserves the pinned timeline action boundary
 across `RESCHEDULE`. Apply-time validation and the later persistence
 normalization derive the new generation's `actionAt` from the prior runtime
