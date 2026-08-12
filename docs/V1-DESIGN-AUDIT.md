@@ -2721,7 +2721,10 @@ legacy `MessageRecord` 只按 scalar schedule fields 受限读取。物理 rich 
 `CONTROL_OVERRIDE` 的 nested ControlRef/Source Position 也经过 canonical typed
 decode；`GenerationRuntimeIndexTest.controlOverrideTimelineRequiresCanonicalTypedNestedValues`
 覆盖 malformed control/source bytes。这个 codec fence 不替代 authenticated
-control/evidence authority。
+control/evidence authority。与此同时，Control Override 的 Source Position 必须
+属于 timeline key 内 self-routing `DelayMessageId` 的 Shard，避免一个跨 Shard
+的控制重试值进入本地 timeline；`GenerationRuntimeIndexTest.controlOverrideTimelineRejectsSourcePositionFromAnotherShard`
+覆盖该 fail-closed 边界。
 同一 runtime projection 现在还校验 aggregate status 与 current-work oneof 的
 一致性：非 terminal `NONE` 只能带完整 UNCERTAIN obligation set，timeline work
 必须与其 work kind/aggregate 相容，且任何 UNCERTAIN obligation 都把 aggregate
@@ -3766,6 +3769,19 @@ After `7b5c30f`, the full wrapper `clean check --rerun-tasks` gate passed on
 2026-08-12 with five executed tasks. The five real-Oxia methods remained
 skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; no production-service
 evidence is claimed.
+
+`TimelineWorkRef` now binds a `CONTROL_OVERRIDE` retry's canonical Source
+Position to the self-routing `DelayMessageId` embedded in its DUE/ORDERED
+timeline key. A foreign-Shard control source therefore fails before it can
+become a durable timeline projection; the focused
+`GenerationRuntimeIndexTest.controlOverrideTimelineRejectsSourcePositionFromAnotherShard`
+covers this boundary. This strengthens local source identity only and does not
+replace authenticated control authority or production source assignment.
+
+After `93147c4`, `./gradlew clean check --rerun-tasks --console=plain` passed on
+2026-08-12 (`BUILD SUCCESSFUL`, five executed tasks). The five real-Oxia
+methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this
+is local revalidation, not real-service or release evidence.
 
 ## Final gate
 
