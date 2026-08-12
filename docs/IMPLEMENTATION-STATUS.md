@@ -293,6 +293,24 @@ local composition evidence only: Profile/catalog, Object Store, Adapter
 serialization/size, channel/credential generations, real Oxia authority and
 Publish Admission/Producer integration remain release blockers.
 
+After `1601053`, the local Claim→`PUBLISH_ADMISSION` handoff has a concrete
+bounded `OUTCOME_AND_CONTROL` executor. `PublishAdmissionWorkClassExecutor`
+prepares and signs the exact canonical mutation before queue admission, binding
+the exact Claim/reservation, descriptor, Ready Certificate, Trusted-UTC evidence
+and task identity. After queue wait it rereads the Oxia owner/ownerEpoch and
+Claim and applies an injected prerequisite gate before calling the external-only
+`ShardLogMutationAppender`. There is no local Source Position allocator and no
+`DelayShard.applySystemMutation` path; a persisted position is checked against
+the shard assignment/activation barrier and, for Pulsar, the source connection
+generation and guard attestation. Definite non-persistence, prerequisite
+deferral and unknown outcomes retain the exact Claim/reservation until
+source-ordered Admission apply or explicit revoke, while unknown outcomes fence
+the Owner. `PublishAdmissionWorkClassExecutorTest` passes and verifies the exact
+body/signature/task binding. This closes only the local Claim→Admission seam;
+real Broker append/ACK/cursor, source adapter session, Oxia authority, external
+Profile/Object Store/channel credentials, Producer call and source-ordered
+outcome apply remain release blockers.
+
 After `666f56a` and the corresponding design/status/audit synchronization, the full
 `GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew clean check
 --rerun-tasks --console=plain` gate passed on 2026-08-12: 1232 tests were

@@ -218,6 +218,21 @@ are absent. This closes only the shard-local composition seam; external
 Profile/catalog, Object Store, Adapter serialization/size, channel/credential
 generations, real Oxia authority and Publish Admission/Producer remain open.
 
+After `1601053`, the local Claim→`PUBLISH_ADMISSION` seam is executable through
+`PublishAdmissionWorkClassExecutor` in the bounded `OUTCOME_AND_CONTROL` class.
+The executor binds the exact Claim/reservation, descriptor, Ready Certificate,
+Trusted-UTC evidence and canonical signed mutation before queue admission, then
+rereads owner/ownerEpoch and Claim after queue wait and calls only the external
+`ShardLogMutationAppender`. It does not allocate a Source Position or invoke
+`DelayShard.applySystemMutation`; persisted positions are checked against the
+assignment/physical activation barrier and Pulsar source-generation/guard
+attestation when applicable. Definite non-persistence, prerequisite deferral and
+unknown outcomes retain the exact reservation until source-ordered apply or
+explicit revoke; unknown outcomes fence the Owner. The focused executor test
+passes. This is local composition evidence, not production Shard Log
+append/ACK/cursor, Oxia, source-session, Profile/Object Store, Producer or
+source-ordered outcome evidence, so those release gates remain OPEN.
+
 The synchronized full local gate after `666f56a` and this documentation update
 passed on 2026-08-12 with 1232 reported
 tests, zero failures/errors and five skipped opt-in real-Oxia methods because
