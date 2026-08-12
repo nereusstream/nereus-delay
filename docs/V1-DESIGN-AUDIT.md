@@ -3894,6 +3894,13 @@ otherwise it preserves the unknown/fenced outcome. The focused regressions are
 evidence, not proof of source assignment, session orchestration or the required
 cross-record activation/pin transaction.
 
+The Recovery Catalog response-loss reread now applies the same exact-record
+rule: catalog key and Oxia version must be valid and the complete snapshot
+bytes must match. A same-bytes response for a different key is not success;
+`OxiaSyncRecoveryCatalogBackendTest.responseLossWithWrongRereadRecordIdentityDoesNotBecomeSuccess`
+covers the case. This is still a single-record CAS fence, not cross-record
+catalog/upload-intent/Owner Lease authority.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

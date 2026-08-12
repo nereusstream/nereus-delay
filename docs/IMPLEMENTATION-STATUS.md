@@ -4149,6 +4149,13 @@ closes only the per-record Oxia lease CAS seam; assignment publication,
 session lifecycle orchestration and the cross-record activation/pin
 transaction remain release blockers.
 
+The Recovery Catalog CAS response-loss path now also requires the reread to
+carry the exact catalog key and a non-null Oxia version, in addition to
+byte-equal snapshot contents. `OxiaSyncRecoveryCatalogBackendTest`
+`responseLossWithWrongRereadRecordIdentityDoesNotBecomeSuccess` covers a
+same-bytes/wrong-key response; the committed catalog remains durable but the
+caller does not receive a false success.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

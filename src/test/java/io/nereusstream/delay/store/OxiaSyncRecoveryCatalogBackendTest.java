@@ -73,6 +73,21 @@ class OxiaSyncRecoveryCatalogBackendTest {
     }
 
     @Test
+    void responseLossWithWrongRereadRecordIdentityDoesNotBecomeSuccess() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final OxiaSyncRecoveryCatalogBackend backend = new OxiaSyncRecoveryCatalogBackend(records, "delay/wrong-key",
+                LIMITS);
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 8);
+        final CheckpointManifest manifest = manifest(shard, id16(6), id16(7), 0, 1, 1, null);
+
+        records.failNextPutAfterCommit = true;
+        records.returnWrongKeyOnNextGet = true;
+        assertThrows(IllegalStateException.class, () -> backend.publish(manifest, 0));
+        assertArrayEquals(manifest.canonicalJsonBytes(),
+                backend.manifest(manifest.checkpointId()).orElseThrow().canonicalJsonBytes());
+    }
+
+    @Test
     void malformedRemoteSnapshotFailsClosedBeforeAnyCatalogProjection() {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncRecoveryCatalogBackend backend = new OxiaSyncRecoveryCatalogBackend(records, "delay/bad",
@@ -172,10 +187,16 @@ class OxiaSyncRecoveryCatalogBackendTest {
         private long nextVersion = 1;
         private int putCount;
         private boolean failNextPutAfterCommit;
+        private boolean returnWrongKeyOnNextGet;
 
         @Override
         public GetResult get(final String key) {
-            return records.get(key);
+            final GetResult result = records.get(key);
+            if (result != null && returnWrongKeyOnNextGet) {
+                returnWrongKeyOnNextGet = false;
+                return new GetResult(key + "/wrong", result.value(), result.version());
+            }
+            return result;
         }
 
         @Override

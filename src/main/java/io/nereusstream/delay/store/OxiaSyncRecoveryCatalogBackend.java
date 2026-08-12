@@ -184,7 +184,8 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
                 // A transport response can be lost after Oxia committed the
                 // exact bytes. Only an exact reread is accepted as success.
                 final GetResult observed = client.get(recordKey);
-                if (observed != null && Arrays.equals(afterBytes, observed.value())) {
+                if (observed != null && recordKey.equals(observed.key()) && observed.version() != null
+                        && Arrays.equals(afterBytes, observed.value())) {
                     return result;
                 }
                 throw responseFailure;
