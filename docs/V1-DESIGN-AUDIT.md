@@ -3973,6 +3973,21 @@ the full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
 methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this
 is local evidence only.
 
+Owner Epoch create/update response loss is now resolved only by an exact
+reread of the expected durable epoch value under the exact key with a valid
+Oxia version. The focused regressions are
+`OxiaSyncOwnerLeaseBackendTest.epochCreateResponseLossUsesOnlyAnExactCommittedReread`
+and `epochUpdateResponseLossUsesOnlyAnExactCommittedReread`; malformed or
+redirected rereads remain failures. This closes a single-record availability
+case and does not claim source-assignment, session or activation transaction
+authority.
+
+After this epoch response-loss fence, the focused owner-lease test and the
+full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
+2026-08-12 (`BUILD SUCCESSFUL`, five executed tasks). The five opt-in real-Oxia
+methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this
+is local evidence only.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

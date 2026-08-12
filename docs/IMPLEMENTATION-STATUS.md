@@ -4234,6 +4234,23 @@ the full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
 real-Oxia methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was
 unset; this remains local regression evidence only.
 
+Owner Epoch creation and increment CAS now handle a lost Oxia write response
+without inventing success: the backend rereads the exact epoch key and accepts
+the operation only when the expected canonical eight-byte value and a valid
+Oxia version are present. A missing, redirected or malformed reread preserves
+the original failure. `OxiaSyncOwnerLeaseBackendTest`
+`epochCreateResponseLossUsesOnlyAnExactCommittedReread` and
+`epochUpdateResponseLossUsesOnlyAnExactCommittedReread` cover both CAS forms;
+epoch gaps remain safe and never permit reuse. This improves availability at a
+single-record boundary only; source assignment and cross-record activation
+authority remain release blockers.
+
+After this epoch response-loss fence, the focused owner-lease test and the
+full `./gradlew clean check --rerun-tasks --console=plain` gate passed on
+2026-08-12 (`BUILD SUCCESSFUL`, five executed tasks). The five opt-in
+real-Oxia methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was
+unset; this remains local regression evidence only.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

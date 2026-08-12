@@ -166,6 +166,32 @@ class OxiaSyncOwnerLeaseBackendTest {
     }
 
     @Test
+    void epochCreateResponseLossUsesOnlyAnExactCommittedReread() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final OxiaSyncOwnerLeaseBackend backend = new OxiaSyncOwnerLeaseBackend(records, "delay/test");
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 18);
+        records.failNextEpochPutAfterCommit = true;
+
+        final OwnerLease acquired = backend.acquire(shard, "worker-epoch-create-loss", 100, 50).orElseThrow();
+
+        assertEquals(1, acquired.ownerEpoch());
+    }
+
+    @Test
+    void epochUpdateResponseLossUsesOnlyAnExactCommittedReread() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final OxiaSyncOwnerLeaseBackend backend = new OxiaSyncOwnerLeaseBackend(records, "delay/test");
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 19);
+        final OwnerLease first = backend.acquire(shard, "worker-epoch-update-loss", 100, 50).orElseThrow();
+        assertTrue(backend.release(first));
+        records.failNextEpochPutAfterCommit = true;
+
+        final OwnerLease reacquired = backend.acquire(shard, "worker-epoch-update-loss-2", 200, 50).orElseThrow();
+
+        assertEquals(2, reacquired.ownerEpoch());
+    }
+
+    @Test
     void ownerEpochUsesTheCompleteUnsigned64Domain() {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncOwnerLeaseBackend backend = new OxiaSyncOwnerLeaseBackend(records, "delay/test");
@@ -187,6 +213,7 @@ class OxiaSyncOwnerLeaseBackendTest {
         private boolean failNextDeleteAfterCommit;
         private boolean wrongKeyOnNextGet;
         private boolean wrongKeyOnNextPut;
+        private boolean failNextEpochPutAfterCommit;
 
         private Version ephemeralVersion() {
             return new Version(1, 0, 0, 1, Optional.of(7L), Optional.of("worker-session"));
@@ -236,6 +263,10 @@ class OxiaSyncOwnerLeaseBackendTest {
             if (wrongKeyOnNextPut && ephemeral) {
                 wrongKeyOnNextPut = false;
                 return new PutResult(key + "/wrong", version);
+            }
+            if (failNextEpochPutAfterCommit && !ephemeral) {
+                failNextEpochPutAfterCommit = false;
+                throw new IllegalStateException("simulated epoch response loss");
             }
             return new PutResult(key, version);
         }

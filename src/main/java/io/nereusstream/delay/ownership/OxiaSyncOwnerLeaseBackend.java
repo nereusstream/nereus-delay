@@ -301,13 +301,19 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
             final GetResult current = client.get(key);
             if (current == null) {
                 try {
-                    final PutResult created = client.put(key, Bytes.u64be(1), Set.of(PutOption.IfRecordDoesNotExist));
+                    final byte[] expected = Bytes.u64be(1);
+                    final PutResult created = client.put(key, expected, Set.of(PutOption.IfRecordDoesNotExist));
                     if (created == null || !key.equals(created.key()) || created.version() == null) {
                         throw new IllegalStateException("Oxia epoch create returned no version");
                     }
                     return 1;
                 } catch (KeyAlreadyExistsException | UnexpectedVersionIdException conflict) {
                     continue;
+                } catch (RuntimeException responseFailure) {
+                    if (epochValueWasCommitted(key, Bytes.u64be(1))) {
+                        return 1;
+                    }
+                    throw responseFailure;
                 }
             }
             if (!key.equals(current.key()) || current.value() == null || current.version() == null) {
@@ -318,8 +324,9 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
                 throw new IllegalStateException("Oxia owner epoch is exhausted or malformed");
             }
             final long next = previous + 1;
+            final byte[] expected = Bytes.u64beBits(next);
             try {
-                final PutResult updated = client.put(key, Bytes.u64beBits(next),
+                final PutResult updated = client.put(key, expected,
                         Set.of(PutOption.IfVersionIdEquals(current.version().versionId())));
                 if (updated == null || !key.equals(updated.key()) || updated.version() == null) {
                     throw new IllegalStateException("Oxia epoch CAS returned no version");
@@ -327,9 +334,25 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
                 return next;
             } catch (KeyAlreadyExistsException | UnexpectedVersionIdException conflict) {
                 // Another worker won the version CAS.  Re-read and retry.
+            } catch (RuntimeException responseFailure) {
+                if (epochValueWasCommitted(key, expected)) {
+                    return next;
+                }
+                throw responseFailure;
             }
         }
         throw new IllegalStateException("Oxia owner epoch CAS did not converge");
+    }
+
+    private boolean epochValueWasCommitted(final String key, final byte[] expectedValue) {
+        final GetResult observed = client.get(key);
+        if (observed == null) {
+            return false;
+        }
+        if (!key.equals(observed.key()) || observed.value() == null || observed.version() == null) {
+            throw new IllegalStateException("Oxia owner epoch response has an invalid record identity");
+        }
+        return Arrays.equals(expectedValue, observed.value());
     }
 
     private StoredLease readLease(final ShardId shardId) {
