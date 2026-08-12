@@ -79,6 +79,10 @@ Source Position; `SourceReplayEntryTest` covers both constructor fences. The
 local typed replay boundary is therefore aligned with the one-shard Source
 Log model, while adapter assignment and continuity proofs remain release gates.
 
+After `19dede3`, `./gradlew clean check --rerun-tasks --console=plain` passed
+again on 2026-08-12 (`BUILD SUCCESSFUL`, 5 tasks). The same five real-Oxia
+methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset.
+
 The Recovery Pin persistence audit now preserves the intended historical
 protection window: creating a session-bound pin records the exact Floor it
 observed, but later Floor advancement must not make a still-active pin

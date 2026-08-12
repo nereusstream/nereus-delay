@@ -144,6 +144,10 @@ Source Position. `SourceReplayEntryTest` covers both constructor fences. This
 keeps the typed replay cursor aligned with the one-shard Source Log boundary;
 adapter assignment and continuity proofs remain external release gates.
 
+After `19dede3`, `./gradlew clean check --rerun-tasks --console=plain` passed
+again on 2026-08-12 (`BUILD SUCCESSFUL`, 5 tasks). The same five real-Oxia
+methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset.
+
 The local `TIME_FENCE_V1` apply path now carries an explicit
 `DelayShardConfig.timeFenceSafetyMarginMs` input and checks the Trusted-UTC
 proof with checked addition before advancing the ingress watermark. A proof one
