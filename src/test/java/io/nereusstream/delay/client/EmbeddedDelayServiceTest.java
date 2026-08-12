@@ -850,7 +850,8 @@ class EmbeddedDelayServiceTest {
             final long reuseUntil = messageId.routingId().logicalTimestampEpochMs()
                     + io.nereusstream.delay.runtime.DelayShardConfig.defaults().maxMessageLifetimeMs();
             final io.nereusstream.delay.runtime.RetiredMessageIdentityRecord retired =
-                    service.shard().retireMessageIdentity(messageId, reuseUntil);
+                    io.nereusstream.delay.runtime.DelayShardTestSupport.retireMessageIdentity(
+                            service.shard(), messageId, reuseUntil);
             assertEquals(reuseUntil, retired.messageIdentityReuseUntilEpochMs());
             assertNull(service.shard().getMessage(messageId));
             assertEquals(MessageQueryResult.IDENTITY_RETIRED,

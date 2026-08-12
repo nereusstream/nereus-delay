@@ -968,7 +968,7 @@ public final class DelayShard {
      * Provider/object-store and Recovery-Floor authority are deliberately not
      * inferred here.
      */
-    public synchronized RetiredMessageIdentityRecord retireMessageIdentity(
+    synchronized RetiredMessageIdentityRecord retireMessageIdentity(
             final DelayMessageId messageId, final long messageIdentityReuseUntilEpochMs) {
         Objects.requireNonNull(messageId, "messageId");
         requireMessageShard(messageId, "Message identity retirement");
@@ -1053,7 +1053,7 @@ public final class DelayShard {
      * remain external gates; any authority failure returns a conservative
      * {@link MessageIdentityGcDecision#FLOOR_NOT_COVERING} result.
      */
-    public synchronized MessageIdentityGcDecision compactRetiredMessageIdentity(
+    synchronized MessageIdentityGcDecision compactRetiredMessageIdentity(
             final DelayMessageId messageId, final RecoveryCatalogAuthority catalog,
             final byte[] candidateCheckpointId) {
         Objects.requireNonNull(messageId, "messageId");
@@ -1707,7 +1707,7 @@ public final class DelayShard {
      * not a new Shard Log mutation; the source-ordered intent and confirmation
      * records have already supplied the durable audit boundary.
      */
-    public synchronized ResourceGcGuard.Decision compactResourceDeleteConfirmation(
+    synchronized ResourceGcGuard.Decision compactResourceDeleteConfirmation(
             final ResourceKind resourceKind, final byte[] resourceIdentityHash, final long expectedVersion,
             final RecoveryCatalogAuthority catalog, final byte[] candidateCheckpointId) {
         Objects.requireNonNull(resourceKind, "resourceKind");
@@ -6308,7 +6308,7 @@ public final class DelayShard {
      * applied retirement progress and must invoke this only after the
      * Recovery-Floor and external-channel checks have passed.
      */
-    public synchronized LaneTerminalGuardV1 retireLaneWithTerminalGuard(
+    synchronized LaneTerminalGuardV1 retireLaneWithTerminalGuard(
             final io.nereusstream.delay.protocol.DestinationLaneId laneId,
             final long expectedLaneControlVersion, final LaneRetirementProgressV1 progress,
             final LaneTerminalGuardV1 guard) {

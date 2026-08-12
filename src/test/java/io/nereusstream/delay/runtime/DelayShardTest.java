@@ -117,6 +117,22 @@ class DelayShardTest {
     Path tempDir;
 
     @Test
+    void physicalGcMutationPrimitivesAreNotPublicProductionApis() {
+        final java.util.Set<String> expected = java.util.Set.of(
+                "retireMessageIdentity", "compactRetiredMessageIdentity",
+                "compactResourceDeleteConfirmation", "retireLaneWithTerminalGuard");
+        final java.util.Set<String> found = new java.util.HashSet<>();
+        for (var method : DelayShard.class.getDeclaredMethods()) {
+            if (expected.contains(method.getName())) {
+                found.add(method.getName());
+                assertFalse(java.lang.reflect.Modifier.isPublic(method.getModifiers()),
+                        method::toGenericString);
+            }
+        }
+        assertEquals(expected, found);
+    }
+
+    @Test
     void strictFirstSeenIdentityTimingBindsRetryDeadlineAndUuidAge() {
         final ShardStoreConfig storage = ShardStoreConfig.defaults(tempDir.resolve("strict-identity-timing"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 63);
