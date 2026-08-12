@@ -1,6 +1,7 @@
 package io.nereusstream.delay.runtime;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.SystemMutation;
@@ -47,8 +48,14 @@ public record SystemMutationResult(
     public static SystemMutationResult from(final SystemMutation mutation, final ApplyStatus status,
                                              final StableCode code, final byte[] sourcePosition) {
         Objects.requireNonNull(mutation, "mutation");
+        final SourcePosition decodedPosition = SourcePositionCodec.decode(
+                Objects.requireNonNull(sourcePosition, "sourcePosition"));
+        if (!mutation.shardId().equals(decodedPosition.shardId())) {
+            throw new IllegalArgumentException("system mutation result source position belongs to another shard");
+        }
         return new SystemMutationResult(mutation.systemMutationId(), mutation.mutationHash(), mutation.type(),
-                mutation.retryUntilEpochMs(), mutation.authorIdentity(), status, code, sourcePosition);
+                mutation.retryUntilEpochMs(), mutation.authorIdentity(), status, code,
+                decodedPosition.canonicalBytes());
     }
 
     @Override
