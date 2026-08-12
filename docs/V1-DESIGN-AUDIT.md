@@ -5088,6 +5088,19 @@ public scheduler constructor requires explicit `OwnerIdentityV1`. Reflection
 coverage and the complete local gate passed on 2026-08-13; authenticated Owner
 construction remains OPEN.
 
+The local Owner composition boundary now rejects epoch-only equivalence.
+`OwnedDelayShard`'s public constructor requires a non-null full
+`OwnerIdentityV1`, validates the exact Shard and lease epoch, and the strict
+due/Claim, expiry, Publish Admission and Owner-authored outcome paths compare
+that complete identity with the scheduler, Claim or mutation author. The
+two-argument constructor is package-local and cannot authorize those paths.
+Regression coverage includes null/epoch/Shard constructor drift and a
+same-epoch scheduler with different deployment, worker and fencing digest.
+Focused suites and the complete six-task local Gradle gate passed on
+2026-08-13; five real-Oxia smokes remained skipped. This closes local
+same-epoch identity substitution, but authenticated Oxia lease/session to
+protocol-Owner construction in a production Worker remains OPEN.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

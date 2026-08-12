@@ -5398,6 +5398,18 @@ focused runtime/scheduler/ownership tests and the full local Gradle gate passed
 on 2026-08-13; five real-Oxia smokes remained skipped. Actual scheduler Owner
 construction from authenticated lease/session state remains integration work.
 
+`OwnedDelayShard` 的公开生产构造现在要求显式、非空的完整
+`OwnerIdentityV1`，并在构造时校验 Shard identity 与 lease `ownerEpoch`。旧两参数
+构造已降为 ownership 包内兼容 seam；它没有协议 Owner identity，因此不能通过
+strict due/Claim、expiry、Publish Admission 或 Owner-authored outcome gate。上述实时
+路径不再只比较 epoch，而是把 scheduler、Claim 或 mutation author 与绑定的完整
+Owner identity 做 equality fence；Claim author 也只从该绑定 identity 生成。测试覆盖
+null/epoch/Shard 构造拒绝及“相同 epoch、不同 deployment/worker/fencing digest”的
+scheduler 拒绝。聚焦 ownership/due/Claim/expiry/outcome/admission 测试及完整
+`clean check --rerun-tasks` 在 2026-08-13 通过（6 个任务执行）；5 个真实 Oxia smoke
+仍因未设置 `NEREUS_DELAY_OXIA_ENDPOINT` 跳过。认证 lease/session 到协议 Owner 的
+生产 Worker 组装仍是 OPEN release blocker。
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

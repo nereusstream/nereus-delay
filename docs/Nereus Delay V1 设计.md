@@ -1033,6 +1033,17 @@ Shard mutation/publish 同时要求：
 
 `ownerEpoch` 从 Oxia monotonic sequence 分配，允许有 gap。canonical lease 是 single-holder ephemeral record，包含 shard、worker/process run、epoch、random fencing digest、assignment identity、state 和 session identity。
 
+Worker 为一个本地 Shard Owner 组装 runtime 时，必须把该 lease 显式绑定到完整
+`OwnerIdentityV1(deploymentId, workerRunId, ownerEpoch, leaseFencingDigest)`；不得只把
+`ownerEpoch` 当作 scheduler、READY certificate、Claim、Publish Admission、expiry 或
+Owner-authored outcome 的完整身份。`OwnedDelayShard` 与
+`PersistentLaneScheduler` 必须持有 byte-equal 的 Owner identity，所有新生成的实时
+Owner action 在入队前及执行前都按完整 identity 复核；即使 epoch 相同，deployment、
+worker run 或 fencing digest 任一不同也必须 fail closed。两参数、没有协议 Owner
+identity 的本地兼容构造不能进入这些严格实时路径。V1 不从自由文本 `ownerId` 或
+未冻结公式推导该 identity；其与认证 Oxia lease/session 的组装仍由生产 Worker
+coordinator 明确完成并提供可审计证据。
+
 Renewal CAS 必须保留 exact fencing/assignment/session identity 与当前
 lifecycle state；旧 Owner 携带的 stale state 不能通过续租把状态投影回退，expiry
 也只能单调延长。response loss 只能 reread 同一 identity、同一 state 的 successor。
