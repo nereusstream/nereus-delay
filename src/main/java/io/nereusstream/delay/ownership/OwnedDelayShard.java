@@ -9,6 +9,7 @@ import io.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
 import io.nereusstream.delay.protocol.PulsarActivationBarrier;
 import io.nereusstream.delay.protocol.SourceActivationBarrier;
 import io.nereusstream.delay.protocol.SourcePosition;
+import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.runtime.SystemMutationResult;
@@ -358,6 +359,49 @@ public final class OwnedDelayShard {
         if (!delegate.shardId().equals(work.messageId().routingId().shardId())
                 || !delegate.shardId().equals(lease.shardId())) {
             throw new IllegalArgumentException("reservation expiry candidate does not belong to this shard");
+        }
+    }
+
+    /** Side-effect-free preflight for one exact source-ordered Lane-close cursor. */
+    synchronized void requireLaneCloseMaterializationSubmission(
+            final OxiaOwnerLeaseStore authority,
+            final io.nereusstream.delay.runtime.DelayShard.LaneCloseMaterializationWork candidate,
+            final int maxRecords) {
+        requireStrictActiveAuthority(authority);
+        validateLaneCloseMaterializationCandidate(candidate, maxRecords);
+    }
+
+    /** Rereads the Owner Lease before a bounded Lane-close cursor batch. */
+    synchronized io.nereusstream.delay.runtime.DelayShard.LaneCloseMaterializationExecutionResult
+            materializeLaneCloseAuthoritativelyStrict(
+                    final OxiaOwnerLeaseStore authority,
+                    final io.nereusstream.delay.runtime.DelayShard.LaneCloseMaterializationWork candidate,
+                    final int maxRecords,
+                    final LongSupplier clock) {
+        requireLaneCloseMaterializationSubmission(authority, candidate, maxRecords);
+        final long nowEpochMs = readActiveWorkClock(clock, "Lane close materialization");
+        ensureAuthoritativeActive(authority, nowEpochMs, "Lane close materialization");
+        validateLaneCloseMaterializationCandidate(candidate, maxRecords);
+        try {
+            return delegate.materializeClosedLane(candidate, maxRecords);
+        } catch (RuntimeException | Error failure) {
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        }
+    }
+
+    private void validateLaneCloseMaterializationCandidate(
+            final io.nereusstream.delay.runtime.DelayShard.LaneCloseMaterializationWork candidate,
+            final int maxRecords) {
+        final io.nereusstream.delay.runtime.DelayShard.LaneCloseMaterializationWork work =
+                Objects.requireNonNull(candidate, "Lane close materialization candidate");
+        if (maxRecords <= 0) {
+            throw new IllegalArgumentException("maxRecords must be positive");
+        }
+        final SourcePosition closePosition = SourcePositionCodec.decode(work.cursor().closeSourcePosition());
+        if (!delegate.shardId().equals(closePosition.shardId())
+                || !delegate.shardId().equals(lease.shardId())) {
+            throw new IllegalArgumentException("Lane close cursor does not belong to this shard");
         }
     }
 

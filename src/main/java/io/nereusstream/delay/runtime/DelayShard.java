@@ -6188,6 +6188,30 @@ public final class DelayShard {
                 messageActions.size(), reservationActions.size(), nextCursor == null);
     }
 
+    /**
+     * Materializes one exact close-cursor candidate after a bounded GC queue
+     * wait.  A different local turn may have advanced or removed the cursor
+     * while this candidate was queued; that is a no-op outcome, not permission
+     * to apply the candidate to a newer cursor without reporting the drift.
+     */
+    public synchronized LaneCloseMaterializationExecutionResult materializeClosedLane(
+            final LaneCloseMaterializationWork candidate, final int maxRecords) {
+        final LaneCloseMaterializationWork expected = Objects.requireNonNull(candidate,
+                "Lane close materialization candidate");
+        if (maxRecords <= 0) {
+            throw new IllegalArgumentException("maxRecords must be positive");
+        }
+        final LaneCloseMaterializationCursor current = getLaneCloseCursor(expected.laneId());
+        if (current == null) {
+            return LaneCloseMaterializationExecutionResult.notFound();
+        }
+        if (!Arrays.equals(current.canonicalBytes(), expected.cursor().canonicalBytes())) {
+            return LaneCloseMaterializationExecutionResult.stale(current);
+        }
+        return LaneCloseMaterializationExecutionResult.materialized(
+                materializeClosedLane(expected.laneId(), maxRecords));
+    }
+
     /** Applies an owner/runtime readiness transition without changing admission semantics. */
     public synchronized LaneRecord updateLaneReadiness(
             final io.nereusstream.delay.protocol.DestinationLaneId laneId,
@@ -9280,6 +9304,49 @@ public final class DelayShard {
             } catch (ArithmeticException exception) {
                 throw new IllegalArgumentException("Lane close materialization counts overflow", exception);
             }
+        }
+    }
+
+    /** Outcome of one exact close-cursor candidate after GC queue wait. */
+    public record LaneCloseMaterializationExecutionResult(
+            Kind kind, LaneCloseMaterializationResult result,
+            LaneCloseMaterializationCursor currentCursor) {
+        public LaneCloseMaterializationExecutionResult {
+            Objects.requireNonNull(kind, "kind");
+            if (kind == Kind.MATERIALIZED && result == null) {
+                throw new IllegalArgumentException("materialized close work requires a result");
+            }
+            if (kind != Kind.MATERIALIZED && result != null) {
+                throw new IllegalArgumentException("non-materialized close work cannot carry a turn result");
+            }
+            if (kind == Kind.STALE && currentCursor == null) {
+                throw new IllegalArgumentException("stale close work requires the current cursor");
+            }
+            if (kind != Kind.STALE && currentCursor != null) {
+                throw new IllegalArgumentException("only stale close work carries the current cursor");
+            }
+        }
+
+        public enum Kind {
+            MATERIALIZED,
+            STALE,
+            NOT_FOUND
+        }
+
+        private static LaneCloseMaterializationExecutionResult materialized(
+                final LaneCloseMaterializationResult result) {
+            return new LaneCloseMaterializationExecutionResult(Kind.MATERIALIZED,
+                    Objects.requireNonNull(result, "result"), null);
+        }
+
+        private static LaneCloseMaterializationExecutionResult stale(
+                final LaneCloseMaterializationCursor currentCursor) {
+            return new LaneCloseMaterializationExecutionResult(Kind.STALE, null,
+                    Objects.requireNonNull(currentCursor, "currentCursor"));
+        }
+
+        private static LaneCloseMaterializationExecutionResult notFound() {
+            return new LaneCloseMaterializationExecutionResult(Kind.NOT_FOUND, null, null);
         }
     }
 
