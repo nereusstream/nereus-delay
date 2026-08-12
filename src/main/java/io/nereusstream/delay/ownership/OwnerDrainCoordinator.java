@@ -4,6 +4,10 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.runtime.DelayShard;
 import io.nereusstream.delay.runtime.PublishAttemptLedger;
+import io.nereusstream.delay.scheduler.SchedulerBudget;
+import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
+import io.nereusstream.delay.scheduler.WorkClassTask;
+import io.nereusstream.delay.store.CheckpointDrainWorkClassExecutor;
 import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.SharedRocksDbResources;
 
@@ -29,14 +33,36 @@ public final class OwnerDrainCoordinator {
     private int pendingRevokedClaims;
     private int pendingCallbackPolls;
     private Path pendingFinalCheckpoint;
+    private Path pendingFinalCheckpointPath;
+    private byte[] pendingFinalCheckpointId;
+    private final CheckpointDrainWorkClassExecutor checkpointExecutor;
+    private final WorkClassExecutionRegistry workClasses;
+    private CheckpointDrainWorkClassExecutor.Submission pendingCheckpointSubmission;
     private boolean externalCloseStopCompleted;
 
+    /**
+     * Package-local compatibility seam for embedded tests. Production
+     * Worker composition must provide the shared WorkClass registry.
+     */
+    OwnerDrainCoordinator(final OwnedDelayShard ownedShard, final ShardStore store,
+                          final SharedRocksDbResources resources, final OxiaOwnerLeaseStore authority) {
+        this(ownedShard, store, resources, authority, null);
+    }
+
+    /**
+     * Creates a production drain coordinator whose optional final checkpoint
+     * is submitted to the shared bounded CHECKPOINT work class.
+     */
     public OwnerDrainCoordinator(final OwnedDelayShard ownedShard, final ShardStore store,
-                                 final SharedRocksDbResources resources, final OxiaOwnerLeaseStore authority) {
+                                 final SharedRocksDbResources resources, final OxiaOwnerLeaseStore authority,
+                                 final WorkClassExecutionRegistry workClasses) {
         this.ownedShard = Objects.requireNonNull(ownedShard, "ownedShard");
         this.store = Objects.requireNonNull(store, "store");
         this.resources = Objects.requireNonNull(resources, "resources");
         this.authority = Objects.requireNonNull(authority, "authority");
+        this.workClasses = workClasses;
+        this.checkpointExecutor = workClasses == null ? null
+                : new CheckpointDrainWorkClassExecutor(workClasses, store);
         if (!ownedShard.shard().shardId().equals(store.shardId())) {
             throw new IllegalArgumentException("owned shard and Store belong to different shards");
         }
@@ -113,6 +139,29 @@ public final class OwnerDrainCoordinator {
                 leaseReleased = true;
                 return new DrainResult(pendingRevokedClaims, pendingCallbackPolls, pendingFinalCheckpoint);
             }
+            if (pendingCheckpointSubmission != null || pendingFinalCheckpoint != null
+                    || pendingFinalCheckpointPath != null) {
+                ensureLeaseStillDraining(expectedLease, request, clock);
+                final Path finalCheckpoint = continueFinalCheckpoint(request, clock);
+                if (finalCheckpoint == null) {
+                    return new DrainResult(pendingRevokedClaims, pendingCallbackPolls,
+                            null, pendingCheckpointSubmission.task());
+                }
+                Throwable closeFailure = null;
+                try {
+                    store.close();
+                    storeClosed = true;
+                } catch (RuntimeException | Error failure) {
+                    closeFailure = failure;
+                }
+                if (closeFailure != null) {
+                    throwUnchecked(closeFailure);
+                }
+                ensureLeaseStillDraining(expectedLease, request, clock);
+                releaseExactLease(ownedShard.lease());
+                leaseReleased = true;
+                return new DrainResult(pendingRevokedClaims, pendingCallbackPolls, finalCheckpoint);
+            }
             if (store.isCloseStarted()) {
                 if (ownedShard.state() == ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
                     // A caller may have started Store teardown outside this
@@ -184,9 +233,13 @@ public final class OwnerDrainCoordinator {
             }
             Path finalCheckpoint = null;
             if (request.finalCheckpointPath() != null) {
-                finalCheckpoint = request.finalCheckpointId() == null
-                        ? store.createCheckpoint(request.finalCheckpointPath())
-                        : store.createCheckpoint(request.finalCheckpointPath(), request.finalCheckpointId());
+                finalCheckpoint = runFinalCheckpoint(request, clock);
+                if (finalCheckpoint == null) {
+                    pendingRevokedClaims = revokedClaims;
+                    pendingCallbackPolls = callbackPolls;
+                    return new DrainResult(revokedClaims, callbackPolls, null,
+                            pendingCheckpointSubmission.task());
+                }
                 // Checkpoint creation can include a long RocksDB file walk and
                 // hard-link phase.  Revalidate the lease after that boundary
                 // before closing the DB or attempting release; otherwise a
@@ -197,6 +250,7 @@ public final class OwnerDrainCoordinator {
             pendingRevokedClaims = revokedClaims;
             pendingCallbackPolls = callbackPolls;
             pendingFinalCheckpoint = finalCheckpoint;
+            pendingFinalCheckpointPath = request.finalCheckpointPath();
             Throwable closeFailure = null;
             try {
                 store.close();
@@ -256,6 +310,101 @@ public final class OwnerDrainCoordinator {
                 }
             }
         }
+    }
+
+    private Path runFinalCheckpoint(final DrainRequest request, final LongSupplier clock) {
+        if (pendingFinalCheckpoint != null) {
+            requireSameFinalCheckpointRequest(request);
+            return pendingFinalCheckpoint;
+        }
+        if (checkpointExecutor == null) {
+            throw new IllegalStateException(
+                    "final owner-drain checkpoint requires the shared CHECKPOINT work-class registry");
+        }
+        final CheckpointDrainWorkClassExecutor.Submission submission;
+        if (pendingCheckpointSubmission == null) {
+            final byte[] checkpointId;
+            if (pendingFinalCheckpointId != null) {
+                requireSameFinalCheckpointRequest(request);
+                checkpointId = Bytes.copy(pendingFinalCheckpointId);
+            } else {
+                checkpointId = request.finalCheckpointId() == null
+                        ? randomCheckpointId() : request.finalCheckpointId();
+                pendingFinalCheckpointId = Bytes.copy(checkpointId);
+                pendingFinalCheckpointPath = request.finalCheckpointPath();
+            }
+            submission = checkpointExecutor.submit(new CheckpointDrainWorkClassExecutor.Request(
+                    request.finalCheckpointPath(), checkpointId, ownedShard.lease(), authority, clock,
+                    request.deadlineEpochMs()));
+            pendingCheckpointSubmission = submission;
+        } else {
+            requireSameFinalCheckpointRequest(request);
+            submission = pendingCheckpointSubmission;
+        }
+
+        Throwable dispatchFailure = null;
+        List<WorkClassTask> completed;
+        try {
+            completed = workClasses.runTurn(new SchedulerBudget(1, submission.task().bytes(), Long.MAX_VALUE));
+        } catch (RuntimeException failure) {
+            if (submission.outcome().isEmpty()) {
+                throw failure;
+            }
+            dispatchFailure = failure;
+            completed = List.of(submission.task());
+        } catch (Error failure) {
+            throw failure;
+        }
+        if (!completed.contains(submission.task())) {
+            return null;
+        }
+        final CheckpointDrainWorkClassExecutor.Outcome outcome = submission.outcome().orElseThrow(
+                () -> new IllegalStateException("checkpoint drain action completed without an outcome"));
+        pendingCheckpointSubmission = null;
+        if (outcome.failure() != null) {
+            try {
+                ensureLeaseStillDraining(ownedShard.lease(), request, clock);
+            } catch (RuntimeException | Error leaseFailure) {
+                leaseFailure.addSuppressed(outcome.failure());
+                throw leaseFailure;
+            }
+            throwUnchecked(outcome.failure());
+        }
+        pendingFinalCheckpoint = outcome.checkpointPath();
+        if (dispatchFailure != null) {
+            throwUnchecked(dispatchFailure);
+        }
+        return pendingFinalCheckpoint;
+    }
+
+    private Path continueFinalCheckpoint(final DrainRequest request, final LongSupplier clock) {
+        requireSameFinalCheckpointRequest(request);
+        return runFinalCheckpoint(request, clock);
+    }
+
+    private void requireSameFinalCheckpointRequest(final DrainRequest request) {
+        if (request.finalCheckpointPath() == null
+                || !request.finalCheckpointPath().toAbsolutePath().normalize()
+                .equals(pendingFinalCheckpointPath.toAbsolutePath().normalize())) {
+            throw new IllegalArgumentException("drain retry changed the final checkpoint path");
+        }
+        final byte[] requestedId = request.finalCheckpointId();
+        if (pendingFinalCheckpointId != null && requestedId != null
+                && !Bytes.constantTimeEquals(pendingFinalCheckpointId, requestedId)) {
+            throw new IllegalArgumentException("drain retry changed the final checkpoint identity");
+        }
+    }
+
+    private static byte[] randomCheckpointId() {
+        final java.util.UUID uuid = java.util.UUID.randomUUID();
+        final byte[] id = java.nio.ByteBuffer.allocate(16)
+                .putLong(uuid.getMostSignificantBits())
+                .putLong(uuid.getLeastSignificantBits()).array();
+        boolean nonZero = false;
+        for (byte value : id) {
+            nonZero |= value != 0;
+        }
+        return nonZero ? id : randomCheckpointId();
     }
 
     private void ensureLeaseStillDraining(final OwnerLease expected, final DrainRequest request,
@@ -398,10 +547,18 @@ public final class OwnerDrainCoordinator {
         }
     }
 
-    public record DrainResult(int revokedClaims, int callbackPolls, Path finalCheckpointPath) {
+    public record DrainResult(int revokedClaims, int callbackPolls, Path finalCheckpointPath,
+                              WorkClassTask pendingCheckpointTask) {
+        public DrainResult(final int revokedClaims, final int callbackPolls, final Path finalCheckpointPath) {
+            this(revokedClaims, callbackPolls, finalCheckpointPath, null);
+        }
+
         public DrainResult {
             if (revokedClaims < 0 || callbackPolls < 0) {
                 throw new IllegalArgumentException("drain result counters must be non-negative");
+            }
+            if (finalCheckpointPath != null && pendingCheckpointTask != null) {
+                throw new IllegalArgumentException("completed drain checkpoint cannot still be pending");
             }
         }
     }

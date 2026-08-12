@@ -17,6 +17,12 @@ import io.nereusstream.delay.store.KeyCodec;
 import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.ShardStoreConfig;
 import io.nereusstream.delay.store.SharedRocksDbResources;
+import io.nereusstream.delay.scheduler.SchedulerBudget;
+import io.nereusstream.delay.scheduler.WorkClass;
+import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
+import io.nereusstream.delay.scheduler.WorkClassPolicy;
+import io.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
+import io.nereusstream.delay.scheduler.WorkClassTask;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -26,6 +32,8 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.EnumMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -49,7 +57,8 @@ class OwnerDrainCoordinatorTest {
             final ShardStore store = ShardStore.open(config, shardId, resources);
             final OwnedDelayShard owned = activeOwnedShard(store, acquired, authority, shardId);
             final AtomicInteger stopCalls = new AtomicInteger();
-            final OwnerDrainCoordinator coordinator = new OwnerDrainCoordinator(owned, store, resources, authority);
+            final OwnerDrainCoordinator coordinator = new OwnerDrainCoordinator(owned, store, resources,
+                    authority, workClasses(1));
 
             final OwnerDrainCoordinator.DrainResult result = coordinator.drain(
                     new OwnerDrainCoordinator.DrainRequest(500, 0, checkpoint, checkpointId), () -> 101,
@@ -70,6 +79,80 @@ class OwnerDrainCoordinatorTest {
     }
 
     @Test
+    void finalCheckpointWaitsForTheSharedCheckpointWorkClassBeforeClosingStore() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 61);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("drain-checkpoint-queue"));
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease acquired = backend.acquire(shardId, "worker-drain-queue", 100, 5_000).orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        final Path checkpoint = tempDir.resolve("drain-checkpoint-queue-output");
+        final byte[] checkpointId = bytes(16, 77);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = activeOwnedShard(store, acquired, authority, shardId);
+            final WorkClassExecutionRegistry workClasses = workClasses(2);
+            final WorkClassTask occupied = new WorkClassTask(WorkClass.CHECKPOINT, "occupied-drain", 1);
+            workClasses.submit(occupied, () -> { });
+            final OwnerDrainCoordinator coordinator = new OwnerDrainCoordinator(owned, store, resources,
+                    authority, workClasses);
+
+            final OwnerDrainCoordinator.DrainResult waiting = coordinator.drain(
+                    new OwnerDrainCoordinator.DrainRequest(4_000, 0, checkpoint, checkpointId), () -> 101,
+                    () -> { });
+            assertEquals(WorkClass.CHECKPOINT, waiting.pendingCheckpointTask().workClass());
+            assertTrue(Files.notExists(checkpoint));
+            assertFalse(store.isClosed());
+            assertEquals(ShardLifecycleState.DRAINING, owned.state());
+            assertTrue(backend.current(shardId).isPresent());
+
+            workClasses.runTurn(new SchedulerBudget(1, 1, 1_000));
+            final OwnerDrainCoordinator.DrainResult completed = coordinator.drain(
+                    new OwnerDrainCoordinator.DrainRequest(4_000, 0, checkpoint, checkpointId), () -> 102,
+                    () -> { });
+            assertEquals(checkpoint, completed.finalCheckpointPath());
+            assertTrue(Files.isRegularFile(checkpoint.resolve("CURRENT")));
+            assertTrue(store.isClosed());
+            assertEquals(ShardLifecycleState.FENCED, owned.state());
+            assertTrue(backend.current(shardId).isEmpty());
+        }
+    }
+
+    @Test
+    void finalCheckpointQueueRejectionLeavesDrainingStateForExactRetry() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 62);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("drain-checkpoint-rejected"));
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OwnerLease acquired = backend.acquire(shardId, "worker-drain-rejected", 100, 5_000).orElseThrow();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+        final Path checkpoint = tempDir.resolve("drain-checkpoint-rejected-output");
+        final byte[] checkpointId = bytes(16, 88);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final OwnedDelayShard owned = activeOwnedShard(store, acquired, authority, shardId);
+            final WorkClassExecutionRegistry workClasses = workClasses(1);
+            workClasses.submit(new WorkClassTask(WorkClass.CHECKPOINT, "occupied-rejected", 1), () -> { });
+            final OwnerDrainCoordinator coordinator = new OwnerDrainCoordinator(owned, store, resources,
+                    authority, workClasses);
+            final OwnerDrainCoordinator.DrainRequest request =
+                    new OwnerDrainCoordinator.DrainRequest(4_000, 0, checkpoint, checkpointId);
+
+            assertThrows(IllegalStateException.class, () -> coordinator.drain(request, () -> 101, () -> { }));
+            assertEquals(ShardLifecycleState.DRAINING, owned.state());
+            assertTrue(backend.current(shardId).isPresent());
+            assertTrue(Files.notExists(checkpoint));
+            assertEquals(null, store.runtimeMetadata().lastCheckpointId());
+
+            workClasses.runTurn(new SchedulerBudget(1, 1, 1_000));
+            final OwnerDrainCoordinator.DrainResult completed = coordinator.drain(request, () -> 102, () -> { });
+            assertEquals(checkpoint, completed.finalCheckpointPath());
+            assertTrue(Files.isRegularFile(checkpoint.resolve("CURRENT")));
+            assertTrue(store.isClosed());
+            assertEquals(ShardLifecycleState.FENCED, owned.state());
+            assertTrue(backend.current(shardId).isEmpty());
+        }
+    }
+
+    @Test
     void uncertainStoreClosesAndReleasesOnlyTheMatchingOwnerLease() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 55);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("drain-uncertain-store"));
@@ -83,7 +166,8 @@ class OwnerDrainCoordinatorTest {
                     () -> store.write(batch -> batch.put(ColumnFamily.META, KeyCodec.metaFixed(4),
                             Bytes.utf8("malformed-ingress-fence"))));
             final AtomicInteger stopCalls = new AtomicInteger();
-            final OwnerDrainCoordinator coordinator = new OwnerDrainCoordinator(owned, store, resources, authority);
+            final OwnerDrainCoordinator coordinator = new OwnerDrainCoordinator(owned, store, resources,
+                    authority, workClasses(1));
 
             final OwnerDrainCoordinator.DrainResult result = coordinator.drain(
                     new OwnerDrainCoordinator.DrainRequest(5_000, 0, null), () -> 101,
@@ -148,7 +232,8 @@ class OwnerDrainCoordinatorTest {
                     () -> store.write(batch -> batch.put(ColumnFamily.META, KeyCodec.metaFixed(4),
                             Bytes.utf8("malformed-ingress-fence"))));
             final IllegalStateException callbackFailure = new IllegalStateException("source stop failed");
-            final OwnerDrainCoordinator coordinator = new OwnerDrainCoordinator(owned, store, resources, authority);
+            final OwnerDrainCoordinator coordinator = new OwnerDrainCoordinator(owned, store, resources,
+                    authority, workClasses(1));
 
             assertThrows(IllegalStateException.class, () -> coordinator.drain(
                     new OwnerDrainCoordinator.DrainRequest(5_000, 0, null), () -> 101,
@@ -430,7 +515,8 @@ class OwnerDrainCoordinatorTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned = activeOwnedShard(store, acquired, authority, shardId);
-            final OwnerDrainCoordinator coordinator = new OwnerDrainCoordinator(owned, store, resources, authority);
+            final OwnerDrainCoordinator coordinator = new OwnerDrainCoordinator(owned, store, resources,
+                    authority, workClasses(1));
 
             assertThrows(IllegalStateException.class, () -> coordinator.drain(
                     new OwnerDrainCoordinator.DrainRequest(5_000, 0, checkpoint), () -> 101, () -> { }));
@@ -487,6 +573,29 @@ class OwnerDrainCoordinatorTest {
         owned.recordCatchup(position);
         owned.activateForCommands(authority, 101);
         return owned;
+    }
+
+    private static WorkClassExecutionRegistry workClasses(final int maxQueueRecords) {
+        final EnumMap<WorkClass, WorkClassPolicy> policies = new EnumMap<>(WorkClass.class);
+        for (WorkClass workClass : WorkClass.values()) {
+            final boolean protectedClass = switch (workClass) {
+                case LEASE_FENCE, SOURCE_APPLY, OUTCOME_AND_CONTROL, EXPIRY, DUE_SCHEDULER, GC -> true;
+                case QUERY, CHECKPOINT -> false;
+            };
+            policies.put(workClass, new WorkClassPolicy(1, maxQueueRecords, 10_000,
+                    maxQueueRecords, 10_000, 1_000, protectedClass ? 1 : 0,
+                    protectedClass ? 1 : 1, workClass == WorkClass.LEASE_FENCE));
+        }
+        return new WorkClassExecutionRegistry(new WorkClassRuntimeConfig(policies, 100, 100,
+                16, 20_000), new AtomicLong()::get);
+    }
+
+    private static byte[] bytes(final int length, final int seed) {
+        final byte[] value = new byte[length];
+        for (int index = 0; index < length; index++) {
+            value[index] = (byte) (seed + index);
+        }
+        return value;
     }
 
     private static final class RecordingLeaseBackend implements OxiaOwnerLeaseStore.LeaseCasBackend {
