@@ -1208,11 +1208,12 @@ public final class DelayShard {
     /**
      * Claims a scheduled message with the typed V1 materialization projection.
      *
-     * <p>The compatibility byte-array overload remains available for legacy
-     * embedded callers.  This entrypoint binds the replay-stable projection to
-     * the current Message before the Claim batch is built, so a caller cannot
-     * accidentally prepare a different message generation, delivery window or
-     * payload under an otherwise valid canonical materialization.</p>
+     * <p>The package-local byte-array primitive remains available to runtime
+     * implementation and tests only. This entrypoint binds the replay-stable
+     * projection to the current Message before the Claim batch is built, so a
+     * caller cannot accidentally prepare a different message generation,
+     * delivery window or payload under an otherwise valid canonical
+     * materialization.</p>
      */
     public synchronized ClaimRecord claimForPublishV1(final DelayMessageId messageId,
                                                        final AuthorIdentity owner,
@@ -1230,9 +1231,9 @@ public final class DelayShard {
      * This embedded method deliberately exposes no Producer call: admission must
      * later be represented by the source-ordered PUBLISH_ADMISSION mutation.
      */
-    public synchronized ClaimRecord claimForPublish(final DelayMessageId messageId, final AuthorIdentity owner,
-                                                     final long claimDeadlineEpochMs, final byte[] materialization,
-                                                     final byte[] claimedCharge) {
+    synchronized ClaimRecord claimForPublish(final DelayMessageId messageId, final AuthorIdentity owner,
+                                              final long claimDeadlineEpochMs, final byte[] materialization,
+                                              final byte[] claimedCharge) {
         Objects.requireNonNull(messageId, "messageId");
         Objects.requireNonNull(owner, "owner");
         // A shared Worker resource breach fences the next Claim/Admission

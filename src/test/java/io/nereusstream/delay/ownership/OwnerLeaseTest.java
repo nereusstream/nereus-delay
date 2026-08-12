@@ -445,8 +445,8 @@ class OwnerLeaseTest {
             assertEquals(StableCode.SCHEDULED, delegate.apply(schedule, position).stableCode());
             io.nereusstream.delay.runtime.DelayShardTestSupport.updateLaneReadiness(
                     delegate, lane, io.nereusstream.delay.runtime.RuntimeReadiness.READY);
-            final ClaimRecord claim = delegate.claimForPublish(schedule.delayMessageId(), owner, 3_000,
-                    new byte[0], chargeVector());
+            final ClaimRecord claim = io.nereusstream.delay.runtime.DelayShardTestSupport.claimForPublish(
+                    delegate, schedule.delayMessageId(), owner, 3_000, new byte[0], chargeVector());
 
             final OwnedDelayShard owned = new OwnedDelayShard(delegate, lease);
             owned.markCatchingUp(new SourceAssignment(shardId, Bytes.sha256(Bytes.utf8("claim-recovery-assignment")),

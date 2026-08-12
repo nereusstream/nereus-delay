@@ -147,6 +147,8 @@ class DelayShardTest {
         assertMethodIsNotPublic("applyUnknownPublishOutcome", byte[].class, long.class, byte[].class,
                 byte[].class, SourcePosition.class);
         assertMethodIsNotPublic("applyPublishedPublishOutcome", byte[].class, long.class, SourcePosition.class);
+        assertMethodIsNotPublic("claimForPublish", DelayMessageId.class, AuthorIdentity.class, long.class,
+                byte[].class, byte[].class);
     }
 
     private static void assertMethodIsNotPublic(final String name, final Class<?>... parameterTypes) {
