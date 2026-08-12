@@ -2749,6 +2749,14 @@ task identity/byte charge 绑定 exact frame；queue rejection 不产生副作�
 retire intent/delete-confirmed tombstone；provider delete、Recovery Floor、quiescence、
 quota release 和 tombstone compaction 仍是独立的外部/恢复边界。
 
+同理，`DelayShard` 内部的 Lane gate CAS、control/system-writer reserve/release、
+Attempt Journal mapping/retirement，以及 direct Publish Admission/unknown/published
+outcome apply 都只能作为 `runtime` 包内算法/测试 seam。它们分别必须由
+source-ordered Control/Publish mutation、fenced adapter single-writer、immutable
+capacity grant 和相应 work-class admission 授权；跨包 Worker 不能直接调用本地
+WriteBatch 来代替这些 authority。未来生产 coordinator 应按各自域提供窄入口，
+不能重新公开这些 raw mutation 方法。
+
 底层物理 GC 写动作 `retireMessageIdentity`、`compactRetiredMessageIdentity`、
 `compactResourceDeleteConfirmation` 和 `retireLaneWithTerminalGuard` 全部只允许作为
 `runtime` 包内算法/测试 seam，不能成为跨包 Worker API。它们分别缺少 Route

@@ -1263,6 +1263,16 @@ reflection checks plus complete `DelayShardTest`, Lane-close/Reservation strict
 executor suites, compilation and Checkstyle passed. Exact-candidate public primitive
 visibility remains a separate audit item.
 
+After `03b6031`, the compiler boundary now covers eleven more local writes that had
+no main-source caller: Lane gate mutation, four control/system-writer reserve
+operations, three Attempt Journal updates, and direct admission/unknown/published
+Publish state transitions. They remain available only to source-ordered/runtime
+algorithms and tests. The reflection regression enumerates every exact signature;
+complete `DelayShardTest`, compilation and Checkstyle passed. This prevents a
+cross-package Worker from treating local Store integrity checks as Control, Broker,
+adapter or capacity authority. The corresponding production coordinators and
+dynamic reserve attribution remain release gates.
+
 The command/runtime projection audit also closes a `RESCHEDULE` drift: the
 apply path and its persistence normalization now use the prior generation's
 same pinned `actionAt` (or re-derive the pinned Profile handoff boundary),
@@ -1879,7 +1889,7 @@ blocker。
 `PublishAdmissionV1` 的可选 V3 local Journal projection：先记录 adapter 分配的
 sequence，再写入 exact acknowledged Journal position，definitive absence 期间设置
 `retirementPending`，确认 `RETIRED_NOT_PUBLISHED` 后再清除该 fence。
-`DelayShard.recordAttemptJournalMapping`、`markAttemptJournalRetirementPending` 和
+package-local `DelayShard.recordAttemptJournalMapping`、`markAttemptJournalRetirementPending` 和
 `recordAttemptJournalRetirement` 只更新同一 `inflight_cf` value，不推进 Shard source
 cursor；因此它们必须由已持有 exact Producer/Attempt identity 的 fenced adapter event
 loop 调用，不能被解释为 source-ordered Outcome 或真实 Broker durability。
@@ -3235,6 +3245,12 @@ cross-package Worker code. The strict candidate-based Lane-close and reservation
 executors remain the production-facing paths; their queue-time identity and
 execution-time Owner checks are no longer bypassable by calling the simpler overload.
 This is an API-boundary change only, not new Oxia, Floor or drain authority.
+
+After `03b6031`, cross-package composition also cannot invoke raw Lane gate,
+capacity-reserve, Attempt Journal or Publish state transitions. Exact source handlers
+inside `DelayShard` continue to use the algorithms, but public production composition
+must enter through the existing Control/Publish work-class and future adapter/capacity
+coordinators. This removes API drift without claiming the missing external authority.
 
 Worker 资源侧现在还提供了本地 `WorkerLoadVector` 与
 `WorkerPlacementPolicy`：它们先按完整 committed capacity、固定/transition

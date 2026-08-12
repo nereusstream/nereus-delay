@@ -1389,6 +1389,17 @@ The visibility regression covers all three exact signatures; complete
 passed. This does not yet hide the exact-candidate primitives themselves or replace
 the documented embedded drain/recovery compatibility seams.
 
+After `03b6031`, eleven additional authority-free mutation helpers are
+runtime-package-only: Lane gate CAS; class-3/4/5/6 and system-writer reserve/release;
+Attempt Journal mapping, retirement-pending and retirement acknowledgement; and the
+direct Publish Admission, UNKNOWN outcome and verified-published outcome methods.
+Their source-ordered handlers and runtime tests retain local access, while the main
+artifact can no longer let cross-package Worker code substitute these WriteBatches
+for Control/Publish source authority, fenced adapter single-writer execution or
+immutable capacity-grant admission. Signature-level visibility regression, complete
+`DelayShardTest`, compilation and Checkstyle passed. Production coordinators for
+adapter journal authority and dynamic reserve charging remain OPEN.
+
 The local command projection now preserves the pinned timeline action boundary
 across `RESCHEDULE`. Apply-time validation and the later persistence
 normalization derive the new generation's `actionAt` from the prior runtime
@@ -4069,7 +4080,7 @@ now implemented as a canonical `CapacityVectorV1` keyed by the
 `NON_OUTCOME_CONTROL` grant ID: only dimensions 51–53 are accepted, class 3
 cannot consume those dimensions, and their combined usage is checked against
 the immutable grant. `DelayShard.systemWriterReserveUsage`,
-`reserveSystemWriterCapacity` and `releaseSystemWriterCapacity` persist the
+package-local `reserveSystemWriterCapacity` and `releaseSystemWriterCapacity` persist the
 projection synchronously. This still does not implement Route Broker
 source-writer quota authority, remote reservation/charge, or multi-shard
 placement, which remain release blockers.
