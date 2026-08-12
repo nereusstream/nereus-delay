@@ -22,10 +22,12 @@ The command completed with 1205 tests, zero failures,
 errors or skips. All five opt-in real-Oxia methods executed successfully.
 `checkDocumentation` was the first verification task in the same live run.
 That live-service evidence is pinned to `b45045b`. Subsequent local commits
-`3a4914f` and `07751ef` add only the Worker event-loop/resource composition
-seam and its package-local admission hook; a later `clean check --rerun-tasks`
-passed with the Oxia endpoint unset, so its five opt-in real-Oxia methods were
-skipped. External cross-record Oxia transaction/session, Broker transport,
+`3a4914f`, `07751ef` and `227b91b` add only the Worker event-loop/resource
+composition seam, its package-local admission hook and the auto-closing local
+bounded-turn executor. A full `clean check --rerun-tasks` after `227b91b`
+also passed with 1205 tests and zero failures/errors; the five opt-in
+real-Oxia methods were skipped because the endpoint was unset. External
+cross-record Oxia transaction/session, Broker transport,
 provider authority and release-scale evidence gates remain open.
 
 The Oxia transaction gate was rechecked against the locked Oxia source and the
@@ -49,10 +51,13 @@ the V1 contract: `WorkClassEventLoop` uses the scheduler's atomic
 before-removal hook to acquire one exact record/byte lease per selected task,
 restores the queue/fairness snapshot and releases earlier leases when a later
 task is rejected, and requires the returned bounded `Turn` to close before a
-second poll. Borrowed-hold and monotonic-clock failures are reported after all
-leases are released. `WorkClassEventLoopTest` covers the rollback, one-turn
-fence, idempotent release and hold-time failure. This is local evidence only;
-callback execution, dynamic RocksDB attribution, WriteBatch/IO admission and
+second poll. Its `runTurn` helper executes the callback sequence outside the
+event-loop monitor, checks borrowed-hold validity around each callback and
+closes every lease before rethrowing callback or close failures.
+Borrowed-hold and monotonic-clock failures are reported after all leases are
+released. `WorkClassEventLoopTest` covers the rollback, one-turn fence,
+idempotent release, hold-time failure and callback-failure cleanup. This is
+local evidence only; dynamic RocksDB attribution, WriteBatch/IO admission and
 production Worker wiring remain open release gates.
 
 After `c4391ca`, checkpoint restore admission covers the complete local
@@ -2710,7 +2715,10 @@ minimum、把 acquisition checked-sum overflow 转成 closed rejection，并限�
 borrowed hold time。`WorkClassEventLoop` 现在把两者绑定在 bounded-turn
 边界：任务仍在 queue 中时不占共享 token，任务即将移出 queue 时才取得
 exact lease；后续任务 admission 失败会恢复 scheduler projection 并释放前面
-已取得的 lease，上一 Turn 未关闭时下一次 poll 会 fail closed。`WorkClassScheduler`
+已取得的 lease，上一 Turn 未关闭时下一次 poll 会 fail closed。`runTurn` 还在
+不持有 event-loop monitor 的情况下执行一个 bounded callback sequence，并在
+每个 callback 前后检查 borrowed hold、无论 callback 成功还是失败都关闭所有
+lease。`WorkClassScheduler`
 现在会在任何 queue head removal、deficit 扣减或 fairness counter 推进之前
 读取用于 `lastServed` 的单调时钟样本；负值/回拨样本只会 fail closed，不会丢掉
 仍由 bounded queue 支持的 head，回归证据为
@@ -3080,8 +3088,8 @@ probe 异常或 envelope mismatch 都会进入 drain/migrate，并可显式关�
 work-class 的 bounded queue/turn caps、lease/fence 抢占和 stale-class 选择。
 `WorkClassResourcePoolTest` 还覆盖 non-borrowable minimum、borrowed hold
 bound 和 acquisition overflow rejection，`WorkClassEventLoopTest` 覆盖组合层
-的 rollback、close 和 hold-time 边界。每 DB 的动态 RocksDB attribution、
-实际 chunk 执行、WriteBatch/IO reserve admission 和生产 Worker wiring 仍是
+的 rollback、close、hold-time 和 callback-failure 边界。每 DB 的动态 RocksDB
+attribution、WriteBatch/IO reserve admission 和生产 Worker wiring 仍是
 release gate。
 Lease validity additionally rejects negative observation times even when a
 caller reaches `OwnerLease.validAt` directly rather than through an authority
