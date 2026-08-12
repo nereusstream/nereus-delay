@@ -78,6 +78,31 @@ class WorkClassDispatcherTest {
         assertEquals(0, dispatcher.pending(WorkClass.QUERY));
     }
 
+    @Test
+    void fatalHandlerFailureRequeuesOnlyTrailingTasksThatWereNeverStarted() {
+        final List<String> handled = new ArrayList<>();
+        final AssertionError fatalFailure = new AssertionError("first handler failed fatally");
+        final EnumMap<WorkClass, Consumer<WorkClassTask>> handlers = handlers(task -> {
+            handled.add(task.taskId());
+            if (task.taskId().equals("first")) {
+                throw fatalFailure;
+            }
+        });
+        final WorkClassDispatcher dispatcher = new WorkClassDispatcher(loop(2), handlers);
+        dispatcher.offer(new WorkClassTask(WorkClass.QUERY, "first", 8));
+        dispatcher.offer(new WorkClassTask(WorkClass.QUERY, "second", 8));
+
+        assertEquals(fatalFailure, assertThrows(AssertionError.class,
+                () -> dispatcher.runTurn(new SchedulerBudget(2, 16, 1_000))));
+        assertEquals(List.of("first"), handled);
+        assertEquals(1, dispatcher.pending(WorkClass.QUERY));
+
+        assertEquals(List.of(new WorkClassTask(WorkClass.QUERY, "second", 8)),
+                dispatcher.runTurn(new SchedulerBudget(1, 8, 1_000)));
+        assertEquals(List.of("first", "second"), handled);
+        assertEquals(0, dispatcher.pending(WorkClass.QUERY));
+    }
+
     private static WorkClassEventLoop loop() {
         return loop(1);
     }

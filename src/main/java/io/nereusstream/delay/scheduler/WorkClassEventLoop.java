@@ -32,7 +32,9 @@ public final class WorkClassEventLoop {
 
     /** Offers bounded work without consuming a resource token while queued. */
     public synchronized void offer(final WorkClassTask task) {
-        scheduler.offer(Objects.requireNonNull(task, "task"));
+        final WorkClassTask offered = Objects.requireNonNull(task, "task");
+        reserveActiveTurnCapacity(offered);
+        scheduler.offer(offered);
     }
 
     /**
@@ -86,9 +88,16 @@ public final class WorkClassEventLoop {
             return;
         }
         Throwable primaryFailure = null;
+        int nextUnstartedIndex = 0;
+        boolean executionStopped = false;
         try {
-            for (WorkClassTask task : turn.tasks()) {
+            for (int index = 0; index < turn.tasks().size(); index++) {
+                final WorkClassTask task = turn.tasks().get(index);
                 turn.requireWithinBorrowedHold();
+                // From this point the handler may have made a durable or
+                // external side effect, so this exact task is never requeued
+                // implicitly even if it throws a fatal Error.
+                nextUnstartedIndex = index + 1;
                 try {
                     executor.accept(task);
                 } catch (RuntimeException handlerFailure) {
@@ -102,7 +111,15 @@ public final class WorkClassEventLoop {
                 turn.requireWithinBorrowedHold();
             }
         } catch (RuntimeException | Error failure) {
+            executionStopped = true;
             primaryFailure = appendFailure(primaryFailure, failure);
+        }
+        if (executionStopped && nextUnstartedIndex < turn.tasks().size()) {
+            try {
+                requeueUnstarted(turn, nextUnstartedIndex);
+            } catch (RuntimeException | Error requeueFailure) {
+                primaryFailure = appendFailure(primaryFailure, requeueFailure);
+            }
         }
         try {
             turn.close();
@@ -130,6 +147,38 @@ public final class WorkClassEventLoop {
 
     public synchronized long pendingBytes(final WorkClass workClass) {
         return scheduler.pendingBytes(workClass);
+    }
+
+    private void reserveActiveTurnCapacity(final WorkClassTask offered) {
+        final Turn turn = activeTurn;
+        if (turn == null || turn.isClosed()) {
+            return;
+        }
+        int reservedRecords = 0;
+        long reservedBytes = 0;
+        for (WorkClassTask selected : turn.tasks()) {
+            if (selected.workClass() == offered.workClass()) {
+                reservedRecords = Math.addExact(reservedRecords, 1);
+                reservedBytes = Math.addExact(reservedBytes, selected.bytes());
+            }
+        }
+        final WorkClassPolicy policy = scheduler.policy(offered.workClass());
+        final int pendingRecords = scheduler.pending(offered.workClass());
+        final long pendingBytes = scheduler.pendingBytes(offered.workClass());
+        if (reservedRecords > policy.maxQueueRecords()
+                || pendingRecords >= policy.maxQueueRecords() - reservedRecords
+                || reservedBytes > policy.maxQueueBytes()
+                || pendingBytes > policy.maxQueueBytes() - reservedBytes
+                || offered.bytes() > policy.maxQueueBytes() - reservedBytes - pendingBytes) {
+            throw new IllegalStateException("work-class queue capacity is reserved for the active turn");
+        }
+    }
+
+    private synchronized void requeueUnstarted(final Turn turn, final int fromIndex) {
+        if (activeTurn != turn || turn.isClosed()) {
+            throw new IllegalStateException("cannot requeue tasks from an inactive WorkClass turn");
+        }
+        scheduler.requeueFirst(turn.tasks().subList(fromIndex, turn.tasks().size()));
     }
 
     private synchronized void finish(final Turn turn) {

@@ -14,8 +14,10 @@ import java.util.function.Consumer;
  * it accepts work.  It delegates queue admission, fairness, resource leases
  * and borrowed-hold checks to {@link WorkClassEventLoop}; this class only
  * routes a selected task to the handler for its class.  A handler owns the
- * durable retry/replay identity for the task.  A failed handler is therefore
- * propagated and does not cause an unsafe implicit requeue.</p>
+ * durable retry/replay identity for the task.  A task whose handler was
+ * invoked is therefore never requeued implicitly; exact trailing tasks whose
+ * handlers were never invoked are safely returned to their class queues when
+ * a fatal or borrowed-hold boundary stops the turn.</p>
  */
 public final class WorkClassDispatcher {
     private final WorkClassEventLoop eventLoop;

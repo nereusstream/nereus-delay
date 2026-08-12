@@ -8,6 +8,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -174,6 +175,49 @@ class WorkClassEventLoopTest {
                 assertEquals(new WorkClassTask(WorkClass.QUERY, "query-2", 8), task));
         assertEquals(0, resources.snapshot().activeLeases());
         assertEquals(0, loop.pending(WorkClass.QUERY));
+    }
+
+    @Test
+    void holdFailureBeforeTheFirstHandlerRequeuesTheWholeUnstartedTurn() {
+        final AtomicLong schedulerNow = new AtomicLong();
+        final AtomicInteger resourceClockReads = new AtomicInteger();
+        final WorkClassResourcePool resources = new WorkClassResourcePool(policies(), 2, 64, 10,
+                () -> resourceClockReads.incrementAndGet() >= 4 ? 11 : 0);
+        final WorkClassEventLoop loop = new WorkClassEventLoop(
+                new WorkClassScheduler(policies(), 100, schedulerNow::get), resources);
+        loop.offer(new WorkClassTask(WorkClass.QUERY, "query-hold-1", 8));
+        loop.offer(new WorkClassTask(WorkClass.QUERY, "query-hold-2", 8));
+        final AtomicBoolean handlerCalled = new AtomicBoolean();
+
+        assertThrows(IllegalStateException.class, () -> loop.runTurn(
+                new SchedulerBudget(2, 16, 1_000), ignored -> handlerCalled.set(true)));
+
+        assertFalse(handlerCalled.get());
+        assertEquals(2, loop.pending(WorkClass.QUERY));
+        assertEquals(16, loop.pendingBytes(WorkClass.QUERY));
+        assertEquals(0, resources.snapshot().activeLeases());
+    }
+
+    @Test
+    void activeTurnReservesEnoughQueueCapacityForUnstartedTasks() {
+        final AtomicLong now = new AtomicLong();
+        final WorkClassResourcePool resources = new WorkClassResourcePool(policies(), 2, 64, 100, now::get);
+        final WorkClassEventLoop loop = new WorkClassEventLoop(
+                new WorkClassScheduler(policies(), 100, now::get), resources);
+        loop.offer(new WorkClassTask(WorkClass.QUERY, "selected-1", 8));
+        loop.offer(new WorkClassTask(WorkClass.QUERY, "selected-2", 8));
+        final WorkClassEventLoop.Turn turn = loop.poll(new SchedulerBudget(2, 16, 1_000));
+
+        for (int index = 0; index < 6; index++) {
+            loop.offer(new WorkClassTask(WorkClass.QUERY, "queued-" + index, 8));
+        }
+        assertThrows(IllegalStateException.class,
+                () -> loop.offer(new WorkClassTask(WorkClass.QUERY, "capacity-stolen", 8)));
+
+        turn.close();
+        loop.offer(new WorkClassTask(WorkClass.QUERY, "after-close-1", 8));
+        loop.offer(new WorkClassTask(WorkClass.QUERY, "after-close-2", 8));
+        assertEquals(8, loop.pending(WorkClass.QUERY));
     }
 
     private static EnumMap<WorkClass, WorkClassPolicy> policies() {

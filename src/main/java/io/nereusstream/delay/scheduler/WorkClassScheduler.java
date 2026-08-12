@@ -156,6 +156,33 @@ public final class WorkClassScheduler {
         return state(workClass).queuedBytes;
     }
 
+    /**
+     * Restores tasks that left a bounded poll but whose handlers were never
+     * invoked.  The caller supplies the original selection order; reversing
+     * the insertion preserves every class-local FIFO ahead of work offered
+     * while the turn was active.
+     */
+    synchronized void requeueFirst(final List<WorkClassTask> tasks) {
+        Objects.requireNonNull(tasks, "tasks");
+        final SchedulerSnapshot before = snapshot();
+        try {
+            for (int index = tasks.size() - 1; index >= 0; index--) {
+                final WorkClassTask task = Objects.requireNonNull(tasks.get(index), "requeued task");
+                final ClassState state = state(task.workClass());
+                if (state.queue.size() >= state.policy.maxQueueRecords()
+                        || task.bytes() > state.policy.maxQueueBytes() - state.queuedBytes) {
+                    throw new IllegalStateException("reserved work-class requeue capacity was lost for "
+                            + task.workClass());
+                }
+                state.queue.addFirst(task);
+                state.queuedBytes = Math.addExact(state.queuedBytes, task.bytes());
+            }
+        } catch (RuntimeException | Error failure) {
+            restore(before);
+            throw failure;
+        }
+    }
+
     public synchronized WorkClassPolicy policy(final WorkClass workClass) {
         return state(workClass).policy;
     }
