@@ -1823,6 +1823,10 @@ fatal error，也必须尝试释放本 turn 的每个 exact lease、清除 activ
 并把 Turn 标记为 closed 后再重新抛出首个 failure；后续 cleanup failure 只作为
 suppressed evidence 保留，不能中断剩余 lease 的释放尝试。否则一次本地 fatal
 检查会把共享 record/byte token 永久留给失败 class，并间接饿死健康 work class。
+active-turn 检查也不能在持有 event-loop monitor 时再取得 Turn monitor，而 Turn
+close 又以相反顺序清除 event-loop 状态；该可见性必须使用 lock-free/volatile 状态
+或统一锁顺序。close 尚未清除 active Turn 时，并发 poll 只能立即拒绝；close 清除后
+才允许下一 turn，不能死锁，也不能让新旧两个 bounded turn 同时持有共享 lease。
 
 Worker 外层 bounded poll 也必须是一个完整的进程内 mutation boundary：它除了外层
 ring、cursor、Shard deficit、last-served、round generation 与 recovery-first-pass

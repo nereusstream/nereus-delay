@@ -113,9 +113,20 @@ the next bounded poll. This is process-local resource cleanup evidence; dynamic
 RocksDB WriteBatch attribution, checkpoint/compaction I/O authority and
 production Worker wiring remain release gates.
 
+After `e297176`, the active-Turn observation is a volatile lock-free read.
+`poll()` no longer holds the event-loop monitor while trying to enter the Turn
+monitor, which was the reverse of `Turn.close()` clearing `activeTurn` while
+holding the Turn monitor. The deterministic
+`WorkClassEventLoopTest.concurrentCloseAndPollDoNotInvertEventLoopAndTurnLocks`
+blocks close inside its hold check, starts a concurrent poll, and proves the
+poll immediately rejects the still-open Turn before close is released; close
+then completes and releases the lease. This closes a process-local deadlock and
+overlapping-turn path only; production Worker handler/IO authority remains a
+release gate.
+
 After the corresponding design/status/audit synchronization, the full
 `GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew clean check
---rerun-tasks --console=plain` gate passed on 2026-08-12: 1215 tests were
+--rerun-tasks --console=plain` gate passed on 2026-08-12: 1216 tests were
 reported with zero failures/errors and five skipped opt-in real-Oxia methods
 because `NEREUS_DELAY_OXIA_ENDPOINT` was unset. `checkDocumentation` and
 `checkstyleMain` passed in the same run. This is current local repository

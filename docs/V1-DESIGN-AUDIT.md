@@ -69,7 +69,16 @@ proves the fatal-clock branch leaves the shared pool with zero active leases
 and reopens the next-poll gate. This closes a local resource-leak/fairness path;
 it does not establish production WriteBatch/IO admission or Worker authority.
 
-The synchronized full local gate then passed on 2026-08-12 with 1215 reported
+After `e297176`, `Turn.isClosed()` is a volatile lock-free observation, so
+`poll()` does not enter the Turn monitor while holding the event-loop monitor.
+This removes the inverse ordering with `Turn.close()`, which holds the Turn
+monitor while clearing `activeTurn`. The focused concurrent regression blocks
+close inside the resource hold check and proves the next poll immediately
+rejects the still-open Turn rather than deadlocking; after release, close
+finishes with zero active leases. This is local concurrency evidence and does
+not replace production Worker or external IO authority.
+
+The synchronized full local gate then passed on 2026-08-12 with 1216 reported
 tests, zero failures/errors and five skipped opt-in real-Oxia methods because
 the endpoint was unset. `checkDocumentation` and `checkstyleMain` passed in the
 same `clean check --rerun-tasks` run. This verifies the repository-local change
