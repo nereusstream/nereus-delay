@@ -74,6 +74,17 @@ closes only the local per-record lifecycle CAS ordering; source assignment
 publication, Oxia session orchestration, cross-record activation/pin authority
 and real Broker replay remain release blockers.
 
+Commit `6583eac` binds the strict catch-up replay window to that same
+`OxiaOwnerLeaseStore`: every bounded turn and every record rechecks exact
+owner/epoch/token, assignment/session context, `CATCHING_UP` state and
+non-regressed live expiry before source look-ahead or application. A replaced
+authoritative owner therefore fences the local shard before the next record;
+an Oxia lease-read failure also fences `applyAuthoritatively` instead of
+leaving the local command gate usable. `OwnerLeaseTest` covers both the owner
+replacement and authority-read failure paths. Compatibility assignment-only
+replay remains explicitly local-only, and real Oxia session orchestration,
+source assignment publication and Broker replay remain release blockers.
+
 After the terminal-Lane reservation/Commit, publish-charge ordering and typed
 READY recovery fencing fixes (`c619b38`, `f771f64`, `3527c89`), the repository
 verification command `./gradlew clean check --rerun-tasks --console=plain`

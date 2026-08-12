@@ -65,6 +65,15 @@ local catch-up lifecycle with section 9.2, while source-assignment
 publication, session orchestration, cross-record activation/pin authority and
 real Broker replay remain release blockers.
 
+After `6583eac`, strict catch-up replay rereads the same Oxia lease before
+each bounded turn and source record, requiring exact fencing/assignment/session
+identity, `CATCHING_UP` state and a non-regressed valid expiry. The new
+`OwnerLeaseTest` replacement-owner regression proves that the next record is
+not applied after authority changes; the authority-read failure regression
+proves the authoritative apply path fences before mutation. This closes only
+the local replay guard; production session orchestration, assignment/barrier
+publication and real Broker replay remain open.
+
 The post-`3527c89` local verification `./gradlew clean check --rerun-tasks
 --console=plain` passed on 2026-08-12. Five opt-in real-Oxia methods were
 skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset; this is repository
