@@ -2731,6 +2731,18 @@ canonical UTF-8/NFC fence；非 canonical 文本不能先进入 Worker/cluster �
 `DestinationPhysicalAdmissionTest.targetClusterIdentityRejectsNonCanonicalText`
 覆盖该构造期边界。
 
+After `f4899d47`, the Worker physical cap has an executable composition
+identity. The registry's closed `WorkerSingleton` set binds one exact
+`DESTINATION_PHYSICAL_ADMISSION` instance, and the only public
+`BoundedDestinationPublishAdapter` constructor requires that shared registry,
+the exact pool and a caller-owned executor. The no-registry/default-executor
+constructors are adapter-package test seams. Reflection, same-pool reuse and
+foreign-pool rejection regressions prove that a Worker cannot multiply its
+request/byte cap by constructing one full-cap pool per adapter through the
+cross-package production API. This remains local identity/accounting evidence;
+real bounded executor provisioning, Producer/channel ownership, teardown
+attestation, Oxia grants and benchmark limits remain OPEN.
+
 Kafka destination request 还在自身构造边界固定
 `actionAt=deliverAt`。提前 action 只属于有固定 lead、Broker visibility guard
 和能力位证明的 Pulsar handoff；`KafkaDestinationRequest` 遇到提前 action 会在
@@ -5227,6 +5239,16 @@ pool before task registration or Shard Log append. Exact-pool/rebinding
 regressions, focused suites and the complete six-task local Gradle gate passed
 on 2026-08-13; five real-Oxia smokes were skipped. Cluster-wide/Oxia capacity,
 production Worker construction and dynamic I/O admission remain OPEN.
+
+Destination physical capacity now shares the same exact Worker graph boundary.
+`WorkClassExecutionRegistry.WorkerSingleton` binds one physical-admission pool,
+and cross-package `BoundedDestinationPublishAdapter` construction must supply
+that registry plus a caller-owned executor. A second pool fails at construction
+before transport or charge; no-registry constructors are package-local tests.
+Visibility/exact-instance regressions and the complete six-task local Gradle
+gate passed on 2026-08-13; five real-Oxia smokes were skipped. Production
+executor sizing, Producer/channel evidence, Oxia capacity and benchmarks remain
+OPEN.
 
 ## Final gate
 
