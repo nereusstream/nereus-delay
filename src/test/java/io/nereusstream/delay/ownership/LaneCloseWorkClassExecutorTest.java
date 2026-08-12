@@ -84,7 +84,7 @@ class LaneCloseWorkClassExecutorTest {
     @Test
     void staleCursorIsReportedWithoutApplyingTheQueuedCandidateAgain() throws Exception {
         try (Fixture fixture = new Fixture(tempDir.resolve("stale"))) {
-            fixture.shard.materializeClosedLane(fixture.lane, 1);
+            fixture.shard.materializeClosedLane(fixture.candidate, 1);
             final LaneCloseWorkClassExecutor.Submission submission = fixture.executor()
                     .submit(fixture.candidate, 1, () -> 101);
 

@@ -131,6 +131,18 @@ class DelayShardTest {
             }
         }
         assertEquals(expected, found);
+        assertMethodIsNotPublic("revokeClaim", byte[].class, long.class);
+        assertMethodIsNotPublic("materializeReservationExpiry", byte[].class);
+        assertMethodIsNotPublic("materializeClosedLane", DestinationLaneId.class, int.class);
+    }
+
+    private static void assertMethodIsNotPublic(final String name, final Class<?>... parameterTypes) {
+        try {
+            final var method = DelayShard.class.getDeclaredMethod(name, parameterTypes);
+            assertFalse(java.lang.reflect.Modifier.isPublic(method.getModifiers()), method::toGenericString);
+        } catch (NoSuchMethodException exception) {
+            throw new AssertionError("missing physical mutation method " + name, exception);
+        }
     }
 
     @Test

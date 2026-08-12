@@ -1341,7 +1341,7 @@ public final class DelayShard {
     }
 
     /** Atomically revokes a local Claim and restores its exact timeline work. */
-    public synchronized MessageRecord revokeClaim(final byte[] claimId, final long ownerEpoch) {
+    synchronized MessageRecord revokeClaim(final byte[] claimId, final long ownerEpoch) {
         final ClaimRecord claim = getClaim(claimId, ownerEpoch);
         if (claim == null) {
             return null;
@@ -1541,7 +1541,7 @@ public final class DelayShard {
      * persisted TIME_FENCE watermark.  This is a local bounded cursor action,
      * not a new source-log decision.
      */
-    public synchronized PayloadReservation materializeReservationExpiry(final byte[] reservationId) {
+    synchronized PayloadReservation materializeReservationExpiry(final byte[] reservationId) {
         Bytes.requireLength(reservationId, 32, "reservationId");
         return materializeReservationExpiryInternal(reservationId, null).reservation();
     }
@@ -6151,7 +6151,7 @@ public final class DelayShard {
      * source-ordered marker is the semantic boundary; this method only resumes
      * the persisted cursor and never reclassifies an admitted obligation.
      */
-    public synchronized LaneCloseMaterializationResult materializeClosedLane(
+    synchronized LaneCloseMaterializationResult materializeClosedLane(
             final io.nereusstream.delay.protocol.DestinationLaneId laneId, final int maxRecords) {
         Objects.requireNonNull(laneId, "laneId");
         if (maxRecords <= 0) {
