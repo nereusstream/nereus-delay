@@ -1390,7 +1390,8 @@ class DelayShardTest {
                 OrderingMode.BEST_EFFORT, scheduleIntent.orderingKey(), scheduleIntent.adapterMetadata(), null, null);
         final PreparedCommand prepare = PreparedCommand.prepareLargeV1(shardId, prepareIntent, 2_000_000,
                 Bytes.sha256(Bytes.utf8("large-v1")), 1_000,
-                new PayloadProofTrustSetRefV1(1, bytes(32, 7)), 9_000);
+                new PayloadProofTrustSetRefV1(1, bytes(32, 7)),
+                new ProfileRefV1(Bytes.utf8("object-store"), 1, bytes(32, 8), ProfileKindV1.OBJECT_STORE), 9_000);
         final ShardStoreConfig resolverConfig =
                 ShardStoreConfig.defaults(tempDir.resolve("registry-schedule-resolver-enabled"));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(resolverConfig);
@@ -1462,8 +1463,10 @@ class DelayShardTest {
                         new io.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())),
                 null, null);
         final byte[] payloadSha = Bytes.sha256(Bytes.utf8("registry-prepare-large-payload"));
+        final ProfileRefV1 objectStoreProfile = new ProfileRefV1(Bytes.utf8("object-store"), 1,
+                Bytes.sha256(Bytes.utf8("object-store-profile")), ProfileKindV1.OBJECT_STORE);
         final PreparedCommand prepare = PreparedCommand.prepareLargeV1(shardId, intent, 2_000_000,
-                payloadSha, 1_000, semantic.ref(), 9_000);
+                payloadSha, 1_000, semantic.ref(), objectStoreProfile, 9_000);
         final byte[] reservationId = Bytes.sha256(Bytes.utf8("nereus-delay-reservation-id-v1\0"),
                 prepare.commandId().bytes(), prepare.delayMessageId().bytes(), prepare.commandHash());
         final AuthorIdentity control = AuthorIdentity.control(
@@ -1490,20 +1493,67 @@ class DelayShardTest {
                     shard.apply(prepare, position(shardId, 1, 1_001)).stableCode());
             assertNotNull(shard.getV1ScheduleBinding(prepare.delayMessageId()));
 
+            final ProfileRefV1 sameHashForeignProfile = new ProfileRefV1(Bytes.utf8("foreign-object-store"), 1,
+                    objectStoreProfile.semanticHash(), ProfileKindV1.OBJECT_STORE);
+            final PayloadCommitProofV1 typedProfileDowngrade = PayloadCommitProofV1.signed(reservationId,
+                    Bytes.sha256(Bytes.utf8("tenant-scope")), shardId.routeIncarnation().bytes(),
+                    shardId.partition(), prepare.delayMessageId(), sameHashForeignProfile, 4, 7,
+                    Bytes.utf8("bucket"), Bytes.utf8("key"), Bytes.utf8("v1"), new byte[0],
+                    2_000_000, payloadSha, 1_900, semanticKey.getPrivate());
+            final PreparedCommand typedProfileCommit = PreparedCommand.commitLargeV1(shardId,
+                    prepare.delayMessageId(), reservationId, typedProfileDowngrade, 9_000);
+            assertEquals(StableCode.PAYLOAD_PROOF_INVALID,
+                    shard.apply(typedProfileCommit, position(shardId, 2, 1_400)).stableCode());
+
+            final PayloadCommitProof legacyProfileDowngrade = PayloadCommitProof.signed(4, 7,
+                    shardId.routeIncarnation().bytes(), shardId.partition(), prepare.delayMessageId(),
+                    reservationId, Bytes.sha256(Bytes.utf8("foreign-object-store-profile")),
+                    Bytes.utf8("bucket"), Bytes.utf8("key"), Bytes.utf8("v1"), new byte[0],
+                    2_000_000, payloadSha, 1_900, semanticKey.getPrivate());
+            final PreparedCommand legacyProfileCommit = PreparedCommand.commitLarge(shardId,
+                    prepare.delayMessageId(), legacyProfileDowngrade, 9_000);
+            assertEquals(StableCode.PAYLOAD_PROOF_INVALID,
+                    shard.apply(legacyProfileCommit, position(shardId, 3, 1_450)).stableCode());
+
             final PayloadCommitProof downgradeProof = PayloadCommitProof.signed(4, 7,
                     shardId.routeIncarnation().bytes(), shardId.partition(), prepare.delayMessageId(),
-                    reservationId, Bytes.sha256(Bytes.utf8("object-store-profile")),
+                    reservationId, objectStoreProfile.semanticHash(),
                     Bytes.utf8("bucket"), Bytes.utf8("key"), Bytes.utf8("v1"), new byte[0],
                     2_000_000, payloadSha, 1_900, fallbackKey.getPrivate());
             final PreparedCommand legacyCommit = PreparedCommand.commitLarge(shardId,
                     prepare.delayMessageId(), downgradeProof, 9_000);
 
             assertEquals(StableCode.PAYLOAD_PROOF_KEY_NOT_AUTHORIZED_AT_SOURCE_POSITION,
-                    shard.apply(legacyCommit, position(shardId, 2, 1_500)).stableCode());
+                    shard.apply(legacyCommit, position(shardId, 4, 1_500)).stableCode());
             assertEquals(PayloadReservationStatus.RESERVED,
                     shard.getReservation(reservationId).status());
             assertEquals(1, shard.quota().reservationMessages());
             assertNull(shard.getMessage(prepare.delayMessageId()));
+
+            final PayloadCommitProofV1 acceptedProof = PayloadCommitProofV1.signed(reservationId,
+                    Bytes.sha256(Bytes.utf8("tenant-scope")), shardId.routeIncarnation().bytes(),
+                    shardId.partition(), prepare.delayMessageId(), objectStoreProfile, 4, 7,
+                    Bytes.utf8("bucket"), Bytes.utf8("key"), Bytes.utf8("v1"), new byte[0],
+                    2_000_000, payloadSha, 1_900, semanticKey.getPrivate());
+            final PreparedCommand acceptedCommit = PreparedCommand.commitLargeV1(shardId,
+                    prepare.delayMessageId(), reservationId, acceptedProof, 9_000);
+            assertEquals(StableCode.SCHEDULED,
+                    shard.apply(acceptedCommit, position(shardId, 5, 1_600)).stableCode());
+
+            final ProfileRefV1 committedRetryForeignProfile = new ProfileRefV1(
+                    Bytes.utf8("committed-retry-foreign-object-store"), 1,
+                    objectStoreProfile.semanticHash(), ProfileKindV1.OBJECT_STORE);
+            final PayloadCommitProofV1 committedRetryDowngrade = PayloadCommitProofV1.signed(reservationId,
+                    Bytes.sha256(Bytes.utf8("tenant-scope")), shardId.routeIncarnation().bytes(),
+                    shardId.partition(), prepare.delayMessageId(), committedRetryForeignProfile, 4, 7,
+                    Bytes.utf8("bucket"), Bytes.utf8("key"), Bytes.utf8("v1"), new byte[0],
+                    2_000_000, payloadSha, 1_900, semanticKey.getPrivate());
+            final PreparedCommand committedRetry = PreparedCommand.commitLargeV1(shardId,
+                    prepare.delayMessageId(), reservationId, committedRetryDowngrade, 9_000);
+            assertEquals(StableCode.PAYLOAD_PROOF_INVALID,
+                    shard.apply(committedRetry, position(shardId, 6, 1_700)).stableCode());
+            assertEquals(PayloadReservationStatus.COMMITTED,
+                    shard.getReservation(reservationId).status());
         }
     }
 

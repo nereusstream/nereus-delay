@@ -99,7 +99,8 @@ class ProfileCatalogV1ScheduleResolverTest {
                 100, ScheduleIntentV1.forPrepare(profile, new RetryPolicyRefV1(Bytes.utf8("retry"), 1,
                 bytes(32, 4)), 10, 100, DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, new byte[0],
                 AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())), null, null), 10, bytes(32, 5),
-                100, new PayloadProofTrustSetRefV1(1, bytes(32, 6)));
+                100, new PayloadProofTrustSetRefV1(1, bytes(32, 6)),
+                new ProfileRefV1(Bytes.utf8("object-store"), 1, bytes(32, 7), ProfileKindV1.OBJECT_STORE));
 
         final V1CommandResolutionException exception = assertThrows(V1CommandResolutionException.class,
                 () -> resolver.resolvePrepare(null, null, body, null));

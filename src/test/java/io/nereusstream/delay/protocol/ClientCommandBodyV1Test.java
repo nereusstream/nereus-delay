@@ -28,15 +28,18 @@ class ClientCommandBodyV1Test {
                 AdapterMetadataV1.pulsar(new PulsarMetadataV1(null, null, null, List.of())), null, null);
         final PrepareLargeScheduleBodyV1 body = new PrepareLargeScheduleBodyV1(messageId, 500, intent, 9,
                 Bytes.sha256(Bytes.utf8("payload")), 1000,
-                new PayloadProofTrustSetRefV1(1, bytes(32, 4)));
+                new PayloadProofTrustSetRefV1(1, bytes(32, 4)), objectStore());
 
         assertEquals(body, PrepareLargeScheduleBodyV1.decode(body.canonicalBytes()));
         assertEquals(body, CommandBodies.decodePrepareLargeV1(CommandBodies.prepareLargeV1(messageId, 500, intent,
                 9, Bytes.sha256(Bytes.utf8("payload")), 1000,
-                new PayloadProofTrustSetRefV1(1, bytes(32, 4)))));
+                new PayloadProofTrustSetRefV1(1, bytes(32, 4)), objectStore())));
         final byte[] wrongType = body.canonicalBytes();
         wrongType[2] = 3;
         assertThrows(IllegalArgumentException.class, () -> PrepareLargeScheduleBodyV1.decode(wrongType));
+        assertThrows(IllegalArgumentException.class, () -> new PrepareLargeScheduleBodyV1(messageId, 500,
+                intent, 9, Bytes.sha256(Bytes.utf8("payload")), 1000,
+                new PayloadProofTrustSetRefV1(1, bytes(32, 4)), destination()));
     }
 
     @Test
@@ -54,6 +57,10 @@ class ClientCommandBodyV1Test {
 
     private static RetryPolicyRefV1 retryPolicy() {
         return new RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 2));
+    }
+
+    private static ProfileRefV1 objectStore() {
+        return new ProfileRefV1(Bytes.utf8("object-store"), 1, bytes(32, 3), ProfileKindV1.OBJECT_STORE);
     }
 
     private static byte[] bytes(final int length, final int seed) {

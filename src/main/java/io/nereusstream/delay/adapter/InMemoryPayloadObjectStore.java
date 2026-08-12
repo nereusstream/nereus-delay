@@ -15,6 +15,7 @@ import io.nereusstream.delay.protocol.PayloadReservationReceiptV1;
 import io.nereusstream.delay.protocol.PayloadUploadHandleOutcomeV1;
 import io.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
 import io.nereusstream.delay.protocol.ProfileKindV1;
+import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.StableCode;
@@ -160,10 +161,15 @@ public final class InMemoryPayloadObjectStore {
      * graph.
      */
     public synchronized void register(final PayloadReservation reservation,
-                                      final PayloadProofTrustSetRefV1 pinnedTrustSet) {
+                                      final PayloadProofTrustSetRefV1 pinnedTrustSet,
+                                      final ProfileRefV1 pinnedObjectStoreProfile) {
         Objects.requireNonNull(pinnedTrustSet, "pinnedTrustSet");
+        Objects.requireNonNull(pinnedObjectStoreProfile, "pinnedObjectStoreProfile");
         if (!trustSet.ref().equals(pinnedTrustSet)) {
             throw new IllegalArgumentException("pinned reservation trust-set does not match adapter semantic");
+        }
+        if (!profile.ref().equals(pinnedObjectStoreProfile)) {
+            throw new IllegalArgumentException("pinned reservation Object Store Profile does not match adapter");
         }
         register(reservation);
     }

@@ -16,6 +16,7 @@ import io.nereusstream.delay.protocol.ClaimMaterializationV1;
 import io.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
 import io.nereusstream.delay.protocol.CommitLargeScheduleBodyV1;
 import io.nereusstream.delay.protocol.ChannelResourceIdentityV1;
+import io.nereusstream.delay.protocol.CredentialBindingHeadV1;
 import io.nereusstream.delay.protocol.ControlRef;
 import io.nereusstream.delay.protocol.ControlTargetRefV1;
 import io.nereusstream.delay.protocol.DestinationLaneId;
@@ -29,7 +30,9 @@ import io.nereusstream.delay.protocol.LaneRecordEnvelopeV1;
 import io.nereusstream.delay.protocol.LaneQuotaUsageEntryV1;
 import io.nereusstream.delay.protocol.LaneRetirementProgressV1;
 import io.nereusstream.delay.protocol.LaneTerminalGuardV1;
+import io.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
 import io.nereusstream.delay.protocol.OwnerIdentityV1;
+import io.nereusstream.delay.protocol.PayloadCommitProofV1;
 import io.nereusstream.delay.protocol.PayloadCommitProofView;
 import io.nereusstream.delay.protocol.PayloadForPublishV1;
 import io.nereusstream.delay.protocol.PayloadProofTrustSet;
@@ -6845,6 +6848,8 @@ public final class DelayShard {
         final PrepareLargeScheduleBodyV1 body = CommandBodies.decodePrepareLargeV1(command.canonicalBody());
         requireV1BodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
         requireProfileFirstBinding(body.intentWithoutPayload().profile(), sourcePosition);
+        requireProfileFirstBinding(body.objectStoreProfile(), sourcePosition);
+        requireObjectStoreProfile(body.objectStoreProfile());
         requireRetryPolicy(body.intentWithoutPayload().retryPolicy(), body.intentWithoutPayload().orderingMode(),
                 sourcePosition);
         final V1ScheduleResolver resolver = requireV1ScheduleResolver();
@@ -6862,6 +6867,21 @@ public final class DelayShard {
         return new LargeScheduleIntent(resolved.laneId(), intent.deliverAtEpochMs(), intent.expireAtEpochMs(),
                 intent.orderingMode(), body.expectedPayloadLength(), body.payloadSha256(), body.reservationTtlMs(),
                 body.trustSet().version());
+    }
+
+    /** Requires the exact immutable Object Store semantic and current credential Head when catalog-backed. */
+    private void requireObjectStoreProfile(final ProfileRefV1 reference) {
+        if (profileCatalog == null) {
+            return;
+        }
+        final ProfileSemanticEnvelopeV1 semantic = profileCatalog.resolve(reference);
+        final CredentialBindingHeadV1 head = profileCatalog.resolveHead(reference);
+        if (semantic == null || !semantic.ref().equals(reference)
+                || !(semantic.body() instanceof ObjectStoreProfileSemanticV1)
+                || head == null || !head.profile().equals(reference)) {
+            throw new V1CommandResolutionException(StableCode.ROUTE_SNAPSHOT_UNAVAILABLE,
+                    "Object Store Profile semantic or credential Head is unavailable");
+        }
     }
 
     private ScheduleApplication decodeScheduleApplication(final PreparedCommand command,
@@ -7058,6 +7078,14 @@ public final class DelayShard {
                 && storedReservation.status() == PayloadReservationStatus.RESERVED) {
             return persistRejected(command, sourcePosition, StableCode.PAYLOAD_RESERVATION_CLOSED);
         }
+        // The durable Prepare binding chooses the Object Store authority for
+        // every Commit attempt, including a retry after the reservation has
+        // already reached COMMITTED.  A lifecycle fast path must not weaken
+        // that pinned identity boundary.
+        final PrepareLargeScheduleBodyV1 pinnedPrepare = pinnedPrepareBodyIfPresent(command.delayMessageId());
+        if (pinnedPrepare != null && !proofMatchesPinnedObjectStore(proof, pinnedPrepare.objectStoreProfile())) {
+            return persistRejected(command, sourcePosition, StableCode.PAYLOAD_PROOF_INVALID);
+        }
         final PayloadReservation reservation = effectiveReservation(storedReservation);
         if (reservation.status() == PayloadReservationStatus.COMMITTED) {
             if (reservation.committedPayload() != null && proofMatches(proof, reservation.committedPayload())) {
@@ -7084,13 +7112,15 @@ public final class DelayShard {
                 || !Bytes.constantTimeEquals(proof.payloadSha256(), reservation.intent().payloadSha256())) {
             return persistRejected(command, sourcePosition, StableCode.PAYLOAD_PROOF_INVALID);
         }
-        // The durable Prepare binding chooses the verification authority. A
-        // client must not downgrade a Registry Prepare by encoding the later
-        // Commit with the legacy proof body.
-        final PayloadProofTrustSetRefV1 pinnedTrustSet = payloadProofTrustSetControlCatalog == null
-                ? null : pinnedPrepareTrustSetIfPresent(command.delayMessageId());
+        // A later legacy body can change only the proof encoding; it cannot
+        // weaken the trust-set semantic reference pinned by Prepare.
+        final PayloadProofTrustSetRefV1 pinnedTrustSet = pinnedPrepare == null ? null : pinnedPrepare.trustSet();
         final boolean proofAuthorized;
-        if (pinnedTrustSet != null && payloadProofTrustSetControlCatalog != null) {
+        if (pinnedTrustSet != null) {
+            if (payloadProofTrustSetControlCatalog == null) {
+                throw new V1CommandResolutionException(StableCode.ROUTE_SNAPSHOT_UNAVAILABLE,
+                        "V1 payload proof trust-set catalog is unavailable");
+            }
             if (proof.trustSetVersion() != pinnedTrustSet.version()
                     || !payloadProofTrustSetControlState.firstSeenIssuanceOpen(pinnedTrustSet,
                     proof.proofKeyVersion(), sourcePosition)) {
@@ -7126,7 +7156,7 @@ public final class DelayShard {
         return result;
     }
 
-    private PayloadProofTrustSetRefV1 pinnedPrepareTrustSetIfPresent(final DelayMessageId messageId) {
+    private PrepareLargeScheduleBodyV1 pinnedPrepareBodyIfPresent(final DelayMessageId messageId) {
         final V1ScheduleBinding binding = getV1ScheduleBinding(messageId);
         if (binding == null) {
             return null;
@@ -7135,7 +7165,14 @@ public final class DelayShard {
             throw new V1CommandResolutionException(StableCode.ROUTE_SNAPSHOT_UNAVAILABLE,
                     "large payload reservation has a non-Prepare V1 binding");
         }
-        return CommandBodies.decodePrepareLargeV1(binding.canonicalBody()).trustSet();
+        return CommandBodies.decodePrepareLargeV1(binding.canonicalBody());
+    }
+
+    private static boolean proofMatchesPinnedObjectStore(final PayloadCommitProofView proof,
+                                                         final ProfileRefV1 pinnedProfile) {
+        return proof instanceof PayloadCommitProofV1 typed
+                ? typed.objectStoreProfile().equals(pinnedProfile)
+                : Bytes.constantTimeEquals(proof.objectStoreProfileHash(), pinnedProfile.semanticHash());
     }
 
     private static byte[] reservationId(final PreparedCommand command) {

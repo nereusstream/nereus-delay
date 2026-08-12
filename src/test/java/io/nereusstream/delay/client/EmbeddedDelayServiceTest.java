@@ -418,7 +418,7 @@ class EmbeddedDelayServiceTest {
                 2_000, 5_000, DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, new byte[0],
                 AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())), null, null);
         final PreparedCommand prepare = PreparedCommand.prepareLargeV1(shardId, intent, payload.length,
-                Bytes.sha256(payload), 4_000, pinnedTrustSet.ref(), 10_000);
+                Bytes.sha256(payload), 4_000, pinnedTrustSet.ref(), profile.ref(), 10_000);
         final KafkaSourcePosition preparePosition = new KafkaSourcePosition(shardId, "embedded",
                 UUID.nameUUIDFromBytes(Bytes.utf8("embedded-command-topic")), 0, null, 1_000);
         final PayloadReservation reservation;
@@ -433,7 +433,7 @@ class EmbeddedDelayServiceTest {
 
         final InMemoryPayloadObjectStore receiptProjector = new InMemoryPayloadObjectStore(profile,
                 Bytes.sha256(Bytes.utf8("tenant")), pinnedTrustSet, 7, pinnedKey.getPrivate());
-        receiptProjector.register(reservation, pinnedTrustSet.ref());
+        receiptProjector.register(reservation, pinnedTrustSet.ref(), profile.ref());
         final PayloadReservationReceiptV1 receipt = receiptProjector.reservationReceipt(reservation);
         final InMemoryPayloadObjectStore foreignAdapter = new InMemoryPayloadObjectStore(profile,
                 Bytes.sha256(Bytes.utf8("tenant")), foreignTrustSet, 7, foreignKey.getPrivate());

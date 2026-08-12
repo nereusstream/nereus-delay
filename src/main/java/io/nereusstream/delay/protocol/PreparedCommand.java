@@ -65,12 +65,13 @@ public final class PreparedCommand {
     public static PreparedCommand prepareLargeV1(final ShardId shardId, final ScheduleIntentV1 intentWithoutPayload,
                                                  final long expectedPayloadLength, final byte[] payloadSha256,
                                                  final long reservationTtlMs, final PayloadProofTrustSetRefV1 trustSet,
+                                                 final ProfileRefV1 objectStoreProfile,
                                                  final long retryUntilEpochMs) {
         final CommandId commandId = CommandId.random(shardId);
         final DelayMessageId messageId = DelayMessageId.random(shardId);
         return create(shardId, commandId, messageId, CommandType.PREPARE_LARGE_SCHEDULE, retryUntilEpochMs,
                 CommandBodies.prepareLargeV1(messageId, retryUntilEpochMs, intentWithoutPayload,
-                        expectedPayloadLength, payloadSha256, reservationTtlMs, trustSet));
+                        expectedPayloadLength, payloadSha256, reservationTtlMs, trustSet, objectStoreProfile));
     }
 
     public static PreparedCommand commitLarge(final ShardId shardId, final DelayMessageId messageId,

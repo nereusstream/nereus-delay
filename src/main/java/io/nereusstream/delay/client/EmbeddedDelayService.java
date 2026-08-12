@@ -263,11 +263,12 @@ public final class EmbeddedDelayService implements DelayClient {
                                                   final long expectedPayloadLength, final byte[] payloadSha256,
                                                   final long reservationTtlMs,
                                                   final PayloadProofTrustSetRefV1 trustSet,
+                                                  final io.nereusstream.delay.protocol.ProfileRefV1 objectStoreProfile,
                                                   final long retryUntilEpochMs) {
         ensureOpen();
         try {
             return PreparedCommand.prepareLargeV1(shardId, intentWithoutPayload, expectedPayloadLength,
-                    payloadSha256, reservationTtlMs, trustSet, retryUntilEpochMs);
+                    payloadSha256, reservationTtlMs, trustSet, objectStoreProfile, retryUntilEpochMs);
         } catch (RuntimeException invalidCommand) {
             throw PreparationFailure.of(StableCode.INVALID_COMMAND, invalidCommand);
         }
@@ -775,8 +776,8 @@ public final class EmbeddedDelayService implements DelayClient {
                 if (binding.commandType() != io.nereusstream.delay.protocol.CommandType.PREPARE_LARGE_SCHEDULE) {
                     throw new IllegalStateException("payload reservation has a non-Prepare V1 binding");
                 }
-                payloadObjectStore.register(reservation,
-                        CommandBodies.decodePrepareLargeV1(binding.canonicalBody()).trustSet());
+                final var prepare = CommandBodies.decodePrepareLargeV1(binding.canonicalBody());
+                payloadObjectStore.register(reservation, prepare.trustSet(), prepare.objectStoreProfile());
             }
             return payloadObjectStore.reservationReceipt(reservation).equals(receipt)
                     ? PayloadReceiptBinding.bound() : PayloadReceiptBinding.notFound();

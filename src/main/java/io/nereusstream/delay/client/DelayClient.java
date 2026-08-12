@@ -17,6 +17,7 @@ import io.nereusstream.delay.protocol.PayloadReservationReceiptV1;
 import io.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
 import io.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
+import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.PublicDestinationBindingViewV1;
 import io.nereusstream.delay.protocol.PublicEvidenceRefV1;
 import io.nereusstream.delay.protocol.ScheduleIntent;
@@ -40,6 +41,7 @@ public interface DelayClient extends AutoCloseable {
     PreparedCommand prepareLargeScheduleV1(ScheduleIntentV1 intentWithoutPayload,
                                            long expectedPayloadLength, byte[] payloadSha256,
                                            long reservationTtlMs, PayloadProofTrustSetRefV1 trustSet,
+                                           ProfileRefV1 objectStoreProfile,
                                            long retryUntilEpochMs);
 
     PreparedCommand prepareLargePayloadCommit(PayloadReservationReceiptV1 reservation,

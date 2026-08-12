@@ -21,6 +21,7 @@ import io.nereusstream.delay.protocol.PayloadReservationReceiptV1;
 import io.nereusstream.delay.protocol.PayloadUploadHandleOutcomeV1;
 import io.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
 import io.nereusstream.delay.protocol.ProfileKindV1;
+import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
@@ -154,12 +155,16 @@ class InMemoryPayloadObjectStoreTest {
         assertEquals(adapterTrust.version(), foreignTrust.version());
         assertNotEquals(adapterTrust.ref(), foreignTrust.ref());
         assertThrows(IllegalArgumentException.class,
-                () -> store.register(reservation, foreignTrust.ref()));
+                () -> store.register(reservation, foreignTrust.ref(), profile().ref()));
+        final ProfileRefV1 foreignProfile = new ProfileRefV1(Bytes.utf8("foreign-object-store"), 1,
+                digest("foreign-object-store"), ProfileKindV1.OBJECT_STORE);
+        assertThrows(IllegalArgumentException.class,
+                () -> store.register(reservation, adapterTrust.ref(), foreignProfile));
         assertEquals(PayloadUploadHandleOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED,
                 store.issueUploadHandle(reservation.reservationId(), UploadHandleKindV1.OPAQUE_SINGLE_PUT,
                         1_000).outcome());
 
-        store.register(reservation, adapterTrust.ref());
+        store.register(reservation, adapterTrust.ref(), profile().ref());
         assertEquals(adapterTrust.ref(), store.reservationReceipt(reservation).trustSet());
     }
 

@@ -21,7 +21,8 @@ class PreparedCommandV1Test {
                 DeliveryMode.MANAGED, OrderingMode.DELIVERY_TIME_FIFO, new byte[0],
                 AdapterMetadataV1.pulsar(new PulsarMetadataV1(null, null, null, List.of())), null, null);
         final PreparedCommand prepare = PreparedCommand.prepareLargeV1(shard, prepareIntent, 9,
-                Bytes.sha256(Bytes.utf8("payload")), 1000, new PayloadProofTrustSetRefV1(1, bytes(32, 5)), 500);
+                Bytes.sha256(Bytes.utf8("payload")), 1000, new PayloadProofTrustSetRefV1(1, bytes(32, 5)),
+                objectStore(), 500);
         assertEquals(prepare, CommandCodec.decodeFrameV1(CommandCodec.encodeFrameV1(prepare)));
     }
 
@@ -58,6 +59,10 @@ class PreparedCommandV1Test {
 
     private static RetryPolicyRefV1 retryPolicy() {
         return new RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 2));
+    }
+
+    private static ProfileRefV1 objectStore() {
+        return new ProfileRefV1(Bytes.utf8("object-store"), 1, bytes(32, 3), ProfileKindV1.OBJECT_STORE);
     }
 
     private static byte[] bytes(final int length, final int seed) {

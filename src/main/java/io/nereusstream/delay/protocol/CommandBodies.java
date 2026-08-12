@@ -111,9 +111,11 @@ public final class CommandBodies {
     public static byte[] prepareLargeV1(final DelayMessageId delayMessageId, final long retryUntilEpochMs,
                                         final ScheduleIntentV1 intentWithoutPayload,
                                         final long expectedPayloadLength, final byte[] payloadSha256,
-                                        final long reservationTtlMs, final PayloadProofTrustSetRefV1 trustSet) {
+                                        final long reservationTtlMs, final PayloadProofTrustSetRefV1 trustSet,
+                                        final ProfileRefV1 objectStoreProfile) {
         return new PrepareLargeScheduleBodyV1(delayMessageId, retryUntilEpochMs, intentWithoutPayload,
-                expectedPayloadLength, payloadSha256, reservationTtlMs, trustSet).canonicalBytes();
+                expectedPayloadLength, payloadSha256, reservationTtlMs, trustSet, objectStoreProfile)
+                .canonicalBytes();
     }
 
     /** Decodes the Registry-shaped {@code PrepareLargeScheduleV1} body. */
