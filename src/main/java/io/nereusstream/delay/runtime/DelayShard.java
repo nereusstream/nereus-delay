@@ -1540,20 +1540,52 @@ public final class DelayShard {
      */
     public synchronized PayloadReservation materializeReservationExpiry(final byte[] reservationId) {
         Bytes.requireLength(reservationId, 32, "reservationId");
+        return materializeReservationExpiryInternal(reservationId, null).reservation();
+    }
+
+    /**
+     * Materializes one exact scanner candidate after a bounded GC queue wait.
+     * A candidate may become stale while it is queued because a source-ordered
+     * Commit, Cancel or Lane Close changed the reservation.  Such a candidate
+     * is reported as a no-op result rather than being applied to a different
+     * reservation projection.
+     */
+    public synchronized ReservationExpiryMaterializationResult materializeReservationExpiry(
+            final ReservationExpiryWork candidate) {
+        final ReservationExpiryWork expected = Objects.requireNonNull(candidate, "reservation expiry candidate");
+        return materializeReservationExpiryInternal(expected.reservationId(), expected);
+    }
+
+    private ReservationExpiryMaterializationResult materializeReservationExpiryInternal(
+            final byte[] reservationId, final ReservationExpiryWork expected) {
+        Bytes.requireLength(reservationId, 32, "reservationId");
         final var value = store.getValue(ColumnFamily.ID, KeyCodec.idReservation(reservationId), 2);
         if (value == null) {
-            return null;
+            return ReservationExpiryMaterializationResult.notFound();
         }
         final PayloadReservation current = validateReservationIdentity(reservationId,
                 PayloadReservation.decode(value.payload()), "reservation expiry materialization");
+        if (expected != null && (!current.shardId().equals(store.shardId())
+                || !current.delayMessageId().equals(expected.messageId())
+                || current.reservationExpiryEpochMs() != expected.reservationExpiryEpochMs()
+                || current.stateVersion() != expected.stateVersion())) {
+            return ReservationExpiryMaterializationResult.stale(current);
+        }
         final LaneRecord lane = readLane(current.intent().laneId());
         if (lane != null && lane.admissionGate() == AdmissionGate.CLOSED
                 && current.status() == PayloadReservationStatus.RESERVED) {
-            return effectiveReservation(current);
+            return ReservationExpiryMaterializationResult.alreadyTerminal(effectiveReservation(current));
         }
-        if (current.status() != PayloadReservationStatus.RESERVED
-                || closedIngressDeadlineThrough < current.reservationExpiryEpochMs()) {
-            return effectiveReservation(current);
+        if (current.status() != PayloadReservationStatus.RESERVED) {
+            // A source-ordered transition may have won while this candidate
+            // waited in GC. Remove only the exact stale index key; the
+            // lifecycle state and quota have already been decided elsewhere.
+            store.write(batch -> batch.delete(ColumnFamily.TIMELINE,
+                    KeyCodec.reservationExpiry(current.reservationExpiryEpochMs(), current.reservationId())));
+            return ReservationExpiryMaterializationResult.alreadyTerminal(current);
+        }
+        if (closedIngressDeadlineThrough < current.reservationExpiryEpochMs()) {
+            return ReservationExpiryMaterializationResult.stale(current);
         }
         final PayloadReservation expired = current.withLifecycle(PayloadReservationStatus.EXPIRED,
                 Math.addExact(current.stateVersion(), 1), current.sourcePosition(), null);
@@ -1567,7 +1599,7 @@ public final class DelayShard {
         });
         quota = nextQuota;
         laneQuotaUsage = nextLaneQuota;
-        return expired;
+        return ReservationExpiryMaterializationResult.materialized(expired);
     }
 
     public synchronized CommandResult getCommandResult(final CommandId commandId) {
@@ -9165,6 +9197,47 @@ public final class DelayShard {
         @Override
         public byte[] reservationId() {
             return Bytes.copy(reservationId);
+        }
+    }
+
+    /** Outcome of one bounded, source-fence-derived reservation materialization. */
+    public record ReservationExpiryMaterializationResult(
+            Kind kind, PayloadReservation reservation) {
+        public ReservationExpiryMaterializationResult {
+            Objects.requireNonNull(kind, "kind");
+            if (kind == Kind.NOT_FOUND && reservation != null) {
+                throw new IllegalArgumentException("missing reservation cannot carry a projection");
+            }
+            if (kind != Kind.NOT_FOUND && reservation == null) {
+                throw new IllegalArgumentException("materialization outcome requires a reservation projection");
+            }
+            if (kind == Kind.MATERIALIZED && reservation.status() != PayloadReservationStatus.EXPIRED) {
+                throw new IllegalArgumentException("materialized reservation must be EXPIRED");
+            }
+        }
+
+        public enum Kind {
+            MATERIALIZED,
+            ALREADY_TERMINAL,
+            STALE,
+            NOT_FOUND
+        }
+
+        private static ReservationExpiryMaterializationResult materialized(final PayloadReservation reservation) {
+            return new ReservationExpiryMaterializationResult(Kind.MATERIALIZED, reservation);
+        }
+
+        private static ReservationExpiryMaterializationResult alreadyTerminal(
+                final PayloadReservation reservation) {
+            return new ReservationExpiryMaterializationResult(Kind.ALREADY_TERMINAL, reservation);
+        }
+
+        private static ReservationExpiryMaterializationResult stale(final PayloadReservation reservation) {
+            return new ReservationExpiryMaterializationResult(Kind.STALE, reservation);
+        }
+
+        private static ReservationExpiryMaterializationResult notFound() {
+            return new ReservationExpiryMaterializationResult(Kind.NOT_FOUND, null);
         }
     }
 

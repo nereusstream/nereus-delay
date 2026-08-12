@@ -325,6 +325,42 @@ public final class OwnedDelayShard {
         }
     }
 
+    /** Side-effect-free preflight for one durable reservation-expiry candidate. */
+    synchronized void requireReservationExpirySubmission(
+            final OxiaOwnerLeaseStore authority,
+            final io.nereusstream.delay.runtime.DelayShard.ReservationExpiryWork candidate) {
+        requireStrictActiveAuthority(authority);
+        validateReservationExpiryCandidate(candidate);
+    }
+
+    /** Rereads the Owner Lease before the GC-class materializer touches RocksDB. */
+    synchronized io.nereusstream.delay.runtime.DelayShard.ReservationExpiryMaterializationResult
+            materializeReservationExpiryAuthoritativelyStrict(
+                    final OxiaOwnerLeaseStore authority,
+                    final io.nereusstream.delay.runtime.DelayShard.ReservationExpiryWork candidate,
+                    final LongSupplier clock) {
+        requireReservationExpirySubmission(authority, candidate);
+        final long nowEpochMs = readActiveWorkClock(clock, "reservation expiry materialization");
+        ensureAuthoritativeActive(authority, nowEpochMs, "reservation expiry materialization");
+        validateReservationExpiryCandidate(candidate);
+        try {
+            return delegate.materializeReservationExpiry(candidate);
+        } catch (RuntimeException | Error failure) {
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        }
+    }
+
+    private void validateReservationExpiryCandidate(
+            final io.nereusstream.delay.runtime.DelayShard.ReservationExpiryWork candidate) {
+        final io.nereusstream.delay.runtime.DelayShard.ReservationExpiryWork work =
+                Objects.requireNonNull(candidate, "reservation expiry candidate");
+        if (!delegate.shardId().equals(work.messageId().routingId().shardId())
+                || !delegate.shardId().equals(lease.shardId())) {
+            throw new IllegalArgumentException("reservation expiry candidate does not belong to this shard");
+        }
+    }
+
     /**
      * Rechecks the exact Claim and authoritative Oxia Owner Lease immediately
      * before calling the external Shard Log writer.
