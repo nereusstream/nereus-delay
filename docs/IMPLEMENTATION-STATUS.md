@@ -230,6 +230,21 @@ current-position result projection and expired-lease fencing without a stale
 generic retry action. Real source consumer/ACK, Oxia session authority and
 dynamic WriteBatch/IO reserve attribution remain release gates.
 
+After `d21983b`, `SourceApplyCoordinator` provides the local one-record source
+handoff around the existing `SOURCE_APPLY` work-class executor. It retains the
+exact caller-owned look-ahead record until an injected external
+`SourceAcknowledgement` returns `ACKED`; only then does it re-check the
+position/frame/guard identity and advance the source cursor. Definitive
+non-ACK, unknown ACK, queue rejection, apply failure and acknowledgement
+exceptions retain that same physical record, while source cursor read or
+advance failures fence the local Owner before escaping. The focused
+`SourceApplyCoordinatorTest` covers ACK-after-apply, unknown-ACK retry without
+reapplying the WriteBatch, and queue rejection without source consumption;
+`SourceApplyWorkClassExecutorTest` remains green as well. This is a local
+adapter/composition boundary only: real Kafka/Pulsar Fetch/ACK/commit,
+rewind, pinned resource/session authority and dynamic production IO admission
+remain release blockers.
+
 After `3ba6fb6`, persistent READY discovery has a concrete active-owner
 `DUE_SCHEDULER` entrypoint. `DueSchedulerWorkClassExecutor` binds the exact
 Shard, canonical trusted-UTC evidence and complete scan budget into the task

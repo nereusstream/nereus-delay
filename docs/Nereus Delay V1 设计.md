@@ -813,6 +813,17 @@ Source cursor 的 `hasNext`、look-ahead `peek` 或推进操作如果从 backing
 边界；不能让损坏或暂时不可读的 cursor 把 shard 留在 `CATCHING_UP` 并继续持有本地
 replay authority。
 
+当前代码中的 `SourceApplyCoordinator` 是这一边界的本地组合入口：它只保留一个
+caller-owned cursor 的 exact look-ahead record，每个 bounded turn 最多提交一个
+`SOURCE_APPLY` action；`SourceApplyWorkClassExecutor` 报告同步 WriteBatch 结果后，
+它才调用外部 `SourceAcknowledgement`。只有明确 `ACKED` 且再次校验 position、NDL1
+frame、guard digest 与 source connection generation 完全一致时才推进 cursor。
+`DEFINITIVELY_NOT_ACKED`、`UNKNOWN`、queue rejection、apply failure 或 ACK 异常都保留
+同一 physical record；cursor read/advance failure 先 fence Owner 再向上抛出。该类不
+分配 Source Position、不伪造 Broker commit，也不拥有 Kafka/Pulsar Fetch/ACK authority；
+真实 source adapter 必须把 pinned resource/session、Broker ACK/commit 和 rewind 证明
+接到这个边界上。
+
 如果同步 `db.write` 返回 native failure，或 WriteBatch 已返回成功但 Store 无法完成
 提交后的 ingress-fence 重读/解码校验，Store 必须进入本地
 `WRITE_OUTCOME_UNCERTAIN` 状态：禁止继续读写、禁止写 clean-close marker，source

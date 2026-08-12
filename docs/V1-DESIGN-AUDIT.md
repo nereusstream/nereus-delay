@@ -166,6 +166,18 @@ charges/current-position outcomes, and lease expiry fences without retaining a
 generic failed action. This is local composition evidence, not real Broker
 consumer/ACK, production Oxia session or dynamic WriteBatch/IO authority.
 
+After `d21983b`, `SourceApplyCoordinator` closes the local source handoff
+ordering gap around that executor. One exact caller-owned look-ahead record is
+retained across queue rejection, apply failure, ACK loss/unknown and definite
+non-ACK; the cursor advances only after an external `ACKED` result and an
+exact position/frame/guard/generation re-check. A cursor backing-iterator or
+advance failure fences the Owner before the error escapes. The focused
+`SourceApplyCoordinatorTest` proves ACK-after-apply, unknown-ACK retry without
+duplicating the WriteBatch, and queue rejection without consumption. This
+does not claim a real Kafka/Pulsar consumer, Broker commit/rewind, pinned
+resource/session authority or dynamic production WriteBatch/IO admission;
+those release gates remain OPEN.
+
 After `3ba6fb6`, persistent READY discovery is also behind a concrete
 `DUE_SCHEDULER` action. The task identity binds the exact Shard, canonical
 trusted-UTC evidence and all scan-budget fields; its charge reserves canonical
