@@ -34,6 +34,9 @@ public final class RecoveryPinV1 {
         this.observedCatalogGeneration = observedCatalogGeneration;
         this.oxiaSessionIdentityDigest = fixed(oxiaSessionIdentityDigest, HASH_LENGTH,
                 "oxiaSessionIdentityDigest");
+        if (!shard.shardId().equals(observedFloor.appliedSourcePosition().shardId())) {
+            throw new IllegalArgumentException("RecoveryPin Floor belongs to another shard");
+        }
         if (!Arrays.equals(candidate.recoveryLineageId(), observedFloor.recoveryLineageId())) {
             throw new IllegalArgumentException("candidate and Floor lineage differ");
         }
