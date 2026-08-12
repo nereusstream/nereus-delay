@@ -2087,8 +2087,15 @@ source-ordered `closedIngressDeadlineThrough`。同一个 `BoundedReadBudget` �
 discovery 不物化、不释放 quota；每个 byte-identical candidate 仍须经
 `ReservationExpiryWorkClassExecutor` 的第二个 strict `GC` handoff 才能写 batch。
 
-Lane Close 的 source-ordered marker 已经冻结语义结果，但 cursor 物化仍属于
-`GC` work-class。跨包 Worker 每次只能把一个 exact
+Lane Close 的 source-ordered marker 已经冻结语义结果，但 cursor discovery 与物化
+都属于 `GC` work-class。`LaneCloseDiscoveryWorkClassExecutor` 的 submission 只做
+strict-active 本地 preflight，并把 exact Shard 与 record/byte/elapsed scan budget
+绑定进 task；queue rejection 不读取 Oxia、owner clock、scan clock 或 Store。action
+开始后重读 Owner Lease，以独立 monotonic clock 扫描 durable SYSTEM cursor，并用
+一个 `BoundedReadBudget` 同时计入 cursor index 与对应 Lane projection 的实际
+key/value bytes 及 elapsed time。首个完整 cursor candidate 超过 envelope 时 fail
+closed，后续 candidate 仅因剩余预算不足时留给下一 turn；discovery 不推进 cursor，
+不改变 Message。随后跨包 Worker 每次只能把一个 exact
 `LaneCloseMaterializationWork` 与 `maxRecords`、Owner Lease 和执行时钟提交给
 `LaneCloseWorkClassExecutor`；queue admission 不得 discover 或写 Store，action
 开始后必须重读 strict Owner Lease 并重新验证 cursor identity。会自行 discover
@@ -3216,7 +3223,7 @@ Lane 的 **generation/reservation state buckets** 必须互斥分裂为 `unadmit
 
 Marker 仅把真正没有 admitted obligation 的前四类 aggregate 一次转入 frozen/terminal escrow；cursor materialization quota-neutral。若 `possibleDeliveryEscrow` generation 同时有 current timeline/Claim，Marker 删除/revoke 该 reversible work并只释放它自身的 Claim/executor charge，generation 仍在 possible-delivery bucket，各 attempt ledger charge原样保留。任何 attempt ledger 仍含 `UNKNOWN` 的 generation 绝不能归类成 “closed before Admission”。
 
-真正无 admitted obligation 的 `SCHEDULED`/合法 `RETRY_WAIT`/`CLAIMED` 逻辑结果冻结为 `DEAD_LETTER(LANE_CLOSED_BEFORE_ADMISSION)`；未 Commit 的 `PAYLOAD_RESERVED` 冻结为 `PAYLOAD_RESERVATION_ABANDONED(LANE_CLOSED_BEFORE_COMMIT)`，停止新 handle/attestation，后续 Commit 返回 stable `PAYLOAD_RESERVATION_CLOSED`。已经签发或 in-flight 的 upload handle 仍按 upload-deadline fence/quiescence/late-PUT GC 规则保留 tombstone与 quota。其后按 canonical key order 的持久 close cursor 分 bounded batch 物化 message/reservation terminal/history 和 guarded object-GC task，并写 `counterTransferredByCloseVersion`；restart 从 cursor 续跑，不再作语义选择。当前本地组合入口 `LaneCloseWorkClassExecutor` 把 exact `LaneCloseMaterializationCursor` 和本批 record bound 绑定进 `GC` task，queue rejection 不触碰 Store；执行时重新校验 strict Owner Lease、close Source Position 的 Shard identity 和 cursor bytes，再调用既有 materializer。cursor 在排队期间被推进或删除时只返回 `STALE`/`NOT_FOUND`，不把旧 batch 应用到新的 close version；该入口不创建 System Mutation、不分配 Source Position。生产 close scheduling、Oxia/session authority、admitted-obligation retirement、Object Store quiescence 与 Recovery-Floor GC proof 仍由外部适配器完成。Marker 之后的 Schedule 稳定 `REJECTED(LANE_CLOSED)`；对已冻结未 admitted message，Cancel 为 `ALREADY_DEAD_LETTERED`、Reschedule 为 `LANE_CLOSED`；reservation Commit 为 `PAYLOAD_RESERVATION_CLOSED`；admitted/possible-delivery attempt 仍为 `TOO_LATE` 或其 exact Resolve outcome。
+真正无 admitted obligation 的 `SCHEDULED`/合法 `RETRY_WAIT`/`CLAIMED` 逻辑结果冻结为 `DEAD_LETTER(LANE_CLOSED_BEFORE_ADMISSION)`；未 Commit 的 `PAYLOAD_RESERVED` 冻结为 `PAYLOAD_RESERVATION_ABANDONED(LANE_CLOSED_BEFORE_COMMIT)`，停止新 handle/attestation，后续 Commit 返回 stable `PAYLOAD_RESERVATION_CLOSED`。已经签发或 in-flight 的 upload handle 仍按 upload-deadline fence/quiescence/late-PUT GC 规则保留 tombstone与 quota。其后按 canonical key order 的持久 close cursor 分 bounded batch 物化 message/reservation terminal/history 和 guarded object-GC task，并写 `counterTransferredByCloseVersion`；restart 从 cursor 续跑，不再作语义选择。当前本地 discovery 入口 `LaneCloseDiscoveryWorkClassExecutor` 把 exact Shard 和完整 record/byte/elapsed scan budget 绑定进 `GC` task，action 重读 strict Owner Lease，并以共享 `BoundedReadBudget` 覆盖 SYSTEM cursor 与对应 Lane projection 的实际读取；queue rejection 不读 Oxia、时钟或 Store，discovery 不推进 cursor。随后 `LaneCloseWorkClassExecutor` 把 exact `LaneCloseMaterializationCursor` 和本批 record bound 绑定进另一个 `GC` task，queue rejection 不触碰 Store；执行时重新校验 strict Owner Lease、close Source Position 的 Shard identity 和 cursor bytes，再调用既有 materializer。cursor 在排队期间被推进或删除时只返回 `STALE`/`NOT_FOUND`，不把旧 batch 应用到新的 close version；两层入口都不创建 System Mutation、不分配 Source Position。生产 close scheduling、Oxia/session authority、admitted-obligation retirement、Object Store quiescence 与 Recovery-Floor GC proof 仍由外部适配器完成。Marker 之后的 Schedule 稳定 `REJECTED(LANE_CLOSED)`；对已冻结未 admitted message，Cancel 为 `ALREADY_DEAD_LETTERED`、Reschedule 为 `LANE_CLOSED`；reservation Commit 为 `PAYLOAD_RESERVATION_CLOSED`；admitted/possible-delivery attempt 仍为 `TOO_LATE` 或其 exact Resolve outcome。
 
 Close 不把 marker 前的 `PUBLISHING`/`UNCERTAIN` 伪装成未发布，这些 attempt 仍走 evidence/`ResolveUncertain`，也不在汇总 counter 转移中提前释放其 retained/outcome obligation。Marker 后的 admitted outcome 固定为：
 

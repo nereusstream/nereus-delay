@@ -248,6 +248,19 @@ rejection, stale cursor and Owner-expiry fencing. This is local evidence only;
 production close scheduling, admitted-obligation/object cleanup, Oxia authority
 and Recovery-Floor protection remain open.
 
+After `6c3e8ad`, Lane-close cursor discovery is also a strict bounded `GC`
+action. `LaneCloseDiscoveryWorkClassExecutor` binds Shard identity and the full
+record/byte/elapsed scan envelope before admission; rejection reads no Oxia,
+clock or Store state. Execution rereads Owner authority and uses a separate
+monotonic clock. One shared `BoundedReadBudget` charges actual key/value bytes
+for both the SYSTEM cursor and dependent Lane projection, so an oversized cursor
+fails closed and a later cursor that exhausts remaining budget stays durable.
+Discovery does not advance cursors or mutate Messages; each result still enters
+the exact materializer above. Focused Lane-close discovery/materialization and
+full `DelayShardTest` suites plus compilation and Checkstyle passed. Production
+scheduling, Oxia, admitted-obligation retirement, Object Store quiescence and
+Recovery-Floor authority remain open.
+
 After `3ba6fb6`, persistent READY discovery is also behind a concrete
 `DUE_SCHEDULER` action. The task identity binds the exact Shard, canonical
 trusted-UTC evidence and all scan-budget fields; its charge reserves canonical
@@ -3167,6 +3180,17 @@ compatibility/test seam for deterministic projection validation, not a productio
 clock authority. Discovery does not write state or quota; materialization remains a
 second exact `ReservationExpiryWorkClassExecutor` action. This closes local scanner
 work-class drift only, not production TIME_FENCE/Oxia/Floor/Object Store authority.
+
+After `6c3e8ad`, Lane-close production discovery no longer calls the count-only
+`DelayShard.discoverLaneCloseMaterialization(int)` outside the queue. The strict
+public path is `LaneCloseDiscoveryWorkClassExecutor`, with pure local preflight,
+execution-time Owner reread, a monotonic scan clock and one actual-byte/elapsed
+budget shared across cursor and Lane reads. The count-only overload remains a
+compatibility/test seam that intentionally fails if more than its declared cursor
+bound exists; the production bounded overload leaves additional valid work durable.
+Discovery is state-neutral and materialization remains a separate exact
+`LaneCloseWorkClassExecutor` action. This closes local cursor-discovery drift only,
+not the external close scheduler, Oxia, Object Store or Floor authorities.
 
 Worker 资源侧现在还提供了本地 `WorkerLoadVector` 与
 `WorkerPlacementPolicy`：它们先按完整 committed capacity、固定/transition
