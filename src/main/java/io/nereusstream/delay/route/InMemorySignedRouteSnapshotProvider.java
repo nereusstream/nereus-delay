@@ -26,6 +26,7 @@ public final class InMemorySignedRouteSnapshotProvider implements RouteSnapshotP
     private final TrustedClock trustedClock;
     private final Map<RouteKey, RouteSnapshotV1> active = new HashMap<>();
     private final Map<RouteIncarnation, RouteSnapshotV1> history = new HashMap<>();
+    private final Map<RouteIncarnation, RouteKey> activeKeyByIncarnation = new HashMap<>();
     private long publishedRevision;
     private RouteCacheHealth health = RouteCacheHealth.UNAVAILABLE;
 
@@ -56,12 +57,24 @@ public final class InMemorySignedRouteSnapshotProvider implements RouteSnapshotP
             health = RouteCacheHealth.SIGNATURE_INVALID;
             throw new IllegalArgumentException("Route snapshot signature/digest is invalid", invalidSignatureOrBytes);
         }
-        final RouteSnapshotV1 previous = history.putIfAbsent(verified.routeIncarnation(), verified);
-        if (previous != null && !Bytes.constantTimeEquals(previous.canonicalBytes(), verified.canonicalBytes())) {
-            health = RouteCacheHealth.SIGNATURE_INVALID;
-            throw new IllegalArgumentException("Route incarnation was republished with different bytes");
+        final RouteSnapshotV1 previous = history.get(verified.routeIncarnation());
+        if (previous != null) {
+            try {
+                RouteSnapshotCompatibilityV1.requireCompatibleSuccessor(previous, verified);
+            } catch (IllegalArgumentException incompatible) {
+                health = RouteCacheHealth.QUARANTINED;
+                throw new IllegalArgumentException("Route incarnation changed immutable fields", incompatible);
+            }
+            final RouteKey previousKey = activeKeyByIncarnation.get(verified.routeIncarnation());
+            final RouteKey nextKey = new RouteKey(route.adapterKind(), route.routeAliasUtf8Nfc());
+            if (previousKey != null && !previousKey.equals(nextKey)) {
+                active.remove(previousKey);
+            }
         }
-        active.put(new RouteKey(route.adapterKind(), route.routeAliasUtf8Nfc()), verified);
+        final RouteKey nextKey = new RouteKey(route.adapterKind(), route.routeAliasUtf8Nfc());
+        active.put(nextKey, verified);
+        activeKeyByIncarnation.put(verified.routeIncarnation(), nextKey);
+        history.put(verified.routeIncarnation(), verified);
         publishedRevision = revision;
         health = RouteCacheHealth.HEALTHY;
     }
@@ -117,6 +130,7 @@ public final class InMemorySignedRouteSnapshotProvider implements RouteSnapshotP
         }
         active.clear();
         history.clear();
+        activeKeyByIncarnation.clear();
         health = RouteCacheHealth.CLOSED;
     }
 

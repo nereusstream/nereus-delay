@@ -5,6 +5,7 @@ public enum RouteCacheHealth {
     HEALTHY,
     WATCH_GAP,
     SIGNATURE_INVALID,
+    QUARANTINED,
     UNAVAILABLE,
     CLOSED
 }
