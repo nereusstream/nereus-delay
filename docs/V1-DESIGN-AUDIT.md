@@ -42,8 +42,8 @@ identities, zero-I/O preparation, exact historical-route plan resolution,
 one-shot transport ownership, NDR1 projection, local Gateway idempotency
 body/attempt behavior, contiguous signed-cache watch fencing, Oxia event/head
 CAS Route publication/refresh, explicit uncertain retry CAS and Oxia Gateway
-single-record CAS. The full local `check` at the pre-Gateway-CAS branch passes
-at `ec12efbf2bf82fc15c5038af5db84e3e634674bd`; the Route provider/publisher
+single-record CAS. The full local `check` passes at
+`2e0109c6da808f0681de75b137e531620c2ed6a7`; the Route provider/publisher
 focused tests pass at `62a94389`, and the Gateway CAS focused tests pass at
 `e276bec3`; the route-cache/Gateway focused tests pass at their respective
 commits. This evidence does not establish activation-barrier/session-fenced

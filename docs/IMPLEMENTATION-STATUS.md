@@ -105,8 +105,8 @@ GRADLE_USER_HOME=/tmp/nereus-delay-full-gradle \
 ```
 
 The command passed, including `checkDocumentation`, the full local test task
-and main Checkstyle at the pre-Gateway-CAS branch SHA
-`ec12efbf2bf82fc15c5038af5db84e3e634674bd`; the Gateway-CAS focused tests and
+and main Checkstyle at branch SHA
+`2e0109c6da808f0681de75b137e531620c2ed6a7`; the Gateway-CAS focused tests and
 Checkstyle pass at `e276bec3`, and the operation registry compiles at
 `69d89839`. The Route slice's focused provider/publisher tests and Checkstyle
 pass at `62a94389`. The five
