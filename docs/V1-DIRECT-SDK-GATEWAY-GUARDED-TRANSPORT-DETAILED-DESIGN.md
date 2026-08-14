@@ -680,7 +680,7 @@ Canonical/authorization/Route/quota，以及当前 canonical request 的 idempot
 deadline 不取消 Producer attempt，也不能把 gRPC deadline 宣称为 definite。客户端以同一
 idempotency key 重读 eventual record。
 
-2026-08-14 implementation evidence: commit
+2026-08-14 implementation evidence: commits
 `9695eba7ca384d99cd28ece238f6cbfe1bcd08be`,
 `724fdad95971dd096e116056f8e5da1a7ba76d14` and
 `44bffea6063ef68ce36f8fb49527ee00a9bfa36b` add generated gRPC handling for
@@ -690,9 +690,22 @@ Gateway ingress performs tenant authentication, control admission and
 digest-only audit. The domain path prepares the control Command before the
 same idempotency CAS, one-shot physical-attempt ownership and NDR1 outcome
 projection used by Schedule. This is local conformance evidence; the other
-RPC handlers, receipt-bound upload handlers require an explicitly injected
+RPC handlers and receipt-bound upload handlers require an explicitly injected
 `GatewayPayloadAuthority`; deployable mTLS/JWT authority, distributed quota/audit and real
 transport/Worker integration remain open.
+
+2026-08-15 implementation evidence: commit
+`59d492041ac42b79a632ebddfb56a7608b2d7283` adds the generated
+`GetCommandResult`, bounded `AwaitApplied` and `GetMessage` handlers. Their
+transport-neutral request records select only the frozen receipt/ID locators;
+`GatewayQueryIngressService` authenticates the tenant, applies control
+admission, records digest-only audit events and delegates receipt binding,
+source/store reads and deadline policy to an explicitly injected
+`GatewayQueryAuthority`. `AwaitApplied` responses are bounded before canonical
+stream encoding. This is local query composition evidence; without that
+authority composition the generated handlers remain `UNIMPLEMENTED`, and
+production query routing, retention/source authority, deployable auth and
+Worker integration remain open.
 
 ### 7.3 认证与 tenant
 
@@ -2427,8 +2440,9 @@ surface。`GatewayIngressService` 要求 tenant authority、独立 schedule/retr
 admission pool 和 digest-only audit；`GatewayGrpcService` 当前实现
 Schedule/RetryUncertain/PrepareLargeSchedule/CommitLargeSchedule/Cancel/Reschedule；
 receipt-bound upload methods are active only when an explicit
-`GatewayPayloadIngressService` is configured, while query/await/message RPCs
-continue to return generated-base `UNIMPLEMENTED`.
+`GatewayPayloadIngressService` is configured, and query/await/message RPCs are
+active only when an explicit `GatewayQueryIngressService` is configured;
+otherwise each remains generated-base `UNIMPLEMENTED`.
 Commit
 `9695eba7ca384d99cd28ece238f6cbfe1bcd08be` also covers canonical control
 body decoding and the shared idempotency/attempt path for Cancel and
@@ -2437,6 +2451,11 @@ same path for canonical large-payload reservation/proof preparation.
 Commit `44bffea6063ef68ce36f8fb49527ee00a9bfa36b` adds canonical receipt/
 opaque-handle decode and digest-audited payload ingress; real Object Store
 credential/registration authority and remote durability remain open.
+Commit `59d492041ac42b79a632ebddfb56a7608b2d7283` adds strict query locator
+decode, tenant/admission/audit composition and bounded canonical query response
+streaming through `GatewayQueryAuthority`; receipt-to-source/store binding and
+deadline/retention authority remain the responsibility of that explicit
+composition and are not established by the generated adapter.
 Guarded Kafka/Pulsar result 还必须携带与 one-shot permit 相同的
 `PhysicalEnqueueAttemptId`；缺失或错配在 coordinator/projector 边界
 fail-closed 为 `INTEGRITY_ERROR`。

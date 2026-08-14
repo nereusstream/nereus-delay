@@ -17,7 +17,9 @@ Gateway API descriptors, partial generated service handling for Schedule,
 RetryUncertain, PrepareLargeSchedule, CommitLargeSchedule, Cancel and
 Reschedule from the checked-in proto, and a transport-neutral Worker
 source-consumer/ACK-after-sync composition, plus receipt-bound payload upload
-handlers behind an explicitly injected `GatewayPayloadAuthority`. These are local
+handlers behind an explicitly injected `GatewayPayloadAuthority`, and
+query/await/message handlers behind an explicitly injected
+`GatewayQueryAuthority`. These are local
 implementation evidence, not claims of activation-barrier/session-fenced real
 Oxia authority, a complete Gateway service/authentication deployment, real Broker transport, or
 production Worker wiring or release readiness. The isolated Kafka and Pulsar
@@ -254,8 +256,31 @@ local gate passed at this commit; five opt-in real-Oxia smoke methods were
 skipped because no endpoint was configured. This closes only the local
 authority/ingress composition: actual Object Store credential binding,
 reservation registration/session authority, remote immutability and proof-key
-custody remain open. Query/AwaitApplied/GetMessage and production Worker/
-transport integration also remain open.
+custody remain open. Production Worker/transport integration also remains open.
+
+## 2026-08-15 Gateway query authority/ingress slice
+
+Delay worktree commit `59d492041ac42b79a632ebddfb56a7608b2d7283` on
+`nereus/delay-full-implementation-v1` adds typed command/message query locator
+records, strict canonical decoding of `CommandQueuedReceiptV1`, `CommandId`
+and `DelayMessageId`, and `GatewayQueryIngressService`. Before the explicitly
+injected `GatewayQueryAuthority` is called, the composition authenticates the
+tenant, takes the bounded control admission lease, and emits digest-only
+received/completed or failed audit events. `AwaitApplied` is bounded by the
+configured response limit (1..64); the query authority retains receipt binding,
+source/store projection and deadline policy.
+
+`GatewayQueryGrpcServiceTest` covers all three generated query RPCs, canonical
+locator/response bytes, tenant propagation, bounded streaming and audit. The
+independent full local gate at this commit passed with `checkDocumentation`,
+main Checkstyle and the full local test task; five opt-in real-Oxia smoke
+methods were skipped because no endpoint was configured. The generated handlers
+remain `UNIMPLEMENTED` when no explicit `GatewayQueryIngressService` is
+configured. This closes only local query authority/ingress composition: actual
+receipt-to-source/store binding, retention/deadline enforcement, authenticated
+production query routing, deployable mTLS/JWT, distributed quota, durable
+audit, Gateway HA durability, real transports and production Worker wiring
+remain open.
 
 ## 2026-08-14 K1 isolated Kafka guarded-client slice
 
