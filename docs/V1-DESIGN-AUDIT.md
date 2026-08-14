@@ -50,7 +50,8 @@ The 2026-08-14 Delay worktree milestones `532f8ad5`,
 `9695eba7ca384d99cd28ece238f6cbfe1bcd08be`,
 `724fdad95971dd096e116056f8e5da1a7ba76d14` and
 `44bffea6063ef68ce36f8fb49527ee00a9bfa36b`, and
-`59d492041ac42b79a632ebddfb56a7608b2d7283` verify the canonical
+`59d492041ac42b79a632ebddfb56a7608b2d7283`, and
+`4f606fec86aaeb74472f6575e5ee7ddcb8dc8f82` verify the canonical
 signed Route
 value, exact Kafka/Pulsar resource projections, UUIDv7/independent command
 identities, zero-I/O preparation, exact historical-route plan resolution,
@@ -58,11 +59,11 @@ one-shot transport ownership, NDR1 projection, local Gateway idempotency
 body/attempt behavior, contiguous signed-cache watch fencing, Oxia event/head
 CAS Route publication/refresh, explicit uncertain retry CAS and Oxia Gateway
 single-record CAS. The full local `check` passes at
-`5cc955e1306e1f54db06a06a2bb2b84f232c2a7b`; the Route provider/publisher
+`4f606fec86aaeb74472f6575e5ee7ddcb8dc8f82`; the Route provider/publisher
 focused tests pass at `62a94389`, and the Gateway CAS focused tests pass at
 `e276bec3`; the route-cache/Gateway focused tests pass at their respective
-commits. This evidence does not establish activation-barrier/session-fenced
-real Oxia service behavior, production Gateway authority/authentication,
+commits. This evidence does not establish activation-barrier or real-service
+session-fenced Oxia Route behavior, production Gateway authority/authentication,
 HA durable idempotency, real Kafka/Pulsar transport artifacts, Worker wiring or
 real-Broker correctness; those release rows remain OPEN.
 
@@ -165,6 +166,17 @@ endpoint was configured. The generated handlers dispatch only with an explicit
 `GatewayQueryAuthority`; receipt-to-source/store binding, retention/deadline
 policy, production query routing, deployable authentication, HA durability,
 real transports and Worker wiring remain OPEN.
+
+Commit `4f606fec86aaeb74472f6575e5ee7ddcb8dc8f82` adds the local Route
+session-fenced authority composition. `OxiaRouteAuthoritySession` creates an
+ephemeral marker, derives session identity from Oxia version metadata, and
+rereads exact marker/value/version/session metadata before Route event/head or
+cache I/O. Its response-loss path succeeds only after exact reread, while
+marker expiry or identity drift fences both publisher and provider. The full
+local `check` passed at this commit; five real-Oxia smoke methods were skipped
+because no endpoint was configured. Real session-timeout/reconnect and
+cache-staleness cuts, activation-barrier publication, native eligibility,
+cross-record transactions and production transport/Worker wiring remain OPEN.
 
 The Oxia transaction gate was rechecked against the locked Oxia source and the
 resolved `oxia-client:0.9.0` API.  Public client methods are single-record
@@ -4378,7 +4390,7 @@ the guarded Broker rollout attestation remains external evidence.
 
 | 依赖 | 审计锁 |
 |---|---|
-| Delay local implementation slice | `nereus/delay-full-implementation-v1@59d492041ac42b79a632ebddfb56a7608b2d7283` (Gateway query/await/message handlers and bounded query ingress behind explicit `GatewayQueryAuthority`, on top of receipt-bound payload upload/attestation ingress, PrepareLargeSchedule/CommitLargeSchedule, Cancel and Reschedule control slices, Direct SDK outbox fail-closed and Worker source-consumer/ACK-after-sync composition; transport result/attempt binding `5cc955e1306e1f54db06a06a2bb2b84f232c2a7b`; Gateway ingress base `1dc28eaf391429f2dc9221f416af968d36575dff`, Gateway API generation base `a06ab232a5608ec0e7c9152ef80fc72c06966e66`; Gateway CAS base `e276bec3ffff7f5015367bed55f5b8d63c080e21`, Route authority base `62a9438967112f96e65b8daa7b2b86d52a103b10`, Gateway retry base `c42405ce6c69aef8ae0f8a9a63158c917410309f`, route-cache base `67ef3de3ab6f69ae992c3ccb70c7cb65cad47613`, composition base `402b27fa0dced95c2312bfedc0678af03463f2d5`, repository base `origin/main@2dfc3289ffdbe9cf9d7f4d0de1d701493d1b49a6`) |
+| Delay local implementation slice | `nereus/delay-full-implementation-v1@4f606fec86aaeb74472f6575e5ee7ddcb8dc8f82` (Oxia Route session-fenced publisher/provider composition on top of Gateway query/await/message handlers and bounded query ingress behind explicit `GatewayQueryAuthority`, receipt-bound payload upload/attestation ingress, PrepareLargeSchedule/CommitLargeSchedule, Cancel and Reschedule control slices, Direct SDK outbox fail-closed and Worker source-consumer/ACK-after-sync composition; transport result/attempt binding `5cc955e1306e1f54db06a06a2bb2b84f232c2a7b`; Gateway query base `59d492041ac42b79a632ebddfb56a7608b2d7283`, Gateway ingress base `1dc28eaf391429f2dc9221f416af968d36575dff`, Gateway API generation base `a06ab232a5608ec0e7c9152ef80fc72c06966e66`; Gateway CAS base `e276bec3ffff7f5015367bed55f5b8d63c080e21`, Route authority base `62a9438967112f96e65b8daa7b2b86d52a103b10`, Gateway retry base `c42405ce6c69aef8ae0f8a9a63158c917410309f`, route-cache base `67ef3de3ab6f69ae992c3ccb70c7cb65cad47613`, composition base `402b27fa0dced95c2312bfedc0678af03463f2d5`, repository base `origin/main@2dfc3289ffdbe9cf9d7f4d0de1d701493d1b49a6`) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |

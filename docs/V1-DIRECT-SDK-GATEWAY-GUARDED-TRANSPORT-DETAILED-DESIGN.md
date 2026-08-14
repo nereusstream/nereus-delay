@@ -2413,7 +2413,13 @@ response evidence、Direct SDK E2E 和 Worker ACK-after-sync。
 ### Phase D4：Oxia Route authority
 
 `InMemorySignedRouteSnapshotProvider` and the 2026-08-14 Delay commit
-`62a94389` now supply local signed-cache/Oxia composition evidence.
+`62a94389` now supply local signed-cache/Oxia composition evidence. The
+2026-08-15 commit `4f606fec86aaeb74472f6575e5ee7ddcb8dc8f82` adds the optional
+`OxiaRouteAuthoritySession` path: an ephemeral marker is created with
+`AsEphemeralRecord`, its Oxia session/client metadata is derived into a stable
+session identity, and every delegated Route operation rereads the exact
+marker/value/version before proceeding. Provider/publisher response loss is
+accepted only after an exact marker reread.
 `OxiaSignedRouteSnapshotPublisher` writes immutable canonical Route events and
 advances an Oxia head with version CAS; `OxiaSignedRouteSnapshotProvider`
 rebuilds only through the head, verifies snapshot/event canonical bytes and
@@ -2421,9 +2427,9 @@ signatures, replays contiguous revisions, refreshes from Oxia notifications,
 and quarantines same-incarnation immutable drift. Exact lookup remains
 tenant-scoped and preparation still reads only the local cache.
 
-仍需 activation barrier publication, Oxia session fencing, cross-process
-response-loss/reconnect evidence, real-service cache staleness cuts and native
-eligibility authority。完成门：snapshot signature/digest、lifecycle、route
+仍需 activation barrier publication, real-service session-timeout/reconnect
+and cache-staleness cuts, and native eligibility authority。完成门：snapshot
+signature/digest、lifecycle、route
 expansion、credential binding、cache staleness cuts。
 同一 Route Incarnation 的 resource/partition/hash/query-retention/size drift 必须 quarantine；仅
 lifecycle/control-version/validity 与有等价证明的 credential generation 可发布新 snapshot。

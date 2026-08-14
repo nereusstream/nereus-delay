@@ -54,10 +54,11 @@ Pulsar partition identity, byte-equivalent managed preparation, deterministic
 routing and no transport call from preparation.
 
 This remains local D1 evidence. The Delay worktree now also contains a local
-Oxia event-stream/head-CAS Route authority composition, but activation-barrier
-publication, session fencing, real credential/native eligibility authority,
-production transport artifacts, production Worker integration and real-Broker
-evidence remain open.
+Oxia event-stream/head-CAS Route authority composition with an optional
+ephemeral session marker and exact session/version checks, but
+activation-barrier publication, real-service session/reconnect evidence, real
+credential/native eligibility authority, production transport artifacts,
+production Worker integration and real-Broker evidence remain open.
 
 ## 2026-08-14 D1/D4/D5 local composition slice
 
@@ -281,6 +282,26 @@ receipt-to-source/store binding, retention/deadline enforcement, authenticated
 production query routing, deployable mTLS/JWT, distributed quota, durable
 audit, Gateway HA durability, real transports and production Worker wiring
 remain open.
+
+## 2026-08-15 Oxia Route session-fenced authority slice
+
+Delay worktree commit `4f606fec86aaeb74472f6575e5ee7ddcb8dc8f82` adds
+`OxiaRouteAuthoritySession`, an optional Route record client that creates an
+Oxia ephemeral marker, derives a session identity from the committed Oxia
+version metadata, and rereads the exact marker/value/version/session metadata
+before every Route event/head or cache operation. Session-marker response loss
+is accepted only after an exact marker reread; marker disappearance or
+identity/version drift fails closed. `OxiaSignedRouteSnapshotPublisher` and
+`OxiaSignedRouteSnapshotProvider` expose constructors using this session path,
+while their legacy raw-client constructors remain compatibility seams.
+
+`OxiaSignedRouteSnapshotProviderTest` covers response-loss-after-commit
+recovery and session expiry fencing for both publisher and provider. The
+independent full local gate passed at this commit; five opt-in real-Oxia smoke
+methods were skipped because no endpoint was configured. This closes only the
+local/session composition: real-service session-timeout/reconnect cuts,
+activation-barrier publication, native credential eligibility, cross-record
+Oxia transactions, production transport and Worker integration remain open.
 
 ## 2026-08-14 K1 isolated Kafka guarded-client slice
 
