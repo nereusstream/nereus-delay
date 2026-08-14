@@ -2180,6 +2180,20 @@ Route activation/session reconnect, real Broker transport, Worker vertical,
 HA and release gates.
 
 2026-08-15 implementation evidence: commit
+`becfb1a35fc05cbf7ae7c77816f91bd72e546566` adds the real Oxia Route
+publication/refresh smoke and dispatches real-client notification refreshes to
+an owned executor rather than performing synchronous reads on the Oxia
+callback thread. The Docker harness built source
+`37a17bef17202d5fd6e23282da5fd26d94865484` in project
+`nereus-delay-v1-oxia-e2e-1786731364-80164` on `127.0.0.1:16649`; seven
+selected real-service methods passed with `BUILD SUCCESSFUL`. The Route test
+uses separate publisher/provider sessions and explicit refresh after signed
+event/head revisions. A notification-enabled live attempt still failed at
+the session/refresh boundary and is deliberately not promoted; notification
+stream stability, timeout/reconnect, activation barrier, native eligibility,
+real Broker transport and Worker vertical evidence remain open.
+
+2026-08-15 implementation evidence: commit
 `4a4cb9424ec731a59bb117028ae631557c907e2f` adds
 `e2e/validate-cross-repo-contracts.sh`. The read-only audit passed after
 checking clean isolated worktrees, locked Kafka/Pulsar ancestry and exact
@@ -2502,8 +2516,10 @@ signatures, replays contiguous revisions, refreshes from Oxia notifications,
 and quarantines same-incarnation immutable drift. Exact lookup remains
 tenant-scoped and preparation still reads only the local cache.
 
-仍需 activation barrier publication, real-service session-timeout/reconnect
-and cache-staleness cuts, and native eligibility authority。完成门：snapshot
+Explicit-refresh publication and tenant-scoped cache replay now have a live
+Oxia smoke, but activation barrier publication, real-service
+notification-stream/session-timeout/reconnect and cache-staleness cuts, and
+native eligibility authority remain required。完成门：snapshot
 signature/digest、lifecycle、route
 expansion、credential binding、cache staleness cuts。
 同一 Route Incarnation 的 resource/partition/hash/query-retention/size drift 必须 quarantine；仅
