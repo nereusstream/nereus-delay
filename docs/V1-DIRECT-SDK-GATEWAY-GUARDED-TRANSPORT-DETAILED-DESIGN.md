@@ -2717,9 +2717,13 @@ tenant-scoped and preparation still reads only the local cache.
 Explicit-refresh publication and notification-driven tenant-scoped cache
 replay now have a live Oxia smoke. The notification stream uses a separate
 client from the session-fenced Route read/write client, and refresh work is
-dispatched off the Oxia callback thread. Session-timeout/reconnect and
-cache-staleness recovery cuts, activation barrier publication and native
-eligibility authority remain required。完成门：snapshot
+dispatched off the Oxia callback thread. Commit `a71a0667` adds explicit
+`reconnectSession()` recovery: a fenced publisher operation remains failed
+closed, while provider `refresh()` can rotate the ephemeral marker and then
+rebuild the cache. Local tests cover marker expiry and identity rotation;
+live session-timeout/connection-loss and cache-staleness recovery cuts,
+activation barrier publication and native eligibility authority remain
+required。完成门：snapshot
 signature/digest、lifecycle、route
 expansion、credential binding、cache staleness cuts。
 同一 Route Incarnation 的 resource/partition/hash/query-retention/size drift 必须 quarantine；仅

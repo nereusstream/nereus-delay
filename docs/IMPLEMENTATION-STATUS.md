@@ -740,6 +740,15 @@ local/session composition: real-service session-timeout/reconnect cuts,
 activation-barrier publication, native credential eligibility, cross-record
 Oxia transactions, production transport and Worker integration remain open.
 
+Follow-up commit `a71a0667` adds explicit `reconnectSession()` recovery. A
+fenced publisher operation still fails closed; only a caller-requested
+reconnect (or `OxiaSignedRouteSnapshotProvider.refresh()`) rotates the
+ephemeral marker and rereads the authority before continuing. The focused
+Route tests cover marker rotation, new session identity, restored reads and
+provider refresh after expiry. This closes deterministic reconnect behavior
+for the local session composition, not a live Oxia timeout/connection-loss
+cut, activation barrier, native eligibility or production Route deployment.
+
 ## 2026-08-15 K1 isolated Kafka guarded-client slice
 
 The isolated Kafka worktree now contains the first K1 client implementation at

@@ -111,6 +111,10 @@ require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaG
     "responseLossIsAcceptedOnlyAfterExactRereadForReserveAndRelease"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaRealGatewayAdmissionSmokeTest.java" \
     "admissionPoolsAndExpiryWorkAgainstRealService"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/route/OxiaRouteAuthoritySession.java" \
+    "reconnectSession"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
+    "explicitSessionReconnectRotatesMarkerAfterFenceAndRestoresReads"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactSourceRecordConsumer.java" \
     "GuardedConsumer<byte[]>"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactSourceRecordConsumer.java" \
