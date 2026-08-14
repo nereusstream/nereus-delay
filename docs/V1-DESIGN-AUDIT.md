@@ -219,6 +219,14 @@ K2 target-plus-receipt transactions, Pulsar D3 broker Docker/unload/reconnect,
 guarded source Fetch/ACK/rewind, deployed Gateway authority, production
 Worker wiring and the remaining §23.5 artifact/chaos/SLO gates remain OPEN.
 
+The clean cross-repository audit at the evidence state passed with Delay
+`be3cd790d23879d3f2b94695435388e3ce0eec4c`, Kafka
+`95d48e89e7e8a4e6d8718e44d424ffef8f17829f`, Pulsar
+`7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`; both upstream branches were
+verified descended from their locked bases and all four audited worktrees were
+clean.
+
 Commit `bcf2f0a883cd3090ae96250453dabaa71f3945c5` also closes the local Direct
 SDK outbox-Final ambiguity branch: a completion-evidence write failure keeps
 the exact prepared branch and physical attempt and returns `ENQUEUE_UNCERTAIN`.

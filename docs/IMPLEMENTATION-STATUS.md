@@ -392,6 +392,16 @@ K2 target-plus-receipt transaction, Pulsar unload/reconnect Docker cut, guarded
 source Fetch/ACK/rewind, authenticated production Gateway authority, or the
 full Worker vertical. Those gates remain release blockers.
 
+The final clean cross-repository audit at this evidence state also passed:
+
+```text
+./e2e/validate-cross-repo-contracts.sh
+Delay:  be3cd790d23879d3f2b94695435388e3ce0eec4c
+Kafka:  nereus/delay-guarded-producer-v1@95d48e89e7e8a4e6d8718e44d424ffef8f17829f from c300006a7705c240642db6950b5a95fec982bfc5
+Pulsar: nereus/delay-resource-guard-v1@7eebd41d5b0917a0dfe5ea26f3062a39f70a6d9 from 8dae0236c0a0d405ed7f8303081080520fe91551
+Oxia:   37a17bef17202d5fd6e23282da5fd26d94865484
+```
+
 ## 2026-08-14 Direct SDK outbox fail-closed slice
 
 Delay worktree commit `bcf2f0a8` adds a shared prepared-submission uncertainty
