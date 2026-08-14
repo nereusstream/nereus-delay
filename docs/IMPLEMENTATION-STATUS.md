@@ -13,8 +13,8 @@ The repository is still a single Gradle module. It now contains a local
 `DelaySemanticCore`, signed Route value/verifier plus Oxia event/head-CAS
 composition, Direct SDK facade, transport ownership/coordinator seam, an
 in-memory Gateway Schedule conformance composition, generated Java/gRPC
-Gateway API descriptors, partial generated service handling for Schedule and
-RetryUncertain from the checked-in proto, and a transport-neutral Worker
+Gateway API descriptors, partial generated service handling for Schedule,
+RetryUncertain, Cancel and Reschedule from the checked-in proto, and a transport-neutral Worker
 source-consumer/ACK-after-sync composition. These are local
 implementation evidence, not claims of activation-barrier/session-fenced real
 Oxia authority, a complete Gateway service/authentication deployment, real Broker transport, or
@@ -93,8 +93,9 @@ that the generated message package/name matches the proto contract.
 `1dc28eaf391429f2dc9221f416af968d36575dff` adds the shared ingress layer:
 tenant authority is required before domain preparation, schedule/retry/control
 admission pools are isolated, and digest-only audit events are emitted before
-and after the domain call. `GatewayGrpcService` implements Schedule and
-RetryUncertain; all other generated RPCs remain `UNIMPLEMENTED`. The local
+and after the domain call. `GatewayGrpcService` implements Schedule,
+RetryUncertain, Cancel and Reschedule; all other generated RPCs remain
+`UNIMPLEMENTED`. The local
 admission/audit implementations are deterministic conformance components, not
 distributed quota or production audit authority.
 
@@ -188,6 +189,29 @@ that boundary into an exceptional Future. `DefaultDelayClientTest` covers the
 managed branch and exact attempt preservation. This is local evidence for the
 SDK ambiguity boundary, not proof that the outbox itself is durable or that a
 Broker outcome is known.
+
+## 2026-08-14 Gateway Cancel/Reschedule control slice
+
+Delay worktree commit `9695eba7ca384d99cd28ece238f6cbfe1bcd08be` on
+`nereus/delay-full-implementation-v1` adds the local Gateway Cancel and
+Reschedule paths. Their canonical request bodies are hashed with the operation
+kind, the Semantic Core prepares the exact control Command before ownership,
+and both operations reuse the existing idempotency-record CAS, one-shot
+`PhysicalEnqueueAttemptId`, retry-until boundary and NDR1 outcome projection.
+The shared ingress authenticates the tenant once, admits the control call,
+emits digest-only received/completed or failed audit events, and the generated
+gRPC service decodes the exact self-routing `DelayMessageId` and
+`MessagePreconditionV1` bytes before invoking it.
+
+`GatewayScheduleServiceTest` covers repeated Cancel reuse and Reschedule
+preparation/attempt behavior; `GatewayGrpcServiceTest` covers precondition
+decoding and the control ingress path. The independent full local gate passed
+at this commit. The five opt-in real-Oxia smoke methods were skipped because
+no endpoint was configured. This is local generated-service/conformance
+evidence only: PrepareLarge/CommitLarge/upload/attestation/query/AwaitApplied/
+GetMessage handlers, mTLS/JWT authentication, distributed quota and durable
+audit, Gateway HA durability, real Kafka/Pulsar transports, and production
+Worker wiring remain open.
 
 ## 2026-08-14 K1 isolated Kafka guarded-client slice
 
