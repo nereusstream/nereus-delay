@@ -115,6 +115,14 @@ require_file_text "$delay_root/src/main/java/io/nereusstream/delay/route/OxiaRou
     "reconnectSession"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
     "explicitSessionReconnectRotatesMarkerAfterFenceAndRestoresReads"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/semantic/VerifiedNativePreparationSnapshotCache.java" \
+    "NativePreparationEligibilityV1"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/client/DelayClient.java" \
+    "prepareScheduleSubmissionV1"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/protocol/ActivationBarrierV1.java" \
+    "toSourceBarrier"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/RouteSourceAssignmentFactory.java" \
+    "fromRoute"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactSourceRecordConsumer.java" \
     "GuardedConsumer<byte[]>"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactSourceRecordConsumer.java" \

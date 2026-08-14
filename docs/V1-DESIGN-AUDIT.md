@@ -35,7 +35,7 @@ record until ACK-after-sync. The current branch also has an explicit
 source-locked Kafka source poll/ACK handoff smoke, source-locked K1/K2 Kafka
 and P1 Pulsar client bindings, plus three-broker K1/K2 Docker smokes. It still
 lacks a Route activation-barrier/session-reconnect-complete real Oxia
-service gate, certificate deployment/rotation and live Gateway authority,
+service gate, issuer/catalog native eligibility authority, certificate deployment/rotation and live Gateway authority,
 the full K2 receipt-read/response-loss gate, D3/source verticals, or a production Worker
 vertical. Those rows remain open release blockers even though the design status
 is Accepted.
@@ -5897,6 +5897,39 @@ canonical admission record with zero leases after expiry/release. This is
 live single-node Oxia evidence, not quota-rate/load proof, deployment/HA
 observability, cross-record Gateway transactionality or production Gateway
 wiring; those release boundaries stay OPEN.
+
+## 2026-08-15 native eligibility and Route barrier audit
+
+Commit `8e404a30` adds `VerifiedNativePreparationSnapshotCache` as a local
+cache boundary. Installation verifies canonical Profile/Snapshot bytes and
+the configured issuer signature; `NativePreparationEligibilityV1` then binds
+the candidate to the authenticated principal, signed active Route, exact
+Pulsar AUTO_FAST capability, target partition policy, clock bound, time
+window and record limits. The shared Core returns the already-prepared
+managed bytes when no candidate is eligible, and
+`prepareScheduleSubmissionV1(..., SubmissionModeV1)` prevents a Direct SDK
+caller from injecting a target or native credential candidate.
+
+Commit `57d6dfd7` adds `ActivationBarrierV1.toSourceBarrier` and
+`RouteSourceAssignmentFactory`, so the Worker source assignment can preserve
+the signed Route incarnation, physical resource, partition and Pulsar guard
+connection evidence. The full local gate at this code head was:
+
+```text
+GRADLE_USER_HOME=/tmp/nereus-delay-full-gradle \
+  ./gradlew check --no-daemon --console=plain
+```
+
+It passed with `BUILD SUCCESSFUL` in 21 actionable tasks; the five opt-in
+real-Oxia tests were skipped without an endpoint. Focused tests also passed
+for `VerifiedNativePreparationSnapshotCacheTest`, `ActivationBarrierV1Test`
+and `SourceAssignmentTest`.
+
+This is local conformance evidence only. The configured public key is not an
+issuer/catalog authority, and the projection is not activation publication.
+Live Broker probes, native credential resolution, Oxia activation/session
+authority, guarded source ownership and the production Worker vertical
+remain OPEN release gates.
 
 ## Final gate
 

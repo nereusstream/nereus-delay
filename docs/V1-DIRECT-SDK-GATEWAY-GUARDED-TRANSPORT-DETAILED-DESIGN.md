@@ -300,6 +300,18 @@ trust-key version；不含 plaintext secret。`eligibleFor` 不做网络/Oxia/Ad
   retention policy、size/preparation limits、Route prerequisite digest、Activation Barrier 和 ingress
   incarnation 永不原地变化；扩容或 semantic prerequisite 变化创建新 Route Incarnation。
 
+当前代码实现了上述 native 本地判定的可复用缓存：
+`VerifiedNativePreparationSnapshotCache` 在安装时 canonical-decode
+Destination/Capability/Profile 与 `NativeCapabilitySnapshotV1`，验证 issuer
+Ed25519 signature，然后只暴露 immutable local views。共享
+`NativePreparationEligibilityV1` 在 Semantic Core 中再次绑定 authenticated
+principal scope、Pulsar AUTO_FAST capability、Destination target/partition
+policy、`DELAY_MESSAGE_ID` hash input、broker clock bound、validity window 和
+target-record size；任何失败都返回已经冻结的 managed frame。Direct SDK 的
+`prepareScheduleSubmissionV1(..., SubmissionModeV1)` 与 Gateway 的
+`SubmissionModeV1` 请求共用这个入口。这里的 issuer/catalog/Oxia refresh 仍是
+外部 authority，cache 不是 native capability 的签发者，也不执行 Broker probe。
+
 ### 4.3 路由与 ID 构造顺序
 
 无序 Schedule 需要先生成逻辑 UUIDv7，再计算 partition，不能先随机选择 Shard：
@@ -377,6 +389,10 @@ public interface DelaySemanticCore {
 `NativePreparationSnapshotProvider`。production API 不接受 caller-supplied target/token、
 `PublicKey` 或 `AutoFastSchedule.NativeCandidate`，避免调用方自行选择“信任根”。Gateway 与
 Direct 因而调用逐字相同的方法；不满足 native 条件时返回同一个 managed frame。
+
+`NativePreparationSnapshotProvider` 保留四参数 functional seam，并提供带已冻结
+`PreparedCommand` 的 default overload；后者只用于需要 Delay Message ID 作为目标分区
+hash input 的 provider，不改变 prepare 的零 I/O 边界。
 
 ### 5.2 单一 preparation pipeline
 
@@ -2723,7 +2739,12 @@ closed, while provider `refresh()` can rotate the ephemeral marker and then
 rebuild the cache. Local tests cover marker expiry and identity rotation;
 live session-timeout/connection-loss and cache-staleness recovery cuts,
 activation barrier publication and native eligibility authority remain
-required。完成门：snapshot
+required。Follow-up commits `8e404a30` and `57d6dfd7` now close two local
+sub-boundaries: the issuer-verified native eligibility cache/Core checks, and
+the exact projection from a signed Route partition `ActivationBarrierV1` to a
+Worker `SourceAssignment`. These do not create an Oxia/catalog issuer,
+perform a live Broker capability probe, publish activation evidence, or prove
+real source ownership/reconnect. 完成门：snapshot
 signature/digest、lifecycle、route
 expansion、credential binding、cache staleness cuts。
 同一 Route Incarnation 的 resource/partition/hash/query-retention/size drift 必须 quarantine；仅
@@ -2805,6 +2826,10 @@ recovery wiring 和 Docker crash cuts 仍未完成。完成门仍以主设计 §
   provides an opt-in transaction-v2 target-plus-receipt binding, while its
   response-loss/Fetch/LSO/retention/source gates remain independently open；
 - Pulsar 使用 first-class v22 create/per-SEND guard 和 guarded receipt；
+- native AUTO_FAST 只允许 issuer-verified local snapshots，且 managed fallback
+  保持 exact bytes；这仍不是 native capability issuance or live Broker eligibility；
+- Route activation barriers now have an exact signed-snapshot-to-source-assignment
+  projection; live activation publication and source-session authority remain open；
 - 当前 V1 self-routing ID、tenant authority、Worker 状态机不改；
 - stock/name-only fallback 不可进入生产包。
 

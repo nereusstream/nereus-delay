@@ -23,7 +23,7 @@ handlers behind an explicitly injected `GatewayPayloadAuthority`, and
 query/await/message handlers behind an explicitly injected
 `GatewayQueryAuthority`. These are local
 implementation evidence, not claims of activation-barrier/session-reconnect-complete real
-Oxia authority, a complete authenticated Gateway deployment, or production Worker wiring
+Oxia authority, real issuer/catalog native eligibility authority, a complete authenticated Gateway deployment, or production Worker wiring
 or release readiness. The Delay worktree now also contains explicit opt-in bindings to
 the locked Kafka K1/K2 and Pulsar P1 client artifacts, including real three-broker
 K1/K2 smokes; these are source-bound integration evidence, not a claim that the
@@ -31,6 +31,44 @@ full K2 receipt-read/response-loss, D3, guarded-source or Worker production gate
 are closed. The isolated Kafka and
 Pulsar upstream worktrees recorded below remain separately owned implementation
 evidence; their patches are not copied into this repository.
+
+## 2026-08-15 verified native eligibility and Route barrier projection
+
+Delay commit `8e404a30` adds the zero-I/O
+`VerifiedNativePreparationSnapshotCache` and shared
+`NativePreparationEligibilityV1`. Cache installation canonical-decodes the
+Destination/Capability envelopes and `NativeCapabilitySnapshotV1`, verifies
+the issuer signature, and stores only immutable candidate views. Eligibility
+then checks the authenticated principal scope, active signed Route, exact
+Pulsar AUTO_FAST Profile relationship, target partition policy (including the
+already-frozen Delay Message ID hash input), capability freshness, broker
+clock bound, delivery window and target record limits. The cache returns no
+native candidate when any predicate is absent, so the Semantic Core returns
+the exact managed frame it already prepared. A new Direct SDK
+`prepareScheduleSubmissionV1(..., SubmissionModeV1)` entry uses this same
+pipeline; callers cannot supply a target, credential, issuer key or native
+candidate. `NativePreparationSnapshotProvider` retains its functional seam
+and adds an identity-aware overload for `DELAY_MESSAGE_ID` target hashing.
+
+Commit `57d6dfd7` adds `ActivationBarrierV1.toSourceBarrier` and
+`RouteSourceAssignmentFactory`. A Worker assignment can now be constructed
+only from the exact signed Route partition policy, preserving Route
+incarnation, physical Broker identity, partition, Pulsar batch shape and
+guarded source connection evidence. Focused ActivationBarrier,
+SourceAssignment and verified-native-cache tests passed; the independent full
+gate at `57d6dfd7` was:
+
+```text
+GRADLE_USER_HOME=/tmp/nereus-delay-full-gradle \
+  ./gradlew check --no-daemon --console=plain
+```
+
+It completed with `BUILD SUCCESSFUL` in 21 actionable tasks; the five
+opt-in real-Oxia methods were skipped because no endpoint was configured.
+This closes local eligibility and source-barrier projection only. It does not
+provide the issuer/catalog/Oxia publication authority, live Broker
+capability probes, real Route activation gate, native credential resolution,
+Pulsar/Kafka source ownership, or Worker production vertical evidence.
 
 ## 2026-08-15 Kafka source poll/ACK handoff slice
 
