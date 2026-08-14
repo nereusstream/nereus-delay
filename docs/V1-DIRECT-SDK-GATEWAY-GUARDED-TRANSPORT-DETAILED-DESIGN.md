@@ -2253,7 +2253,9 @@ identity 不同才额外分裂。
 2026-08-14 progress evidence: Delay commits `532f8ad5`,
 `402b27fa0dced95c2312bfedc0678af03463f2d5` and
 `67ef3de3ab6f69ae992c3ccb70c7cb65cad47613` and
-`c42405ce6c69aef8ae0f8a9a63158c917410309f` and `62a94389` supply the local canonical
+`c42405ce6c69aef8ae0f8a9a63158c917410309f`, `62a9438967112f96e65b8daa7b2b86d52a103b10`,
+`e276bec3ffff7f5015367bed55f5b8d63c080e21` and
+`69d89839e4e80326e5317a4f5066667e270a7136` supply the local canonical
 Route/resource value types, UUIDv7 identity seam, `ROUTING_HASH_V1`
 calculator, zero-I/O `DefaultDelaySemanticCore`, fail-closed signed-cache
 watch, exact historical-route plan
@@ -2262,8 +2264,9 @@ guarded transport bridges, the in-memory Gateway Schedule/idempotency
 composition and the Oxia event/head-CAS Route publisher/provider. Focused
 deterministic tests and a full local `check` pass at
 `ec12efbf2bf82fc15c5038af5db84e3e634674bd`; Route
-authority focused checks pass at `62a94389`. This is not completion of
-D1/D4/D5: activation-barrier/session-fenced real Oxia authority, native eligibility authority, generated Gateway service,
+authority focused checks pass at `62a94389`, and Gateway CAS focused checks at
+`e276bec3`. This is not completion of D1/D4/D5: activation-barrier/session-fenced
+real Oxia authority, native eligibility authority, generated Gateway service,
 durable/HA idempotency, package/module split, production Kafka/Pulsar client
 artifacts, Worker wiring and real-service cuts remain open.
 
@@ -2372,9 +2375,12 @@ lifecycle/control-version/validity 与有等价证明的 credential generation �
 本地 conformance slice 已提供 `GatewayScheduleRequestV1`、canonical body/key
 hash、prepared-before-ownership、in-memory single-record CAS、one-shot Gateway
 permit、outcome replay、body conflict、`RetryUncertain` expected-prior/retry-ID
-CAS 和 source `delay_gateway.proto`。仍需
-实现 generated gRPC modules、mTLS/JWT tenant authority、quota/control reserve、
-safe audit、Oxia HA CAS、RetryUncertain late-evidence/aggregate、crash cuts 和
+CAS、`GatewayIdempotencyStore`、strict record decoders、Oxia single-record
+version-CAS 和 source `delay_gateway.proto`。Response loss is fail-closed:
+the durable store may replay an exact aggregate but does not reconstruct a
+physical ownership permit。仍需实现 generated gRPC modules、mTLS/JWT tenant
+authority、quota/control reserve、safe audit、Gateway HA/transactional
+durability、RetryUncertain late-evidence/aggregate、crash cuts 和
 多语言最小 SDK。
 
 完成门：双入口 byte equivalence、HA crash cuts、non-enumerating auth、control reserve、load test。

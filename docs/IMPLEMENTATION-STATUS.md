@@ -57,7 +57,9 @@ remain open.
 Delay worktree commits `402b27fa0dced95c2312bfedc0678af03463f2d5`,
 `67ef3de3ab6f69ae992c3ccb70c7cb65cad47613`,
 `c42405ce6c69aef8ae0f8a9a63158c917410309f` and
-`62a94389` on
+`62a9438967112f96e65b8daa7b2b86d52a103b10`,
+`e276bec3ffff7f5015367bed55f5b8d63c080e21` and
+`69d89839e4e80326e5317a4f5066667e270a7136` on
 `nereus/delay-full-implementation-v1` adds the first shared post-preparation
 composition. `DefaultSubmissionCoordinator` resolves an exact historical
 Route-bound plan, performs one exact projector/transport lookup, transfers a
@@ -78,6 +80,13 @@ outcome, explicit uncertain retry CAS and the source-only gRPC proto are covered
 `GatewayScheduleServiceTest`; one-shot transfer and pre-ownership rejection
 are covered by `GuardedTransportOwnershipTest`.
 
+The Gateway follow-up adds the shared `GatewayIdempotencyStore`, strict
+`GatewayPhysicalAttemptV1`/`GatewayIdempotencyRecordV1` decoders and
+`OxiaGatewayIdempotencyStore`. Each Oxia transition uses one version-CAS
+record; response-loss rereads may return the exact current aggregate but never
+recreate an ownership permit. `OxiaGatewayIdempotencyStoreTest` covers reopen,
+canonical record round-trip and a CAS-success/response-loss retry.
+
 The follow-up `InMemorySignedRouteSnapshotProvider` and
 `OxiaSignedRouteSnapshotProvider` supply local signed-snapshot authority/cache
 conformance. `OxiaSignedRouteSnapshotPublisher` writes immutable canonical
@@ -96,15 +105,18 @@ GRADLE_USER_HOME=/tmp/nereus-delay-full-gradle \
 ```
 
 The command passed, including `checkDocumentation`, the full local test task
-and main Checkstyle at branch SHA
-`ec12efbf2bf82fc15c5038af5db84e3e634674bd`; the Route slice's
-focused provider/publisher tests and Checkstyle pass at `62a94389`. The five
+and main Checkstyle at the pre-Gateway-CAS branch SHA
+`ec12efbf2bf82fc15c5038af5db84e3e634674bd`; the Gateway-CAS focused tests and
+Checkstyle pass at `e276bec3`, and the operation registry compiles at
+`69d89839`. The Route slice's focused provider/publisher tests and Checkstyle
+pass at `62a94389`. The five
 real-Oxia methods remained skipped because no endpoint was configured. The
 Delay worktree has no Docker compose or Broker
 lifecycle harness; the Kafka/Pulsar compose files belong to their upstream test
 suites and contain no Nereus guarded integration. This slice does not claim
 generated gRPC descriptors,
-Oxia/HA idempotency durability, late authenticated evidence/aggregate promotion,
+Gateway HA/transactional durability beyond the single-record CAS composition,
+late authenticated evidence/aggregate promotion,
 activation-barrier or session-fenced real Oxia Route authority, Kafka/Pulsar client artifact integration, Worker ACK-after-sync
 evidence, Docker lifecycle cuts or any real-Broker PASS.
 
@@ -4491,7 +4503,7 @@ covers this ordering.
 | Area | Status | Evidence |
 |---|---|---|
 | Shared Semantic Core and signed immutable RouteSnapshot | Partial (local deterministic core plus Oxia event/head-CAS authority composition; production gates open) | `RouteSnapshotV1`, `DefaultDelaySemanticCore`, `InMemorySignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotPublisher`, `RouteSnapshotCompatibilityV1`, `DefaultDelayClient`, `RouteBoundSubmissionTransportPlanResolver`, `RouteSnapshotV1Test`, `DefaultDelaySemanticCoreTest`, `InMemorySignedRouteSnapshotProviderTest`, `OxiaSignedRouteSnapshotProviderTest`; canonical signature/digest, contiguous replay, head CAS, notification refresh, same-incarnation immutable-drift quarantine, tenant-scoped historical resolution and zero-I/O preparation are covered. Activation-barrier publication, session fencing, real Oxia service evidence, native eligibility authority, package split and production cross-entry gate remain open |
-| Delay Gateway and Gateway idempotency | Partial (local Schedule/RetryUncertain conformance only) | `GatewayScheduleRequestV1`, `GatewayRetryUncertainRequestV1`, `GatewayIdempotencyHashV1`, `GatewayIdempotencyRecordV1`, `InMemoryGatewayIdempotencyStore`, `GatewayScheduleService`, source proto and `GatewayScheduleServiceTest`; exact body conflict, prepared-before-ownership, one-shot attempt, uncertain expected-prior/retry-ID CAS and outcome replay are local evidence. Generated gRPC/API modules, authentication, quota/audit, Oxia/HA CAS, late authenticated evidence promotion, crash cuts and multi-language vectors remain open |
+| Delay Gateway and Gateway idempotency | Partial (local Schedule/RetryUncertain plus Oxia single-record CAS composition) | `GatewayScheduleRequestV1`, `GatewayRetryUncertainRequestV1`, `GatewayIdempotencyStore`, `GatewayIdempotencyHashV1`, `GatewayIdempotencyRecordV1`, `GatewayPhysicalAttemptV1`, `InMemoryGatewayIdempotencyStore`, `OxiaGatewayIdempotencyStore`, `GatewayScheduleService`, source proto, `GatewayScheduleServiceTest` and `OxiaGatewayIdempotencyStoreTest`; exact body conflict, prepared-before-ownership, one-shot attempt, strict record decoding, uncertain expected-prior/retry-ID CAS, response-loss no-permit behavior and outcome replay are local evidence. Generated gRPC/API modules, mTLS/JWT authentication, quota/audit, HA/transactional durability, late authenticated evidence promotion, crash cuts and multi-language vectors remain open |
 | Kafka generic guarded Producer patch | Implemented in isolated upstream worktree (real-service gate open) | Kafka branch `nereus/delay-guarded-producer-v1@d1810fa3466e1378a33c5c6327c7f401cec03d07` from locked `trunk@c300006a7705c240642db6950b5a95fec982bfc5`; focused client/mock and regression evidence pass. Delete/recreate, leader-failover, artifact/source digest and Delay D2 transport remain open; K2 target-plus-receipt transaction is separate |
 | Pulsar v22 first-class resource guard | Implemented in isolated upstream worktree (real-service gate open) | Pulsar branch `nereus/delay-resource-guard-v1@be226fe6c88634e9a94ba5c6a0f5859bc510cb66` from locked `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`; focused common/broker and checkstyle evidence pass. Delete/recreate, unload/failover, proxy compatibility, artifact/source digest and Delay D3 transport remain open |
 | Queued receipt Route-policy boundary | Implemented (local strict adapter seam; Route authority pending) | `QueuedReceiptQueryPolicy`, `PolicyBoundWireCommandIngressAdapter`, `PinnedKafkaCommandIngress`, `PinnedPulsarCommandIngress`, `PreparedSubmissionAdapter`, `EmbeddedDelayService`, `AdapterIngressTest`, `NativeSubmissionAdapterTest`; strict paths derive `receipt_query_until` from authenticated Broker persistence time with checked addition, reject missing/drifting policy snapshots before transport ownership, and retain post-persistence overflow as `ENQUEUE_UNCERTAIN`/integrity evidence; absolute-boundary overloads are compatibility-only and checked against a bound policy; Route policy publication, source-time authority and concrete production transports remain release blockers |
