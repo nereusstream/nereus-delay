@@ -84,6 +84,7 @@ public final class PulsarClientArtifactSourceSmoke {
                     new PulsarClientArtifactSourceRecordConsumer(replayNative, guard, shard, physicalTopic,
                             java.time.Duration.ofMillis(250));
             PulsarSourcePosition secondPosition = null;
+            long secondGeneration = 0;
             boolean replayClosed = false;
             try {
                 final SourceRecordConsumer.PolledSourceRecord replayed = pollUntil(replaySource, firstCommand, true);
@@ -93,6 +94,7 @@ public final class PulsarClientArtifactSourceSmoke {
                         || firstGeneration == requireProof(replayEntry)) {
                     throw new IllegalStateException("Pulsar source replay did not retain exact position/proof boundary");
                 }
+                secondGeneration = replayEntry.sourceConnectionGeneration();
                 requireAcked(replayed.acknowledgement().acknowledge(replayed.entry(), null), "first source record");
 
                 final SourceRecordConsumer.PolledSourceRecord second = pollUntil(replaySource, secondCommand, true);
@@ -128,7 +130,8 @@ public final class PulsarClientArtifactSourceSmoke {
             System.out.println("Pulsar source ACK smoke passed: physicalTopic=" + physicalTopic
                     + ", firstLedger=" + firstPosition.ledgerId() + ", firstEntry=" + firstPosition.entryId()
                     + ", secondLedger=" + secondPosition.ledgerId() + ", secondEntry=" + secondPosition.entryId()
-                    + ", firstConnectionGeneration=" + firstGeneration);
+                    + ", firstConnectionGeneration=" + firstGeneration
+                    + ", secondConnectionGeneration=" + secondGeneration);
         } finally {
             deleteTopicIfPresent(admin, adminUrl, topic);
         }
