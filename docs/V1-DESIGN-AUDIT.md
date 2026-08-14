@@ -97,22 +97,25 @@ OPEN.
 The separately owned Pulsar P1 worktree has since produced
 `19c97bf836d521f0e6103c542819723e70ccdbab`,
 `be226fe6c88634e9a94ba5c6a0f5859bc510cb66` and
-`7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9` on
+`7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9`, followed by
+`f813c96687cc19e6fca1c82d3d161cf3e045c86b` on
 `nereus/delay-resource-guard-v1`, based on the locked
 `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`. The commits add the
 v22 guard wire contract, immutable guard/evidence API, strict broker property
-view, create/per-SEND checks, receipt echo and client generation/identity
-correlation. The latest commit snapshots the guard before asynchronous broker
-topic work and makes create-time incarnation mismatch typed and non-retriable.
+view, create/per-SEND checks, guarded SUBSCRIBE, source attestation and
+connection-generation correlation. The writer path snapshots the guard before
+asynchronous broker topic work and makes create-time incarnation mismatch
+typed and non-retriable; the source path validates the current broker view
+before allocating a generation.
 The current real in-process broker test passes guarded SEND evidence and
 same-name delete/recreate (old incarnation rejected before persistence,
 replacement accepted); the affected-module checkstyle also passes with
 `GRADLE_USER_HOME=/tmp/nereus-pulsar-delay-gradle`.
-This is isolated upstream module evidence only: unload, multi-broker failover,
-old-peer proxy cuts, complete artifact attestation and D3 Nereus transport
+This is isolated upstream module evidence plus a Delay-side single-node
+real-client Docker cut: unload, multi-broker failover, old-peer proxy cuts,
+source session/rewind, complete artifact attestation and D3 Nereus transport
 evidence remain OPEN, so this audit does not promote P1 or V1 production
-status. A separate Delay-side single-node real-client Docker cut is recorded
-below; it does not change those open boundaries.
+status.
 
 The post-permit live-service audit on 2026-08-12 ran from document commit
 `b45045b` with a temporary standalone Oxia service built from source commit
@@ -269,10 +272,10 @@ and independent target/receipt failover remain open,
 so the atomic-target-receipt profile is not activated. D2 source/ACK, D3,
 Worker production wiring and release gates remain OPEN.
 
-The clean cross-repository audit at the evidence state passed with Delay
-`be3cd790d23879d3f2b94695435388e3ce0eec4c`, Kafka
-`95d48e89e7e8a4e6d8718e44d424ffef8f17829f`, Pulsar
-`7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9` and Oxia
+The clean cross-repository audit at the current evidence state passed with
+Delay `d93143f1b4eb2546ed326b2c3a5ef683352ec1fe`, Kafka
+`8bd66fbb26eae1b0e4c5867e61f41900c3f5e318`, Pulsar
+`f813c96687cc19e6fca1c82d3d161cf3e045c86b` and Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`; both upstream branches were
 verified descended from their locked bases and all four audited worktrees were
 clean.
@@ -4582,7 +4585,7 @@ the guarded Broker rollout attestation remains external evidence.
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
 | Pulsar first-class-guard implementation base inspected for ADR 0044 | `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551` |
 | Kafka isolated K1/K2 implementation | `nereus/delay-guarded-producer-v1@8bd66fbb26eae1b0e4c5867e61f41900c3f5e318` |
-| Pulsar isolated P1 implementation | `nereus/delay-resource-guard-v1@7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9` |
+| Pulsar isolated P1 implementation | `nereus/delay-resource-guard-v1@f813c96687cc19e6fca1c82d3d161cf3e045c86b` |
 
 主设计 R12–R37 的 Kafka/Pulsar correctness-critical 链接全部使用上述 immutable commit。发布包还必须记录实际 patch/binary digest、Broker rollout attestation 和 delete/recreate cuts；仅有文档 source lock 不等于实现已通过。
 
