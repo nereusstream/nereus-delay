@@ -111,4 +111,4 @@ GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaSmoke \
   -PsmokeMode=preserve \
   --no-daemon --console=plain
 
-echo "Kafka K1/K2 real-client E2E passed: K1 identity/failover and K2 atomic target+receipt commit, abort, and delete/recreate fence."
+echo "Kafka source/K1/K2 real-client E2E passed: source ACK/restart handoff, K1 identity/failover, and K2 atomic target+receipt commit, abort, and delete/recreate fence."

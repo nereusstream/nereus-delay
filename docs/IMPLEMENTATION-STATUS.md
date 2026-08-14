@@ -16,7 +16,8 @@ in-memory Gateway Schedule conformance composition, an Oxia-backed
 digest-only Gateway audit sink, generated Java/gRPC
 Gateway API descriptors, generated service handling for all eleven RPCs when
 the explicit payload/query compositions are configured, and a transport-neutral Worker
-source-consumer/ACK-after-sync composition, plus receipt-bound payload upload
+source-consumer/ACK-after-sync composition, plus a source-locked Kafka
+poll/ACK handoff smoke and receipt-bound payload upload
 handlers behind an explicitly injected `GatewayPayloadAuthority`, and
 query/await/message handlers behind an explicitly injected
 `GatewayQueryAuthority`. These are local
@@ -25,10 +26,56 @@ Oxia authority, a complete authenticated Gateway deployment, or production Worke
 or release readiness. The Delay worktree now also contains explicit opt-in bindings to
 the locked Kafka K1/K2 and Pulsar P1 client artifacts, including real three-broker
 K1/K2 smokes; these are source-bound integration evidence, not a claim that the
-full K2 receipt-read/response-loss, D3, source-consumer or Worker production gates
+full K2 receipt-read/response-loss, D3, guarded-source or Worker production gates
 are closed. The isolated Kafka and
 Pulsar upstream worktrees recorded below remain separately owned implementation
 evidence; their patches are not copied into this repository.
+
+## 2026-08-15 Kafka source poll/ACK handoff slice
+
+Delay worktree commit `412441c47cce4e61d3cc015b95c7d3cffcab2f7f` adds the
+opt-in `KafkaClientArtifactSourceRecordConsumer` binding and
+`runRealKafkaSourceSmoke`. It assigns one exact Kafka partition, decodes the
+NDL1/V1 frame through `CommandCodec`, and constructs a `KafkaSourcePosition`
+from the authenticated cluster ID, native Topic UUID, broker offset, leader
+epoch and broker `LogAppendTime`. The source writer in the smoke uses the
+locked K1 `GuardedProducer`; the source reader is deliberately a stock Kafka
+Consumer because this slice proves the Delay source handoff and ACK boundary,
+not a new guarded Fetch protocol.
+
+The source callback advances the group cursor only after `commitSync` returns.
+The real smoke closes the first consumer before ACK, reopens the same group and
+requires the exact command and complete source position to replay, then checks
+the committed offsets after ACKing both records and requires a fresh consumer
+restart to observe no record. The first and second source offsets in the final
+run were `0` and `1`; the source Topic UUID was
+`MvniR2bXSkuGdh3KGq02lQ`.
+
+The final independent command, which also reran the K1/K2 and broker-1 failover
+cuts, was:
+
+```text
+LC_ALL=C LANG=C ./e2e/run-kafka-real-client-e2e.sh
+```
+
+It used Kafka source `8bd66fbb26eae1b0e4c5867e61f41900c3f5e318`, Compose
+project `nereus-delay-kafka-e2e-1786741055-82662`, broker ports
+`19254,19255,19256`, broker image
+`sha256:3116a80efc9d4a9399ca225c1de4288abde253659fd6fad2292af7727a2e9505`,
+and client-jar SHA-256
+`4b6362d10146568c7ef78629ad678e50f164a750fdbb362ba0899dc49b815656`.
+The source smoke, K2 smoke and survivor-broker K1 smoke all reported
+`BUILD SUCCESSFUL`; the exit check found no matching Docker container,
+network, volume or temporary image. The post-slice local
+`GRADLE_USER_HOME=/tmp/nereus-delay-full-gradle ./gradlew check --no-daemon --console=plain`
+also passed in 21 actionable tasks, with the five opt-in real-Oxia methods
+skipped because no endpoint was configured.
+
+This is source-position/ACK handoff evidence only. It does not prove guarded
+Kafka Fetch, source assignment or session ownership, ACK failure injection,
+RocksDB/Worker apply integration, dynamic IO admission, due/Lane/publish/
+checkpoint/recovery wiring, or the D6 production vertical; those gates remain
+open.
 
 ## 2026-08-15 Kafka K2 target-plus-receipt transaction slice
 

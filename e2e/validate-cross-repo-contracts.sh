@@ -86,6 +86,8 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "nereus/delay-guarded-producer-v1@8bd66fbb26eae1b0e4c5867e61f41900c3f5e318"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "412441c47cce4e61d3cc015b95c7d3cffcab2f7f"
 
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/protocol/KafkaBrokerResourceIdentityV1.java" \
     "nativeTopicUuid"
@@ -95,6 +97,10 @@ require_file_text "$delay_root/src/main/java/io/nereusstream/delay/transport/Pro
     "acks != -1 || !idempotenceEnabled || !autoTopicCreationDisabled"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/transport/ProductionPulsarSendTransport.java" \
     "!batchingDisabled || !chunkingDisabled || !autoTopicCreationDisabled"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactSourceRecordConsumer.java" \
+    "KafkaClientArtifactSourceRecordConsumer"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactSourceRecordConsumer.java" \
+    "consumer.commitSync"
 
 require_file_text "$kafka_checkout/clients/src/main/java/org/apache/kafka/clients/producer/GuardedProducer.java" \
     "sendGuarded"

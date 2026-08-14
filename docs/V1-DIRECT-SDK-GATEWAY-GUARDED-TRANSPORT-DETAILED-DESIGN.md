@@ -2196,6 +2196,25 @@ identity binding，并在 Store apply 已可见后才被调用。它是 Worker �
 本地 crash-boundary 的证据，不是 Kafka/Pulsar client artifact、Fetch/ACK
 或 commit/rewind 的实测证据。
 
+2026-08-15 implementation evidence: Delay commit
+`412441c47cce4e61d3cc015b95c7d3cffcab2f7f` adds the opt-in
+`KafkaClientArtifactSourceRecordConsumer`. It binds one Kafka partition to the
+Worker-facing SPI, decodes NDL1/V1 bytes, and carries the exact authenticated
+cluster/Topic UUID/offset/leader-epoch/LogAppendTime into `KafkaSourcePosition`.
+Its acknowledgement callback calls Kafka `commitSync` and returns `ACKED` only
+after that call returns; any runtime failure returns `UNKNOWN`. The accompanying
+source smoke proves same-group replay of an unacknowledged record and no replay
+after two committed offsets. The source reader intentionally uses Kafka's stock
+Consumer API: no guarded Fetch or source-session authority is claimed here.
+
+The final three-broker harness run also passed K1/K2 and survivor-broker K1
+checks with Kafka source `8bd66fbb26eae1b0e4c5867e61f41900c3f5e318`, client
+SHA-256 `4b6362d10146568c7ef78629ad678e50f164a750fdbb362ba0899dc49b815656`,
+broker image `sha256:3116a80efc9d4a9399ca225c1de4288abde253659fd6fad2292af7727a2e9505`,
+and clean project `nereus-delay-kafka-e2e-1786741055-82662`.
+RocksDB/Worker apply, Oxia placement/session, dynamic IO admission, due/
+publish/checkpoint/recovery and full D6 crash cuts remain open.
+
 Writer E2E 不能被误报为完整 Worker production E2E。
 
 2026-08-15 implementation evidence: commit
@@ -2658,11 +2677,13 @@ durability、RetryUncertain late-evidence/aggregate、crash cuts 和
 
 真实 Kafka/Pulsar source、ownership、RocksDB apply/ACK、due/Lane/publish/checkpoint/recovery。
 
-`1bee5b45` 只完成 transport-neutral source-consumer handoff 的本地组合；
-真实 Kafka/Pulsar source、Broker ACK/rewind、ownership/session、dynamic
-WriteBatch/IO admission、due/Lane/publish/checkpoint/recovery 和 Docker
-crash cuts 仍未完成。完成门仍以主设计 §23.5 为准；不能从 D1–D5 或这
-个 local slice 推导 V1 release-ready。
+`1bee5b45` 和 `decb965e` 完成 transport-neutral source-consumer/Worker
+生命周期组合；`412441c4` 再完成了锁定 Kafka client 上的 source frame/
+position/`commitSync`/restart-replay handoff 子集。真实 Kafka/Pulsar source
+assignment/guarded Fetch、Broker ACK/rewind failure cuts、ownership/session、
+RocksDB apply/dynamic WriteBatch/IO admission、due/Lane/publish/checkpoint/
+recovery wiring 和 Docker crash cuts 仍未完成。完成门仍以主设计 §23.5
+为准；不能从这些子集推导 V1 release-ready。
 
 ## 16. 当前结论与仍需实测的数值
 
