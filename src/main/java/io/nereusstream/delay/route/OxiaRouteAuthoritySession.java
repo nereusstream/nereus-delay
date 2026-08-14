@@ -35,6 +35,7 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final OxiaRouteRecordClient delegate;
+    private final OxiaRouteRecordClient notificationDelegate;
     private final String sessionKey;
     private final byte[] challenge;
     private Version sessionVersion;
@@ -49,7 +50,14 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
 
     /** Package-private deterministic constructor for Route authority tests. */
     OxiaRouteAuthoritySession(final OxiaRouteRecordClient delegate, final String keyPrefix) {
+        this(delegate, delegate, keyPrefix);
+    }
+
+    private OxiaRouteAuthoritySession(final OxiaRouteRecordClient delegate,
+                                      final OxiaRouteRecordClient notificationDelegate,
+                                      final String keyPrefix) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
+        this.notificationDelegate = Objects.requireNonNull(notificationDelegate, "notificationDelegate");
         final String prefix = canonicalKeyPrefix(keyPrefix);
         challenge = new byte[32];
         RANDOM.nextBytes(challenge);
@@ -67,12 +75,30 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
         if (sessionTimeout.isZero() || sessionTimeout.isNegative()) {
             throw new IllegalArgumentException("sessionTimeout must be positive");
         }
-        final SyncOxiaClient client = OxiaClientBuilder.create(serviceAddress)
-                .namespace(canonicalText(namespace, "namespace"))
-                .clientIdentifier(canonicalText(clientIdentifier, "clientIdentifier"))
+        final String canonicalNamespace = canonicalText(namespace, "namespace");
+        final String canonicalClientIdentifier = canonicalText(clientIdentifier, "clientIdentifier");
+        final SyncOxiaClient sessionClient = OxiaClientBuilder.create(serviceAddress)
+                .namespace(canonicalNamespace)
+                .clientIdentifier(canonicalClientIdentifier)
                 .sessionTimeout(sessionTimeout)
                 .syncClient();
-        return new OxiaRouteAuthoritySession(client, keyPrefix);
+        try {
+            final SyncOxiaClient notificationClient = OxiaClientBuilder.create(serviceAddress)
+                    .namespace(canonicalNamespace)
+                    .clientIdentifier(canonicalText(canonicalClientIdentifier + "-route-watch",
+                            "notificationClientIdentifier"))
+                    .sessionTimeout(sessionTimeout)
+                    .syncClient();
+            return new OxiaRouteAuthoritySession(new SyncRecordClient(sessionClient),
+                    new SyncRecordClient(notificationClient), keyPrefix);
+        } catch (RuntimeException failure) {
+            try {
+                sessionClient.close();
+            } catch (Exception closeFailure) {
+                failure.addSuppressed(closeFailure);
+            }
+            throw failure;
+        }
     }
 
     @Override
@@ -127,7 +153,7 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
     @Override
     public synchronized void notifications(final Consumer<Notification> consumer) {
         requireSession();
-        delegate.notifications(consumer);
+        notificationDelegate.notifications(consumer);
     }
 
     @Override
@@ -147,6 +173,9 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
         sessionVersion = null;
         sessionIdentity = null;
         delegate.close();
+        if (notificationDelegate != delegate) {
+            notificationDelegate.close();
+        }
     }
 
     private void requireSession() {

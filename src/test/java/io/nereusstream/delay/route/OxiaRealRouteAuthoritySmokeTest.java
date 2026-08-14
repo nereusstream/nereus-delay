@@ -17,6 +17,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Opt-in real Oxia coverage for signed Route event/head publication and refresh. */
 @Tag("real-service")
@@ -61,6 +62,58 @@ class OxiaRealRouteAuthoritySmokeTest {
                     () -> provider.activeForNewSchedule(route.tenant(), route.hint()));
             provider.close();
         }
+    }
+
+    @Test
+    void signedRouteNotificationsRefreshAStartedProviderAgainstRealService() throws Exception {
+        final String endpoint = endpoint();
+        final String namespace = configured("NEREUS_DELAY_OXIA_NAMESPACE", "default");
+        final String prefix = "nereus-delay-real-route-notification/" + UUID.randomUUID();
+        final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final RouteSelectionHintWithTenant route = route();
+
+        try (OxiaRouteAuthoritySession publisherSession = OxiaRouteAuthoritySession.connect(
+                     endpoint, namespace, "nereus-delay-route-notification-publisher-" + UUID.randomUUID(),
+                     Duration.ofSeconds(15), prefix);
+             OxiaRouteAuthoritySession providerSession = OxiaRouteAuthoritySession.connect(
+                     endpoint, namespace, "nereus-delay-route-notification-provider-" + UUID.randomUUID(),
+                     Duration.ofSeconds(15), prefix)) {
+            final OxiaSignedRouteSnapshotPublisher publisher = new OxiaSignedRouteSnapshotPublisher(
+                    publisherSession, prefix, keys.getPublic());
+            final OxiaSignedRouteSnapshotProvider provider = new OxiaSignedRouteSnapshotProvider(
+                    providerSession, prefix, keys.getPublic(), () -> 200);
+            try {
+                provider.start().toCompletableFuture().join();
+                final RouteIncarnation incarnation = new RouteIncarnation(bytes(16, 30));
+                final RouteSnapshotV1 active = OxiaSignedRouteSnapshotProviderTest.snapshot(
+                        keys, incarnation, RouteLifecycleV1.ACTIVE_FOR_NEW, 1);
+                publisher.publish(route.hint(), active, 0);
+
+                awaitRevision(provider, 1);
+                assertEquals(RouteCacheHealth.HEALTHY, provider.health());
+                assertArrayEquals(active.canonicalBytes(),
+                        provider.activeForNewSchedule(route.tenant(), route.hint()).canonicalBytes());
+
+                final RouteSnapshotV1 retired = OxiaSignedRouteSnapshotProviderTest.snapshot(
+                        keys, incarnation, RouteLifecycleV1.RETIRED, 2);
+                publisher.publish(route.hint(), retired, 1);
+                awaitRevision(provider, 2);
+                assertEquals(RouteLifecycleV1.RETIRED,
+                        provider.exact(incarnation, route.tenant()).lifecycle());
+                assertTrue(provider.health() == RouteCacheHealth.HEALTHY);
+            } finally {
+                provider.close();
+            }
+        }
+    }
+
+    private static void awaitRevision(final OxiaSignedRouteSnapshotProvider provider, final long revision)
+            throws InterruptedException {
+        final long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+        while (provider.publishedRevision() < revision && System.nanoTime() < deadline) {
+            Thread.sleep(25);
+        }
+        assertEquals(revision, provider.publishedRevision());
     }
 
     private static String endpoint() {
