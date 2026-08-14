@@ -63,6 +63,7 @@ GRADLE_USER_HOME="$delay_gradle_user_home" \
         --tests io.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
         --tests io.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest \
         --tests io.nereusstream.delay.gateway.OxiaRealGatewayAuditSinkSmokeTest \
+        --tests io.nereusstream.delay.gateway.OxiaRealGatewayAdmissionSmokeTest \
         --no-daemon --console=plain
 
 echo "Dockerized Oxia real-service smoke passed for $oxia_sha"

@@ -149,7 +149,7 @@ public final class OxiaGatewayAdmissionController implements GatewayAdmissionCon
             return null;
         }
         if (!key.equals(result.key()) || result.value() == null || result.version() == null
-                || result.version().versionId() <= 0 || result.value().length > MAX_RECORD_BYTES) {
+                || result.value().length > MAX_RECORD_BYTES) {
             throw new IllegalStateException("Oxia Gateway admission response is not exact");
         }
         final GatewayAdmissionRecordV1 record;
@@ -171,8 +171,7 @@ public final class OxiaGatewayAdmissionController implements GatewayAdmissionCon
         }
         try {
             final PutResult result = client.put(key, value, options);
-            if (result == null || !key.equals(result.key()) || result.version() == null
-                    || result.version().versionId() <= 0) {
+            if (result == null || !key.equals(result.key()) || result.version() == null) {
                 throw new IllegalStateException("Oxia Gateway admission put returned no exact version");
             }
         } catch (KeyAlreadyExistsException | UnexpectedVersionIdException race) {
