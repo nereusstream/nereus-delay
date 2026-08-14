@@ -258,6 +258,31 @@ The exit cleanup left no matching container or network. This is Dockerized
 Oxia authority/audit evidence only, not a complete Kafka/Pulsar broker,
 source-consumer, Worker scheduling, HA or release E2E.
 
+## 2026-08-15 cross-repository contract audit slice
+
+Delay worktree commit `4a4cb9424ec731a59bb117028ae631557c907e2f` adds the
+read-only `e2e/validate-cross-repo-contracts.sh` audit. It verifies clean
+isolated worktrees, Kafka/Pulsar branch ancestry from the documented source
+locks, exact Kafka/Pulsar/Oxia HEADs, the Delay source-lock references, and
+the shared resource-identity/guard/result symbols across the Delay, Kafka and
+Pulsar checkouts. The shared roots are intentionally outside this check so
+their pre-existing user edits remain untouched.
+
+The audit passed with:
+
+```text
+./e2e/validate-cross-repo-contracts.sh
+```
+
+It verified Kafka
+`nereus/delay-guarded-producer-v1@95d48e89e7e8a4e6d8718e44d424ffef8f17829f`
+from `trunk@c300006a7705c240642db6950b5a95fec982bfc5`, Pulsar
+`nereus/delay-resource-guard-v1@7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9`
+from `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`, and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. This is a static source-lock and
+contract-consistency gate; it does not promote the still-open real Kafka/
+Pulsar transport, Route activation/session, Worker vertical or release gates.
+
 ## 2026-08-14 Direct SDK outbox fail-closed slice
 
 Delay worktree commit `bcf2f0a8` adds a shared prepared-submission uncertainty

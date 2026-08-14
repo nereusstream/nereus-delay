@@ -150,6 +150,17 @@ authority/audit evidence; it does not promote Route activation/session
 reconnect, real Kafka/Pulsar transport, Worker vertical integration, HA or
 release status.
 
+Commit `4a4cb9424ec731a59bb117028ae631557c907e2f` adds the read-only
+`e2e/validate-cross-repo-contracts.sh` audit. It passed on 2026-08-15 and
+verified clean isolated worktrees, the Kafka/Pulsar source-lock ancestry and
+exact implementation heads, Oxia source `37a17bef17202d5fd6e23282da5fd26d94865484`,
+and the corresponding Delay identity, Kafka `sendGuarded`/TopicId and Pulsar
+v22 resource-guard/result symbols. The shared roots retain their unrelated
+pre-existing edits and are intentionally outside this clean-worktree check.
+This is static contract/source-lock evidence only; it does not promote the
+open real Broker, Route activation/session, Worker vertical, HA or release
+gates.
+
 Commit `bcf2f0a883cd3090ae96250453dabaa71f3945c5` also closes the local Direct
 SDK outbox-Final ambiguity branch: a completion-evidence write failure keeps
 the exact prepared branch and physical attempt and returns `ENQUEUE_UNCERTAIN`.

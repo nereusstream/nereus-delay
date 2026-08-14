@@ -2179,6 +2179,17 @@ is Dockerized Oxia authority/audit evidence only and remains separate from
 Route activation/session reconnect, real Broker transport, Worker vertical,
 HA and release gates.
 
+2026-08-15 implementation evidence: commit
+`4a4cb9424ec731a59bb117028ae631557c907e2f` adds
+`e2e/validate-cross-repo-contracts.sh`. The read-only audit passed after
+checking clean isolated worktrees, locked Kafka/Pulsar ancestry and exact
+heads, Oxia source `37a17bef17202d5fd6e23282da5fd26d94865484`, and the
+cross-repository resource-identity, TopicId, v22 guard and result-evidence
+symbols. The shared roots remain intentionally out of scope because they have
+pre-existing user edits. This is source-lock/contract evidence only and does
+not close the real Broker, Route activation/session, Worker vertical, HA or
+release gates.
+
 ## 12. Worker 对接边界
 
 Gateway/Direct SDK 产生的都是同一 NDL1 bytes，因此 Worker 不增加“gateway command”分支。apply 仍是：
