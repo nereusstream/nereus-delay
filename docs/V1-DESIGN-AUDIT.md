@@ -5878,11 +5878,16 @@ tampering, pool isolation, hard byte quota, expiry, tenant separation and
 reserve/release response-loss recovery.
 
 The full local `check` passed at `de1da743` in 21 actionable tasks, while the
-five opt-in real-Oxia methods were skipped without an endpoint. This is a
-durable CAS implementation gate, not live Oxia admission Docker evidence,
-quota-rate/load proof, deployment/HA observability, cross-record Gateway
-transactionality or production Gateway wiring; those release boundaries stay
-OPEN.
+five opt-in real-Oxia methods were skipped without an endpoint. Follow-up
+commit `b6154072` adds `OxiaRealGatewayAdmissionSmokeTest` to the Docker
+harness. The 2026-08-15 run used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, Compose project
+`nereus-delay-v1-oxia-e2e-1786746636-41339` on host port `16651`, and the
+selected real-service tests reported `BUILD SUCCESSFUL`; it reread one exact
+canonical admission record with zero leases after expiry/release. This is
+live single-node Oxia evidence, not quota-rate/load proof, deployment/HA
+observability, cross-record Gateway transactionality or production Gateway
+wiring; those release boundaries stay OPEN.
 
 ## Final gate
 

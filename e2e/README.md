@@ -4,7 +4,8 @@
 Compose project, starts one standalone Oxia shard on a temporary host port,
 waits for the gRPC health service, and runs the Delay opt-in real-service
 smokes against that container. The smoke set covers Oxia Owner Lease, Control,
-Recovery, signed Route publication/refresh and Gateway audit. The compose
+Recovery, signed Route publication/refresh, Gateway audit and Gateway
+tenant-admission CAS. The compose
 service uses only its container filesystem; it does not reuse existing
 containers, ports, or volumes.
 
@@ -16,10 +17,17 @@ From the Delay checkout:
 
 Use `NEREUS_DELAY_OXIA_CHECKOUT=/absolute/path/to/oxia` and
 `NEREUS_DELAY_OXIA_E2E_PORT=<unused-port>` to override the defaults. The
-result is Dockerized Oxia plus host-side Delay authority/audit smoke evidence.
+result is Dockerized Oxia plus host-side Delay authority, audit and admission
+smoke evidence.
 It is not a complete Kafka/Pulsar broker, source-consumer, Worker scheduling,
 HA or release E2E; those require the locked upstream client/broker artifacts
 and separate lifecycle gates.
+
+The latest admission-inclusive run used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, Compose project
+`nereus-delay-v1-oxia-e2e-1786746636-41339` and host port `16651`; the selected
+real-service tests passed and the matching Compose container/network were
+cleaned up.
 
 ## Kafka K1/K2 real-client E2E
 
