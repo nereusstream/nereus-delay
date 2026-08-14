@@ -19,6 +19,7 @@ client_jar="${NEREUS_DELAY_KAFKA_CLIENT_JAR:-${kafka_dir}/clients/build/libs/kaf
 bootstrap_all="127.0.0.1:${broker_1_port},127.0.0.1:${broker_2_port},127.0.0.1:${broker_3_port}"
 bootstrap_survivors="127.0.0.1:${broker_2_port},127.0.0.1:${broker_3_port}"
 topic_1="${KAFKA_DELAY_E2E_TOPIC_1:-nereus-delay-k1-topic-1}"
+source_topic="${KAFKA_DELAY_E2E_SOURCE_TOPIC:-nereus-delay-source-topic}"
 k2_target_topic="${KAFKA_DELAY_E2E_K2_TARGET_TOPIC:-nereus-delay-k2-target}"
 k2_receipt_topic="${KAFKA_DELAY_E2E_K2_RECEIPT_TOPIC:-nereus-delay-k2-receipt}"
 
@@ -86,6 +87,12 @@ GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaSmoke \
   -PkafkaClientJar="${client_jar}" \
   -PkafkaBootstrap="${bootstrap_all}" \
   -PkafkaTopic="${topic_1}" \
+  --no-daemon --console=plain
+
+GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaSourceSmoke \
+  -PkafkaClientJar="${client_jar}" \
+  -PkafkaBootstrap="${bootstrap_all}" \
+  -PkafkaSourceTopic="${source_topic}" \
   --no-daemon --console=plain
 
 GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaK2Smoke \

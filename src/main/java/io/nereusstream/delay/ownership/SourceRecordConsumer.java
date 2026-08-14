@@ -39,7 +39,7 @@ public interface SourceRecordConsumer extends AutoCloseable {
          * Worker retains object identity for the polled record; a different
          * object is never allowed to reuse this ACK authority.
          */
-        SourceAcknowledgement acknowledgement() {
+        public SourceAcknowledgement acknowledgement() {
             return (candidate, outcome) -> {
                 if (candidate != entry) {
                     return SourceAcknowledgement.AcknowledgementResult.unknown(
