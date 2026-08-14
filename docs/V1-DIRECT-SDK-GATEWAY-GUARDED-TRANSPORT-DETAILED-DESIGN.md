@@ -2276,6 +2276,17 @@ Direct/Gateway byte-equivalence tests
 
 在 Kafka `trunk` 基线独立分支实现 §9，不引入 Nereus package/name。
 
+2026-08-14 progress evidence: Kafka worktree commit
+`d1810fa3466e1378a33c5c6327c7f401cec03d07` on
+`nereus/delay-guarded-producer-v1` implements the generic public guarded
+producer surface and the first Sender/RecordAccumulator/ProducerBatch evidence
+path. Focused tests pass for public preflight/future completion, v13 and exact
+TopicId binding, guard-separated batches, leader retry with the same identity,
+disconnect ambiguity, definitive `UNKNOWN_TOPIC_ID` and non-allowlisted
+rejection. It remains a client/mock slice: real Kafka delete/recreate and
+leader-failover integration, artifact/source digest capture and the completion
+gate are still open. D2 must not use stock Producer as a substitute.
+
 完成门：focused client tests + delete/recreate/leader failover integration + source lock SHA/digest。未完成 Kafka patch 前 `ProductionKafkaProduceTransport` 不得使用 stock Producer 冒充。
 
 ### Phase D2：Kafka Nereus transport

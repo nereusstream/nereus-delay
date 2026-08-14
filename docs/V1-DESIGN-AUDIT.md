@@ -36,6 +36,16 @@ the zero-I/O managed Semantic Core with focused tests and a full local
 SDK or Gateway, guarded Kafka/Pulsar client behavior, transport outcomes,
 Worker wiring or real-Broker correctness; those release rows remain OPEN.
 
+The separately owned Kafka K1 worktree has since produced commit
+`d1810fa3466e1378a33c5c6327c7f401cec03d07` from the locked
+`trunk@c300006a7705c240642db6950b5a95fec982bfc5`. Its focused client/mock
+evidence covers the generic guarded producer API, exact TopicId/v13 request,
+batch isolation, leader retry, response evidence hashes and the
+`UNKNOWN_TOPIC_ID`/ambiguity boundary. This does not satisfy the K1 real Kafka
+delete/recreate and failover gate, does not implement D2 Nereus transport, and
+does not establish any Delay production or release PASS; the corresponding
+audit rows remain OPEN.
+
 The post-permit live-service audit on 2026-08-12 ran from document commit
 `b45045b` with a temporary standalone Oxia service built from source commit
 `37a17bef17202d5fd6e23282da5fd26d94865484`:

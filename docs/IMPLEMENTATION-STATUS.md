@@ -46,6 +46,40 @@ Direct SDK/Gateway composition, Kafka/Pulsar guarded client patches, concrete
 transports, Worker integration and real-Broker evidence remain open and are not
 promoted by this commit.
 
+## 2026-08-14 K1 isolated Kafka guarded-client slice
+
+The isolated Kafka worktree now contains the first K1 client implementation at
+`d1810fa3466e1378a33c5c6327c7f401cec03d07` on
+`nereus/delay-guarded-producer-v1`, based directly on the locked Kafka
+`trunk@c300006a7705c240642db6950b5a95fec982bfc5`. The implementation is
+generic Kafka client code and does not import Nereus types. It adds the
+`GuardedProducer`/`ProducerResourceGuard` API, non-transactional guarded
+`sendGuarded`, exact expected TopicId Produce v13 handling, guard-separated
+accumulator batches, retry/split guard retention, request/response/child/value
+SHA-256 evidence, typed response failures, the K1 `UNKNOWN_TOPIC_ID` definitive
+allowlist and ambiguity fencing.
+
+Focused evidence from that worktree uses its independent Gradle user home:
+
+```text
+GRADLE_USER_HOME=/tmp/nereus-kafka-delay-gradle \
+  ./gradlew :clients:test \
+    --tests org.apache.kafka.clients.producer.GuardedProducerApiTest \
+    --tests org.apache.kafka.clients.producer.KafkaProducerGuardedPreflightTest \
+    --tests org.apache.kafka.clients.producer.internals.GuardedSenderTest \
+    --no-daemon --console=plain
+```
+
+The API/preflight/guarded-Sender focused tests pass, including public future
+completion, v13/TopicId binding, guarded-versus-ordinary batch separation,
+leader retry, disconnect ambiguity, definitive `UNKNOWN_TOPIC_ID` and
+non-allowlisted rejection. Existing `ProducerBatchTest`, `RecordAccumulatorTest`
+and `SenderTest` regressions also pass in the same worktree. This is isolated
+client/mock evidence only: the K1 completion gate still lacks the real Kafka
+delete/recreate and leader-failover cuts, artifact/source digest capture, and
+the Nereus D2 transport. No Kafka patch was copied into this Delay repository,
+and no real-broker or production promotion claim is made.
+
 The implementation blueprint was checked read-only against Kafka
 `trunk@c300006a7705c240642db6950b5a95fec982bfc5` and Pulsar
 `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`. No Kafka/Pulsar branch or
