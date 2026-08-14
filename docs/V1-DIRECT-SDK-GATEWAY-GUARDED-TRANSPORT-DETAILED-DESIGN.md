@@ -2156,6 +2156,17 @@ identity binding，并在 Store apply 已可见后才被调用。它是 Worker �
 
 Writer E2E 不能被误报为完整 Worker production E2E。
 
+2026-08-15 implementation evidence: commit
+`decb965e3991264ac243eb68c62ba0827759e616` adds `WorkerShardRuntime`, which
+composes the source loop, owner drain coordinator and shared runtime
+admission gate. It rejects drain while an exact source record has an
+unconfirmed ACK, pauses source turns at the drain callback boundary, retains
+checkpoint retries, and closes the source only after Store close and exact
+lease release. The full local `check` passed at the commit. This is a local
+Worker lifecycle seam; real Kafka/Pulsar consumers, Oxia placement/session
+authority, due/publish/checkpoint/recovery wiring and real Broker ACK/rewind
+remain open.
+
 ## 12. Worker 对接边界
 
 Gateway/Direct SDK 产生的都是同一 NDL1 bytes，因此 Worker 不增加“gateway command”分支。apply 仍是：

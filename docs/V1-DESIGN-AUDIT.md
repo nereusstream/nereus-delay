@@ -127,6 +127,17 @@ Fetch/ACK/commit/rewind, source session/ownership authority, dynamic
 WriteBatch/IO admission, due/publish/checkpoint/recovery wiring, Docker cuts
 and real-Broker correctness remain OPEN.
 
+Commit `decb965e3991264ac243eb68c62ba0827759e616` adds the local
+`WorkerShardRuntime` composition over that source loop and
+`OwnerDrainCoordinator`. It rejects drain before the Owner Lease transition
+when an exact source record still has an unconfirmed ACK, pauses new source
+turns once drain starts, preserves checkpoint retry state, and closes the
+source only after Store close and exact lease release. The full local `check`
+passed at this commit. This closes a local lifecycle ordering seam only; it
+does not establish native Kafka/Pulsar consumers, Oxia placement/session
+authority, due/publish/checkpoint/recovery scheduling, or real Broker ACK and
+rewind evidence.
+
 Commit `bcf2f0a883cd3090ae96250453dabaa71f3945c5` also closes the local Direct
 SDK outbox-Final ambiguity branch: a completion-evidence write failure keeps
 the exact prepared branch and physical attempt and returns `ENQUEUE_UNCERTAIN`.

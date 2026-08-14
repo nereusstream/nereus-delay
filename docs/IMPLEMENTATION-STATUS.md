@@ -216,6 +216,23 @@ Broker ACK/commit/rewind behavior, Oxia session ownership, dynamic
 WriteBatch/IO admission, due/publish/checkpoint/recovery wiring, Docker cuts,
 or a D6 production PASS.
 
+## 2026-08-15 Worker shard runtime composition slice
+
+Delay worktree commit `decb965e3991264ac243eb68c62ba0827759e616` adds
+`WorkerShardRuntime`. It composes `WorkerSourceApplyLoop`,
+`OwnerDrainCoordinator` and the shared `SharedRocksDbResources` runtime
+admission gate. A pending source ACK blocks drain before the authoritative
+lease transition; once drain begins, source turns are paused, drain retries
+remain possible while a final checkpoint is queued, and the source consumer
+is closed only after Store close and exact lease release complete.
+
+`SourceApplyCoordinatorTest.workerShardRuntimeBlocksDrainUntilPendingAckIsResolvedAndClosesSourceAfterRelease`
+covers the pending-ACK precondition, source pause, one stop callback, source
+close and post-drain fence. The full local `check` passed at this commit.
+This is a Worker lifecycle composition only: it does not instantiate Kafka or
+Pulsar clients, own Oxia placement/session authority, or prove due/publish/
+checkpoint/recovery scheduling and real Broker ACK/rewind behavior.
+
 ## 2026-08-14 Direct SDK outbox fail-closed slice
 
 Delay worktree commit `bcf2f0a8` adds a shared prepared-submission uncertainty
