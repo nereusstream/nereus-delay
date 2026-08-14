@@ -27,6 +27,9 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 
 /**
@@ -43,6 +46,8 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
     private final String eventPrefix;
     private final String headKey;
     private final String eventScanEnd;
+    private final Executor notificationExecutor;
+    private final ExecutorService ownedNotificationExecutor;
     private final Map<RouteKey, RouteSnapshotV1> active = new HashMap<>();
     private final Map<RouteIncarnation, RouteSnapshotV1> history = new HashMap<>();
     private final Map<RouteIncarnation, RouteKey> activeKeyByIncarnation = new HashMap<>();
@@ -53,18 +58,24 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
     /** Creates a provider over an owned/configured SyncOxiaClient. */
     public OxiaSignedRouteSnapshotProvider(final SyncOxiaClient client, final String keyPrefix,
                                            final PublicKey verificationKey, final TrustedClock trustedClock) {
-        this(new SyncRecordClient(client), keyPrefix, verificationKey, trustedClock);
+        this(new SyncRecordClient(client), keyPrefix, verificationKey, trustedClock, true);
     }
 
     /** Creates a provider whose Oxia reads are fenced by the supplied ephemeral session. */
     public OxiaSignedRouteSnapshotProvider(final OxiaRouteAuthoritySession session, final String keyPrefix,
                                            final PublicKey verificationKey, final TrustedClock trustedClock) {
         this((OxiaRouteRecordClient) Objects.requireNonNull(session, "session"), keyPrefix, verificationKey,
-                trustedClock);
+                trustedClock, true);
     }
 
     OxiaSignedRouteSnapshotProvider(final OxiaRouteRecordClient client, final String keyPrefix,
                                     final PublicKey verificationKey, final TrustedClock trustedClock) {
+        this(client, keyPrefix, verificationKey, trustedClock, false);
+    }
+
+    private OxiaSignedRouteSnapshotProvider(final OxiaRouteRecordClient client, final String keyPrefix,
+                                            final PublicKey verificationKey, final TrustedClock trustedClock,
+                                            final boolean asynchronousNotifications) {
         this.client = Objects.requireNonNull(client, "client");
         this.verificationKey = Objects.requireNonNull(verificationKey, "verificationKey");
         this.trustedClock = Objects.requireNonNull(trustedClock, "trustedClock");
@@ -72,6 +83,18 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
         this.eventPrefix = prefix + EVENTS_SUFFIX;
         this.headKey = prefix + HEAD_SUFFIX;
         this.eventScanEnd = eventPrefix + "\uffff";
+        if (asynchronousNotifications) {
+            final ExecutorService executor = Executors.newSingleThreadExecutor(runnable -> {
+                final Thread thread = new Thread(runnable, "nereus-delay-route-refresh");
+                thread.setDaemon(true);
+                return thread;
+            });
+            notificationExecutor = executor;
+            ownedNotificationExecutor = executor;
+        } else {
+            notificationExecutor = Runnable::run;
+            ownedNotificationExecutor = null;
+        }
     }
 
     @Override
@@ -153,6 +176,9 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
         history.clear();
         activeKeyByIncarnation.clear();
         health = RouteCacheHealth.CLOSED;
+        if (ownedNotificationExecutor != null) {
+            ownedNotificationExecutor.shutdownNow();
+        }
         client.close();
     }
 
@@ -245,12 +271,18 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
     }
 
     private void onNotification(final Notification notification) {
-        if (notification == null || notification.key() == null) {
-            return;
-        }
         synchronized (this) {
-            if (health == RouteCacheHealth.CLOSED
+            if (health == RouteCacheHealth.CLOSED || notification == null || notification.key() == null
                     || (!headKey.equals(notification.key()) && !notification.key().startsWith(eventPrefix))) {
+                return;
+            }
+        }
+        notificationExecutor.execute(this::refreshAfterNotification);
+    }
+
+    private void refreshAfterNotification() {
+        synchronized (this) {
+            if (health == RouteCacheHealth.CLOSED) {
                 return;
             }
             try {

@@ -3,8 +3,10 @@
 `run-oxia-real-service.sh` builds the locked Oxia checkout in a unique Docker
 Compose project, starts one standalone Oxia shard on a temporary host port,
 waits for the gRPC health service, and runs the Delay opt-in real-service
-smokes against that container. The compose service uses only its container
-filesystem; it does not reuse existing containers, ports, or volumes.
+smokes against that container. The smoke set covers Oxia Owner Lease, Control,
+Recovery, signed Route publication/refresh and Gateway audit. The compose
+service uses only its container filesystem; it does not reuse existing
+containers, ports, or volumes.
 
 From the Delay checkout:
 
