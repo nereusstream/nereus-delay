@@ -100,7 +100,7 @@ require_file_text "$delay_root/src/main/java/io/nereusstream/delay/transport/Pro
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactSourceRecordConsumer.java" \
     "GuardedConsumer<byte[]>"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactSourceRecordConsumer.java" \
-    "sourceConnectionGeneration"
+    "connectionGeneration()"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactSourceRecordConsumer.java" \
     "KafkaClientArtifactSourceRecordConsumer"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactSourceRecordConsumer.java" \
