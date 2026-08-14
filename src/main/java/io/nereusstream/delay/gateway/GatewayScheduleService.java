@@ -27,12 +27,12 @@ import java.util.concurrent.CompletionStage;
  */
 public final class GatewayScheduleService {
     private final DelaySemanticCore semanticCore;
-    private final InMemoryGatewayIdempotencyStore idempotency;
+    private final GatewayIdempotencyStore idempotency;
     private final SubmissionCoordinator submissions;
     private final TrustedClock trustedClock;
 
     public GatewayScheduleService(final DelaySemanticCore semanticCore,
-                                  final InMemoryGatewayIdempotencyStore idempotency,
+                                  final GatewayIdempotencyStore idempotency,
                                   final SubmissionCoordinator submissions,
                                   final TrustedClock trustedClock) {
         this.semanticCore = Objects.requireNonNull(semanticCore, "semanticCore");
@@ -56,7 +56,7 @@ public final class GatewayScheduleService {
             return completed(preparationError(StableCode.INVALID_METADATA));
         }
 
-        final InMemoryGatewayIdempotencyStore.PrepareResult prepared;
+        final GatewayIdempotencyStore.PrepareResult prepared;
         final PreparedSubmissionV1 submission;
         try {
             final GatewayIdempotencyRecordV1 existing = idempotency.exact(keyHash);
@@ -65,8 +65,8 @@ public final class GatewayScheduleService {
             }
             if (existing != null) {
                 submission = PreparedSubmissionV1.decode(existing.preparedSubmissionBytes());
-                prepared = new InMemoryGatewayIdempotencyStore.PrepareResult(
-                        InMemoryGatewayIdempotencyStore.PrepareState.EXISTING_MATCH, existing);
+                prepared = new GatewayIdempotencyStore.PrepareResult(
+                        GatewayIdempotencyStore.PrepareState.EXISTING_MATCH, existing);
             } else {
                 submission = semanticCore.prepareSchedule(tenant, request.route(), request.scheduleIntent(),
                         request.retryUntilEpochMs(), request.submissionMode());
@@ -78,7 +78,7 @@ public final class GatewayScheduleService {
         } catch (RuntimeException failure) {
             return completed(preparationError(StableCode.INVALID_PREPARED_COMMAND));
         }
-        if (prepared.state() == InMemoryGatewayIdempotencyStore.PrepareState.CONFLICT) {
+        if (prepared.state() == GatewayIdempotencyStore.PrepareState.CONFLICT) {
             return completed(preparationError(StableCode.PREPARED_SUBMISSION_MISMATCH));
         }
         return continueAttempt(tenant, keyHash, submission, request);
@@ -123,25 +123,25 @@ public final class GatewayScheduleService {
         } catch (RuntimeException malformed) {
             return completed(preparationError(StableCode.INTEGRITY_ERROR));
         }
-        final InMemoryGatewayIdempotencyStore.RetryStart started;
+        final GatewayIdempotencyStore.RetryStart started;
         try {
             started = idempotency.startRetry(keyHash, request.expectedPriorPhysicalAttemptId(),
                     request.retryRequestId());
         } catch (RuntimeException failure) {
             return completed(preparationError(StableCode.INTEGRITY_ERROR));
         }
-        if (started.state() == InMemoryGatewayIdempotencyStore.RetryState.CONFLICT) {
+        if (started.state() == GatewayIdempotencyStore.RetryState.CONFLICT) {
             return completed(preparationError(StableCode.PREPARED_SUBMISSION_MISMATCH));
         }
         return continueStartedAttempt(tenant, keyHash, submission,
-                new InMemoryGatewayIdempotencyStore.AttemptStart(started.record(), started.permit()));
+                new GatewayIdempotencyStore.AttemptStart(started.record(), started.permit()));
     }
 
     private CompletionStage<GatewaySubmissionOutcomeV1> continueStartedAttempt(
             final AuthenticatedTenantContext tenant,
             final io.nereusstream.delay.transport.Digest32 keyHash,
             final PreparedSubmissionV1 submission,
-            final InMemoryGatewayIdempotencyStore.AttemptStart started) {
+            final GatewayIdempotencyStore.AttemptStart started) {
         if (started.permit() == null) {
             final byte[] aggregate = started.record().aggregateOutcomeBytes();
             if (aggregate != null) {

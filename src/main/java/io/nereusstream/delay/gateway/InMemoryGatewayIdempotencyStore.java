@@ -13,7 +13,7 @@ import java.util.Map;
 import java.util.Objects;
 
 /** Single-process conformance store modelling the Gateway one-record CAS rules. */
-public final class InMemoryGatewayIdempotencyStore {
+public final class InMemoryGatewayIdempotencyStore implements GatewayIdempotencyStore {
     private final Map<Digest32, GatewayIdempotencyRecordV1> records = new HashMap<>();
     private final TrustedClock trustedClock;
     private final long ownershipMaxAgeMs;
@@ -22,9 +22,7 @@ public final class InMemoryGatewayIdempotencyStore {
     public InMemoryGatewayIdempotencyStore(final TrustedClock trustedClock, final long ownershipMaxAgeMs,
                                            final long outcomeWaitMs) {
         this.trustedClock = Objects.requireNonNull(trustedClock, "trustedClock");
-        if (ownershipMaxAgeMs <= 0 || outcomeWaitMs <= 0 || ownershipMaxAgeMs > outcomeWaitMs) {
-            throw new IllegalArgumentException("Gateway ownership/outcome bounds are invalid");
-        }
+        GatewayIdempotencyStore.requireTimeBounds(trustedClock, ownershipMaxAgeMs, outcomeWaitMs);
         this.ownershipMaxAgeMs = ownershipMaxAgeMs;
         this.outcomeWaitMs = outcomeWaitMs;
     }
@@ -162,38 +160,4 @@ public final class InMemoryGatewayIdempotencyStore {
         }
     }
 
-    public enum PrepareState {
-        CREATED,
-        EXISTING_MATCH,
-        CONFLICT
-    }
-
-    public record PrepareResult(PrepareState state, GatewayIdempotencyRecordV1 record) {
-        public PrepareResult {
-            Objects.requireNonNull(state, "state");
-            Objects.requireNonNull(record, "record");
-        }
-    }
-
-    public record AttemptStart(GatewayIdempotencyRecordV1 record, GatewayAttemptOwnershipPermit permit) {
-        public AttemptStart {
-            Objects.requireNonNull(record, "record");
-        }
-    }
-
-    public enum RetryState {
-        STARTED,
-        EXISTING_RETRY,
-        CONFLICT,
-        STALE_PRECONDITION,
-        NOT_RETRYABLE
-    }
-
-    public record RetryStart(GatewayIdempotencyRecordV1 record, GatewayAttemptOwnershipPermit permit,
-                             RetryState state) {
-        public RetryStart {
-            Objects.requireNonNull(record, "record");
-            Objects.requireNonNull(state, "state");
-        }
-    }
 }

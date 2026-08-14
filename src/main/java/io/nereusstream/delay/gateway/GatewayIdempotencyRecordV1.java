@@ -104,6 +104,61 @@ public final class GatewayIdempotencyRecordV1 {
         });
     }
 
+    /** Strict decoder for the one-value Gateway idempotency record. */
+    public static GatewayIdempotencyRecordV1 decode(final byte[] encoded) {
+        final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(encoded, true);
+        final List<CanonicalProtobuf.Reader.Field> fields = new ArrayList<>();
+        while (reader.hasRemaining()) {
+            fields.add(reader.next());
+        }
+        if (fields.size() < 11) {
+            throw new IllegalArgumentException("Gateway idempotency record fields are incomplete");
+        }
+        int index = 0;
+        if (uint(field(fields, index++, 1), 1) != VERSION) {
+            throw new IllegalArgumentException("unsupported Gateway idempotency record version");
+        }
+        final Digest32 keyHash = new Digest32(fixed(field(fields, index++, 2), 2, Digest32.LENGTH));
+        final GatewayOperationKindV1 operation = GatewayOperationKindV1.fromWire(uint(field(fields, index++, 3), 3));
+        final Digest32 bodyHash = new Digest32(fixed(field(fields, index++, 4), 4, Digest32.LENGTH));
+        final byte[] preparedBytes = bytes(field(fields, index++, 5), 5);
+        final Digest32 preparedHash = new Digest32(fixed(field(fields, index++, 6), 6, Digest32.LENGTH));
+        if (!preparedHash.equals(new Digest32(Bytes.sha256(preparedBytes)))) {
+            throw new IllegalArgumentException("Gateway prepared submission digest mismatch");
+        }
+        final GatewayIdempotencyPhaseV1 phase = GatewayIdempotencyPhaseV1.fromWire(
+                uint(field(fields, index++, 7), 7));
+        final List<GatewayPhysicalAttemptV1> attempts = new ArrayList<>();
+        while (index < fields.size() && fields.get(index).number() == 8) {
+            attempts.add(GatewayPhysicalAttemptV1.decode(bytes(field(fields, index++, 8), 8)));
+        }
+        for (int attemptIndex = 0; attemptIndex < attempts.size(); attemptIndex++) {
+            if (attempts.get(attemptIndex).attemptNo() != attemptIndex + 1) {
+                throw new IllegalArgumentException("Gateway attempt numbers are not source ordered");
+            }
+        }
+        final byte[] aggregateBytes;
+        if (index < fields.size() && fields.get(index).number() == 9) {
+            aggregateBytes = bytes(field(fields, index++, 9), 9);
+        } else {
+            aggregateBytes = null;
+        }
+        final long createdAt = nonNegative(uint(field(fields, index++, 10), 10), "createdAtEpochMs");
+        final long retainUntil = nonNegative(uint(field(fields, index++, 11), 11), "retainUntilEpochMs");
+        final long revision = positive(uint(field(fields, index++, 12), 12), "revision");
+        final byte[] recordDigest = fixed(field(fields, index++, 13), 13, Digest32.LENGTH);
+        if (index != fields.size()) {
+            throw new IllegalArgumentException("Gateway idempotency record has unknown fields");
+        }
+        final GatewayIdempotencyRecordV1 result = new GatewayIdempotencyRecordV1(keyHash, operation, bodyHash,
+                preparedBytes, phase, attempts, aggregateBytes, createdAt, retainUntil, revision);
+        if (!Bytes.constantTimeEquals(recordDigest, result.recordDigest())
+                || !Bytes.constantTimeEquals(encoded, result.canonicalBytes())) {
+            throw new IllegalArgumentException("Gateway idempotency record digest/canonical bytes mismatch");
+        }
+        return result;
+    }
+
     GatewayIdempotencyRecordV1 withAttempt(final GatewayPhysicalAttemptV1 attempt) {
         final List<GatewayPhysicalAttemptV1> next = new ArrayList<>(attempts);
         next.add(Objects.requireNonNull(attempt, "attempt"));
@@ -153,6 +208,50 @@ public final class GatewayIdempotencyRecordV1 {
             CanonicalProtobuf.int64(output, 11, retainUntilEpochMs);
             CanonicalProtobuf.uint64(output, 12, revision);
         });
+    }
+
+    private static CanonicalProtobuf.Reader.Field field(final List<CanonicalProtobuf.Reader.Field> fields,
+                                                         final int index, final int number) {
+        if (index >= fields.size() || fields.get(index).number() != number) {
+            throw new IllegalArgumentException("unexpected Gateway idempotency field at " + number);
+        }
+        return fields.get(index);
+    }
+
+    private static byte[] bytes(final CanonicalProtobuf.Reader.Field field, final int number) {
+        if (field.wireType() != 2) {
+            throw new IllegalArgumentException("Gateway idempotency field " + number + " is not bytes");
+        }
+        return field.rawValue();
+    }
+
+    private static byte[] fixed(final CanonicalProtobuf.Reader.Field field, final int number, final int length) {
+        final byte[] value = bytes(field, number);
+        if (value.length != length) {
+            throw new IllegalArgumentException("Gateway idempotency field " + number + " has invalid length");
+        }
+        return value;
+    }
+
+    private static long uint(final CanonicalProtobuf.Reader.Field field, final int number) {
+        if (field.wireType() != 0 || field.unsignedValue() < 0) {
+            throw new IllegalArgumentException("Gateway idempotency field " + number + " is not uint");
+        }
+        return field.unsignedValue();
+    }
+
+    private static long nonNegative(final long value, final String name) {
+        if (value < 0) {
+            throw new IllegalArgumentException(name + " must be non-negative");
+        }
+        return value;
+    }
+
+    private static long positive(final long value, final String name) {
+        if (value <= 0) {
+            throw new IllegalArgumentException(name + " must be positive");
+        }
+        return value;
     }
 
     record PhysicalEnqueueAttemptIdMatch(io.nereusstream.delay.transport.PhysicalEnqueueAttemptId id) {
