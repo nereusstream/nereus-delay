@@ -2,6 +2,7 @@ package io.nereusstream.delay.protocol;
 
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.UUID;
 
 /** Immutable command whose identity and hash are fixed before any I/O. */
 public final class PreparedCommand {
@@ -53,6 +54,18 @@ public final class PreparedCommand {
                 CommandBodies.scheduleV1(messageId, retryUntilEpochMs, intent));
     }
 
+    /** Creates a V1 schedule with identities selected by the Semantic Core. */
+    public static PreparedCommand scheduleV1(final ShardId shardId, final UUID logicalMessageUuidV7,
+                                             final UUID logicalCommandUuidV7, final ScheduleIntentV1 intent,
+                                             final long retryUntilEpochMs) {
+        final DelayMessageId messageId = new DelayMessageId(
+                SelfRoutingId.fromLogicalUuid(shardId, logicalMessageUuidV7).bytes());
+        final CommandId commandId = new CommandId(
+                SelfRoutingId.fromLogicalUuid(shardId, logicalCommandUuidV7).bytes());
+        return create(shardId, commandId, messageId, CommandType.SCHEDULE, retryUntilEpochMs,
+                CommandBodies.scheduleV1(messageId, retryUntilEpochMs, intent));
+    }
+
     public static PreparedCommand prepareLarge(final ShardId shardId, final LargeScheduleIntent intent,
                                                final long retryUntilEpochMs) {
         final CommandId commandId = CommandId.random(shardId);
@@ -69,6 +82,23 @@ public final class PreparedCommand {
                                                  final long retryUntilEpochMs) {
         final CommandId commandId = CommandId.random(shardId);
         final DelayMessageId messageId = DelayMessageId.random(shardId);
+        return create(shardId, commandId, messageId, CommandType.PREPARE_LARGE_SCHEDULE, retryUntilEpochMs,
+                CommandBodies.prepareLargeV1(messageId, retryUntilEpochMs, intentWithoutPayload,
+                        expectedPayloadLength, payloadSha256, reservationTtlMs, trustSet, objectStoreProfile));
+    }
+
+    /** Creates a V1 large-payload preparation with identities selected by the Semantic Core. */
+    public static PreparedCommand prepareLargeV1(final ShardId shardId, final UUID logicalMessageUuidV7,
+                                                 final UUID logicalCommandUuidV7,
+                                                 final ScheduleIntentV1 intentWithoutPayload,
+                                                 final long expectedPayloadLength, final byte[] payloadSha256,
+                                                 final long reservationTtlMs, final PayloadProofTrustSetRefV1 trustSet,
+                                                 final ProfileRefV1 objectStoreProfile,
+                                                 final long retryUntilEpochMs) {
+        final DelayMessageId messageId = new DelayMessageId(
+                SelfRoutingId.fromLogicalUuid(shardId, logicalMessageUuidV7).bytes());
+        final CommandId commandId = new CommandId(
+                SelfRoutingId.fromLogicalUuid(shardId, logicalCommandUuidV7).bytes());
         return create(shardId, commandId, messageId, CommandType.PREPARE_LARGE_SCHEDULE, retryUntilEpochMs,
                 CommandBodies.prepareLargeV1(messageId, retryUntilEpochMs, intentWithoutPayload,
                         expectedPayloadLength, payloadSha256, reservationTtlMs, trustSet, objectStoreProfile));
@@ -91,12 +121,29 @@ public final class PreparedCommand {
                 retryUntilEpochMs, CommandBodies.commitLargeV1(messageId, retryUntilEpochMs, reservationId, proof));
     }
 
+    /** Creates a V1 payload commit with a Semantic-Core-selected Command ID. */
+    public static PreparedCommand commitLargeV1(final ShardId shardId, final CommandId commandId,
+                                                final DelayMessageId messageId, final byte[] reservationId,
+                                                final PayloadCommitProofV1 proof, final long retryUntilEpochMs) {
+        return create(shardId, Objects.requireNonNull(commandId, "commandId"), messageId,
+                CommandType.COMMIT_LARGE_SCHEDULE, retryUntilEpochMs,
+                CommandBodies.commitLargeV1(messageId, retryUntilEpochMs, reservationId, proof));
+    }
+
     /** Creates a command using the Registry-shaped CancelV1 body seam. */
     public static PreparedCommand cancelV1(final ShardId shardId, final DelayMessageId messageId,
                                            final MessagePreconditionV1 precondition,
                                            final long retryUntilEpochMs) {
         return create(shardId, CommandId.random(shardId), messageId, CommandType.CANCEL, retryUntilEpochMs,
                 CommandBodies.cancelV1(messageId, retryUntilEpochMs, precondition));
+    }
+
+    /** Creates a V1 cancel with a Semantic-Core-selected Command ID. */
+    public static PreparedCommand cancelV1(final ShardId shardId, final CommandId commandId,
+                                           final DelayMessageId messageId, final MessagePreconditionV1 precondition,
+                                           final long retryUntilEpochMs) {
+        return create(shardId, Objects.requireNonNull(commandId, "commandId"), messageId, CommandType.CANCEL,
+                retryUntilEpochMs, CommandBodies.cancelV1(messageId, retryUntilEpochMs, precondition));
     }
 
     public static PreparedCommand cancel(final ShardId shardId, final DelayMessageId messageId,
@@ -118,6 +165,16 @@ public final class PreparedCommand {
                                                final long expireAt, final long retryUntilEpochMs) {
         return create(shardId, CommandId.random(shardId), messageId, CommandType.RESCHEDULE, retryUntilEpochMs,
                 CommandBodies.rescheduleV1(messageId, retryUntilEpochMs, precondition, deliverAt, expireAt));
+    }
+
+    /** Creates a V1 reschedule with a Semantic-Core-selected Command ID. */
+    public static PreparedCommand rescheduleV1(final ShardId shardId, final CommandId commandId,
+                                               final DelayMessageId messageId, final MessagePreconditionV1 precondition,
+                                               final long deliverAt, final long expireAt,
+                                               final long retryUntilEpochMs) {
+        return create(shardId, Objects.requireNonNull(commandId, "commandId"), messageId, CommandType.RESCHEDULE,
+                retryUntilEpochMs, CommandBodies.rescheduleV1(messageId, retryUntilEpochMs, precondition,
+                        deliverAt, expireAt));
     }
 
     public static PreparedCommand create(final ShardId shardId, final CommandId commandId,

@@ -17,8 +17,13 @@ final class QueryCodecSupport {
     }
 
     static List<CanonicalProtobuf.Reader.Field> read(final byte[] encoded, final String name) {
+        return read(encoded, name, false);
+    }
+
+    static List<CanonicalProtobuf.Reader.Field> read(final byte[] encoded, final String name,
+                                                     final boolean allowRepeatedFields) {
         Objects.requireNonNull(encoded, name);
-        final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(encoded);
+        final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(encoded, allowRepeatedFields);
         final List<CanonicalProtobuf.Reader.Field> fields = new ArrayList<>();
         while (reader.hasRemaining()) {
             fields.add(reader.next());

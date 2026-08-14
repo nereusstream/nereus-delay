@@ -29,15 +29,26 @@ public final class SelfRoutingId extends FixedBytes {
 
     public static SelfRoutingId random(final ShardId shardId) {
         Objects.requireNonNull(shardId, "shardId");
-        final UUID logical = uuidV7();
+        final UUID logical = uuidV7(Instant.now().toEpochMilli(), RANDOM);
+        return fromLogicalUuid(shardId, logical);
+    }
+
+    /**
+     * Builds the existing 41-byte ID format from a caller-supplied UUIDv7.
+     * The logical UUID is selected before routing so an unordered schedule can
+     * use the same seed in its partition hash and its self-routing identity.
+     */
+    public static SelfRoutingId fromLogicalUuid(final ShardId shardId, final UUID logicalUuidV7) {
+        Objects.requireNonNull(shardId, "shardId");
+        requireLogicalUuidV7(logicalUuidV7);
         final byte[] prefix = new byte[37];
         final ByteBuffer buffer = ByteBuffer.wrap(prefix);
         buffer.put((byte) FORMAT_VERSION);
         buffer.put(shardId.routeIncarnation().bytes());
         buffer.putInt(shardId.partition());
-        buffer.putLong(logical.getMostSignificantBits());
-        buffer.putLong(logical.getLeastSignificantBits());
-        return new SelfRoutingId(Bytes.concat(prefix, Bytes.crc32cbe(prefix)), shardId, logical);
+        buffer.putLong(logicalUuidV7.getMostSignificantBits());
+        buffer.putLong(logicalUuidV7.getLeastSignificantBits());
+        return new SelfRoutingId(Bytes.concat(prefix, Bytes.crc32cbe(prefix)), shardId, logicalUuidV7);
     }
 
     public static SelfRoutingId decode(final byte[] bytes) {
@@ -59,13 +70,27 @@ public final class SelfRoutingId extends FixedBytes {
                 new UUID(logical.getLong(), logical.getLong()));
     }
 
-    private static UUID uuidV7() {
-        final long millis = Instant.now().toEpochMilli();
-        final long randomA = RANDOM.nextLong();
-        final long randomB = RANDOM.nextLong();
-        final long most = (millis << 16) | 0x7000L | ((randomA >>> 48) & 0x0fffL);
+    /** Generates a UUIDv7 using the supplied trusted epoch source and entropy source. */
+    public static UUID uuidV7(final long epochMs, final SecureRandom random) {
+        if (epochMs < 0 || epochMs > 0xffff_ffff_ffffL) {
+            throw new IllegalArgumentException("UUIDv7 timestamp is outside the 48-bit range");
+        }
+        Objects.requireNonNull(random, "random");
+        final long randomA = random.nextLong();
+        final long randomB = random.nextLong();
+        final long most = (epochMs << 16) | 0x7000L | ((randomA >>> 48) & 0x0fffL);
         final long least = (randomB & 0x3fff_ffff_ffff_ffffL) | 0x8000_0000_0000_0000L;
         return new UUID(most, least);
+    }
+
+    /** Validates the UUID version and RFC 4122 variant required by V1. */
+    public static void requireLogicalUuidV7(final UUID logicalUuidV7) {
+        Objects.requireNonNull(logicalUuidV7, "logicalUuidV7");
+        final int version = logicalUuidV7.version();
+        final int variant = logicalUuidV7.variant();
+        if (version != LOGICAL_UUID_VERSION || variant != 2) {
+            throw new IllegalArgumentException("logical locator is not a UUIDv7");
+        }
     }
 
     public ShardId shardId() {
