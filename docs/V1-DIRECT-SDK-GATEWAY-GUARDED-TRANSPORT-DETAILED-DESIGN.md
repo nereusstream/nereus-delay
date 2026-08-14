@@ -1464,7 +1464,8 @@ exception 完成 guarded record，不能先调用 success callback。
 也不改变普通 `RecordMetadata`。Sender 从完成该 request 的真实 response/correlation/broker
 上下文构造它，`GuardedRecordMetadata` 同时携带普通 metadata、exact input guard 和证据。
 失败时 exception 持有同形 rejection evidence；不得用 callback 时刻的当前 metadata 回填。
-success evidence 固定 `errorCode=0`、nonnegative base offset/log append time、actual request
+success evidence 固定 `errorCode=0`、nonnegative base offset、`logAppendTimeMs >= -1`（Kafka 的
+`CreateTime` topic 合法返回 `-1` sentinel）、actual request
 version >=13、request destination Broker node 和 correlation ID。只有 ProduceResponse 的
 `currentLeader.leaderEpoch` 非负时才放入 optional `responseLeaderEpoch`；发送前 metadata 中的
 leader epoch 没有出现在 Produce request/response 中，不能伪装成 authenticated response
@@ -1497,7 +1498,7 @@ canonical bytes 做 golden byte-equivalence，不得改 hash preimage。
 `WireIngressOutcomeSupport.brokerDefinite` 把 NDL1 frame 当作 Broker request bytes。Nereus 还要求
 `selectedRecordValueSha256 == SHA-256(exact NDL1 frame)`；否则 Broker 可能持久化了 interceptor/
 serializer 改写后的 value，结果必须是 integrity/UNKNOWN。如果成功路径缺少 exact TopicId、partition、request version、Broker
-response、offset 或 nonnegative Broker `logAppendTimeMs`，Nereus transport 不得把普通
+response 或 offset，或 `logAppendTimeMs < -1`，Nereus transport 不得把普通
 `RecordMetadata.timestamp()` 猜成 persisted evidence；
 该实现不能通过 Phase K1 gate。
 
@@ -2347,16 +2348,19 @@ coordinator/projector ownership tests；Direct/Gateway byte-equivalence vectors�
 
 在 Kafka `trunk` 基线独立分支实现 §9，不引入 Nereus package/name。
 
-2026-08-14 progress evidence: Kafka worktree commit
-`d1810fa3466e1378a33c5c6327c7f401cec03d07` on
+2026-08-15 progress evidence: Kafka worktree commit
+`95d48e89e7e8a4e6d8718e44d424ffef8f17829f` on
 `nereus/delay-guarded-producer-v1` implements the generic public guarded
 producer surface and the first Sender/RecordAccumulator/ProducerBatch evidence
 path. Focused tests pass for public preflight/future completion, v13 and exact
 TopicId binding, guard-separated batches, leader retry with the same identity,
 disconnect ambiguity, definitive `UNKNOWN_TOPIC_ID` and non-allowlisted
-rejection. It remains a client/mock slice: real Kafka delete/recreate and
-leader-failover integration, artifact/source digest capture and the completion
-gate are still open. D2 must not use stock Producer as a substitute.
+rejection. The same commit adds real KRaft integration coverage for delete/recreate
+TopicId rejection and leader failover, and fixes the legal Kafka `-1`
+`logAppendTimeMs` sentinel on successful `CreateTime` topics. Those real cuts
+pass with the independent Gradle integration test task. Artifact/source digest
+capture and the Nereus D2 transport remain open; D2 must not use stock Producer
+as a substitute.
 
 完成门：focused client tests + delete/recreate/leader failover integration + source lock SHA/digest。未完成 Kafka patch 前 `ProductionKafkaProduceTransport` 不得使用 stock Producer 冒充。
 

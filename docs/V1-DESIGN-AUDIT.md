@@ -68,14 +68,15 @@ HA durable idempotency, real Kafka/Pulsar transport artifacts, Worker wiring or
 real-Broker correctness; those release rows remain OPEN.
 
 The separately owned Kafka K1 worktree has since produced commit
-`d1810fa3466e1378a33c5c6327c7f401cec03d07` from the locked
+`95d48e89e7e8a4e6d8718e44d424ffef8f17829f` from the locked
 `trunk@c300006a7705c240642db6950b5a95fec982bfc5`. Its focused client/mock
 evidence covers the generic guarded producer API, exact TopicId/v13 request,
 batch isolation, leader retry, response evidence hashes and the
-`UNKNOWN_TOPIC_ID`/ambiguity boundary. This does not satisfy the K1 real Kafka
-delete/recreate and failover gate, does not implement D2 Nereus transport, and
-does not establish any Delay production or release PASS; the corresponding
-audit rows remain OPEN.
+`UNKNOWN_TOPIC_ID`/ambiguity boundary. Its real KRaft integration test also
+passes same-name delete/recreate rejection and leader-failover success, and
+locks Kafka's legal `CreateTime` `logAppendTimeMs=-1` sentinel. Artifact/source
+digest capture, D2 Nereus transport and production release approval remain
+OPEN.
 
 The separately owned Pulsar P1 worktree has since produced
 `19c97bf836d521f0e6103c542819723e70ccdbab` and
@@ -4395,7 +4396,7 @@ the guarded Broker rollout attestation remains external evidence.
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
 | Pulsar first-class-guard implementation base inspected for ADR 0044 | `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551` |
-| Kafka isolated K1 implementation | `nereus/delay-guarded-producer-v1@d1810fa3466e1378a33c5c6327c7f401cec03d07` |
+| Kafka isolated K1 implementation | `nereus/delay-guarded-producer-v1@95d48e89e7e8a4e6d8718e44d424ffef8f17829f` |
 | Pulsar isolated P1 implementation | `nereus/delay-resource-guard-v1@be226fe6c88634e9a94ba5c6a0f5859bc510cb66` |
 
 主设计 R12–R37 的 Kafka/Pulsar correctness-critical 链接全部使用上述 immutable commit。发布包还必须记录实际 patch/binary digest、Broker rollout attestation 和 delete/recreate cuts；仅有文档 source lock 不等于实现已通过。

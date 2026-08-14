@@ -303,10 +303,10 @@ local/session composition: real-service session-timeout/reconnect cuts,
 activation-barrier publication, native credential eligibility, cross-record
 Oxia transactions, production transport and Worker integration remain open.
 
-## 2026-08-14 K1 isolated Kafka guarded-client slice
+## 2026-08-15 K1 isolated Kafka guarded-client slice
 
 The isolated Kafka worktree now contains the first K1 client implementation at
-`d1810fa3466e1378a33c5c6327c7f401cec03d07` on
+`95d48e89e7e8a4e6d8718e44d424ffef8f17829f` on
 `nereus/delay-guarded-producer-v1`, based directly on the locked Kafka
 `trunk@c300006a7705c240642db6950b5a95fec982bfc5`. The implementation is
 generic Kafka client code and does not import Nereus types. It adds the
@@ -314,7 +314,9 @@ generic Kafka client code and does not import Nereus types. It adds the
 `sendGuarded`, exact expected TopicId Produce v13 handling, guard-separated
 accumulator batches, retry/split guard retention, request/response/child/value
 SHA-256 evidence, typed response failures, the K1 `UNKNOWN_TOPIC_ID` definitive
-allowlist and ambiguity fencing.
+allowlist and ambiguity fencing. The real-broker integration slice also accepts
+Kafka's legal `logAppendTimeMs=-1` sentinel for successful `CreateTime` topics
+instead of misclassifying valid response evidence.
 
 Focused evidence from that worktree uses its independent Gradle user home:
 
@@ -331,11 +333,12 @@ The API/preflight/guarded-Sender focused tests pass, including public future
 completion, v13/TopicId binding, guarded-versus-ordinary batch separation,
 leader retry, disconnect ambiguity, definitive `UNKNOWN_TOPIC_ID` and
 non-allowlisted rejection. Existing `ProducerBatchTest`, `RecordAccumulatorTest`
-and `SenderTest` regressions also pass in the same worktree. This is isolated
-client/mock evidence only: the K1 completion gate still lacks the real Kafka
-delete/recreate and leader-failover cuts, artifact/source digest capture, and
-the Nereus D2 transport. No Kafka patch was copied into this Delay repository,
-and no real-broker or production promotion claim is made.
+and `SenderTest` regressions also pass in the same worktree. The real KRaft
+`KafkaProducerGuardedIntegrationTest` passes same-name delete/recreate (old
+TopicId rejected, new TopicId accepted) and leader failover (same TopicId, new
+broker evidence). Artifact/source digest capture and the Nereus D2 transport
+remain open. No Kafka patch was copied into this Delay repository, and no
+production promotion claim is made.
 
 The implementation blueprint was checked against Kafka
 `trunk@c300006a7705c240642db6950b5a95fec982bfc5` and Pulsar
@@ -4687,7 +4690,7 @@ covers this ordering.
 |---|---|---|
 | Shared Semantic Core and signed immutable RouteSnapshot | Partial (local deterministic core plus Oxia event/head-CAS authority composition; production gates open) | `RouteSnapshotV1`, `DefaultDelaySemanticCore`, `InMemorySignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotPublisher`, `RouteSnapshotCompatibilityV1`, `DefaultDelayClient`, `RouteBoundSubmissionTransportPlanResolver`, `RouteSnapshotV1Test`, `DefaultDelaySemanticCoreTest`, `InMemorySignedRouteSnapshotProviderTest`, `OxiaSignedRouteSnapshotProviderTest`; canonical signature/digest, contiguous replay, head CAS, notification refresh, same-incarnation immutable-drift quarantine, tenant-scoped historical resolution and zero-I/O preparation are covered. Activation-barrier publication, session fencing, real Oxia service evidence, native eligibility authority, package split and production cross-entry gate remain open |
 | Delay Gateway and Gateway idempotency | Partial (local Schedule/RetryUncertain plus Oxia single-record CAS composition) | `GatewayScheduleRequestV1`, `GatewayRetryUncertainRequestV1`, `GatewayIdempotencyStore`, `GatewayIdempotencyHashV1`, `GatewayIdempotencyRecordV1`, `GatewayPhysicalAttemptV1`, `InMemoryGatewayIdempotencyStore`, `OxiaGatewayIdempotencyStore`, `GatewayScheduleService`, source proto, `GatewayScheduleServiceTest` and `OxiaGatewayIdempotencyStoreTest`; exact body conflict, prepared-before-ownership, one-shot attempt, strict record decoding, uncertain expected-prior/retry-ID CAS, response-loss no-permit behavior and outcome replay are local evidence. Generated gRPC/API modules, mTLS/JWT authentication, quota/audit, HA/transactional durability, late authenticated evidence promotion, crash cuts and multi-language vectors remain open |
-| Kafka generic guarded Producer patch | Implemented in isolated upstream worktree (real-service gate open) | Kafka branch `nereus/delay-guarded-producer-v1@d1810fa3466e1378a33c5c6327c7f401cec03d07` from locked `trunk@c300006a7705c240642db6950b5a95fec982bfc5`; focused client/mock and regression evidence pass. Delete/recreate, leader-failover, artifact/source digest and Delay D2 transport remain open; K2 target-plus-receipt transaction is separate |
+| Kafka generic guarded Producer patch | Implemented in isolated upstream worktree (real-service cuts pass; release gates open) | Kafka branch `nereus/delay-guarded-producer-v1@95d48e89e7e8a4e6d8718e44d424ffef8f17829f` from locked `trunk@c300006a7705c240642db6950b5a95fec982bfc5`; focused client/mock and real KRaft delete/recreate/leader-failover evidence pass, including legal `logAppendTimeMs=-1` handling. Artifact/source digest and Delay D2 transport remain open; K2 target-plus-receipt transaction is separate |
 | Pulsar v22 first-class resource guard | Implemented in isolated upstream worktree (real-service gate open) | Pulsar branch `nereus/delay-resource-guard-v1@be226fe6c88634e9a94ba5c6a0f5859bc510cb66` from locked `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`; focused common/broker and checkstyle evidence pass. Delete/recreate, unload/failover, proxy compatibility, artifact/source digest and Delay D3 transport remain open |
 | Queued receipt Route-policy boundary | Implemented (local strict adapter seam; Route authority pending) | `QueuedReceiptQueryPolicy`, `PolicyBoundWireCommandIngressAdapter`, `PinnedKafkaCommandIngress`, `PinnedPulsarCommandIngress`, `PreparedSubmissionAdapter`, `EmbeddedDelayService`, `AdapterIngressTest`, `NativeSubmissionAdapterTest`; strict paths derive `receipt_query_until` from authenticated Broker persistence time with checked addition, reject missing/drifting policy snapshots before transport ownership, and retain post-persistence overflow as `ENQUEUE_UNCERTAIN`/integrity evidence; absolute-boundary overloads are compatibility-only and checked against a bound policy; Route policy publication, source-time authority and concrete production transports remain release blockers |
 | Full command-result retention boundary | Implemented (local strict query seam; retention authority pending) | `CommandResultRetentionPolicy`, `DelayClient`, `EmbeddedDelayService`, `BoundedLocalQueryProjector`, `EmbeddedDelayServiceTest.embeddedQueryDerivesFullResultRetentionFromAppliedSourceTime`, `CommandResultRetentionPolicyTest`; strict query/await/applied-receipt projections derive `full_result_retain_until` from the applied Source Position Broker persistence time with checked addition, while absolute-boundary overloads remain compatibility-only; policy publication, source-time authority and production query routing remain release blockers |
