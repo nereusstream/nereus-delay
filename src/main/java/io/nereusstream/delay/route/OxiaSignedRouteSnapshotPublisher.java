@@ -34,6 +34,12 @@ public final class OxiaSignedRouteSnapshotPublisher {
         this(new SyncRecordClient(client), keyPrefix, verificationKey);
     }
 
+    /** Creates a publisher whose event/head CAS is fenced by the supplied ephemeral session. */
+    public OxiaSignedRouteSnapshotPublisher(final OxiaRouteAuthoritySession session, final String keyPrefix,
+                                             final PublicKey verificationKey) {
+        this((OxiaRouteRecordClient) Objects.requireNonNull(session, "session"), keyPrefix, verificationKey);
+    }
+
     OxiaSignedRouteSnapshotPublisher(final OxiaRouteRecordClient client, final String keyPrefix,
                                      final PublicKey verificationKey) {
         this.client = Objects.requireNonNull(client, "client");
@@ -47,6 +53,7 @@ public final class OxiaSignedRouteSnapshotPublisher {
                                final long expectedPreviousRevision) {
         Objects.requireNonNull(route, "route");
         Objects.requireNonNull(snapshot, "snapshot");
+        client.startSession();
         if (expectedPreviousRevision < 0) {
             throw new IllegalArgumentException("expectedPreviousRevision must be non-negative");
         }

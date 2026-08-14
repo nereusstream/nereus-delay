@@ -56,6 +56,13 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
         this(new SyncRecordClient(client), keyPrefix, verificationKey, trustedClock);
     }
 
+    /** Creates a provider whose Oxia reads are fenced by the supplied ephemeral session. */
+    public OxiaSignedRouteSnapshotProvider(final OxiaRouteAuthoritySession session, final String keyPrefix,
+                                           final PublicKey verificationKey, final TrustedClock trustedClock) {
+        this((OxiaRouteRecordClient) Objects.requireNonNull(session, "session"), keyPrefix, verificationKey,
+                trustedClock);
+    }
+
     OxiaSignedRouteSnapshotProvider(final OxiaRouteRecordClient client, final String keyPrefix,
                                     final PublicKey verificationKey, final TrustedClock trustedClock) {
         this.client = Objects.requireNonNull(client, "client");
@@ -74,6 +81,7 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
             return CompletableFuture.completedFuture(null);
         }
         try {
+            client.startSession();
             refreshFromAuthority();
             started = true;
             client.notifications(this::onNotification);
@@ -88,6 +96,7 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
     public synchronized CompletionStage<Void> refresh() {
         requireOpen();
         try {
+            client.startSession();
             refreshFromAuthority();
             return CompletableFuture.completedFuture(null);
         } catch (RuntimeException failure) {

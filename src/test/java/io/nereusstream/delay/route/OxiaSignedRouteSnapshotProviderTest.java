@@ -32,6 +32,7 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -45,6 +46,33 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class OxiaSignedRouteSnapshotProviderTest {
+    @Test
+    void sessionFenceStopsRouteAuthorityAfterEphemeralMarkerExpires() throws Exception {
+        final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final FakeRouteClient client = new FakeRouteClient();
+        final OxiaRouteAuthoritySession session = new OxiaRouteAuthoritySession(client, "/nereus/route");
+        final OxiaSignedRouteSnapshotPublisher publisher = new OxiaSignedRouteSnapshotPublisher(session,
+                "/nereus/route", keys.getPublic());
+        final OxiaSignedRouteSnapshotProvider provider = new OxiaSignedRouteSnapshotProvider(session,
+                "/nereus/route", keys.getPublic(), () -> 200);
+        try {
+            final RouteSnapshotV1 active = snapshot(keys, new RouteIncarnation(bytes(16, 30)),
+                    RouteLifecycleV1.ACTIVE_FOR_NEW, 1);
+            client.failNextEphemeralPutAfterCommit();
+            publisher.publish(hint(), active, 0);
+            provider.start().toCompletableFuture().join();
+            assertEquals(1, provider.publishedRevision());
+
+            client.expireEphemeralRecords();
+
+            assertThrows(IllegalStateException.class, () -> publisher.publish(hint(), active, 1));
+            assertThrows(RuntimeException.class, () -> provider.refresh().toCompletableFuture().join());
+            assertEquals(RouteCacheHealth.WATCH_GAP, provider.health());
+        } finally {
+            session.close();
+        }
+    }
+
     @Test
     void publisherHeadCasAndNotificationRebuildAnExactRouteCache() throws Exception {
         final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
@@ -119,7 +147,7 @@ class OxiaSignedRouteSnapshotProviderTest {
                 .publishedRevision());
     }
 
-    private static RouteSelectionHint hint() {
+    static RouteSelectionHint hint() {
         return new RouteSelectionHint(AdapterKindV1.KAFKA, Bytes.utf8("primary"));
     }
 
@@ -128,8 +156,8 @@ class OxiaSignedRouteSnapshotProviderTest {
                 bytes(32, 3));
     }
 
-    private static RouteSnapshotV1 snapshot(final KeyPair keys, final RouteIncarnation incarnation,
-                                            final RouteLifecycleV1 lifecycle, final long controlVersion) {
+    static RouteSnapshotV1 snapshot(final KeyPair keys, final RouteIncarnation incarnation,
+                                    final RouteLifecycleV1 lifecycle, final long controlVersion) {
         return snapshotWithTopic(keys, incarnation, lifecycle, controlVersion,
                 UUID.fromString("12345678-1234-7abc-8def-1234567890ab"));
     }
@@ -169,10 +197,12 @@ class OxiaSignedRouteSnapshotProviderTest {
         return value;
     }
 
-    private static final class FakeRouteClient implements OxiaRouteRecordClient {
+    static final class FakeRouteClient implements OxiaRouteRecordClient {
         private final Map<String, Stored> records = new TreeMap<>();
+        private final Set<String> ephemeralKeys = new HashSet<>();
         private final List<Consumer<Notification>> watchers = new ArrayList<>();
         private long nextVersion = 1;
+        private boolean failNextEphemeralPutAfterCommit;
 
         @Override
         public GetResult get(final String key) {
@@ -219,13 +249,23 @@ class OxiaSignedRouteSnapshotProviderTest {
                     && (existing == null || existing.version().versionId() != expected.versionId())) {
                 throw new UnexpectedVersionIdException(key, expected.versionId());
             }
-            final Version version = new Version(nextVersion++, 0, 0, 0, Optional.empty(), Optional.empty());
+            final boolean ephemeral = options.contains(PutOption.AsEphemeralRecord);
+            final Version version = new Version(nextVersion++, 0, 0, 0,
+                    ephemeral ? Optional.of(7L) : Optional.empty(),
+                    ephemeral ? Optional.of("fake-route-client") : Optional.empty());
             records.put(key, new Stored(Bytes.copy(value), version));
+            if (ephemeral) {
+                ephemeralKeys.add(key);
+            }
             final Notification notification = existing == null
                     ? new Notification.KeyCreated(key, version.versionId())
                     : new Notification.KeyModified(key, version.versionId());
             for (Consumer<Notification> watcher : List.copyOf(watchers)) {
                 watcher.accept(notification);
+            }
+            if (ephemeral && failNextEphemeralPutAfterCommit) {
+                failNextEphemeralPutAfterCommit = false;
+                throw new IllegalStateException("simulated Route session put response loss");
             }
             return new PutResult(key, version);
         }
@@ -235,9 +275,21 @@ class OxiaSignedRouteSnapshotProviderTest {
             records.put(key, new Stored(Bytes.copy(value), version));
         }
 
+        void expireEphemeralRecords() {
+            for (String key : Set.copyOf(ephemeralKeys)) {
+                records.remove(key);
+            }
+            ephemeralKeys.clear();
+        }
+
+        void failNextEphemeralPutAfterCommit() {
+            failNextEphemeralPutAfterCommit = true;
+        }
+
         @Override
         public void close() {
             records.clear();
+            ephemeralKeys.clear();
             watchers.clear();
         }
 

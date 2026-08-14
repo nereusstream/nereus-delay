@@ -13,6 +13,11 @@ import java.util.function.Consumer;
 
 /** Minimal Oxia record/watch surface used by the Route authority composition. */
 interface OxiaRouteRecordClient extends AutoCloseable {
+    /** Opens or revalidates an optional session fence before authority I/O. */
+    default void startSession() {
+        // Raw clients remain a compatibility composition without a session fence.
+    }
+
     GetResult get(String key);
 
     CloseableIterable<GetResult> rangeScan(String startKeyInclusive, String endKeyExclusive);
