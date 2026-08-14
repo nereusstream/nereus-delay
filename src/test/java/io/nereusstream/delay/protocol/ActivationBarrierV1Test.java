@@ -6,6 +6,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ActivationBarrierV1Test {
     @Test
@@ -56,6 +57,31 @@ class ActivationBarrierV1Test {
                 () -> ActivationBarrierV1.pulsar(BrokerResourceIdentityV1.pulsar(
                         new PulsarBrokerResourceIdentityV1("cluster", bytes(32, 4), "topic", 1)),
                         0, 1, 1, 0, 1, 1, new byte[32]));
+    }
+
+    @Test
+    void projectsSignedRouteBarrierToExactSourceIdentity() {
+        final RouteIncarnation incarnation = new RouteIncarnation(bytes(16, 10));
+        final KafkaBrokerResourceIdentityV1 kafkaResource = new KafkaBrokerResourceIdentityV1(
+                "cluster", UUID.randomUUID());
+        final ActivationBarrierV1 kafka = ActivationBarrierV1.kafka(
+                BrokerResourceIdentityV1.kafka(kafkaResource), 3, 11, 12);
+        final SourceActivationBarrier kafkaSource = kafka.toSourceBarrier(incarnation);
+        assertTrue(kafkaSource instanceof KafkaActivationBarrier);
+        assertEquals(new ShardId(incarnation, 3), kafkaSource.shardId());
+        assertEquals(11, ((KafkaActivationBarrier) kafkaSource).exclusiveOffset());
+
+        final PulsarBrokerResourceIdentityV1 pulsarResource = new PulsarBrokerResourceIdentityV1(
+                "cluster", bytes(32, 20), "persistent://tenant/ns/topic", 21);
+        final ActivationBarrierV1 pulsar = ActivationBarrierV1.pulsar(
+                BrokerResourceIdentityV1.pulsar(pulsarResource), 4, 5, 6, 1, 3, 9, bytes(32, 22));
+        final SourceActivationBarrier pulsarSource = pulsar.toSourceBarrier(incarnation);
+        assertTrue(pulsarSource instanceof PulsarActivationBarrier);
+        final PulsarActivationBarrier exact = (PulsarActivationBarrier) pulsarSource;
+        assertEquals(new ShardId(incarnation, 4), exact.shardId());
+        assertEquals(5, exact.ledgerId());
+        assertEquals(6, exact.entryId());
+        assertEquals(3, exact.batchSize());
     }
 
     private static byte[] bytes(final int length, final int seed) {

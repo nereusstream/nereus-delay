@@ -138,6 +138,30 @@ public final class ActivationBarrierV1 {
         return batchSize;
     }
 
+    /**
+     * Projects this signed Route barrier into the source-assignment barrier
+     * used by the Worker. The Route resource identity and partition remain
+     * bound to the supplied Route incarnation; no name-only source identity
+     * can be created by this projection.
+     */
+    public SourceActivationBarrier toSourceBarrier(final RouteIncarnation routeIncarnation) {
+        final ShardId shard = new ShardId(Objects.requireNonNull(routeIncarnation, "routeIncarnation"), partition);
+        return switch (kind) {
+            case EMPTY -> switch (resource.kind()) {
+                case KAFKA -> new KafkaActivationBarrier(shard, resource.kafka().authenticatedClusterId(),
+                        resource.kafka().nativeTopicUuid(), 0);
+                case PULSAR -> PulsarActivationBarrier.empty(shard, resource.pulsar().resourceIncarnation(),
+                        resource.pulsar().physicalTopic(), guardedSourceConnectionGeneration,
+                        resourceGuardAttestationDigest);
+            };
+            case KAFKA -> new KafkaActivationBarrier(shard, resource.kafka().authenticatedClusterId(),
+                    resource.kafka().nativeTopicUuid(), nextOffsetExclusive);
+            case PULSAR -> new PulsarActivationBarrier(shard, resource.pulsar().resourceIncarnation(),
+                    resource.pulsar().physicalTopic(), ledgerId, entryId, normalizedBatchIndex, batchSize,
+                    guardedSourceConnectionGeneration, resourceGuardAttestationDigest, false);
+        };
+    }
+
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(output -> {
             switch (kind) {
