@@ -1,0 +1,18 @@
+services:
+  pulsar:
+    image: ${PULSAR_P1_IMAGE}
+    hostname: pulsar
+    environment:
+      PULSAR_BROKER_PORT: ${PULSAR_BROKER_PORT}
+      PULSAR_WEB_PORT: ${PULSAR_WEB_PORT}
+      PULSAR_MEM: "-Xms256m -Xmx512m -XX:MaxDirectMemorySize=512m"
+    ports:
+      - "127.0.0.1:${PULSAR_BROKER_PORT}:${PULSAR_BROKER_PORT}"
+      - "127.0.0.1:${PULSAR_WEB_PORT}:${PULSAR_WEB_PORT}"
+    volumes:
+      - pulsar-data:/pulsar/data
+      - pulsar-logs:/pulsar/logs
+
+volumes:
+  pulsar-data:
+  pulsar-logs:
