@@ -37,6 +37,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SourceApplyCoordinatorTest {
@@ -187,6 +188,62 @@ class SourceApplyCoordinatorTest {
                         loop.runTurn(fixture.budget(), () -> 101).status());
                 assertEquals(2, polls.get());
             }
+        }
+    }
+
+    @Test
+    void workerShardRuntimeBlocksDrainUntilPendingAckIsResolvedAndClosesSourceAfterRelease() throws Exception {
+        try (Fixture fixture = new Fixture(tempDir.resolve("worker-runtime"))) {
+            final SourceReplayRecord entry = fixture.entry("worker-runtime");
+            final AtomicInteger polls = new AtomicInteger();
+            final AtomicInteger acknowledgements = new AtomicInteger();
+            final AtomicInteger closeCalls = new AtomicInteger();
+            final AtomicInteger stopCalls = new AtomicInteger();
+            final SourceRecordConsumer consumer = new SourceRecordConsumer() {
+                @Override
+                public Optional<PolledSourceRecord> poll() {
+                    if (polls.incrementAndGet() != 1) {
+                        return Optional.empty();
+                    }
+                    return Optional.of(new PolledSourceRecord(entry, (candidate, outcome) -> {
+                        assertEquals(entry, candidate);
+                        return acknowledgements.incrementAndGet() == 1
+                                ? SourceAcknowledgement.AcknowledgementResult.unknown(null)
+                                : SourceAcknowledgement.AcknowledgementResult.acked();
+                    }));
+                }
+
+                @Override
+                public void close() {
+                    closeCalls.incrementAndGet();
+                }
+            };
+
+            final WorkerShardRuntime runtime = new WorkerShardRuntime(consumer, fixture.workClasses,
+                    fixture.owned, fixture.store, fixture.resources, fixture.authority, fixture.verificationKey);
+            assertEquals(SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
+                    runtime.runSourceTurn(fixture.budget(), () -> 101).status());
+            assertThrows(IllegalStateException.class, () -> runtime.drain(
+                    new OwnerDrainCoordinator.DrainRequest(5_000, 0, null), () -> 101,
+                    stopCalls::incrementAndGet));
+            assertFalse(runtime.sourcePaused());
+            assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                    runtime.runSourceTurn(fixture.budget(), () -> 101).status());
+
+            final OwnerDrainCoordinator.DrainResult result = runtime.drain(
+                    new OwnerDrainCoordinator.DrainRequest(5_000, 0, null), () -> 101,
+                    stopCalls::incrementAndGet);
+
+            assertEquals(0, result.revokedClaims());
+            assertTrue(runtime.sourcePaused());
+            assertTrue(runtime.pendingSourceEntry().isEmpty());
+            assertEquals(1, stopCalls.get());
+            assertEquals(1, closeCalls.get());
+            assertTrue(fixture.store.isClosed());
+            assertTrue(fixture.backend.current(fixture.shard).isEmpty());
+            assertThrows(IllegalStateException.class, () -> runtime.runSourceTurn(
+                    fixture.budget(), () -> 101));
+            runtime.close();
         }
     }
 
