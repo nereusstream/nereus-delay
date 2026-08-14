@@ -197,6 +197,33 @@ tasks.register('runRealPulsarServiceSmoke', JavaExec) {
     args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarTopic')
 }
 
+tasks.register('runRealPulsarSourceSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the P1 guarded source SUBSCRIBE, replay, Broker timestamp, and ACK handoff smoke.'
+    dependsOn tasks.named('compileRealPulsar')
+    if (realPulsarClientClasspath == null || realPulsarRuntimeDir == null
+            || findProperty('pulsarServiceUrl') == null
+            || findProperty('pulsarAdminUrl') == null || findProperty('pulsarTopic') == null) {
+        doFirst {
+            throw new GradleException(
+                    'runRealPulsarSourceSmoke requires -PpulsarClientClasspath=... '
+                            + '-PpulsarRuntimeDir=/path/to/pulsar-distribution/lib '
+                            + '-PpulsarServiceUrl=pulsar://host:6650 -PpulsarAdminUrl=http://host:8080 '
+                            + '-PpulsarTopic=topic')
+        }
+    }
+    doFirst {
+        if (!file(realPulsarRuntimeDir).isDirectory()) {
+            throw new GradleException('pulsarRuntimeDir must be an extracted P1 distribution lib directory')
+        }
+    }
+    classpath = files(sourceSets.main.output,
+            sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator),
+            fileTree(realPulsarRuntimeDir).include('**/*.jar'))
+    mainClass = 'io.nereusstream.delay.transport.PulsarClientArtifactSourceSmoke'
+    args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarTopic')
+}
+
 protobuf {
     protoc {
         artifact = 'com.google.protobuf:protoc:4.35.0'
