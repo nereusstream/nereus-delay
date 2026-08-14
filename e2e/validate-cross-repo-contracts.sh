@@ -136,7 +136,7 @@ require_file_text "$pulsar_checkout/pulsar-common/src/main/proto/PulsarApi.proto
 require_file_text "$pulsar_checkout/pulsar-client-api/src/main/java/org/apache/pulsar/client/api/GuardedConsumer.java" \
     "Optional<TopicResourceGuardAttestation> resourceGuardAttestation()"
 require_file_text "$pulsar_checkout/pulsar-client/src/main/java/org/apache/pulsar/client/impl/ConsumerImpl.java" \
-    "sourceConnectionGeneration"
+    "guardedSourceConnectionGeneration"
 require_file_text "$pulsar_checkout/pulsar-broker/src/main/java/org/apache/pulsar/broker/service/ServerCnx.java" \
     "guardedSourceConnectionGeneration"
 require_file_text "$pulsar_checkout/pulsar-broker/src/main/java/org/apache/pulsar/broker/service/Producer.java" \
