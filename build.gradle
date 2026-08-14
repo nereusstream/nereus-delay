@@ -29,6 +29,11 @@ dependencies {
     implementation platform('io.opentelemetry:opentelemetry-bom-alpha:1.63.0-alpha')
     implementation 'io.opentelemetry:opentelemetry-api:1.63.0'
 
+    // The opt-in real Kafka/Pulsar client smokes load upstream client jars
+    // directly, so their SLF4J API must be present on the JavaExec classpath.
+    runtimeOnly 'org.slf4j:slf4j-api:2.0.17'
+    runtimeOnly 'org.slf4j:slf4j-simple:2.0.17'
+
     testImplementation platform('org.junit:junit-bom:5.13.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
@@ -36,6 +41,95 @@ dependencies {
     // Keep the default library surface backend-neutral, but make the opt-in real-service
     // test runnable from Gradle without relying on a host application's logging setup.
     testRuntimeOnly 'org.slf4j:slf4j-simple:2.0.17'
+}
+
+// Real upstream client bindings are opt-in.  The shared V1 semantic/core
+// build must remain independent of Kafka/Pulsar client classes; callers that
+// have the locked K1 artifact can run `compileRealKafka` with
+// `-PkafkaClientJar=/absolute/path/to/kafka-clients.jar`.
+sourceSets {
+    realKafka {
+        java.srcDir('src/real-kafka/java')
+    }
+    realPulsar {
+        java.srcDir('src/real-pulsar/java')
+    }
+}
+
+// The default source-set compile tasks have no artifact classpath until the
+// caller supplies one.  The explicit tasks below own that opt-in boundary.
+tasks.named('compileRealKafkaJava').configure { enabled = false }
+tasks.named('compileRealPulsarJava').configure { enabled = false }
+
+def realKafkaClientJar = findProperty('kafkaClientJar')
+def realPulsarClientClasspath = findProperty('pulsarClientClasspath')
+
+tasks.register('compileRealKafka', JavaCompile) {
+    group = 'verification'
+    description = 'Compiles the Delay Kafka binding against an explicitly supplied locked K1 client artifact.'
+    dependsOn tasks.named('classes')
+    if (realKafkaClientJar == null) {
+        doFirst {
+            throw new GradleException('compileRealKafka requires -PkafkaClientJar=/absolute/path/to/kafka-clients.jar')
+        }
+    }
+    source = sourceSets.realKafka.java
+    classpath = files(sourceSets.main.output, realKafkaClientJar)
+    destinationDirectory = layout.buildDirectory.dir('classes/java/realKafka')
+    options.release = 21
+    options.encoding = 'UTF-8'
+    options.compilerArgs += ['-Xlint:all', '-Werror']
+}
+
+tasks.register('runRealKafkaSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the K1-to-Delay binding against an explicitly supplied Kafka broker.'
+    dependsOn tasks.named('compileRealKafka')
+    if (realKafkaClientJar == null || findProperty('kafkaBootstrap') == null || findProperty('kafkaTopic') == null) {
+        doFirst {
+            throw new GradleException(
+                    'runRealKafkaSmoke requires -PkafkaClientJar=... -PkafkaBootstrap=host:port -PkafkaTopic=name')
+        }
+    }
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactSmoke'
+    args findProperty('kafkaBootstrap'), findProperty('kafkaTopic')
+    if (findProperty('smokeMode') != null) {
+        args findProperty('smokeMode')
+    }
+}
+
+tasks.register('compileRealPulsar', JavaCompile) {
+    group = 'verification'
+    description = 'Compiles the Delay Pulsar binding against explicitly supplied locked P1 client artifacts.'
+    dependsOn tasks.named('classes')
+    if (realPulsarClientClasspath == null) {
+        doFirst {
+            throw new GradleException(
+                    'compileRealPulsar requires -PpulsarClientClasspath=/absolute/path/client.jar:api.jar:common.jar')
+        }
+    }
+    source = sourceSets.realPulsar.java
+    classpath = files(sourceSets.main.output, realPulsarClientClasspath.split(File.pathSeparator))
+    destinationDirectory = layout.buildDirectory.dir('classes/java/realPulsar')
+    options.release = 21
+    options.encoding = 'UTF-8'
+    options.compilerArgs += ['-Xlint:all', '-Werror']
+}
+
+tasks.register('runRealPulsarSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the P1 Delay binding API/evidence smoke against the locked client artifact.'
+    dependsOn tasks.named('compileRealPulsar')
+    if (realPulsarClientClasspath == null) {
+        doFirst {
+            throw new GradleException(
+                    'runRealPulsarSmoke requires -PpulsarClientClasspath=/absolute/path/client.jar:api.jar:common.jar')
+        }
+    }
+    classpath = files(sourceSets.main.runtimeClasspath,
+            sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator))
+    mainClass = 'io.nereusstream.delay.transport.PulsarClientArtifactBindingSmoke'
 }
 
 protobuf {

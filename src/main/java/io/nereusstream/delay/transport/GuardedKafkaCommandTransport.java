@@ -31,6 +31,7 @@ public final class GuardedKafkaCommandTransport implements CommandTransport {
         Objects.requireNonNull(ownershipPermit, "ownershipPermit");
         if (!(request instanceof KafkaProduceRequest kafka)
                 || !key.authenticatedClusterId().equals(kafka.authenticatedClusterId())
+                || !key.canonicalTopic().equals(kafka.canonicalPhysicalTopic())
                 || !key.nativeTopicUuid().equals(kafka.nativeTopicUuid())
                 || key.partition() != kafka.partition()) {
             return CompletableFuture.completedFuture(KafkaProduceResult.definitelyNotPersisted(

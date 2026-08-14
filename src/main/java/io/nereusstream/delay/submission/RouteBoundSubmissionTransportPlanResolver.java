@@ -58,7 +58,7 @@ public final class RouteBoundSubmissionTransportPlanResolver implements Submissi
         final CredentialBindingKey binding = credentialBinding(route.credentialBinding());
         if (route.ingress() instanceof KafkaIngressRouteResourceV1 kafka) {
             final KafkaIngressResource resource = new KafkaIngressResource(command.shardId(),
-                    kafka.authenticatedClusterId(), kafka.nativeTopicUuid(), partition);
+                    kafka.authenticatedClusterId(), kafka.canonicalPhysicalTopic(), kafka.nativeTopicUuid(), partition);
             final KafkaProduceRequest request = KafkaProduceRequest.from(resource, command, frame);
             final KafkaCommandTransportKey key = new KafkaCommandTransportKey(kafka.authenticatedClusterId(),
                     kafka.canonicalPhysicalTopic(), kafka.nativeTopicUuid(), partition, binding);

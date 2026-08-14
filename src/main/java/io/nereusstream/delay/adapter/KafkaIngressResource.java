@@ -11,11 +11,13 @@ import java.text.Normalizer;
 public record KafkaIngressResource(
         ShardId shardId,
         String authenticatedClusterId,
+        String canonicalPhysicalTopic,
         UUID nativeTopicUuid,
         int partition) {
     public KafkaIngressResource {
         Objects.requireNonNull(shardId, "shardId");
         authenticatedClusterId = canonicalText(authenticatedClusterId, "authenticatedClusterId");
+        canonicalPhysicalTopic = canonicalText(canonicalPhysicalTopic, "canonicalPhysicalTopic");
         Objects.requireNonNull(nativeTopicUuid, "nativeTopicUuid");
         if (partition != shardId.partition()) {
             throw new IllegalArgumentException("invalid pinned Kafka ingress resource");

@@ -27,7 +27,7 @@ class GuardedTransportOwnershipTest {
         final UUID topic = UUID.randomUUID();
         final PreparedCommand command = PreparedCommand.create(shard, CommandId.random(shard),
                 DelayMessageId.random(shard), CommandType.SCHEDULE, 600, Bytes.utf8("command-body"));
-        final KafkaProduceRequest request = new KafkaProduceRequest("cluster", topic, 3, command.commandId(),
+        final KafkaProduceRequest request = new KafkaProduceRequest("cluster", "topic", topic, 3, command.commandId(),
                 Bytes.utf8("frame"));
         final AtomicInteger sends = new AtomicInteger();
         final KafkaCommandTransportKey key = new KafkaCommandTransportKey("cluster", "topic", topic, 3,
@@ -63,7 +63,7 @@ class GuardedTransportOwnershipTest {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
         final PreparedCommand command = PreparedCommand.create(shard, CommandId.random(shard),
                 DelayMessageId.random(shard), CommandType.SCHEDULE, 600, Bytes.utf8("body"));
-        final KafkaProduceRequest wrongTopic = new KafkaProduceRequest("cluster", UUID.randomUUID(), 0,
+        final KafkaProduceRequest wrongTopic = new KafkaProduceRequest("cluster", "topic", UUID.randomUUID(), 0,
                 command.commandId(), Bytes.utf8("frame"));
         final LocalTransportOwnershipPermit closed = new LocalTransportOwnershipPermit(
                 PhysicalEnqueueAttemptId.require(bytes(16, 8)));
@@ -82,7 +82,7 @@ class GuardedTransportOwnershipTest {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
         final PreparedCommand command = PreparedCommand.create(shard, CommandId.random(shard),
                 DelayMessageId.random(shard), CommandType.SCHEDULE, 600, Bytes.utf8("body"));
-        final KafkaProduceRequest request = new KafkaProduceRequest("cluster", topic, 0, command.commandId(),
+        final KafkaProduceRequest request = new KafkaProduceRequest("cluster", "topic", topic, 0, command.commandId(),
                 Bytes.utf8("frame"));
         final PhysicalEnqueueAttemptId permitId = PhysicalEnqueueAttemptId.require(bytes(16, 20));
         final GuardedKafkaCommandTransport transport = new GuardedKafkaCommandTransport(key, value ->

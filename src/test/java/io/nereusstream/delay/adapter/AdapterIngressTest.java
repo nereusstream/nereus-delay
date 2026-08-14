@@ -36,7 +36,7 @@ class AdapterIngressTest {
     void kafkaAdapterReturnsQueuedOnlyForPinnedPersistedResult() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 2);
         final UUID topic = UUID.randomUUID();
-        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-a", topic, 2);
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-a", "command-topic", topic, 2);
         final PreparedCommand command = command(shard);
         final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request -> {
             assertEquals(topic, request.nativeTopicUuid());
@@ -57,7 +57,7 @@ class AdapterIngressTest {
     @Test
     void kafkaTransportExceptionIsUncertainAndNotDefinitelyRejected() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
-        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster", UUID.randomUUID(), 0);
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster", "command-topic", UUID.randomUUID(), 0);
         final PreparedCommand command = command(shard);
         final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request -> {
             throw new IllegalStateException("connection lost after ownership");
@@ -73,7 +73,7 @@ class AdapterIngressTest {
     void kafkaCompletionStageRegistrationFailureIsUncertain() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 34);
         final UUID topic = UUID.randomUUID();
-        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-stage", topic, 34);
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-stage", "command-topic", topic, 34);
         final PreparedCommand command = command(shard);
         final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request ->
                 new HandleRegistrationFailureFuture<>();
@@ -94,7 +94,7 @@ class AdapterIngressTest {
     void kafkaNullHandledStageIsUncertain() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 36);
         final UUID topic = UUID.randomUUID();
-        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-null-handle", topic, 36);
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-null-handle", "command-topic", topic, 36);
         final PreparedCommand command = command(shard);
         final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request ->
                 new NullHandledFuture<>();
@@ -113,7 +113,7 @@ class AdapterIngressTest {
     void kafkaWireBridgeCarriesQueuedReceiptAndAckEvidence() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 5);
         final UUID topic = UUID.randomUUID();
-        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-wire", topic, 5);
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-wire", "command-topic", topic, 5);
         final PreparedCommand command = command(shard);
         final byte[] evidence = Bytes.utf8("kafka-response");
         final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("wire-attempt")), 16);
@@ -135,7 +135,7 @@ class AdapterIngressTest {
     void policyBoundKafkaDerivesReceiptBoundaryFromBrokerPersistenceTime() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 38);
         final UUID topic = UUID.randomUUID();
-        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-policy", topic, 38);
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-policy", "command-topic", topic, 38);
         final PreparedCommand command = command(shard);
         final QueuedReceiptQueryPolicy policy = new QueuedReceiptQueryPolicy(7, 4_000);
         final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("policy-kafka-attempt")), 16);
@@ -153,7 +153,7 @@ class AdapterIngressTest {
     void policyBoundIngressFailsClosedWhenBoundaryAdditionOverflows() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 39);
         final UUID topic = UUID.randomUUID();
-        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-overflow", topic, 39);
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-overflow", "command-topic", topic, 39);
         final PreparedCommand command = command(shard);
         final QueuedReceiptQueryPolicy policy = new QueuedReceiptQueryPolicy(8, 1);
         final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("policy-overflow-attempt")), 16);
@@ -172,7 +172,7 @@ class AdapterIngressTest {
     void kafkaWireBridgeCarriesAuthenticatedDefinitiveProof() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
         final UUID topic = UUID.randomUUID();
-        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-proof", topic, 6);
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-proof", "command-topic", topic, 6);
         final PreparedCommand command = command(shard);
         final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("proof-attempt")), 16);
         final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request ->
@@ -192,7 +192,7 @@ class AdapterIngressTest {
     void kafkaWireDoesNotTurnMismatchedDefinitiveCodeIntoProof() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 32);
         final UUID topic = UUID.randomUUID();
-        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-malformed-proof", topic, 32);
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-malformed-proof", "command-topic", topic, 32);
         final PreparedCommand command = command(shard);
         final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("malformed-proof-attempt")), 16);
         final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request ->
@@ -210,7 +210,7 @@ class AdapterIngressTest {
     @Test
     void kafkaWireBridgeKeepsTransportExceptionUncertain() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 7);
-        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-unknown", UUID.randomUUID(), 7);
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-unknown", "command-topic", UUID.randomUUID(), 7);
         final PreparedCommand command = command(shard);
         final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("unknown-attempt")), 16);
         final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request -> {
@@ -226,7 +226,7 @@ class AdapterIngressTest {
     @Test
     void kafkaWireBridgeDoesNotInventProofWithoutResponseEvidence() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 8);
-        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-no-proof", UUID.randomUUID(), 8);
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-no-proof", "command-topic", UUID.randomUUID(), 8);
         final PreparedCommand command = command(shard);
         final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("no-proof-attempt")), 16);
         final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request ->
@@ -243,7 +243,7 @@ class AdapterIngressTest {
     void kafkaWireProjectionFailureIsUncertain() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 27);
         final UUID topic = UUID.randomUUID();
-        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-projection", topic, 27);
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-projection", "command-topic", topic, 27);
         final PreparedCommand command = command(shard);
         final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("projection-attempt")), 16);
         final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request ->
@@ -264,7 +264,7 @@ class AdapterIngressTest {
         final byte[] token = Bytes.sha256(Bytes.utf8("canonical-token"));
         final String decomposed = "cluster\u0301";
         assertThrows(IllegalArgumentException.class,
-                () -> new KafkaIngressResource(shard, decomposed, topic, 28));
+                () -> new KafkaIngressResource(shard, decomposed, "command-topic", topic, 28));
         assertThrows(IllegalArgumentException.class,
                 () -> new PulsarIngressResource(shard, "cluster", token,
                         "persistent://tenant/ns/topic\u0301", 9_028, 28));
@@ -286,7 +286,7 @@ class AdapterIngressTest {
     @Test
     void kafkaV1RejectsInvalidPhysicalAttemptBeforeTransportOwnership() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 30);
-        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-attempt", UUID.randomUUID(), 30);
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-attempt", "command-topic", UUID.randomUUID(), 30);
         final PreparedCommand command = command(shard);
         final java.util.concurrent.atomic.AtomicBoolean transportCalled = new java.util.concurrent.atomic.AtomicBoolean();
         final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request -> {
@@ -324,7 +324,7 @@ class AdapterIngressTest {
     @Test
     void kafkaV1WireRejectsLegacyBodyBeforeTransportOwnership() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 25);
-        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-v1", UUID.randomUUID(), 25);
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-v1", "command-topic", UUID.randomUUID(), 25);
         final PreparedCommand legacy = PreparedCommand.schedule(shard,
                 new io.nereusstream.delay.protocol.ScheduleIntent(DestinationLaneId.derive(
                         Bytes.utf8("legacy-v1-lane")), 2_000, 5_000, OrderingMode.BEST_EFFORT,
@@ -466,7 +466,7 @@ class AdapterIngressTest {
     void managedIngressDoesNotLeakNativeUncertainCode() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 22);
         final UUID topic = UUID.randomUUID();
-        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-managed-code", topic, 22);
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-managed-code", "command-topic", topic, 22);
         final PreparedCommand command = command(shard);
         final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request ->
                 CompletableFuture.completedFuture(KafkaProduceResult.unknown(
@@ -487,7 +487,7 @@ class AdapterIngressTest {
     void managedIngressNormalizesNativeGuardCode() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 23);
         final UUID topic = UUID.randomUUID();
-        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-managed-guard", topic, 23);
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-managed-guard", "command-topic", topic, 23);
         final PreparedCommand command = command(shard);
         final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request ->
                 CompletableFuture.completedFuture(KafkaProduceResult.definitelyNotPersisted(

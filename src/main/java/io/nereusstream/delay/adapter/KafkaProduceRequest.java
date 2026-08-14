@@ -13,12 +13,14 @@ import java.text.Normalizer;
 /** Request handed to a request-level pinned-topic Kafka transport. */
 public record KafkaProduceRequest(
         String authenticatedClusterId,
+        String canonicalPhysicalTopic,
         UUID nativeTopicUuid,
         int partition,
         CommandId commandId,
         byte[] frame) implements TransportRequest {
     public KafkaProduceRequest {
         authenticatedClusterId = canonicalText(authenticatedClusterId, "authenticatedClusterId");
+        canonicalPhysicalTopic = canonicalText(canonicalPhysicalTopic, "canonicalPhysicalTopic");
         Objects.requireNonNull(nativeTopicUuid, "nativeTopicUuid");
         Objects.requireNonNull(commandId, "commandId");
         Objects.requireNonNull(frame, "frame");
@@ -30,7 +32,8 @@ public record KafkaProduceRequest(
 
     public static KafkaProduceRequest from(final KafkaIngressResource resource, final PreparedCommand command,
                                            final byte[] frame) {
-        return new KafkaProduceRequest(resource.authenticatedClusterId(), resource.nativeTopicUuid(),
+        return new KafkaProduceRequest(resource.authenticatedClusterId(), resource.canonicalPhysicalTopic(),
+                resource.nativeTopicUuid(),
                 resource.partition(), command.commandId(), frame);
     }
 

@@ -1,0 +1,17 @@
+FROM eclipse-temurin:21-jre
+
+WORKDIR /opt/kafka
+
+COPY bin/ /opt/kafka/bin/
+COPY config/ /opt/kafka/config/
+COPY core/build/ /opt/kafka/core/build/
+COPY clients/build/ /opt/kafka/clients/build/
+COPY kafka-k1-entrypoint.sh /opt/kafka/kafka-k1-entrypoint.sh
+
+RUN chmod +x /opt/kafka/bin/*.sh /opt/kafka/kafka-k1-entrypoint.sh \
+    && mkdir -p /opt/kafka/config /tmp/kafka-logs \
+    && useradd --create-home --uid 1001 kafka \
+    && chown -R kafka:kafka /opt/kafka /tmp/kafka-logs
+
+USER kafka
+ENTRYPOINT ["/opt/kafka/kafka-k1-entrypoint.sh"]

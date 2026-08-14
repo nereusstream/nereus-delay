@@ -25,7 +25,7 @@ class AdapterRequestIdentityTest {
         final byte[] frame = Bytes.utf8("frame");
 
         assertThrows(IllegalArgumentException.class,
-                () -> new KafkaProduceRequest(decomposed, UUID.randomUUID(), shard.partition(), commandId, frame));
+                () -> new KafkaProduceRequest(decomposed, "command-topic", UUID.randomUUID(), shard.partition(), commandId, frame));
         assertThrows(IllegalArgumentException.class,
                 () -> new PulsarSendRequest("cluster", resource, topic + '\u0301', 1, shard.partition(),
                         commandId, frame));
