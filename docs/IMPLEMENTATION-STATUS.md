@@ -233,6 +233,31 @@ This is a Worker lifecycle composition only: it does not instantiate Kafka or
 Pulsar clients, own Oxia placement/session authority, or prove due/publish/
 checkpoint/recovery scheduling and real Broker ACK/rewind behavior.
 
+## 2026-08-15 isolated Oxia Docker smoke slice
+
+Delay worktree commit `3d0bf7ea081ae7b652e3a0ca4b66003bc4b23618` adds the
+isolated `e2e/run-oxia-real-service.sh` harness and its Compose definition. It
+builds the selected Oxia checkout into a uniquely named Compose project, uses
+only the container filesystem, waits for the in-container health service, and
+cleans the project on exit. It does not reuse existing containers, ports or
+volumes.
+
+The following command passed on 2026-08-15:
+
+```text
+./e2e/run-oxia-real-service.sh
+```
+
+The run built Oxia source `37a17bef17202d5fd6e23282da5fd26d94865484`, used
+Compose project `nereus-delay-v1-oxia-e2e-1786729940-65321` and host endpoint
+`127.0.0.1:16649`, then ran
+`OxiaRealServiceSmokeTest`, `OxiaRealControlAuthoritySmokeTest`,
+`OxiaRealRecoveryAuthoritySmokeTest` and
+`OxiaRealGatewayAuditSinkSmokeTest`; Gradle reported `BUILD SUCCESSFUL`.
+The exit cleanup left no matching container or network. This is Dockerized
+Oxia authority/audit evidence only, not a complete Kafka/Pulsar broker,
+source-consumer, Worker scheduling, HA or release E2E.
+
 ## 2026-08-14 Direct SDK outbox fail-closed slice
 
 Delay worktree commit `bcf2f0a8` adds a shared prepared-submission uncertainty

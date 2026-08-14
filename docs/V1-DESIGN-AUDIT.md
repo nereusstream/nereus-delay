@@ -138,6 +138,18 @@ does not establish native Kafka/Pulsar consumers, Oxia placement/session
 authority, due/publish/checkpoint/recovery scheduling, or real Broker ACK and
 rewind evidence.
 
+Commit `3d0bf7ea081ae7b652e3a0ca4b66003bc4b23618` adds an isolated Docker
+Compose harness for the Oxia real-service smokes. On 2026-08-15,
+`./e2e/run-oxia-real-service.sh` built Oxia source
+`37a17bef17202d5fd6e23282da5fd26d94865484`, started unique Compose project
+`nereus-delay-v1-oxia-e2e-1786729940-65321` on host endpoint
+`127.0.0.1:16649`, and passed the Owner, Control, Recovery and Gateway audit
+real-service test classes with Gradle `BUILD SUCCESSFUL`. The exit trap
+removed the matching container and network. This is isolated Dockerized Oxia
+authority/audit evidence; it does not promote Route activation/session
+reconnect, real Kafka/Pulsar transport, Worker vertical integration, HA or
+release status.
+
 Commit `bcf2f0a883cd3090ae96250453dabaa71f3945c5` also closes the local Direct
 SDK outbox-Final ambiguity branch: a completion-evidence write failure keeps
 the exact prepared branch and physical attempt and returns `ENQUEUE_UNCERTAIN`.

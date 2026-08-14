@@ -2167,6 +2167,18 @@ Worker lifecycle seam; real Kafka/Pulsar consumers, Oxia placement/session
 authority, due/publish/checkpoint/recovery wiring and real Broker ACK/rewind
 remain open.
 
+2026-08-15 implementation evidence: commit
+`3d0bf7ea081ae7b652e3a0ca4b66003bc4b23618` adds an isolated Docker Compose
+Oxia smoke harness. `./e2e/run-oxia-real-service.sh` built source
+`37a17bef17202d5fd6e23282da5fd26d94865484`, started the uniquely named
+project `nereus-delay-v1-oxia-e2e-1786729940-65321` on
+`127.0.0.1:16649`, waited for in-container health, and passed the Owner,
+Control, Recovery and Gateway audit real-service classes with
+`BUILD SUCCESSFUL`; cleanup removed the matching container and network. This
+is Dockerized Oxia authority/audit evidence only and remains separate from
+Route activation/session reconnect, real Broker transport, Worker vertical,
+HA and release gates.
+
 ## 12. Worker 对接边界
 
 Gateway/Direct SDK 产生的都是同一 NDL1 bytes，因此 Worker 不增加“gateway command”分支。apply 仍是：
