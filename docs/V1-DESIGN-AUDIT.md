@@ -97,9 +97,10 @@ same-name delete/recreate (old incarnation rejected before persistence,
 replacement accepted); the affected-module checkstyle also passes with
 `GRADLE_USER_HOME=/tmp/nereus-pulsar-delay-gradle`.
 This is isolated upstream module evidence only: unload, multi-broker failover,
-old-peer proxy cuts, artifact/source digest, Docker and D3 Nereus transport
+old-peer proxy cuts, complete artifact attestation and D3 Nereus transport
 evidence remain OPEN, so this audit does not promote P1 or V1 production
-status.
+status. A separate Delay-side single-node real-client Docker cut is recorded
+below; it does not change those open boundaries.
 
 The post-permit live-service audit on 2026-08-12 ran from document commit
 `b45045b` with a temporary standalone Oxia service built from source commit
@@ -214,8 +215,23 @@ built from base
 and local image ID
 `sha256:8ef999e7f4151005ceaf570bb15989932628e040037e4e8056213ca4270f4b0b`.
 
+Delay commit `62ea85e8` adds and passes the real P1 client service Docker cut
+from P1 `7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9`. The temporary image uses
+distribution SHA-256
+`d4b9e8aa6b44582c383262007217980793ec41bdf7fa3a1a4285e220407fef32`, image
+ID `sha256:f377aeddd73913830a1004287e14eae910e739f39793a96fe41d38f2e5aca264`,
+and Compose project `nereus-delay-pulsar-e2e-1786737555-46201` on
+`19651,19652`. With broker timestamp/index metadata enabled and exposed, the
+smoke returned `initial=PERSISTED`,
+`stale=DEFINITIVELY_NOT_PERSISTED`, `replacement=PERSISTED`; its exit cleanup
+left no matching container, network, volume or temporary image. This closes
+only single-node P1 client/broker delete-recreate evidence. Unload,
+multi-broker failover, old-peer proxy compatibility, connected stale SEND
+without typed response evidence, D3 source/ACK and Worker production wiring
+remain OPEN.
+
 This is opt-in writer/client-binding evidence, not release promotion. Kafka
-K2 target-plus-receipt transactions, Pulsar D3 broker Docker/unload/reconnect,
+K2 target-plus-receipt transactions, Pulsar D3 unload/multi-broker/reconnect,
 guarded source Fetch/ACK/rewind, deployed Gateway authority, production
 Worker wiring and the remaining §23.5 artifact/chaos/SLO gates remain OPEN.
 

@@ -2128,6 +2128,22 @@ success, incarnation mismatch and typed code 26 rejection. This is a P1
 artifact/API binding smoke; it does not claim D3 source/ACK integration or
 multi-broker unload/reconnect evidence.
 
+Commit `62ea85e8` adds `PulsarClientArtifactRealServiceSmoke` and
+`e2e/run-pulsar-real-client-e2e.sh`. Against a server image built from the
+locked P1 distribution, with broker timestamp/index metadata enabled and
+exposed, the real client first returns evidenced `PERSISTED`, then after a
+closed-producer delete/recreate rejects old-guard producer creation with
+typed `TopicResourceGuardException(definitelyNotPersisted=true)`, and finally
+returns evidenced `PERSISTED` for the replacement guard. The run used P1
+`7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9`, distribution SHA-256
+`d4b9e8aa6b44582c383262007217980793ec41bdf7fa3a1a4285e220407fef32`, image
+ID `sha256:f377aeddd73913830a1004287e14eae910e739f39793a96fe41d38f2e5aca264`
+and Compose project `nereus-delay-pulsar-e2e-1786737555-46201`. This is a
+single-node P1 client/broker lifecycle cut only; a connected stale producer
+SEND after forced deletion can lose response evidence and remains `UNKNOWN`,
+so it is not promoted to definite failure. D3 source/ACK and unload,
+multi-broker and proxy-reconnect evidence remain open.
+
 现有 result 类对应改为：
 
 ```java
@@ -2515,10 +2531,10 @@ broker-entry timestamp receipt echo and typed evidence correlation.
 This remains an isolated upstream slice, not a Delay repository production
 transport. The single-broker delete/recreate cut is covered, and the Delay
 P1 binding records the three client artifact SHA-256 values and typed API
-smoke. Unload, multi-broker failover, old-peer proxy compatibility, complete
-artifact attestation and Docker lifecycle cuts remain required before the
-completion gate can pass; D3 must not use an ordinary Pulsar producer as a
-substitute.
+smoke and a single-node real-service Docker cut. Unload, multi-broker
+failover, old-peer proxy compatibility, complete artifact attestation and D3
+source/ACK integration remain required before the completion gate can pass;
+D3 must not use an ordinary Pulsar producer as a substitute.
 
 完成门：v22 wire compatibility、create+per-SEND guard、receipt echo、delete/recreate/unload/failover cut、focused modules格式检查。
 
@@ -2528,9 +2544,11 @@ substitute.
 pinned outcome mapping 已在 Delay 中建立 source-level composition seam；commit
 `3f76e836964d818360d5affc122515ccbac04717` 已在显式 `realPulsar` source set
 接入真实 locked Pulsar v22 client artifact、`GuardedMessageId` 和 typed
-response evidence，并通过 API/evidence smoke。仍需完成 D3 的真实 Broker
-Docker/unload/reconnect、Direct SDK E2E、source/ACK vertical 和 Worker
-ACK-after-sync。
+response evidence，并通过 API/evidence smoke。Commit `62ea85e8` further
+passes a real single-node Broker Docker delete/recreate cut with initial and
+replacement evidenced sends plus typed stale-producer rejection. 仍需完成 D3
+的 unload/multi-broker/proxy reconnect、Direct SDK E2E、source/ACK vertical
+和 Worker ACK-after-sync。
 
 完成门：exact GuardedMessageId、typed pre-persistence rejection、uncertainty persistence、source lock。
 

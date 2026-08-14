@@ -42,6 +42,44 @@ Use `NEREUS_DELAY_KAFKA_CHECKOUT`, `NEREUS_DELAY_KAFKA_CLIENT_JAR`, or the
 K1 produce/resource-incarnation smoke; it does not claim K2 target-plus-receipt
 transactions, Fetch/ACK source recovery, or the full Worker vertical.
 
+## Pulsar P1 real-client service E2E
+
+`run-pulsar-real-client-e2e.sh` builds a temporary Pulsar server image from the
+locked P1 distribution tarball, enables the broker entry-timestamp/index
+interceptors required by the P1 guarded-send contract, and runs the real
+Pulsar client binding against a unique single-node Compose project. The smoke
+creates a persistent topic with the exact three resource-guard properties,
+sends with the old guard and checks evidenced persistence, closes and deletes
+the topic, recreates the same name with a new guard, requires old-guard
+producer creation to fail with typed `definitelyNotPersisted`, and sends with
+the replacement guard. It extracts the distribution `lib/*.jar` files into a
+temporary host directory for the client runtime; the client/server jars and
+distribution all come from the same locked P1 checkout.
+
+```text
+./e2e/run-pulsar-real-client-e2e.sh
+```
+
+The harness requires a clean
+`nereus/delay-resource-guard-v1` checkout descended from
+`8dae0236c0a0d405ed7f8303081080520fe91551`. It records the P1 source SHA,
+distribution and client-jar SHA-256 values, image ID and allocated ports, and
+cleans only its own Compose project, volumes, temporary image and staging
+directories. The current run passed with P1
+`7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9`, distribution SHA-256
+`d4b9e8aa6b44582c383262007217980793ec41bdf7fa3a1a4285e220407fef32`, image
+`sha256:f377aeddd73913830a1004287e14eae910e739f39793a96fe41d38f2e5aca264`,
+Compose project `nereus-delay-pulsar-e2e-1786737555-46201`, ports
+`19651,19652`, and output
+`initial=PERSISTED, stale=DEFINITIVELY_NOT_PERSISTED, replacement=PERSISTED`.
+The exit check found no matching container, network, volume or temporary
+image.
+
+This closes only the single-node real P1 client/broker delete-recreate cut. It
+does not claim unload, multi-broker failover, old-peer proxy compatibility,
+guarded source Fetch/ACK/rewind, D3 Direct SDK integration or the Worker
+vertical.
+
 ## Optional source-locked client bindings
 
 The shared Gradle build never puts upstream Kafka or Pulsar classes on the
@@ -58,6 +96,13 @@ closed when their artifact paths are omitted:
 
 ./gradlew runRealPulsarSmoke \
   -PpulsarClientClasspath=/absolute/path/pulsar-client.jar:/absolute/path/pulsar-client-api.jar:/absolute/path/pulsar-common.jar
+
+./gradlew runRealPulsarServiceSmoke \
+  -PpulsarClientClasspath=/absolute/path/pulsar-client.jar:/absolute/path/pulsar-client-api.jar:/absolute/path/pulsar-common.jar \
+  -PpulsarRuntimeDir=/absolute/path/extracted-pulsar/lib \
+  -PpulsarServiceUrl=pulsar://127.0.0.1:6650 \
+  -PpulsarAdminUrl=http://127.0.0.1:8080 \
+  -PpulsarTopic=nereus-delay-p1-topic
 ```
 
 The Kafka binding uses `GuardedProducer.sendGuarded` and maps only verified

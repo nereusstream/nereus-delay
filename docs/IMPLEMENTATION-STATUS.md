@@ -402,6 +402,47 @@ Pulsar: nereus/delay-resource-guard-v1@7eebd41d5b0917a0dfe5ea26f3062a39f70a6d9 f
 Oxia:   37a17bef17202d5fd6e23282da5fd26d94865484
 ```
 
+## 2026-08-15 real P1 client service Docker E2E slice
+
+Delay worktree commit `62ea85e8` adds the real P1 service smoke and an
+isolated Compose harness. The harness builds a temporary Pulsar server image
+from the distribution produced by the clean locked P1 checkout, enables
+`AppendBrokerTimestampMetadataInterceptor` and `AppendIndexMetadataInterceptor`
+with broker metadata exposed to clients, and supplies the matching
+distribution `lib` runtime jars to the host-side P1 client. The smoke uses the
+canonical `persistent://public/default/...` physical topic, verifies an
+evidenced guarded send, closes the old producer, deletes/recreates the same
+topic with a new three-property guard, requires old-guard producer creation to
+return typed `TopicResourceGuardException(definitelyNotPersisted=true)`, and
+verifies a replacement guarded send.
+
+The independent command passed:
+
+```text
+./e2e/run-pulsar-real-client-e2e.sh
+```
+
+Evidence: P1
+`nereus/delay-resource-guard-v1@7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9`
+from `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`; distribution
+SHA-256 `d4b9e8aa6b44582c383262007217980793ec41bdf7fa3a1a4285e220407fef32`;
+client jar SHA-256 values
+`4177b4e090351342936cb0343e17aefcb358de6de9848c9a6f6c3855a9f704c1`,
+`ac7675b50f6a025427e0089dd44baf42fc72c32fe9e7a1c35f3aea245fdd24f8`, and
+`b09f7b4dd3fd55775dd50912152e7118166d89fd1bc238635a785b15436164d6`;
+image `sha256:f377aeddd73913830a1004287e14eae910e739f39793a96fe41d38f2e5aca264`;
+Compose project `nereus-delay-pulsar-e2e-1786737555-46201`; ports
+`19651,19652`; result `initial=PERSISTED`,
+`stale=DEFINITIVELY_NOT_PERSISTED`, `replacement=PERSISTED`. Cleanup found no
+matching container, network, volume or temporary image.
+
+This closes only the single-node real P1 client/broker delete-recreate cut.
+Unload, multi-broker failover, old-peer proxy compatibility, connected stale
+producer SEND after forced deletion, D3 source/ACK integration and the
+Worker production vertical remain open. A connected stale producer SEND that
+lost its connection without typed response evidence remains `UNKNOWN`; it is
+not promoted to definite failure.
+
 ## 2026-08-14 Direct SDK outbox fail-closed slice
 
 Delay worktree commit `bcf2f0a8` adds a shared prepared-submission uncertainty
