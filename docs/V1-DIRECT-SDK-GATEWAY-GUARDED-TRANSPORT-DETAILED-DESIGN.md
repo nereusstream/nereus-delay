@@ -2309,6 +2309,22 @@ atomic-target-receipt Profile 必须保持不可激活。
 
 从 `5.0.0-M1@8dae0236` 创建独立分支，实现 §10。
 
+2026-08-14 progress evidence: Pulsar worktree branch
+`nereus/delay-resource-guard-v1` is implemented in commits
+`19c97bf836d521f0e6103c542819723e70ccdbab` and
+`be226fe6c88634e9a94ba5c6a0f5859bc510cb66`. The v22 wire/API slice and the
+broker/client enforcement slice pass the focused common/broker tests and
+affected-module checkstyle with an independent Gradle user home. The patch
+keeps generic Pulsar APIs and uses strict three-property resource tuples,
+INVALID-before-update publication, exact create/SEND guard comparison,
+broker-entry timestamp receipt echo and typed evidence correlation.
+
+This remains an isolated upstream slice, not a Delay repository production
+transport. Real delete/recreate, unload/failover, old-peer proxy compatibility,
+artifact/source digest and Docker lifecycle cuts remain required before the
+completion gate can pass; D3 must not use an ordinary Pulsar producer as a
+substitute.
+
 完成门：v22 wire compatibility、create+per-SEND guard、receipt echo、delete/recreate/unload/failover cut、focused modules格式检查。
 
 ### Phase D3：Pulsar Nereus transport

@@ -46,6 +46,20 @@ delete/recreate and failover gate, does not implement D2 Nereus transport, and
 does not establish any Delay production or release PASS; the corresponding
 audit rows remain OPEN.
 
+The separately owned Pulsar P1 worktree has since produced
+`19c97bf836d521f0e6103c542819723e70ccdbab` and
+`be226fe6c88634e9a94ba5c6a0f5859bc510cb66` on
+`nereus/delay-resource-guard-v1`, based on the locked
+`5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`. The commits add the
+v22 guard wire contract, immutable guard/evidence API, strict broker property
+view, create/per-SEND checks, receipt echo and client generation/identity
+correlation. The post-commit common/broker focused tests and affected-module
+checkstyle passed with `GRADLE_USER_HOME=/tmp/nereus-pulsar-delay-gradle`.
+This is isolated upstream module evidence only: real delete/recreate,
+unload/failover, old-peer proxy cuts, artifact/source digest, Docker and D3
+Nereus transport evidence remain OPEN, so this audit does not promote P1 or
+V1 production status.
+
 The post-permit live-service audit on 2026-08-12 ran from document commit
 `b45045b` with a temporary standalone Oxia service built from source commit
 `37a17bef17202d5fd6e23282da5fd26d94865484`:
@@ -4281,6 +4295,8 @@ the guarded Broker rollout attestation remains external evidence.
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
 | Pulsar first-class-guard implementation base inspected for ADR 0044 | `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551` |
+| Kafka isolated K1 implementation | `nereus/delay-guarded-producer-v1@d1810fa3466e1378a33c5c6327c7f401cec03d07` |
+| Pulsar isolated P1 implementation | `nereus/delay-resource-guard-v1@be226fe6c88634e9a94ba5c6a0f5859bc510cb66` |
 
 主设计 R12–R37 的 Kafka/Pulsar correctness-critical 链接全部使用上述 immutable commit。发布包还必须记录实际 patch/binary digest、Broker rollout attestation 和 delete/recreate cuts；仅有文档 source lock 不等于实现已通过。
 

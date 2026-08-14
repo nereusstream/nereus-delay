@@ -12,7 +12,9 @@ The `V1-FROZEN-2026-08-13` revision accepts ADR 0043/0044 and the code-level
 This revision is design and protocol-registry evidence only. The repository is
 still a single Gradle module and has no production `DelaySemanticCore`, signed
 Route cache, Delay Gateway, Kafka guarded Producer implementation, Pulsar v22
-resource guard, or concrete Kafka/Pulsar Command transport.
+resource guard, or concrete Kafka/Pulsar Command transport. The isolated Kafka
+and Pulsar upstream worktrees recorded below are implementation evidence only;
+their patches are not copied into this repository.
 
 ## 2026-08-14 D1 local semantic-core slice
 
@@ -80,14 +82,61 @@ delete/recreate and leader-failover cuts, artifact/source digest capture, and
 the Nereus D2 transport. No Kafka patch was copied into this Delay repository,
 and no real-broker or production promotion claim is made.
 
-The implementation blueprint was checked read-only against Kafka
+The implementation blueprint was checked against Kafka
 `trunk@c300006a7705c240642db6950b5a95fec982bfc5` and Pulsar
-`5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`. No Kafka/Pulsar branch or
-client patch was created by this documentation slice. The intended independent
-branches are `nereus/delay-guarded-producer-v1` from Kafka `trunk` and
-`nereus/delay-resource-guard-v1` from Pulsar `5.0.0-M1`. Their future focused
-tests, source locks, binary digests, rollout and real-Broker cuts remain release
-blockers; a design ACCEPTED label is not implementation PASS.
+`5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`. The independent branches
+are `nereus/delay-guarded-producer-v1` from Kafka `trunk` and
+`nereus/delay-resource-guard-v1` from Pulsar `5.0.0-M1`; neither patch is copied
+into this Delay repository. Their source locks, binary digests, rollout and
+real-Broker cuts remain release blockers; a design ACCEPTED label is not
+implementation PASS.
+
+## 2026-08-14 P1 isolated Pulsar guarded-client slice
+
+The isolated Pulsar worktree now contains two independently reviewable commits
+on `nereus/delay-resource-guard-v1`, based directly on the locked
+`5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`:
+
+```text
+19c97bf836d521f0e6103c542819723e70ccdbab  Add Pulsar v22 topic resource guard contract
+be226fe6c88634e9a94ba5c6a0f5859bc510cb66  Enforce Pulsar topic resource guards
+```
+
+The first commit adds ProtocolVersion v22, ResourceIncarnationMismatch=26,
+the guarded producer/success/receipt wire fields, immutable public guard and
+evidence values, the backward-compatible `ProducerBuilder.resourceGuard`
+seam, and protocol/API tests. The second adds strict managed-ledger property
+validation, the INVALID/VALID atomic topic guard view, a resource-controller-only
+ordered property update path, exact create and pre-admission SEND checks,
+broker entry timestamp receipt echo, connection-generation/identity checks,
+typed success/error evidence hashes, and fail-closed old-peer behavior.
+
+Post-commit evidence was run with the worktree's independent Gradle user home:
+
+```text
+GRADLE_USER_HOME=/tmp/nereus-pulsar-delay-gradle \
+  ./gradlew :pulsar-common:test \
+    --tests org.apache.pulsar.common.protocol.CommandsTopicResourceGuardTest \
+    --tests org.apache.pulsar.common.protocol.TopicResourceGuardApiTest \
+    :pulsar-broker:test \
+    --tests org.apache.pulsar.broker.service.ValidatedTopicResourceGuardTest \
+    :pulsar-client-api:checkstyleMain \
+    :pulsar-client-original:checkstyleMain \
+    :pulsar-common:checkstyleMain \
+    :pulsar-broker:checkstyleMain \
+    :pulsar-common:checkstyleTest \
+    :pulsar-broker:checkstyleTest \
+    --no-daemon --console=plain -PtestRetryCount=0
+```
+
+This command passed at `be226fe6c8`; the cross-module compile
+`:pulsar-client-original:compileJava :pulsar-broker:compileJava` also passed.
+The focused result is upstream module/mock evidence only. Real Pulsar
+delete/recreate, unload, failover, old-broker proxy compatibility, artifact
+digest capture, Docker lifecycle and the D3 Nereus transport are still OPEN.
+The `pulsar-client-original` full test source was not used as a gate because
+the checkout has unrelated pre-existing generated-test compilation failures;
+no full client or real-broker PASS is claimed.
 
 The post-permit live-service audit on 2026-08-12 ran from document commit
 `b45045b` with a temporary standalone Oxia service built from source commit
