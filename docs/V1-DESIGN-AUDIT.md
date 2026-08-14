@@ -35,8 +35,8 @@ record until ACK-after-sync. The current branch also has an explicit
 source-locked Kafka source poll/ACK handoff smoke, source-locked K1/K2 Kafka
 and P1 Pulsar client bindings, plus three-broker K1/K2 Docker smokes. It still
 lacks a Route activation-barrier/session-reconnect-complete real Oxia
-service gate, a deployed Gateway JWT claim/signature policy and production
-authority, the full K2 receipt-read/response-loss gate, D3/source verticals, or a production Worker
+service gate, certificate deployment/rotation and live Gateway authority,
+the full K2 receipt-read/response-loss gate, D3/source verticals, or a production Worker
 vertical. Those rows remain open release blockers even though the design status
 is Accepted.
 
@@ -4584,7 +4584,7 @@ the guarded Broker rollout attestation remains external evidence.
 | 依赖 | 审计锁 |
 |---|---|
 | Delay local implementation slice | `nereus/delay-full-implementation-v1@4f606fec86aaeb74472f6575e5ee7ddcb8dc8f82` (Oxia Route session-fenced publisher/provider composition on top of Gateway query/await/message handlers and bounded query ingress behind explicit `GatewayQueryAuthority`, receipt-bound payload upload/attestation ingress, PrepareLargeSchedule/CommitLargeSchedule, Cancel and Reschedule control slices, Direct SDK outbox fail-closed and Worker source-consumer/ACK-after-sync composition; transport result/attempt binding `5cc955e1306e1f54db06a06a2bb2b84f232c2a7b`; Gateway query base `59d492041ac42b79a632ebddfb56a7608b2d7283`, Gateway ingress base `1dc28eaf391429f2dc9221f416af968d36575dff`, Gateway API generation base `a06ab232a5608ec0e7c9152ef80fc72c06966e66`; Gateway CAS base `e276bec3ffff7f5015367bed55f5b8d63c080e21`, Route authority base `62a9438967112f96e65b8daa7b2b86d52a103b10`, Gateway retry base `c42405ce6c69aef8ae0f8a9a63158c917410309f`, route-cache base `67ef3de3ab6f69ae992c3ccb70c7cb65cad47613`, composition base `402b27fa0dced95c2312bfedc0678af03463f2d5`, repository base `origin/main@2dfc3289ffdbe9cf9d7f4d0de1d701493d1b49a6`) |
-| Delay current implementation head | `nereus/delay-full-implementation-v1@19099e2eae7ea4b566269ac639ae553ddb450e6d` (Kafka source poll/ACK handoff, guarded Pulsar SUBSCRIBE/replay/ACK binding, and strict Gateway RS256+mTLS JWT policy; historical Route/Gateway/Worker composition remains in the rows and sections above) |
+| Delay current implementation head | `nereus/delay-full-implementation-v1@de1da743` (Kafka source poll/ACK handoff, guarded Pulsar SUBSCRIBE/replay/ACK binding, strict Gateway RS256+mTLS JWT policy, and durable Oxia tenant admission CAS; historical Route/Gateway/Worker composition remains in the rows and sections above) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
@@ -5863,6 +5863,26 @@ not promote P1 or D3 to release status: unload, multi-broker failover,
 old-peer proxy compatibility, source session ownership/rewind, Direct SDK
 integration, Worker production wiring and the remaining D3/D6 artifact and
 chaos gates remain OPEN.
+
+## 2026-08-15 Gateway Oxia admission CAS evidence
+
+Delay commit `de1da743` adds the durable admission composition
+`OxiaGatewayAdmissionController` over a strict canonical
+`GatewayAdmissionRecordV1`. The record is keyed by authenticated tenant-scope
+digest and stores expiring leases for independent schedule, retry-uncertain
+and control pools; schedule bytes are accounted in the same CAS successor.
+Reserve/release retries are bounded, expired leases are reclaimed at the
+trusted-clock fence, and a lost response is accepted only after exact lease
+identity reread. `OxiaGatewayAdmissionControllerTest` covers canonical
+tampering, pool isolation, hard byte quota, expiry, tenant separation and
+reserve/release response-loss recovery.
+
+The full local `check` passed at `de1da743` in 21 actionable tasks, while the
+five opt-in real-Oxia methods were skipped without an endpoint. This is a
+durable CAS implementation gate, not live Oxia admission Docker evidence,
+quota-rate/load proof, deployment/HA observability, cross-record Gateway
+transactionality or production Gateway wiring; those release boundaries stay
+OPEN.
 
 ## Final gate
 

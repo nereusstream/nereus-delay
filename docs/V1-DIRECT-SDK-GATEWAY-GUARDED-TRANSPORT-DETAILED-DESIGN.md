@@ -727,6 +727,17 @@ This is a single-record Oxia service check; Route activation/session fencing,
 cross-record transactions, deployed authentication, real Broker transports
 and Worker vertical integration remain open.
 
+Commit `de1da743` adds the durable admission implementation
+`OxiaGatewayAdmissionController`. It keeps one canonical, digest-checked
+lease record per authenticated tenant scope, uses independent schedule,
+retry-uncertain and control pools, charges schedule bytes atomically, reclaims
+expired leases and releases by exact lease identity. Bounded CAS and exact
+response-loss rereads are covered by `OxiaGatewayAdmissionControllerTest`.
+The implementation closes the distributed single-record admission contract;
+live Oxia admission deployment/HA observability, rate-window/load evidence,
+cross-record Gateway transactions and production wiring remain outside this
+slice.
+
 ### 7.3 认证与 tenant
 
 - mTLS principal、JWT subject 或 service account 映射为 `AuthenticatedTenantContext`；
@@ -935,6 +946,16 @@ Gateway 至少按 authenticated tenant 分离：
 - large-payload reservations。
 
 Schedule pool 耗尽不能占用 control reserve。Cancel/Reschedule、查询 uncertain 和关闭请求使用独立上限。Gateway transport executor、gRPC event loop、Oxia callback executor 分离，任何 `.join()`/阻塞 Broker future 都不得运行在 Netty event loop。
+
+2026-08-15 implementation evidence: `OxiaGatewayAdmissionController` stores
+one strict canonical lease record per authenticated tenant-scope digest. Its
+schedule, retry-uncertain and control pools are independent; schedule bytes
+are charged in the same version-CAS successor. Expiry reclaim, bounded CAS,
+exact response-loss reread and idempotent release are covered by
+`OxiaGatewayAdmissionControllerTest`. `InMemoryGatewayAdmissionController`
+remains a local conformance implementation. This closes the durable admission
+composition, not live Oxia deployment/HA observability, rate-window/load
+proof, cross-record transactionality or production Gateway wiring.
 
 ## 8. Command Transport SPI
 
@@ -2743,8 +2764,9 @@ routing scope digests, duplicate-free canonical JSON, and mTLS leaf binding
 through `cnf.x5t#S256`. `RsaSha256GatewayJwtVerifierTest` covers valid,
 signature, policy, time, duplicate-member, canonical-base64 and certificate
 negative vectors. Certificate issuance/rotation deployment evidence remains
-external to this reusable boundary. Distributed quota/control reserve、Gateway HA/transactional
-durability、RetryUncertain late-evidence/aggregate、crash cuts 和
+external to this reusable boundary. Durable single-record quota/control reserve is now
+implemented by `OxiaGatewayAdmissionController`, but live deployment/HA
+observability、Gateway HA/transactional durability、RetryUncertain late-evidence/aggregate、crash cuts 和
 多语言最小 SDK。
 
 完成门：双入口 byte equivalence、HA crash cuts、non-enumerating auth、control reserve、load test。
