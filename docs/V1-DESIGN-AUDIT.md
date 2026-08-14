@@ -2,7 +2,7 @@
 
 状态：PASS / design semantics closed  
 Spec revision：`V1-FROZEN-2026-08-13`
-审计日期：2026-08-13
+审计日期：2026-08-14
 性质：验收证据索引；不覆盖主设计、Protocol Registry 或 Accepted ADR
 
 ## 结论
@@ -27,6 +27,14 @@ Semantic Core/Route authority/Gateway, no Kafka guarded Producer patch, no
 Pulsar v22 patch, and no real-Broker guarded transport result in this
 repository. Those rows remain open release blockers even though the design
 status is Accepted.
+
+The 2026-08-14 Delay worktree milestone `532f8ad5` is the first local D1
+implementation slice. It verifies the canonical signed Route value, exact
+Kafka/Pulsar resource projections, UUIDv7/independent command identities and
+the zero-I/O managed Semantic Core with focused tests and a full local
+`check`. This evidence does not establish a Route authority/watch, production
+SDK or Gateway, guarded Kafka/Pulsar client behavior, transport outcomes,
+Worker wiring or real-Broker correctness; those release rows remain OPEN.
 
 The post-permit live-service audit on 2026-08-12 ran from document commit
 `b45045b` with a temporary standalone Oxia service built from source commit

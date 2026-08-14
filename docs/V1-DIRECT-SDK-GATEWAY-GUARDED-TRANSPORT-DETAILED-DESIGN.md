@@ -2250,6 +2250,14 @@ identity 不同才额外分裂。
 
 ### Phase D1：Semantic Core / Route SPI
 
+2026-08-14 progress evidence: Delay commit `532f8ad5` supplies the local
+canonical Route/resource value types, UUIDv7 identity seam, `ROUTING_HASH_V1`
+calculator and zero-I/O `DefaultDelaySemanticCore` with focused deterministic
+tests. This is an implementation slice, not completion of D1: the Oxia-backed
+signed snapshot publication/watch, native eligibility authority, submission
+coordinator, Direct SDK/Gateway composition and package/module dependency gate
+remain to be implemented.
+
 ```text
 SelfRoutingId.fromLogicalUuid
 PreparedIdentityPlannerV1

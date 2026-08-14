@@ -14,6 +14,38 @@ still a single Gradle module and has no production `DelaySemanticCore`, signed
 Route cache, Delay Gateway, Kafka guarded Producer implementation, Pulsar v22
 resource guard, or concrete Kafka/Pulsar Command transport.
 
+## 2026-08-14 D1 local semantic-core slice
+
+Delay worktree commit `532f8ad5b0a087d272c3f93e37c0b28c81576f96` on
+`nereus/delay-full-implementation-v1` adds the first locally executable D1
+seam: canonical signed `RouteSnapshotV1` resources/policies, Ed25519
+digest/signature verification, UUIDv7-backed independent Message/Command
+identities, exact `ROUTING_HASH_V1`, and a zero-I/O `DefaultDelaySemanticCore`
+for managed schedule, large-payload preparation, cancel, reschedule and
+historical-route preparation. The AUTO_FAST type seam is present, but it only
+accepts an already verified local native-preparation snapshot; it does not
+create or resolve Broker credentials or Route authority.
+
+Evidence from the same worktree and independent Gradle user home:
+
+```text
+GRADLE_USER_HOME=/tmp/nereus-delay-full-gradle \
+  ./gradlew check --no-daemon --console=plain
+```
+
+The gate passed, including `checkDocumentation`, `checkstyleMain`, the full
+local test task, and the five opt-in real-Oxia methods remained skipped because
+no endpoint was configured. Focused coverage is
+`RouteSnapshotV1Test` and `DefaultDelaySemanticCoreTest`; it proves canonical
+round trips, tamper rejection, tenant/lifecycle fencing, exact physical
+Pulsar partition identity, byte-equivalent managed preparation, deterministic
+routing and no transport call from preparation.
+
+This is local D1 evidence only. Signed Route publication/watch, Oxia authority,
+Direct SDK/Gateway composition, Kafka/Pulsar guarded client patches, concrete
+transports, Worker integration and real-Broker evidence remain open and are not
+promoted by this commit.
+
 The implementation blueprint was checked read-only against Kafka
 `trunk@c300006a7705c240642db6950b5a95fec982bfc5` and Pulsar
 `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`. No Kafka/Pulsar branch or
