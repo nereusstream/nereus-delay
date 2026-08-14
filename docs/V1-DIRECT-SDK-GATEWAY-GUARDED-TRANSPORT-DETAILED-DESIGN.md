@@ -707,7 +707,8 @@ authority composition the generated handlers remain `UNIMPLEMENTED`, and
 production query routing, retention/source authority, deployable auth and
 Worker integration remain open.
 
-The digest-only audit sink now has an Oxia composition in
+Commit `39744ac70cae21a3ad4a5401da33805d9221dec7` adds the Oxia composition
+for the digest-only audit sink in
 `OxiaGatewayAuditSink`. It stores each canonical `GatewayAuditEventV1` under
 an event-content-derived immutable key, accepts exact duplicate records, and
 requires an exact key/version/value reread after a lost write response. The

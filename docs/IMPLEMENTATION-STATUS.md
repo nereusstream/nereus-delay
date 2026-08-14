@@ -156,7 +156,8 @@ production evidence, Docker lifecycle cuts or any real-Broker PASS.
 
 ## 2026-08-15 Gateway durable audit sink slice
 
-The Gateway audit boundary is now backed by `OxiaGatewayAuditSink`. Each
+Delay worktree commit `39744ac70cae21a3ad4a5401da33805d9221dec7` adds
+`OxiaGatewayAuditSink`. Each
 canonical digest-only `GatewayAuditEventV1` is written under an
 event-content-derived immutable key with `IfRecordDoesNotExist`; an exact
 duplicate is a no-op, a competing value at the same key is rejected, and a

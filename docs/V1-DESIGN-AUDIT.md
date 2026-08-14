@@ -173,7 +173,8 @@ endpoint was configured. The generated handlers dispatch only with an explicit
 policy, production query routing, deployable authentication, HA durability,
 real transports and Worker wiring remain OPEN.
 
-The current Gateway slice adds `OxiaGatewayAuditSink`, an append-only Oxia
+Delay worktree commit `39744ac70cae21a3ad4a5401da33805d9221dec7` adds
+`OxiaGatewayAuditSink`, an append-only Oxia
 composition for the frozen digest-only `GatewayAuditEventV1`. The
 event-content-derived key and `IfRecordDoesNotExist` write make exact repeats
 idempotent; a response-loss path succeeds only after an exact
