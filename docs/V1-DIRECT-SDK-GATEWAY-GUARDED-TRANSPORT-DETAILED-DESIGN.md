@@ -2359,6 +2359,21 @@ locked K1 and P1 `compileReal*` gates pass. This does not itself publish a
 source assignment, perform Owner Lease CAS, run catch-up, or establish the
 full source/apply/ACK/recovery production vertical.
 
+Commit `bbbc3160a6674b04a90b48a1f00865c079313bc7` adds native replay inputs
+for the recovery side of this boundary. `KafkaClientArtifactRecoverySourceCursor`
+requires the exact Kafka activation barrier and caller-supplied durable start
+offset, assigns/seeks one partition, and never commits a group offset.
+`PulsarClientArtifactRecoverySourceCursor` requires the exact guarded
+SUBSCRIBE proof and activation barrier, validates the proof before and after
+receive, and leaves positioning at the durable recovery cursor to the
+Owner/Store composition. Both retain one decoded entry until `next()` is
+called after the Store apply decision; neither ACKs a recovery message. The
+locked Kafka and Pulsar source smokes exercise exact first/second replay and
+look-ahead retention, and the latest Docker reruns pass the source/K1/K2 and
+guarded writer/source cuts. This is native replay-input evidence only; it does
+not prove assignment publication, Owner Lease CAS, Store-positioned Pulsar
+recovery, RocksDB apply, or the full D6 Worker vertical.
+
 2026-08-15 implementation evidence: commit
 `3d0bf7ea081ae7b652e3a0ca4b66003bc4b23618` adds an isolated Docker Compose
 Oxia smoke harness. `./e2e/run-oxia-real-service.sh` built source
@@ -2421,6 +2436,16 @@ source record
 transport-neutral handoff；真实 source adapter 仍必须把 native cursor 的
 ACK/commit/rewind、Kafka TopicId 或 Pulsar connection-generation proof 绑定
 到同一 exact record，并在其结果不确定时保留 Broker retry authority。
+
+Recovery uses a separate no-ACK cursor composition. The Kafka recovery cursor
+starts at a caller-validated durable offset and releases only its local
+look-ahead after the coordinator proves Store application. The Pulsar recovery
+cursor validates the guarded subscription proof on every receive but does not
+invent a seek position or acknowledge the message; the Owner/Store recovery
+path must position the subscription from durable recovery metadata and decide
+the eventual ACK/rewind boundary. These native cursors therefore cannot be
+read as proof of Owner assignment/session authority, recovery catalog/Floor
+selection, RocksDB replay application, or activation CAS.
 
 已有 Destination Lane、Publish Admission、UNCERTAIN、checkpoint/replay 逻辑保持权威。Chronos 的单 seek cursor、目标无限重试、墓碑-only cancel 和公开 RocksDB key 都不进入代码。
 
@@ -2840,8 +2865,12 @@ Docker smoke in `b6154072`, but HA/session-churn observability、Gateway HA/tran
 position/`commitSync`/restart-replay handoff 子集。真实 Kafka/Pulsar source
 assignment/guarded Fetch、Broker ACK/rewind failure cuts、ownership/session、
 RocksDB apply/dynamic WriteBatch/IO admission、due/Lane/publish/checkpoint/
-recovery wiring 和 Docker crash cuts 仍未完成。完成门仍以主设计 §23.5
-为准；不能从这些子集推导 V1 release-ready。
+recovery wiring 和 Docker crash cuts 仍未完成。`bbbc3160` 增加了不确认
+Broker 记录的 Kafka/Pulsar native recovery cursor，以及 source smoke 中的
+精确两条回放/look-ahead 断言；它只是给 `OwnerRecoveryCoordinator` 提供
+受保护的 replay input，不包含 durable cursor 定位、Store apply 或 ACK
+决策。完成门仍以主设计 §23.5 为准；不能从这些子集推导 V1
+release-ready。
 
 ## 16. 当前结论与仍需实测的数值
 

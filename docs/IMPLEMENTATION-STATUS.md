@@ -32,6 +32,65 @@ are closed. The isolated Kafka and
 Pulsar upstream worktrees recorded below remain separately owned implementation
 evidence; their patches are not copied into this repository.
 
+## 2026-08-15 guarded no-ACK recovery source cursor slice
+
+Delay commit `bbbc3160a6674b04a90b48a1f00865c079313bc7` adds native
+`KafkaClientArtifactRecoverySourceCursor` and
+`PulsarClientArtifactRecoverySourceCursor` implementations for the
+`OwnerRecoveryCoordinator` replay input. Both retain one decoded
+`SourceReplayEntry` until the caller invokes `next()` after the Store apply
+decision; neither commits a Kafka group offset nor ACKs a Pulsar message.
+The Kafka cursor requires the exact Kafka activation barrier and caller-supplied
+durable start offset, then assigns/seeks the native partition. The Pulsar cursor
+requires the exact guarded consumer proof and activation barrier; the caller
+positions the guarded subscription at the durable recovery cursor because
+position publication is an Owner/Store recovery responsibility. The common
+Pulsar decoder preserves the same strict command/topic/MessageId/timestamp
+checks as the active ACK path.
+
+The locked source-set compile gates passed independently:
+
+```text
+GRADLE_USER_HOME=/tmp/nereus-delay-real-kafka-recovery-smoke-gradle ./gradlew compileRealKafka \
+  -PkafkaClientJar=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar \
+  --no-daemon --console=plain
+GRADLE_USER_HOME=/tmp/nereus-delay-real-pulsar-recovery-smoke-gradle ./gradlew compileRealPulsar \
+  -PpulsarClientClasspath=/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar:/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar:/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar \
+  --no-daemon --console=plain
+```
+
+`run-kafka-real-client-e2e.sh` was rerun after this slice with source
+`8bd66fbb26eae1b0e4c5867e61f41900c3f5e318`, client SHA-256
+`4b6362d10146568c7ef78629ad678e50f164a750fdbb362ba0899dc49b815656`, broker
+image `sha256:3116a80efc9d4a9399ca225c1de4288abde253659fd6fad2292af7727a2e9505`,
+Compose project `nereus-delay-kafka-e2e-1786750940-86542` and broker ports
+`19134,19135,19136`. The run passed the recovery-aware source smoke, K1
+failover smoke and K2 target/receipt atomic smoke, then removed its matching
+Docker resources. Its source line was:
+
+```text
+Kafka source ACK smoke passed: topicId=BheroJAwTCWtFPrGoMU4rw, firstOffset=0, secondOffset=1, committedAfterRestart=empty
+```
+
+`run-pulsar-real-client-e2e.sh` was likewise rerun against P1
+`f813c96687cc19e6fca1c82d3d161cf3e045c86b`, distribution SHA-256
+`bfe0c479c60db1a7a56f4548bd821d218c4c284dceb7c112d92f425606adec37`, client
+and common artifact SHAs already recorded below, image
+`sha256:735e2a6b952e2f7d4c8fc4c7a7b0d4ec2a852a9f4a9b21e82b076477cf19669f`,
+Compose project `nereus-delay-pulsar-e2e-1786751009-87322` and ports
+`19672,19673`. It passed guarded writer, stale-incarnation rejection and the
+recovery-aware source/ACK smoke. The source line recorded ledger/entry `11/0`
+and `11/1`, with `firstConnectionGeneration=2` and
+`secondConnectionGeneration=3`, followed by the script's final
+`Pulsar P1 real-client E2E passed` line; cleanup removed its matching Docker
+resources.
+
+This slice supplies native replay input only. It does not publish or accept a
+source assignment, CAS the Owner Lease, position a real Pulsar recovery cursor
+from Store metadata, apply records to RocksDB, or close the full Worker
+catch-up/activation/ACK/recovery vertical. Those production and multi-broker
+session gates remain open.
+
 ## 2026-08-15 guarded source-to-Worker runtime composition slice
 
 Delay commit `5c53f866` adds the opt-in source-set factories
@@ -5248,7 +5307,7 @@ to the intended modules:
 | `io.nereusstream.delay.client` | Strict preparation, zero-I/O AUTO_FAST branch selection, immutable managed/native submission bridge, ordered enqueue outcomes, bounded command/message queries, receipt-bound large-payload operations and embedded conformance service | `delay-api` / `delay-client-core` / `delay-testkit` |
 | `io.nereusstream.delay.adapter` | Broker/destination interfaces and test adapters | ingress/adapter modules |
 | local monolith packages exist | shared zero-I/O preparation and verified Route cache boundary (`semantic`, `route`) | `delay-semantic-core` / `delay-route-spi` / `delay-route-oxia` extraction and Oxia authority remain pending |
-| local monolith packages exist | transport registry, ownership permits, guarded Kafka/Pulsar bridges, strict production configuration seams and opt-in source-locked K1/K2/P1 bindings | `delay-transport-spi` / `delay-client-kafka` / `delay-client-pulsar` extraction, full K2/D3 receipt/source cuts and Worker wiring remain pending |
+| local monolith packages exist | transport registry, ownership permits, guarded Kafka/Pulsar bridges, strict production configuration seams, opt-in source-locked K1/K2/P1 bindings, native Worker source factories and no-ACK recovery cursors | `delay-transport-spi` / `delay-client-kafka` / `delay-client-pulsar` extraction, full K2/D3 receipt/source cuts, assignment/session authority and Worker wiring remain pending |
 | local source proto + in-memory Schedule conformance exist | optional multi-language auth/idempotency/quota/audit entry (`gateway`) | `delay-gateway-api` / `delay-gateway` generated modules, auth, quota, audit and HA durability remain pending |
 
 ## Evidence matrix

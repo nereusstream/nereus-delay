@@ -53,6 +53,24 @@ post-activation composition seam only: assignment publication, Owner Lease
 CAS, source catch-up, recovery, production RocksDB scheduling and broker
 ACK/rewind E2E remain open.
 
+Commit `bbbc3160a6674b04a90b48a1f00865c079313bc7` adds the native no-ACK
+replay inputs `KafkaClientArtifactRecoverySourceCursor` and
+`PulsarClientArtifactRecoverySourceCursor`. Each retains one decoded entry
+until the recovery caller advances it after a proven Store apply. Kafka uses
+the exact assignment/barrier and a caller-supplied durable start offset;
+Pulsar verifies the guarded subscription's resource, attestation digest and
+connection generation, while the caller remains responsible for positioning
+the subscription at the durable recovery cursor. The source smokes verify
+exact first/second replay and look-ahead retention without ACKing recovery
+records. The latest locked-artifact Docker reruns passed Kafka source/K1/K2
+and Pulsar guarded writer/source checks. Kafka used project
+`nereus-delay-kafka-e2e-1786750940-86542` on `19134,19135,19136`; Pulsar used
+project `nereus-delay-pulsar-e2e-1786751009-87322` on `19672,19673` and
+reported source generations `2` and `3`. This closes only native replay-input
+composition; Owner assignment publication, Lease CAS, Store-positioned
+Pulsar recovery, RocksDB apply and the complete D6 Worker vertical remain
+OPEN.
+
 Commit `412441c47cce4e61d3cc015b95c7d3cffcab2f7f` adds the real Kafka source
 handoff cut. Against the locked K1 client artifact, the smoke decodes exact
 NDL1/V1 source frames, preserves Kafka Topic UUID/offset/leader-epoch/
