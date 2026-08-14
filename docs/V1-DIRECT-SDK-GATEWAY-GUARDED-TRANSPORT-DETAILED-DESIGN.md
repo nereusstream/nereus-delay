@@ -2252,7 +2252,8 @@ identity 不同才额外分裂。
 
 2026-08-14 progress evidence: Delay commits `532f8ad5`,
 `402b27fa0dced95c2312bfedc0678af03463f2d5` and
-`67ef3de3ab6f69ae992c3ccb70c7cb65cad47613` supply the local canonical
+`67ef3de3ab6f69ae992c3ccb70c7cb65cad47613` and
+`c42405ce6c69aef8ae0f8a9a63158c917410309f` supply the local canonical
 Route/resource value types, UUIDv7 identity seam, `ROUTING_HASH_V1`
 calculator, zero-I/O `DefaultDelaySemanticCore`, fail-closed signed-cache
 watch, exact historical-route plan
@@ -2364,7 +2365,8 @@ lifecycle/control-version/validity 与有等价证明的 credential generation �
 
 本地 conformance slice 已提供 `GatewayScheduleRequestV1`、canonical body/key
 hash、prepared-before-ownership、in-memory single-record CAS、one-shot Gateway
-permit、outcome replay、body conflict 和 source `delay_gateway.proto`。仍需
+permit、outcome replay、body conflict、`RetryUncertain` expected-prior/retry-ID
+CAS 和 source `delay_gateway.proto`。仍需
 实现 generated gRPC modules、mTLS/JWT tenant authority、quota/control reserve、
 safe audit、Oxia HA CAS、RetryUncertain late-evidence/aggregate、crash cuts 和
 多语言最小 SDK。
