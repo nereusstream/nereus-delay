@@ -63,7 +63,8 @@ Delay worktree commits `402b27fa0dced95c2312bfedc0678af03463f2d5`,
 `e276bec3ffff7f5015367bed55f5b8d63c080e21` and
 `69d89839e4e80326e5317a4f5066667e270a7136`,
 `a06ab232a5608ec0e7c9152ef80fc72c06966e66` and
-`1dc28eaf391429f2dc9221f416af968d36575dff` on
+`1dc28eaf391429f2dc9221f416af968d36575dff` and
+`5cc955e1306e1f54db06a06a2bb2b84f232c2a7b` on
 `nereus/delay-full-implementation-v1` adds the first shared post-preparation
 composition. `DefaultSubmissionCoordinator` resolves an exact historical
 Route-bound plan, performs one exact projector/transport lookup, transfers a
@@ -96,6 +97,12 @@ RetryUncertain; all other generated RPCs remain `UNIMPLEMENTED`. The local
 admission/audit implementations are deterministic conformance components, not
 distributed quota or production audit authority.
 
+`5cc955e1306e1f54db06a06a2bb2b84f232c2a7b` binds every guarded Kafka/Pulsar
+result to the one-shot `PhysicalEnqueueAttemptId` supplied by the ownership
+permit. The coordinator rejects absent or mismatched result bindings as
+`INTEGRITY_ERROR`; legacy request-level adapter constructors remain unbound
+local evidence and cannot satisfy this CommandTransport gate.
+
 The Gateway follow-up adds the shared `GatewayIdempotencyStore`, strict
 `GatewayPhysicalAttemptV1`/`GatewayIdempotencyRecordV1` decoders and
 `OxiaGatewayIdempotencyStore`. Each Oxia transition uses one version-CAS
@@ -122,7 +129,7 @@ GRADLE_USER_HOME=/tmp/nereus-delay-full-gradle \
 
 The command passed, including `checkDocumentation`, the full local test task
 and main Checkstyle at branch SHA
-`1dc28eaf391429f2dc9221f416af968d36575dff`; the Gateway-CAS focused tests and
+`5cc955e1306e1f54db06a06a2bb2b84f232c2a7b`; the Gateway-CAS focused tests and
 Checkstyle pass at `e276bec3`, and the operation registry compiles at
 `69d89839`. The Route slice's focused provider/publisher tests and Checkstyle
 pass at `62a94389`. The five

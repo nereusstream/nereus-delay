@@ -2256,18 +2256,19 @@ identity 不同才额外分裂。
 `c42405ce6c69aef8ae0f8a9a63158c917410309f`, `62a9438967112f96e65b8daa7b2b86d52a103b10`,
 `e276bec3ffff7f5015367bed55f5b8d63c080e21` and
 `69d89839e4e80326e5317a4f5066667e270a7136`,
-`a06ab232a5608ec0e7c9152ef80fc72c06966e66` and
-`1dc28eaf391429f2dc9221f416af968d36575dff` supply the local canonical
+`a06ab232a5608ec0e7c9152ef80fc72c06966e66`,
+`1dc28eaf391429f2dc9221f416af968d36575dff` and
+`5cc955e1306e1f54db06a06a2bb2b84f232c2a7b` supply the local canonical
 Route/resource value types, UUIDv7 identity seam, `ROUTING_HASH_V1`
 calculator, zero-I/O `DefaultDelaySemanticCore`, fail-closed signed-cache
 watch, exact historical-route plan
 resolver, shared `DefaultSubmissionCoordinator`, explicit `DefaultDelayClient`,
 guarded transport bridges, the in-memory Gateway Schedule/idempotency
 composition, the Oxia event/head-CAS Route publisher/provider, generated
-Java/gRPC Gateway API descriptors, and Schedule/RetryUncertain handlers behind
-the shared authenticated ingress. Focused
-deterministic tests and a full local `check` pass at
-`1dc28eaf391429f2dc9221f416af968d36575dff`; Route
+Java/gRPC Gateway API descriptors, Schedule/RetryUncertain handlers behind
+the shared authenticated ingress, and transport result/attempt binding.
+Focused deterministic tests and a full local `check` pass at
+`5cc955e1306e1f54db06a06a2bb2b84f232c2a7b`; Route
 authority focused checks pass at `62a94389`, and Gateway CAS focused checks at
 `e276bec3`. This is not completion of D1/D4/D5: activation-barrier/session-fenced
 real Oxia authority, native eligibility authority, the remaining Gateway RPC
@@ -2386,6 +2387,9 @@ stubs/service descriptor。`GatewayGrpcApiTest` 固定 eleven-RPC descriptor
 surface。`GatewayIngressService` 要求 tenant authority、独立 schedule/retry/control
 admission pool 和 digest-only audit；`GatewayGrpcService` 当前实现
 Schedule/RetryUncertain，其余 RPC 继续由生成基类返回 `UNIMPLEMENTED`。
+Guarded Kafka/Pulsar result 还必须携带与 one-shot permit 相同的
+`PhysicalEnqueueAttemptId`；缺失或错配在 coordinator/projector 边界
+fail-closed 为 `INTEGRITY_ERROR`。
 Response loss is fail-closed:
 the durable store may replay an exact aggregate but does not reconstruct a
 physical ownership permit。仍需实现 remaining deployable gRPC service handlers、
