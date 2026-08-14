@@ -5931,6 +5931,22 @@ Live Broker probes, native credential resolution, Oxia activation/session
 authority, guarded source ownership and the production Worker vertical
 remain OPEN release gates.
 
+## 2026-08-15 Route-authorized Worker assignment audit
+
+Commit `f8ffaff9` adds `RouteSourceAssignmentResolver`, which obtains the
+current or exact historical Route only through the tenant-scoped
+`RouteSnapshotProvider` before projecting the selected partition's signed
+barrier. Missing/unauthorized historical Route data fails closed. The
+resolver does not publish an assignment, perform the Oxia Owner Lease CAS, or
+establish Broker source ownership; those are still external activation gates.
+
+`RouteSourceAssignmentResolverTest` and `SourceAssignmentTest` passed. The
+full local gate at the current code head `1cd64b72` passed with
+`BUILD SUCCESSFUL` in 21 actionable tasks; five opt-in real-Oxia tests were
+skipped without an endpoint. The separate JWT test change in `1cd64b72` makes
+its signature-mutation negative vector deterministic and is not evidence of
+live certificate deployment.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

@@ -2744,7 +2744,11 @@ sub-boundaries: the issuer-verified native eligibility cache/Core checks, and
 the exact projection from a signed Route partition `ActivationBarrierV1` to a
 Worker `SourceAssignment`. These do not create an Oxia/catalog issuer,
 perform a live Broker capability probe, publish activation evidence, or prove
-real source ownership/reconnect. 完成门：snapshot
+real source ownership/reconnect. Commit `f8ffaff9` additionally routes both
+current-alias and exact-historical Worker assignment construction through the
+tenant-authorized `RouteSnapshotProvider`; missing historical authorization
+fails closed. This remains assignment projection, not assignment publication,
+Owner Lease CAS or Broker source ownership. 完成门：snapshot
 signature/digest、lifecycle、route
 expansion、credential binding、cache staleness cuts。
 同一 Route Incarnation 的 resource/partition/hash/query-retention/size drift 必须 quarantine；仅
@@ -2829,7 +2833,9 @@ recovery wiring 和 Docker crash cuts 仍未完成。完成门仍以主设计 §
 - native AUTO_FAST 只允许 issuer-verified local snapshots，且 managed fallback
   保持 exact bytes；这仍不是 native capability issuance or live Broker eligibility；
 - Route activation barriers now have an exact signed-snapshot-to-source-assignment
-  projection; live activation publication and source-session authority remain open；
+  projection, and Worker assignment lookup is tenant-authorized for current or
+  historical Routes; live activation publication, Owner Lease CAS and
+  source-session authority remain open；
 - 当前 V1 self-routing ID、tenant authority、Worker 状态机不改；
 - stock/name-only fallback 不可进入生产包。
 

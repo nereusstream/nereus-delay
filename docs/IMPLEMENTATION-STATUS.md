@@ -70,6 +70,29 @@ provide the issuer/catalog/Oxia publication authority, live Broker
 capability probes, real Route activation gate, native credential resolution,
 Pulsar/Kafka source ownership, or Worker production vertical evidence.
 
+## 2026-08-15 Route-authorized Worker assignment resolution
+
+Delay commit `f8ffaff9` adds `RouteSourceAssignmentResolver`. Worker setup can
+now obtain an assignment through the tenant-scoped Route provider for either
+the ACTIVE_FOR_NEW alias path or an exact historical Route incarnation. A
+missing or unauthorized historical snapshot fails closed before the exact
+partition barrier is projected by `RouteSourceAssignmentFactory`.
+
+The resolver remains a local composition boundary: the source adapter still
+has to publish/accept the assignment, and the Owner authority still has to
+CAS the matching assignment/session-bound lease through catch-up and
+activation. It does not create a name-only assignment or claim Broker source
+ownership. `RouteSourceAssignmentResolverTest` and `SourceAssignmentTest`
+passed, followed by the full gate at `1cd64b72`:
+
+```text
+GRADLE_USER_HOME=/tmp/nereus-delay-full-gradle \
+  ./gradlew check --no-daemon --console=plain
+```
+
+The gate completed with `BUILD SUCCESSFUL` in 21 actionable tasks; the five
+opt-in real-Oxia methods were skipped because no endpoint was configured.
+
 ## 2026-08-15 Kafka source poll/ACK handoff slice
 
 Delay worktree commit `412441c47cce4e61d3cc015b95c7d3cffcab2f7f` adds the
