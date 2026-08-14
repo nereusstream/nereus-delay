@@ -2250,10 +2250,12 @@ identity 不同才额外分裂。
 
 ### Phase D1：Semantic Core / Route SPI
 
-2026-08-14 progress evidence: Delay commits `532f8ad5` and
-`402b27fa0dced95c2312bfedc0678af03463f2d5` supply the local canonical
+2026-08-14 progress evidence: Delay commits `532f8ad5`,
+`402b27fa0dced95c2312bfedc0678af03463f2d5` and
+`67ef3de3ab6f69ae992c3ccb70c7cb65cad47613` supply the local canonical
 Route/resource value types, UUIDv7 identity seam, `ROUTING_HASH_V1`
-calculator, zero-I/O `DefaultDelaySemanticCore`, exact historical-route plan
+calculator, zero-I/O `DefaultDelaySemanticCore`, fail-closed signed-cache
+watch, exact historical-route plan
 resolver, shared `DefaultSubmissionCoordinator`, explicit `DefaultDelayClient`,
 guarded transport bridges and the in-memory Gateway Schedule/idempotency
 composition. Focused deterministic tests and a full local `check` pass at the
@@ -2346,9 +2348,15 @@ response evidence、Direct SDK E2E 和 Worker ACK-after-sync。
 
 ### Phase D4：Oxia Route authority
 
-实现 signed immutable snapshot publication/watch/cache/activation barrier；watch gap fail closed。
+`InMemorySignedRouteSnapshotProvider` now supplies the local signed-cache
+conformance seam: it re-verifies canonical Ed25519/digest bytes, requires
+contiguous watch revisions, freezes reads on a gap or signature drift, and
+applies tenant-scoped alias/exact-route lookup. It is a deterministic local
+authority for tests, not an Oxia session/watch implementation.
 
-完成门：snapshot signature/digest、lifecycle、route expansion、credential binding、cache staleness cuts。
+仍需实现 signed immutable snapshot publication/watch、activation barrier、Oxia
+session fencing and cache staleness recovery。完成门：snapshot signature/digest、
+lifecycle、route expansion、credential binding、cache staleness cuts。
 同一 Route Incarnation 的 resource/partition/hash/query-retention/size drift 必须 quarantine；仅
 lifecycle/control-version/validity 与有等价证明的 credential generation 可发布新 snapshot。
 
