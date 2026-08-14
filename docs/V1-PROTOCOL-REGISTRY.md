@@ -1,7 +1,7 @@
 # Nereus Delay V1 Protocol Registry
 
 状态：Accepted / normative  
-Spec revision：`V1-FROZEN-2026-08-01`  
+Spec revision：`V1-FROZEN-2026-08-13`
 兼容范围：只适用于 Nereus Delay V1；任何未列出的 enum、tag、field 或 code 都是 unknown
 
 本文是 V1 的唯一数值注册表。主设计定义语义，ADR 记录理由；本文件固定实现必须逐 byte 一致的 framing、enum、canonical preimage、body field、RocksDB key 与 closed result tag。修改既有数字或语义不属于兼容变更，必须分配新 version/domain。
@@ -112,6 +112,7 @@ Supporting body enums:
 | `RetryabilityV1` | 1 `NEVER`, 2 `RETRY_EXACT_BYTES`, 3 `RETRY_EXACT_BYTES_AFTER_RETRY_AT`, 4 `NEW_PREPARATION_REQUIRED`, 5 `RETRY_EXACT_BYTES_AFTER_EXTERNAL_CHANGE`, 6 `REREAD_AFTER_REPAIR` |
 | `ReceiptCapabilityBitV1` | `0x0001 QUERY`, `0x0002 CANCEL`, `0x0004 RESCHEDULE`, `0x0008 SERVER_QUOTA`, `0x0010 SERVER_AUDIT`; all other bits invalid |
 | `NonPersistenceProofKindV1` | 1 `LOCAL_BEFORE_PRODUCER_OWNERSHIP`, 2 `KAFKA_DEFINITIVE_REJECTION`, 3 `PULSAR_GUARD_REJECTION`, 4 `LIBRARY_CERTIFIED_PRE_OWNERSHIP_CANCEL` |
+| `PulsarGuardedResponseKindV1` | 1 `SEND_RECEIPT`, 2 `SEND_ERROR` |
 | `ProtectionKindV1` | 1 `RECOVERY_FLOOR`, 2 `QUERY_OR_AUDIT_RETENTION`, 3 `ACTIVE_ATTEMPT_OR_READ`, 4 `REPLAY_OR_RETRY_WINDOW`, 5 `EXPORT_OBLIGATION`, 6 `CONTROL_OPERATION` |
 | `ProfileKindV1` | 1 `DESTINATION`, 2 `DELIVERY_CAPABILITY`, 3 `OBJECT_STORE`, 4 `EVIDENCE_VERIFIER` |
 | `TargetPartitionPolicyV1` | 1 `EXPLICIT_ONLY`, 2 `HASH_ONLY`, 3 `EXPLICIT_OR_HASH` |
@@ -912,6 +913,81 @@ Snapshot issuance is the native credential-authorization linearization point. An
 
 `NonPersistenceProofV1` exact fields: 1 `NonPersistenceProofKindV1 kind`; 2 `uint32 adapter_proof_version`=1; optional 3 PhysicalEnqueueAttemptId[16]; 4 exact prepared frame/submission SHA-256[32]; optional 5 `BrokerResourceIdentityV1 broker_resource`; optional 6 exact Broker request SHA-256[32]; optional 7 authenticated response SHA-256[32]; 8 proof digest[32] over fields 1–7. Local/pre-ownership branches forbid 5–7; Kafka/Pulsar rejection branches require 3 and 5–7; library-certified cancellation requires 3 plus an activated adapter conformance version encoded in field 2. A timeout, Future cancellation, connection loss, process exit, missing callback, or unverified exception has no legal proof branch.
 
+The guarded Broker exchange hashes above and in `SafeBrokerAckV1` have closed preimages; arbitrary
+adapter diagnostic bytes are not evidence.
+
+`KafkaGuardedRequestEvidenceV1` exact fields: 1 version=1; 2 bounded authenticated cluster ID bytes;
+3 expected native topic UUID[16]; 4 partition `uint32`; 5 actual Produce request version `uint32`, at
+least 13; 6 raw correlation-ID `uint32` bit pattern; 7 nonnegative destination Broker node ID `uint32`;
+8 SHA-256[32] of the exact versioned `ProduceRequestData` body bytes (request header excluded); 9
+SHA-256[32] of the selected final child `MemoryRecords` bytes; 10 selected record index `uint32`; 11
+nonzero selected child-batch record count `uint32`; 12 SHA-256[32] of that record's exact
+post-interceptor/post-serializer value. Field 10 is below field 11; field 12 equals the prepared NDL1
+frame SHA-256 for a managed Command send.
+
+`KafkaGuardedResponseEvidenceV1` exact fields: 1 version=1; 2 Kafka guarded-request-evidence hash[32];
+3 SHA-256[32] of the exact versioned `ProduceResponseData` body bytes, including retained unknown tagged
+fields; 4 response native topic UUID[16]; 5 partition `uint32`; 6 unsigned wire error code `uint32` in
+the uint16 range; 7 signed `int64 base_offset`; 8 signed `int64 log_append_time_ms`; optional 9
+nonnegative response `currentLeader.leaderEpoch` as `uint32`. Success requires field 6 zero, fields 4–5
+equal the request, and fields 7–8 nonnegative. A rejection requires a nonzero registered Kafka error;
+its signed sentinel offsets/times are preserved rather than reinterpreted as unsigned positions.
+For `NonPersistenceProofKindV1.KAFKA_DEFINITIVE_REJECTION` with adapter proof version 1, the registered
+Broker resource-rejection set is exactly Produce v13 `UNKNOWN_TOPIC_ID(100)`. It additionally requires
+request version 13 or newer, exact request/response TopicId and partition equality, an authenticated
+correlated response, and client state proving no earlier ambiguous write for the physical attempt. Every
+other Kafka error remains non-definitive under this proof version even when field 3 is present; expanding
+the set requires a new registered adapter proof version and source-locked pre-append evidence.
+
+```text
+kafkaGuardedRequestEvidenceHash = SHA-256(
+  "kafka-guarded-produce-request-evidence-v1\0" ||
+  canonicalProtobuf(KafkaGuardedRequestEvidenceV1)
+)
+kafkaGuardedResponseEvidenceHash = SHA-256(
+  "kafka-guarded-produce-response-evidence-v1\0" ||
+  canonicalProtobuf(KafkaGuardedResponseEvidenceV1)
+)
+```
+
+`PulsarGuardedResponseKindV1`: 1 `SEND_RECEIPT`, 2 `SEND_ERROR`.
+
+`PulsarGuardedRequestEvidenceV1` exact fields: 1 version=1; 2 protocol version=22; 3 nonzero raw
+connection-generation `uint64`; 4 raw producer ID `uint64`; 5 raw sequence ID `uint64`; 6 expected
+Pulsar `BrokerResourceIdentityV1`; 7 physical partition `uint32`; 8 SHA-256[32] of every readable byte
+in the actual outbound SEND command plus metadata/payload composite buffer for that connection
+generation. The resource branch must be Pulsar and match the prepared target.
+
+`PulsarGuardedResponseEvidenceV1` exact fields: 1 version=1; 2 Pulsar guarded-request-evidence hash[32];
+3 `PulsarGuardedResponseKindV1`; 4 protocol version=22; 5 raw connection-generation `uint64`; 6 raw
+producer ID `uint64`; 7 raw sequence ID `uint64`; 8 SHA-256[32] of the strict canonical v22 LightProto
+`CommandSendReceipt` or `CommandSendError` bytes; optional success fields 10 actual Pulsar
+`BrokerResourceIdentityV1`, 11 physical partition `uint32`, 12 ledger ID `uint64`, 13 entry ID `uint64`,
+14 nonnegative Broker entry timestamp `int64`; optional error field 20 unsigned `ServerError` code
+`uint32`. Response fields 4/5/6/7 equal request fields 2/3/4/5 respectively. `SEND_RECEIPT` requires
+fields 10–14, forbids field 20, requires fields 10–11 equal request fields 6–7,
+and rejects the duplicate sentinel pair where fields 12–13 are both raw uint64 all-ones
+(`-1L/-1L`). `SEND_ERROR` forbids fields 10–14 and requires
+field 20=`ResourceIncarnationMismatch(26)`; it is definitive only when client state proves no earlier
+ambiguous write for this physical attempt.
+
+```text
+pulsarGuardedRequestEvidenceHash = SHA-256(
+  "pulsar-guarded-send-request-evidence-v1\0" ||
+  canonicalProtobuf(PulsarGuardedRequestEvidenceV1)
+)
+pulsarGuardedResponseEvidenceHash = SHA-256(
+  "pulsar-guarded-send-response-evidence-v1\0" ||
+  canonicalProtobuf(PulsarGuardedResponseEvidenceV1)
+)
+```
+
+Kafka `SafeBrokerAckV1` response field equals `kafkaGuardedResponseEvidenceHash`; Pulsar
+`SafeBrokerAckV1` SEND-receipt field equals `pulsarGuardedResponseEvidenceHash`. Broker rejection
+`NonPersistenceProofV1` fields 6–7 equal the matching request/response evidence hashes. The production
+result SPI therefore carries request and response evidence separately; hashing an NDL1 frame as field 6,
+or hashing one arbitrary adapter byte array for both fields, is invalid.
+
 Public unions are closed: `EnqueueOutcomeV1` oneof is queued receipt / definitely-not-queued `{PreparedCommandRefV1, NonPersistenceProofV1, StableErrorV1}` / enqueue-uncertain `{PreparedCommandRefV1, PhysicalEnqueueAttemptId[16], StableErrorV1}`; `SubmissionOutcomeV1` oneof is managed `EnqueueOutcomeV1` / native receipt / native-definitely-not-queued `{NativePreparedRefV1, NonPersistenceProofV1, StableErrorV1}` / native-uncertain `{NativePreparedRefV1, PhysicalEnqueueAttemptId[16], StableErrorV1}`. The SDK allocates the physical ID immediately before each Producer submission attempt; purely local rejection can therefore have no physical ID inside its proof. A physical ID never enters the Prepared Command/command hash and changes on a later physical retry. A batch returns one `EnqueueOutcomeV1` per input in the same order and has no cross-element atomic tag.
 
 The exact messages are: `DefinitelyNotQueuedV1` fields 1 `PreparedCommandRefV1`, 2 `NonPersistenceProofV1`, 3 `StableErrorV1`; `EnqueueUncertainV1` fields 1 prepared ref, 2 PhysicalEnqueueAttemptId[16], 3 stable error; `EnqueueOutcomeMessageV1` fields 1 `EnqueueOutcomeV1 outcome_kind`, closed oneof field 10 `CommandQueuedReceiptV1 queued`, 11 `DefinitelyNotQueuedV1`, 12 `EnqueueUncertainV1`. `NativeDefinitelyNotQueuedV1` fields 1 `NativePreparedRefV1`, 2 proof, 3 error; `NativeEnqueueUncertainV1` fields 1 native ref, 2 PhysicalEnqueueAttemptId[16], 3 error. `SubmissionOutcomeMessageV1` fields 1 `SubmissionOutcomeKindV1`, closed oneof field 10 managed `EnqueueOutcomeMessageV1`, 11 `NativeDeliveryReceiptV1`, 12 `NativeDefinitelyNotQueuedV1`, 13 `NativeEnqueueUncertainV1`. `PreparedSubmissionV1` fields 1 version=1 and closed oneof field 2 exact managed NDL1 frame bytes / field 3 `NativePreparedDeliveryV1`; branch never changes after preparation. Kind/branch/stable code/retryability/proof presence must agree. Batch response is repeated field 1 `EnqueueOutcomeMessageV1` preserving input order, with no map or aggregate atomic status.
@@ -1063,6 +1139,282 @@ The table's prose hint does not permit an implementation-local boolean. `StableE
 The same stable code can appear as an immutable applied result, but its projection still describes the next legal client action, not permission to mutate that result. `NEW_PREPARATION_REQUIRED` always means a new logical operation/identity after correcting the stated prerequisite; it never retries the rejected identity under changed bytes.
 
 Symbolic sub-outcomes not assigned a public stable code (`READY`, `BLOCKED`, etc.) use their own closed enum, never a free string. Adding a code uses a previously unused number and new spec revision; aliases are forbidden.
+
+### 6.5 Delay Gateway transport and idempotency fields
+
+Gateway transport messages are wrappers around the canonical V1 values in this Registry. They do not
+define a second Command or receipt encoding. Proto unknown fields are rejected at the V1 Gateway
+boundary; every embedded V1 value is strict-decoded and required to re-encode byte-for-byte before
+authentication, preparation, hashing, or transport ownership.
+
+Gateway Schedule field 5 uses the existing `SubmissionModeV1` directly; no Gateway-local alias enum is
+registered.
+
+`GatewayOperationKindV1`: 1 `SCHEDULE`, 2 `PREPARE_LARGE_SCHEDULE`, 3
+`COMMIT_LARGE_SCHEDULE`, 4 `CANCEL`, 5 `RESCHEDULE`. `RETRY_UNCERTAIN` is a new
+physical attempt of the stored operation and is not a sixth preparation kind.
+
+`GatewayRouteSelectorV1` exact fields: 1 `AdapterKindV1 ingress_adapter_kind`; 2
+`bytes route_alias_utf8_nfc`. Field 2 is valid UTF-8 already in NFC, 1–128 bytes, contains no
+credential or tenant identity, and resolves only inside the authenticated tenant's allowed Route set.
+
+The gRPC request fields are fixed as follows:
+
+| Message | Exact fields |
+| --- | --- |
+| `GatewayScheduleRequestV1` | 1 idempotency key bytes[16..64]; 2 `GatewayRouteSelectorV1`; 3 canonical `ScheduleIntentV1`; 4 `int64 retry_until_epoch_ms`; 5 `SubmissionModeV1` |
+| `GatewayPrepareLargeScheduleRequestV1` | 1 idempotency key bytes[16..64]; 2 route selector; 3 canonical payload-absent `ScheduleIntentV1`; 4 `uint64 expected_payload_length`; 5 payload SHA-256[32]; 6 `uint64 reservation_ttl_ms`; 7 `PayloadProofTrustSetRefV1`; 8 OBJECT_STORE `ProfileRefV1`; 9 `int64 retry_until_epoch_ms` |
+| `GatewayCommitLargeScheduleRequestV1` | 1 idempotency key bytes[16..64]; 2 exact framed `PayloadReservationReceiptV1`; 3 canonical `PayloadCommitProofV1`; 4 `int64 retry_until_epoch_ms` |
+| `GatewayCancelRequestV1` | 1 idempotency key bytes[16..64]; 2 DelayMessageId[41]; 3 `MessagePreconditionV1`; 4 `int64 retry_until_epoch_ms` |
+| `GatewayRescheduleRequestV1` | 1 idempotency key bytes[16..64]; 2 DelayMessageId[41]; 3 `MessagePreconditionV1`; 4 `int64 deliver_at_epoch_ms`; 5 `int64 expire_at_epoch_ms`; 6 `int64 retry_until_epoch_ms` |
+| `GatewayRetryUncertainRequestV1` | 1 original idempotency key bytes[16..64]; 2 expected prior PhysicalEnqueueAttemptId[16]; 3 retry request ID[16] |
+
+The five preparation requests (all rows except `GatewayRetryUncertainRequestV1`) encode their fields
+with exactly these field numbers in the Gateway proto. Their canonical request body for hashing omits
+field 1 but otherwise uses the same field numbers and
+canonical-Protobuf rules from §1. `GatewayScheduleRequestV1` `AUTO_FAST` accepts only the preference;
+target identity, capability snapshot, resource token, and credentials are forbidden request fields and
+come from the authenticated control snapshot. Prepare Large is always managed.
+
+The non-Command helper/query wrappers have these exact fields:
+
+| Message | Exact fields |
+| --- | --- |
+| `GatewayIssuePayloadUploadHandleRequestV1` | 1 exact canonical `PayloadReservationReceiptV1`; 2 `UploadHandleKindV1` |
+| `GatewayAttestPayloadUploadRequestV1` | 1 exact canonical `PayloadReservationReceiptV1`; 2 exact canonical `OpaquePayloadUploadHandleV1` |
+| `GatewayGetCommandResultRequestV1` | closed oneof field 1 exact canonical `CommandQueuedReceiptV1` / field 2 self-routing CommandId[41] |
+| `GatewayAwaitAppliedRequestV1` | 1 exact canonical `CommandQueuedReceiptV1` |
+| `GatewayGetMessageRequestV1` | closed oneof field 1 DelayMessageId[41] / field 2 exact canonical `CommandQueuedReceiptV1` whose subject is a Message |
+
+`AwaitApplied` derives its bounded wait from the authenticated server policy and transport deadline; no
+request field supplies Broker/source time or an absolute result-retention boundary. Helper/query request
+messages are not members of `GatewayOperationKindV1` and do not create a Command physical attempt.
+They still strict-decode, authorize and byte-validate every embedded canonical value before external I/O.
+
+```text
+gatewayKeyHash = SHA-256(
+  "nereus-delay-gateway-idempotency-key-v1\0" ||
+  authenticatedTenantScopeHash[32] || lp32(idempotencyKey)
+)
+
+gatewayRequestBodyHash = SHA-256(
+  "nereus-delay-gateway-request-v1\0" ||
+  u16be(GatewayOperationKindV1) ||
+  lp32(canonicalProtobuf(request fields 2..N with original field numbers))
+)
+
+gatewayRetryRequestHash = SHA-256(
+  "nereus-delay-gateway-retry-request-v1\0" ||
+  gatewayKeyHash[32] || expectedPriorPhysicalAttemptId[16] || retryRequestId[16]
+)
+```
+
+`GatewayIdempotencyPhaseV1`: 1 `PREPARED`, 2 `ACTIVE`, 3 `QUIESCENT`.
+`GatewayPhysicalAttemptStateV1`: 1 `STARTED`, 2 `QUEUED`, 3
+`DEFINITELY_NOT_QUEUED`, 4 `UNCERTAIN`.
+These internal state names are transport-neutral: for a managed prepared branch, states 2–4 require the
+matching managed queued/definite/uncertain NDR1 branch; for a native prepared branch, they require,
+respectively, `NativeDeliveryReceiptV1`, native-definitely-not-queued, or native-uncertain. An attempt and
+the aggregate never change the `PreparedSubmissionV1` managed/native branch stored in the record.
+
+`GatewayPhysicalAttemptV1` exact fields: 1 nonzero `uint32 attempt_no`; 2
+PhysicalEnqueueAttemptId[16]; 3 state; optional 4 exact NDR1 `SubmissionOutcomeMessageV1`; 5
+`int64 started_at_epoch_ms`; 6 `int64 uncertainty_at_epoch_ms`; optional 7 retry request ID[16];
+optional 8 retry-request hash[32]; 9 nonzero `uint64 revision`; 10
+`int64 ownership_not_after_epoch_ms`. Fields 7–8 are present together on
+explicit retries and absent on the first attempt; retry request IDs are unique across the record, and
+field 8 must equal `gatewayRetryRequestHash` for the record key hash, field 7, and the prior attempt's
+field-2 PhysicalEnqueueAttemptId selected by the RPC. When the retry attempt is first appended, that
+prior ID must equal the PhysicalEnqueueAttemptId carried by the record's current uncertain aggregate;
+a stale expected prior returns the current aggregate and appends nothing. A handler may not wait for a
+concurrent retry and then reuse a stale precondition automatically.
+Reusing a record's field-7 retry request ID with a different field-8 hash returns
+`GatewaySubmissionOutcomeV1` field 2
+`StableErrorV1(PREPARATION, PREPARED_SUBMISSION_MISMATCH)` without a prepared ref and appends nothing.
+`STARTED` forbids field 4; every terminal state requires field 4 whose
+prepared ref matches record field 5 and whose physical attempt ID, when the NDR1 branch legally carries
+one, matches field 2. A `LOCAL_BEFORE_PRODUCER_OWNERSHIP` proof omits its public physical ID as required
+by §6.3 even though the Gateway attempt record retains its already allocated field 2. Attempts are
+strictly increasing by field 1; neither an
+uncertain nor active attempt may be discarded to enforce a size cap. Allowed attempt transitions are
+`STARTED -> QUEUED | DEFINITELY_NOT_QUEUED | UNCERTAIN` and, only with late authenticated evidence,
+`UNCERTAIN -> QUEUED | DEFINITELY_NOT_QUEUED`; queued/definitive states are terminal. Fields 5–6
+are nonnegative; field 10 is strictly greater than field 5, no later than field 6, and is the checked
+sum of field 5 plus the activated Gateway attempt-ownership max age. Field 6 is the checked sum of
+field 5 plus the activated bounded outcome wait.
+
+Only the process receiving the definite success response for the CAS that appends `STARTED` may derive
+a non-serializable one-shot ownership permit bound to fields 2, 9 and 10. A lost CAS response, durable
+reread, failover or another Gateway instance cannot recreate that permit or start Broker I/O. The permit
+must transfer to library ownership before field 10 and within the local monotonic gate-age bound; after
+that it is permanently invalid. Late evidence for an already owned attempt may still update an uncertain
+state under the transition rule above.
+
+A durable `PREPARED` record may race exactly one first-attempt CAS from the original proposer, a same-key
+caller or a sweeper; only the definite CAS winner receives the ephemeral ownership permit and sends. If
+the stored prepared submission has crossed its Registry retry/expiry fence, no attempt is created and the
+record remains `PREPARED` with fields 8–9 absent. A typed prepared-expired response is derived
+deterministically from the stored prepared bytes and trusted time without re-preparation or Broker I/O;
+it is not stored as field 9 and does not make the record `QUIESCENT`. The record is retained until its
+retention/reader/lease GC conditions close. The response is `GatewaySubmissionOutcomeV1` field 1:
+the managed branch carries the same prepared ref, `PREPARED_COMMAND_EXPIRED` and the required
+local-before-Producer-ownership proof; the native branch carries the same native prepared ref and
+`NATIVE_PREPARED_SUBMISSION_EXPIRED`. It is never projected as a field-2 preparation error.
+
+`GatewayIdempotencyRecordV1` exact fields: 1 version=1; 2 gateway key hash[32]; 3
+`GatewayOperationKindV1`; 4 request-body hash[32]; 5 exact canonical `PreparedSubmissionV1` bytes;
+6 SHA-256(field 5); 7 `GatewayIdempotencyPhaseV1`; repeated 8
+`GatewayPhysicalAttemptV1`; optional 9 exact NDR1 aggregate `SubmissionOutcomeMessageV1`; 10
+`int64 created_at_epoch_ms`; 11 `int64 retain_until_epoch_ms`; 12 nonzero `uint64 revision`; 13 record
+digest[32]. Field 13 is
+`SHA-256("nereus-delay-gateway-idempotency-record-v1\0" || canonicalProtobuf(fields 1..12 with original field numbers))`.
+`PREPARED` has no attempts/outcome; `ACTIVE` has exactly one
+final `STARTED` attempt; `QUIESCENT` has no `STARTED` attempt. Field 9 is absent only before any
+attempt has a public outcome; otherwise it is recomputed from every attempt: any exact state-2 outcome
+wins, all-definitive yields the stored branch's definitive outcome, and every other set yields the stored
+branch's uncertain outcome. The first state-2 outcome successfully installed as aggregate is sticky;
+another persisted receipt cannot replace it. A quiescent all-definitive set projects the highest attempt
+number; an uncertain set projects the highest still-unresolved attempt, whose PhysicalEnqueueAttemptId is
+the only valid expected-prior precondition for a new explicit retry. Late evidence may improve uncertain
+to persisted/all-definitive but cannot downgrade a persisted aggregate, cross the managed/native branch,
+or erase an unresolved earlier attempt. Same key plus a
+different field-4 hash means the current canonical request never acquired a prepared identity; it returns
+`GatewaySubmissionOutcomeV1` field 2 containing
+`StableErrorV1(PREPARATION, PREPARED_SUBMISSION_MISMATCH)` with no prepared ref, exposes none of the
+existing record's prepared bytes/ref, and performs no Broker I/O.
+
+For a managed prepared frame, an internal authenticated query may independently expose an applied or
+rejected Command result only when the exact historical Route/CommandId/CommandHash is confirmed against
+the Owner's durable dedupe result and applied Source Position. That observation lacks the original
+Producer response hash required by `SafeBrokerAckV1`, so it is not queued late evidence and cannot update
+record field 9. Only an exact retained guarded-transport NDR1 outcome may do so. Absence, timeout,
+transition or an unclosed freshness fence is never definitive non-persistence. Native prepared
+submissions have no Delay query authority. A source-derived queued promotion requires a future Registry
+receipt/evidence branch; implementations may not synthesize one under V1.
+Fields 10–11 are nonnegative with field 11 greater than field 10 and no earlier than every operation
+retry/attempt-uncertainty/audit-retention obligation. An ACTIVE or uncertainty-bearing record is not
+GC-eligible regardless of field 11.
+
+The response wrappers are exact: `GatewaySubmissionOutcomeV1` is a closed oneof whose field 1 contains
+NDR1 `SubmissionOutcomeMessageV1` and whose field 2 contains exact `StableErrorV1` for a failure before
+the current canonical request acquires a prepared submission/attempt. Field 2 requires
+`stage=PREPARATION` and forbids command/native refs; after that request acquires a prepared identity every
+enqueue result uses field 1. An idempotency-key mismatch follows the field-2 rule even though a different
+request body already owns the stored key. `GatewayPayloadUploadHandleResponseV1` field 1 contains
+`PayloadUploadHandleResponseV1`; `GatewayPayloadAttestationResponseV1` field 1 contains
+`PayloadAttestationResponseV1`; `GatewayCommandQueryResponseV1` field 1 contains
+`CommandQueryResponseV1`; and `GatewayMessageQueryResponseV1` field 1 contains
+`MessageQueryResponseV1`. Every selected field contains the exact canonical bytes of the named value.
+A typed convenience projection may accompany it only in a later field and must be byte-validated against
+the selected canonical field; that canonical field is authoritative.
+
+### 6.6 Signed Ingress Route snapshot
+
+`RoutingHashVersionV1`: 1 `ROUTING_HASH_V1`. Zero and unknown values are invalid.
+
+`KafkaIngressRouteResourceV1` exact fields: 1 bounded authenticated cluster ID bytes; 2 bounded
+canonical physical topic UTF-8 NFC bytes; 3 nonzero native topic UUID[16]; 4 nonzero `uint32
+partition_count`.
+
+`PulsarPhysicalPartitionIdentityV1` exact fields: 1 `uint32 partition`; 2 bounded canonical physical
+topic UTF-8 NFC bytes; 3 Nereus resource incarnation[32]; 4 raw `uint64
+physical_topic_creation_timestamp`. The token is nonzero. The creation identity preserves all 64 bits.
+
+`PulsarIngressRouteResourceV1` exact fields: 1 bounded authenticated cluster ID bytes; 2 bounded
+canonical partitioned-base topic UTF-8 NFC bytes; 3 nonzero `uint32 partition_count`; repeated 4
+`PulsarPhysicalPartitionIdentityV1`, strictly unsigned-partition sorted and containing every partition
+`0..partition_count-1` exactly once. Each physical topic must be the canonical physical partition of field
+2 and its field-1 index; a base-topic property cannot replace field 4.
+
+`IngressRouteResourceV1` is a closed oneof: field 1 `KafkaIngressRouteResourceV1`; field 2
+`PulsarIngressRouteResourceV1`. Its branch defines the selected Ingress `AdapterKindV1` and must match
+every referenced Broker identity/barrier.
+
+`IngressCredentialBindingRefV1` is a safe reference, not a credential: fields 1 nonzero binding ID[32];
+2 nonzero raw `uint64 generation`; 3 binding digest[32]; 4 resolved immutable credential-version/public-
+fingerprint digest[32]; 5 immutable authorization-scope/policy digest[32]. Plaintext credential, mutable
+provider alias and secret reference are forbidden. A local provider or Gateway vault resolves the exact
+field-1/2 tuple and must prove fields 3–5 before it creates or lends a transport.
+
+`RoutePartitionPolicyV1` exact fields: 1 `uint32 partition`; 2 `ActivationBarrierV1`; 3
+`QuotaGrantRefV1`; 4 nonzero raw `uint64 broker_guard_attestation_generation`; 5 Broker guard/capability
+attestation digest[32]. Field 2 resource/partition and field 1 must match the enclosing Route resource.
+For Kafka, fields 4–5 attest the complete required Produce/Fetch v13+ Broker set; for Pulsar they attest
+the complete first-class v22 Broker/proxy set. A probe or partial Broker set cannot populate them.
+
+`IngressRouteSnapshotV1` exact fields are:
+
+| Field | Value |
+| ---: | --- |
+| 1 | snapshot version=1 |
+| 2 | Route Incarnation UUID[16] |
+| 3 | authenticated tenant-scope digest[32] |
+| 4 | tenant routing scope[32] |
+| 5 | `RouteLifecycleV1` |
+| 6 | nonnegative `int64 new_schedule_accept_until_epoch_ms` |
+| 7 | `IngressRouteResourceV1` |
+| 8 | `RoutingHashVersionV1` |
+| 9 | selected `ProtocolTupleV1` |
+| 10 | nonzero `uint64 control_version` |
+| 11 | repeated `RoutePartitionPolicyV1`, strictly unsigned-partition sorted, complete and unique |
+| 12 | nonzero `uint64 queued_receipt_query_window_ms` |
+| 13 | nonzero `uint64 full_command_result_retention_ms` |
+| 14 | nonzero `uint64 max_inline_payload_bytes` |
+| 15 | nonzero `uint64 max_command_bytes` |
+| 16 | nonzero `uint32 max_batch_commands` |
+| 17 | nonzero `uint64 max_batch_bytes` |
+| 18 | nonzero `uint64 maximum_preparation_age_ms` |
+| 19 | nonnegative `int64 valid_from_epoch_ms` |
+| 20 | nonnegative `int64 valid_until_epoch_ms` |
+| 21 | `IngressCredentialBindingRefV1` |
+| 22 | immutable Route prerequisite/policy digest[32] |
+| 23 | `TrustedUtcIntervalEvidenceV1 issued_at` |
+| 24 | nonzero issuer signing-key version `uint32` |
+| 25 | snapshot digest[32] |
+| 26 | Ed25519 signature[64] |
+
+Field 22 is the nonzero digest of the immutable, source-locked Route activation-prerequisite/policy
+bundle approved when the Route Incarnation is created. Its underlying artifact is control-plane input,
+not a caller field or signature encoding; the snapshot issuer verifies that artifact and attests that it
+remains valid through field 20. SDK/Gateway verification treats field 22 as an opaque immutable digest
+and compares it byte-for-byte across snapshots of the same Route; changing its semantics requires a new
+Route Incarnation.
+
+Field 11 has exactly the partition count in field 7 and contains `0..count-1`. Fields 4 and 22 are
+nonzero. Fields 14–15/17 and the Broker-certified record limit must satisfy the checked inline/frame/batch
+size inequalities; field 18 bounds UUID freshness and every `retry_until`. Fields 12–13 are the only
+sources for queued/result receipt retention boundaries. Require
+`valid_from <= issued_at.earliest <= issued_at.latest < valid_until`; signing-key, guard-attestation,
+credential-binding and prerequisite validity do not end before field 20. `ACTIVE_FOR_NEW` is usable only
+while trusted latest time is no later than both fields 6 and 20. Other lifecycle values are never returned
+by `activeForNewSchedule`, but an exact historical snapshot remains available for authorized control/query
+while its Route obligations exist.
+
+```text
+routeSnapshotDigest = SHA-256(
+  "nereus-delay-ingress-route-snapshot-v1\0" ||
+  canonicalProtobuf(fields 1..24 with original field numbers)
+)
+
+routeSnapshotSignaturePreimage = SHA-256(
+  "nereus-delay-ingress-route-snapshot-signature-v1\0" ||
+  routeSnapshotDigest[32] || u32be(signingKeyVersion)
+)
+```
+
+Field 25 equals `routeSnapshotDigest`; field 26 signs `routeSnapshotSignaturePreimage` under the
+activated Route-snapshot trust set. Decode requires minimal canonical Protobuf, exact NFC/length/presence,
+digest/signature/key-version verification, tenant-scope equality and the complete cross-field checks above
+before cache publication. Java serialization, JSON and map iteration are never signature inputs.
+
+Within one Route Incarnation, resource identity/partition count, tenant routing scope, routing hash,
+receipt/result policy, size/preparation limits, field 22 and every partition's Activation Barrier are
+immutable. A newer signed snapshot may advance lifecycle/control version, renew validity, point to an
+updated Quota Grant, renew a complete semantically equivalent guard-rollout attestation, and install a
+proven equivalent Credential Binding/channel, but cannot alter those immutable fields. The issuer proves
+equivalence and field-20 coverage; the local verifier still checks the signed generation/digests and
+availability. Violation quarantines the Route cache and prevents new transport ownership; it is not a
+migration. Expansion, resource recreation or semantic-prerequisite change uses a new Route Incarnation.
 
 ## 7. RocksDB CF and key codec
 

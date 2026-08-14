@@ -1,16 +1,16 @@
 # Nereus Delay V1 设计
 
-状态：V1 语义与协议冻结稿（`V1-FROZEN-2026-08-01`）  
-日期：2026-08-01  
+状态：V1 语义与协议冻结稿（`V1-FROZEN-2026-08-13`）
+日期：2026-08-13
 适用范围：Kafka/Pulsar 入口，Kafka/Pulsar 目标，单 Active Recovery Cell
 
-本文是 Nereus Delay V1 的实现与验收基线。术语以仓库根目录的 [`CONTEXT.md`](../CONTEXT.md) 为准；关键取舍及其理由见 [`ADR index`](adr/README.md) 中编号 `0001` 至 `0042` 的 Accepted ADR；wire enum、canonical preimage、key tag/width 与 closed code 以 [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md) 为唯一数值注册表；交叉审计结果与 release-evidence checklist 见 [`V1 Design Audit`](V1-DESIGN-AUDIT.md)。若代码、配置示例或旧材料与本文冲突，以本文、Protocol Registry 和对应 ADR 的更具体约束为准；三者仍冲突时发布 gate 失败，不能由实现自行选择。
+本文是 Nereus Delay V1 的实现与验收基线。术语以仓库根目录的 [`CONTEXT.md`](../CONTEXT.md) 为准；关键取舍及其理由见 [`ADR index`](adr/README.md) 中编号 `0001` 至 `0044` 的 Accepted ADR；wire enum、canonical preimage、key tag/width 与 closed code 以 [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md) 为唯一数值注册表；Direct SDK、可选 Delay Gateway 和 Kafka/Pulsar guarded transport 的类/模块/线程/协议实现见 [`V1 双入口与 Guarded Transport 代码级详细设计`](V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md)；交叉审计结果与 release-evidence checklist 见 [`V1 Design Audit`](V1-DESIGN-AUDIT.md)。若代码、配置示例或旧材料与本文冲突，以本文、Protocol Registry 和对应 ADR 的更具体约束为准；三者仍冲突时发布 gate 失败，不能由实现自行选择。
 
 可执行的 V1 path 没有待实现阶段再决定的语义空位。吞吐、内存、时间间隔等数值必须由发布基准给出，但相应的配置项、交叉约束和停止条件已经冻结；Registry 中尚未冻结 value schema 的非空 subtype 必须保持不可写、不可恢复的 fail-closed 状态，不能由实现自行补语义。
 
 ## 1. 摘要
 
-Nereus Delay 是面向 Kafka 和 Pulsar 的统一延迟消息服务。客户端默认把命令异步写入持久 Command Topic；同一物理 partition 同时作为该 shard 的完整 Shard Log，按 Source Position 排序 tenant Command 与受认证的 service System Mutation。Worker 原子应用 Shard Log 到 RocksDB；调度器到期后经目标 Adapter 发布。Oxia 保存配置、placement、Owner Lease 和 checkpoint catalog；Object Store 保存 checkpoint 与大 payload。
+Nereus Delay 是面向 Kafka 和 Pulsar 的统一延迟消息服务。Java 应用默认使用 Direct SDK；需要多语言或集中认证、配额、审计与凭证托管时使用可选 Delay Gateway。两个入口调用同一 Semantic Core，产生逐字相同的 NDL1 Command 和 NDR1 outcome，不形成两套业务协议。客户端把 managed 命令异步写入持久 Command Topic；同一物理 partition 同时作为该 shard 的完整 Shard Log，按 Source Position 排序 tenant Command 与受认证的 service System Mutation。Worker 原子应用 Shard Log 到 RocksDB；调度器到期后经目标 Adapter 发布。Oxia 保存配置、placement、Owner Lease 和 checkpoint catalog；Object Store 保存 checkpoint 与大 payload。
 
 V1 的核心等式是：
 
@@ -29,6 +29,7 @@ Delay Shard
 |---|---|
 | `deliverAt` | 消费者最早可见时间，不是开始 publish 的时间 |
 | 默认模式 | `MANAGED`；`AUTO_FAST` 必须显式选择 |
+| 接入面 | Direct Java SDK 为默认；Delay Gateway 可选；共享一个 Semantic Core/RouteSnapshot/Command codec |
 | 入口确认 | Broker 持久化只返回 `CommandQueuedReceipt`，不代表 Schedule 已应用 |
 | 状态顺序 | 同一入口分区 Shard Log 的物理 Source Position；删除 `command_sequence` |
 | 命令幂等 | `commandId + commandHash`，固定 `retryUntil`，Broker time fence 回收 |
@@ -126,16 +127,16 @@ expireAt  <= bp + maxMessageLifetime
 - 在 `PUBLISHING` 前 Cancel/Reschedule；
 - quota、audit、checkpoint、DLQ 和 replay。
 
-`AUTO_FAST` 只表示调用方允许 SDK 在任何 I/O 前选择 managed 或 direct Pulsar native。`prepareAutoFast()` 返回 sealed `PreparedSubmission`：
+`AUTO_FAST` 只表示调用方允许 SDK 在任何 I/O 前选择 managed 或 direct Pulsar native。`prepareScheduleSubmission(..., AUTO_FAST)` 返回 sealed `PreparedSubmission`：
 
 - `ManagedPreparedCommand`；
 - `NativePreparedDelivery`。
 
 随后 `submit()` 返回 sealed `SubmissionOutcome`：managed 分支是普通 `EnqueueOutcome`；native 分支是 `NativeDeliveryReceipt | NativeDefinitelyNotQueued | NativeEnqueueUncertain`。只有 acknowledged concrete result 才称 receipt。
 
-选择与提交是两阶段：`prepareAutoFast()` 在任何 I/O 前返回可序列化的 `PreparedSubmission = ManagedPreparedCommand | NativePreparedDelivery`，调用方可先持久化；`submit()` 只能提交 exact object。V1 不暴露可在 uncertainty/crash 后重新选分支的 retryable one-shot `submitAutoFast(request)`。native I/O 开始后绝不自动回退 managed；native prerequisite 在 Producer 接管前失效则返回 `NativeDefinitelyNotQueued`。Native receipt 没有服务端 query/cancel/reschedule/quota/audit 权限。
+选择与提交是两阶段：`prepareScheduleSubmission(..., AUTO_FAST)` 在任何 I/O 前返回可序列化的 `PreparedSubmission = ManagedPreparedCommand | NativePreparedDelivery`，调用方可先持久化；`submit()` 只能提交 exact object。V1 不暴露可在 uncertainty/crash 后重新选分支的 retryable one-shot `submitAutoFast(request)`。native I/O 开始后绝不自动回退 managed；native prerequisite 在 Producer 接管前失效则返回 `NativeDefinitelyNotQueued`。Native receipt 没有服务端 query/cancel/reschedule/quota/audit 权限。
 
-`AUTO_FAST` 仍绑定 exact Pulsar Broker Resource Incarnation：只有目标 cluster 的 `PULSAR_RESOURCE_GUARD_V1` attestation 有效，SDK/Producer 携 pinned expected token，且其它 delayed-delivery prerequisite 全部满足时才可选择 native。Guard rejection 是 definitive not queued；response loss 是 `NativeEnqueueUncertain`，绝不改走 managed。
+`AUTO_FAST` 仍绑定 exact Pulsar Broker Resource Incarnation：只有目标 cluster 的 `PULSAR_RESOURCE_GUARD_V1` attestation 有效，SDK/Producer 携 pinned expected token，且其它 delayed-delivery prerequisite 全部满足时才可选择 native。当前 physical attempt 没有更早 ambiguous network write 时，correlated typed guard rejection 才是 definitive not queued；response loss 或历史 ambiguity 是 `NativeEnqueueUncertain`，绝不改走 managed。
 
 ### 3.3 交付保证
 
@@ -177,7 +178,13 @@ Profile version、Route Incarnation 或明确 migration boundary 改变时属于
 
 ```mermaid
 flowchart LR
-    SDK["Unified Delay SDK"] -->|"Prepared Command"| CT["Kafka / Pulsar Command Topic = Shard Log"]
+    SDK["Direct Java SDK"] --> EC["Entry Composition"]
+    LS["Light SDK"] --> GW["Optional Delay Gateway"]
+    GW --> EC
+    EC --> SC["Shared Semantic Core"]
+    SC -->|"Exact PreparedSubmissionV1"| CO["Shared Submission Coordinator"]
+    CO --> GT["Guarded Kafka / Pulsar Command Transport"]
+    GT -->|"Exact NDL1 Prepared Command"| CT["Kafka / Pulsar Command Topic = Shard Log"]
     SR -->|"Signed System Mutation"| CT
     CT --> IC["Ingress Adapter"]
     IC --> SR["Shard Runtime"]
@@ -193,7 +200,8 @@ flowchart LR
     DB --> CP["RocksDB Checkpoint"]
     CP --> OS["Object Store"]
     SDK -->|"large payload"| OS
-    Q["Query/Admin Gateway"] --> OX
+    GW -->|"large payload"| OS
+    Q["Admin / Control Gateway"] --> OX
     Q --> SR
 ```
 
@@ -201,7 +209,10 @@ flowchart LR
 
 | 组件 | 职责 | 不负责 |
 |---|---|---|
-| SDK | 路由、ID、canonical body、异步 enqueue、receipt | 服务端 quota/状态权威 |
+| Semantic Core | immutable RouteSnapshot、路由、ID、canonical body/hash、AUTO_FAST branch freeze | 网络监听、Broker client、Worker DB |
+| Direct SDK | 本地快照、bounded admission/outbox、transport/query 组合 | 集中租户认证与全局 Gateway quota |
+| Delay Gateway | 认证 tenant、请求幂等、集中 quota/凭证/审计；调用同一 Semantic Core | Gateway-only Command/receipt 语义 |
+| Guarded Command Transport | exact Kafka TopicId/Pulsar resource token 的请求级发送和三态结果 | Nereus 路由、Command 编码或 applied 状态 |
 | Command Topic / Shard Log | Client Command 与 System Mutation 的完整持久顺序、削峰、重放 | 物化业务状态 |
 | Ingress Adapter | Shard Log Source Position/time、seek、ACK-after-sync | 目标发布 |
 | Shard Runtime | 单写者状态机、原子 batch、lease gate | 跨 shard 原子事务 |
@@ -261,18 +272,24 @@ Broker Resource Incarnation 不是“Lane activation 时查一次”的弱前置
 
 **Pulsar `PULSAR_RESOURCE_GUARD_V1`**
 
-- 每个可能承载 V1 Command/fence/control writer、managed target、Attempt Journal、DLQ Export 或 `AUTO_FAST` target 的 Broker 都必须加载同一受认证的 Nereus BrokerInterceptor guard；cluster capability attestation 固定 guard protocol/version、plugin digest、Broker set/config generation，并由受信部署控制器签名。缺失、过期或成员覆盖不完整的 attestation 使 Route/Profile 注册或 writer/Lane 激活失败。
-- Nereus Producer metadata 固定 expected cluster/profile/resource token、physical topic、partition 和 guard protocol。Guard 在 `onPulsarCommand(SEND)` 中通过 `producerId` 取得即将执行 `handleSend` 的 actual Producer/Topic，同步比较 Producer metadata 与该 persistent Topic ManagedLedger 的受保护 `nereusResourceIncarnation`。
-- token、topic、partition、principal 或 guard protocol 不匹配，以及 guard 无法证明 actual Topic identity，必须抛出带 stable `NEREUS_RESOURCE_GUARD_REJECTED_V1` detail 的 `InterceptException`，wire code 固定为 `ServerError.NotAllowedError`。Pulsar 在 `handleSend`/`topic.publishMessage` 前返回 `SEND_ERROR`，所以 exact pending operation 收到并验证该 guard error 是 `NOT_PUBLISHED + LANE_UNAVAILABLE`；连接关闭、关联失败或错误响应丢失仍是 `UNKNOWN + LANE_UNAVAILABLE`。
-- `producerCreated` callback 和 `onMessagePublish` 不是拒绝边界：前者在 Producer success 后调用且异常可能被吞掉，后者没有 typed `InterceptException` 返回契约。实现不得用它们替代 pre-handle `SEND` guard。
+- 每个可能承载 V1 Command/fence/control writer、managed target、Attempt Journal、DLQ Export 或 `AUTO_FAST` target 的 Broker 都必须支持 source-locked first-class `TopicResourceGuard` protocol v22；cluster capability attestation 固定 protocol/version、Broker binary digest、完整 Broker set/config generation，并由受信部署控制器签名。缺失、过期、旧协议或成员覆盖不完整使 Route/Profile 注册或 writer/Lane 激活失败。
+- guarded Producer 创建携 expected authenticated cluster、32-byte resource token 和 service-owned physical-topic creation identity。Broker 在把 Producer 加入 actual persistent physical Topic 前读取并比较 ManagedLedger properties，并在 `CommandProducerSuccess` 回显 exact typed attestation。
+- 每个 SEND（包括 reconnect retransmission）在 `Producer.checkAndStartPublish` 最前部重新比较 actual Topic properties；不匹配以 `ServerError.ResourceIncarnationMismatch = 26` 返回 correlated `CommandSendError`，且必须发生在 `startPublishOperation`/`topic.publishMessage`/持久化之前；`ServerCnx` 已收取的 connection pending-send admission 必须成对回滚。成功的 `CommandSendReceipt` 回显 typed resource attestation 和 Broker entry timestamp。
+- exact pending operation 在没有更早 ambiguous attempt 时收到该 typed rejection，才是 `NOT_PUBLISHED + LANE_UNAVAILABLE`；连接关闭、关联失败、成功 receipt 缺失/不匹配、错误响应丢失，或历史 attempt 已 ambiguous，仍是 `UNKNOWN + LANE_UNAVAILABLE`。普通 `NotAllowedError`、异常字符串或 BrokerInterceptor callback 不是 V1 definitive evidence。
 - Pulsar auto-topic-creation 对所有 V1 resource 关闭；创建、删除和 incarnation property mutation 只授权给资源控制器。任何 replacement 必须生成新 token。
-- V1 所有 guarded Pulsar Producer channel（Command/system、managed target、Attempt Journal、DLQ 与 AUTO_FAST）固定 `batching=false` 且每 channel 最多一个 in-flight SEND，以使 NotAllowed guard error 与 exact pending operation/sequence 一一对应；并发通过有界的 Lane/Route channel slots 获得。未验证的 stock batching/multi-inflight path 不进入发布包。
+- V1 所有 guarded Pulsar Producer channel（Command/system、managed target、Attempt Journal、DLQ 与 AUTO_FAST）固定 `batching=false` 且每 channel 最多一个 unresolved SEND，以使 typed response 与 exact pending operation/sequence 一一对应；并发通过有界的 Lane/Route channel slots 获得。旧 Broker、stock unguarded、transaction、自动 partition 切换和 name-only fallback 不进入发布包。
 
 Pulsar Command source 没有目标 side effect，但也不能让 client reconnect 悄悄切到 replacement。Ingress Adapter 为每个 consumer connection generation 设置 `UNCERTIFIED` gate；每次 initial connect/reconnect 后，先验证 actual physical topic token/creation identity，再允许该 generation 的 record 进入 Shard Runtime。Identity mismatch 关闭 Source Assignment，且该 generation 的 record 一条也不能 apply/ACK。Kafka Command source 则由 pinned Fetch request 在 Broker 边界完成同一约束。
 
 ### 5.2 路由算法
 
 `tenantRoutingScope` 是 Route registry 为一个 Security Domain 生成并永久绑定的 exact 32-byte opaque value；它随 authenticated SDK Route snapshot 分发，不是 tenant 名称、payload field 或 caller input。Route Incarnation 内不可改变。
+
+Direct SDK/Gateway 使用的 signed `IngressRouteSnapshotV1`、Kafka/Pulsar ingress resource union、
+逐 partition barrier/grant/guard attestation、安全 Credential Binding ref、validity、digest 和 Ed25519
+signature 的 exact fields/preimage 由 Protocol Registry §6.6 固定。Snapshot 只分发 safe digest/
+fingerprint，不含 secret reference；任一 canonical/signature/tenant/cross-field 校验失败都不能进入
+本地 Route cache 或 Producer ownership。
 
 ```text
 digest = SHA-256(
@@ -323,6 +340,11 @@ V1 每个 Ingress Route 只属于一个 tenant Security Domain。Worker 从 rout
 
 ## 6. Client API 与 receipt
 
+生产入口由 ADR 0043 固定为 Direct Java SDK 和可选 Delay Gateway，共享一个零 I/O
+Semantic Core。Gateway 只增加认证、请求幂等、集中 quota/audit 和凭证托管；它返回与
+Direct SDK 相同的 NDR1 union，Worker 看不到入口差异。类、模块和逐调用流程见
+[`V1 双入口与 Guarded Transport 代码级详细设计`](V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md)。
+
 概念 API：
 
 ```java
@@ -353,7 +375,8 @@ interface DelayClient extends AutoCloseable {
     CompletionStage<PayloadAttestationOutcome> attestPayloadUpload(
             PayloadReservationReceipt reservation);
 
-    PreparedSubmission prepareAutoFast(AutoFastSchedule request);
+    PreparedSubmission prepareScheduleSubmission(
+            ManagedSchedule request, SubmissionMode mode);
     CompletionStage<SubmissionOutcome> submit(
             PreparedSubmission submission);
 }
@@ -371,7 +394,11 @@ SDK bridge 遇到 legacy body 必须 fail closed，不能把 compatibility bytes
 
 同步 `prepare*` 只可抛出携 `StableErrorV1(stage=PREPARATION)` 的 typed `PreparationFailure`，对应本地可确定的 invalid input/snapshot/size/metadata；失败时不存在 Command identity enqueue obligation。已有 `PreparedCommand` 的 `enqueue` 对所有预期网络/容量结果正常完成为三态，不让调用方从异常类猜是否入 Broker；只有损坏的 Prepared bytes、SDK invariant 或进程级不可恢复错误才 exceptional completion。
 
-`AutoFastSchedule` 是 bounded inline-only type。`prepareAutoFast` 只使用本地已验证、尚未过期的 immutable capability snapshot 做选择，不发网络请求；它返回：
+`prepareScheduleSubmission(..., AUTO_FAST)` 只接受同一个 bounded inline managed Schedule
+intent 和显式 mode。production request 不携 target/token、issuer `PublicKey` 或 native candidate；
+SDK 从构造时注入的本地已验证、尚未过期 immutable capability-snapshot provider 选择分支，不发
+网络请求。当前 embedded `AutoFastSchedule.NativeCandidate` 只留在 conformance/test artifact，
+不能成为 production trust-root 输入。该方法返回：
 
 ```text
 ManagedPreparedCommand:
@@ -387,9 +414,9 @@ NativePreparedDelivery:
 
 该 native type 的 exact field numbers、inline/Pulsar metadata、business/shifted timestamps、Profile/resource/attestation fields、完整 signed `NativeCapabilitySnapshotV1` 与 domain-separated submission-hash preimage 由 Protocol Registry §6.3 固定；`nativeDeliveryId` 是 prepare 时、I/O 前生成并与 bytes 一起持久化的 nonzero 32-byte identity，不含 managed `delayMessageId`。Snapshot 绑定 exact Destination/Capability Profile、Pulsar resource/partition、guard attestation/config generation、Credential Binding generation/digest/resolved fingerprint、SDK principal scope、Trusted-UTC validity 和 issuer signature；secret reference/plaintext 永不进入 snapshot/prepared bytes。
 
-Native credential authority 在线下 snapshot issuer 用一个 Oxia transaction 同时 compare current Head triplet 并对 exact generation 的 `CredentialBindingProtectionV1.nativeCapabilityProtectionUntil` 做 monotonic max-CAS，durable reread 后才线性化；protection-before-rotation 允许该 bounded old-generation snapshot，rotation-before-protection 则拒绝 stale issuer。`prepareAutoFast` 只消费已分发且未过期的 signed snapshot，所以仍是 zero I/O。等价 Credential Binding 轮换不追溯撤销已经签发的 snapshot；它只阻止新 snapshot 使用旧 generation。旧 binding/audit material 必须保留到 protectionUntil、所有可能已取得 Producer ownership 的 native request 和 quiescence 都结束。snapshot 不是紧急吊销：紧急停止要撤销 Pulsar resource guard/实际 credential，Producer 已接管的竞态仍是 uncertain。
+Native credential authority 在线下 snapshot issuer 用一个 Oxia transaction 同时 compare current Head triplet 并对 exact generation 的 `CredentialBindingProtectionV1.nativeCapabilityProtectionUntil` 做 monotonic max-CAS，durable reread 后才线性化；protection-before-rotation 允许该 bounded old-generation snapshot，rotation-before-protection 则拒绝 stale issuer。`prepareScheduleSubmission(..., AUTO_FAST)` 只消费已分发且未过期的 signed snapshot，所以仍是 zero I/O。等价 Credential Binding 轮换不追溯撤销已经签发的 snapshot；它只阻止新 snapshot 使用旧 generation。旧 binding/audit material 必须保留到 protectionUntil、所有可能已取得 Producer ownership 的 native request 和 quiescence 都结束。snapshot 不是紧急吊销：紧急停止要撤销 Pulsar resource guard/实际 credential，Producer 已接管的竞态仍是 uncertain。
 
-`prepareAutoFast` 不把 signed snapshot 中的 `physicalPartition` 当作独立的路由授权。对于
+`prepareScheduleSubmission(..., AUTO_FAST)` 不把 signed snapshot 中的 `physicalPartition` 当作独立的路由授权。对于
 `HASH_ONLY`，以及 `EXPLICIT_OR_HASH` 中未命中允许显式集合的候选，它必须从 exact managed
 Command 的 adapter metadata 或 Delay Message ID 取出 Profile 指定的 routing bytes，按
 `TARGET_PARTITION_HASH_V1` 重新计算并逐字比较；不匹配即在任何网络 I/O 前回退到同一份
@@ -437,7 +464,7 @@ physical destination wrapper 还必须区分“执行器在 delegate 调用前�
 `submit` 外层传播就按 executor rejection 提前释放。该围栏同样适用于自定义或同步
 执行器，因为 `Executor` 合法地可以在 `execute` 内联运行任务。
 
-合法 non-persistence proof 仅为 Producer ownership 前本地拒绝、Kafka authenticated definitive rejection、Pulsar pre-persistence guard rejection，或已认证 Adapter/library 的 pre-ownership cancel。Timeout、Future cancel、丢 callback、连接/进程退出及未验证 exception 没有 proof branch，必须 `ENQUEUE_UNCERTAIN`。
+合法 non-persistence proof 仅为 Producer ownership 前本地拒绝、Kafka registered authenticated definitive rejection、Pulsar pre-persistence guard rejection，或已认证 Adapter/library 的 pre-ownership cancel。Timeout、Future cancel、丢 callback、连接/进程退出及未验证 exception 没有 proof branch，必须 `ENQUEUE_UNCERTAIN`。
 
 Batch 结果逐条返回且保持输入顺序；Broker batching 不提供跨命令原子性。
 
@@ -503,7 +530,7 @@ managed/native prepared ref、retryability 与 proof 仍由各自 union branch �
 
 SDK 必须配置 pending command count/bytes、Producer buffer、batch/linger、request/delivery timeout、close drain deadline。Producer 尚未接管请求时的本地 buffer full 可以是 definitive；接管之后按 uncertainty 处理。SDK 不无限阻塞应用线程。
 
-Kafka/Pulsar Command Producer 与 system TIME_FENCE/control writer 都绑定 Route Broker Resource Incarnation：Kafka 使用 pinned Produce v13 topic UUID，Pulsar Producer metadata 携 Route token并经过每次 SEND guard。否则同名重建会把 `QUEUED` 赋给错误的 Route resource，V1 禁止注册或启用这种 writer。
+Kafka/Pulsar Command Producer 与 system TIME_FENCE/control writer 都绑定 Route Broker Resource Incarnation：Kafka guarded ProducerBatch 固定 Produce v13 topic UUID；Pulsar typed `TopicResourceGuard` 在 Producer create 和每次 SEND 经过 Broker core 校验。否则同名重建会把 `QUEUED` 赋给错误的 Route resource，V1 禁止注册或启用这种 writer。
 
 Destination Profile 绑定的 Kafka/Pulsar target resource 也必须在 Adapter 构造边界
 验证 canonical UTF-8/NFC 的 cluster/topic identity；不能先以非 canonical 文本创建
@@ -753,7 +780,7 @@ brokerEntryTimestamp
 
 Ingress consumer 必须支持 batch-aware 外部/升级记录，但 V1 自有 guarded Pulsar writer 固定 `batching=false`、每 channel 一个 in-flight SEND。一个 Broker entry 的所有 batch member 都 durable applied/quarantined 后，Exclusive source 才 cumulative ACK 该 entry 的最后一个 batch-aware `MessageId`；V1 client protocol >= 18 并启用 ACK receipt，只有 DB sync 后才发 ACK，receipt 丢失仍按安全重复处理。半 batch crash 会重放整个 entry，前半依赖 record dedupe。
 
-每次 initial connect/reconnect 创建新的 source connection generation。Patched client 在每个 `SUBSCRIBE` metadata 携 expected token、physical topic/partition、creation identity 和 guard protocol；Broker 在 `PersistentTopic.subscribe` 对 exact `this` Topic/ManagedLedger 同步比较，只有验证成功才 add Consumer/返回 success，失败用 stable `NotAllowed + NEREUS_RESOURCE_GUARD_REJECTED_V1`。该 generation 在 guarded success 前保持 `UNCERTIFIED`，零 FLOW/record 进入 apply queue；旧 generation 的 queued callback 带 token，晚到时只 audit，不 apply/ACK。Admin name lookup 或 `consumerCreated` callback 不能替代这个 Broker-bound gate。同一机制必须用于 Pulsar Attempt Journal、DLQ/evidence reader 的每次 reconnect。
+每次 initial connect/reconnect 创建新的 source connection generation。Patched client 在每个 `SUBSCRIBE` metadata 携 expected token、physical topic/partition、creation identity 和 guard protocol；Broker 在 `PersistentTopic.subscribe` 对 exact `this` Topic/ManagedLedger 同步比较，只有验证成功才 add Consumer/返回 success，失败用 source-path stable `PULSAR_SUBSCRIBE_RESOURCE_GUARD_REJECTED_V1`。该 generation 在 guarded success 前保持 `UNCERTIFIED`，零 FLOW/record 进入 apply queue；旧 generation 的 queued callback 带 token，晚到时只 audit，不 apply/ACK。Admin name lookup 或 `consumerCreated` callback 不能替代这个 Broker-bound gate。同一机制必须用于 Pulsar Attempt Journal、DLQ/evidence reader 的每次 reconnect。ADR 0044 的 Producer writer patch 完成不能替代这一独立 source gate。
 
 ### 8.3 Position 比较、successor 与稳定排序
 
@@ -2486,7 +2513,7 @@ durable Lane 缺失，必须在任何 stale-result、quota/READY projection 或 
 attempt、message、timeline 或 quota；`UNKNOWN` 的 transfer 仍是 opaque placeholder，不能
 触发 definitive charge release。
 
-timeout/connection loss after submission 默认 `UNKNOWN`。收到 Kafka pinned UUID 的 `UNKNOWN_TOPIC_ID` 或 Pulsar exact guard rejection 是 `NOT_PUBLISHED + LANE_UNAVAILABLE`；对应 response 丢失仍是 `UNKNOWN + LANE_UNAVAILABLE`。
+timeout/connection loss after submission 默认 `UNKNOWN`。收到 Kafka pinned UUID 的 registered authenticated rejection（K1 首版仅 Produce v13 `UNKNOWN_TOPIC_ID(100)`）或 Pulsar typed `ResourceIncarnationMismatch`，且该物理 attempt 从未有更早 ambiguous network write，才是 `NOT_PUBLISHED + LANE_UNAVAILABLE`；对应 response 丢失或已有历史 ambiguity 仍是 `UNKNOWN + LANE_UNAVAILABLE`。
 
 Adapter Channel 是 Lane-scoped 的本地提交/缓冲隔离单元：
 
@@ -2500,7 +2527,7 @@ Adapter Channel 是 Lane-scoped 的本地提交/缓冲隔离单元：
 - Lane 达到 zombie cap 时只把该 Lane `runtimeReadiness=BLOCKED` 并停止新的 Admission；不能把其 charge 转嫁给其它 Lane；
 - 一个共享 Producer/transport 只有在能够证明 per-Lane reserve、物理 charge 归属、无跨 Lane head blocking、独立 outcome/circuit，以及 Worker/cluster 为其它 READY Lane 固定保留 connection/producer/thread/request/byte minima 时才可复用；
 - 否则 Kafka/Pulsar Adapter 为 Lane 建立独立 bounded producer channel；达到持久 shard channel/Lane grant 时确定性拒绝新建 Lane，而不在运行时无限打开资源。Worker 瞬时 connection cap 不改变 Command 结果，只使该 Lane `runtimeReadiness=BLOCKED(CAPACITY)` 并触发 placement/容量修复；绝不写管理员 `ADMIN_PAUSED`。
-- Kafka channel 必须把 pinned topic UUID 带到实际 ProduceRequest；Pulsar channel 必须把 expected incarnation 带入 Producer metadata 并由 Broker guard 在每次 SEND 前核对。单独的 `probe()` 成功不是 publication authority。
+- Kafka channel 必须把 pinned topic UUID 作为 immutable batch guard 带到实际 ProduceRequest；Pulsar channel 必须把 typed expected incarnation 带入 Producer create，并由 Broker core 在每次 SEND 前重检且在成功 receipt 回显。单独的 `probe()` 成功不是 publication authority。
 - Adapter close 一旦被请求就立即 fence 新的 ingress、submission 和 publish；底层 channel/Producer teardown 若失败，必须保留该 fence 并把 close 视为未完成，允许后续生命周期重试，直到底层关闭成功。首次失败不能把后续 close 变成 no-op，也不能把未完成 teardown 当作 physical charge 已释放。
 
 包外 Worker 组装 `BoundedDestinationPublishAdapter` 时必须同时传入 shared
@@ -4504,7 +4531,7 @@ local filesystem certifies atomic rename, file/directory fsync, DB locking, and 
 |---|---|---|
 | prepare 后、enqueue 前 crash | caller Prepared Command | 原 bytes retry |
 | Producer 接管后 ACK 丢失 | Broker unknown | `ENQUEUE_UNCERTAIN`，原命令 retry |
-| Command topic 在 enqueue/retry 前同名重建 | pinned Kafka Produce UUID / Pulsar per-SEND guard | 不写 replacement；exact guard rejection 可 definitive，response loss 仍 uncertain |
+| Command topic 在 enqueue/retry 前同名重建 | pinned Kafka Produce UUID / Pulsar per-SEND guard | 不写 replacement；无 prior ambiguity 的 exact guard rejection 可 definitive，response loss/历史 ambiguity 仍 uncertain |
 | Broker durable、DB write 前 crash | Command Topic | source replay |
 | DB sync 后、source ACK 丢失 | RocksDB + Topic duplicate | commandId/hash idempotent |
 | retry window 内同 commandId/same hash | 首次 result + position audit | no-op，只推进新 position |
@@ -4712,7 +4739,7 @@ local filesystem certifies atomic rename, file/directory fsync, DB locking, and 
 7. soak 持续时间覆盖发布配置中最长的 checkpoint/floor、retry、uncertainty 与 GC 交互周期，且无 source gap、counter drift、unbounded memory/FD、aged unexplained uncertainty。
 8. upgrade/downgrade gate 证明 writer-before-reader 被阻止，且同 bytes 不同 version 不会命中旧 dedupe。
 9. 运维 runbook 完成 restore、fence、DLQ replay、uncertain override 和 disaster boundary 演练。
-10. Kafka pinned-topic-id client patch 与 Pulsar Broker resource guard 的 source-lock、binary digest、全 Broker rollout 和 delete/recreate cut 全部通过；stock/name-fallback path 不得进入发布包。
+10. Kafka guarded client patch 与 Pulsar v22 first-class resource guard 的 source-lock、binary digest、全 Broker rollout、typed receipt/rejection 和 delete/recreate cut 全部通过；stock/name-fallback path 不得进入发布包。
 
 ## 24. 仓库模块
 
@@ -4732,9 +4759,15 @@ nereus-delay/
 │   ├── protobuf
 │   ├── canonical codec
 │   └── adapter SPI
+├── delay-route-spi
+├── delay-route-oxia
+├── delay-transport-spi
+├── delay-semantic-core
 ├── delay-client-core
 ├── delay-client-kafka
 ├── delay-client-pulsar
+├── delay-gateway-api
+├── delay-gateway
 ├── delay-core
 │   ├── shard state machine
 │   ├── scheduler / clock
@@ -4788,6 +4821,11 @@ Kafka/Pulsar client类型不得泄漏到核心状态机；adapter-specific messa
 当前实现进度、可执行证据和未完成 blocker 以 [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) 为准；
 已完成的 core/embedded 里程碑不等于 Kafka/Pulsar/Oxia 生产集成或 V1 release-ready。
 
+双入口与 guarded transport 按详细设计 Phase D0/D1/K1/D2/P1/D3/D4/D5/D6 独立切片；
+Kafka 从 `trunk@c300006a7705c240642db6950b5a95fec982bfc5` 开始，Pulsar 从
+`5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551` 创建独立分支。任何 client patch PASS
+都只证明 transport slice，不得提升 Worker、Gateway 或整体 release 状态。
+
 功能不得因为 milestone 靠后而在早期代码中使用更弱的隐含语义；未实现 capability 必须注册失败。
 
 ## 26. V1 最终基线
@@ -4803,7 +4841,7 @@ MANAGED:
     -> Kafka/Pulsar target
 
 AUTO_FAST (explicit):
-  prepareAutoFast (zero I/O)
+  prepareScheduleSubmission(AUTO_FAST, zero I/O)
     -> ManagedPreparedCommand
        -> submit exact Prepared Command to Shard Log
     | NativePreparedDelivery (eligible certified Pulsar only)

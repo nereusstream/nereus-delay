@@ -65,10 +65,13 @@ def v1DocumentPaths = [
         'CONTEXT.md',
         'docs/README.md',
         'docs/Nereus Delay V1 设计.md',
+        'docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md',
         'docs/V1-PROTOCOL-REGISTRY.md',
         'docs/IMPLEMENTATION-STATUS.md',
         'docs/V1-DESIGN-AUDIT.md',
-        'docs/adr/README.md'
+        'docs/adr/README.md',
+        'docs/adr/0043-share-one-semantic-core-across-direct-sdk-and-delay-gateway.md',
+        'docs/adr/0044-use-first-class-guarded-broker-transports.md'
 ]
 
 tasks.register('checkDocumentation') {
@@ -81,8 +84,9 @@ tasks.register('checkDocumentation') {
             }
         }
         def read = { path -> file(path).getText('UTF-8') }
-        def revision = 'V1-FROZEN-2026-08-01'
+        def revision = 'V1-FROZEN-2026-08-13'
         def design = read('docs/Nereus Delay V1 设计.md')
+        def detailedDesign = read('docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md')
         def registry = read('docs/V1-PROTOCOL-REGISTRY.md')
         def adrIndex = read('docs/adr/README.md')
         def documentMap = read('docs/README.md')
@@ -93,8 +97,12 @@ tasks.register('checkDocumentation') {
                 [design, "本文是 Nereus Delay V1 的实现与验收基线"],
                 [design, '一个独立 RocksDB DB'],
                 [registry, '唯一数值注册表'],
+                [registry, 'IngressRouteSnapshotV1'],
                 [adrIndex, '0001'],
-                [adrIndex, '0042'],
+                [adrIndex, '0044'],
+                [detailedDesign, 'Direct Java SDK'],
+                [detailedDesign, 'ResourceIncarnationMismatch = 26'],
+                [detailedDesign, 'GatewayIdempotencyRecordV1'],
                 [documentMap, '仍然有效'],
                 [documentMap, 'IMPLEMENTATION-STATUS.md'],
                 [status, revision],
@@ -107,6 +115,7 @@ tasks.register('checkDocumentation') {
 
         def revisionMarkers = [
                 design.find(/V1-FROZEN-\d{4}-\d{2}-\d{2}/),
+                detailedDesign.find(/V1-FROZEN-\d{4}-\d{2}-\d{2}/),
                 registry.find(/V1-FROZEN-\d{4}-\d{2}-\d{2}/),
                 adrIndex.find(/V1-FROZEN-\d{4}-\d{2}-\d{2}/),
                 status.find(/V1-FROZEN-\d{4}-\d{2}-\d{2}/),

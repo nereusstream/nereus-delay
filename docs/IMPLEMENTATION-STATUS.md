@@ -1,11 +1,27 @@
 # V1 Implementation Status
 
-Spec revision: `V1-FROZEN-2026-08-01`
+Spec revision: `V1-FROZEN-2026-08-13`
 
 This file records implementation evidence. It does not relax or replace the
 normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20设计.md),
 the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
+
+The `V1-FROZEN-2026-08-13` revision accepts ADR 0043/0044 and the code-level
+[`Direct SDK / Delay Gateway / Guarded Transport design`](V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md).
+This revision is design and protocol-registry evidence only. The repository is
+still a single Gradle module and has no production `DelaySemanticCore`, signed
+Route cache, Delay Gateway, Kafka guarded Producer implementation, Pulsar v22
+resource guard, or concrete Kafka/Pulsar Command transport.
+
+The implementation blueprint was checked read-only against Kafka
+`trunk@c300006a7705c240642db6950b5a95fec982bfc5` and Pulsar
+`5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`. No Kafka/Pulsar branch or
+client patch was created by this documentation slice. The intended independent
+branches are `nereus/delay-guarded-producer-v1` from Kafka `trunk` and
+`nereus/delay-resource-guard-v1` from Pulsar `5.0.0-M1`. Their future focused
+tests, source locks, binary digests, rollout and real-Broker cuts remain release
+blockers; a design ACCEPTED label is not implementation PASS.
 
 The post-permit live-service audit on 2026-08-12 ran from document commit
 `b45045b` with a temporary standalone Oxia service built from source commit
@@ -4273,6 +4289,9 @@ to the intended modules:
 | `io.nereusstream.delay.ownership` | Owner Lease CAS boundary and local ownerEpoch fencing | `delay-server` / `delay-metadata-oxia` |
 | `io.nereusstream.delay.client` | Strict preparation, zero-I/O AUTO_FAST branch selection, immutable managed/native submission bridge, ordered enqueue outcomes, bounded command/message queries, receipt-bound large-payload operations and embedded conformance service | `delay-api` / `delay-client-core` / `delay-testkit` |
 | `io.nereusstream.delay.adapter` | Broker/destination interfaces and test adapters | ingress/adapter modules |
+| not yet created | shared zero-I/O preparation and verified Route cache boundary | `delay-semantic-core` / `delay-route-spi` / `delay-route-oxia` |
+| not yet created | production transport registry and Kafka/Pulsar guarded writers | `delay-transport-spi` / `delay-client-kafka` / `delay-client-pulsar` |
+| not yet created | optional multi-language auth/idempotency/quota/audit entry | `delay-gateway-api` / `delay-gateway` |
 
 ## Evidence matrix
 
@@ -4296,6 +4315,10 @@ covers this ordering.
 
 | Area | Status | Evidence |
 |---|---|---|
+| Shared Semantic Core and signed immutable RouteSnapshot | Registry/design accepted; implementation not started | ADR 0043, Protocol Registry §6.6 and detailed design §§3–6 freeze canonical snapshot/signature bytes, dependency direction, zero-I/O preparation, original-route control routing and byte-equivalence gates. Production packages, codecs/vectors, Oxia watch/signature authority and cross-entry tests do not exist yet |
+| Delay Gateway and Gateway idempotency | Registry/design accepted; implementation not started | Protocol Registry §6.5 and detailed design §7 freeze RPC wrappers, exact-prepared-bytes-before-I/O, single-record CAS attempt history, explicit uncertain retry and aggregate rules. gRPC modules, auth, Oxia records, quota/audit, HA crash cuts and multi-language vectors do not exist yet |
+| Kafka generic guarded Producer patch | Design accepted; implementation not started | ADR 0044 and detailed design §9 map the non-transactional single-record API to `KafkaProducer`, `RecordAccumulator`, `ProducerBatch` and `Sender` at the inspected trunk SHA. No Kafka branch/code/test/source-lock/binary evidence exists yet; Kafka target-plus-receipt transaction remains a separate K2 gate and cannot activate from K1 |
+| Pulsar v22 first-class resource guard | Design accepted; implementation not started | ADR 0044 and detailed design §10 fix base `5.0.0-M1`, protocol v22, `ResourceIncarnationMismatch = 26`, create/per-SEND validation and typed receipts. No Pulsar branch/code/test/rollout/source-lock/binary evidence exists yet; guarded SUBSCRIBE is a separate source gate |
 | Queued receipt Route-policy boundary | Implemented (local strict adapter seam; Route authority pending) | `QueuedReceiptQueryPolicy`, `PolicyBoundWireCommandIngressAdapter`, `PinnedKafkaCommandIngress`, `PinnedPulsarCommandIngress`, `PreparedSubmissionAdapter`, `EmbeddedDelayService`, `AdapterIngressTest`, `NativeSubmissionAdapterTest`; strict paths derive `receipt_query_until` from authenticated Broker persistence time with checked addition, reject missing/drifting policy snapshots before transport ownership, and retain post-persistence overflow as `ENQUEUE_UNCERTAIN`/integrity evidence; absolute-boundary overloads are compatibility-only and checked against a bound policy; Route policy publication, source-time authority and concrete production transports remain release blockers |
 | Full command-result retention boundary | Implemented (local strict query seam; retention authority pending) | `CommandResultRetentionPolicy`, `DelayClient`, `EmbeddedDelayService`, `BoundedLocalQueryProjector`, `EmbeddedDelayServiceTest.embeddedQueryDerivesFullResultRetentionFromAppliedSourceTime`, `CommandResultRetentionPolicyTest`; strict query/await/applied-receipt projections derive `full_result_retain_until` from the applied Source Position Broker persistence time with checked addition, while absolute-boundary overloads remain compatibility-only; policy publication, source-time authority and production query routing remain release blockers |
 | Strict typed Claim runtime binding | Implemented (local Message plus durable V1 command/Lane-tuple binding and public-API fence; live authority pending) | `DelayShard.claimForPublishV1`, `V1ScheduleBinding.requireClaimLaneProjection`, `CanonicalLaneTupleV1Test`, `DelayShardTest.physicalGcMutationPrimitivesAreNotPublicProductionApis`, `DelayShardTest.registryPrepareCannotDowngradeTrustSetAuthorityWithLegacyCommitBody`, `ClaimMaterializationRuntimeTest`; strict Claim entrypoint binds message identity, generation, delivery window, timeline `actionAt` and inline/object payload reference before persistence, then, when a `V1ScheduleBinding` exists, exactly rebinds Destination Profile, business metadata, delivery window and the original Schedule payload branch or Prepare Object Store Profile/length/SHA-256. It also parses the exact durable canonical Lane tuple and requires byte-identical Destination/Capability Profiles, Kafka/Pulsar Broker target resource and physical partition; same-hash foreign Profile identities, target or partition drift are rejected before Claim state changes. The legacy byte-array primitive is package-local and reachable across packages only from the test-classpath bridge. Production Claim creation remains routed through `ClaimHandoffWorkClassExecutor`/`OwnedDelayShard`; live Profile/credential/resource authority, Object Store fetch, Adapter serialization/size certification, channel lease, Producer ownership and crash recovery remain release blockers |

@@ -16,7 +16,7 @@ An Adapter reports a closed product:
 
 Producer queue rejection before request ownership transfers to the client, or a capability oracle proving absence, can be definitive. Send/commit timeout, connection loss after submission, canceled Future, process crash, and a missing callback are `UNKNOWN` unless stronger evidence proves otherwise.
 
-A Kafka pinned-UUID request rejected as `UNKNOWN_TOPIC_ID`, or an exact Pulsar `NEREUS_RESOURCE_GUARD_REJECTED_V1` SEND error received from the pre-persistence guard, is `NOT_PUBLISHED + LANE_UNAVAILABLE` and opens/blocks the affected Lane as a resource-incarnation failure. If that response is lost, the attempt is `UNKNOWN + LANE_UNAVAILABLE`; an Adapter never infers non-publication merely because a later metadata probe sees a replacement.
+A Kafka pinned-UUID request receiving a registered authenticated exact-ID rejection, or a Pulsar guarded SEND receiving typed `ResourceIncarnationMismatch = 26` from the pre-persistence guard, is `NOT_PUBLISHED + LANE_UNAVAILABLE` only when that physical attempt has no earlier ambiguous network write. Kafka K1 initially registers only Produce v13 `UNKNOWN_TOPIC_ID(100)` for this resource proof. It opens/blocks the affected Lane as a resource-incarnation failure. If the response is lost or a prior disconnect/timeout made the same attempt ambiguous, the aggregate remains `UNKNOWN + LANE_UNAVAILABLE`; a later rejection never erases historical uncertainty. An Adapter never infers non-publication merely because a later metadata probe sees a replacement.
 
 ## Retry policy
 

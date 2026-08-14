@@ -38,6 +38,18 @@ _Avoid_: Hash without a schema, secret reference in prepared bytes, Shard Ready 
 A sealed submission outcome whose concrete type states whether an already prepared managed branch was queued, or an already prepared native Producer operation was acknowledged, definitely not queued, or uncertain. “Receipt” is reserved for acknowledged concrete results.
 _Avoid_: One receipt with optional ambiguous fields, treating uncertainty as a receipt
 
+**Delay Semantic Core**:
+The shared zero-I/O preparation component used by both the Direct Java SDK and the optional Delay Gateway. It selects an immutable authenticated Route snapshot, constructs self-routing identities, encodes canonical Commands and hashes, and freezes `AUTO_FAST`; it owns no Broker connection, Gateway listener, or Worker state.
+_Avoid_: A second Gateway command codec, network I/O during prepare
+
+**Delay Gateway**:
+An optional multi-language and centralized-governance entry that adds authentication, request idempotency, quota, audit, and credential custody around the same Delay Semantic Core and guarded transports used by the Direct SDK. Its success union is the same NDR1 outcome and never means Command application.
+_Avoid_: Mandatory Java data path, Gateway-only Command envelope, trusted request `tenantId`
+
+**Gateway Idempotency Record**:
+One CAS-updated Oxia record that stores the canonical request hash, exact prepared submission bytes, every bounded physical attempt, and their aggregate outcome before and after Broker ownership. It deduplicates Gateway RPCs but does not replace `commandId + commandHash` application idempotency.
+_Avoid_: Re-preparing after a crash, treating PREPARED as queued
+
 ## Commands and Messages
 
 **Command**:
@@ -99,6 +111,10 @@ _Avoid_: Destination route, dynamically selected retry route
 **Route Incarnation**:
 The immutable identity of one physical Ingress Route creation and protocol/configuration epoch. Recreating a Broker topic or changing partition topology requires a new incarnation.
 _Avoid_: Route display name, Destination Profile version
+
+**Signed Ingress Route Snapshot**:
+The canonical, tenant-scoped and signed local input to preparation. It binds one Route Incarnation to its exact Kafka TopicId or complete Pulsar physical-partition resource identities, routing/hash and protocol tuple, per-partition activation policy, receipt/retention and size limits, credential-binding proof, trusted validity interval, digest and issuer signature. Preparation reads a verified immutable cache projection and performs no Oxia, Admin or Broker I/O.
+_Avoid_: Mutable topic-name lookup, unsigned configuration map, credential secret, live network lookup during preparation
 
 **Security Domain**:
 The set of callers intentionally sharing one Broker ACL and one derived tenant authority on an Ingress Route. V1 does not recover an individual producer principal from consumed Command records.
@@ -259,8 +275,8 @@ A Kafka Fetch/Produce channel that puts the immutable Route/Profile native topic
 _Avoid_: Stock name-routed Producer, activation-only topic ID check
 
 **Pulsar Resource Guard (`PULSAR_RESOURCE_GUARD_V1`)**:
-A cluster-certified BrokerInterceptor installed on every eligible Pulsar Broker that compares each Nereus Producer's expected resource token with the actual persistent Topic token before `handleSend` and persistence. A typed guard rejection proves non-publication; a lost response remains uncertain.
-_Avoid_: `producerCreated` callback, pre-send admin HEAD, client-only topic-name check
+A cluster-certified first-class Pulsar protocol path. A typed Producer guard binds the expected token and creation identity to the actual persistent physical Topic; Broker core validates it at Producer creation and at the start of every SEND before persistence, then returns typed attestation/receipt or `ResourceIncarnationMismatch`. A rejection is definitive only without an earlier ambiguous attempt.
+_Avoid_: BrokerInterceptor string error, `producerCreated` callback, pre-send admin HEAD, client-only topic-name check
 
 **Source Connection Generation**:
 One initial or reconnected Pulsar Command consumer connection whose records remain gated until the Ingress Adapter verifies the exact physical topic incarnation. Records and callbacks from an uncertified or superseded generation cannot be applied or acknowledged.

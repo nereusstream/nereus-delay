@@ -1,8 +1,8 @@
 # Nereus Delay V1 Design Audit
 
 状态：PASS / design semantics closed  
-Spec revision：`V1-FROZEN-2026-08-01`  
-审计日期：2026-08-12
+Spec revision：`V1-FROZEN-2026-08-13`
+审计日期：2026-08-13
 性质：验收证据索引；不覆盖主设计、Protocol Registry 或 Accepted ADR
 
 ## 结论
@@ -10,6 +10,23 @@ Spec revision：`V1-FROZEN-2026-08-01`
 V1 的业务语义、线性化点、fencing 范围、物理持久边界、故障隔离、恢复/GC 保护关系、公开错误模型和发布停止条件已经闭合。审计未留下需要实现自行选择的语义分支。
 
 **Open semantic questions: none.**
+
+The 2026-08-13 revision accepts ADR 0043/0044 and the code-level
+[`Direct SDK / Delay Gateway / Guarded Transport design`](V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md).
+It closes the previously incomplete entry-shape choice as two optional
+production compositions over one Semantic Core, and replaces Pulsar's
+plugin-string Producer proof with a first-class typed v22 create/per-SEND
+guard. Protocol Registry §6.5 freezes the Gateway wrappers and crash-safe
+single-record idempotency projection; §6.6 freezes the signed Ingress Route
+snapshot bytes. Existing self-routing IDs, tenant
+authority, NDL1/NDR1, Worker state, Source Position and RocksDB keys do not
+change.
+
+This is design closure, not implementation evidence. There is no production
+Semantic Core/Route authority/Gateway, no Kafka guarded Producer patch, no
+Pulsar v22 patch, and no real-Broker guarded transport result in this
+repository. Those rows remain open release blockers even though the design
+status is Accepted.
 
 The post-permit live-service audit on 2026-08-12 ran from document commit
 `b45045b` with a temporary standalone Oxia service built from source commit
@@ -4244,6 +4261,8 @@ the guarded Broker rollout attestation remains external evidence.
 |---|---|
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
+| Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
+| Pulsar first-class-guard implementation base inspected for ADR 0044 | `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551` |
 
 主设计 R12–R37 的 Kafka/Pulsar correctness-critical 链接全部使用上述 immutable commit。发布包还必须记录实际 patch/binary digest、Broker rollout attestation 和 delete/recreate cuts；仅有文档 source lock 不等于实现已通过。
 
@@ -4251,13 +4270,13 @@ the guarded Broker rollout attestation remains external evidence.
 
 | 检查 | 结果 |
 |---|---:|
-| Markdown UTF-8、fence 配对、relative links | PASS（47 个 Markdown 输入） |
+| Markdown UTF-8、fence 配对、relative links | PASS（53 个 Markdown 输入） |
 | 主配置 YAML parse + duplicate-key walk | PASS（1 个完整 config block） |
 | Stable code numeric/symbol uniqueness | PASS（103） |
 | non-default retryability sets | PASS（5 个集合，互斥且只引用 registered code） |
 | `CapacityDimensionV1` | PASS（1–66 连续、完整） |
-| ADR file/index sequence | PASS（0001–0042） |
-| `*V1` cross-document references | PASS（336 个 unique refs 均进入 Registry） |
+| ADR file/index sequence | PASS（0001–0044） |
+| `*V1` cross-document references | Prior frozen audit PASS（336 个 unique refs）；2026-08-13 delta 已登记 Gateway/Route wire types，Java-only implementation class names 不计入 Registry；完整生成器复跑仍是 release gate |
 | RocksDB CF namespace | PASS（只出现七个 CF 的 registered tags） |
 | `RETRY_JITTER_V1` independent recomputation | PASS（`dd78e75…d339`，first64 `15958759676622330853`） |
 | stale placeholder/unfinished-decision markers | PASS（0） |
@@ -4270,6 +4289,8 @@ the guarded Broker rollout attestation remains external evidence.
 | Artifact | 固定输入 | 通过条件 |
 |---|---|---|
 | Generated IDL/descriptors | Registry field/enum/tag/version | 全语言 descriptor digest 一致，unknown/negative vectors fail closed |
+| Shared entry conformance | one Semantic Core, Direct SDK, Delay Gateway, exact RouteSnapshot and Prepared bytes | same authenticated intent yields byte-identical NDL1/branch/outcome; crash never re-prepares against a new Route |
+| Guarded client patches | Kafka trunk and Pulsar 5.0.0-M1 implementation bases from ADR 0044 | generic API only, exact response evidence, ambiguity monotonicity, no name/old-protocol fallback, focused upstream-module tests; Kafka K1 proves only non-transactional single-record send and K2 separately gates target-plus-receipt transactions |
 | Golden vector bundle | ID、frame、canonical body/hash、key、cursor、manifest、signature、retry jitter | 每个 registered branch 有 positive/negative vector |
 | Semantic catalogs | Stable errors、Profile/capability、Retry Policy、SLO、quota/capacity | catalog digest 绑定本 revision；无自由字符串扩展 |
 | Benchmark config | §21 所有 `required` 数值 | §23.4 矩阵产出可复现 capacity envelope，而非单一 TPS |
