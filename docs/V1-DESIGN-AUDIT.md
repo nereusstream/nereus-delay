@@ -63,8 +63,9 @@ single-record CAS. The full local `check` passes at
 `4f606fec86aaeb74472f6575e5ee7ddcb8dc8f82`; the Route provider/publisher
 focused tests pass at `62a94389`, and the Gateway CAS focused tests pass at
 `e276bec3`; the route-cache/Gateway focused tests pass at their respective
-commits. This evidence does not establish activation-barrier or real-service
-session-fenced Oxia Route behavior, production Gateway authority/authentication,
+commits. This historical evidence does not establish activation-barrier,
+notification-stream or session-timeout/reconnect-complete real-service Oxia
+Route behavior, production Gateway authority/authentication,
 HA durable idempotency, real Kafka/Pulsar transport artifacts, Worker wiring or
 real-Broker correctness; those release rows remain OPEN.
 

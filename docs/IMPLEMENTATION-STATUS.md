@@ -21,7 +21,7 @@ source-consumer/ACK-after-sync composition, plus receipt-bound payload upload
 handlers behind an explicitly injected `GatewayPayloadAuthority`, and
 query/await/message handlers behind an explicitly injected
 `GatewayQueryAuthority`. These are local
-implementation evidence, not claims of activation-barrier/session-fenced real
+implementation evidence, not claims of activation-barrier/session-reconnect-complete real
 Oxia authority, a complete Gateway service/authentication deployment, real Broker transport, or
 production Worker wiring or release readiness. The isolated Kafka and Pulsar
 upstream worktrees recorded below remain separately owned implementation
