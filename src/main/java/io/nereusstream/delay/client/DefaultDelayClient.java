@@ -2,6 +2,7 @@ package io.nereusstream.delay.client;
 
 import io.nereusstream.delay.adapter.CommandResultRetentionPolicy;
 import io.nereusstream.delay.adapter.QueuedReceiptQueryPolicy;
+import io.nereusstream.delay.adapter.WireIngressOutcomeSupport;
 import io.nereusstream.delay.protocol.CommandCodec;
 import io.nereusstream.delay.protocol.CommandQueryResponseV1;
 import io.nereusstream.delay.protocol.CommandQueuedReceiptV1;
@@ -344,8 +345,17 @@ public final class DefaultDelayClient implements DelayClient {
         }
         return submissions.submit(tenant, submission, new LocalTransportOwnershipPermit(attempt))
                 .thenApply(outcome -> {
-                    outbox.finish(submission, attempt, outcome);
-                    return outcome;
+                    try {
+                        outbox.finish(submission, attempt, outcome);
+                        return outcome;
+                    } catch (RuntimeException outboxFailure) {
+                        // The transport outcome may already be real, but the
+                        // local durable completion evidence is not. Preserve
+                        // the exact branch/attempt and fail closed as a
+                        // retryable public outcome rather than exceptional
+                        // completion that hides the ambiguity.
+                        return WireIngressOutcomeSupport.uncertain(submission, attempt);
+                    }
                 });
     }
 

@@ -7,12 +7,17 @@ import io.nereusstream.delay.protocol.DefinitelyNotQueuedV1;
 import io.nereusstream.delay.protocol.EnqueueOutcomeMessageV1;
 import io.nereusstream.delay.protocol.EnqueueUncertainV1;
 import io.nereusstream.delay.protocol.FailureStageV1;
+import io.nereusstream.delay.protocol.NativeEnqueueUncertainV1;
+import io.nereusstream.delay.protocol.NativePreparedDeliveryV1;
 import io.nereusstream.delay.protocol.NonPersistenceProofKindV1;
 import io.nereusstream.delay.protocol.NonPersistenceProofV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
+import io.nereusstream.delay.protocol.PreparedSubmissionV1;
 import io.nereusstream.delay.protocol.RetryabilityV1;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.StableErrorV1;
+import io.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
+import io.nereusstream.delay.transport.PhysicalEnqueueAttemptId;
 
 import java.util.Objects;
 
@@ -34,6 +39,28 @@ public final class WireIngressOutcomeSupport {
         final CommandQueuedReceiptV1.PreparedCommandRef ref = CommandQueuedReceiptV1.PreparedCommandRef.from(command);
         return EnqueueOutcomeMessageV1.uncertain(new EnqueueUncertainV1(ref, requireAttempt(physicalAttemptId),
                 StableErrorV1.of(FailureStageV1.ENQUEUE, exactRetryCode(code), null, ref, null, diagnosticCode)));
+    }
+
+    /**
+     * Converts a post-transport local evidence failure into the same exact
+     * retry branch as an unobservable transport result. The prepared branch
+     * and physical attempt are never replaced while projecting uncertainty.
+     */
+    public static SubmissionOutcomeMessageV1 uncertain(final PreparedSubmissionV1 submission,
+                                                       final PhysicalEnqueueAttemptId physicalAttemptId) {
+        Objects.requireNonNull(submission, "submission");
+        Objects.requireNonNull(physicalAttemptId, "physicalAttemptId");
+        if (submission.isManaged()) {
+            final PreparedCommand command = io.nereusstream.delay.protocol.CommandCodec.decodeFrameV1(
+                    submission.managedFrame());
+            return SubmissionOutcomeMessageV1.managed(uncertain(command, physicalAttemptId.bytes(),
+                    StableCode.ENQUEUE_RESULT_UNCERTAIN, null));
+        }
+        final NativePreparedDeliveryV1 prepared = submission.nativePrepared();
+        final StableErrorV1 error = StableErrorV1.of(FailureStageV1.ENQUEUE,
+                StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN, null, null, prepared.preparedRef(), null);
+        return SubmissionOutcomeMessageV1.nativeUncertain(new NativeEnqueueUncertainV1(prepared.preparedRef(),
+                physicalAttemptId.bytes(), error));
     }
 
     public static EnqueueOutcomeMessageV1 brokerDefinite(final PreparedCommand command, final byte[] physicalAttemptId,
