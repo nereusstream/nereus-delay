@@ -31,12 +31,13 @@ Cancel/Reschedule handlers, receipt-bound upload handlers behind a
 digest-audited ingress, and query/await/message handlers behind an explicitly
 injected query authority,
 and a transport-neutral Worker source-consumer handoff that retains one exact
-record until ACK-after-sync. It still lacks a Route
-activation-barrier/session-reconnect-complete real Oxia service
-gate, a deployed Gateway JWT claim/signature policy and production authority,
-real-Broker
-guarded transport result or production Worker vertical. Those rows remain open
-release blockers even though the design status is Accepted.
+record until ACK-after-sync. The current branch also has explicit source-locked
+K1 Kafka and P1 Pulsar client bindings, plus a three-broker K1 Docker smoke.
+It still lacks a Route activation-barrier/session-reconnect-complete real Oxia
+service gate, a deployed Gateway JWT claim/signature policy and production
+authority, the K2/D3 transaction/source verticals, or a production Worker
+vertical. Those rows remain open release blockers even though the design status
+is Accepted.
 
 The 2026-08-14 Delay worktree milestones `532f8ad5`,
 `402b27fa0dced95c2312bfedc0678af03463f2d5`,
@@ -188,6 +189,35 @@ pre-existing edits and are intentionally outside this clean-worktree check.
 This is static contract/source-lock evidence only; it does not promote the
 open real Broker, Route activation/session, Worker vertical, HA or release
 gates.
+
+Commit `3f76e836964d818360d5affc122515ccbac04717` adds explicit `realKafka`
+and `realPulsar` source sets to the Delay worktree. The K1 binding constructs
+`ProducerResourceGuard`, invokes only `GuardedProducer.sendGuarded`, and maps
+verified cluster/topic/TopicId/partition/time/evidence into the existing
+Kafka result union; a missing broker timestamp remains `UNKNOWN`. The P1
+binding creates a BYTES `TopicResourceGuard` producer, requires an exact
+`GuardedMessageId`, and maps typed v22 rejection evidence without storing
+payload or credentials. Both compile paths require explicit upstream artifact
+paths, so a stock or name-only client cannot silently enter the normal build.
+
+The source-bound API checks passed. The P1 smoke returned
+`PERSISTED`, `UNKNOWN` for an incarnation mismatch and
+`DEFINITIVELY_NOT_PERSISTED` for typed error evidence. The Kafka Docker smoke
+ran from K1 `95d48e89e7e8a4e6d8718e44d424ffef8f17829f` and used client SHA-256
+`722b09de1a6d79eba867ceda4baac085af0a59897f9e003b58f167ac13e35c24`; it
+started Compose project `nereus-delay-kafka-e2e-1786735980-29312` on
+`19404,19405,19406`, proved three-replica produce, delete/recreate old-TopicId
+rejection, replacement acceptance and broker-1 failover through brokers 2/3,
+then removed its container, network and temporary image. The broker image was
+built from base
+`eclipse-temurin:21-jre@sha256:371da296b8cb74c7e53fbe7083d5374befc0011b493231d97d45fa789915e434`
+and local image ID
+`sha256:8ef999e7f4151005ceaf570bb15989932628e040037e4e8056213ca4270f4b0b`.
+
+This is opt-in writer/client-binding evidence, not release promotion. Kafka
+K2 target-plus-receipt transactions, Pulsar D3 broker Docker/unload/reconnect,
+guarded source Fetch/ACK/rewind, deployed Gateway authority, production
+Worker wiring and the remaining §23.5 artifact/chaos/SLO gates remain OPEN.
 
 Commit `bcf2f0a883cd3090ae96250453dabaa71f3945c5` also closes the local Direct
 SDK outbox-Final ambiguity branch: a completion-evidence write failure keeps
@@ -4522,7 +4552,7 @@ the guarded Broker rollout attestation remains external evidence.
 |---|---|---|
 | Generated IDL/descriptors | Registry field/enum/tag/version | 全语言 descriptor digest 一致，unknown/negative vectors fail closed |
 | Shared entry conformance | one Semantic Core, Direct SDK, Delay Gateway, exact RouteSnapshot and Prepared bytes | same authenticated intent yields byte-identical NDL1/branch/outcome; crash never re-prepares against a new Route |
-| Guarded client patches | Kafka trunk and Pulsar 5.0.0-M1 implementation bases from ADR 0044 | generic API only, exact response evidence, ambiguity monotonicity, no name/old-protocol fallback, focused upstream-module tests; Kafka K1 proves only non-transactional single-record send and K2 separately gates target-plus-receipt transactions |
+| Guarded client patches | Kafka trunk and Pulsar 5.0.0-M1 implementation bases from ADR 0044 plus explicit Delay K1/P1 source sets | generic API only, exact response evidence, ambiguity monotonicity, no name/old-protocol fallback, focused upstream-module tests, Delay artifact compile/API smoke and K1 three-broker delete/recreate/failover smoke; Kafka K1 proves only non-transactional single-record send and K2 separately gates target-plus-receipt transactions |
 | Golden vector bundle | ID、frame、canonical body/hash、key、cursor、manifest、signature、retry jitter | 每个 registered branch 有 positive/negative vector |
 | Semantic catalogs | Stable errors、Profile/capability、Retry Policy、SLO、quota/capacity | catalog digest 绑定本 revision；无自由字符串扩展 |
 | Benchmark config | §21 所有 `required` 数值 | §23.4 矩阵产出可复现 capacity envelope，而非单一 TPS |

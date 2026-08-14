@@ -2048,6 +2048,18 @@ probe；`CreateTime` 或 response `logAppendTime=-1` 不具备 queued receipt au
 `reason/responseEvidence` 区分 local proof 与 authenticated Broker proof。缺少后者时不能构造
 `KAFKA_DEFINITIVE_REJECTION`。
 
+2026-08-15 implementation evidence: the Delay worktree's opt-in
+`realKafka` source set contains `KafkaClientArtifactProduceTransport`. It
+constructs the exact K1 `ProducerResourceGuard` from the request identity,
+calls only `GuardedProducer.sendGuarded`, validates response cluster/topic/
+TopicId/partition/error/offset/evidence fields, and treats a missing
+`logAppendTimeMs` (`-1`) as `UNKNOWN` because it cannot certify a queued
+receipt. `KafkaClientArtifactSmoke` runs this binding against the source-built
+K1 broker image; its Docker harness covers three-replica produce,
+delete/recreate old-TopicId rejection and broker-1 failover. The binding is
+not a K2 target-plus-receipt transaction and is not enabled in the normal
+Gradle source set.
+
 现有 result 类的 exact 修改形状为（其余 identity/position/stable-code 字段保持）：
 
 ```java
@@ -2103,6 +2115,18 @@ exact NDL1 frame 以 `Schema.BYTES` 进入 SEND composite buffer。
 | unsupported guard before ownership | local definitive `BROKER_RESOURCE_UNCERTIFIED` |
 | typed mismatch、exact response且无 prior ambiguity | `DEFINITIVELY_NOT_PERSISTED/BROKER_DEFINITIVE_NOT_PERSISTED` + exact request/response proof |
 | connection loss/timeout/malformed receipt | `UNKNOWN/ENQUEUE_RESULT_UNCERTAIN` |
+
+2026-08-15 implementation evidence: the Delay worktree's opt-in
+`realPulsar` source set contains `PulsarClientArtifactProducerFactory` and
+`PulsarClientArtifactSendTransport`. The factory uses `Schema.BYTES`, exact
+physical topic, `TopicResourceGuard`, disabled batching/chunking and disabled
+automatic partition updates. The transport validates the request identity,
+requires `GuardedMessageId` plus matching guard/topic/partition and
+`MessageIdAdv`, and encodes the typed success/error evidence without payload
+or credential bytes. `PulsarClientArtifactBindingSmoke` covers persisted
+success, incarnation mismatch and typed code 26 rejection. This is a P1
+artifact/API binding smoke; it does not claim D3 source/ACK integration or
+multi-broker unload/reconnect evidence.
 
 现有 result 类对应改为：
 
@@ -2404,8 +2428,9 @@ authority focused checks pass at `62a94389`, and Gateway CAS focused checks at
 `e276bec3`. This is not completion of D1/D4/D5: activation-barrier/session-fenced
 real Oxia authority, native eligibility authority, the remaining Gateway RPC
 handlers and bound authentication,
-durable/HA idempotency, package/module split, production Kafka/Pulsar client
-artifacts, Worker wiring and real-service cuts remain open.
+durable/HA idempotency, package/module split, final production Kafka/Pulsar
+module integration beyond the opt-in source-bound bindings, Worker wiring and
+real-service cuts remain open.
 
 ```text
 SelfRoutingId.fromLogicalUuid
@@ -2436,18 +2461,23 @@ disconnect ambiguity, definitive `UNKNOWN_TOPIC_ID` and non-allowlisted
 rejection. The same commit adds real KRaft integration coverage for delete/recreate
 TopicId rejection and leader failover, and fixes the legal Kafka `-1`
 `logAppendTimeMs` sentinel on successful `CreateTime` topics. Those real cuts
-pass with the independent Gradle integration test task. Artifact/source digest
-capture and the Nereus D2 transport remain open; D2 must not use stock Producer
-as a substitute.
+pass with the independent Gradle integration test task. The Delay opt-in
+binding/E2E now records the K1 source SHA, client SHA-256, base image digest
+and local broker image ID; complete release attestation, the Nereus D2
+production module and K2 remain open. D2 must not use stock Producer as a
+substitute.
 
 完成门：focused client tests + delete/recreate/leader failover integration + source lock SHA/digest。未完成 Kafka patch 前 `ProductionKafkaProduceTransport` 不得使用 stock Producer 冒充。
 
 ### Phase D2：Kafka Nereus transport
 
 `ProductionKafkaProduceTransport` 的严格配置/guard bridge 与现有 pinned outcome
-mapping 已在 Delay 中建立 source-level composition seam；仍需在 D2 接入
-真实 locked Kafka client artifact、TopicId/v13 response evidence、Direct SDK
-E2E 和 Worker ACK-after-sync。
+mapping 已在 Delay 中建立 source-level composition seam。Commit
+`3f76e836964d818360d5affc122515ccbac04717` 进一步在显式 `realKafka` source
+set 接入锁定 K1 client artifact、TopicId/v13 response evidence 和
+`KafkaClientArtifactSmoke`; 独立三 Broker Docker E2E 已覆盖
+delete/recreate 与 leader failover。仍需将此 opt-in binding 接入最终生产
+module、完成 K2 之外的 source/ACK vertical 和 Worker ACK-after-sync。
 
 完成门：QUEUED/definite/uncertain 三态和 Worker ACK-after-sync crash cut。
 
@@ -2483,19 +2513,24 @@ tuples, INVALID-before-update publication, exact create/SEND guard comparison,
 broker-entry timestamp receipt echo and typed evidence correlation.
 
 This remains an isolated upstream slice, not a Delay repository production
-transport. The single-broker delete/recreate cut is covered; unload,
-multi-broker failover, old-peer proxy compatibility, artifact/source digest
-and Docker lifecycle cuts remain required before the completion gate can pass;
-D3 must not use an ordinary Pulsar producer as a substitute.
+transport. The single-broker delete/recreate cut is covered, and the Delay
+P1 binding records the three client artifact SHA-256 values and typed API
+smoke. Unload, multi-broker failover, old-peer proxy compatibility, complete
+artifact attestation and Docker lifecycle cuts remain required before the
+completion gate can pass; D3 must not use an ordinary Pulsar producer as a
+substitute.
 
 完成门：v22 wire compatibility、create+per-SEND guard、receipt echo、delete/recreate/unload/failover cut、focused modules格式检查。
 
 ### Phase D3：Pulsar Nereus transport
 
 `ProductionPulsarSendTransport` 的严格配置/managed-native guard bridge 与现有
-pinned outcome mapping 已在 Delay 中建立 source-level composition seam；仍需
-在 D3 接入真实 locked Pulsar v22 client artifact、GuardedMessageId、typed
-response evidence、Direct SDK E2E 和 Worker ACK-after-sync。
+pinned outcome mapping 已在 Delay 中建立 source-level composition seam；commit
+`3f76e836964d818360d5affc122515ccbac04717` 已在显式 `realPulsar` source set
+接入真实 locked Pulsar v22 client artifact、`GuardedMessageId` 和 typed
+response evidence，并通过 API/evidence smoke。仍需完成 D3 的真实 Broker
+Docker/unload/reconnect、Direct SDK E2E、source/ACK vertical 和 Worker
+ACK-after-sync。
 
 完成门：exact GuardedMessageId、typed pre-persistence rejection、uncertainty persistence、source lock。
 
