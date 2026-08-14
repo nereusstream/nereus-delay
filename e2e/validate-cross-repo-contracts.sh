@@ -12,7 +12,7 @@ kafka_base="c300006a7705c240642db6950b5a95fec982bfc5"
 kafka_head="8bd66fbb26eae1b0e4c5867e61f41900c3f5e318"
 pulsar_branch="nereus/delay-resource-guard-v1"
 pulsar_base="8dae0236c0a0d405ed7f8303081080520fe91551"
-pulsar_head="7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9"
+pulsar_head="f813c96687cc19e6fca1c82d3d161cf3e045c86b"
 oxia_head="37a17bef17202d5fd6e23282da5fd26d94865484"
 
 fail() {
@@ -97,6 +97,10 @@ require_file_text "$delay_root/src/main/java/io/nereusstream/delay/transport/Pro
     "acks != -1 || !idempotenceEnabled || !autoTopicCreationDisabled"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/transport/ProductionPulsarSendTransport.java" \
     "!batchingDisabled || !chunkingDisabled || !autoTopicCreationDisabled"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactSourceRecordConsumer.java" \
+    "GuardedConsumer<byte[]>"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactSourceRecordConsumer.java" \
+    "sourceConnectionGeneration"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactSourceRecordConsumer.java" \
     "KafkaClientArtifactSourceRecordConsumer"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactSourceRecordConsumer.java" \
@@ -125,6 +129,16 @@ require_file_text "$pulsar_checkout/pulsar-common/src/main/proto/PulsarApi.proto
     "ResourceIncarnationMismatch = 26"
 require_file_text "$pulsar_checkout/pulsar-common/src/main/proto/PulsarApi.proto" \
     "optional TopicResourceGuard resource_guard = 14"
+require_file_text "$pulsar_checkout/pulsar-common/src/main/proto/PulsarApi.proto" \
+    "optional TopicResourceGuard resource_guard = 20"
+require_file_text "$pulsar_checkout/pulsar-common/src/main/proto/PulsarApi.proto" \
+    "optional uint64 connection_generation = 4"
+require_file_text "$pulsar_checkout/pulsar-client-api/src/main/java/org/apache/pulsar/client/api/GuardedConsumer.java" \
+    "Optional<TopicResourceGuardAttestation> resourceGuardAttestation()"
+require_file_text "$pulsar_checkout/pulsar-client/src/main/java/org/apache/pulsar/client/impl/ConsumerImpl.java" \
+    "sourceConnectionGeneration"
+require_file_text "$pulsar_checkout/pulsar-broker/src/main/java/org/apache/pulsar/broker/service/ServerCnx.java" \
+    "guardedSourceConnectionGeneration"
 require_file_text "$pulsar_checkout/pulsar-broker/src/main/java/org/apache/pulsar/broker/service/Producer.java" \
     "validateResourceGuardNow()"
 require_file_text "$pulsar_checkout/pulsar-client/src/main/java/org/apache/pulsar/client/impl/ProducerImpl.java" \

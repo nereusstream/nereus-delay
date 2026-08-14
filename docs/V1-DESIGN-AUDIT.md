@@ -5819,6 +5819,43 @@ target-record limit requires final Adapter serialization plus reserved metadata
 and remains OPEN with the live prerequisite/Producer path. No wire/key/value or
 ADR change was required; real Profile/Oxia/Object Store authority remains OPEN.
 
+## 2026-08-15 guarded Pulsar source evidence
+
+Delay commit `a85a91d8dfd44e8d871673f9244356ba8356c062` adds the source-side
+binding `PulsarClientArtifactSourceRecordConsumer`. It consumes only through
+the locked P1 `GuardedConsumer<byte[]>` API, checks the exact guard,
+physical topic, attestation and non-zero connection generation, decodes the
+exact `MessageIdAdv` source position and Broker entry timestamp, retains one
+record until the synchronous ACK returns, and refuses silent fallback on
+proof or identity failure. Commit `b5ce0fb8` only adds the second-generation
+value to the smoke output.
+
+The P1 source lock is
+`nereus/delay-resource-guard-v1@f813c96687cc19e6fca1c82d3d161cf3e045c86b`
+from `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`. The locked client,
+client-api and common artifacts have SHA-256 values
+`a636470f7d3f04af18980b84703a2b90f240a4bb58f77f8c19c1fd05b5bb40b2`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`, and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`.
+The rebuilt distribution is
+`bfe0c479c60db1a7a56f4548bd821d218c4c284dceb7c112d92f425606adec37` and the
+temporary image is
+`sha256:735e2a6b952e2f7d4c8fc4c7a7b0d4ec2a852a9f4a9b21e82b076477cf19669f`.
+
+The latest isolated Docker run used project
+`nereus-delay-pulsar-e2e-1786743812-11877` on ports `19827,19828`. The writer
+returned `initial=PERSISTED, stale=DEFINITIVELY_NOT_PERSISTED,
+replacement=PERSISTED`. The source path replayed an unacknowledged `11/0`
+record across connection generations `1` and `2`, delivered the next record
+at `11/1`, and observed no record after both synchronous ACKs. Cleanup found
+no matching Compose resources.
+
+This is current single-node guarded `SUBSCRIBE`/replay/ACK evidence. It does
+not promote P1 or D3 to release status: unload, multi-broker failover,
+old-peer proxy compatibility, source session ownership/rewind, Direct SDK
+integration, Worker production wiring and the remaining D3/D6 artifact and
+chaos gates remain OPEN.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

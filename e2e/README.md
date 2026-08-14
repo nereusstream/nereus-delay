@@ -65,14 +65,18 @@ authority, ACK-failure injection or the full Worker vertical.
 `run-pulsar-real-client-e2e.sh` builds a temporary Pulsar server image from the
 locked P1 distribution tarball, enables the broker entry-timestamp/index
 interceptors required by the P1 guarded-send contract, and runs the real
-Pulsar client binding against a unique single-node Compose project. The smoke
-creates a persistent topic with the exact three resource-guard properties,
-sends with the old guard and checks evidenced persistence, closes and deletes
-the topic, recreates the same name with a new guard, requires old-guard
-producer creation to fail with typed `definitelyNotPersisted`, and sends with
-the replacement guard. It extracts the distribution `lib/*.jar` files into a
-temporary host directory for the client runtime; the client/server jars and
-distribution all come from the same locked P1 checkout.
+Pulsar client binding against a unique single-node Compose project. The writer
+smoke creates a persistent topic with the exact three resource-guard
+properties, sends with the old guard and checks evidenced persistence, closes
+and deletes the topic, recreates the same name with a new guard, requires
+old-guard producer creation to fail with typed `definitelyNotPersisted`, and
+sends with the replacement guard. The source smoke then uses guarded
+`SUBSCRIBE`, exact physical-topic/guard validation and connection generations:
+it replays an unacknowledged record after a client reconnect, ACKs only after
+the synchronous broker ACK call, and confirms that the committed record is not
+replayed. It extracts the distribution `lib/*.jar` files into a temporary host
+directory for the client runtime; the client/server jars and distribution all
+come from the same locked P1 checkout.
 
 ```text
 ./e2e/run-pulsar-real-client-e2e.sh
@@ -84,19 +88,29 @@ The harness requires a clean
 distribution and client-jar SHA-256 values, image ID and allocated ports, and
 cleans only its own Compose project, volumes, temporary image and staging
 directories. The current run passed with P1
-`7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9`, distribution SHA-256
-`d4b9e8aa6b44582c383262007217980793ec41bdf7fa3a1a4285e220407fef32`, image
-`sha256:f377aeddd73913830a1004287e14eae910e739f39793a96fe41d38f2e5aca264`,
-Compose project `nereus-delay-pulsar-e2e-1786737555-46201`, ports
-`19651,19652`, and output
+`f813c96687cc19e6fca1c82d3d161cf3e045c86b`, distribution SHA-256
+`bfe0c479c60db1a7a56f4548bd821d218c4c284dceb7c112d92f425606adec37`, image
+`sha256:735e2a6b952e2f7d4c8fc4c7a7b0d4ec2a852a9f4a9b21e82b076477cf19669f`,
+Compose project `nereus-delay-pulsar-e2e-1786743812-11877`, ports
+`19827,19828`, and writer output
 `initial=PERSISTED, stale=DEFINITIVELY_NOT_PERSISTED, replacement=PERSISTED`.
+The source output was
+`firstLedger=11, firstEntry=0, secondLedger=11, secondEntry=1,
+firstConnectionGeneration=1, secondConnectionGeneration=2`, followed by an
+empty poll after the ACK. The client artifacts were
+`pulsar-client-original` SHA-256
+`a636470f7d3f04af18980b84703a2b90f240a4bb58f77f8c19c1fd05b5bb40b2`,
+`pulsar-client-api` SHA-256
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`, and
+`pulsar-common` SHA-256
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`.
 The exit check found no matching container, network, volume or temporary
 image.
 
-This closes only the single-node real P1 client/broker delete-recreate cut. It
-does not claim unload, multi-broker failover, old-peer proxy compatibility,
-guarded source Fetch/ACK/rewind, D3 Direct SDK integration or the Worker
-vertical.
+This closes only the single-node real P1 client/broker delete-recreate and
+guarded source replay/ACK cut. It does not claim unload, multi-broker failover,
+old-peer proxy compatibility, source unload/failover/session ownership,
+guarded Fetch/rewind, D3 Direct SDK integration or the Worker vertical.
 
 ## Optional source-locked client bindings
 
@@ -127,6 +141,13 @@ closed when their artifact paths are omitted:
   -PpulsarClientClasspath=/absolute/path/pulsar-client.jar:/absolute/path/pulsar-client-api.jar:/absolute/path/pulsar-common.jar
 
 ./gradlew runRealPulsarServiceSmoke \
+  -PpulsarClientClasspath=/absolute/path/pulsar-client.jar:/absolute/path/pulsar-client-api.jar:/absolute/path/pulsar-common.jar \
+  -PpulsarRuntimeDir=/absolute/path/extracted-pulsar/lib \
+  -PpulsarServiceUrl=pulsar://127.0.0.1:6650 \
+  -PpulsarAdminUrl=http://127.0.0.1:8080 \
+  -PpulsarTopic=nereus-delay-p1-topic
+
+./gradlew runRealPulsarSourceSmoke \
   -PpulsarClientClasspath=/absolute/path/pulsar-client.jar:/absolute/path/pulsar-client-api.jar:/absolute/path/pulsar-common.jar \
   -PpulsarRuntimeDir=/absolute/path/extracted-pulsar/lib \
   -PpulsarServiceUrl=pulsar://127.0.0.1:6650 \

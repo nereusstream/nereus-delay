@@ -6495,6 +6495,46 @@ serialization prerequisite because it depends on the complete prepared record,
 not raw payload length; real Profile/Oxia/Object Store authority also remains
 OPEN.
 
+## 2026-08-15 guarded Pulsar source handoff evidence
+
+Delay commit `a85a91d8dfd44e8d871673f9244356ba8356c062` adds the opt-in
+`PulsarClientArtifactSourceRecordConsumer` and its source smoke. It requires
+the locked Pulsar `GuardedConsumer<byte[]>` API, exact resource guard and
+physical topic, a non-zero broker-issued attestation and connection
+generation, `MessageIdAdv` position identity, strict Broker entry timestamp,
+and one-record retention until synchronous ACK returns. Commit
+`b5ce0fb8` only makes the replay smoke print both connection generations.
+The source compile passed with `-Xlint:all -Werror` against the locked P1
+client, client-api and common artifacts.
+
+The corresponding Pulsar worktree is
+`nereus/delay-resource-guard-v1@f813c96687cc19e6fca1c82d3d161cf3e045c86b`,
+descended from `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`. It adds the
+guarded `SUBSCRIBE` request field, success attestation and connection
+generation, client `GuardedConsumer`, and broker-side exact guard/current-view
+validation. The client and common artifact SHA-256 values are
+`a636470f7d3f04af18980b84703a2b90f240a4bb58f77f8c19c1fd05b5bb40b2`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`, and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`;
+the rebuilt distribution SHA-256 is
+`bfe0c479c60db1a7a56f4548bd821d218c4c284dceb7c112d92f425606adec37`.
+
+The isolated real-client run used Pulsar image
+`sha256:735e2a6b952e2f7d4c8fc4c7a7b0d4ec2a852a9f4a9b21e82b076477cf19669f`,
+Compose project `nereus-delay-pulsar-e2e-1786743812-11877`, and ports
+`19827,19828`. The writer smoke returned
+`initial=PERSISTED, stale=DEFINITIVELY_NOT_PERSISTED, replacement=PERSISTED`.
+The guarded source smoke first observed ledger/entry `11/0`, reconnected with
+`firstConnectionGeneration=1` and `secondConnectionGeneration=2`, replayed
+the unacknowledged record at `11/0`, then observed the second record at `11/1`
+and an empty poll after both synchronous ACKs. Compose cleanup found no
+matching container, network, volume or temporary image.
+
+This closes a single-node guarded source SUBSCRIBE/replay/ACK cut and the
+writer delete-recreate cut. It does not close unload, multi-broker failover,
+proxy compatibility, source session ownership or rewind, D3 Direct SDK
+integration, Worker production wiring, or the release-scale D3/D6 gates.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

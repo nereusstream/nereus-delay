@@ -1597,6 +1597,12 @@ public interface GuardedMessageId extends MessageId {
     GuardedSendSuccessEvidence responseEvidence();
 }
 
+public interface GuardedConsumer<T> extends Consumer<T> {
+    TopicResourceGuard resourceGuard();
+    Optional<TopicResourceGuardAttestation> resourceGuardAttestation();
+    long connectionGeneration();
+}
+
 public record TopicResourceGuardAttestation(
         int guardVersion,
         String authenticatedClusterId,
@@ -1678,6 +1684,22 @@ attested SEND evidence and same-name delete/recreate.
 ProducerBuilder<T> resourceGuard(TopicResourceGuard guard);
 ```
 
+`ConsumerBuilder<T>` 同样增加 guarded source 入口：
+
+```java
+ConsumerBuilder<T> resourceGuard(TopicResourceGuard guard);
+```
+
+它返回的 native consumer 必须实现 `GuardedConsumer<T>`。P1 source factory
+固定 exact physical topic、`ReceiverQueueSize=1`、Exclusive/Earliest 和
+`autoUpdatePartitions(false)`；guarded source 禁止 pattern/multiple-topic
+订阅、partitioned base 自动展开和 topic auto-create。每次成功
+`SUBSCRIBE` 都必须返回与请求完全匹配的 attestation 以及非零
+`connectionGeneration`；重连只能重新发送同一个 guarded `SUBSCRIBE`，不能
+退回普通 Consumer。source adapter 在 Broker timestamp、position、guard 或
+generation 证据缺失/漂移时 fail closed，并且只在同步 ACK 成功后释放下一条
+record。
+
 旧自定义实现通过 default method fail closed，不允许默认忽略。`ProducerBuilderImpl` 写入 `ProducerConfigurationData.topicResourceGuard`，clone 时 deep copy。
 
 guarded producer 限制：
@@ -1725,6 +1747,17 @@ message CommandProducer {
 message CommandProducerSuccess {
   // existing fields 1..6
   optional TopicResourceGuardAttestation resource_guard_attestation = 7;
+}
+
+message CommandSubscribe {
+  // existing fields 1..19
+  optional TopicResourceGuard resource_guard = 20;
+}
+
+message CommandSuccess {
+  // existing fields 1..2
+  optional TopicResourceGuardAttestation resource_guard_attestation = 3;
+  optional uint64 connection_generation = 4;
 }
 
 message CommandSendReceipt {
@@ -2215,6 +2248,40 @@ and clean project `nereus-delay-kafka-e2e-1786741055-82662`.
 RocksDB/Worker apply, Oxia placement/session, dynamic IO admission, due/
 publish/checkpoint/recovery and full D6 crash cuts remain open.
 
+2026-08-15 implementation evidence: Delay commit
+`a85a91d8dfd44e8d871673f9244356ba8356c062` adds
+`PulsarClientArtifactSourceRecordConsumer` and the opt-in
+`runRealPulsarSourceSmoke` task. It consumes only through P1
+`GuardedConsumer<byte[]>`, checks exact guard/physical topic/attestation and
+non-zero connection generation, decodes the exact `MessageIdAdv` position and
+Broker entry timestamp, retains at most one record, and calls synchronous ACK
+before returning `ACKED` or polling again. Commit `b5ce0fb8` records both
+connection generations in the smoke output.
+
+The source-locked P1 branch is
+`nereus/delay-resource-guard-v1@f813c96687cc19e6fca1c82d3d161cf3e045c86b`,
+based on `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`. Its guarded
+`SUBSCRIBE` carries `TopicResourceGuard resource_guard = 20`; successful
+`SUBSCRIBE` returns `TopicResourceGuardAttestation` and
+`connection_generation`; `ConsumerImpl` validates the exact values and
+`ServerCnx` validates the current broker guard before allocating the
+generation. The three client artifact SHA-256 values are
+`a636470f7d3f04af18980b84703a2b90f240a4bb58f77f8c19c1fd05b5bb40b2`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`, and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`.
+
+The latest isolated Docker run used distribution SHA-256
+`bfe0c479c60db1a7a56f4548bd821d218c4c284dceb7c112d92f425606adec37`, image
+`sha256:735e2a6b952e2f7d4c8fc4c7a7b0d4ec2a852a9f4a9b21e82b076477cf19669f`,
+project `nereus-delay-pulsar-e2e-1786743812-11877`, and ports `19827,19828`.
+The writer returned `initial=PERSISTED,
+stale=DEFINITIVELY_NOT_PERSISTED, replacement=PERSISTED`. The source replayed
+unacknowledged position `11/0` across generations `1` and `2`, delivered
+`11/1`, and observed an empty poll after synchronous ACKs. This is a
+single-node guarded source SUBSCRIBE/replay/ACK cut; unload, multi-broker
+failover, proxy compatibility, source session/rewind, full D3 integration and
+Worker production E2E remain open.
+
 Writer E2E 不能被误报为完整 Worker production E2E。
 
 2026-08-15 implementation evidence: commit
@@ -2560,28 +2627,28 @@ Attempt 契约一致。当前切片只关闭了上述 opt-in commit/abort/target
 从 `5.0.0-M1@8dae0236` 创建独立分支，实现 §10。
 
 2026-08-15 progress evidence: Pulsar worktree branch
-`nereus/delay-resource-guard-v1` is implemented in commits
-`19c97bf836d521f0e6103c542819723e70ccdbab` and
-`be226fe6c88634e9a94ba5c6a0f5859bc510cb66`, followed by
-`7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9`. The v22 wire/API slice and the
-broker/client enforcement slice pass the focused common/broker tests and
-affected-module checkstyle with an independent Gradle user home. The latest
-commit snapshots and copies the guard before asynchronous broker topic work,
-so decoder command reuse cannot silently turn a guarded producer into an
-ordinary producer; it also maps create-time incarnation mismatch to a typed,
-non-retriable guard exception. A real in-process broker/client test now passes
-guarded SEND evidence and same-name delete/recreate: the old incarnation is
-rejected before persistence and the replacement incarnation sends successfully.
-The patch keeps generic Pulsar APIs and uses strict three-property resource
-tuples, INVALID-before-update publication, exact create/SEND guard comparison,
-broker-entry timestamp receipt echo and typed evidence correlation.
+`nereus/delay-resource-guard-v1` is implemented in the earlier writer commits
+`19c97bf836d521f0e6103c542819723e70ccdbab`,
+`be226fe6c88634e9a94ba5c6a0f5859bc510cb66` and
+`7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9`, followed by the current source
+commit `f813c96687cc19e6fca1c82d3d161cf3e045c86b`. The v22 wire/API,
+broker/client enforcement and guarded source `SUBSCRIBE` slices pass their
+focused compilation/tests and affected-module checks with independent Gradle
+user homes. The producer path snapshots and copies the guard before
+asynchronous broker topic work; the source path carries the guard in
+`CommandSubscribe`, validates the returned attestation/generation in
+`ConsumerImpl`, and validates the current broker view in `ServerCnx` before
+allocating a connection generation. A real in-process broker/client test
+passes guarded SEND evidence and same-name delete/recreate; the Delay-side
+single-node Docker cut additionally passes guarded source replay and
+synchronous ACK handoff.
 
-This remains an isolated upstream slice, not a Delay repository production
-transport. The single-broker delete/recreate cut is covered, and the Delay
-P1 binding records the three client artifact SHA-256 values and typed API
-smoke and a single-node real-service Docker cut. Unload, multi-broker
-failover, old-peer proxy compatibility, complete artifact attestation and D3
-source/ACK integration remain required before the completion gate can pass;
+This remains an isolated upstream slice plus an opt-in Delay transport, not a
+production release. The current writer/source cuts record the client artifact
+SHA-256 values, real distribution/image digests and clean Compose teardown.
+Unload, multi-broker failover, old-peer proxy compatibility, source session
+ownership/rewind, complete artifact attestation, Direct SDK integration and
+Worker production wiring remain required before the completion gate can pass;
 D3 must not use an ordinary Pulsar producer as a substitute.
 
 完成门：v22 wire compatibility、create+per-SEND guard、receipt echo、delete/recreate/unload/failover cut、focused modules格式检查。
@@ -2594,9 +2661,12 @@ pinned outcome mapping 已在 Delay 中建立 source-level composition seam；co
 接入真实 locked Pulsar v22 client artifact、`GuardedMessageId` 和 typed
 response evidence，并通过 API/evidence smoke。Commit `62ea85e8` further
 passes a real single-node Broker Docker delete/recreate cut with initial and
-replacement evidenced sends plus typed stale-producer rejection. 仍需完成 D3
-的 unload/multi-broker/proxy reconnect、Direct SDK E2E、source/ACK vertical
-和 Worker ACK-after-sync。
+replacement evidenced sends plus typed stale-producer rejection. Commit
+`a85a91d8dfd44e8d871673f9244356ba8356c062` adds the matching guarded source
+binding; its single-node Docker smoke proves guarded SUBSCRIBE, replay across
+connection generations, strict Broker timestamp/position evidence and
+synchronous ACK handoff. 仍需完成 D3 的 unload/multi-broker/proxy reconnect、
+Direct SDK E2E、source session/rewind authority 和 Worker production wiring。
 
 完成门：exact GuardedMessageId、typed pre-persistence rejection、uncertainty persistence、source lock。
 
