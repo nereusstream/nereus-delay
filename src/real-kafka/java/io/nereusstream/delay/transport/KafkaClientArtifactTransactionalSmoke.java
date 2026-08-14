@@ -2,10 +2,12 @@ package io.nereusstream.delay.transport;
 
 import io.nereusstream.delay.adapter.DestinationPublishRequest;
 import io.nereusstream.delay.adapter.DestinationPublishResult;
+import io.nereusstream.delay.adapter.KafkaDestinationRequest;
 import io.nereusstream.delay.adapter.KafkaReceiptJournal;
 import io.nereusstream.delay.adapter.KafkaReceiptResource;
 import io.nereusstream.delay.adapter.KafkaTargetResource;
 import io.nereusstream.delay.adapter.KafkaTransactionalDestinationAdapter;
+import io.nereusstream.delay.adapter.KafkaTransactionalDestinationRequest;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.DelayMessageId;
@@ -74,15 +76,22 @@ public final class KafkaClientArtifactTransactionalSmoke {
                     17, 2, 1_000);
 
             final Map<String, Object> producerConfiguration = producerConfiguration(bootstrap, "k2-e2e-initial");
+            final KafkaReceiptJournal initialJournal = new KafkaReceiptJournal(shard, receipt);
             try (KafkaProducer<byte[], byte[]> producer = newProducer(producerConfiguration)) {
                 producer.initTransactions();
                 final KafkaClientArtifactTransactionalDestinationTransport transport =
                         new KafkaClientArtifactTransactionalDestinationTransport(
                                 (GuardedTransactionalProducer<byte[], byte[]>) producer);
                 final KafkaTransactionalDestinationAdapter adapter = newAdapter(initialTarget, receipt,
-                        targetTopic, receiptTopic, shard, lane, laneIncarnation, transactionIdentity, transport);
+                        targetTopic, receiptTopic, initialJournal, lane, laneIncarnation, transactionIdentity,
+                        transport);
                 requirePublished(adapter.publish(firstRequest, source, preparedHash), "initial target and receipt");
                 requireCommittedCounts(bootstrap, targetTopic, receiptTopic, 1, 1);
+                final KafkaTransactionalDestinationRequest initialRecord = expectedRequest(initialTarget, receipt,
+                        targetTopic, receiptTopic, initialJournal);
+                requireExactRecord(bootstrap, targetTopic, null, firstRequest.payload(), "initial target");
+                requireExactRecord(bootstrap, receiptTopic, initialRecord.receiptKey(), initialRecord.receiptValue(),
+                        "initial receipt");
                 abortDirectPair(producer, initialTarget, receipt, targetTopic, receiptTopic, firstRequest, preparedHash);
                 requireCommittedCounts(bootstrap, targetTopic, receiptTopic, 1, 1);
                 adapter.close();
@@ -96,6 +105,7 @@ public final class KafkaClientArtifactTransactionalSmoke {
                 throw new IllegalStateException("K2 delete/recreate did not change target TopicId");
             }
             final DestinationPublishRequest staleRequest = request(shard, lane, laneIncarnation, 2, 13);
+            final KafkaReceiptJournal staleJournal = new KafkaReceiptJournal(shard, receipt);
             try (KafkaProducer<byte[], byte[]> producer = newProducer(
                     producerConfiguration(bootstrap, "k2-e2e-stale"))) {
                 producer.initTransactions();
@@ -103,7 +113,8 @@ public final class KafkaClientArtifactTransactionalSmoke {
                         new KafkaClientArtifactTransactionalDestinationTransport(
                                 (GuardedTransactionalProducer<byte[], byte[]>) producer);
                 final KafkaTransactionalDestinationAdapter staleAdapter = newAdapter(initialTarget, receipt,
-                        targetTopic, receiptTopic, shard, lane, laneIncarnation, transactionIdentity, transport);
+                        targetTopic, receiptTopic, staleJournal, lane, laneIncarnation, transactionIdentity,
+                        transport);
                 requireDefinitelyNotPublished(staleAdapter.publish(staleRequest, source, bytes(32, 17)),
                         "stale target incarnation");
                 staleAdapter.close();
@@ -113,6 +124,7 @@ public final class KafkaClientArtifactTransactionalSmoke {
             final KafkaTargetResource replacementTarget = new KafkaTargetResource(clusterId,
                     toUuid(replacementTargetId), 0);
             final DestinationPublishRequest replacementRequest = request(shard, lane, laneIncarnation, 3, 19);
+            final KafkaReceiptJournal replacementJournal = new KafkaReceiptJournal(shard, receipt);
             try (KafkaProducer<byte[], byte[]> producer = newProducer(
                     producerConfiguration(bootstrap, "k2-e2e-replacement"))) {
                 producer.initTransactions();
@@ -120,12 +132,18 @@ public final class KafkaClientArtifactTransactionalSmoke {
                         new KafkaClientArtifactTransactionalDestinationTransport(
                                 (GuardedTransactionalProducer<byte[], byte[]>) producer);
                 final KafkaTransactionalDestinationAdapter replacementAdapter = newAdapter(replacementTarget,
-                        receipt, targetTopic, receiptTopic, shard, lane, laneIncarnation, transactionIdentity, transport);
+                        receipt, targetTopic, receiptTopic, replacementJournal, lane, laneIncarnation,
+                        transactionIdentity, transport);
                 requirePublished(replacementAdapter.publish(replacementRequest, source, bytes(32, 23)),
                         "replacement target and receipt");
                 replacementAdapter.close();
             }
             requireCommittedCounts(bootstrap, targetTopic, receiptTopic, 1, 2);
+            final KafkaTransactionalDestinationRequest replacementRecord = expectedRequest(replacementTarget,
+                    receipt, targetTopic, receiptTopic, replacementJournal);
+            requireExactRecord(bootstrap, targetTopic, null, replacementRequest.payload(), "replacement target");
+            requireExactRecord(bootstrap, receiptTopic, replacementRecord.receiptKey(), replacementRecord.receiptValue(),
+                    "replacement receipt");
             System.out.println("K2 Delay real-client smoke passed: atomic target+receipt commit, abort, and "
                     + "same-name delete/recreate rejection. targetTopicId=" + initialTargetId
                     + " replacementTopicId=" + replacementTargetId);
@@ -136,13 +154,29 @@ public final class KafkaClientArtifactTransactionalSmoke {
                                                                      final KafkaReceiptResource receipt,
                                                                      final String targetTopic,
                                                                      final String receiptTopic,
-                                                                     final ShardId shard,
+                                                                     final KafkaReceiptJournal journal,
                                                                      final DestinationLaneId lane,
                                                                      final byte[] laneIncarnation,
                                                                      final byte[] transactionIdentity,
                                                                      final KafkaClientArtifactTransactionalDestinationTransport transport) {
         return new KafkaTransactionalDestinationAdapter(target, receipt, targetTopic, receiptTopic,
-                new KafkaReceiptJournal(shard, receipt), lane, laneIncarnation, transactionIdentity, transport);
+                journal, lane, laneIncarnation, transactionIdentity, transport);
+    }
+
+    private static KafkaTransactionalDestinationRequest expectedRequest(final KafkaTargetResource target,
+                                                                         final KafkaReceiptResource receipt,
+                                                                         final String targetTopic,
+                                                                         final String receiptTopic,
+                                                                         final KafkaReceiptJournal journal) {
+        final KafkaReceiptJournal.Mapping mapping = journal.records().stream()
+                .filter(record -> record.kind() == KafkaReceiptJournal.RecordKind.MAPPED)
+                .reduce((first, second) -> second)
+                .orElseThrow(() -> new IllegalStateException("K2 journal did not retain a mapping"))
+                .mapping();
+        final DestinationPublishRequest placeholder = request(mapping.shard(), mapping.producer().laneId(),
+                mapping.producer().laneIncarnation(), mapping.generation(), 31);
+        return KafkaTransactionalDestinationRequest.create(targetTopic,
+                KafkaDestinationRequest.from(target, placeholder), receiptTopic, receipt, mapping);
     }
 
     private static void abortDirectPair(final KafkaProducer<byte[], byte[]> producer,
@@ -226,6 +260,37 @@ public final class KafkaClientArtifactTransactionalSmoke {
             throw new IllegalStateException("read_committed counts did not converge: target=" + targetCount
                     + ", receipt=" + receiptCount + ", observed=" + records.size());
         }
+    }
+
+    private static void requireExactRecord(final String bootstrap, final String topic, final byte[] expectedKey,
+                                           final byte[] expectedValue, final String label) {
+        final Map<String, Object> configuration = new HashMap<>();
+        configuration.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
+        configuration.put(ConsumerConfig.GROUP_ID_CONFIG, "k2-e2e-exact-reader-" + UUID.randomUUID());
+        configuration.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
+        configuration.put(ConsumerConfig.ISOLATION_LEVEL_CONFIG, "read_committed");
+        configuration.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        configuration.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class);
+        configuration.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class);
+        try (KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(configuration)) {
+            final TopicPartition partition = new TopicPartition(topic, 0);
+            consumer.assign(List.of(partition));
+            consumer.seekToBeginning(List.of(partition));
+            final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+            while (System.nanoTime() < deadline) {
+                for (ConsumerRecord<byte[], byte[]> record : consumer.poll(Duration.ofMillis(250))) {
+                    if (java.util.Arrays.equals(expectedKey, record.key())
+                            && java.util.Arrays.equals(expectedValue, record.value())) {
+                        return;
+                    }
+                    if (java.util.Arrays.equals(expectedKey, record.key())) {
+                        throw new IllegalStateException(label + " key was present with a different value at offset "
+                                + record.offset());
+                    }
+                }
+            }
+        }
+        throw new IllegalStateException(label + " exact read_committed record was not observed");
     }
 
     private static Map<String, Object> producerConfiguration(final String bootstrap, final String transactionId) {
