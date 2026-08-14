@@ -32,10 +32,10 @@ digest-audited ingress, and query/await/message handlers behind an explicitly
 injected query authority,
 and a transport-neutral Worker source-consumer handoff that retains one exact
 record until ACK-after-sync. The current branch also has explicit source-locked
-K1 Kafka and P1 Pulsar client bindings, plus a three-broker K1 Docker smoke.
-It still lacks a Route activation-barrier/session-reconnect-complete real Oxia
+K1/K2 Kafka and P1 Pulsar client bindings, plus three-broker K1/K2 Docker
+smokes. It still lacks a Route activation-barrier/session-reconnect-complete real Oxia
 service gate, a deployed Gateway JWT claim/signature policy and production
-authority, the K2/D3 transaction/source verticals, or a production Worker
+authority, the full K2 receipt-read/response-loss gate, D3/source verticals, or a production Worker
 vertical. Those rows remain open release blockers even though the design status
 is Accepted.
 
@@ -234,6 +234,26 @@ This is opt-in writer/client-binding evidence, not release promotion. Kafka
 K2 target-plus-receipt transactions, Pulsar D3 unload/multi-broker/reconnect,
 guarded source Fetch/ACK/rewind, deployed Gateway authority, production
 Worker wiring and the remaining §23.5 artifact/chaos/SLO gates remain OPEN.
+
+Delay commit `ca9134ec8a1922e68f76f69ae0aa9bdd6e7180d5` now adds the opt-in K2
+target-plus-receipt binding. The isolated Kafka branch is
+`nereus/delay-guarded-producer-v1@8bd66fbb26eae1b0e4c5867e61f41900c3f5e318`;
+its generic `GuardedTransactionalProducer` requires an active transaction,
+transaction-v2 capability and partition registration before the guarded send.
+The source-locked client jar used by Delay has SHA-256
+`4b6362d10146568c7ef78629ad678e50f164a750fdbb362ba0899dc49b815656`.
+
+`LC_ALL=C LANG=C ./e2e/run-kafka-real-client-e2e.sh` passed on 2026-08-15
+against Compose project `nereus-delay-kafka-e2e-1786739311-64581` on
+`19173,19174,19175`, using broker image
+`sha256:3116a80efc9d4a9399ca225c1de4288abde253659fd6fad2292af7727a2e9505`.
+The K2 smoke proved atomic target-plus-receipt commit, abort, stale target
+TopicId rejection after same-name delete/recreate, and replacement commit;
+its Docker cleanup found no matching resources. This is partial K2 evidence:
+EndTxn response-loss, exact receipt-value/Fetch v13/LSO/contiguous replay,
+retention-floor recovery and independent target/receipt failover remain open,
+so the atomic-target-receipt profile is not activated. D2 source/ACK, D3,
+Worker production wiring and release gates remain OPEN.
 
 The clean cross-repository audit at the evidence state passed with Delay
 `be3cd790d23879d3f2b94695435388e3ce0eec4c`, Kafka
@@ -4547,7 +4567,7 @@ the guarded Broker rollout attestation remains external evidence.
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
 | Pulsar first-class-guard implementation base inspected for ADR 0044 | `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551` |
-| Kafka isolated K1 implementation | `nereus/delay-guarded-producer-v1@95d48e89e7e8a4e6d8718e44d424ffef8f17829f` |
+| Kafka isolated K1/K2 implementation | `nereus/delay-guarded-producer-v1@8bd66fbb26eae1b0e4c5867e61f41900c3f5e318` |
 | Pulsar isolated P1 implementation | `nereus/delay-resource-guard-v1@7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9` |
 
 主设计 R12–R37 的 Kafka/Pulsar correctness-critical 链接全部使用上述 immutable commit。发布包还必须记录实际 patch/binary digest、Broker rollout attestation 和 delete/recreate cuts；仅有文档 source lock 不等于实现已通过。
@@ -4576,7 +4596,7 @@ the guarded Broker rollout attestation remains external evidence.
 |---|---|---|
 | Generated IDL/descriptors | Registry field/enum/tag/version | 全语言 descriptor digest 一致，unknown/negative vectors fail closed |
 | Shared entry conformance | one Semantic Core, Direct SDK, Delay Gateway, exact RouteSnapshot and Prepared bytes | same authenticated intent yields byte-identical NDL1/branch/outcome; crash never re-prepares against a new Route |
-| Guarded client patches | Kafka trunk and Pulsar 5.0.0-M1 implementation bases from ADR 0044 plus explicit Delay K1/P1 source sets | generic API only, exact response evidence, ambiguity monotonicity, no name/old-protocol fallback, focused upstream-module tests, Delay artifact compile/API smoke and K1 three-broker delete/recreate/failover smoke; Kafka K1 proves only non-transactional single-record send and K2 separately gates target-plus-receipt transactions |
+| Guarded client patches | Kafka trunk and Pulsar 5.0.0-M1 implementation bases from ADR 0044 plus explicit Delay K1/K2/P1 source sets | generic API, exact response evidence, ambiguity monotonicity, no name/old-protocol fallback, focused upstream-module tests, Delay artifact compile/API smoke and K1/K2 three-broker/delete-recreate evidence; the current K2 target-plus-receipt commit/abort/fence subset is proven, while response-loss, Fetch/LSO/retention and source/Worker gates remain open |
 | Golden vector bundle | ID、frame、canonical body/hash、key、cursor、manifest、signature、retry jitter | 每个 registered branch 有 positive/negative vector |
 | Semantic catalogs | Stable errors、Profile/capability、Retry Policy、SLO、quota/capacity | catalog digest 绑定本 revision；无自由字符串扩展 |
 | Benchmark config | §21 所有 `required` 数值 | §23.4 矩阵产出可复现 capacity envelope，而非单一 TPS |

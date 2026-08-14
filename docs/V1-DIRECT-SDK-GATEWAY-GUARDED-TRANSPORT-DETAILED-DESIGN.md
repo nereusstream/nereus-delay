@@ -2058,7 +2058,9 @@ receipt. `KafkaClientArtifactSmoke` runs this binding against the source-built
 K1 broker image; its Docker harness covers three-replica produce,
 delete/recreate old-TopicId rejection and broker-1 failover. The binding is
 not a K2 target-plus-receipt transaction and is not enabled in the normal
-Gradle source set.
+Gradle source set. The separate K2 binding is described in Phase K2 above and
+is also opt-in; neither binding silently falls back to a stock/name-only
+producer.
 
 现有 result 类的 exact 修改形状为（其余 identity/position/stable-code 字段保持）：
 
@@ -2501,11 +2503,37 @@ module、完成 K2 之外的 source/ACK vertical 和 Worker ACK-after-sync。
 
 在 Kafka 独立切片中为 target + receipt transaction 提供 exact TopicId、Produce v13+、transaction
 coordinator/reenqueue identity 保持和双 topic response evidence。K1 的 `sendGuarded` 不自动满足
-这个门。
+这个门。2026-08-15 progress evidence: Kafka
+`nereus/delay-guarded-producer-v1@8bd66fbb26eae1b0e4c5867e61f41900c3f5e318`
+adds the public `GuardedTransactionalProducer` API and requires an active
+transaction, transaction-v2 capability and exact partition registration
+before a guarded in-transaction send. Delay commit
+`ca9134ec8a1922e68f76f69ae0aa9bdd6e7180d5` adds
+`KafkaTransactionalDestinationAdapter` and the source-locked real client
+transport. It journals the canonical receipt mapping before sending target
+and receipt records through one guarded transaction; a generic publish call
+without an exact prepared hash remains `UNKNOWN` rather than fabricating
+evidence.
 
-完成门：同事务两个资源均做 delete/recreate/failover cuts；任一 identity 漂移不向 replacement
-写入；commit/abort/response-loss 三态与现有 Attempt evidence 契约一致。K2 完成前 Kafka
-atomic-target-receipt Profile 必须保持不可激活。
+`LC_ALL=C LANG=C ./e2e/run-kafka-real-client-e2e.sh` passed against a clean
+three-broker KRaft Compose project
+`nereus-delay-kafka-e2e-1786739311-64581` on ports `19173,19174,19175`.
+The source-built client jar SHA-256 was
+`4b6362d10146568c7ef78629ad678e50f164a750fdbb362ba0899dc49b815656`, and
+the temporary broker image was
+`sha256:3116a80efc9d4a9399ca225c1de4288abde253659fd6fad2292af7727a2e9505`.
+The smoke proves target-plus-receipt atomic commit, abort, same-name target
+delete/recreate rejection and replacement commit with `read_committed` count
+checks. It does not yet prove EndTxn response-loss classification, exact
+receipt-value/Fetch v13/LSO/contiguous replay, retention-floor recovery or
+independent target/receipt failover; the atomic-target-receipt profile remains
+inactive.
+
+当前完成门仍要求同事务两个资源的 delete/recreate/failover cuts、任一
+identity 漂移不向 replacement 写入、commit/abort/response-loss 三态、
+精确 `read_committed` Fetch/LSO/连续 cursor/retention evidence 与现有
+Attempt 契约一致。当前切片只关闭了上述 opt-in commit/abort/target-fence
+子集；K2 完成前 Kafka atomic-target-receipt Profile 必须保持不可激活。
 
 ### Phase P1：Pulsar first-class resource guard
 
@@ -2643,8 +2671,9 @@ crash cuts 仍未完成。完成门仍以主设计 §23.5 为准；不能从 D1�
 - 两者复用同一 Semantic Core 和 exact Command/receipt types；
 - Gateway 请求幂等先持久化 exact prepared bytes，再取得 Broker ownership；
 - Kafka/Pulsar 提供通用 guarded resource API，绝不依赖 Nereus SDK；
-- Kafka K1 non-transactional wire 固定 Produce v13+ exact TopicId；target + receipt transaction
-  仍由 K2 独立 gate；
+- Kafka K1 non-transactional wire 固定 Produce v13+ exact TopicId；K2
+  provides an opt-in transaction-v2 target-plus-receipt binding, while its
+  response-loss/Fetch/LSO/retention/source gates remain independently open；
 - Pulsar 使用 first-class v22 create/per-SEND guard 和 guarded receipt；
 - 当前 V1 self-routing ID、tenant authority、Worker 状态机不改；
 - stock/name-only fallback 不可进入生产包。
