@@ -5,12 +5,18 @@ import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import io.nereusstream.delay.gateway.v1.DelayGatewayV1Grpc;
 import io.nereusstream.delay.gateway.v1.GatewayCancelRequestV1;
+import io.nereusstream.delay.gateway.v1.GatewayCommitLargeScheduleRequestV1;
+import io.nereusstream.delay.gateway.v1.GatewayPrepareLargeScheduleRequestV1;
 import io.nereusstream.delay.gateway.v1.GatewayRescheduleRequestV1;
 import io.nereusstream.delay.gateway.v1.GatewayRetryUncertainRequestV1;
 import io.nereusstream.delay.gateway.v1.GatewayScheduleRequestV1;
 import io.nereusstream.delay.protocol.AdapterKindV1;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.MessagePreconditionV1;
+import io.nereusstream.delay.protocol.PayloadCommitProofV1;
+import io.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
+import io.nereusstream.delay.protocol.PayloadReservationReceiptV1;
+import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.ScheduleIntentV1;
 import io.nereusstream.delay.protocol.SubmissionModeV1;
 import io.nereusstream.delay.semantic.RouteSelectionHint;
@@ -20,8 +26,8 @@ import java.util.Objects;
 import java.util.concurrent.CompletionException;
 
 /**
- * Generated gRPC adapter for the currently implemented Schedule and
- * RetryUncertain domain paths. Every other RPC remains the generated
+ * Generated gRPC adapter for the currently implemented submission paths.
+ * Upload, query and await RPCs remain the generated
  * UNIMPLEMENTED boundary until its domain authority exists.
  */
 public final class GatewayGrpcService extends DelayGatewayV1Grpc.DelayGatewayV1ImplBase {
@@ -68,6 +74,34 @@ public final class GatewayGrpcService extends DelayGatewayV1Grpc.DelayGatewayV1I
         } catch (RuntimeException failure) {
             fail(responseObserver, statusFor(failure));
         }
+    }
+
+    @Override
+    public void prepareLargeSchedule(final GatewayPrepareLargeScheduleRequestV1 request,
+                                      final StreamObserver<io.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1>
+                                              responseObserver) {
+        final io.nereusstream.delay.gateway.GatewayPrepareLargeScheduleRequestV1 domain;
+        try {
+            domain = decodePrepareLargeSchedule(request);
+        } catch (RuntimeException invalidRequest) {
+            fail(responseObserver, Status.Code.INVALID_ARGUMENT);
+            return;
+        }
+        invoke(() -> ingress.prepareLargeSchedule(peerContextProvider.current(), domain), responseObserver);
+    }
+
+    @Override
+    public void commitLargeSchedule(final GatewayCommitLargeScheduleRequestV1 request,
+                                     final StreamObserver<io.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1>
+                                             responseObserver) {
+        final io.nereusstream.delay.gateway.GatewayCommitLargeScheduleRequestV1 domain;
+        try {
+            domain = decodeCommitLargeSchedule(request);
+        } catch (RuntimeException invalidRequest) {
+            fail(responseObserver, Status.Code.INVALID_ARGUMENT);
+            return;
+        }
+        invoke(() -> ingress.commitLargeSchedule(peerContextProvider.current(), domain), responseObserver);
     }
 
     @Override
@@ -133,6 +167,40 @@ public final class GatewayGrpcService extends DelayGatewayV1Grpc.DelayGatewayV1I
                 request.getIdempotencyKey().toByteArray(),
                 new DelayMessageId(request.getDelayMessageId().toByteArray()),
                 MessagePreconditionV1.decode(request.getMessagePreconditionV1().toByteArray()),
+                request.getRetryUntilEpochMs());
+    }
+
+    private static io.nereusstream.delay.gateway.GatewayPrepareLargeScheduleRequestV1 decodePrepareLargeSchedule(
+            final GatewayPrepareLargeScheduleRequestV1 request) {
+        if (!request.hasRoute() || request.getScheduleIntentV1().isEmpty()
+                || request.getPayloadSha256().isEmpty() || request.getPayloadProofTrustSetRefV1().isEmpty()
+                || request.getObjectStoreProfileRefV1().isEmpty()) {
+            throw new IllegalArgumentException("Gateway PrepareLargeSchedule request is incomplete");
+        }
+        return new io.nereusstream.delay.gateway.GatewayPrepareLargeScheduleRequestV1(
+                request.getIdempotencyKey().toByteArray(),
+                new RouteSelectionHint(
+                        AdapterKindV1.fromWire(request.getRoute().getIngressAdapterKind()),
+                        request.getRoute().getRouteAliasUtf8Nfc().toByteArray()),
+                ScheduleIntentV1.decode(request.getScheduleIntentV1().toByteArray()),
+                request.getExpectedPayloadLength(), request.getPayloadSha256().toByteArray(),
+                request.getReservationTtlMs(),
+                PayloadProofTrustSetRefV1.decode(request.getPayloadProofTrustSetRefV1().toByteArray()),
+                ProfileRefV1.decode(request.getObjectStoreProfileRefV1().toByteArray()),
+                request.getRetryUntilEpochMs());
+    }
+
+    private static io.nereusstream.delay.gateway.GatewayCommitLargeScheduleRequestV1 decodeCommitLargeSchedule(
+            final GatewayCommitLargeScheduleRequestV1 request) {
+        if (request.getPayloadReservationReceiptV1().isEmpty()
+                || request.getPayloadCommitProofV1().isEmpty()) {
+            throw new IllegalArgumentException("Gateway CommitLargeSchedule request is incomplete");
+        }
+        return new io.nereusstream.delay.gateway.GatewayCommitLargeScheduleRequestV1(
+                request.getIdempotencyKey().toByteArray(),
+                PayloadReservationReceiptV1.decodePayload(
+                        request.getPayloadReservationReceiptV1().toByteArray()),
+                PayloadCommitProofV1.decode(request.getPayloadCommitProofV1().toByteArray()),
                 request.getRetryUntilEpochMs());
     }
 

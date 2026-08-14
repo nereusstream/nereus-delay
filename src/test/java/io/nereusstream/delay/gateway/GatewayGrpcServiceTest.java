@@ -16,6 +16,7 @@ import io.nereusstream.delay.protocol.KafkaMetadataV1;
 import io.nereusstream.delay.protocol.MessagePreconditionV1;
 import io.nereusstream.delay.protocol.OrderingMode;
 import io.nereusstream.delay.protocol.PayloadCommitProofV1;
+import io.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
 import io.nereusstream.delay.protocol.PayloadReservationReceiptV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.PreparedSubmissionV1;
@@ -112,12 +113,61 @@ class GatewayGrpcServiceTest {
                         .managed().definitelyNotQueued().error().code().wireValue());
     }
 
+    @Test
+    void prepareLargeScheduleDecodesRegistryReferencesAndUsesControlIngressPath() {
+        final TrustedClock clock = () -> 100;
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
+        final PreparedCommand command = PreparedCommand.scheduleV1(shard, scheduleIntent(), 600);
+        final AuthenticatedTenantContext tenant = tenant();
+        final GatewayScheduleService domain = new GatewayScheduleService(
+                new Core(PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(command))),
+                new InMemoryGatewayIdempotencyStore(clock, 10, 20), new Coordinator(command), clock);
+        final GatewayIngressService ingress = new GatewayIngressService(domain, peer -> tenant,
+                new InMemoryGatewayAdmissionController(1, 4096, 1, 1),
+                new InMemoryGatewayAuditSink(4), clock);
+        final GatewayGrpcService service = new GatewayGrpcService(ingress,
+                () -> new GatewayPeerContext(new Metadata(), Attributes.EMPTY));
+        final CapturingObserver observer = new CapturingObserver();
+        final ProfileRefV1 objectStore = new ProfileRefV1(Bytes.utf8("object-store"), 1,
+                bytes(32, 70), ProfileKindV1.OBJECT_STORE);
+        final PayloadProofTrustSetRefV1 trustSet = new PayloadProofTrustSetRefV1(1, bytes(32, 71));
+
+        service.prepareLargeSchedule(
+                io.nereusstream.delay.gateway.v1.GatewayPrepareLargeScheduleRequestV1.newBuilder()
+                        .setIdempotencyKey(ByteString.copyFrom(bytes(16, 42)))
+                        .setRoute(GatewayRouteSelectorV1.newBuilder()
+                                .setIngressAdapterKind(AdapterKindV1.KAFKA.wireValue())
+                                .setRouteAliasUtf8Nfc(ByteString.copyFromUtf8("primary")))
+                        .setScheduleIntentV1(ByteString.copyFrom(prepareIntent().canonicalBytes()))
+                        .setExpectedPayloadLength(7)
+                        .setPayloadSha256(ByteString.copyFrom(bytes(32, 72)))
+                        .setReservationTtlMs(1_000)
+                        .setPayloadProofTrustSetRefV1(ByteString.copyFrom(trustSet.canonicalBytes()))
+                        .setObjectStoreProfileRefV1(ByteString.copyFrom(objectStore.canonicalBytes()))
+                        .setRetryUntilEpochMs(600)
+                        .build(), observer);
+
+        assertNull(observer.failure);
+        assertTrue(observer.completed);
+        assertEquals(1, observer.outcomes.size());
+        assertEquals(StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED.wireValue(),
+                SubmissionOutcomeMessageV1.decode(observer.outcomes.get(0).getSubmissionOutcomeNdr1().toByteArray())
+                        .managed().definitelyNotQueued().error().code().wireValue());
+    }
+
     private static ScheduleIntentV1 scheduleIntent() {
         return ScheduleIntentV1.create(new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 60),
                         ProfileKindV1.DESTINATION), new RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 61)),
                 300, 800, DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, Bytes.utf8("key"),
                 Bytes.utf8("payload"), null, AdapterMetadataV1.kafka(new KafkaMetadataV1(null, java.util.List.of())),
                 null, null);
+    }
+
+    private static ScheduleIntentV1 prepareIntent() {
+        return ScheduleIntentV1.forPrepare(new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 60),
+                        ProfileKindV1.DESTINATION), new RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 61)),
+                300, 800, DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, Bytes.utf8("key"),
+                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, java.util.List.of())), null, null);
     }
 
     private static AuthenticatedTenantContext tenant() {
@@ -175,7 +225,7 @@ class GatewayGrpcServiceTest {
                                                      final RouteSelectionHint route,
                                                      final LargeSchedulePreparationV1 request,
                                                      final long retryUntilEpochMs) {
-            throw new UnsupportedOperationException();
+            return CommandCodec.decodeFrameV1(prepared.managedFrame());
         }
 
         @Override
@@ -183,7 +233,7 @@ class GatewayGrpcServiceTest {
                                                     final PayloadReservationReceiptV1 reservation,
                                                     final PayloadCommitProofV1 proof,
                                                     final long retryUntilEpochMs) {
-            throw new UnsupportedOperationException();
+            return CommandCodec.decodeFrameV1(prepared.managedFrame());
         }
 
         @Override

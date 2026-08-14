@@ -7,6 +7,7 @@ import io.nereusstream.delay.protocol.StableErrorV1;
 import io.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
 import io.nereusstream.delay.semantic.AuthenticatedTenantContext;
 import io.nereusstream.delay.semantic.DelaySemanticCore;
+import io.nereusstream.delay.semantic.LargeSchedulePreparationV1;
 import io.nereusstream.delay.semantic.SemanticPreparationException;
 import io.nereusstream.delay.semantic.TrustedClock;
 import io.nereusstream.delay.submission.SubmissionCoordinator;
@@ -104,6 +105,30 @@ public final class GatewayScheduleService {
                 request.canonicalBodyBytes(), request.retryUntilEpochMs(),
                 () -> semanticCore.prepareReschedule(tenant, request.delayMessageId(), request.messagePrecondition(),
                         request.deliverAtEpochMs(), request.expireAtEpochMs(), request.retryUntilEpochMs()));
+    }
+
+    /** PrepareLargeSchedule path using the shared durable prepared-bytes protocol. */
+    public CompletionStage<GatewaySubmissionOutcomeV1> prepareLargeSchedule(
+            final AuthenticatedTenantContext tenant, final GatewayPrepareLargeScheduleRequestV1 request) {
+        Objects.requireNonNull(tenant, "tenant");
+        Objects.requireNonNull(request, "request");
+        return prepareCommand(tenant, request.idempotencyKey(), GatewayOperationKindV1.PREPARE_LARGE_SCHEDULE,
+                request.canonicalBodyBytes(), request.retryUntilEpochMs(),
+                () -> semanticCore.prepareLargeSchedule(tenant, request.route(),
+                        new LargeSchedulePreparationV1(request.scheduleIntent(), request.expectedPayloadLength(),
+                                request.payloadSha256(), request.reservationTtlMs(), request.trustSet(),
+                                request.objectStoreProfile()), request.retryUntilEpochMs()));
+    }
+
+    /** CommitLargeSchedule path using the shared durable prepared-bytes protocol. */
+    public CompletionStage<GatewaySubmissionOutcomeV1> commitLargeSchedule(
+            final AuthenticatedTenantContext tenant, final GatewayCommitLargeScheduleRequestV1 request) {
+        Objects.requireNonNull(tenant, "tenant");
+        Objects.requireNonNull(request, "request");
+        return prepareCommand(tenant, request.idempotencyKey(), GatewayOperationKindV1.COMMIT_LARGE_SCHEDULE,
+                request.canonicalBodyBytes(), request.retryUntilEpochMs(),
+                () -> semanticCore.preparePayloadCommit(tenant, request.reservation(), request.proof(),
+                        request.retryUntilEpochMs()));
     }
 
     private CompletionStage<GatewaySubmissionOutcomeV1> continueAttempt(

@@ -102,6 +102,24 @@ public final class GatewayIngressService {
                 tenant -> scheduleService.reschedule(tenant, request));
     }
 
+    public CompletionStage<GatewaySubmissionOutcomeV1> prepareLargeSchedule(
+            final GatewayPeerContext peerContext, final GatewayPrepareLargeScheduleRequestV1 request) {
+        Objects.requireNonNull(peerContext, "peerContext");
+        Objects.requireNonNull(request, "request");
+        return control(peerContext, request.idempotencyKey(), GatewayOperationKindV1.PREPARE_LARGE_SCHEDULE,
+                request.canonicalBodyBytes(),
+                tenant -> scheduleService.prepareLargeSchedule(tenant, request));
+    }
+
+    public CompletionStage<GatewaySubmissionOutcomeV1> commitLargeSchedule(
+            final GatewayPeerContext peerContext, final GatewayCommitLargeScheduleRequestV1 request) {
+        Objects.requireNonNull(peerContext, "peerContext");
+        Objects.requireNonNull(request, "request");
+        return control(peerContext, request.idempotencyKey(), GatewayOperationKindV1.COMMIT_LARGE_SCHEDULE,
+                request.canonicalBodyBytes(),
+                tenant -> scheduleService.commitLargeSchedule(tenant, request));
+    }
+
     private CompletionStage<GatewaySubmissionOutcomeV1> control(final GatewayPeerContext peerContext,
                                                                  final byte[] idempotencyKey,
                                                                  final GatewayOperationKindV1 operation,
