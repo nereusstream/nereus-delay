@@ -93,16 +93,8 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
             if (!beforeReceive.equals(afterReceive)) {
                 throw new IllegalStateException("Pulsar source connection proof changed during receive");
             }
-            final PreparedCommand command = CommandCodec.decodeFrameV1(requireData(message));
-            if (!shard.equals(command.shardId())) {
-                throw new IllegalArgumentException("Pulsar source command belongs to another Shard");
-            }
-            if (!physicalTopic.equals(message.getTopicName())) {
-                throw new IllegalArgumentException("Pulsar source message belongs to another physical topic");
-            }
-            final PulsarSourcePosition position = position(message, afterReceive.attestation());
-            final SourceReplayRecord entry = new SourceReplayRecord(command, position, afterReceive.generation(),
-                    afterReceive.digest());
+            final SourceReplayRecord entry = decodeReplayRecord(message, shard, physicalTopic,
+                    afterReceive.attestation(), afterReceive.generation(), afterReceive.digest());
             buffered = null;
             bufferedProof = null;
             inFlight = message;
@@ -167,8 +159,25 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
         }
     }
 
-    private PulsarSourcePosition position(final Message<byte[]> message,
-                                          final TopicResourceGuardAttestation attestation) {
+    /** Decodes one guarded message for both active ACK and recovery replay paths. */
+    static SourceReplayRecord decodeReplayRecord(final Message<byte[]> message, final ShardId shard,
+                                                 final String physicalTopic,
+                                                 final TopicResourceGuardAttestation attestation,
+                                                 final long generation, final byte[] digest) {
+        final PreparedCommand command = CommandCodec.decodeFrameV1(requireData(message));
+        if (!shard.equals(command.shardId())) {
+            throw new IllegalArgumentException("Pulsar source command belongs to another Shard");
+        }
+        if (!physicalTopic.equals(message.getTopicName())) {
+            throw new IllegalArgumentException("Pulsar source message belongs to another physical topic");
+        }
+        return new SourceReplayRecord(command, position(message, shard, physicalTopic, attestation), generation,
+                digest);
+    }
+
+    private static PulsarSourcePosition position(final Message<byte[]> message, final ShardId shard,
+                                                 final String physicalTopic,
+                                                 final TopicResourceGuardAttestation attestation) {
         if (!(message.getMessageId() instanceof MessageIdAdv messageId)) {
             throw new IllegalArgumentException("Pulsar source message lacks an advanced message id");
         }
@@ -225,7 +234,7 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
         return new SourceConnectionProof(generation, current, attestationDigest(current));
     }
 
-    private static byte[] requireData(final Message<byte[]> message) {
+    static byte[] requireData(final Message<byte[]> message) {
         final byte[] data = message.getData();
         if (data == null || data.length == 0) {
             throw new IllegalArgumentException("Pulsar source message has no NDL1 payload");

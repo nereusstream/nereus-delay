@@ -3,7 +3,10 @@ package io.nereusstream.delay.transport;
 import io.nereusstream.delay.adapter.PulsarSendRequest;
 import io.nereusstream.delay.adapter.PulsarSendResult;
 import io.nereusstream.delay.ownership.SourceAcknowledgement;
+import io.nereusstream.delay.ownership.SourceAssignment;
 import io.nereusstream.delay.ownership.SourceRecordConsumer;
+import io.nereusstream.delay.ownership.SourceReplayCursor;
+import io.nereusstream.delay.ownership.SourceReplayEntry;
 import io.nereusstream.delay.ownership.SourceReplayRecord;
 import io.nereusstream.delay.protocol.AdapterMetadataV1;
 import io.nereusstream.delay.protocol.Bytes;
@@ -15,6 +18,7 @@ import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.PulsarSourcePosition;
+import io.nereusstream.delay.protocol.PulsarActivationBarrier;
 import io.nereusstream.delay.protocol.RetryPolicyRefV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ScheduleIntentV1;
@@ -61,6 +65,38 @@ public final class PulsarClientArtifactSourceSmoke {
             final PreparedCommand secondCommand = command(shard, "source-two");
             send(client, guard, physicalTopic, firstCommand, "producer-first");
             send(client, guard, physicalTopic, secondCommand, "producer-second");
+
+            final String recoverySubscription = "nereus-delay-recovery-" + UUID.randomUUID();
+            final GuardedConsumer<byte[]> recoveryNative = PulsarClientArtifactSourceConsumerFactory.create(
+                    client, guard, physicalTopic, recoverySubscription);
+            final var recoveryAttestation = recoveryNative.resourceGuardAttestation().orElseThrow(
+                    () -> new IllegalStateException("Pulsar recovery consumer has no guard attestation"));
+            final SourceAssignment recoveryAssignment = new SourceAssignment(shard,
+                    Bytes.sha256(Bytes.utf8("pulsar-recovery-assignment")), 1,
+                    PulsarActivationBarrier.empty(shard, INCARNATION, physicalTopic,
+                            recoveryNative.connectionGeneration(),
+                            PulsarClientArtifactSourceRecordConsumer.attestationDigest(recoveryAttestation)));
+            try (PulsarClientArtifactRecoverySourceCursor recovery =
+                         new PulsarClientArtifactRecoverySourceCursor(recoveryNative, guard, recoveryAssignment,
+                                 physicalTopic, java.time.Duration.ofMillis(250))) {
+                final SourceReplayCursor<SourceReplayEntry> cursor = SourceReplayCursor.of(recovery);
+                final SourceReplayEntry recoveredFirst = cursor.peek();
+                if (!(recoveredFirst instanceof SourceReplayRecord recoveredRecord)
+                        || !recoveredRecord.command().equals(firstCommand)
+                        || cursor.peek() != recoveredFirst) {
+                    throw new IllegalStateException("Pulsar recovery cursor did not retain the exact first entry");
+                }
+                cursor.next();
+                final SourceReplayEntry recoveredSecond = cursor.peek();
+                if (!(recoveredSecond instanceof SourceReplayRecord recoveredSecondRecord)
+                        || !recoveredSecondRecord.command().equals(secondCommand)) {
+                    throw new IllegalStateException("Pulsar recovery cursor did not expose the second entry");
+                }
+                cursor.next();
+                if (cursor.hasNext()) {
+                    throw new IllegalStateException("Pulsar recovery cursor exposed an unexpected third entry");
+                }
+            }
 
             final String subscription = "nereus-delay-source-" + UUID.randomUUID();
             final GuardedConsumer<byte[]> firstNative = PulsarClientArtifactSourceConsumerFactory.create(

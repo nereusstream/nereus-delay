@@ -1,0 +1,145 @@
+package io.nereusstream.delay.transport;
+
+import io.nereusstream.delay.ownership.SourceAssignment;
+import io.nereusstream.delay.ownership.SourceReplayEntry;
+import io.nereusstream.delay.ownership.SourceReplayRecord;
+import io.nereusstream.delay.protocol.CommandCodec;
+import io.nereusstream.delay.protocol.KafkaActivationBarrier;
+import io.nereusstream.delay.protocol.KafkaSourcePosition;
+import io.nereusstream.delay.protocol.PreparedCommand;
+import io.nereusstream.delay.protocol.ShardId;
+import org.apache.kafka.clients.consumer.Consumer;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.common.TopicPartition;
+
+import java.time.Duration;
+import java.util.ArrayDeque;
+import java.util.Iterator;
+import java.util.NoSuchElementException;
+import java.util.Objects;
+
+/**
+ * Native Kafka replay input for {@code OwnerRecoveryCoordinator}.
+ *
+ * <p>This cursor never commits a group offset and has no ACK path. The
+ * coordinator retains the same decoded record until the bounded Store apply
+ * outcome is proven, then calls {@link #next()} to release only the local
+ * look-ahead. The caller supplies the already validated durable replay start
+ * offset; the Route activation barrier remains an identity fence, not a
+ * substitute for local Store recovery metadata.</p>
+ */
+public final class KafkaClientArtifactRecoverySourceCursor
+        implements Iterator<SourceReplayEntry>, AutoCloseable {
+    private final Consumer<byte[], byte[]> consumer;
+    private final String authenticatedClusterId;
+    private final java.util.UUID nativeTopicUuid;
+    private final ShardId shard;
+    private final TopicPartition topicPartition;
+    private final Duration pollTimeout;
+    private final ArrayDeque<ConsumerRecord<byte[], byte[]>> buffered = new ArrayDeque<>();
+    private SourceReplayEntry current;
+    private boolean closed;
+
+    public KafkaClientArtifactRecoverySourceCursor(final Consumer<byte[], byte[]> consumer,
+                                                   final SourceAssignment assignment,
+                                                   final String physicalTopic,
+                                                   final long startOffsetInclusive,
+                                                   final Duration pollTimeout) {
+        this.consumer = Objects.requireNonNull(consumer, "consumer");
+        final SourceAssignment accepted = Objects.requireNonNull(assignment, "assignment");
+        if (!(accepted.activationBarrier() instanceof KafkaActivationBarrier barrier)) {
+            throw new IllegalArgumentException("Kafka recovery cursor requires a Kafka activation barrier");
+        }
+        if (startOffsetInclusive < 0 || barrier.exclusiveOffset() < 0) {
+            throw new IllegalArgumentException("Kafka recovery offsets must be non-negative");
+        }
+        this.authenticatedClusterId = barrier.authenticatedClusterId();
+        this.nativeTopicUuid = barrier.nativeTopicUuid();
+        this.shard = accepted.shardId();
+        final String topic = requirePhysicalTopic(physicalTopic);
+        if (shard.partition() < 0) {
+            throw new IllegalArgumentException("Kafka recovery partition must be non-negative");
+        }
+        this.topicPartition = new TopicPartition(topic, shard.partition());
+        this.pollTimeout = Objects.requireNonNull(pollTimeout, "pollTimeout");
+        if (pollTimeout.isNegative() || pollTimeout.isZero()) {
+            throw new IllegalArgumentException("pollTimeout must be positive");
+        }
+        consumer.assign(java.util.List.of(topicPartition));
+        consumer.seek(topicPartition, startOffsetInclusive);
+    }
+
+    @Override
+    public synchronized boolean hasNext() {
+        ensureOpen();
+        if (current != null) {
+            return true;
+        }
+        while (buffered.isEmpty()) {
+            final ConsumerRecords<byte[], byte[]> records = consumer.poll(pollTimeout);
+            for (ConsumerRecord<byte[], byte[]> record : records.records(topicPartition)) {
+                buffered.addLast(record);
+            }
+            if (records.isEmpty()) {
+                return false;
+            }
+        }
+        final ConsumerRecord<byte[], byte[]> record = buffered.removeFirst();
+        try {
+            final PreparedCommand command = CommandCodec.decodeFrameV1(requireValue(record));
+            if (!shard.equals(command.shardId())) {
+                throw new IllegalArgumentException("Kafka recovery command belongs to another shard");
+            }
+            if (record.offset() < 0 || record.timestamp() < 0) {
+                throw new IllegalArgumentException("Kafka recovery record lacks a bounded broker position");
+            }
+            final KafkaSourcePosition position = new KafkaSourcePosition(shard, authenticatedClusterId,
+                    nativeTopicUuid, record.offset(), record.leaderEpoch().orElse(null), record.timestamp());
+            current = new SourceReplayRecord(command, position, null, null);
+            return true;
+        } catch (RuntimeException | Error failure) {
+            buffered.addFirst(record);
+            throw failure;
+        }
+    }
+
+    @Override
+    public synchronized SourceReplayEntry next() {
+        if (!hasNext()) {
+            throw new NoSuchElementException("Kafka recovery source is exhausted");
+        }
+        final SourceReplayEntry result = current;
+        current = null;
+        return result;
+    }
+
+    @Override
+    public synchronized void close() {
+        if (!closed) {
+            closed = true;
+            consumer.close();
+        }
+    }
+
+    private static String requirePhysicalTopic(final String physicalTopic) {
+        final String topic = Objects.requireNonNull(physicalTopic, "physicalTopic");
+        if (topic.isBlank()) {
+            throw new IllegalArgumentException("physicalTopic must be non-blank");
+        }
+        return topic;
+    }
+
+    private static byte[] requireValue(final ConsumerRecord<byte[], byte[]> record) {
+        if (record.value() == null || record.value().length == 0) {
+            throw new IllegalArgumentException("Kafka recovery record has no NDL1 value");
+        }
+        return record.value();
+    }
+
+    private void ensureOpen() {
+        if (closed) {
+            throw new IllegalStateException("Kafka recovery source is closed");
+        }
+    }
+}

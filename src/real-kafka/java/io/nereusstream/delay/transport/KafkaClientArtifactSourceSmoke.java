@@ -1,13 +1,17 @@
 package io.nereusstream.delay.transport;
 
 import io.nereusstream.delay.ownership.SourceAcknowledgement;
+import io.nereusstream.delay.ownership.SourceAssignment;
 import io.nereusstream.delay.ownership.SourceRecordConsumer;
+import io.nereusstream.delay.ownership.SourceReplayCursor;
+import io.nereusstream.delay.ownership.SourceReplayEntry;
 import io.nereusstream.delay.ownership.SourceReplayRecord;
 import io.nereusstream.delay.protocol.AdapterMetadataV1;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CommandCodec;
 import io.nereusstream.delay.protocol.DeliveryMode;
 import io.nereusstream.delay.protocol.KafkaMetadataV1;
+import io.nereusstream.delay.protocol.KafkaActivationBarrier;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.OrderingMode;
 import io.nereusstream.delay.protocol.PreparedCommand;
@@ -64,6 +68,32 @@ public final class KafkaClientArtifactSourceSmoke {
             final PreparedCommand first = command(shard, "source-one");
             final PreparedCommand second = command(shard, "source-two");
             produce(bootstrap, clusterId, topic, topicId, first, second);
+
+            final SourceAssignment recoveryAssignment = new SourceAssignment(shard,
+                    Bytes.sha256(Bytes.utf8("kafka-recovery-assignment")), 1,
+                    new KafkaActivationBarrier(shard, clusterId, toUuid(topicId), 0));
+            final String recoveryGroup = "nereus-delay-recovery-e2e-" + UUID.randomUUID();
+            try (KafkaClientArtifactRecoverySourceCursor recovery = new KafkaClientArtifactRecoverySourceCursor(
+                    recoveryConsumer(bootstrap, recoveryGroup), recoveryAssignment, topic, 0,
+                    Duration.ofMillis(250))) {
+                final SourceReplayCursor<SourceReplayEntry> cursor = SourceReplayCursor.of(recovery);
+                final SourceReplayEntry recoveredFirst = cursor.peek();
+                if (!(recoveredFirst instanceof SourceReplayRecord recoveredRecord)
+                        || !recoveredRecord.command().equals(first)
+                        || cursor.peek() != recoveredFirst) {
+                    throw new IllegalStateException("Kafka recovery cursor did not retain the exact first entry");
+                }
+                cursor.next();
+                final SourceReplayEntry recoveredSecond = cursor.peek();
+                if (!(recoveredSecond instanceof SourceReplayRecord recoveredSecondRecord)
+                        || !recoveredSecondRecord.command().equals(second)) {
+                    throw new IllegalStateException("Kafka recovery cursor did not expose the second entry");
+                }
+                cursor.next();
+                if (cursor.hasNext()) {
+                    throw new IllegalStateException("Kafka recovery cursor exposed an unexpected third entry");
+                }
+            }
 
             final String groupId = "nereus-delay-source-e2e-" + UUID.randomUUID();
             final PolledSource firstUnacknowledged =
@@ -184,6 +214,18 @@ public final class KafkaClientArtifactSourceSmoke {
         configuration.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class);
         return new KafkaClientArtifactSourceRecordConsumer(new KafkaConsumer<>(configuration), clusterId, topicId,
                 shard, topic, Duration.ofMillis(250));
+    }
+
+    private static KafkaConsumer<byte[], byte[]> recoveryConsumer(final String bootstrap, final String groupId) {
+        final Map<String, Object> configuration = new HashMap<>();
+        configuration.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
+        configuration.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
+        configuration.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
+        configuration.put(ConsumerConfig.ISOLATION_LEVEL_CONFIG, "read_committed");
+        configuration.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        configuration.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class);
+        configuration.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class);
+        return new KafkaConsumer<>(configuration);
     }
 
     private static void requireCommittedOffset(final Admin admin, final String groupId, final String topic,
