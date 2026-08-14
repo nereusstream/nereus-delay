@@ -2347,6 +2347,18 @@ Worker lifecycle seam; real Kafka/Pulsar consumers, Oxia placement/session
 authority, due/publish/checkpoint/recovery wiring and real Broker ACK/rewind
 remain open.
 
+Commit `5c53f866` adds source-set Worker composition for the real native
+consumers. `KafkaClientArtifactWorkerSourceFactory` verifies the exact accepted
+assignment and active Owner state, then seeks the assigned Kafka partition to
+the signed Route barrier's exclusive offset before constructing the common
+runtime. `PulsarClientArtifactWorkerSourceFactory` verifies the guarded
+consumer's current TopicResourceGuard, physical topic, partition, attestation
+digest and connection generation against the activation barrier before the
+runtime is exposed. Both close the native source on failed composition. The
+locked K1 and P1 `compileReal*` gates pass. This does not itself publish a
+source assignment, perform Owner Lease CAS, run catch-up, or establish the
+full source/apply/ACK/recovery production vertical.
+
 2026-08-15 implementation evidence: commit
 `3d0bf7ea081ae7b652e3a0ca4b66003bc4b23618` adds an isolated Docker Compose
 Oxia smoke harness. `./e2e/run-oxia-real-service.sh` built source

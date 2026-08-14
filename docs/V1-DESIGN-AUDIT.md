@@ -40,6 +40,19 @@ the full K2 receipt-read/response-loss gate, D3/source verticals, or a productio
 vertical. Those rows remain open release blockers even though the design status
 is Accepted.
 
+Commit `5c53f866` adds the source-set
+`KafkaClientArtifactWorkerSourceFactory` and
+`PulsarClientArtifactWorkerSourceFactory` composition boundaries. They reject
+an assignment that is not the Owner's exact accepted identity or an Owner that
+is not `ACTIVE_FOR_COMMANDS`; Kafka seeks to the projected exclusive barrier,
+while Pulsar requires the current guarded SUBSCRIBE proof to match the exact
+resource, topic, partition, generation and attestation digest in the barrier.
+Both factories close the native source if common Worker runtime construction
+fails. The locked K1 and P1 source sets compile successfully. This is a
+post-activation composition seam only: assignment publication, Owner Lease
+CAS, source catch-up, recovery, production RocksDB scheduling and broker
+ACK/rewind E2E remain open.
+
 Commit `412441c47cce4e61d3cc015b95c7d3cffcab2f7f` adds the real Kafka source
 handoff cut. Against the locked K1 client artifact, the smoke decodes exact
 NDL1/V1 source frames, preserves Kafka Topic UUID/offset/leader-epoch/

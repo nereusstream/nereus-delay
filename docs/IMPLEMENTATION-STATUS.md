@@ -32,6 +32,36 @@ are closed. The isolated Kafka and
 Pulsar upstream worktrees recorded below remain separately owned implementation
 evidence; their patches are not copied into this repository.
 
+## 2026-08-15 guarded source-to-Worker runtime composition slice
+
+Delay commit `5c53f866` adds the opt-in source-set factories
+`KafkaClientArtifactWorkerSourceFactory` and
+`PulsarClientArtifactWorkerSourceFactory`. Each factory requires the exact
+assignment already accepted by `OwnedDelayShard`, an
+`ACTIVE_FOR_COMMANDS` lifecycle state, and all common Store/resource/authority
+dependencies before constructing `WorkerShardRuntime`. The Kafka path seeks
+the assigned native partition to the Route barrier's exclusive offset. The
+Pulsar path binds the guarded consumer's current resource guard, physical
+topic, partition, attestation digest and connection generation to the
+activation barrier. A failed composition closes the native source.
+
+The source-set compile gates passed independently against the locked artifacts:
+
+```text
+GRADLE_USER_HOME=/tmp/nereus-delay-real-kafka-worker-gradle ./gradlew compileRealKafka \
+  -PkafkaClientJar=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar \
+  --no-daemon --console=plain
+GRADLE_USER_HOME=/tmp/nereus-delay-real-pulsar-worker-gradle ./gradlew compileRealPulsar \
+  -PpulsarClientClasspath=/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar:/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar:/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar \
+  --no-daemon --console=plain
+```
+
+This closes only native source-consumer composition after activation. It does
+not publish/accept assignments, perform the Oxia Owner Lease CAS, implement
+catch-up or recovery orchestration, or prove the full source-to-RocksDB-to-
+ACK Worker vertical against a broker. Those production Worker and
+multi-broker/session gates remain open.
+
 ## 2026-08-15 verified native eligibility and Route barrier projection
 
 Delay commit `8e404a30` adds the zero-I/O
