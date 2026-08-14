@@ -240,7 +240,8 @@ public final class PinnedKafkaCommandIngress implements PolicyBoundWireCommandIn
                         : WireIngressOutcomeSupport.brokerDefinite(command, physicalAttemptId, definitive,
                         NonPersistenceProofKindV1.KAFKA_DEFINITIVE_REJECTION,
                         BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(resource.authenticatedClusterId(),
-                                resource.nativeTopicUuid())), request.frame(), result.evidence());
+                                resource.nativeTopicUuid())), result.requestEvidenceBytes(),
+                        result.responseEvidenceBytes());
             }
             case UNKNOWN -> WireIngressOutcomeSupport.uncertain(command, physicalAttemptId,
                     code, code == StableCode.INTEGRITY_ERROR ? result.stableCode() : null);
@@ -257,7 +258,7 @@ public final class PinnedKafkaCommandIngress implements PolicyBoundWireCommandIn
             return WireIngressOutcomeSupport.uncertain(command, physicalAttemptId,
                     StableCode.RESOURCE_INCARNATION_MISMATCH, StableCode.RESOURCE_INCARNATION_MISMATCH.wireValue());
         }
-        if (result.evidence() == null) {
+        if (result.responseEvidenceBytes() == null) {
             return WireIngressOutcomeSupport.uncertain(command, physicalAttemptId,
                     StableCode.ENQUEUE_RESULT_UNCERTAIN, null);
         }
@@ -265,7 +266,8 @@ public final class PinnedKafkaCommandIngress implements PolicyBoundWireCommandIn
                 result.nativeTopicUuid(), result.offset(), result.leaderEpoch(), result.brokerLogAppendTimeEpochMs());
         final CommandQueuedReceiptV1.KafkaQueuedAck ack = new CommandQueuedReceiptV1.KafkaQueuedAck(
                 result.authenticatedClusterId(), result.nativeTopicUuid(), result.partition(), result.offset(),
-                result.leaderEpoch(), result.brokerLogAppendTimeEpochMs(), Bytes.sha256(result.evidence()));
+                result.leaderEpoch(), result.brokerLogAppendTimeEpochMs(),
+                Bytes.sha256(result.responseEvidenceBytes()));
         final long queryUntil = receiptQueryUntil(source, receiptQueryUntilEpochMs);
         final CommandQueuedReceiptV1 receipt = CommandQueuedReceiptV1.create(command, source, ack,
                 queryUntil, WireIngressOutcomeSupport.requireAttempt(physicalAttemptId));

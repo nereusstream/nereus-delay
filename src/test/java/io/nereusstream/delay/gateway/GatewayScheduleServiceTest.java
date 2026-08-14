@@ -1,0 +1,187 @@
+package io.nereusstream.delay.gateway;
+
+import io.nereusstream.delay.adapter.WireIngressOutcomeSupport;
+import io.nereusstream.delay.protocol.AdapterMetadataV1;
+import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.CommandCodec;
+import io.nereusstream.delay.protocol.DelayMessageId;
+import io.nereusstream.delay.protocol.DeliveryMode;
+import io.nereusstream.delay.protocol.MessagePreconditionV1;
+import io.nereusstream.delay.protocol.KafkaMetadataV1;
+import io.nereusstream.delay.protocol.OrderingMode;
+import io.nereusstream.delay.protocol.PayloadCommitProofV1;
+import io.nereusstream.delay.protocol.PayloadReservationReceiptV1;
+import io.nereusstream.delay.protocol.PreparedCommand;
+import io.nereusstream.delay.protocol.PreparedSubmissionV1;
+import io.nereusstream.delay.protocol.ProfileKindV1;
+import io.nereusstream.delay.protocol.ProfileRefV1;
+import io.nereusstream.delay.protocol.RetryPolicyRefV1;
+import io.nereusstream.delay.protocol.RouteIncarnation;
+import io.nereusstream.delay.protocol.ScheduleIntentV1;
+import io.nereusstream.delay.protocol.ShardId;
+import io.nereusstream.delay.protocol.StableCode;
+import io.nereusstream.delay.protocol.SubmissionModeV1;
+import io.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
+import io.nereusstream.delay.semantic.AuthenticatedTenantContext;
+import io.nereusstream.delay.semantic.DelaySemanticCore;
+import io.nereusstream.delay.semantic.LargeSchedulePreparationV1;
+import io.nereusstream.delay.semantic.RouteSelectionHint;
+import io.nereusstream.delay.semantic.TrustedClock;
+import io.nereusstream.delay.submission.SubmissionCoordinator;
+import io.nereusstream.delay.transport.TransportOwnershipPermit;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class GatewayScheduleServiceTest {
+    @Test
+    void sameKeyAndBodyReusesPreparedOutcomeWithoutAnotherCoordinatorCall() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
+        final PreparedCommand command = PreparedCommand.scheduleV1(shard, schedule(), 600);
+        final PreparedSubmissionV1 prepared = PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(command));
+        final FakeCore core = new FakeCore(prepared);
+        final CountingCoordinator coordinator = new CountingCoordinator(command);
+        final TrustedClock clock = () -> 100;
+        final GatewayScheduleService service = new GatewayScheduleService(core,
+                new InMemoryGatewayIdempotencyStore(clock, 10, 20), coordinator, clock);
+        final AuthenticatedTenantContext tenant = tenant();
+        final GatewayScheduleRequestV1 request = request(600);
+
+        final GatewaySubmissionOutcomeV1 first = service.schedule(tenant, request).toCompletableFuture().join();
+        final GatewaySubmissionOutcomeV1 second = service.schedule(tenant, request).toCompletableFuture().join();
+
+        assertTrue(first.hasSubmissionOutcome());
+        assertTrue(second.hasSubmissionOutcome());
+        assertArrayEquals(first.submissionOutcome().canonicalBytes(), second.submissionOutcome().canonicalBytes());
+        assertEquals(1, core.prepareCalls);
+        assertEquals(1, coordinator.calls);
+    }
+
+    @Test
+    void sameKeyWithDifferentCanonicalBodyIsPreparationConflictBeforeIo() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
+        final PreparedCommand command = PreparedCommand.scheduleV1(shard, schedule(), 600);
+        final FakeCore core = new FakeCore(PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(command)));
+        final CountingCoordinator coordinator = new CountingCoordinator(command);
+        final TrustedClock clock = () -> 100;
+        final GatewayScheduleService service = new GatewayScheduleService(core,
+                new InMemoryGatewayIdempotencyStore(clock, 10, 20), coordinator, clock);
+        final AuthenticatedTenantContext tenant = tenant();
+
+        service.schedule(tenant, request(600)).toCompletableFuture().join();
+        final GatewaySubmissionOutcomeV1 conflict = service.schedule(tenant, request(601))
+                .toCompletableFuture().join();
+
+        assertFalse(conflict.hasSubmissionOutcome());
+        assertEquals(StableCode.PREPARED_SUBMISSION_MISMATCH, conflict.preparationError().code());
+        assertEquals(1, coordinator.calls);
+    }
+
+    private static GatewayScheduleRequestV1 request(final long retryUntil) {
+        return new GatewayScheduleRequestV1(bytes(16, 40),
+                new RouteSelectionHint(io.nereusstream.delay.protocol.AdapterKindV1.KAFKA,
+                        Bytes.utf8("primary")), schedule(), retryUntil, SubmissionModeV1.MANAGED);
+    }
+
+    private static ScheduleIntentV1 schedule() {
+        return ScheduleIntentV1.create(new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 60),
+                        ProfileKindV1.DESTINATION), new RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 61)),
+                300, 800, DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, Bytes.utf8("key"),
+                Bytes.utf8("payload"), null, AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())),
+                null, null);
+    }
+
+    private static AuthenticatedTenantContext tenant() {
+        return new AuthenticatedTenantContext(bytes(32, 1), bytes(32, 2), bytes(32, 3));
+    }
+
+    private static byte[] bytes(final int length, final int seed) {
+        final byte[] value = new byte[length];
+        for (int index = 0; index < length; index++) {
+            value[index] = (byte) (seed + index);
+        }
+        return value;
+    }
+
+    private static final class FakeCore implements DelaySemanticCore {
+        private final PreparedSubmissionV1 prepared;
+        private int prepareCalls;
+
+        private FakeCore(final PreparedSubmissionV1 prepared) {
+            this.prepared = prepared;
+        }
+
+        @Override
+        public PreparedSubmissionV1 prepareSchedule(final AuthenticatedTenantContext tenant,
+                                                     final RouteSelectionHint route, final ScheduleIntentV1 intent,
+                                                     final long retryUntilEpochMs,
+                                                     final SubmissionModeV1 submissionMode) {
+            prepareCalls++;
+            return prepared;
+        }
+
+        @Override
+        public PreparedCommand prepareLargeSchedule(final AuthenticatedTenantContext tenant,
+                                                     final RouteSelectionHint route,
+                                                     final LargeSchedulePreparationV1 request,
+                                                     final long retryUntilEpochMs) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public PreparedCommand preparePayloadCommit(final AuthenticatedTenantContext tenant,
+                                                    final PayloadReservationReceiptV1 reservation,
+                                                    final PayloadCommitProofV1 proof,
+                                                    final long retryUntilEpochMs) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public PreparedCommand prepareCancel(final AuthenticatedTenantContext tenant,
+                                             final DelayMessageId messageId,
+                                             final MessagePreconditionV1 precondition,
+                                             final long retryUntilEpochMs) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public PreparedCommand prepareReschedule(final AuthenticatedTenantContext tenant,
+                                                 final DelayMessageId messageId,
+                                                 final MessagePreconditionV1 precondition,
+                                                 final long deliverAtEpochMs, final long expireAtEpochMs,
+                                                 final long retryUntilEpochMs) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public PreparedSubmissionV1 prepareManaged(final AuthenticatedTenantContext tenant,
+                                                   final PreparedCommand command) {
+            throw new UnsupportedOperationException();
+        }
+    }
+
+    private static final class CountingCoordinator implements SubmissionCoordinator {
+        private final PreparedCommand command;
+        private int calls;
+
+        private CountingCoordinator(final PreparedCommand command) {
+            this.command = command;
+        }
+
+        @Override
+        public CompletionStage<SubmissionOutcomeMessageV1> submit(final AuthenticatedTenantContext tenant,
+                                                                    final PreparedSubmissionV1 submission,
+                                                                    final TransportOwnershipPermit permit) {
+            calls++;
+            return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
+                    WireIngressOutcomeSupport.localDefinite(command, StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED)));
+        }
+    }
+}

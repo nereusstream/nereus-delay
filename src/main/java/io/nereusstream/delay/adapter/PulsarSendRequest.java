@@ -3,6 +3,7 @@ package io.nereusstream.delay.adapter;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CommandId;
 import io.nereusstream.delay.protocol.PreparedCommand;
+import io.nereusstream.delay.transport.TransportRequest;
 
 import java.util.Objects;
 import java.nio.charset.StandardCharsets;
@@ -16,7 +17,7 @@ public record PulsarSendRequest(
         long physicalTopicCreationTimestamp,
         int partition,
         CommandId commandId,
-        byte[] frame) {
+        byte[] frame) implements TransportRequest {
     public PulsarSendRequest {
         authenticatedClusterId = canonicalText(authenticatedClusterId, "authenticatedClusterId");
         Objects.requireNonNull(resourceIncarnation, "resourceIncarnation");

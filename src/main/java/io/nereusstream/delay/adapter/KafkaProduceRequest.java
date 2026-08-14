@@ -3,6 +3,7 @@ package io.nereusstream.delay.adapter;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CommandId;
 import io.nereusstream.delay.protocol.PreparedCommand;
+import io.nereusstream.delay.transport.TransportRequest;
 
 import java.util.Objects;
 import java.util.UUID;
@@ -15,7 +16,7 @@ public record KafkaProduceRequest(
         UUID nativeTopicUuid,
         int partition,
         CommandId commandId,
-        byte[] frame) {
+        byte[] frame) implements TransportRequest {
     public KafkaProduceRequest {
         authenticatedClusterId = canonicalText(authenticatedClusterId, "authenticatedClusterId");
         Objects.requireNonNull(nativeTopicUuid, "nativeTopicUuid");

@@ -17,11 +17,11 @@ import io.nereusstream.delay.protocol.StableErrorV1;
 import java.util.Objects;
 
 /** Internal common projection rules for request-level pinned ingress adapters. */
-final class WireIngressOutcomeSupport {
+public final class WireIngressOutcomeSupport {
     private WireIngressOutcomeSupport() {
     }
 
-    static EnqueueOutcomeMessageV1 localDefinite(final PreparedCommand command, final StableCode code) {
+    public static EnqueueOutcomeMessageV1 localDefinite(final PreparedCommand command, final StableCode code) {
         final CommandQueuedReceiptV1.PreparedCommandRef ref = CommandQueuedReceiptV1.PreparedCommandRef.from(command);
         final NonPersistenceProofV1 proof = NonPersistenceProofV1.create(
                 NonPersistenceProofKindV1.LOCAL_BEFORE_PRODUCER_OWNERSHIP, null, ref.frameSha256(), null, null, null);
@@ -29,14 +29,14 @@ final class WireIngressOutcomeSupport {
                 StableErrorV1.of(FailureStageV1.ENQUEUE, code, null, ref, null, null)));
     }
 
-    static EnqueueOutcomeMessageV1 uncertain(final PreparedCommand command, final byte[] physicalAttemptId,
+    public static EnqueueOutcomeMessageV1 uncertain(final PreparedCommand command, final byte[] physicalAttemptId,
                                              final StableCode code, final Integer diagnosticCode) {
         final CommandQueuedReceiptV1.PreparedCommandRef ref = CommandQueuedReceiptV1.PreparedCommandRef.from(command);
         return EnqueueOutcomeMessageV1.uncertain(new EnqueueUncertainV1(ref, requireAttempt(physicalAttemptId),
                 StableErrorV1.of(FailureStageV1.ENQUEUE, exactRetryCode(code), null, ref, null, diagnosticCode)));
     }
 
-    static EnqueueOutcomeMessageV1 brokerDefinite(final PreparedCommand command, final byte[] physicalAttemptId,
+    public static EnqueueOutcomeMessageV1 brokerDefinite(final PreparedCommand command, final byte[] physicalAttemptId,
                                                   final StableCode code, final NonPersistenceProofKindV1 proofKind,
                                                   final BrokerResourceIdentityV1 resource, final byte[] requestBytes,
                                                   final byte[] responseBytes) {
@@ -53,7 +53,7 @@ final class WireIngressOutcomeSupport {
                 StableErrorV1.of(FailureStageV1.ENQUEUE, code, null, ref, null, null)));
     }
 
-    static StableCode stableCode(final int wireValue, final StableCode fallback) {
+    public static StableCode stableCode(final int wireValue, final StableCode fallback) {
         try {
             return StableCode.fromWire(wireValue);
         } catch (IllegalArgumentException ignored) {
@@ -66,7 +66,7 @@ final class WireIngressOutcomeSupport {
      * A transport implementation may share result plumbing with AUTO_FAST,
      * but the public branch is still selected by the prepared submission type.
      */
-    static StableCode managedCode(final StableCode code) {
+    public static StableCode managedCode(final StableCode code) {
         return switch (Objects.requireNonNull(code, "code")) {
             case NATIVE_GUARD_DEFINITIVE_NOT_PERSISTED -> StableCode.BROKER_DEFINITIVE_NOT_PERSISTED;
             case NATIVE_ENQUEUE_RESULT_UNCERTAIN -> StableCode.ENQUEUE_RESULT_UNCERTAIN;
@@ -80,7 +80,7 @@ final class WireIngressOutcomeSupport {
      * A disposition without one of these codes is a malformed adapter result,
      * not evidence that the Broker did not persist the request.
      */
-    static StableCode definitiveManagedCode(final int wireValue) {
+    public static StableCode definitiveManagedCode(final int wireValue) {
         try {
             return switch (StableCode.fromWire(wireValue)) {
                 case BROKER_DEFINITIVE_NOT_PERSISTED, NATIVE_GUARD_DEFINITIVE_NOT_PERSISTED
@@ -92,7 +92,7 @@ final class WireIngressOutcomeSupport {
         }
     }
 
-    static byte[] requireAttempt(final byte[] physicalAttemptId) {
+    public static byte[] requireAttempt(final byte[] physicalAttemptId) {
         Bytes.requireLength(physicalAttemptId, NonPersistenceProofV1.ATTEMPT_ID_LENGTH,
                 "physicalEnqueueAttemptId");
         for (byte value : physicalAttemptId) {

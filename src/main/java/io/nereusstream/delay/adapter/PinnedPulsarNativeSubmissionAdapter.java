@@ -194,14 +194,14 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
             return uncertain(prepared, attempt, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN,
                     StableCode.RESOURCE_INCARNATION_MISMATCH.wireValue());
         }
-        if (result.evidence() == null) {
+        if (result.responseEvidenceBytes() == null) {
             return uncertain(prepared, attempt, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN, null);
         }
         final CommandQueuedReceiptV1.PulsarQueuedAck ack = new CommandQueuedReceiptV1.PulsarQueuedAck(
                 result.authenticatedClusterId(), result.resourceIncarnation(), result.physicalTopic(),
                 result.physicalTopicCreationTimestamp(), result.partition(), result.ledgerId(), result.entryId(),
                 result.batchIndex(), result.batchSize(), result.brokerEntryTimestampEpochMs(),
-                Bytes.sha256(result.evidence()));
+                Bytes.sha256(result.responseEvidenceBytes()));
         final NativeDeliveryReceiptV1 receipt = NativeDeliveryReceiptV1.create(prepared.preparedRef(), ack, attempt);
         return SubmissionOutcomeMessageV1.nativeReceipt(receipt);
     }
@@ -212,13 +212,13 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
         if (!isNativeDefinitiveCode(result.stableCode())) {
             return uncertain(prepared, attempt, StableCode.INTEGRITY_ERROR, result.stableCode());
         }
-        if (result.evidence() == null) {
+        if (result.requestEvidenceBytes() == null || result.responseEvidenceBytes() == null) {
             return uncertain(prepared, attempt, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN, null);
         }
         final NonPersistenceProofV1 proof = NonPersistenceProofV1.create(
                 NonPersistenceProofKindV1.PULSAR_GUARD_REJECTION, attempt, prepared.submissionHash(),
                 BrokerResourceIdentityV1.pulsar(pulsarIdentity(prepared)),
-                Bytes.sha256(request.preparedBytes()), Bytes.sha256(result.evidence()));
+                Bytes.sha256(result.requestEvidenceBytes()), Bytes.sha256(result.responseEvidenceBytes()));
         final NativePreparedRefV1 ref = prepared.preparedRef();
         final StableErrorV1 error = StableErrorV1.of(FailureStageV1.ENQUEUE,
                 StableCode.NATIVE_GUARD_DEFINITIVE_NOT_PERSISTED, null, null, ref, null);

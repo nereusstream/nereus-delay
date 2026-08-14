@@ -241,7 +241,8 @@ public final class PinnedPulsarCommandIngress implements PolicyBoundWireCommandI
                         NonPersistenceProofKindV1.PULSAR_GUARD_REJECTION,
                         BrokerResourceIdentityV1.pulsar(new PulsarBrokerResourceIdentityV1(
                                 resource.authenticatedClusterId(), resource.resourceIncarnation(), resource.physicalTopic(),
-                                resource.physicalTopicCreationTimestamp())), request.frame(), result.evidence());
+                                resource.physicalTopicCreationTimestamp())), result.requestEvidenceBytes(),
+                        result.responseEvidenceBytes());
             }
             case UNKNOWN -> WireIngressOutcomeSupport.uncertain(command, physicalAttemptId,
                     code, code == StableCode.INTEGRITY_ERROR ? result.stableCode() : null);
@@ -260,7 +261,7 @@ public final class PinnedPulsarCommandIngress implements PolicyBoundWireCommandI
             return WireIngressOutcomeSupport.uncertain(command, physicalAttemptId,
                     StableCode.RESOURCE_INCARNATION_MISMATCH, StableCode.RESOURCE_INCARNATION_MISMATCH.wireValue());
         }
-        if (result.evidence() == null) {
+        if (result.responseEvidenceBytes() == null) {
             return WireIngressOutcomeSupport.uncertain(command, physicalAttemptId,
                     StableCode.ENQUEUE_RESULT_UNCERTAIN, null);
         }
@@ -273,7 +274,7 @@ public final class PinnedPulsarCommandIngress implements PolicyBoundWireCommandI
                 result.authenticatedClusterId(), result.resourceIncarnation(), result.physicalTopic(),
                 result.physicalTopicCreationTimestamp(), result.partition(), result.ledgerId(), result.entryId(),
                 result.batchIndex(), result.batchSize(), result.brokerEntryTimestampEpochMs(),
-                Bytes.sha256(result.evidence()));
+                Bytes.sha256(result.responseEvidenceBytes()));
         final long queryUntil = receiptQueryUntil(source, receiptQueryUntilEpochMs);
         final CommandQueuedReceiptV1 receipt = CommandQueuedReceiptV1.create(command, source, ack,
                 queryUntil, WireIngressOutcomeSupport.requireAttempt(physicalAttemptId));
