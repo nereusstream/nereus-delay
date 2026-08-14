@@ -247,11 +247,13 @@ The source-locked client jar used by Delay has SHA-256
 against Compose project `nereus-delay-kafka-e2e-1786739311-64581` on
 `19173,19174,19175`, using broker image
 `sha256:3116a80efc9d4a9399ca225c1de4288abde253659fd6fad2292af7727a2e9505`.
-The K2 smoke proved atomic target-plus-receipt commit, abort, stale target
-TopicId rejection after same-name delete/recreate, and replacement commit;
+The K2 smoke proved atomic target-plus-receipt commit, abort, exact target
+payload and canonical receipt key/value reads, stale target TopicId rejection
+after same-name delete/recreate, and replacement commit. Commit
+`7b64de0f9648815df55893d3dad3673093deabb7` adds the exact-record assertion;
 its Docker cleanup found no matching resources. This is partial K2 evidence:
-EndTxn response-loss, exact receipt-value/Fetch v13/LSO/contiguous replay,
-retention-floor recovery and independent target/receipt failover remain open,
+EndTxn response-loss, Fetch v13/LSO/contiguous replay, retention-floor recovery
+and independent target/receipt failover remain open,
 so the atomic-target-receipt profile is not activated. D2 source/ACK, D3,
 Worker production wiring and release gates remain OPEN.
 

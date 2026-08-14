@@ -2522,10 +2522,11 @@ The source-built client jar SHA-256 was
 `4b6362d10146568c7ef78629ad678e50f164a750fdbb362ba0899dc49b815656`, and
 the temporary broker image was
 `sha256:3116a80efc9d4a9399ca225c1de4288abde253659fd6fad2292af7727a2e9505`.
-The smoke proves target-plus-receipt atomic commit, abort, same-name target
-delete/recreate rejection and replacement commit with `read_committed` count
-checks. It does not yet prove EndTxn response-loss classification, exact
-receipt-value/Fetch v13/LSO/contiguous replay, retention-floor recovery or
+The smoke proves target-plus-receipt atomic commit, abort, exact target
+payload and canonical receipt key/value reads, same-name target
+delete/recreate rejection and replacement commit with `read_committed` checks.
+It does not yet prove EndTxn response-loss classification, Fetch v13/LSO/
+contiguous replay, retention-floor recovery or
 independent target/receipt failover; the atomic-target-receipt profile remains
 inactive.
 

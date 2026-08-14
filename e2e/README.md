@@ -30,8 +30,9 @@ canonical topic UUID fence across delete/recreate, then stops broker 1 and
 reuses the surviving topic through brokers 2 and 3. The K2 smoke creates
 separate target and receipt topics, sends both through one transaction-v2
 guarded producer transaction, checks commit and abort with `read_committed`
-consumers, rejects a stale target TopicId after same-name delete/recreate,
-and commits against the replacement target. It records source SHA, client-jar
+consumers, verifies the exact target payload and canonical receipt key/value,
+rejects a stale target TopicId after same-name delete/recreate, and commits
+against the replacement target. It records source SHA, client-jar
 SHA256, broker image ID and allocated ports, and cleans only its own Compose
 project, volumes, temporary image and staging directory. The Kafka checkout
 must be clean; ignored build outputs are read only.
@@ -49,8 +50,8 @@ image `sha256:3116a80efc9d4a9399ca225c1de4288abde253659fd6fad2292af7727a2e9505`,
 and client SHA-256
 `4b6362d10146568c7ef78629ad678e50f164a750fdbb362ba0899dc49b815656`.
 This is current K1/K2 opt-in evidence; it does not claim EndTxn response-loss,
-exact receipt-value/Fetch v13/LSO/retention recovery, guarded source ACK or
-the full Worker vertical.
+Fetch v13/LSO/retention recovery, guarded source ACK or the full Worker
+vertical.
 
 ## Pulsar P1 real-client service E2E
 
