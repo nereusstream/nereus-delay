@@ -26,7 +26,8 @@ This is design closure, not release approval. The Delay repository now has
 local implementation evidence for the Semantic Core/value seam, explicit
 Direct SDK composition, the shared submission coordinator, an in-memory
 Gateway Schedule/idempotency conformance path, generated Java/gRPC Gateway API
-descriptors, Schedule/RetryUncertain/Cancel/Reschedule handlers behind a digest-audited ingress,
+descriptors, Schedule/RetryUncertain/PrepareLargeSchedule/CommitLargeSchedule/
+Cancel/Reschedule handlers behind a digest-audited ingress,
 and a transport-neutral Worker source-consumer handoff that retains one exact
 record until ACK-after-sync. It still has no activation-barrier/session-fenced real Oxia service
 gate, complete Gateway RPC handler/authentication deployment, real-Broker
@@ -43,8 +44,9 @@ The 2026-08-14 Delay worktree milestones `532f8ad5`,
 `1dc28eaf391429f2dc9221f416af968d36575dff`,
 `5cc955e1306e1f54db06a06a2bb2b84f232c2a7b`,
 `1bee5b45e4df697770f7bca99a572167bb869526`,
-`bcf2f0a883cd3090ae96250453dabaa71f3945c5` and
-`9695eba7ca384d99cd28ece238f6cbfe1bcd08be` verify the canonical
+`bcf2f0a883cd3090ae96250453dabaa71f3945c5`,
+`9695eba7ca384d99cd28ece238f6cbfe1bcd08be` and
+`724fdad95971dd096e116056f8e5da1a7ba76d14` verify the canonical
 signed Route
 value, exact Kafka/Pulsar resource projections, UUIDv7/independent command
 identities, zero-I/O preparation, exact historical-route plan resolution,
@@ -129,6 +131,16 @@ one-shot physical-attempt/NDR1 projection used by Schedule. The full local
 no endpoint was configured. This remains generated-service evidence only;
 remaining RPCs, deployable authentication, distributed quota/audit, HA
 durability, real Broker transports and production Worker wiring remain OPEN.
+
+Commit `724fdad95971dd096e116056f8e5da1a7ba76d14` extends the same local
+Gateway evidence to PrepareLargeSchedule and CommitLargeSchedule. It covers
+canonical route/profile/trust-set references, reservation receipt and signed
+payload proof decoding, Semantic Core large-payload preparation, idempotency
+CAS and one-shot attempt/NDR1 projection. The full local `check` passed at the
+commit; five real-Oxia smoke methods were skipped because no endpoint was
+configured. Upload/attestation, query/await/message RPCs, deployable auth,
+distributed quota/audit, HA durability and real transport/Worker evidence
+remain OPEN.
 
 The Oxia transaction gate was rechecked against the locked Oxia source and the
 resolved `oxia-client:0.9.0` API.  Public client methods are single-record
@@ -4342,7 +4354,7 @@ the guarded Broker rollout attestation remains external evidence.
 
 | 依赖 | 审计锁 |
 |---|---|
-| Delay local implementation slice | `nereus/delay-full-implementation-v1@9695eba7ca384d99cd28ece238f6cbfe1bcd08be` (Gateway Cancel/Reschedule control slice on top of Direct SDK outbox fail-closed plus Worker source-consumer/ACK-after-sync composition; transport result/attempt binding `5cc955e1306e1f54db06a06a2bb2b84f232c2a7b`; Gateway ingress base `1dc28eaf391429f2dc9221f416af968d36575dff`, Gateway API generation base `a06ab232a5608ec0e7c9152ef80fc72c06966e66`; Gateway CAS base `e276bec3ffff7f5015367bed55f5b8d63c080e21`, Route authority base `62a9438967112f96e65b8daa7b2b86d52a103b10`, Gateway retry base `c42405ce6c69aef8ae0f8a9a63158c917410309f`, route-cache base `67ef3de3ab6f69ae992c3ccb70c7cb65cad47613`, composition base `402b27fa0dced95c2312bfedc0678af03463f2d5`, repository base `origin/main@2dfc3289ffdbe9cf9d7f4d0de1d701493d1b49a6`) |
+| Delay local implementation slice | `nereus/delay-full-implementation-v1@724fdad95971dd096e116056f8e5da1a7ba76d14` (Gateway PrepareLargeSchedule/CommitLargeSchedule plus Cancel/Reschedule control slices on top of Direct SDK outbox fail-closed plus Worker source-consumer/ACK-after-sync composition; transport result/attempt binding `5cc955e1306e1f54db06a06a2bb2b84f232c2a7b`; Gateway ingress base `1dc28eaf391429f2dc9221f416af968d36575dff`, Gateway API generation base `a06ab232a5608ec0e7c9152ef80fc72c06966e66`; Gateway CAS base `e276bec3ffff7f5015367bed55f5b8d63c080e21`, Route authority base `62a9438967112f96e65b8daa7b2b86d52a103b10`, Gateway retry base `c42405ce6c69aef8ae0f8a9a63158c917410309f`, route-cache base `67ef3de3ab6f69ae992c3ccb70c7cb65cad47613`, composition base `402b27fa0dced95c2312bfedc0678af03463f2d5`, repository base `origin/main@2dfc3289ffdbe9cf9d7f4d0de1d701493d1b49a6`) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |

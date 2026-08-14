@@ -681,8 +681,9 @@ deadline 不取消 Producer attempt，也不能把 gRPC deadline 宣称为 defin
 idempotency key 重读 eventual record。
 
 2026-08-14 implementation evidence: commit
-`9695eba7ca384d99cd28ece238f6cbfe1bcd08be` adds generated gRPC handling for
-`Cancel` and `Reschedule`. The handlers decode the exact self-routing
+`9695eba7ca384d99cd28ece238f6cbfe1bcd08be` and
+`724fdad95971dd096e116056f8e5da1a7ba76d14` add generated gRPC handling for
+`PrepareLargeSchedule`, `CommitLargeSchedule`, `Cancel` and `Reschedule`. The handlers decode the exact self-routing
 `DelayMessageId` and canonical `MessagePreconditionV1`, while the shared
 Gateway ingress performs tenant authentication, control admission and
 digest-only audit. The domain path prepares the control Command before the
@@ -2292,14 +2293,15 @@ identity 不同才额外分裂。
 `a06ab232a5608ec0e7c9152ef80fc72c06966e66`,
 `1dc28eaf391429f2dc9221f416af968d36575dff`,
 `5cc955e1306e1f54db06a06a2bb2b84f232c2a7b` and
-`9695eba7ca384d99cd28ece238f6cbfe1bcd08be` supply the local canonical
+`9695eba7ca384d99cd28ece238f6cbfe1bcd08be` and
+`724fdad95971dd096e116056f8e5da1a7ba76d14` supply the local canonical
 Route/resource value types, UUIDv7 identity seam, `ROUTING_HASH_V1`
 calculator, zero-I/O `DefaultDelaySemanticCore`, fail-closed signed-cache
 watch, exact historical-route plan
 resolver, shared `DefaultSubmissionCoordinator`, explicit `DefaultDelayClient`,
 guarded transport bridges, the in-memory Gateway Schedule/idempotency
 composition, the Oxia event/head-CAS Route publisher/provider, generated
-Java/gRPC Gateway API descriptors, Schedule/RetryUncertain/Cancel/Reschedule handlers behind
+Java/gRPC Gateway API descriptors, Schedule/RetryUncertain/PrepareLargeSchedule/CommitLargeSchedule/Cancel/Reschedule handlers behind
 the shared authenticated ingress, and transport result/attempt binding.
 Focused deterministic tests and a full local `check` pass at
 `5cc955e1306e1f54db06a06a2bb2b84f232c2a7b`; Route
@@ -2420,11 +2422,12 @@ version-CAS、source `delay_gateway.proto` 以及由 Gradle 生成的 Java/gRPC
 stubs/service descriptor。`GatewayGrpcApiTest` 固定 eleven-RPC descriptor
 surface。`GatewayIngressService` 要求 tenant authority、独立 schedule/retry/control
 admission pool 和 digest-only audit；`GatewayGrpcService` 当前实现
-Schedule/RetryUncertain/Cancel/Reschedule，其余 RPC 继续由生成基类返回
+Schedule/RetryUncertain/PrepareLargeSchedule/CommitLargeSchedule/Cancel/Reschedule，其余 RPC 继续由生成基类返回
 `UNIMPLEMENTED`。Commit
 `9695eba7ca384d99cd28ece238f6cbfe1bcd08be` also covers canonical control
 body decoding and the shared idempotency/attempt path for Cancel and
-Reschedule。
+Reschedule。Commit `724fdad95971dd096e116056f8e5da1a7ba76d14` adds the
+same path for canonical large-payload reservation/proof preparation.
 Guarded Kafka/Pulsar result 还必须携带与 one-shot permit 相同的
 `PhysicalEnqueueAttemptId`；缺失或错配在 coordinator/projector 边界
 fail-closed 为 `INTEGRITY_ERROR`。

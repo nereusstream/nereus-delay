@@ -14,7 +14,8 @@ The repository is still a single Gradle module. It now contains a local
 composition, Direct SDK facade, transport ownership/coordinator seam, an
 in-memory Gateway Schedule conformance composition, generated Java/gRPC
 Gateway API descriptors, partial generated service handling for Schedule,
-RetryUncertain, Cancel and Reschedule from the checked-in proto, and a transport-neutral Worker
+RetryUncertain, PrepareLargeSchedule, CommitLargeSchedule, Cancel and
+Reschedule from the checked-in proto, and a transport-neutral Worker
 source-consumer/ACK-after-sync composition. These are local
 implementation evidence, not claims of activation-barrier/session-fenced real
 Oxia authority, a complete Gateway service/authentication deployment, real Broker transport, or
@@ -94,7 +95,8 @@ that the generated message package/name matches the proto contract.
 tenant authority is required before domain preparation, schedule/retry/control
 admission pools are isolated, and digest-only audit events are emitted before
 and after the domain call. `GatewayGrpcService` implements Schedule,
-RetryUncertain, Cancel and Reschedule; all other generated RPCs remain
+RetryUncertain, PrepareLargeSchedule, CommitLargeSchedule, Cancel and
+Reschedule; all other generated RPCs remain
 `UNIMPLEMENTED`. The local
 admission/audit implementations are deterministic conformance components, not
 distributed quota or production audit authority.
@@ -212,6 +214,26 @@ evidence only: PrepareLarge/CommitLarge/upload/attestation/query/AwaitApplied/
 GetMessage handlers, mTLS/JWT authentication, distributed quota and durable
 audit, Gateway HA durability, real Kafka/Pulsar transports, and production
 Worker wiring remain open.
+
+## 2026-08-14 Gateway large-payload control slice
+
+Delay worktree commit `724fdad95971dd096e116056f8e5da1a7ba76d14` extends the
+Gateway submission path with PrepareLargeSchedule and CommitLargeSchedule.
+The canonical request records preserve the proto field numbers and embedded
+Registry bytes for the route, payload-proof trust-set/profile references,
+reservation receipt and commit proof. The Semantic Core prepares the exact
+large-payload Command before the same idempotency-record CAS, one-shot
+`PhysicalEnqueueAttemptId`, retry-until check and NDR1 outcome projection used
+by the other submission operations.
+
+`GatewayScheduleServiceTest` covers prepared-byte reuse for Prepare and
+Commit, including a canonical reservation receipt and signed proof;
+`GatewayGrpcServiceTest` covers generated Prepare decoding and control
+ingress. The independent full local gate passed at this commit. The five
+opt-in real-Oxia smoke methods were skipped because no endpoint was
+configured. Upload-handle issuance/attestation, query/AwaitApplied/GetMessage,
+deployable authentication, distributed quota/audit, Gateway HA durability,
+real Kafka/Pulsar transports and production Worker wiring remain open.
 
 ## 2026-08-14 K1 isolated Kafka guarded-client slice
 
