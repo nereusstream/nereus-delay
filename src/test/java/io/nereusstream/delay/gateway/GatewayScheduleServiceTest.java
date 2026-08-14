@@ -121,6 +121,31 @@ class GatewayScheduleServiceTest {
         assertEquals(2, store.exact(keyHash).attempts().size());
     }
 
+    @Test
+    void cancelAndRescheduleUseTheSamePreparedBytesAndAttemptProtocol() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
+        final PreparedCommand command = PreparedCommand.scheduleV1(shard, schedule(), 600);
+        final ControlCore core = new ControlCore(command);
+        final CountingCoordinator coordinator = new CountingCoordinator(command);
+        final TrustedClock clock = () -> 100;
+        final GatewayScheduleService service = new GatewayScheduleService(core,
+                new InMemoryGatewayIdempotencyStore(clock, 10, 20), coordinator, clock);
+        final AuthenticatedTenantContext tenant = tenant();
+        final DelayMessageId messageId = DelayMessageId.random(shard);
+        final MessagePreconditionV1 precondition = new MessagePreconditionV1(1L, 2L);
+
+        final GatewayCancelRequestV1 cancel = new GatewayCancelRequestV1(bytes(16, 71), messageId, precondition, 600);
+        final GatewayRescheduleRequestV1 reschedule = new GatewayRescheduleRequestV1(bytes(16, 72), messageId,
+                precondition, 350, 850, 600);
+
+        assertTrue(service.cancel(tenant, cancel).toCompletableFuture().join().hasSubmissionOutcome());
+        assertTrue(service.cancel(tenant, cancel).toCompletableFuture().join().hasSubmissionOutcome());
+        assertTrue(service.reschedule(tenant, reschedule).toCompletableFuture().join().hasSubmissionOutcome());
+        assertEquals(1, core.cancelCalls);
+        assertEquals(1, core.rescheduleCalls);
+        assertEquals(2, coordinator.calls);
+    }
+
     private static GatewayScheduleRequestV1 request(final long retryUntil) {
         return new GatewayScheduleRequestV1(bytes(16, 40),
                 new RouteSelectionHint(io.nereusstream.delay.protocol.AdapterKindV1.KAFKA,
@@ -230,6 +255,64 @@ class GatewayScheduleServiceTest {
             }
             return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
                     WireIngressOutcomeSupport.localDefinite(command, StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED)));
+        }
+    }
+
+    private static final class ControlCore implements DelaySemanticCore {
+        private final PreparedCommand command;
+        private int cancelCalls;
+        private int rescheduleCalls;
+
+        private ControlCore(final PreparedCommand command) {
+            this.command = command;
+        }
+
+        @Override
+        public PreparedSubmissionV1 prepareSchedule(final AuthenticatedTenantContext tenant,
+                                                     final RouteSelectionHint route, final ScheduleIntentV1 intent,
+                                                     final long retryUntilEpochMs,
+                                                     final SubmissionModeV1 submissionMode) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public PreparedCommand prepareLargeSchedule(final AuthenticatedTenantContext tenant,
+                                                     final RouteSelectionHint route,
+                                                     final LargeSchedulePreparationV1 request,
+                                                     final long retryUntilEpochMs) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public PreparedCommand preparePayloadCommit(final AuthenticatedTenantContext tenant,
+                                                    final PayloadReservationReceiptV1 reservation,
+                                                    final PayloadCommitProofV1 proof,
+                                                    final long retryUntilEpochMs) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public PreparedCommand prepareCancel(final AuthenticatedTenantContext tenant, final DelayMessageId messageId,
+                                             final MessagePreconditionV1 precondition,
+                                             final long retryUntilEpochMs) {
+            cancelCalls++;
+            return command;
+        }
+
+        @Override
+        public PreparedCommand prepareReschedule(final AuthenticatedTenantContext tenant,
+                                                 final DelayMessageId messageId,
+                                                 final MessagePreconditionV1 precondition,
+                                                 final long deliverAtEpochMs, final long expireAtEpochMs,
+                                                 final long retryUntilEpochMs) {
+            rescheduleCalls++;
+            return command;
+        }
+
+        @Override
+        public PreparedSubmissionV1 prepareManaged(final AuthenticatedTenantContext tenant,
+                                                   final PreparedCommand command) {
+            return PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(command));
         }
     }
 }

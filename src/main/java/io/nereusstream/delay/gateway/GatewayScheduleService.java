@@ -81,16 +81,38 @@ public final class GatewayScheduleService {
         if (prepared.state() == GatewayIdempotencyStore.PrepareState.CONFLICT) {
             return completed(preparationError(StableCode.PREPARED_SUBMISSION_MISMATCH));
         }
-        return continueAttempt(tenant, keyHash, submission, request);
+        return continueAttempt(tenant, keyHash, submission, request.retryUntilEpochMs());
+    }
+
+    /** Cancel path using the same durable prepared-bytes/attempt protocol as Schedule. */
+    public CompletionStage<GatewaySubmissionOutcomeV1> cancel(final AuthenticatedTenantContext tenant,
+                                                               final GatewayCancelRequestV1 request) {
+        Objects.requireNonNull(tenant, "tenant");
+        Objects.requireNonNull(request, "request");
+        return prepareCommand(tenant, request.idempotencyKey(), GatewayOperationKindV1.CANCEL,
+                request.canonicalBodyBytes(), request.retryUntilEpochMs(),
+                () -> semanticCore.prepareCancel(tenant, request.delayMessageId(), request.messagePrecondition(),
+                        request.retryUntilEpochMs()));
+    }
+
+    /** Reschedule path using the same durable prepared-bytes/attempt protocol as Schedule. */
+    public CompletionStage<GatewaySubmissionOutcomeV1> reschedule(final AuthenticatedTenantContext tenant,
+                                                                   final GatewayRescheduleRequestV1 request) {
+        Objects.requireNonNull(tenant, "tenant");
+        Objects.requireNonNull(request, "request");
+        return prepareCommand(tenant, request.idempotencyKey(), GatewayOperationKindV1.RESCHEDULE,
+                request.canonicalBodyBytes(), request.retryUntilEpochMs(),
+                () -> semanticCore.prepareReschedule(tenant, request.delayMessageId(), request.messagePrecondition(),
+                        request.deliverAtEpochMs(), request.expireAtEpochMs(), request.retryUntilEpochMs()));
     }
 
     private CompletionStage<GatewaySubmissionOutcomeV1> continueAttempt(
             final AuthenticatedTenantContext tenant,
             final io.nereusstream.delay.transport.Digest32 keyHash,
             final PreparedSubmissionV1 submission,
-            final GatewayScheduleRequestV1 request) {
+            final long retryUntilEpochMs) {
         try {
-            if (trustedClock.nowEpochMs() >= request.retryUntilEpochMs()) {
+            if (trustedClock.nowEpochMs() >= retryUntilEpochMs) {
                 return completed(GatewaySubmissionOutcomeV1.submission(GatewayOutcomeSupport.localDefinite(submission,
                         StableCode.PREPARED_COMMAND_EXPIRED)));
             }
@@ -99,6 +121,44 @@ public final class GatewayScheduleService {
                     StableCode.ROUTE_SNAPSHOT_UNAVAILABLE)));
         }
         return continueStartedAttempt(tenant, keyHash, submission, idempotency.startAttempt(keyHash));
+    }
+
+    private CompletionStage<GatewaySubmissionOutcomeV1> prepareCommand(
+            final AuthenticatedTenantContext tenant, final byte[] idempotencyKey,
+            final GatewayOperationKindV1 operation, final byte[] canonicalBody, final long retryUntilEpochMs,
+            final CommandPreparation preparation) {
+        final io.nereusstream.delay.transport.Digest32 keyHash;
+        final io.nereusstream.delay.transport.Digest32 bodyHash;
+        try {
+            keyHash = GatewayIdempotencyHashV1.keyHash(tenant.authenticatedTenantScopeHash(), idempotencyKey);
+            bodyHash = GatewayIdempotencyHashV1.bodyHash(operation, canonicalBody);
+        } catch (RuntimeException invalidRequest) {
+            return completed(preparationError(StableCode.INVALID_METADATA));
+        }
+        final GatewayIdempotencyStore.PrepareResult prepared;
+        final PreparedSubmissionV1 submission;
+        try {
+            final GatewayIdempotencyRecordV1 existing = idempotency.exact(keyHash);
+            if (existing != null && !existing.requestBodyHash().equals(bodyHash)) {
+                return completed(preparationError(StableCode.PREPARED_SUBMISSION_MISMATCH));
+            }
+            if (existing != null) {
+                submission = PreparedSubmissionV1.decode(existing.preparedSubmissionBytes());
+                prepared = new GatewayIdempotencyStore.PrepareResult(
+                        GatewayIdempotencyStore.PrepareState.EXISTING_MATCH, existing);
+            } else {
+                submission = semanticCore.prepareManaged(tenant, preparation.prepare());
+                prepared = idempotency.prepareIfAbsent(keyHash, operation, bodyHash, submission, retryUntilEpochMs);
+            }
+        } catch (SemanticPreparationException failure) {
+            return completed(GatewaySubmissionOutcomeV1.preparationError(failure.error()));
+        } catch (RuntimeException failure) {
+            return completed(preparationError(StableCode.INVALID_PREPARED_COMMAND));
+        }
+        if (prepared.state() == GatewayIdempotencyStore.PrepareState.CONFLICT) {
+            return completed(preparationError(StableCode.PREPARED_SUBMISSION_MISMATCH));
+        }
+        return continueAttempt(tenant, keyHash, submission, retryUntilEpochMs);
     }
 
     /** Retries only the stored exact prepared bytes after an uncertain aggregate. */
@@ -215,5 +275,10 @@ public final class GatewayScheduleService {
 
     private static <T> CompletionStage<T> completed(final T value) {
         return CompletableFuture.completedFuture(value);
+    }
+
+    @FunctionalInterface
+    private interface CommandPreparation {
+        io.nereusstream.delay.protocol.PreparedCommand prepare();
     }
 }

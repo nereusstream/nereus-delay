@@ -80,6 +80,38 @@ class GatewayGrpcServiceTest {
                         .managed().definitelyNotQueued().error().code().wireValue());
     }
 
+    @Test
+    void cancelDecodesPreconditionAndUsesTheControlIngressPath() {
+        final TrustedClock clock = () -> 100;
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
+        final PreparedCommand command = PreparedCommand.scheduleV1(shard, scheduleIntent(), 600);
+        final AuthenticatedTenantContext tenant = tenant();
+        final GatewayScheduleService domain = new GatewayScheduleService(
+                new Core(PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(command))),
+                new InMemoryGatewayIdempotencyStore(clock, 10, 20), new Coordinator(command), clock);
+        final GatewayIngressService ingress = new GatewayIngressService(domain, peer -> tenant,
+                new InMemoryGatewayAdmissionController(1, 4096, 1, 1),
+                new InMemoryGatewayAuditSink(4), clock);
+        final GatewayGrpcService service = new GatewayGrpcService(ingress,
+                () -> new GatewayPeerContext(new Metadata(), Attributes.EMPTY));
+        final CapturingObserver observer = new CapturingObserver();
+        final DelayMessageId messageId = DelayMessageId.random(shard);
+
+        service.cancel(io.nereusstream.delay.gateway.v1.GatewayCancelRequestV1.newBuilder()
+                .setIdempotencyKey(ByteString.copyFrom(bytes(16, 41)))
+                .setDelayMessageId(ByteString.copyFrom(messageId.bytes()))
+                .setMessagePreconditionV1(ByteString.copyFrom(new MessagePreconditionV1(1L, 2L).canonicalBytes()))
+                .setRetryUntilEpochMs(600)
+                .build(), observer);
+
+        assertNull(observer.failure);
+        assertTrue(observer.completed);
+        assertEquals(1, observer.outcomes.size());
+        assertEquals(StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED.wireValue(),
+                SubmissionOutcomeMessageV1.decode(observer.outcomes.get(0).getSubmissionOutcomeNdr1().toByteArray())
+                        .managed().definitelyNotQueued().error().code().wireValue());
+    }
+
     private static ScheduleIntentV1 scheduleIntent() {
         return ScheduleIntentV1.create(new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 60),
                         ProfileKindV1.DESTINATION), new RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 61)),
@@ -158,7 +190,7 @@ class GatewayGrpcServiceTest {
         public PreparedCommand prepareCancel(final AuthenticatedTenantContext tenant, final DelayMessageId messageId,
                                              final MessagePreconditionV1 precondition,
                                              final long retryUntilEpochMs) {
-            throw new UnsupportedOperationException();
+            return CommandCodec.decodeFrameV1(prepared.managedFrame());
         }
 
         @Override
@@ -167,13 +199,13 @@ class GatewayGrpcServiceTest {
                                                  final MessagePreconditionV1 precondition,
                                                  final long deliverAtEpochMs, final long expireAtEpochMs,
                                                  final long retryUntilEpochMs) {
-            throw new UnsupportedOperationException();
+            return CommandCodec.decodeFrameV1(prepared.managedFrame());
         }
 
         @Override
         public PreparedSubmissionV1 prepareManaged(final AuthenticatedTenantContext tenant,
                                                    final PreparedCommand command) {
-            throw new UnsupportedOperationException();
+            return prepared;
         }
     }
 

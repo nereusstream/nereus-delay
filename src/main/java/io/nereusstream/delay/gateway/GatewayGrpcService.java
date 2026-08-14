@@ -4,9 +4,13 @@ import com.google.protobuf.ByteString;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import io.nereusstream.delay.gateway.v1.DelayGatewayV1Grpc;
+import io.nereusstream.delay.gateway.v1.GatewayCancelRequestV1;
+import io.nereusstream.delay.gateway.v1.GatewayRescheduleRequestV1;
 import io.nereusstream.delay.gateway.v1.GatewayRetryUncertainRequestV1;
 import io.nereusstream.delay.gateway.v1.GatewayScheduleRequestV1;
 import io.nereusstream.delay.protocol.AdapterKindV1;
+import io.nereusstream.delay.protocol.DelayMessageId;
+import io.nereusstream.delay.protocol.MessagePreconditionV1;
 import io.nereusstream.delay.protocol.ScheduleIntentV1;
 import io.nereusstream.delay.protocol.SubmissionModeV1;
 import io.nereusstream.delay.semantic.RouteSelectionHint;
@@ -41,8 +45,7 @@ public final class GatewayGrpcService extends DelayGatewayV1Grpc.DelayGatewayV1I
             fail(responseObserver, Status.Code.INVALID_ARGUMENT);
             return;
         }
-        invoke(domainRequest -> ingress.schedule(peerContextProvider.current(), domainRequest), domain,
-                responseObserver);
+        invoke(() -> ingress.schedule(peerContextProvider.current(), domain), responseObserver);
     }
 
     @Override
@@ -67,12 +70,40 @@ public final class GatewayGrpcService extends DelayGatewayV1Grpc.DelayGatewayV1I
         }
     }
 
-    private void invoke(final ScheduleCall call,
-                        final io.nereusstream.delay.gateway.GatewayScheduleRequestV1 request,
+    @Override
+    public void cancel(final GatewayCancelRequestV1 request,
+                        final StreamObserver<io.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1>
+                                responseObserver) {
+        final io.nereusstream.delay.gateway.GatewayCancelRequestV1 domain;
+        try {
+            domain = decodeCancel(request);
+        } catch (RuntimeException invalidRequest) {
+            fail(responseObserver, Status.Code.INVALID_ARGUMENT);
+            return;
+        }
+        invoke(() -> ingress.cancel(peerContextProvider.current(), domain), responseObserver);
+    }
+
+    @Override
+    public void reschedule(final GatewayRescheduleRequestV1 request,
+                            final StreamObserver<io.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1>
+                                    responseObserver) {
+        final io.nereusstream.delay.gateway.GatewayRescheduleRequestV1 domain;
+        try {
+            domain = decodeReschedule(request);
+        } catch (RuntimeException invalidRequest) {
+            fail(responseObserver, Status.Code.INVALID_ARGUMENT);
+            return;
+        }
+        invoke(() -> ingress.reschedule(peerContextProvider.current(), domain), responseObserver);
+    }
+
+    private void invoke(final java.util.function.Supplier<java.util.concurrent.CompletionStage<
+            io.nereusstream.delay.gateway.GatewaySubmissionOutcomeV1>> call,
                         final StreamObserver<io.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1>
                                 responseObserver) {
         try {
-            call.invoke(request).whenComplete((outcome, failure) -> complete(responseObserver, outcome, failure));
+            call.get().whenComplete((outcome, failure) -> complete(responseObserver, outcome, failure));
         } catch (RuntimeException failure) {
             fail(responseObserver, statusFor(failure));
         }
@@ -91,6 +122,30 @@ public final class GatewayGrpcService extends DelayGatewayV1Grpc.DelayGatewayV1I
                 ScheduleIntentV1.decode(request.getScheduleIntentV1().toByteArray()),
                 request.getRetryUntilEpochMs(),
                 SubmissionModeV1.fromWire(request.getSubmissionModeV1()));
+    }
+
+    private static io.nereusstream.delay.gateway.GatewayCancelRequestV1 decodeCancel(
+            final GatewayCancelRequestV1 request) {
+        if (request.getDelayMessageId().isEmpty()) {
+            throw new IllegalArgumentException("Gateway Cancel request is incomplete");
+        }
+        return new io.nereusstream.delay.gateway.GatewayCancelRequestV1(
+                request.getIdempotencyKey().toByteArray(),
+                new DelayMessageId(request.getDelayMessageId().toByteArray()),
+                MessagePreconditionV1.decode(request.getMessagePreconditionV1().toByteArray()),
+                request.getRetryUntilEpochMs());
+    }
+
+    private static io.nereusstream.delay.gateway.GatewayRescheduleRequestV1 decodeReschedule(
+            final GatewayRescheduleRequestV1 request) {
+        if (request.getDelayMessageId().isEmpty()) {
+            throw new IllegalArgumentException("Gateway Reschedule request is incomplete");
+        }
+        return new io.nereusstream.delay.gateway.GatewayRescheduleRequestV1(
+                request.getIdempotencyKey().toByteArray(),
+                new DelayMessageId(request.getDelayMessageId().toByteArray()),
+                MessagePreconditionV1.decode(request.getMessagePreconditionV1().toByteArray()),
+                request.getDeliverAtEpochMs(), request.getExpireAtEpochMs(), request.getRetryUntilEpochMs());
     }
 
     private static void complete(
@@ -132,9 +187,4 @@ public final class GatewayGrpcService extends DelayGatewayV1Grpc.DelayGatewayV1I
         responseObserver.onError(Status.fromCode(code).asRuntimeException());
     }
 
-    @FunctionalInterface
-    private interface ScheduleCall {
-        java.util.concurrent.CompletionStage<GatewaySubmissionOutcomeV1> invoke(
-                io.nereusstream.delay.gateway.GatewayScheduleRequestV1 request);
-    }
 }
