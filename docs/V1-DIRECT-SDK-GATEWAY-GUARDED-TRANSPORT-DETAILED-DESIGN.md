@@ -2255,21 +2255,23 @@ identity 不同才额外分裂。
 `67ef3de3ab6f69ae992c3ccb70c7cb65cad47613` and
 `c42405ce6c69aef8ae0f8a9a63158c917410309f`, `62a9438967112f96e65b8daa7b2b86d52a103b10`,
 `e276bec3ffff7f5015367bed55f5b8d63c080e21` and
-`69d89839e4e80326e5317a4f5066667e270a7136` and
-`a06ab232a5608ec0e7c9152ef80fc72c06966e66` supply the local canonical
+`69d89839e4e80326e5317a4f5066667e270a7136`,
+`a06ab232a5608ec0e7c9152ef80fc72c06966e66` and
+`1dc28eaf391429f2dc9221f416af968d36575dff` supply the local canonical
 Route/resource value types, UUIDv7 identity seam, `ROUTING_HASH_V1`
 calculator, zero-I/O `DefaultDelaySemanticCore`, fail-closed signed-cache
 watch, exact historical-route plan
 resolver, shared `DefaultSubmissionCoordinator`, explicit `DefaultDelayClient`,
 guarded transport bridges, the in-memory Gateway Schedule/idempotency
-composition, the Oxia event/head-CAS Route publisher/provider, and generated
-Java/gRPC Gateway API descriptors. Focused
+composition, the Oxia event/head-CAS Route publisher/provider, generated
+Java/gRPC Gateway API descriptors, and Schedule/RetryUncertain handlers behind
+the shared authenticated ingress. Focused
 deterministic tests and a full local `check` pass at
-`a06ab232a5608ec0e7c9152ef80fc72c06966e66`; Route
+`1dc28eaf391429f2dc9221f416af968d36575dff`; Route
 authority focused checks pass at `62a94389`, and Gateway CAS focused checks at
 `e276bec3`. This is not completion of D1/D4/D5: activation-barrier/session-fenced
-real Oxia authority, native eligibility authority, deployable Gateway service
-handler/authentication,
+real Oxia authority, native eligibility authority, the remaining Gateway RPC
+handlers and bound authentication,
 durable/HA idempotency, package/module split, production Kafka/Pulsar client
 artifacts, Worker wiring and real-service cuts remain open.
 
@@ -2381,10 +2383,13 @@ permit、outcome replay、body conflict、`RetryUncertain` expected-prior/retry-
 CAS、`GatewayIdempotencyStore`、strict record decoders、Oxia single-record
 version-CAS、source `delay_gateway.proto` 以及由 Gradle 生成的 Java/gRPC
 stubs/service descriptor。`GatewayGrpcApiTest` 固定 eleven-RPC descriptor
-surface。Response loss is fail-closed:
+surface。`GatewayIngressService` 要求 tenant authority、独立 schedule/retry/control
+admission pool 和 digest-only audit；`GatewayGrpcService` 当前实现
+Schedule/RetryUncertain，其余 RPC 继续由生成基类返回 `UNIMPLEMENTED`。
+Response loss is fail-closed:
 the durable store may replay an exact aggregate but does not reconstruct a
-physical ownership permit。仍需实现 deployable gRPC service handlers、mTLS/JWT
-tenant authority、quota/control reserve、safe audit、Gateway HA/transactional
+physical ownership permit。仍需实现 remaining deployable gRPC service handlers、
+real mTLS/JWT tenant authority、distributed quota/control reserve、durable safe audit、Gateway HA/transactional
 durability、RetryUncertain late-evidence/aggregate、crash cuts 和
 多语言最小 SDK。
 

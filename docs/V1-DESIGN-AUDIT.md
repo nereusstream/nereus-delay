@@ -26,10 +26,10 @@ This is design closure, not release approval. The Delay repository now has
 local implementation evidence for the Semantic Core/value seam, explicit
 Direct SDK composition, the shared submission coordinator, an in-memory
 Gateway Schedule/idempotency conformance path, generated Java/gRPC Gateway API
-descriptors, and an Oxia event-stream/head-CAS Route authority composition. It
-still has no activation-barrier/session-fenced real Oxia service gate,
-deployable Gateway service handler/authentication, real-Broker guarded
-transport result or production Worker vertical. Those rows remain open
+descriptors, and Schedule/RetryUncertain handlers behind a digest-audited
+ingress. It still has no activation-barrier/session-fenced real Oxia service
+gate, complete Gateway RPC handler/authentication deployment, real-Broker
+guarded transport result or production Worker vertical. Those rows remain open
 release blockers even though the design status is Accepted.
 
 The 2026-08-14 Delay worktree milestones `532f8ad5`,
@@ -37,7 +37,9 @@ The 2026-08-14 Delay worktree milestones `532f8ad5`,
 `67ef3de3ab6f69ae992c3ccb70c7cb65cad47613` and
 `c42405ce6c69aef8ae0f8a9a63158c917410309f`, `62a9438967112f96e65b8daa7b2b86d52a103b10`,
 `e276bec3ffff7f5015367bed55f5b8d63c080e21` and
-`69d89839e4e80326e5317a4f5066667e270a7136` and `a06ab232a5608ec0e7c9152ef80fc72c06966e66` verify the canonical
+`69d89839e4e80326e5317a4f5066667e270a7136`,
+`a06ab232a5608ec0e7c9152ef80fc72c06966e66` and
+`1dc28eaf391429f2dc9221f416af968d36575dff` verify the canonical
 signed Route
 value, exact Kafka/Pulsar resource projections, UUIDv7/independent command
 identities, zero-I/O preparation, exact historical-route plan resolution,
@@ -45,11 +47,12 @@ one-shot transport ownership, NDR1 projection, local Gateway idempotency
 body/attempt behavior, contiguous signed-cache watch fencing, Oxia event/head
 CAS Route publication/refresh, explicit uncertain retry CAS and Oxia Gateway
 single-record CAS. The full local `check` passes at
-`a06ab232a5608ec0e7c9152ef80fc72c06966e66`; the Route provider/publisher
+`1dc28eaf391429f2dc9221f416af968d36575dff`; the Route provider/publisher
 focused tests pass at `62a94389`, and the Gateway CAS focused tests pass at
 `e276bec3`; the route-cache/Gateway focused tests pass at their respective
 commits. This evidence does not establish activation-barrier/session-fenced
-real Oxia service behavior, a deployable Gateway service handler/authentication,
+real Oxia service behavior, the remaining Gateway RPC handlers and bound
+authentication,
 HA durable idempotency, real Kafka/Pulsar transport artifacts, Worker wiring or
 real-Broker correctness; those release rows remain OPEN.
 
@@ -4308,7 +4311,7 @@ the guarded Broker rollout attestation remains external evidence.
 
 | 依赖 | 审计锁 |
 |---|---|
-| Delay local implementation slice | `nereus/delay-full-implementation-v1@a06ab232a5608ec0e7c9152ef80fc72c06966e66` (Gateway API generation; Gateway CAS base `e276bec3ffff7f5015367bed55f5b8d63c080e21`, Route authority base `62a9438967112f96e65b8daa7b2b86d52a103b10`, Gateway retry base `c42405ce6c69aef8ae0f8a9a63158c917410309f`, route-cache base `67ef3de3ab6f69ae992c3ccb70c7cb65cad47613`, composition base `402b27fa0dced95c2312bfedc0678af03463f2d5`, repository base `origin/main@2dfc3289ffdbe9cf9d7f4d0de1d701493d1b49a6`) |
+| Delay local implementation slice | `nereus/delay-full-implementation-v1@1dc28eaf391429f2dc9221f416af968d36575dff` (Gateway ingress/partial handlers; Gateway API generation base `a06ab232a5608ec0e7c9152ef80fc72c06966e66`; Gateway CAS base `e276bec3ffff7f5015367bed55f5b8d63c080e21`, Route authority base `62a9438967112f96e65b8daa7b2b86d52a103b10`, Gateway retry base `c42405ce6c69aef8ae0f8a9a63158c917410309f`, route-cache base `67ef3de3ab6f69ae992c3ccb70c7cb65cad47613`, composition base `402b27fa0dced95c2312bfedc0678af03463f2d5`, repository base `origin/main@2dfc3289ffdbe9cf9d7f4d0de1d701493d1b49a6`) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |

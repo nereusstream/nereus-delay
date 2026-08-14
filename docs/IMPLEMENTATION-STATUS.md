@@ -12,10 +12,11 @@ The `V1-FROZEN-2026-08-13` revision accepts ADR 0043/0044 and the code-level
 The repository is still a single Gradle module. It now contains a local
 `DelaySemanticCore`, signed Route value/verifier plus Oxia event/head-CAS
 composition, Direct SDK facade, transport ownership/coordinator seam, an
-in-memory Gateway Schedule conformance composition, and generated Java/gRPC
-Gateway API descriptors from the checked-in proto. These are local
+in-memory Gateway Schedule conformance composition, generated Java/gRPC
+Gateway API descriptors, and partial generated service handling for Schedule
+and RetryUncertain from the checked-in proto. These are local
 implementation evidence, not claims of activation-barrier/session-fenced real
-Oxia authority, a deployable Gateway service, real Broker transport, or
+Oxia authority, a complete Gateway service/authentication deployment, real Broker transport, or
 production/release readiness. The isolated Kafka and Pulsar
 upstream worktrees recorded below remain separately owned implementation
 evidence; their patches are not copied into this repository.
@@ -60,8 +61,9 @@ Delay worktree commits `402b27fa0dced95c2312bfedc0678af03463f2d5`,
 `c42405ce6c69aef8ae0f8a9a63158c917410309f`,
 `62a9438967112f96e65b8daa7b2b86d52a103b10`,
 `e276bec3ffff7f5015367bed55f5b8d63c080e21` and
-`69d89839e4e80326e5317a4f5066667e270a7136`, and
-`a06ab232a5608ec0e7c9152ef80fc72c06966e66` on
+`69d89839e4e80326e5317a4f5066667e270a7136`,
+`a06ab232a5608ec0e7c9152ef80fc72c06966e66` and
+`1dc28eaf391429f2dc9221f416af968d36575dff` on
 `nereus/delay-full-implementation-v1` adds the first shared post-preparation
 composition. `DefaultSubmissionCoordinator` resolves an exact historical
 Route-bound plan, performs one exact projector/transport lookup, transfers a
@@ -85,9 +87,14 @@ are covered by `GuardedTransportOwnershipTest`.
 `a06ab232a5608ec0e7c9152ef80fc72c06966e66` wires the proto through the Gradle protobuf plugin with pinned
 `protoc`/protobuf runtime and gRPC Java stub generation. `GatewayGrpcApiTest`
 asserts the generated service descriptor contains all eleven frozen RPCs and
-that the generated message package/name matches the proto contract. This is
-generated API evidence only; it does not implement service handlers or
-transport/authentication middleware.
+that the generated message package/name matches the proto contract.
+`1dc28eaf391429f2dc9221f416af968d36575dff` adds the shared ingress layer:
+tenant authority is required before domain preparation, schedule/retry/control
+admission pools are isolated, and digest-only audit events are emitted before
+and after the domain call. `GatewayGrpcService` implements Schedule and
+RetryUncertain; all other generated RPCs remain `UNIMPLEMENTED`. The local
+admission/audit implementations are deterministic conformance components, not
+distributed quota or production audit authority.
 
 The Gateway follow-up adds the shared `GatewayIdempotencyStore`, strict
 `GatewayPhysicalAttemptV1`/`GatewayIdempotencyRecordV1` decoders and
@@ -115,7 +122,7 @@ GRADLE_USER_HOME=/tmp/nereus-delay-full-gradle \
 
 The command passed, including `checkDocumentation`, the full local test task
 and main Checkstyle at branch SHA
-`a06ab232a5608ec0e7c9152ef80fc72c06966e66`; the Gateway-CAS focused tests and
+`1dc28eaf391429f2dc9221f416af968d36575dff`; the Gateway-CAS focused tests and
 Checkstyle pass at `e276bec3`, and the operation registry compiles at
 `69d89839`. The Route slice's focused provider/publisher tests and Checkstyle
 pass at `62a94389`. The five
@@ -123,8 +130,8 @@ real-Oxia methods remained skipped because no endpoint was configured. The
 Delay worktree has no Docker compose or Broker
 lifecycle harness; the Kafka/Pulsar compose files belong to their upstream test
 suites and contain no Nereus guarded integration. This slice does not claim a
-deployable Gateway service handler,
-mTLS/JWT tenant authority, quota/control reserve, safe audit, Gateway
+complete Gateway RPC handler set or bound mTLS/JWT tenant authority,
+distributed quota/control reserve, production safe-audit durability, Gateway
 HA/transactional durability beyond the single-record CAS composition,
 late authenticated evidence/aggregate promotion,
 activation-barrier or session-fenced real Oxia Route authority, Kafka/Pulsar client artifact integration, Worker ACK-after-sync
