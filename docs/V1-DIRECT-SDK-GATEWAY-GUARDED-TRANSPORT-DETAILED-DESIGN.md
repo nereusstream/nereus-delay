@@ -717,6 +717,16 @@ is durable audit storage evidence only; the deployable mTLS/JWT authority,
 distributed quota/control reserve, HA idempotency and late-evidence paths
 remain separate gates.
 
+Commit `8e0ed49b706dda2a6cb0d7d011c72d2a9270157b` adds
+`OxiaRealGatewayAuditSinkSmokeTest`. With Oxia source
+`37a17bef17202d5fd6e23282da5fd26d94865484` running in standalone mode on
+`127.0.0.1:16648`, the real Owner/Control/Recovery smoke classes and this
+Gateway audit smoke passed on 2026-08-15. The live Gateway check wrote an
+identical digest-only event twice and read back one exact canonical record.
+This is a single-record Oxia service check; Route activation/session fencing,
+cross-record transactions, deployed authentication, real Broker transports
+and Worker vertical integration remain open.
+
 ### 7.3 认证与 tenant
 
 - mTLS principal、JWT subject 或 service account 映射为 `AuthenticatedTenantContext`；

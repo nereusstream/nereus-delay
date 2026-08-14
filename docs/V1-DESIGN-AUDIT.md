@@ -31,7 +31,8 @@ Cancel/Reschedule handlers, receipt-bound upload handlers behind a
 digest-audited ingress, and query/await/message handlers behind an explicitly
 injected query authority,
 and a transport-neutral Worker source-consumer handoff that retains one exact
-record until ACK-after-sync. It still has no activation-barrier/session-fenced real Oxia service
+record until ACK-after-sync. It still lacks a Route
+activation-barrier/session-fenced real Oxia service
 gate, complete Gateway RPC handler/authentication deployment, real-Broker
 guarded transport result or production Worker vertical. Those rows remain open
 release blockers even though the design status is Accepted.
@@ -183,6 +184,16 @@ key/version/value reread, and same-key byte drift is rejected.
 plus main Checkstyle commands pass. This is durable audit storage evidence
 only; it does not establish mTLS/JWT authentication, distributed quota,
 Gateway HA/transactional idempotency or release readiness.
+
+The follow-up commit `8e0ed49b706dda2a6cb0d7d011c72d2a9270157b` adds
+`OxiaRealGatewayAuditSinkSmokeTest`. A standalone Oxia service built from
+source commit `37a17bef17202d5fd6e23282da5fd26d94865484` served
+`127.0.0.1:16648` on 2026-08-15; the Owner Lease, Control, Recovery and
+Gateway audit real-service smoke classes all passed. The Gateway smoke wrote
+the same event twice and range-scanned exactly one record with the original
+canonical bytes. This is live single-record Oxia evidence, not Route
+activation/session-reconnect, cross-record transaction, deployed-auth,
+real-Broker or production-Worker evidence.
 
 Commit `4f606fec86aaeb74472f6575e5ee7ddcb8dc8f82` adds the local Route
 session-fenced authority composition. `OxiaRouteAuthoritySession` creates an
@@ -681,7 +692,7 @@ resource-incarnation and send-evidence contract.  Consequently the audit's
 Kafka/Pulsar real-service gate remains open until pinned transports, response
 classification, source assignment/barrier proof and real-broker tests exist.
 
-The latest real-service check on 2026-08-12 built Oxia source commit
+An earlier real-service check on 2026-08-12 built Oxia source commit
 `37a17bef17202d5fd6e23282da5fd26d94865484`, started a temporary standalone
 service, and ran:
 
@@ -699,6 +710,13 @@ create/publish/reopen. This upgrades the Oxia single-record smoke evidence
 from environment-skipped to live-service PASS, but remains only repository
 evidence. It does not close cross-record authority transactions, Object Store
 publication, Kafka/Pulsar transport, chaos, benchmark, soak or upgrade gates.
+
+The newer 2026-08-15 check additionally ran the real Gateway audit sink
+smoke from `8e0ed49b706dda2a6cb0d7d011c72d2a9270157b` against the same
+standalone service shape. It confirms the Oxia-backed digest-only audit
+record is durable and exactly deduplicated at the live client boundary; it
+does not broaden the single-record result into a Gateway HA or cross-record
+transaction claim.
 
 After `1aca36a`, the repository also has a concrete local provider seam:
 `FilesystemCheckpointUploadAdapter` streams the complete checkpoint inventory
