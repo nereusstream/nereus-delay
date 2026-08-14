@@ -43,11 +43,13 @@ import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class OxiaSignedRouteSnapshotProviderTest {
     @Test
-    void sessionFenceStopsRouteAuthorityAfterEphemeralMarkerExpires() throws Exception {
+    void sessionFenceRequiresExplicitReopenAfterEphemeralMarkerExpires() throws Exception {
         final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final FakeRouteClient client = new FakeRouteClient();
         final OxiaRouteAuthoritySession session = new OxiaRouteAuthoritySession(client, "/nereus/route");
@@ -66,8 +68,28 @@ class OxiaSignedRouteSnapshotProviderTest {
             client.expireEphemeralRecords();
 
             assertThrows(IllegalStateException.class, () -> publisher.publish(hint(), active, 1));
-            assertThrows(RuntimeException.class, () -> provider.refresh().toCompletableFuture().join());
-            assertEquals(RouteCacheHealth.WATCH_GAP, provider.health());
+            provider.refresh().toCompletableFuture().join();
+            assertEquals(RouteCacheHealth.HEALTHY, provider.health());
+            assertEquals(1, provider.publishedRevision());
+        } finally {
+            session.close();
+        }
+    }
+
+    @Test
+    void explicitSessionReconnectRotatesMarkerAfterFenceAndRestoresReads() {
+        final FakeRouteClient client = new FakeRouteClient();
+        final OxiaRouteAuthoritySession session = new OxiaRouteAuthoritySession(client, "/nereus/route");
+        try {
+            session.startSession();
+            final byte[] firstIdentity = session.sessionIdentity();
+            client.expireEphemeralRecords();
+            assertThrows(IllegalStateException.class, () -> session.get("/nereus/route/missing"));
+
+            session.reconnectSession();
+
+            assertFalse(java.util.Arrays.equals(firstIdentity, session.sessionIdentity()));
+            assertNull(session.get("/nereus/route/missing"));
         } finally {
             session.close();
         }
@@ -202,6 +224,7 @@ class OxiaSignedRouteSnapshotProviderTest {
         private final Set<String> ephemeralKeys = new HashSet<>();
         private final List<Consumer<Notification>> watchers = new ArrayList<>();
         private long nextVersion = 1;
+        private long nextSessionId = 7;
         private boolean failNextEphemeralPutAfterCommit;
 
         @Override
@@ -251,7 +274,7 @@ class OxiaSignedRouteSnapshotProviderTest {
             }
             final boolean ephemeral = options.contains(PutOption.AsEphemeralRecord);
             final Version version = new Version(nextVersion++, 0, 0, 0,
-                    ephemeral ? Optional.of(7L) : Optional.empty(),
+                    ephemeral ? Optional.of(nextSessionId++) : Optional.empty(),
                     ephemeral ? Optional.of("fake-route-client") : Optional.empty());
             records.put(key, new Stored(Bytes.copy(value), version));
             if (ephemeral) {

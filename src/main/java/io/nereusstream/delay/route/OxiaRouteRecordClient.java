@@ -18,6 +18,11 @@ interface OxiaRouteRecordClient extends AutoCloseable {
         // Raw clients remain a compatibility composition without a session fence.
     }
 
+    /** Revalidates or explicitly reopens a session after a known session fence. */
+    default void reconnectSession() {
+        startSession();
+    }
+
     GetResult get(String key);
 
     CloseableIterable<GetResult> rangeScan(String startKeyInclusive, String endKeyExclusive);

@@ -36,8 +36,9 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
 
     private final OxiaRouteRecordClient delegate;
     private final OxiaRouteRecordClient notificationDelegate;
-    private final String sessionKey;
-    private final byte[] challenge;
+    private final String sessionPrefix;
+    private String sessionKey;
+    private byte[] challenge;
     private Version sessionVersion;
     private byte[] sessionIdentity;
     private boolean started;
@@ -59,9 +60,8 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
         this.notificationDelegate = Objects.requireNonNull(notificationDelegate, "notificationDelegate");
         final String prefix = canonicalKeyPrefix(keyPrefix);
-        challenge = new byte[32];
-        RANDOM.nextBytes(challenge);
-        sessionKey = prefix + "/sessions/" + Bytes.hex(challenge);
+        sessionPrefix = prefix + "/sessions/";
+        rotateMarker();
     }
 
     /** Connects a session-fenced Route authority client with explicit Oxia session settings. */
@@ -131,6 +131,22 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
         }
     }
 
+    /** Reopens the ephemeral marker only after the caller explicitly requests recovery. */
+    @Override
+    public synchronized void reconnectSession() {
+        requireNotClosed();
+        if (started) {
+            try {
+                requireSession();
+                return;
+            } catch (SessionFenceException fenced) {
+                clearSession();
+                rotateMarker();
+            }
+        }
+        startSession();
+    }
+
     /** Returns the Oxia-session-derived identity after a successful exact check. */
     public synchronized byte[] sessionIdentity() {
         requireSession();
@@ -185,12 +201,24 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
         }
         final GetResult observed = exactMarker();
         if (observed == null) {
-            throw new IllegalStateException("Oxia Route authority session marker is absent");
+            throw new SessionFenceException("Oxia Route authority session marker is absent");
         }
         if (observed.version().versionId() != sessionVersion.versionId()
                 || !sameSessionMetadata(observed.version(), sessionVersion)) {
-            throw new IllegalStateException("Oxia Route authority session identity changed");
+            throw new SessionFenceException("Oxia Route authority session identity changed");
         }
+    }
+
+    private void clearSession() {
+        started = false;
+        sessionVersion = null;
+        sessionIdentity = null;
+    }
+
+    private void rotateMarker() {
+        challenge = new byte[32];
+        RANDOM.nextBytes(challenge);
+        sessionKey = sessionPrefix + Bytes.hex(challenge);
     }
 
     private void establish(final Version version) {
@@ -264,6 +292,14 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
             throw new IllegalArgumentException(name + " must be nonblank NFC UTF-8");
         }
         return value;
+    }
+
+    private static final class SessionFenceException extends IllegalStateException {
+        private static final long serialVersionUID = 1L;
+
+        private SessionFenceException(final String message) {
+            super(message);
+        }
     }
 
     private static final class SyncRecordClient implements OxiaRouteRecordClient {

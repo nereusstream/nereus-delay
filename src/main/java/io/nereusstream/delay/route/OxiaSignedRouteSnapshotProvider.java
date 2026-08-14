@@ -119,7 +119,7 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
     public synchronized CompletionStage<Void> refresh() {
         requireOpen();
         try {
-            client.startSession();
+            client.reconnectSession();
             refreshFromAuthority();
             return CompletableFuture.completedFuture(null);
         } catch (RuntimeException failure) {
