@@ -707,6 +707,15 @@ authority composition the generated handlers remain `UNIMPLEMENTED`, and
 production query routing, retention/source authority, deployable auth and
 Worker integration remain open.
 
+The digest-only audit sink now has an Oxia composition in
+`OxiaGatewayAuditSink`. It stores each canonical `GatewayAuditEventV1` under
+an event-content-derived immutable key, accepts exact duplicate records, and
+requires an exact key/version/value reread after a lost write response. The
+sink is bounded and never persists request or prepared-submission bytes. This
+is durable audit storage evidence only; the deployable mTLS/JWT authority,
+distributed quota/control reserve, HA idempotency and late-evidence paths
+remain separate gates.
+
 ### 7.3 认证与 tenant
 
 - mTLS principal、JWT subject 或 service account 映射为 `AuthenticatedTenantContext`；
@@ -2489,7 +2498,7 @@ fail-closed 为 `INTEGRITY_ERROR`。
 Response loss is fail-closed:
 the durable store may replay an exact aggregate but does not reconstruct a
 physical ownership permit。仍需实现 remaining deployable gRPC service handlers、
-real mTLS/JWT tenant authority、distributed quota/control reserve、durable safe audit、Gateway HA/transactional
+real mTLS/JWT tenant authority、distributed quota/control reserve、Gateway HA/transactional
 durability、RetryUncertain late-evidence/aggregate、crash cuts 和
 多语言最小 SDK。
 

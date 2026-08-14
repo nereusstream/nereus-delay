@@ -173,6 +173,16 @@ endpoint was configured. The generated handlers dispatch only with an explicit
 policy, production query routing, deployable authentication, HA durability,
 real transports and Worker wiring remain OPEN.
 
+The current Gateway slice adds `OxiaGatewayAuditSink`, an append-only Oxia
+composition for the frozen digest-only `GatewayAuditEventV1`. The
+event-content-derived key and `IfRecordDoesNotExist` write make exact repeats
+idempotent; a response-loss path succeeds only after an exact
+key/version/value reread, and same-key byte drift is rejected.
+`OxiaGatewayAuditSinkTest` covers these three boundaries, and its focused test
+plus main Checkstyle commands pass. This is durable audit storage evidence
+only; it does not establish mTLS/JWT authentication, distributed quota,
+Gateway HA/transactional idempotency or release readiness.
+
 Commit `4f606fec86aaeb74472f6575e5ee7ddcb8dc8f82` adds the local Route
 session-fenced authority composition. `OxiaRouteAuthoritySession` creates an
 ephemeral marker, derives session identity from Oxia version metadata, and

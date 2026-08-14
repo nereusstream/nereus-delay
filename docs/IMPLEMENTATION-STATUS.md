@@ -12,7 +12,8 @@ The `V1-FROZEN-2026-08-13` revision accepts ADR 0043/0044 and the code-level
 The repository is still a single Gradle module. It now contains a local
 `DelaySemanticCore`, signed Route value/verifier plus Oxia event/head-CAS
 composition, Direct SDK facade, transport ownership/coordinator seam, an
-in-memory Gateway Schedule conformance composition, generated Java/gRPC
+in-memory Gateway Schedule conformance composition, an Oxia-backed
+digest-only Gateway audit sink, generated Java/gRPC
 Gateway API descriptors, partial generated service handling for Schedule,
 RetryUncertain, PrepareLargeSchedule, CommitLargeSchedule, Cancel and
 Reschedule from the checked-in proto, and a transport-neutral Worker
@@ -152,6 +153,22 @@ HA/transactional durability beyond the single-record CAS composition,
 late authenticated evidence/aggregate promotion,
 activation-barrier or session-fenced real Oxia Route authority, Kafka/Pulsar client artifact integration, Worker ACK-after-sync
 production evidence, Docker lifecycle cuts or any real-Broker PASS.
+
+## 2026-08-15 Gateway durable audit sink slice
+
+The Gateway audit boundary is now backed by `OxiaGatewayAuditSink`. Each
+canonical digest-only `GatewayAuditEventV1` is written under an
+event-content-derived immutable key with `IfRecordDoesNotExist`; an exact
+duplicate is a no-op, a competing value at the same key is rejected, and a
+lost write response is accepted only after an exact key/version/value reread.
+The sink has a bounded event size and never stores request,
+prepared-submission, credential or payload bytes.
+
+`OxiaGatewayAuditSinkTest` covers exact deduplication, response-loss recovery
+and same-key value drift rejection. The focused test and main Checkstyle
+commands passed. This closes the durable digest-only audit storage
+composition only; it is not distributed quota, mTLS/JWT tenant authority,
+HA idempotency/transactionality, late evidence promotion or a release gate.
 
 ## 2026-08-14 Worker source-consumer composition slice
 
@@ -4718,7 +4735,7 @@ covers this ordering.
 | Area | Status | Evidence |
 |---|---|---|
 | Shared Semantic Core and signed immutable RouteSnapshot | Partial (local deterministic core plus Oxia event/head-CAS authority composition; production gates open) | `RouteSnapshotV1`, `DefaultDelaySemanticCore`, `InMemorySignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotPublisher`, `RouteSnapshotCompatibilityV1`, `DefaultDelayClient`, `RouteBoundSubmissionTransportPlanResolver`, `RouteSnapshotV1Test`, `DefaultDelaySemanticCoreTest`, `InMemorySignedRouteSnapshotProviderTest`, `OxiaSignedRouteSnapshotProviderTest`; canonical signature/digest, contiguous replay, head CAS, notification refresh, same-incarnation immutable-drift quarantine, tenant-scoped historical resolution and zero-I/O preparation are covered. Activation-barrier publication, session fencing, real Oxia service evidence, native eligibility authority, package split and production cross-entry gate remain open |
-| Delay Gateway and Gateway idempotency | Partial (local Schedule/RetryUncertain plus Oxia single-record CAS composition) | `GatewayScheduleRequestV1`, `GatewayRetryUncertainRequestV1`, `GatewayIdempotencyStore`, `GatewayIdempotencyHashV1`, `GatewayIdempotencyRecordV1`, `GatewayPhysicalAttemptV1`, `InMemoryGatewayIdempotencyStore`, `OxiaGatewayIdempotencyStore`, `GatewayScheduleService`, source proto, `GatewayScheduleServiceTest` and `OxiaGatewayIdempotencyStoreTest`; exact body conflict, prepared-before-ownership, one-shot attempt, strict record decoding, uncertain expected-prior/retry-ID CAS, response-loss no-permit behavior and outcome replay are local evidence. Generated gRPC/API modules, mTLS/JWT authentication, quota/audit, HA/transactional durability, late authenticated evidence promotion, crash cuts and multi-language vectors remain open |
+| Delay Gateway and Gateway idempotency | Partial (generated handlers, Oxia idempotency CAS and digest-only audit sink; production authority still open) | `GatewayScheduleRequestV1`, `GatewayRetryUncertainRequestV1`, `GatewayIdempotencyStore`, `GatewayIdempotencyHashV1`, `GatewayIdempotencyRecordV1`, `GatewayPhysicalAttemptV1`, `InMemoryGatewayIdempotencyStore`, `OxiaGatewayIdempotencyStore`, `OxiaGatewayAuditSink`, `GatewayScheduleService`, `GatewayGrpcService`, source proto, `GatewayScheduleServiceTest`, `OxiaGatewayIdempotencyStoreTest` and `OxiaGatewayAuditSinkTest`; exact body conflict, prepared-before-ownership, one-shot attempt, strict record decoding, uncertain expected-prior/retry-ID CAS, response-loss exact rereads, generated eleven-RPC surface and immutable digest-only audit persistence are covered. mTLS/JWT authentication, distributed quota/control reserve, HA/transactional idempotency, late authenticated evidence promotion, crash cuts and multi-language vectors remain open |
 | Kafka generic guarded Producer patch | Implemented in isolated upstream worktree (real-service cuts pass; release gates open) | Kafka branch `nereus/delay-guarded-producer-v1@95d48e89e7e8a4e6d8718e44d424ffef8f17829f` from locked `trunk@c300006a7705c240642db6950b5a95fec982bfc5`; focused client/mock and real KRaft delete/recreate/leader-failover evidence pass, including legal `logAppendTimeMs=-1` handling. Artifact/source digest and Delay D2 transport remain open; K2 target-plus-receipt transaction is separate |
 | Pulsar v22 first-class resource guard | Implemented in isolated upstream worktree (single-broker cut pass; release gate open) | Pulsar branch `nereus/delay-resource-guard-v1@7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9` from locked `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`; focused common/broker, real in-process guarded SEND plus delete/recreate, and affected-module checkstyle evidence pass. Multi-broker unload/failover, proxy compatibility, artifact/source digest and Delay D3 transport remain open |
 | Queued receipt Route-policy boundary | Implemented (local strict adapter seam; Route authority pending) | `QueuedReceiptQueryPolicy`, `PolicyBoundWireCommandIngressAdapter`, `PinnedKafkaCommandIngress`, `PinnedPulsarCommandIngress`, `PreparedSubmissionAdapter`, `EmbeddedDelayService`, `AdapterIngressTest`, `NativeSubmissionAdapterTest`; strict paths derive `receipt_query_until` from authenticated Broker persistence time with checked addition, reject missing/drifting policy snapshots before transport ownership, and retain post-persistence overflow as `ENQUEUE_UNCERTAIN`/integrity evidence; absolute-boundary overloads are compatibility-only and checked against a bound policy; Route policy publication, source-time authority and concrete production transports remain release blockers |
