@@ -22,7 +22,6 @@ import io.nereusstream.delay.protocol.ShardId;
 import org.apache.pulsar.client.api.GuardedConsumer;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
-import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.TopicResourceGuard;
 
 import java.net.URI;

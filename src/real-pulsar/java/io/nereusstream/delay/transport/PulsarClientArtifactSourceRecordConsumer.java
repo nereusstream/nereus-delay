@@ -8,7 +8,6 @@ import io.nereusstream.delay.protocol.CommandCodec;
 import io.nereusstream.delay.protocol.PulsarSourcePosition;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.ShardId;
-import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.GuardedConsumer;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.MessageIdAdv;
