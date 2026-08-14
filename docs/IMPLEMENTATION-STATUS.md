@@ -177,6 +177,18 @@ Broker ACK/commit/rewind behavior, Oxia session ownership, dynamic
 WriteBatch/IO admission, due/publish/checkpoint/recovery wiring, Docker cuts,
 or a D6 production PASS.
 
+## 2026-08-14 Direct SDK outbox fail-closed slice
+
+Delay worktree commit `bcf2f0a8` adds a shared prepared-submission uncertainty
+projection for local completion-evidence loss. If the transport has returned
+an outcome but the optional durable outbox cannot persist its Final record,
+`DefaultDelayClient` now preserves the exact prepared branch and
+`PhysicalEnqueueAttemptId` and returns `ENQUEUE_UNCERTAIN`; it no longer turns
+that boundary into an exceptional Future. `DefaultDelayClientTest` covers the
+managed branch and exact attempt preservation. This is local evidence for the
+SDK ambiguity boundary, not proof that the outbox itself is durable or that a
+Broker outcome is known.
+
 ## 2026-08-14 K1 isolated Kafka guarded-client slice
 
 The isolated Kafka worktree now contains the first K1 client implementation at

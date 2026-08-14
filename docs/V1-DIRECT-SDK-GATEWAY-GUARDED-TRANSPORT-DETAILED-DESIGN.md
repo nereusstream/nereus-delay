@@ -483,6 +483,14 @@ PreparedSubmissionV1
   -> release permit only at certified completion boundary
 ```
 
+The local `bcf2f0a8` composition treats a failure while writing the optional
+outbox Final as an unobservable completion boundary: it retains the exact
+prepared branch and physical attempt and projects `ENQUEUE_UNCERTAIN`. An
+outbox exception must not become a caller-visible exceptional Future that
+could be mistaken for a definitive non-persistence result. This remains local
+evidence; the outbox implementation and its restart durability are external
+deployment responsibilities.
+
 Future cancel、SDK timeout 或 callback registration failure不证明未入 Broker，统一保留原 prepared identity 并返回/记录 uncertain。相同逻辑重试复用 Prepared bytes，新的物理调用使用新的 `PhysicalEnqueueAttemptId`；一次已发起调用的 callback 重挂不创建第二个 attempt。
 
 ### 6.3 API 清理
