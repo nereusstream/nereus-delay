@@ -96,7 +96,8 @@ GRADLE_USER_HOME=/tmp/nereus-delay-full-gradle \
 ```
 
 The command passed, including `checkDocumentation`, the full local test task
-and main Checkstyle at the pre-Route code SHA `c42405ce`; the Route slice's
+and main Checkstyle at branch SHA
+`ec12efbf2bf82fc15c5038af5db84e3e634674bd`; the Route slice's
 focused provider/publisher tests and Checkstyle pass at `62a94389`. The five
 real-Oxia methods remained skipped because no endpoint was configured. The
 Delay worktree has no Docker compose or Broker

@@ -2260,7 +2260,8 @@ watch, exact historical-route plan
 resolver, shared `DefaultSubmissionCoordinator`, explicit `DefaultDelayClient`,
 guarded transport bridges, the in-memory Gateway Schedule/idempotency
 composition and the Oxia event/head-CAS Route publisher/provider. Focused
-deterministic tests and a full local `check` pass at `c42405ce`; Route
+deterministic tests and a full local `check` pass at
+`ec12efbf2bf82fc15c5038af5db84e3e634674bd`; Route
 authority focused checks pass at `62a94389`. This is not completion of
 D1/D4/D5: activation-barrier/session-fenced real Oxia authority, native eligibility authority, generated Gateway service,
 durable/HA idempotency, package/module split, production Kafka/Pulsar client
