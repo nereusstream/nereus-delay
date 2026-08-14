@@ -66,7 +66,7 @@ Light SDK -> Nereus Delay Gateway ---+--> Entry Composition
 
 | 仓库 | 基线 | 用途 |
 | --- | --- | --- |
-| `nereus-delay` | `93bc77c9964d4affa21315b964ae2412bbae4a79` | 当前 V1 protocol/client/adapter/worker 代码 |
+| `nereus-delay` | `origin/main@2dfc3289ffdbe9cf9d7f4d0de1d701493d1b49a6` | 当前 V1 protocol/client/adapter/worker 代码；本地 D1/D5 implementation branch 在该基线之上 |
 | Kafka | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` | Produce v13、ProducerBatch、RecordAccumulator、Sender |
 | Pulsar | `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551` | Producer API、PulsarApi、ServerCnx、Producer、ManagedLedger properties |
 | DDMQ Chronos | 主设计引用的 `2f30b61a5741d55a5b515f3d8d19a8a35be8c9e2` | PProxy/inner topic/RocksDB timeline 对照，不作为代码依赖 |
@@ -2250,13 +2250,17 @@ identity 不同才额外分裂。
 
 ### Phase D1：Semantic Core / Route SPI
 
-2026-08-14 progress evidence: Delay commit `532f8ad5` supplies the local
-canonical Route/resource value types, UUIDv7 identity seam, `ROUTING_HASH_V1`
-calculator and zero-I/O `DefaultDelaySemanticCore` with focused deterministic
-tests. This is an implementation slice, not completion of D1: the Oxia-backed
-signed snapshot publication/watch, native eligibility authority, submission
-coordinator, Direct SDK/Gateway composition and package/module dependency gate
-remain to be implemented.
+2026-08-14 progress evidence: Delay commits `532f8ad5` and
+`402b27fa0dced95c2312bfedc0678af03463f2d5` supply the local canonical
+Route/resource value types, UUIDv7 identity seam, `ROUTING_HASH_V1`
+calculator, zero-I/O `DefaultDelaySemanticCore`, exact historical-route plan
+resolver, shared `DefaultSubmissionCoordinator`, explicit `DefaultDelayClient`,
+guarded transport bridges and the in-memory Gateway Schedule/idempotency
+composition. Focused deterministic tests and a full local `check` pass at the
+second commit. This is not completion of D1/D5: Oxia-backed signed snapshot
+publication/watch, native eligibility authority, generated Gateway service,
+durable/HA idempotency, package/module split, production Kafka/Pulsar client
+artifacts, Worker wiring and real-service cuts remain open.
 
 ```text
 SelfRoutingId.fromLogicalUuid
@@ -2270,7 +2274,8 @@ package/module dependency test
 Direct/Gateway byte-equivalence tests
 ```
 
-完成门：全 deterministic vectors；prepare zero-I/O；Cancel/Reschedule original route cut。
+完成门：全 deterministic vectors；prepare zero-I/O；Cancel/Reschedule original route cut；
+coordinator/projector ownership tests；Direct/Gateway byte-equivalence vectors。
 
 ### Phase K1：Kafka generic guarded producer
 
@@ -2291,7 +2296,10 @@ gate are still open. D2 must not use stock Producer as a substitute.
 
 ### Phase D2：Kafka Nereus transport
 
-接入 `ProductionKafkaProduceTransport`、现有 pinned outcome mapping、Direct SDK E2E。
+`ProductionKafkaProduceTransport` 的严格配置/guard bridge 与现有 pinned outcome
+mapping 已在 Delay 中建立 source-level composition seam；仍需在 D2 接入
+真实 locked Kafka client artifact、TopicId/v13 response evidence、Direct SDK
+E2E 和 Worker ACK-after-sync。
 
 完成门：QUEUED/definite/uncertain 三态和 Worker ACK-after-sync crash cut。
 
@@ -2329,7 +2337,10 @@ substitute.
 
 ### Phase D3：Pulsar Nereus transport
 
-接入 `ProductionPulsarSendTransport` 和现有 pinned outcome mapping。
+`ProductionPulsarSendTransport` 的严格配置/managed-native guard bridge 与现有
+pinned outcome mapping 已在 Delay 中建立 source-level composition seam；仍需
+在 D3 接入真实 locked Pulsar v22 client artifact、GuardedMessageId、typed
+response evidence、Direct SDK E2E 和 Worker ACK-after-sync。
 
 完成门：exact GuardedMessageId、typed pre-persistence rejection、uncertainty persistence、source lock。
 
@@ -2343,7 +2354,12 @@ lifecycle/control-version/validity 与有等价证明的 credential generation �
 
 ### Phase D5：Gateway
 
-实现 gRPC、auth、idempotency、quota、audit、多语言最小 SDK。
+本地 conformance slice 已提供 `GatewayScheduleRequestV1`、canonical body/key
+hash、prepared-before-ownership、in-memory single-record CAS、one-shot Gateway
+permit、outcome replay、body conflict 和 source `delay_gateway.proto`。仍需
+实现 generated gRPC modules、mTLS/JWT tenant authority、quota/control reserve、
+safe audit、Oxia HA CAS、RetryUncertain late-evidence/aggregate、crash cuts 和
+多语言最小 SDK。
 
 完成门：双入口 byte equivalence、HA crash cuts、non-enumerating auth、control reserve、load test。
 

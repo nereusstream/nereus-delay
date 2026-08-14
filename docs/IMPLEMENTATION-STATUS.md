@@ -9,12 +9,14 @@ An unchecked item is not an implementation permission; it is a release blocker.
 
 The `V1-FROZEN-2026-08-13` revision accepts ADR 0043/0044 and the code-level
 [`Direct SDK / Delay Gateway / Guarded Transport design`](V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md).
-This revision is design and protocol-registry evidence only. The repository is
-still a single Gradle module and has no production `DelaySemanticCore`, signed
-Route cache, Delay Gateway, Kafka guarded Producer implementation, Pulsar v22
-resource guard, or concrete Kafka/Pulsar Command transport. The isolated Kafka
-and Pulsar upstream worktrees recorded below are implementation evidence only;
-their patches are not copied into this repository.
+The repository is still a single Gradle module. It now contains a local
+`DelaySemanticCore`, signed Route value/verifier seam, Direct SDK facade,
+transport ownership/coordinator seam and an in-memory Gateway Schedule
+conformance composition. These are local implementation evidence, not claims
+of signed Oxia authority, generated Gateway descriptors, real Broker
+transport, or production/release readiness. The isolated Kafka and Pulsar
+upstream worktrees recorded below remain separately owned implementation
+evidence; their patches are not copied into this repository.
 
 ## 2026-08-14 D1 local semantic-core slice
 
@@ -43,10 +45,46 @@ round trips, tamper rejection, tenant/lifecycle fencing, exact physical
 Pulsar partition identity, byte-equivalent managed preparation, deterministic
 routing and no transport call from preparation.
 
-This is local D1 evidence only. Signed Route publication/watch, Oxia authority,
-Direct SDK/Gateway composition, Kafka/Pulsar guarded client patches, concrete
-transports, Worker integration and real-Broker evidence remain open and are not
-promoted by this commit.
+This remains local D1 evidence. Signed Route publication/watch and Oxia
+authority, real credential/native eligibility authority, production transport
+artifacts, Worker integration and real-Broker evidence remain open.
+
+## 2026-08-14 D1/D5 local entry-composition slice
+
+Delay worktree commit `402b27fa0dced95c2312bfedc0678af03463f2d5` on
+`nereus/delay-full-implementation-v1` adds the first shared post-preparation
+composition. `DefaultSubmissionCoordinator` resolves an exact historical
+Route-bound plan, performs one exact projector/transport lookup, transfers a
+non-serializable one-shot `TransportOwnershipPermit` immediately before the
+guarded client call, and maps persisted/definite/unknown results into the
+existing NDR1 managed/native union. `DefaultDelayClient` exposes explicit
+tenant, semantic-core, coordinator, query, admission and outbox dependencies;
+legacy production entry points fail closed instead of accepting caller-chosen
+native authority.
+
+The same slice adds `LocalTransportOwnershipPermit`,
+`GatewayAttemptOwnershipPermit`, exact Kafka/Pulsar transport keys and guarded
+bridges, strict `ProductionKafkaProduceTransport`/
+`ProductionPulsarSendTransport` configuration seams, and an in-memory Gateway
+Schedule idempotency record/service. Gateway canonical request hashing,
+prepared bytes before ownership, single-attempt CAS, body conflict, aggregate
+outcome and the source-only gRPC proto are covered by
+`GatewayScheduleServiceTest`; one-shot transfer and pre-ownership rejection
+are covered by `GuardedTransportOwnershipTest`.
+
+Evidence from this commit and its independent Gradle user home:
+
+```text
+GRADLE_USER_HOME=/tmp/nereus-delay-full-gradle \
+  ./gradlew check --no-daemon --console=plain
+```
+
+The command passed, including `checkDocumentation`, the full local test task
+and main Checkstyle. The five real-Oxia methods remained skipped because no
+endpoint was configured. This slice does not claim generated gRPC descriptors,
+Oxia/HA idempotency durability, RetryUncertain late-evidence CAS, signed Route
+watch authority, Kafka/Pulsar client artifact integration, Worker ACK-after-sync
+evidence, Docker lifecycle cuts or any real-Broker PASS.
 
 ## 2026-08-14 K1 isolated Kafka guarded-client slice
 
@@ -4430,10 +4468,10 @@ covers this ordering.
 
 | Area | Status | Evidence |
 |---|---|---|
-| Shared Semantic Core and signed immutable RouteSnapshot | Registry/design accepted; implementation not started | ADR 0043, Protocol Registry §6.6 and detailed design §§3–6 freeze canonical snapshot/signature bytes, dependency direction, zero-I/O preparation, original-route control routing and byte-equivalence gates. Production packages, codecs/vectors, Oxia watch/signature authority and cross-entry tests do not exist yet |
-| Delay Gateway and Gateway idempotency | Registry/design accepted; implementation not started | Protocol Registry §6.5 and detailed design §7 freeze RPC wrappers, exact-prepared-bytes-before-I/O, single-record CAS attempt history, explicit uncertain retry and aggregate rules. gRPC modules, auth, Oxia records, quota/audit, HA crash cuts and multi-language vectors do not exist yet |
-| Kafka generic guarded Producer patch | Design accepted; implementation not started | ADR 0044 and detailed design §9 map the non-transactional single-record API to `KafkaProducer`, `RecordAccumulator`, `ProducerBatch` and `Sender` at the inspected trunk SHA. No Kafka branch/code/test/source-lock/binary evidence exists yet; Kafka target-plus-receipt transaction remains a separate K2 gate and cannot activate from K1 |
-| Pulsar v22 first-class resource guard | Design accepted; implementation not started | ADR 0044 and detailed design §10 fix base `5.0.0-M1`, protocol v22, `ResourceIncarnationMismatch = 26`, create/per-SEND validation and typed receipts. No Pulsar branch/code/test/rollout/source-lock/binary evidence exists yet; guarded SUBSCRIBE is a separate source gate |
+| Shared Semantic Core and signed immutable RouteSnapshot | Implemented (local deterministic core/value seam; authority pending) | `RouteSnapshotV1`, `DefaultDelaySemanticCore`, `DefaultDelayClient`, `RouteBoundSubmissionTransportPlanResolver`, `RouteSnapshotV1Test`, `DefaultDelaySemanticCoreTest`; canonical signature/digest, UUIDv7 identities, exact historical-route resolution and zero-I/O preparation are covered. Signed publication/watch, Oxia authority, native eligibility authority, package split and production cross-entry gate remain open |
+| Delay Gateway and Gateway idempotency | Partial (local Schedule conformance only) | `GatewayScheduleRequestV1`, `GatewayIdempotencyHashV1`, `GatewayIdempotencyRecordV1`, `InMemoryGatewayIdempotencyStore`, `GatewayScheduleService`, source proto and `GatewayScheduleServiceTest`; exact body conflict, prepared-before-ownership, one-shot attempt and outcome replay are local evidence. Generated gRPC/API modules, authentication, quota/audit, Oxia/HA CAS, RetryUncertain late evidence, crash cuts and multi-language vectors remain open |
+| Kafka generic guarded Producer patch | Implemented in isolated upstream worktree (real-service gate open) | Kafka branch `nereus/delay-guarded-producer-v1@d1810fa3466e1378a33c5c6327c7f401cec03d07` from locked `trunk@c300006a7705c240642db6950b5a95fec982bfc5`; focused client/mock and regression evidence pass. Delete/recreate, leader-failover, artifact/source digest and Delay D2 transport remain open; K2 target-plus-receipt transaction is separate |
+| Pulsar v22 first-class resource guard | Implemented in isolated upstream worktree (real-service gate open) | Pulsar branch `nereus/delay-resource-guard-v1@be226fe6c88634e9a94ba5c6a0f5859bc510cb66` from locked `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`; focused common/broker and checkstyle evidence pass. Delete/recreate, unload/failover, proxy compatibility, artifact/source digest and Delay D3 transport remain open |
 | Queued receipt Route-policy boundary | Implemented (local strict adapter seam; Route authority pending) | `QueuedReceiptQueryPolicy`, `PolicyBoundWireCommandIngressAdapter`, `PinnedKafkaCommandIngress`, `PinnedPulsarCommandIngress`, `PreparedSubmissionAdapter`, `EmbeddedDelayService`, `AdapterIngressTest`, `NativeSubmissionAdapterTest`; strict paths derive `receipt_query_until` from authenticated Broker persistence time with checked addition, reject missing/drifting policy snapshots before transport ownership, and retain post-persistence overflow as `ENQUEUE_UNCERTAIN`/integrity evidence; absolute-boundary overloads are compatibility-only and checked against a bound policy; Route policy publication, source-time authority and concrete production transports remain release blockers |
 | Full command-result retention boundary | Implemented (local strict query seam; retention authority pending) | `CommandResultRetentionPolicy`, `DelayClient`, `EmbeddedDelayService`, `BoundedLocalQueryProjector`, `EmbeddedDelayServiceTest.embeddedQueryDerivesFullResultRetentionFromAppliedSourceTime`, `CommandResultRetentionPolicyTest`; strict query/await/applied-receipt projections derive `full_result_retain_until` from the applied Source Position Broker persistence time with checked addition, while absolute-boundary overloads remain compatibility-only; policy publication, source-time authority and production query routing remain release blockers |
 | Strict typed Claim runtime binding | Implemented (local Message plus durable V1 command/Lane-tuple binding and public-API fence; live authority pending) | `DelayShard.claimForPublishV1`, `V1ScheduleBinding.requireClaimLaneProjection`, `CanonicalLaneTupleV1Test`, `DelayShardTest.physicalGcMutationPrimitivesAreNotPublicProductionApis`, `DelayShardTest.registryPrepareCannotDowngradeTrustSetAuthorityWithLegacyCommitBody`, `ClaimMaterializationRuntimeTest`; strict Claim entrypoint binds message identity, generation, delivery window, timeline `actionAt` and inline/object payload reference before persistence, then, when a `V1ScheduleBinding` exists, exactly rebinds Destination Profile, business metadata, delivery window and the original Schedule payload branch or Prepare Object Store Profile/length/SHA-256. It also parses the exact durable canonical Lane tuple and requires byte-identical Destination/Capability Profiles, Kafka/Pulsar Broker target resource and physical partition; same-hash foreign Profile identities, target or partition drift are rejected before Claim state changes. The legacy byte-array primitive is package-local and reachable across packages only from the test-classpath bridge. Production Claim creation remains routed through `ClaimHandoffWorkClassExecutor`/`OwnedDelayShard`; live Profile/credential/resource authority, Object Store fetch, Adapter serialization/size certification, channel lease, Producer ownership and crash recovery remain release blockers |

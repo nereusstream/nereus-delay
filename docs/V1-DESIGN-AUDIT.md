@@ -22,19 +22,23 @@ snapshot bytes. Existing self-routing IDs, tenant
 authority, NDL1/NDR1, Worker state, Source Position and RocksDB keys do not
 change.
 
-This is design closure, not implementation evidence. There is no production
-Semantic Core/Route authority/Gateway, no Kafka guarded Producer patch, no
-Pulsar v22 patch, and no real-Broker guarded transport result in this
-repository. Those rows remain open release blockers even though the design
-status is Accepted.
+This is design closure, not release approval. The Delay repository now has
+local implementation evidence for the Semantic Core/value seam, explicit
+Direct SDK composition, the shared submission coordinator and an in-memory
+Gateway Schedule/idempotency conformance path. It still has no signed Oxia
+Route authority, generated Gateway service/artifacts, real-Broker guarded
+transport result or production Worker vertical. Those rows remain open release
+blockers even though the design status is Accepted.
 
-The 2026-08-14 Delay worktree milestone `532f8ad5` is the first local D1
-implementation slice. It verifies the canonical signed Route value, exact
-Kafka/Pulsar resource projections, UUIDv7/independent command identities and
-the zero-I/O managed Semantic Core with focused tests and a full local
-`check`. This evidence does not establish a Route authority/watch, production
-SDK or Gateway, guarded Kafka/Pulsar client behavior, transport outcomes,
-Worker wiring or real-Broker correctness; those release rows remain OPEN.
+The 2026-08-14 Delay worktree milestones `532f8ad5` and
+`402b27fa0dced95c2312bfedc0678af03463f2d5` verify the canonical signed Route
+value, exact Kafka/Pulsar resource projections, UUIDv7/independent command
+identities, zero-I/O preparation, exact historical-route plan resolution,
+one-shot transport ownership, NDR1 projection and local Gateway idempotency
+body/attempt behavior. The full local `check` passes at `402b27fa`. This
+evidence does not establish a Route authority/watch, generated Gateway service,
+HA durable idempotency, real Kafka/Pulsar transport artifacts, Worker wiring or
+real-Broker correctness; those release rows remain OPEN.
 
 The separately owned Kafka K1 worktree has since produced commit
 `d1810fa3466e1378a33c5c6327c7f401cec03d07` from the locked
@@ -4291,6 +4295,7 @@ the guarded Broker rollout attestation remains external evidence.
 
 | 依赖 | 审计锁 |
 |---|---|
+| Delay local implementation slice | `nereus/delay-full-implementation-v1@402b27fa0dced95c2312bfedc0678af03463f2d5` (base `origin/main@2dfc3289ffdbe9cf9d7f4d0de1d701493d1b49a6`) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
