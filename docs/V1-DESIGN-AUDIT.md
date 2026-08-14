@@ -33,7 +33,8 @@ injected query authority,
 and a transport-neutral Worker source-consumer handoff that retains one exact
 record until ACK-after-sync. It still lacks a Route
 activation-barrier/session-reconnect-complete real Oxia service
-gate, complete Gateway RPC handler/authentication deployment, real-Broker
+gate, a deployed Gateway JWT claim/signature policy and production authority,
+real-Broker
 guarded transport result or production Worker vertical. Those rows remain open
 release blockers even though the design status is Accepted.
 
@@ -165,6 +166,17 @@ explicit session-fenced refresh and notification-driven refresh. The matching
 container and network were removed by the exit trap. Session timeout/reconnect,
 cache-staleness recovery, activation barrier, native eligibility and release
 status remain open.
+
+Commit `9a805f2ef879ce7e9c78168d4fff31a973f7c186` adds the deployable Gateway
+gRPC composition: `GatewayGrpcContext` binds transport-owned peer metadata and
+attributes per call, `GatewayGrpcServer.mutualTls` configures shaded Netty
+with mandatory client certificates, and
+`MutualTlsJwtGatewayTenantAuthority` requires both the peer certificate and a
+Bearer token before invoking an explicit `GatewayJwtVerifier`. The focused
+`GatewaySecurityCompositionTest`, Gateway API test and main Checkstyle passed.
+This is a reusable mTLS/JWT-verifier boundary, not evidence of a deployed JWT
+claim/signature policy, distributed quota/control reserve, Gateway HA crash
+cuts or release readiness.
 
 Commit `4a4cb9424ec731a59bb117028ae631557c907e2f` adds the read-only
 `e2e/validate-cross-repo-contracts.sh` audit. It passed on 2026-08-15 and
@@ -4476,7 +4488,7 @@ the guarded Broker rollout attestation remains external evidence.
 | 依赖 | 审计锁 |
 |---|---|
 | Delay local implementation slice | `nereus/delay-full-implementation-v1@4f606fec86aaeb74472f6575e5ee7ddcb8dc8f82` (Oxia Route session-fenced publisher/provider composition on top of Gateway query/await/message handlers and bounded query ingress behind explicit `GatewayQueryAuthority`, receipt-bound payload upload/attestation ingress, PrepareLargeSchedule/CommitLargeSchedule, Cancel and Reschedule control slices, Direct SDK outbox fail-closed and Worker source-consumer/ACK-after-sync composition; transport result/attempt binding `5cc955e1306e1f54db06a06a2bb2b84f232c2a7b`; Gateway query base `59d492041ac42b79a632ebddfb56a7608b2d7283`, Gateway ingress base `1dc28eaf391429f2dc9221f416af968d36575dff`, Gateway API generation base `a06ab232a5608ec0e7c9152ef80fc72c06966e66`; Gateway CAS base `e276bec3ffff7f5015367bed55f5b8d63c080e21`, Route authority base `62a9438967112f96e65b8daa7b2b86d52a103b10`, Gateway retry base `c42405ce6c69aef8ae0f8a9a63158c917410309f`, route-cache base `67ef3de3ab6f69ae992c3ccb70c7cb65cad47613`, composition base `402b27fa0dced95c2312bfedc0678af03463f2d5`, repository base `origin/main@2dfc3289ffdbe9cf9d7f4d0de1d701493d1b49a6`) |
-| Delay current implementation head | `nereus/delay-full-implementation-v1@3d45dcd7bc457d0ab308b51b9dee4abf5de6adf4` (callback-safe real-client Route refresh plus isolated notification-client slice; Docker explicit/notification Route evidence; historical local composition baseline remains the row above) |
+| Delay current implementation head | `nereus/delay-full-implementation-v1@9a805f2ef879ce7e9c78168d4fff31a973f7c186` (callback-safe real-client Route refresh, isolated notification client, and deployable mTLS Gateway server/verifier composition; historical local composition baseline remains the row above) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |

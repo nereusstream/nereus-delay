@@ -2536,12 +2536,13 @@ CAS、`GatewayIdempotencyStore`、strict record decoders、Oxia single-record
 version-CAS、source `delay_gateway.proto` 以及由 Gradle 生成的 Java/gRPC
 stubs/service descriptor。`GatewayGrpcApiTest` 固定 eleven-RPC descriptor
 surface。`GatewayIngressService` 要求 tenant authority、独立 schedule/retry/control
-admission pool 和 digest-only audit；`GatewayGrpcService` 当前实现
-Schedule/RetryUncertain/PrepareLargeSchedule/CommitLargeSchedule/Cancel/Reschedule；
-receipt-bound upload methods are active only when an explicit
-`GatewayPayloadIngressService` is configured, and query/await/message RPCs are
-active only when an explicit `GatewayQueryIngressService` is configured;
-otherwise each remains generated-base `UNIMPLEMENTED`.
+admission pool 和 digest-only audit；`GatewayGrpcService` implements all eleven
+generated RPCs. Schedule/RetryUncertain/PrepareLargeSchedule/CommitLargeSchedule/
+Cancel/Reschedule use the shared ingress directly; receipt-bound upload methods
+are active only when an explicit `GatewayPayloadIngressService` is configured,
+and query/await/message RPCs are active only when an explicit
+`GatewayQueryIngressService` is configured; otherwise those optional paths
+remain generated-base `UNIMPLEMENTED`.
 Commit
 `9695eba7ca384d99cd28ece238f6cbfe1bcd08be` also covers canonical control
 body decoding and the shared idempotency/attempt path for Cancel and
@@ -2560,8 +2561,12 @@ Guarded Kafka/Pulsar result 还必须携带与 one-shot permit 相同的
 fail-closed 为 `INTEGRITY_ERROR`。
 Response loss is fail-closed:
 the durable store may replay an exact aggregate but does not reconstruct a
-physical ownership permit。仍需实现 remaining deployable gRPC service handlers、
-real mTLS/JWT tenant authority、distributed quota/control reserve、Gateway HA/transactional
+physical ownership permit。Commit `9a805f2ef879ce7e9c78168d4fff31a973f7c186`
+adds `GatewayGrpcContext`, a mandatory-client-certificate Netty server factory,
+and `MutualTlsJwtGatewayTenantAuthority`, which requires a Bearer token and
+delegates signature/claim verification to an explicit `GatewayJwtVerifier`.
+Concrete JWT signature/claim policy and certificate deployment evidence remain
+external to this reusable boundary. Distributed quota/control reserve、Gateway HA/transactional
 durability、RetryUncertain late-evidence/aggregate、crash cuts 和
 多语言最小 SDK。
 

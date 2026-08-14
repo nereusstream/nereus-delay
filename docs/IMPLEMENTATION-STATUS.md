@@ -14,15 +14,14 @@ The repository is still a single Gradle module. It now contains a local
 composition, Direct SDK facade, transport ownership/coordinator seam, an
 in-memory Gateway Schedule conformance composition, an Oxia-backed
 digest-only Gateway audit sink, generated Java/gRPC
-Gateway API descriptors, partial generated service handling for Schedule,
-RetryUncertain, PrepareLargeSchedule, CommitLargeSchedule, Cancel and
-Reschedule from the checked-in proto, and a transport-neutral Worker
+Gateway API descriptors, generated service handling for all eleven RPCs when
+the explicit payload/query compositions are configured, and a transport-neutral Worker
 source-consumer/ACK-after-sync composition, plus receipt-bound payload upload
 handlers behind an explicitly injected `GatewayPayloadAuthority`, and
 query/await/message handlers behind an explicitly injected
 `GatewayQueryAuthority`. These are local
 implementation evidence, not claims of activation-barrier/session-reconnect-complete real
-Oxia authority, a complete Gateway service/authentication deployment, real Broker transport, or
+Oxia authority, a complete authenticated Gateway deployment, real Broker transport, or
 production Worker wiring or release readiness. The isolated Kafka and Pulsar
 upstream worktrees recorded below remain separately owned implementation
 evidence; their patches are not copied into this repository.
@@ -289,6 +288,26 @@ The focused Route tests and main Checkstyle passed at `3d45dcd7`; the
 independent full local gate must still be rerun at this code slice. This is
 live Route notification/explicit-refresh evidence, not a production Route
 activation or timeout/reconnect gate.
+
+## 2026-08-15 Gateway mTLS server composition slice
+
+Delay worktree commit `9a805f2ef879ce7e9c78168d4fff31a973f7c186` adds the
+deployable gRPC lifecycle composition. `GatewayGrpcContext` binds the
+transport-owned Metadata/Attributes to the current RPC and fails closed
+outside an intercepted call. `GatewayGrpcServer.mutualTls` uses the shaded
+Netty server with mandatory client certificate validation; it does not accept
+plaintext or server-only TLS. `MutualTlsJwtGatewayTenantAuthority` requires
+both the verified peer certificate and a Bearer token, then calls an explicit
+`GatewayJwtVerifier` before constructing the non-wire
+`AuthenticatedTenantContext`. `GatewaySecurityCompositionTest` covers the
+missing-certificate/missing-token fences and defensive digest projection.
+
+The focused Gateway test and main Checkstyle passed at this commit, and the
+full local `check` passed at the subsequent documentation state. This closes
+the reusable mTLS/server-context composition only: concrete JWT signature and
+claim-policy implementation, certificate deployment/rotation evidence,
+distributed quota/control reserve, HA idempotency/late-evidence crash cuts
+and multi-language SDK vectors remain open.
 
 ## 2026-08-15 cross-repository contract audit slice
 
@@ -4848,7 +4867,7 @@ covers this ordering.
 | Area | Status | Evidence |
 |---|---|---|
 | Shared Semantic Core and signed immutable RouteSnapshot | Partial (local deterministic core plus Oxia event/head-CAS authority composition; production gates open) | `RouteSnapshotV1`, `DefaultDelaySemanticCore`, `InMemorySignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotPublisher`, `RouteSnapshotCompatibilityV1`, `DefaultDelayClient`, `RouteBoundSubmissionTransportPlanResolver`, `RouteSnapshotV1Test`, `DefaultDelaySemanticCoreTest`, `InMemorySignedRouteSnapshotProviderTest`, `OxiaSignedRouteSnapshotProviderTest`, `OxiaRealRouteAuthoritySmokeTest`; canonical signature/digest, contiguous replay, head CAS, notification refresh with an isolated watch client, same-incarnation immutable-drift quarantine, tenant-scoped historical resolution, explicit-refresh real Oxia publication and zero-I/O preparation are covered. Notification-stream reconnect/stability under session churn, activation-barrier publication, native eligibility authority, package split and production cross-entry gate remain open |
-| Delay Gateway and Gateway idempotency | Partial (generated handlers, Oxia idempotency CAS and digest-only audit sink; production authority still open) | `GatewayScheduleRequestV1`, `GatewayRetryUncertainRequestV1`, `GatewayIdempotencyStore`, `GatewayIdempotencyHashV1`, `GatewayIdempotencyRecordV1`, `GatewayPhysicalAttemptV1`, `InMemoryGatewayIdempotencyStore`, `OxiaGatewayIdempotencyStore`, `OxiaGatewayAuditSink`, `GatewayScheduleService`, `GatewayGrpcService`, source proto, `GatewayScheduleServiceTest`, `OxiaGatewayIdempotencyStoreTest`, `OxiaGatewayAuditSinkTest` and `OxiaRealGatewayAuditSinkSmokeTest`; exact body conflict, prepared-before-ownership, one-shot attempt, strict record decoding, uncertain expected-prior/retry-ID CAS, response-loss exact rereads, generated eleven-RPC surface, immutable digest-only audit persistence and live Oxia readback are covered. mTLS/JWT authentication, distributed quota/control reserve, HA/transactional idempotency, late authenticated evidence promotion, crash cuts and multi-language vectors remain open |
+| Delay Gateway and Gateway idempotency | Partial (all generated handlers plus reusable mTLS server context; production authority still open) | `GatewayScheduleRequestV1`, `GatewayRetryUncertainRequestV1`, `GatewayIdempotencyStore`, `GatewayIdempotencyHashV1`, `GatewayIdempotencyRecordV1`, `GatewayPhysicalAttemptV1`, `InMemoryGatewayIdempotencyStore`, `OxiaGatewayIdempotencyStore`, `OxiaGatewayAuditSink`, `GatewayScheduleService`, `GatewayGrpcService`, `GatewayGrpcContext`, `GatewayGrpcServer`, `MutualTlsJwtGatewayTenantAuthority`, source proto, `GatewayScheduleServiceTest`, `GatewaySecurityCompositionTest`, `OxiaGatewayIdempotencyStoreTest`, `OxiaGatewayAuditSinkTest` and `OxiaRealGatewayAuditSinkSmokeTest`; exact body conflict, prepared-before-ownership, one-shot attempt, strict record decoding, uncertain expected-prior/retry-ID CAS, response-loss exact rereads, generated eleven-RPC surface, mandatory mTLS server composition, Bearer/verifier binding, immutable digest-only audit persistence and live Oxia readback are covered. Concrete JWT signature/claim policy, distributed quota/control reserve, HA/transactional idempotency, late authenticated evidence promotion, crash cuts and multi-language vectors remain open |
 | Kafka generic guarded Producer patch | Implemented in isolated upstream worktree (real-service cuts pass; release gates open) | Kafka branch `nereus/delay-guarded-producer-v1@95d48e89e7e8a4e6d8718e44d424ffef8f17829f` from locked `trunk@c300006a7705c240642db6950b5a95fec982bfc5`; focused client/mock and real KRaft delete/recreate/leader-failover evidence pass, including legal `logAppendTimeMs=-1` handling. Artifact/source digest and Delay D2 transport remain open; K2 target-plus-receipt transaction is separate |
 | Pulsar v22 first-class resource guard | Implemented in isolated upstream worktree (single-broker cut pass; release gate open) | Pulsar branch `nereus/delay-resource-guard-v1@7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9` from locked `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`; focused common/broker, real in-process guarded SEND plus delete/recreate, and affected-module checkstyle evidence pass. Multi-broker unload/failover, proxy compatibility, artifact/source digest and Delay D3 transport remain open |
 | Queued receipt Route-policy boundary | Implemented (local strict adapter seam; Route authority pending) | `QueuedReceiptQueryPolicy`, `PolicyBoundWireCommandIngressAdapter`, `PinnedKafkaCommandIngress`, `PinnedPulsarCommandIngress`, `PreparedSubmissionAdapter`, `EmbeddedDelayService`, `AdapterIngressTest`, `NativeSubmissionAdapterTest`; strict paths derive `receipt_query_until` from authenticated Broker persistence time with checked addition, reject missing/drifting policy snapshots before transport ownership, and retain post-persistence overflow as `ENQUEUE_UNCERTAIN`/integrity evidence; absolute-boundary overloads are compatibility-only and checked against a bound policy; Route policy publication, source-time authority and concrete production transports remain release blockers |
