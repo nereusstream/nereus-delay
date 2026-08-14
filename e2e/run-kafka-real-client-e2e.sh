@@ -19,6 +19,8 @@ client_jar="${NEREUS_DELAY_KAFKA_CLIENT_JAR:-${kafka_dir}/clients/build/libs/kaf
 bootstrap_all="127.0.0.1:${broker_1_port},127.0.0.1:${broker_2_port},127.0.0.1:${broker_3_port}"
 bootstrap_survivors="127.0.0.1:${broker_2_port},127.0.0.1:${broker_3_port}"
 topic_1="${KAFKA_DELAY_E2E_TOPIC_1:-nereus-delay-k1-topic-1}"
+k2_target_topic="${KAFKA_DELAY_E2E_K2_TARGET_TOPIC:-nereus-delay-k2-target}"
+k2_receipt_topic="${KAFKA_DELAY_E2E_K2_RECEIPT_TOPIC:-nereus-delay-k2-receipt}"
 
 cleanup() {
   "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
@@ -86,6 +88,13 @@ GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaSmoke \
   -PkafkaTopic="${topic_1}" \
   --no-daemon --console=plain
 
+GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaK2Smoke \
+  -PkafkaClientJar="${client_jar}" \
+  -PkafkaBootstrap="${bootstrap_all}" \
+  -PkafkaTargetTopic="${k2_target_topic}" \
+  -PkafkaReceiptTopic="${k2_receipt_topic}" \
+  --no-daemon --console=plain
+
 "${compose[@]}" stop kafka-1
 wait_for_broker kafka-2
 GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaSmoke \
@@ -95,4 +104,4 @@ GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaSmoke \
   -PsmokeMode=preserve \
   --no-daemon --console=plain
 
-echo "Kafka K1 real-client E2E passed: initial three-broker produce, delete/recreate identity fence, and broker-1 failover."
+echo "Kafka K1/K2 real-client E2E passed: K1 identity/failover and K2 atomic target+receipt commit, abort, and delete/recreate fence."

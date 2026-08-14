@@ -100,6 +100,23 @@ tasks.register('runRealKafkaSmoke', JavaExec) {
     }
 }
 
+tasks.register('runRealKafkaK2Smoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the K2 target-plus-receipt transaction against an explicitly supplied Kafka cluster.'
+    dependsOn tasks.named('compileRealKafka')
+    if (realKafkaClientJar == null || findProperty('kafkaBootstrap') == null
+            || findProperty('kafkaTargetTopic') == null || findProperty('kafkaReceiptTopic') == null) {
+        doFirst {
+            throw new GradleException(
+                    'runRealKafkaK2Smoke requires -PkafkaClientJar=... -PkafkaBootstrap=host:port '
+                            + '-PkafkaTargetTopic=name -PkafkaReceiptTopic=name')
+        }
+    }
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactTransactionalSmoke'
+    args findProperty('kafkaBootstrap'), findProperty('kafkaTargetTopic'), findProperty('kafkaReceiptTopic')
+}
+
 tasks.register('compileRealPulsar', JavaCompile) {
     group = 'verification'
     description = 'Compiles the Delay Pulsar binding against explicitly supplied locked P1 client artifacts.'
