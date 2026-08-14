@@ -189,11 +189,16 @@ gRPC composition: `GatewayGrpcContext` binds transport-owned peer metadata and
 attributes per call, `GatewayGrpcServer.mutualTls` configures shaded Netty
 with mandatory client certificates, and
 `MutualTlsJwtGatewayTenantAuthority` requires both the peer certificate and a
-Bearer token before invoking an explicit `GatewayJwtVerifier`. The focused
-`GatewaySecurityCompositionTest`, Gateway API test and main Checkstyle passed.
-This is a reusable mTLS/JWT-verifier boundary, not evidence of a deployed JWT
-claim/signature policy, distributed quota/control reserve, Gateway HA crash
-cuts or release readiness.
+Bearer token before invoking an explicit `GatewayJwtVerifier`. Delay commit
+`19099e2e` adds the new
+`RsaSha256GatewayJwtVerifier` implements the concrete RS256 policy with exact
+issuer/audience/key-id and NumericDate checks, duplicate-free strict JSON,
+signed tenant/routing scope digests and mTLS `cnf.x5t#S256` certificate
+binding. `GatewaySecurityCompositionTest`,
+`RsaSha256GatewayJwtVerifierTest`, the Gateway API test and main Checkstyle
+passed. This is verifier-policy evidence, not certificate issuance/rotation
+deployment, distributed quota/control reserve, Gateway HA crash cuts or
+release readiness.
 
 Commit `4a4cb9424ec731a59bb117028ae631557c907e2f` adds the read-only
 `e2e/validate-cross-repo-contracts.sh` audit. It passed on 2026-08-15 and
@@ -4579,7 +4584,7 @@ the guarded Broker rollout attestation remains external evidence.
 | 依赖 | 审计锁 |
 |---|---|
 | Delay local implementation slice | `nereus/delay-full-implementation-v1@4f606fec86aaeb74472f6575e5ee7ddcb8dc8f82` (Oxia Route session-fenced publisher/provider composition on top of Gateway query/await/message handlers and bounded query ingress behind explicit `GatewayQueryAuthority`, receipt-bound payload upload/attestation ingress, PrepareLargeSchedule/CommitLargeSchedule, Cancel and Reschedule control slices, Direct SDK outbox fail-closed and Worker source-consumer/ACK-after-sync composition; transport result/attempt binding `5cc955e1306e1f54db06a06a2bb2b84f232c2a7b`; Gateway query base `59d492041ac42b79a632ebddfb56a7608b2d7283`, Gateway ingress base `1dc28eaf391429f2dc9221f416af968d36575dff`, Gateway API generation base `a06ab232a5608ec0e7c9152ef80fc72c06966e66`; Gateway CAS base `e276bec3ffff7f5015367bed55f5b8d63c080e21`, Route authority base `62a9438967112f96e65b8daa7b2b86d52a103b10`, Gateway retry base `c42405ce6c69aef8ae0f8a9a63158c917410309f`, route-cache base `67ef3de3ab6f69ae992c3ccb70c7cb65cad47613`, composition base `402b27fa0dced95c2312bfedc0678af03463f2d5`, repository base `origin/main@2dfc3289ffdbe9cf9d7f4d0de1d701493d1b49a6`) |
-| Delay current implementation head | `nereus/delay-full-implementation-v1@412441c47cce4e61d3cc015b95c7d3cffcab2f7f` (Kafka source poll/ACK handoff over exact NDL1 source positions; historical Route/Gateway/Worker composition remains in the rows and sections above) |
+| Delay current implementation head | `nereus/delay-full-implementation-v1@19099e2eae7ea4b566269ac639ae553ddb450e6d` (Kafka source poll/ACK handoff, guarded Pulsar SUBSCRIBE/replay/ACK binding, and strict Gateway RS256+mTLS JWT policy; historical Route/Gateway/Worker composition remains in the rows and sections above) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |

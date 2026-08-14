@@ -97,6 +97,10 @@ require_file_text "$delay_root/src/main/java/io/nereusstream/delay/transport/Pro
     "acks != -1 || !idempotenceEnabled || !autoTopicCreationDisabled"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/transport/ProductionPulsarSendTransport.java" \
     "!batchingDisabled || !chunkingDisabled || !autoTopicCreationDisabled"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/RsaSha256GatewayJwtVerifier.java" \
+    "SHA256withRSA"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/RsaSha256GatewayJwtVerifier.java" \
+    "x5t#S256"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactSourceRecordConsumer.java" \
     "GuardedConsumer<byte[]>"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactSourceRecordConsumer.java" \

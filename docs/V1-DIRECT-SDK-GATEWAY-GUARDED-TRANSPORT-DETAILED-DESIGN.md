@@ -2736,7 +2736,13 @@ physical ownership permit。Commit `9a805f2ef879ce7e9c78168d4fff31a973f7c186`
 adds `GatewayGrpcContext`, a mandatory-client-certificate Netty server factory,
 and `MutualTlsJwtGatewayTenantAuthority`, which requires a Bearer token and
 delegates signature/claim verification to an explicit `GatewayJwtVerifier`.
-Concrete JWT signature/claim policy and certificate deployment evidence remain
+Delay commit `19099e2e` adds `RsaSha256GatewayJwtVerifier`, which supplies the
+concrete RS256 policy: exact
+issuer/audience/key-id, strict NumericDate bounds, signed non-zero tenant and
+routing scope digests, duplicate-free canonical JSON, and mTLS leaf binding
+through `cnf.x5t#S256`. `RsaSha256GatewayJwtVerifierTest` covers valid,
+signature, policy, time, duplicate-member, canonical-base64 and certificate
+negative vectors. Certificate issuance/rotation deployment evidence remains
 external to this reusable boundary. Distributed quota/control reserve、Gateway HA/transactional
 durability、RetryUncertain late-evidence/aggregate、crash cuts 和
 多语言最小 SDK。

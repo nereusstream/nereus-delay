@@ -405,10 +405,26 @@ missing-certificate/missing-token fences and defensive digest projection.
 
 The focused Gateway test and main Checkstyle passed at this commit, and the
 full local `check` passed at the subsequent documentation state. This closes
-the reusable mTLS/server-context composition only: concrete JWT signature and
-claim-policy implementation, certificate deployment/rotation evidence,
-distributed quota/control reserve, HA idempotency/late-evidence crash cuts
-and multi-language SDK vectors remain open.
+the reusable mTLS/server-context composition only: certificate deployment/
+rotation evidence, distributed quota/control reserve, HA idempotency/
+late-evidence crash cuts and multi-language SDK vectors remain open.
+
+## 2026-08-15 Gateway JWT policy slice
+
+Commit `19099e2e` adds `RsaSha256GatewayJwtVerifier`. It accepts only
+canonical three-segment RS256 JWTs signed by the configured RSA key and
+optional `kid`, requires exact `iss`, `aud`, `sub`, `tenant`, `jti`, signed
+non-zero 32-byte `tenant_scope_hash` and `tenant_routing_scope`, and enforces
+bounded `iat`/`nbf`/`exp` NumericDate claims. The `cnf.x5t#S256` claim must
+equal the SHA-256 fingerprint of the verified mTLS leaf certificate. Duplicate
+JSON members, non-canonical base64url, wrong algorithms, malformed signatures,
+wrong audience/issuer/time, certificate mismatch and zero scopes fail closed;
+only digest projections enter `AuthenticatedTenantContext`.
+
+`RsaSha256GatewayJwtVerifierTest` covers the positive path and those negative
+vectors. This closes the verifier policy seam, not certificate issuance or
+rotation deployment, distributed quota/control reserve, HA/transactional
+idempotency, late-evidence crash cuts or multi-language SDK evidence.
 
 ## 2026-08-15 cross-repository contract audit slice
 
@@ -5103,7 +5119,7 @@ covers this ordering.
 | Area | Status | Evidence |
 |---|---|---|
 | Shared Semantic Core and signed immutable RouteSnapshot | Partial (local deterministic core plus Oxia event/head-CAS authority composition; production gates open) | `RouteSnapshotV1`, `DefaultDelaySemanticCore`, `InMemorySignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotPublisher`, `RouteSnapshotCompatibilityV1`, `DefaultDelayClient`, `RouteBoundSubmissionTransportPlanResolver`, `RouteSnapshotV1Test`, `DefaultDelaySemanticCoreTest`, `InMemorySignedRouteSnapshotProviderTest`, `OxiaSignedRouteSnapshotProviderTest`, `OxiaRealRouteAuthoritySmokeTest`; canonical signature/digest, contiguous replay, head CAS, notification refresh with an isolated watch client, same-incarnation immutable-drift quarantine, tenant-scoped historical resolution, explicit-refresh real Oxia publication and zero-I/O preparation are covered. Notification-stream reconnect/stability under session churn, activation-barrier publication, native eligibility authority, package split and production cross-entry gate remain open |
-| Delay Gateway and Gateway idempotency | Partial (all generated handlers plus reusable mTLS server context; production authority still open) | `GatewayScheduleRequestV1`, `GatewayRetryUncertainRequestV1`, `GatewayIdempotencyStore`, `GatewayIdempotencyHashV1`, `GatewayIdempotencyRecordV1`, `GatewayPhysicalAttemptV1`, `InMemoryGatewayIdempotencyStore`, `OxiaGatewayIdempotencyStore`, `OxiaGatewayAuditSink`, `GatewayScheduleService`, `GatewayGrpcService`, `GatewayGrpcContext`, `GatewayGrpcServer`, `MutualTlsJwtGatewayTenantAuthority`, source proto, `GatewayScheduleServiceTest`, `GatewaySecurityCompositionTest`, `OxiaGatewayIdempotencyStoreTest`, `OxiaGatewayAuditSinkTest` and `OxiaRealGatewayAuditSinkSmokeTest`; exact body conflict, prepared-before-ownership, one-shot attempt, strict record decoding, uncertain expected-prior/retry-ID CAS, response-loss exact rereads, generated eleven-RPC surface, mandatory mTLS server composition, Bearer/verifier binding, immutable digest-only audit persistence and live Oxia readback are covered. Concrete JWT signature/claim policy, distributed quota/control reserve, HA/transactional idempotency, late authenticated evidence promotion, crash cuts and multi-language vectors remain open |
+| Delay Gateway and Gateway idempotency | Partial (generated handlers, strict RS256+mTLS authority and reusable server context; distributed/HA authority still open) | `GatewayScheduleRequestV1`, `GatewayRetryUncertainRequestV1`, `GatewayIdempotencyStore`, `GatewayIdempotencyHashV1`, `GatewayIdempotencyRecordV1`, `GatewayPhysicalAttemptV1`, `InMemoryGatewayIdempotencyStore`, `OxiaGatewayIdempotencyStore`, `OxiaGatewayAuditSink`, `GatewayScheduleService`, `GatewayGrpcService`, `GatewayGrpcContext`, `GatewayGrpcServer`, `MutualTlsJwtGatewayTenantAuthority`, `RsaSha256GatewayJwtVerifier`, source proto, `GatewayScheduleServiceTest`, `GatewaySecurityCompositionTest`, `RsaSha256GatewayJwtVerifierTest`, `OxiaGatewayIdempotencyStoreTest`, `OxiaGatewayAuditSinkTest` and `OxiaRealGatewayAuditSinkSmokeTest`; exact body conflict, prepared-before-ownership, one-shot attempt, strict record decoding, uncertain expected-prior/retry-ID CAS, response-loss exact rereads, generated eleven-RPC surface, mandatory mTLS server composition, RS256 signature/issuer/audience/time policy, mTLS `cnf.x5t#S256` binding, immutable digest-only audit persistence and live Oxia readback are covered. Certificate deployment/rotation, distributed quota/control reserve, HA/transactional idempotency, late authenticated evidence promotion, crash cuts and multi-language vectors remain open |
 | Kafka generic guarded Producer patch | Implemented in isolated upstream worktree plus opt-in Delay K1/K2 binding (full K2 gate open) | Kafka branch `nereus/delay-guarded-producer-v1@8bd66fbb26eae1b0e4c5867e61f41900c3f5e318` from locked `trunk@c300006a7705c240642db6950b5a95fec982bfc5`; focused K1/K2 client tests, real KRaft delete/recreate/leader-failover, transaction-v2 guarded send, Delay source-set compile and three-broker K1/K2 Docker E2E pass. Client SHA-256 and broker image ID are recorded above; response-loss, Fetch/LSO/retention, source integration and release gates remain open |
 | Pulsar v22 first-class resource guard | Implemented in isolated upstream worktree plus opt-in Delay P1 binding (D3/open broker cuts) | Pulsar branch `nereus/delay-resource-guard-v1@f813c96687cc19e6fca1c82d3d161cf3e045c86b` from locked `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`; focused common/broker, real in-process guarded SEND plus delete/recreate, guarded SUBSCRIBE with attestation/connection generation, affected-module checkstyle, Delay source-set compile and single-node writer/source Docker evidence pass. Artifact SHA-256 values are recorded above; multi-broker unload/failover, proxy/session cuts, rewind, and full D3 transport remain open |
 | Queued receipt Route-policy boundary | Implemented (local strict adapter seam; Route authority pending) | `QueuedReceiptQueryPolicy`, `PolicyBoundWireCommandIngressAdapter`, `PinnedKafkaCommandIngress`, `PinnedPulsarCommandIngress`, `PreparedSubmissionAdapter`, `EmbeddedDelayService`, `AdapterIngressTest`, `NativeSubmissionAdapterTest`; strict paths derive `receipt_query_until` from authenticated Broker persistence time with checked addition, reject missing/drifting policy snapshots before transport ownership, and retain post-persistence overflow as `ENQUEUE_UNCERTAIN`/integrity evidence; absolute-boundary overloads are compatibility-only and checked against a bound policy; Route policy publication, source-time authority and concrete production transports remain release blockers |
