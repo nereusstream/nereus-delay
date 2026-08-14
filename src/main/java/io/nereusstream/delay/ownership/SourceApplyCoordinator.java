@@ -13,9 +13,10 @@ import java.util.function.LongSupplier;
  * One-record bounded source-reader/apply/ack handoff.
  *
  * <p>The coordinator owns no broker cursor or Source Position allocation.  It
- * keeps one caller-owned {@link SourceReplayCursor} look-ahead entry and uses
- * {@link SourceApplyWorkClassExecutor} for the bounded {@code SOURCE_APPLY}
- * action.  The exact entry is retained until the external acknowledgement is
+ * keeps one caller-owned {@link SourceReplayCursor} look-ahead entry, or one
+ * native {@link SourceRecordConsumer.PolledSourceRecord}, and uses {@link
+ * SourceApplyWorkClassExecutor} for the bounded {@code SOURCE_APPLY} action.
+ * The exact entry is retained until the external acknowledgement is
  * confirmed.  Consequently a queue rejection, an apply failure, an ACK
  * response loss, or an ACK rejection cannot make the process-local cursor
  * outrun the broker's retry authority.</p>
@@ -27,10 +28,12 @@ import java.util.function.LongSupplier;
  */
 public final class SourceApplyCoordinator {
     private final SourceReplayCursor<? extends SourceReplayEntry> source;
+    private final SourceRecordConsumer sourceConsumer;
     private final WorkClassExecutionRegistry workClasses;
     private final SourceApplyWorkClassExecutor executor;
     private final OwnedDelayShard ownedShard;
     private final SourceAcknowledgement acknowledgement;
+    private SourceRecordConsumer.PolledSourceRecord pendingSourceRecord;
     private Pending pending;
 
     public SourceApplyCoordinator(final SourceReplayCursor<? extends SourceReplayEntry> source,
@@ -40,12 +43,33 @@ public final class SourceApplyCoordinator {
                                   final PublicKey verificationKey,
                                   final SourceAcknowledgement acknowledgement) {
         this.source = Objects.requireNonNull(source, "source");
+        this.sourceConsumer = null;
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
         this.ownedShard = Objects.requireNonNull(ownedShard, "ownedShard");
         this.executor = new SourceApplyWorkClassExecutor(this.workClasses, this.ownedShard,
                 Objects.requireNonNull(authority, "authority"),
                 Objects.requireNonNull(verificationKey, "verificationKey"));
         this.acknowledgement = Objects.requireNonNull(acknowledgement, "acknowledgement");
+    }
+
+    /**
+     * Builds the Worker-facing variant.  The consumer's ACK callback is also
+     * its native cursor-advance authority; it must return {@code ACKED} only
+     * after that broker operation is durably accepted.
+     */
+    public SourceApplyCoordinator(final SourceRecordConsumer sourceConsumer,
+                                  final WorkClassExecutionRegistry workClasses,
+                                  final OwnedDelayShard ownedShard,
+                                  final OxiaOwnerLeaseStore authority,
+                                  final PublicKey verificationKey) {
+        this.source = null;
+        this.sourceConsumer = Objects.requireNonNull(sourceConsumer, "sourceConsumer");
+        this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
+        this.ownedShard = Objects.requireNonNull(ownedShard, "ownedShard");
+        this.executor = new SourceApplyWorkClassExecutor(this.workClasses, this.ownedShard,
+                Objects.requireNonNull(authority, "authority"),
+                Objects.requireNonNull(verificationKey, "verificationKey"));
+        this.acknowledgement = null;
     }
 
     /**
@@ -56,11 +80,26 @@ public final class SourceApplyCoordinator {
         Objects.requireNonNull(workBudget, "workBudget");
         Objects.requireNonNull(ownerClock, "ownerClock");
         if (pending == null) {
-            final SourceReplayEntry next = peekSource();
-            if (next == null) {
-                return TurnResult.exhausted();
+            if (sourceConsumer != null) {
+                try {
+                    final Optional<SourceRecordConsumer.PolledSourceRecord> polled =
+                            Objects.requireNonNull(sourceConsumer.poll(), "source consumer poll result");
+                    if (polled.isEmpty()) {
+                        return TurnResult.waitingForSource();
+                    }
+                    pendingSourceRecord = polled.get();
+                    pending = new Pending(pendingSourceRecord.entry());
+                } catch (RuntimeException | Error failure) {
+                    ownedShard.fence();
+                    return TurnResult.sourcePollFailure(failure);
+                }
+            } else {
+                final SourceReplayEntry next = peekSource();
+                if (next == null) {
+                    return TurnResult.exhausted();
+                }
+                pending = new Pending(next);
             }
-            pending = new Pending(next);
         }
 
         if (pending.appliedOutcome == null) {
@@ -95,8 +134,11 @@ public final class SourceApplyCoordinator {
         if (!pending.acknowledged) {
             final SourceAcknowledgement.AcknowledgementResult result;
             try {
-                result = Objects.requireNonNull(acknowledgement.acknowledge(pending.entry,
-                        pending.appliedOutcome), "source acknowledgement result");
+                final SourceAcknowledgement ack = sourceConsumer == null
+                        ? acknowledgement
+                        : Objects.requireNonNull(pendingSourceRecord, "pending source record").acknowledgement();
+                result = Objects.requireNonNull(ack.acknowledge(pending.entry, pending.appliedOutcome),
+                        "source acknowledgement result");
             } catch (RuntimeException | Error failure) {
                 return TurnResult.failed(TurnStatus.ACK_UNKNOWN, pending.entry, failure);
             }
@@ -106,22 +148,25 @@ public final class SourceApplyCoordinator {
             pending.acknowledged = true;
         }
 
-        try {
-            final SourceReplayEntry observed = source.peek();
-            if (!sameEntry(pending.entry, observed)) {
-                throw new IllegalStateException("source look-ahead changed before cursor advance");
+        if (sourceConsumer == null) {
+            try {
+                final SourceReplayEntry observed = source.peek();
+                if (!sameEntry(pending.entry, observed)) {
+                    throw new IllegalStateException("source look-ahead changed before cursor advance");
+                }
+                source.next();
+            } catch (RuntimeException | Error failure) {
+                // The broker ACK is already confirmed, but the caller-owned
+                // cursor could not be advanced. Continuity is no longer proven;
+                // fence the Owner before retaining the exact entry for recovery.
+                ownedShard.fence();
+                return TurnResult.failed(TurnStatus.CURSOR_ADVANCE_FAILURE, pending.entry, failure);
             }
-            source.next();
-        } catch (RuntimeException | Error failure) {
-            // The broker ACK is already confirmed, but the caller-owned
-            // cursor could not be advanced. Continuity is no longer proven;
-            // fence the Owner before retaining the exact entry for recovery.
-            ownedShard.fence();
-            return TurnResult.failed(TurnStatus.CURSOR_ADVANCE_FAILURE, pending.entry, failure);
         }
         final SourceReplayOutcome result = pending.appliedOutcome;
         final SourceReplayEntry completed = pending.entry;
         pending = null;
+        pendingSourceRecord = null;
         return TurnResult.applied(completed, result);
     }
 
@@ -180,6 +225,8 @@ public final class SourceApplyCoordinator {
 
     public enum TurnStatus {
         EXHAUSTED,
+        WAITING_FOR_SOURCE,
+        SOURCE_POLL_FAILURE,
         WAITING_FOR_WORK_CLASS,
         APPLIED_AND_ACKED,
         SUBMISSION_REJECTED,
@@ -194,9 +241,13 @@ public final class SourceApplyCoordinator {
                              WorkClassTask task, Throwable failure) {
         public TurnResult {
             Objects.requireNonNull(status, "status");
-            if (status == TurnStatus.EXHAUSTED) {
+            if (status == TurnStatus.EXHAUSTED || status == TurnStatus.WAITING_FOR_SOURCE) {
                 if (entry != null || appliedOutcome != null || task != null || failure != null) {
-                    throw new IllegalArgumentException("exhausted source turn cannot carry work evidence");
+                    throw new IllegalArgumentException("source idle turn cannot carry work evidence");
+                }
+            } else if (status == TurnStatus.SOURCE_POLL_FAILURE) {
+                if (entry != null || appliedOutcome != null || task != null || failure == null) {
+                    throw new IllegalArgumentException("source poll failure has invalid evidence");
                 }
             } else {
                 Objects.requireNonNull(entry, "entry");
@@ -214,6 +265,15 @@ public final class SourceApplyCoordinator {
 
         private static TurnResult exhausted() {
             return new TurnResult(TurnStatus.EXHAUSTED, null, null, null, null);
+        }
+
+        private static TurnResult waitingForSource() {
+            return new TurnResult(TurnStatus.WAITING_FOR_SOURCE, null, null, null, null);
+        }
+
+        private static TurnResult sourcePollFailure(final Throwable failure) {
+            return new TurnResult(TurnStatus.SOURCE_POLL_FAILURE, null, null, null,
+                    Objects.requireNonNull(failure, "failure"));
         }
 
         private static TurnResult waiting(final SourceReplayEntry entry, final WorkClassTask task) {

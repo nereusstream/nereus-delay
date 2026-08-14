@@ -30,6 +30,7 @@ import java.security.KeyPairGenerator;
 import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -48,9 +49,10 @@ class SourceApplyCoordinatorTest {
                 .filter(constructor -> Modifier.isPublic(constructor.getModifiers()))
                 .toList();
 
-        assertEquals(1, publicConstructors.size());
-        assertFalse(Arrays.asList(publicConstructors.get(0).getParameterTypes())
-                .contains(SourceApplyWorkClassExecutor.class));
+        assertEquals(2, publicConstructors.size());
+        assertTrue(publicConstructors.stream()
+                .noneMatch(constructor -> Arrays.asList(constructor.getParameterTypes())
+                        .contains(SourceApplyWorkClassExecutor.class)));
     }
 
     @Test
@@ -118,6 +120,73 @@ class SourceApplyCoordinatorTest {
             final SourceApplyCoordinator.TurnResult applied = coordinator.runTurn(fixture.budget(), () -> 101);
             assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED, applied.status());
             assertFalse(fixture.source.hasNext());
+        }
+    }
+
+    @Test
+    void workerSourceLoopRetainsPollAcrossUnknownAckAndPollsAgainAfterAck() throws Exception {
+        try (Fixture fixture = new Fixture(tempDir.resolve("worker-source"))) {
+            final SourceReplayRecord entry = fixture.entry("worker-source");
+            final AtomicInteger polls = new AtomicInteger();
+            final AtomicInteger acknowledgements = new AtomicInteger();
+            final SourceRecordConsumer consumer = () -> {
+                if (polls.incrementAndGet() == 1) {
+                    return Optional.of(new SourceRecordConsumer.PolledSourceRecord(entry, (candidate, outcome) -> {
+                        assertEquals(entry, candidate);
+                        assertNotNull(outcome.commandResult());
+                        assertNotNull(fixture.owned.shard().getMessage(entry.command().delayMessageId()));
+                        return acknowledgements.incrementAndGet() == 1
+                                ? SourceAcknowledgement.AcknowledgementResult.unknown(null)
+                                : SourceAcknowledgement.AcknowledgementResult.acked();
+                    }));
+                }
+                return Optional.empty();
+            };
+
+            try (WorkerSourceApplyLoop loop = new WorkerSourceApplyLoop(consumer, fixture.workClasses,
+                    fixture.owned, fixture.authority, fixture.verificationKey)) {
+                final SourceApplyCoordinator.TurnResult first = loop.runTurn(fixture.budget(), () -> 101);
+                assertEquals(SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN, first.status());
+                assertEquals(entry, loop.pendingEntry().orElseThrow());
+                assertEquals(1, polls.get());
+
+                final SourceApplyCoordinator.TurnResult second = loop.runTurn(fixture.budget(), () -> 101);
+                assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED, second.status());
+                assertTrue(loop.pendingEntry().isEmpty());
+                assertEquals(1, polls.get(), "ACK retry must not poll a replacement record");
+                assertEquals(2, acknowledgements.get());
+
+                final SourceApplyCoordinator.TurnResult idle = loop.runTurn(fixture.budget(), () -> 101);
+                assertEquals(SourceApplyCoordinator.TurnStatus.WAITING_FOR_SOURCE, idle.status());
+                assertEquals(2, polls.get());
+            }
+        }
+    }
+
+    @Test
+    void workerSourceLoopDoesNotTreatAnIdlePollAsPermanentEndOfStream() throws Exception {
+        try (Fixture fixture = new Fixture(tempDir.resolve("worker-source-idle"))) {
+            final SourceReplayRecord entry = fixture.entry("worker-source-idle");
+            final AtomicInteger polls = new AtomicInteger();
+            final SourceRecordConsumer consumer = () -> {
+                if (polls.incrementAndGet() == 1) {
+                    return Optional.empty();
+                }
+                if (polls.get() == 2) {
+                    return Optional.of(new SourceRecordConsumer.PolledSourceRecord(entry,
+                            (candidate, outcome) -> SourceAcknowledgement.AcknowledgementResult.acked()));
+                }
+                return Optional.empty();
+            };
+
+            try (WorkerSourceApplyLoop loop = new WorkerSourceApplyLoop(consumer, fixture.workClasses,
+                    fixture.owned, fixture.authority, fixture.verificationKey)) {
+                assertEquals(SourceApplyCoordinator.TurnStatus.WAITING_FOR_SOURCE,
+                        loop.runTurn(fixture.budget(), () -> 101).status());
+                assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                        loop.runTurn(fixture.budget(), () -> 101).status());
+                assertEquals(2, polls.get());
+            }
         }
     }
 
