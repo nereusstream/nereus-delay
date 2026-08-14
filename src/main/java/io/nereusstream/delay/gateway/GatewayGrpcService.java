@@ -12,8 +12,15 @@ import io.nereusstream.delay.gateway.v1.GatewayPrepareLargeScheduleRequestV1;
 import io.nereusstream.delay.gateway.v1.GatewayRescheduleRequestV1;
 import io.nereusstream.delay.gateway.v1.GatewayRetryUncertainRequestV1;
 import io.nereusstream.delay.gateway.v1.GatewayScheduleRequestV1;
+import io.nereusstream.delay.gateway.v1.GatewayAwaitAppliedRequestV1;
+import io.nereusstream.delay.gateway.v1.GatewayGetCommandResultRequestV1;
+import io.nereusstream.delay.gateway.v1.GatewayGetMessageRequestV1;
 import io.nereusstream.delay.protocol.AdapterKindV1;
+import io.nereusstream.delay.protocol.CommandId;
+import io.nereusstream.delay.protocol.CommandQueryResponseV1;
+import io.nereusstream.delay.protocol.CommandQueuedReceiptV1;
 import io.nereusstream.delay.protocol.DelayMessageId;
+import io.nereusstream.delay.protocol.MessageQueryResponseV1;
 import io.nereusstream.delay.protocol.MessagePreconditionV1;
 import io.nereusstream.delay.protocol.OpaquePayloadUploadHandleV1;
 import io.nereusstream.delay.protocol.PayloadAttestationResponseV1;
@@ -29,29 +36,38 @@ import io.nereusstream.delay.transport.PhysicalEnqueueAttemptId;
 import io.nereusstream.delay.protocol.UploadHandleKindV1;
 
 import java.util.Objects;
+import java.util.List;
 import java.util.concurrent.CompletionException;
 
 /**
- * Generated gRPC adapter for the currently implemented submission paths.
- * Upload, query and await RPCs remain the generated
- * UNIMPLEMENTED boundary until its domain authority exists.
+ * Generated gRPC adapter for the locally implemented submission paths.
+ * Payload and query RPCs require their explicit authority compositions.
  */
 public final class GatewayGrpcService extends DelayGatewayV1Grpc.DelayGatewayV1ImplBase {
     private final GatewayIngressService ingress;
     private final GatewayPeerContextProvider peerContextProvider;
     private final GatewayPayloadIngressService payloadIngress;
+    private final GatewayQueryIngressService queryIngress;
 
     public GatewayGrpcService(final GatewayIngressService ingress,
                               final GatewayPeerContextProvider peerContextProvider) {
-        this(ingress, peerContextProvider, null);
+        this(ingress, peerContextProvider, null, null);
     }
 
     public GatewayGrpcService(final GatewayIngressService ingress,
                               final GatewayPeerContextProvider peerContextProvider,
                               final GatewayPayloadIngressService payloadIngress) {
+        this(ingress, peerContextProvider, payloadIngress, null);
+    }
+
+    public GatewayGrpcService(final GatewayIngressService ingress,
+                              final GatewayPeerContextProvider peerContextProvider,
+                              final GatewayPayloadIngressService payloadIngress,
+                              final GatewayQueryIngressService queryIngress) {
         this.ingress = Objects.requireNonNull(ingress, "ingress");
         this.peerContextProvider = Objects.requireNonNull(peerContextProvider, "peerContextProvider");
         this.payloadIngress = payloadIngress;
+        this.queryIngress = queryIngress;
     }
 
     @Override
@@ -94,6 +110,75 @@ public final class GatewayGrpcService extends DelayGatewayV1Grpc.DelayGatewayV1I
         }
         try {
             payloadIngress.attestUpload(peerContextProvider.current(), domain)
+                    .whenComplete((response, failure) -> complete(responseObserver, response, failure));
+        } catch (RuntimeException failure) {
+            fail(responseObserver, statusFor(failure));
+        }
+    }
+
+    @Override
+    public void getCommandResult(final GatewayGetCommandResultRequestV1 request,
+                                 final StreamObserver<io.nereusstream.delay.gateway.v1.GatewayCommandQueryResponseV1>
+                                         responseObserver) {
+        if (queryIngress == null) {
+            fail(responseObserver, Status.Code.UNIMPLEMENTED);
+            return;
+        }
+        final io.nereusstream.delay.gateway.GatewayGetCommandResultRequestV1 domain;
+        try {
+            domain = decodeGetCommandResult(request);
+        } catch (RuntimeException invalidRequest) {
+            fail(responseObserver, Status.Code.INVALID_ARGUMENT);
+            return;
+        }
+        try {
+            queryIngress.getCommandResult(peerContextProvider.current(), domain)
+                    .whenComplete((response, failure) -> complete(responseObserver, response, failure));
+        } catch (RuntimeException failure) {
+            fail(responseObserver, statusFor(failure));
+        }
+    }
+
+    @Override
+    public void awaitApplied(final GatewayAwaitAppliedRequestV1 request,
+                             final StreamObserver<io.nereusstream.delay.gateway.v1.GatewayCommandQueryResponseV1>
+                                     responseObserver) {
+        if (queryIngress == null) {
+            fail(responseObserver, Status.Code.UNIMPLEMENTED);
+            return;
+        }
+        final io.nereusstream.delay.gateway.GatewayAwaitAppliedRequestV1 domain;
+        try {
+            domain = decodeAwaitApplied(request);
+        } catch (RuntimeException invalidRequest) {
+            fail(responseObserver, Status.Code.INVALID_ARGUMENT);
+            return;
+        }
+        try {
+            queryIngress.awaitApplied(peerContextProvider.current(), domain)
+                    .whenComplete((responses, failure) -> completeStream(responseObserver, responses, failure));
+        } catch (RuntimeException failure) {
+            fail(responseObserver, statusFor(failure));
+        }
+    }
+
+    @Override
+    public void getMessage(final GatewayGetMessageRequestV1 request,
+                           final StreamObserver<io.nereusstream.delay.gateway.v1.GatewayMessageQueryResponseV1>
+                                   responseObserver) {
+        if (queryIngress == null) {
+            fail(responseObserver, Status.Code.UNIMPLEMENTED);
+            return;
+        }
+        final io.nereusstream.delay.gateway.GatewayGetMessageRequestV1 domain;
+        try {
+            domain = decodeGetMessage(request);
+        } catch (RuntimeException invalidRequest) {
+            fail(responseObserver, Status.Code.INVALID_ARGUMENT);
+            return;
+        }
+        try {
+            queryIngress.getMessage(peerContextProvider.current(), domain)
                     .whenComplete((response, failure) -> complete(responseObserver, response, failure));
         } catch (RuntimeException failure) {
             fail(responseObserver, statusFor(failure));
@@ -297,6 +382,41 @@ public final class GatewayGrpcService extends DelayGatewayV1Grpc.DelayGatewayV1I
                 OpaquePayloadUploadHandleV1.decode(request.getOpaquePayloadUploadHandleV1().toByteArray()));
     }
 
+    private static io.nereusstream.delay.gateway.GatewayGetCommandResultRequestV1 decodeGetCommandResult(
+            final GatewayGetCommandResultRequestV1 request) {
+        if (request.hasCommandQueuedReceiptV1()) {
+            return new io.nereusstream.delay.gateway.GatewayGetCommandResultRequestV1(
+                    CommandQueuedReceiptV1.decodePayload(request.getCommandQueuedReceiptV1().toByteArray()), null);
+        }
+        if (request.hasCommandId()) {
+            return new io.nereusstream.delay.gateway.GatewayGetCommandResultRequestV1(null,
+                    new CommandId(request.getCommandId().toByteArray()));
+        }
+        throw new IllegalArgumentException("Gateway command query locator is missing");
+    }
+
+    private static io.nereusstream.delay.gateway.GatewayAwaitAppliedRequestV1 decodeAwaitApplied(
+            final GatewayAwaitAppliedRequestV1 request) {
+        if (request.getCommandQueuedReceiptV1().isEmpty()) {
+            throw new IllegalArgumentException("Gateway AwaitApplied request is incomplete");
+        }
+        return new io.nereusstream.delay.gateway.GatewayAwaitAppliedRequestV1(
+                CommandQueuedReceiptV1.decodePayload(request.getCommandQueuedReceiptV1().toByteArray()));
+    }
+
+    private static io.nereusstream.delay.gateway.GatewayGetMessageRequestV1 decodeGetMessage(
+            final GatewayGetMessageRequestV1 request) {
+        if (request.hasDelayMessageId()) {
+            return new io.nereusstream.delay.gateway.GatewayGetMessageRequestV1(
+                    new DelayMessageId(request.getDelayMessageId().toByteArray()), null);
+        }
+        if (request.hasCommandQueuedReceiptV1()) {
+            return new io.nereusstream.delay.gateway.GatewayGetMessageRequestV1(null,
+                    CommandQueuedReceiptV1.decodePayload(request.getCommandQueuedReceiptV1().toByteArray()));
+        }
+        throw new IllegalArgumentException("Gateway message query locator is missing");
+    }
+
     private static void complete(
             final StreamObserver<io.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1> responseObserver,
             final GatewaySubmissionOutcomeV1 outcome, final Throwable failure) {
@@ -339,6 +459,51 @@ public final class GatewayGrpcService extends DelayGatewayV1Grpc.DelayGatewayV1I
         }
         responseObserver.onNext(io.nereusstream.delay.gateway.v1.GatewayPayloadAttestationResponseV1.newBuilder()
                 .setPayloadAttestationResponseV1(ByteString.copyFrom(response.canonicalBytes()))
+                .build());
+        responseObserver.onCompleted();
+    }
+
+    private static void complete(
+            final StreamObserver<io.nereusstream.delay.gateway.v1.GatewayCommandQueryResponseV1> responseObserver,
+            final CommandQueryResponseV1 response, final Throwable failure) {
+        if (failure != null || response == null) {
+            fail(responseObserver, statusFor(failure));
+            return;
+        }
+        responseObserver.onNext(io.nereusstream.delay.gateway.v1.GatewayCommandQueryResponseV1.newBuilder()
+                .setCommandQueryResponseV1(ByteString.copyFrom(response.canonicalBytes()))
+                .build());
+        responseObserver.onCompleted();
+    }
+
+    private static void completeStream(
+            final StreamObserver<io.nereusstream.delay.gateway.v1.GatewayCommandQueryResponseV1> responseObserver,
+            final List<CommandQueryResponseV1> responses, final Throwable failure) {
+        if (failure != null || responses == null || responses.isEmpty()) {
+            fail(responseObserver, statusFor(failure));
+            return;
+        }
+        for (CommandQueryResponseV1 response : responses) {
+            if (response == null) {
+                fail(responseObserver, Status.Code.INTERNAL);
+                return;
+            }
+            responseObserver.onNext(io.nereusstream.delay.gateway.v1.GatewayCommandQueryResponseV1.newBuilder()
+                    .setCommandQueryResponseV1(ByteString.copyFrom(response.canonicalBytes()))
+                    .build());
+        }
+        responseObserver.onCompleted();
+    }
+
+    private static void complete(
+            final StreamObserver<io.nereusstream.delay.gateway.v1.GatewayMessageQueryResponseV1> responseObserver,
+            final MessageQueryResponseV1 response, final Throwable failure) {
+        if (failure != null || response == null) {
+            fail(responseObserver, statusFor(failure));
+            return;
+        }
+        responseObserver.onNext(io.nereusstream.delay.gateway.v1.GatewayMessageQueryResponseV1.newBuilder()
+                .setMessageQueryResponseV1(ByteString.copyFrom(response.canonicalBytes()))
                 .build());
         responseObserver.onCompleted();
     }
