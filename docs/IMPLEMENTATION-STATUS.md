@@ -16,7 +16,8 @@ in-memory Gateway Schedule conformance composition, generated Java/gRPC
 Gateway API descriptors, partial generated service handling for Schedule,
 RetryUncertain, PrepareLargeSchedule, CommitLargeSchedule, Cancel and
 Reschedule from the checked-in proto, and a transport-neutral Worker
-source-consumer/ACK-after-sync composition. These are local
+source-consumer/ACK-after-sync composition, plus receipt-bound payload upload
+handlers behind an explicitly injected `GatewayPayloadAuthority`. These are local
 implementation evidence, not claims of activation-barrier/session-fenced real
 Oxia authority, a complete Gateway service/authentication deployment, real Broker transport, or
 production Worker wiring or release readiness. The isolated Kafka and Pulsar
@@ -96,8 +97,9 @@ tenant authority is required before domain preparation, schedule/retry/control
 admission pools are isolated, and digest-only audit events are emitted before
 and after the domain call. `GatewayGrpcService` implements Schedule,
 RetryUncertain, PrepareLargeSchedule, CommitLargeSchedule, Cancel and
-Reschedule; all other generated RPCs remain
-`UNIMPLEMENTED`. The local
+Reschedule, plus receipt-bound payload upload handlers when a
+`GatewayPayloadIngressService` is configured; query/await/message handlers
+remain `UNIMPLEMENTED`. The local
 admission/audit implementations are deterministic conformance components, not
 distributed quota or production audit authority.
 
@@ -234,6 +236,26 @@ opt-in real-Oxia smoke methods were skipped because no endpoint was
 configured. Upload-handle issuance/attestation, query/AwaitApplied/GetMessage,
 deployable authentication, distributed quota/audit, Gateway HA durability,
 real Kafka/Pulsar transports and production Worker wiring remain open.
+
+## 2026-08-14 Gateway payload authority/ingress slice
+
+Delay worktree commit `44bffea6063ef68ce36f8fb49527ee00a9bfa36b` adds typed
+Gateway upload-handle and attestation request records, strict canonical
+receipt/opaque-handle gRPC decoding, and `GatewayPayloadIngressService`.
+Before the injected authority is called, it authenticates the tenant, takes
+the bounded control admission lease, and emits digest-only received/completed
+or failed audit events. The injected `GatewayPayloadAuthority` receives the
+authenticated tenant and exact decoded receipt/handle; the Gateway never
+accepts Object Store credentials or proof keys in transport DTOs.
+
+`GatewayPayloadGrpcServiceTest` covers both generated RPCs, canonical response
+decoding, tenant propagation, admission and audit path. The independent full
+local gate passed at this commit; five opt-in real-Oxia smoke methods were
+skipped because no endpoint was configured. This closes only the local
+authority/ingress composition: actual Object Store credential binding,
+reservation registration/session authority, remote immutability and proof-key
+custody remain open. Query/AwaitApplied/GetMessage and production Worker/
+transport integration also remain open.
 
 ## 2026-08-14 K1 isolated Kafka guarded-client slice
 
