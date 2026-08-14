@@ -84,16 +84,23 @@ public final class DefaultDelaySemanticCore implements DelaySemanticCore {
         }
         final Optional<NativePreparationSnapshotV1> nativeCandidate;
         try {
-            nativeCandidate = Objects.requireNonNull(nativeSnapshots.eligibleFor(tenant, snapshot, intent, trustedTime),
-                    "native snapshot provider returned null");
+            nativeCandidate = Objects.requireNonNull(nativeSnapshots.eligibleFor(tenant, snapshot, intent, managed,
+                            trustedTime), "native snapshot provider returned null");
         } catch (RuntimeException failure) {
             throw SemanticPreparationException.of(StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE, failure);
         }
         if (nativeCandidate.isEmpty()) {
             return PreparedSubmissionV1.managed(managedFrame);
         }
-        return PreparedSubmissionV1.nativePrepared(prepareNative(managed, intent, nativeCandidate.get(), snapshot,
-                trustedTime));
+        try {
+            return PreparedSubmissionV1.nativePrepared(prepareNative(tenant, managed, intent, nativeCandidate.get(),
+                    snapshot, trustedTime));
+        } catch (SemanticPreparationException failure) {
+            if (failure.error().code() == StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE) {
+                return PreparedSubmissionV1.managed(managedFrame);
+            }
+            throw failure;
+        }
     }
 
     @Override
@@ -188,17 +195,15 @@ public final class DefaultDelaySemanticCore implements DelaySemanticCore {
         return PreparedSubmissionV1.managed(strictFrameWithinRoute(command, snapshot));
     }
 
-    private NativePreparedDeliveryV1 prepareNative(final PreparedCommand managed, final ScheduleIntentV1 intent,
+    private NativePreparedDeliveryV1 prepareNative(final AuthenticatedTenantContext tenant,
+                                                   final PreparedCommand managed, final ScheduleIntentV1 intent,
                                                    final NativePreparationSnapshotV1 candidate,
                                                    final RouteSnapshotV1 snapshot,
                                                    final TrustedTimeSnapshot trustedTime) {
-        if (snapshot.ingress().adapterKind() != AdapterKindV1.PULSAR
-                || intent.adapterMetadata().kind() != AdapterMetadataV1.Kind.PULSAR
-                || candidate.brokerDeliverAtEpochMs() < intent.deliverAtEpochMs()
-                || candidate.brokerDeliverAtEpochMs() > intent.expireAtEpochMs()
-                || candidate.brokerDeliverAtEpochMs() > snapshot.validUntilEpochMs()
-                || candidate.capabilitySnapshot().notAfterEpochMs() < trustedTime.epochMs()) {
-            throw SemanticPreparationException.of(StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE, null);
+        try {
+            NativePreparationEligibilityV1.require(tenant, snapshot, intent, managed, candidate, trustedTime);
+        } catch (RuntimeException failure) {
+            throw SemanticPreparationException.of(StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE, failure);
         }
         try {
             return NativePreparedDeliveryV1.create(

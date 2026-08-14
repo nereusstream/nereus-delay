@@ -24,6 +24,7 @@ import io.nereusstream.delay.protocol.ScheduleIntent;
 import io.nereusstream.delay.protocol.ScheduleIntentV1;
 import io.nereusstream.delay.protocol.PreparedSubmissionV1;
 import io.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
+import io.nereusstream.delay.protocol.SubmissionModeV1;
 import io.nereusstream.delay.protocol.UploadHandleKindV1;
 import io.nereusstream.delay.runtime.CommandResult;
 
@@ -63,6 +64,15 @@ public interface DelayClient extends AutoCloseable {
      * branch. This performs no transport I/O and never selects a native path.
      */
     PreparedSubmissionV1 prepareManagedSubmissionV1(PreparedCommand command);
+
+    /**
+     * Prepares and freezes one Schedule branch through the shared zero-I/O
+     * Semantic Core. AUTO_FAST eligibility comes only from the configured
+     * local verified-snapshot provider; callers cannot supply a target or
+     * credential candidate.
+     */
+    PreparedSubmissionV1 prepareScheduleSubmissionV1(ScheduleIntentV1 intent, long retryUntilEpochMs,
+                                                     SubmissionModeV1 submissionMode);
 
     /**
      * Selects and freezes the managed/native branch before any transport I/O.

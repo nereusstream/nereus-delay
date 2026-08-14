@@ -26,6 +26,7 @@ import io.nereusstream.delay.protocol.PublicEvidenceRefV1;
 import io.nereusstream.delay.protocol.ScheduleIntent;
 import io.nereusstream.delay.protocol.ScheduleIntentV1;
 import io.nereusstream.delay.protocol.StableCode;
+import io.nereusstream.delay.protocol.SubmissionModeV1;
 import io.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
 import io.nereusstream.delay.protocol.UploadHandleKindV1;
 import io.nereusstream.delay.runtime.CommandResult;
@@ -39,6 +40,7 @@ import io.nereusstream.delay.semantic.RouteSelectionHint;
 import io.nereusstream.delay.semantic.SemanticPreparationException;
 import io.nereusstream.delay.semantic.SecureLogicalUuidV7Generator;
 import io.nereusstream.delay.semantic.TrustedClock;
+import io.nereusstream.delay.semantic.NativePreparationSnapshotProvider;
 import io.nereusstream.delay.submission.DefaultSubmissionCoordinator;
 import io.nereusstream.delay.submission.RouteBoundSubmissionTransportPlanResolver;
 import io.nereusstream.delay.submission.SubmissionCoordinator;
@@ -91,8 +93,8 @@ public final class DefaultDelayClient implements DelayClient {
     public PreparedCommand prepareScheduleV1(final ScheduleIntentV1 intent, final long retryUntilEpochMs) {
         ensureOpen();
         try {
-            return CommandCodec.decodeFrameV1(semanticCore.prepareSchedule(tenant, defaultRoute, intent,
-                    retryUntilEpochMs, io.nereusstream.delay.protocol.SubmissionModeV1.MANAGED).managedFrame());
+            return CommandCodec.decodeFrameV1(prepareScheduleSubmissionV1(intent, retryUntilEpochMs,
+                    SubmissionModeV1.MANAGED).managedFrame());
         } catch (SemanticPreparationException failure) {
             throw new PreparationFailure(failure.error(), failure);
         } catch (RuntimeException failure) {
@@ -160,6 +162,22 @@ public final class DefaultDelayClient implements DelayClient {
     public PreparedSubmissionV1 prepareManagedSubmissionV1(final PreparedCommand command) {
         ensureOpen();
         return semanticCore.prepareManaged(tenant, command);
+    }
+
+    @Override
+    public PreparedSubmissionV1 prepareScheduleSubmissionV1(final ScheduleIntentV1 intent,
+                                                            final long retryUntilEpochMs,
+                                                            final SubmissionModeV1 submissionMode) {
+        ensureOpen();
+        Objects.requireNonNull(intent, "intent");
+        Objects.requireNonNull(submissionMode, "submissionMode");
+        try {
+            return semanticCore.prepareSchedule(tenant, defaultRoute, intent, retryUntilEpochMs, submissionMode);
+        } catch (SemanticPreparationException failure) {
+            throw new PreparationFailure(failure.error(), failure);
+        } catch (RuntimeException failure) {
+            throw PreparationFailure.of(StableCode.INVALID_PREPARED_COMMAND, failure);
+        }
     }
 
     @Override
@@ -408,6 +426,7 @@ public final class DefaultDelayClient implements DelayClient {
         private RouteSnapshotProvider routeSnapshotProvider;
         private LogicalUuidV7Generator uuidGenerator;
         private TrustedClock trustedClock;
+        private NativePreparationSnapshotProvider nativePreparationSnapshotProvider;
         private SubmissionCoordinator submissionCoordinator;
         private CommandTransportRegistry transportRegistry;
         private SubmissionOutcomeProjectorRegistry projectorRegistry;
@@ -442,6 +461,11 @@ public final class DefaultDelayClient implements DelayClient {
 
         public Builder trustedClock(final TrustedClock value) {
             trustedClock = value;
+            return this;
+        }
+
+        public Builder nativePreparationSnapshotProvider(final NativePreparationSnapshotProvider value) {
+            nativePreparationSnapshotProvider = value;
             return this;
         }
 
@@ -488,7 +512,8 @@ public final class DefaultDelayClient implements DelayClient {
             } else {
                 Objects.requireNonNull(routeSnapshotProvider, "routeSnapshotProvider");
                 resolvedCore = new DefaultDelaySemanticCore(routeSnapshotProvider,
-                        uuidGenerator == null ? new SecureLogicalUuidV7Generator() : uuidGenerator, clock);
+                        uuidGenerator == null ? new SecureLogicalUuidV7Generator() : uuidGenerator, clock,
+                        nativePreparationSnapshotProvider, io.nereusstream.delay.semantic.NativeDeliveryIdGenerator.random());
             }
             final SubmissionCoordinator resolvedCoordinator;
             if (submissionCoordinator != null) {

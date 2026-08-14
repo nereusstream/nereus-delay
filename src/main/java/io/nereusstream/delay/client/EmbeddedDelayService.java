@@ -61,6 +61,7 @@ import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.StableErrorV1;
 import io.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
+import io.nereusstream.delay.protocol.SubmissionModeV1;
 import io.nereusstream.delay.protocol.TargetPartitionHashInputV1;
 import io.nereusstream.delay.protocol.TargetPartitionHashV1;
 import io.nereusstream.delay.protocol.TimingCapabilityV1;
@@ -347,6 +348,17 @@ public final class EmbeddedDelayService implements DelayClient {
         } catch (RuntimeException invalidCommand) {
             throw PreparationFailure.of(StableCode.INVALID_PREPARED_COMMAND, invalidCommand);
         }
+    }
+
+    @Override
+    public PreparedSubmissionV1 prepareScheduleSubmissionV1(final ScheduleIntentV1 intent,
+                                                             final long retryUntilEpochMs,
+                                                             final SubmissionModeV1 submissionMode) {
+        ensureOpen();
+        if (submissionMode != SubmissionModeV1.MANAGED) {
+            throw PreparationFailure.of(StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE);
+        }
+        return prepareManagedSubmissionV1(prepareScheduleV1(intent, retryUntilEpochMs));
     }
 
     @Override
