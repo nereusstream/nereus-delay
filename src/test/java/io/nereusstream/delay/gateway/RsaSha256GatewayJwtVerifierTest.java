@@ -48,7 +48,7 @@ class RsaSha256GatewayJwtVerifierTest {
                 NOW - 10, NOW - 5, NOW + 300));
 
         assertThrows(IllegalArgumentException.class,
-                () -> verifier.verify(valid.substring(0, valid.length() - 1) + "A", session(CERTIFICATE_BYTES)));
+                () -> verifier.verify(mutateSignature(valid), session(CERTIFICATE_BYTES)));
         final String expired = token(keyPair, header(), claims(digest(21), digest(22), certificateFingerprint(),
                 NOW - 500, NOW - 400, NOW - 100));
         assertThrows(IllegalArgumentException.class, () -> verifier.verify(expired, session(CERTIFICATE_BYTES)));
@@ -111,6 +111,13 @@ class RsaSha256GatewayJwtVerifierTest {
         signature.initSign(keyPair.getPrivate());
         signature.update(input.getBytes(StandardCharsets.US_ASCII));
         return input + "." + encode(signature.sign());
+    }
+
+    private static String mutateSignature(final String token) {
+        final int signatureStart = token.lastIndexOf('.') + 1;
+        final char original = token.charAt(signatureStart);
+        final char replacement = original == 'A' ? 'B' : 'A';
+        return token.substring(0, signatureStart) + replacement + token.substring(signatureStart + 1);
     }
 
     private static KeyPair rsaKeyPair() throws Exception {
