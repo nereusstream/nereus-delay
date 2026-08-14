@@ -36,16 +36,29 @@ public final class GuardedPulsarCommandTransport implements CommandTransport {
         Objects.requireNonNull(ownershipPermit, "ownershipPermit");
         if (!matches(request)) {
             return CompletableFuture.completedFuture(PulsarSendResult.definitelyNotPersisted(
+                    ownershipPermit.physicalAttemptId(),
                     StableCode.BROKER_RESOURCE_UNCERTIFIED.wireValue(), null));
         }
         if (!ownershipPermit.tryTransferToLibraryOwnership()) {
             return CompletableFuture.completedFuture(PulsarSendResult.definitelyNotPersisted(
+                    ownershipPermit.physicalAttemptId(),
                     StableCode.BROKER_RESOURCE_UNCERTIFIED.wireValue(), null));
         }
+        final CompletionStage<PulsarSendResult> result;
         if (request instanceof PulsarNativeSendRequest nativeRequest) {
-            return nativeSender.send(nativeRequest);
+            result = nativeSender.send(nativeRequest);
+        } else {
+            result = managedSender.send((PulsarSendRequest) request);
         }
-        return managedSender.send((PulsarSendRequest) request);
+        if (result == null) {
+            return null;
+        }
+        try {
+            return result.thenApply(value -> value == null ? null : value.bindPhysicalAttemptId(
+                    ownershipPermit.physicalAttemptId()));
+        } catch (RuntimeException failure) {
+            return CompletableFuture.failedFuture(failure);
+        }
     }
 
     @Override

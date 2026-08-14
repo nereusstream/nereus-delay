@@ -1,6 +1,7 @@
 package io.nereusstream.delay.adapter;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.transport.PhysicalEnqueueAttemptId;
 import io.nereusstream.delay.transport.TransportResult;
 
 import java.util.Objects;
@@ -23,7 +24,8 @@ public record PulsarSendResult(
         long brokerEntryTimestampEpochMs,
         int stableCode,
         byte[] requestEvidenceBytes,
-        byte[] responseEvidenceBytes) implements TransportResult {
+        byte[] responseEvidenceBytes,
+        PhysicalEnqueueAttemptId physicalAttemptId) implements TransportResult {
     public PulsarSendResult {
         Objects.requireNonNull(disposition, "disposition");
         if (disposition == Disposition.PERSISTED) {
@@ -53,10 +55,21 @@ public record PulsarSendResult(
                             final byte[] resourceIncarnation, final String physicalTopic,
                             final long physicalTopicCreationTimestamp, final int partition, final long ledgerId,
                             final long entryId, final int batchIndex, final int batchSize, final boolean batched,
+                            final long brokerEntryTimestampEpochMs, final int stableCode,
+                            final byte[] requestEvidenceBytes, final byte[] responseEvidenceBytes) {
+        this(disposition, authenticatedClusterId, resourceIncarnation, physicalTopic,
+                physicalTopicCreationTimestamp, partition, ledgerId, entryId, batchIndex, batchSize, batched,
+                brokerEntryTimestampEpochMs, stableCode, requestEvidenceBytes, responseEvidenceBytes, null);
+    }
+
+    public PulsarSendResult(final Disposition disposition, final String authenticatedClusterId,
+                            final byte[] resourceIncarnation, final String physicalTopic,
+                            final long physicalTopicCreationTimestamp, final int partition, final long ledgerId,
+                            final long entryId, final int batchIndex, final int batchSize, final boolean batched,
                             final long brokerEntryTimestampEpochMs, final int stableCode, final byte[] evidence) {
         this(disposition, authenticatedClusterId, resourceIncarnation, physicalTopic,
                 physicalTopicCreationTimestamp, partition, ledgerId, entryId, batchIndex, batchSize, batched,
-                brokerEntryTimestampEpochMs, stableCode, evidence, evidence);
+                brokerEntryTimestampEpochMs, stableCode, evidence, evidence, null);
     }
 
     public static PulsarSendResult persisted(final String clusterId, final byte[] resourceIncarnation,
@@ -67,18 +80,54 @@ public record PulsarSendResult(
                                              final byte[] evidence) {
         return new PulsarSendResult(Disposition.PERSISTED, clusterId, resourceIncarnation, physicalTopic,
                 physicalTopicCreationTimestamp, partition, ledgerId, entryId, batchIndex, batchSize, batched,
-                brokerEntryTimestampEpochMs, 0, evidence, evidence);
+                brokerEntryTimestampEpochMs, 0, evidence, evidence, null);
+    }
+
+    public static PulsarSendResult persisted(final PhysicalEnqueueAttemptId physicalAttemptId,
+                                             final String clusterId, final byte[] resourceIncarnation,
+                                             final String physicalTopic, final long physicalTopicCreationTimestamp,
+                                             final int partition, final long ledgerId, final long entryId,
+                                             final int batchIndex, final int batchSize, final boolean batched,
+                                             final long brokerEntryTimestampEpochMs, final byte[] evidence) {
+        return new PulsarSendResult(Disposition.PERSISTED, clusterId, resourceIncarnation, physicalTopic,
+                physicalTopicCreationTimestamp, partition, ledgerId, entryId, batchIndex, batchSize, batched,
+                brokerEntryTimestampEpochMs, 0, evidence, evidence,
+                Objects.requireNonNull(physicalAttemptId, "physicalAttemptId"));
     }
 
     public static PulsarSendResult definitelyNotPersisted(final int stableCode, final byte[] evidence) {
         return new PulsarSendResult(Disposition.DEFINITIVELY_NOT_PERSISTED, null, null, null, -1, -1, -1, -1,
                 -1, -1, false, -1, stableCode, brokerEvidence(stableCode, evidence),
-                brokerEvidence(stableCode, evidence));
+                brokerEvidence(stableCode, evidence), null);
+    }
+
+    public static PulsarSendResult definitelyNotPersisted(final PhysicalEnqueueAttemptId physicalAttemptId,
+                                                           final int stableCode, final byte[] evidence) {
+        return new PulsarSendResult(Disposition.DEFINITIVELY_NOT_PERSISTED, null, null, null, -1, -1, -1, -1,
+                -1, -1, false, -1, stableCode, brokerEvidence(stableCode, evidence),
+                brokerEvidence(stableCode, evidence), Objects.requireNonNull(physicalAttemptId, "physicalAttemptId"));
     }
 
     public static PulsarSendResult unknown(final int stableCode, final byte[] evidence) {
         return new PulsarSendResult(Disposition.UNKNOWN, null, null, null, -1, -1, -1, -1, -1, -1, false,
-                -1, stableCode, null, evidence);
+                -1, stableCode, null, evidence, null);
+    }
+
+    public static PulsarSendResult unknown(final PhysicalEnqueueAttemptId physicalAttemptId,
+                                           final int stableCode, final byte[] evidence) {
+        return new PulsarSendResult(Disposition.UNKNOWN, null, null, null, -1, -1, -1, -1, -1, -1, false,
+                -1, stableCode, null, evidence, Objects.requireNonNull(physicalAttemptId, "physicalAttemptId"));
+    }
+
+    public PulsarSendResult bindPhysicalAttemptId(final PhysicalEnqueueAttemptId attemptId) {
+        Objects.requireNonNull(attemptId, "attemptId");
+        if (physicalAttemptId != null && !physicalAttemptId.equals(attemptId)) {
+            throw new IllegalArgumentException("Pulsar result physical attempt mismatch");
+        }
+        return physicalAttemptId == null ? new PulsarSendResult(disposition, authenticatedClusterId,
+                resourceIncarnation, physicalTopic, physicalTopicCreationTimestamp, partition, ledgerId, entryId,
+                batchIndex, batchSize, batched, brokerEntryTimestampEpochMs, stableCode, requestEvidenceBytes,
+                responseEvidenceBytes, attemptId) : this;
     }
 
     @Override

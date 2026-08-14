@@ -1,6 +1,7 @@
 package io.nereusstream.delay.adapter;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.transport.PhysicalEnqueueAttemptId;
 import io.nereusstream.delay.transport.TransportResult;
 
 import java.util.Objects;
@@ -19,7 +20,8 @@ public record KafkaProduceResult(
         long brokerLogAppendTimeEpochMs,
         int stableCode,
         byte[] requestEvidenceBytes,
-        byte[] responseEvidenceBytes) implements TransportResult {
+        byte[] responseEvidenceBytes,
+        PhysicalEnqueueAttemptId physicalAttemptId) implements TransportResult {
     public KafkaProduceResult {
         Objects.requireNonNull(disposition, "disposition");
         if (disposition == Disposition.PERSISTED) {
@@ -41,26 +43,67 @@ public record KafkaProduceResult(
     public KafkaProduceResult(final Disposition disposition, final String authenticatedClusterId,
                               final UUID nativeTopicUuid, final int partition, final long offset,
                               final Integer leaderEpoch, final long brokerLogAppendTimeEpochMs,
+                              final int stableCode, final byte[] requestEvidenceBytes,
+                              final byte[] responseEvidenceBytes) {
+        this(disposition, authenticatedClusterId, nativeTopicUuid, partition, offset, leaderEpoch,
+                brokerLogAppendTimeEpochMs, stableCode, requestEvidenceBytes, responseEvidenceBytes, null);
+    }
+
+    public KafkaProduceResult(final Disposition disposition, final String authenticatedClusterId,
+                              final UUID nativeTopicUuid, final int partition, final long offset,
+                              final Integer leaderEpoch, final long brokerLogAppendTimeEpochMs,
                               final int stableCode, final byte[] evidence) {
         this(disposition, authenticatedClusterId, nativeTopicUuid, partition, offset, leaderEpoch,
-                brokerLogAppendTimeEpochMs, stableCode, evidence, evidence);
+                brokerLogAppendTimeEpochMs, stableCode, evidence, evidence, null);
     }
 
     public static KafkaProduceResult persisted(final String clusterId, final UUID topicUuid, final int partition,
                                                final long offset, final Integer leaderEpoch,
                                                final long brokerLogAppendTimeEpochMs, final byte[] evidence) {
         return new KafkaProduceResult(Disposition.PERSISTED, clusterId, topicUuid, partition, offset, leaderEpoch,
-                brokerLogAppendTimeEpochMs, 0, evidence, evidence);
+                brokerLogAppendTimeEpochMs, 0, evidence, evidence, null);
+    }
+
+    public static KafkaProduceResult persisted(final PhysicalEnqueueAttemptId physicalAttemptId,
+                                               final String clusterId, final UUID topicUuid, final int partition,
+                                               final long offset, final Integer leaderEpoch,
+                                               final long brokerLogAppendTimeEpochMs, final byte[] evidence) {
+        return new KafkaProduceResult(Disposition.PERSISTED, clusterId, topicUuid, partition, offset, leaderEpoch,
+                brokerLogAppendTimeEpochMs, 0, evidence, evidence,
+                Objects.requireNonNull(physicalAttemptId, "physicalAttemptId"));
     }
 
     public static KafkaProduceResult definitelyNotPersisted(final int stableCode, final byte[] evidence) {
         return new KafkaProduceResult(Disposition.DEFINITIVELY_NOT_PERSISTED, null, null, -1, -1, null, -1,
-                stableCode, brokerEvidence(stableCode, evidence), brokerEvidence(stableCode, evidence));
+                stableCode, brokerEvidence(stableCode, evidence), brokerEvidence(stableCode, evidence), null);
+    }
+
+    public static KafkaProduceResult definitelyNotPersisted(final PhysicalEnqueueAttemptId physicalAttemptId,
+                                                            final int stableCode, final byte[] evidence) {
+        return new KafkaProduceResult(Disposition.DEFINITIVELY_NOT_PERSISTED, null, null, -1, -1, null, -1,
+                stableCode, brokerEvidence(stableCode, evidence), brokerEvidence(stableCode, evidence),
+                Objects.requireNonNull(physicalAttemptId, "physicalAttemptId"));
     }
 
     public static KafkaProduceResult unknown(final int stableCode, final byte[] evidence) {
         return new KafkaProduceResult(Disposition.UNKNOWN, null, null, -1, -1, null, -1, stableCode, null,
-                evidence);
+                evidence, null);
+    }
+
+    public static KafkaProduceResult unknown(final PhysicalEnqueueAttemptId physicalAttemptId,
+                                             final int stableCode, final byte[] evidence) {
+        return new KafkaProduceResult(Disposition.UNKNOWN, null, null, -1, -1, null, -1, stableCode, null,
+                evidence, Objects.requireNonNull(physicalAttemptId, "physicalAttemptId"));
+    }
+
+    public KafkaProduceResult bindPhysicalAttemptId(final PhysicalEnqueueAttemptId attemptId) {
+        Objects.requireNonNull(attemptId, "attemptId");
+        if (physicalAttemptId != null && !physicalAttemptId.equals(attemptId)) {
+            throw new IllegalArgumentException("Kafka result physical attempt mismatch");
+        }
+        return physicalAttemptId == null ? new KafkaProduceResult(disposition, authenticatedClusterId,
+                nativeTopicUuid, partition, offset, leaderEpoch, brokerLogAppendTimeEpochMs, stableCode,
+                requestEvidenceBytes, responseEvidenceBytes, attemptId) : this;
     }
 
     @Override

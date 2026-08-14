@@ -18,6 +18,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class GuardedTransportOwnershipTest {
     @Test
@@ -39,10 +40,12 @@ class GuardedTransportOwnershipTest {
         final LocalTransportOwnershipPermit permit = new LocalTransportOwnershipPermit(
                 PhysicalEnqueueAttemptId.require(bytes(16, 7)));
 
-        transport.send(request, permit).toCompletableFuture().join();
+        final KafkaProduceResult result = (KafkaProduceResult) transport.send(request, permit)
+                .toCompletableFuture().join();
         transport.send(request, permit).toCompletableFuture().join();
 
         assertEquals(1, sends.get());
+        assertEquals(permit.physicalAttemptId(), result.physicalAttemptId());
         assertEquals(TransportOwnershipState.LIBRARY_OWNED, permit.state());
         assertNotEquals(TransportOwnershipState.AVAILABLE, permit.state());
     }
@@ -69,6 +72,27 @@ class GuardedTransportOwnershipTest {
 
         assertEquals(0, sends.get());
         assertEquals(TransportOwnershipState.INVALID, closed.state());
+    }
+
+    @Test
+    void resultWithDifferentPhysicalAttemptCannotCrossTheGuardedBridge() {
+        final UUID topic = UUID.randomUUID();
+        final KafkaCommandTransportKey key = new KafkaCommandTransportKey("cluster", "topic", topic, 0,
+                new CredentialBindingKey(1, digest(5), digest(6)));
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
+        final PreparedCommand command = PreparedCommand.create(shard, CommandId.random(shard),
+                DelayMessageId.random(shard), CommandType.SCHEDULE, 600, Bytes.utf8("body"));
+        final KafkaProduceRequest request = new KafkaProduceRequest("cluster", topic, 0, command.commandId(),
+                Bytes.utf8("frame"));
+        final PhysicalEnqueueAttemptId permitId = PhysicalEnqueueAttemptId.require(bytes(16, 20));
+        final GuardedKafkaCommandTransport transport = new GuardedKafkaCommandTransport(key, value ->
+                CompletableFuture.completedFuture(KafkaProduceResult.unknown(
+                        PhysicalEnqueueAttemptId.require(bytes(16, 21)), 0x0203, Bytes.utf8("unknown"))));
+        final LocalTransportOwnershipPermit permit = new LocalTransportOwnershipPermit(permitId);
+
+        assertThrows(java.util.concurrent.CompletionException.class,
+                () -> transport.send(request, permit).toCompletableFuture().join());
+        assertEquals(TransportOwnershipState.LIBRARY_OWNED, permit.state());
     }
 
     private static Digest32 digest(final int seed) {

@@ -36,7 +36,9 @@ public final class KafkaManagedSubmissionOutcomeProjector implements SubmissionO
                                               final TransportResult result) {
         final io.nereusstream.delay.protocol.PreparedCommand command = SubmissionProjectorSupport.managedCommand(plan);
         if (!(plan.request() instanceof KafkaProduceRequest request)
-                || !(result instanceof KafkaProduceResult kafka)) {
+                || !(result instanceof KafkaProduceResult kafka)
+                || (kafka.physicalAttemptId() != null
+                && !kafka.physicalAttemptId().equals(physicalAttemptId))) {
             return uncertain(plan, physicalAttemptId, StableCode.INTEGRITY_ERROR);
         }
         return switch (kafka.disposition()) {

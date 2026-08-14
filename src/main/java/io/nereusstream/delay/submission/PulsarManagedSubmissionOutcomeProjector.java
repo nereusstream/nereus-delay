@@ -36,7 +36,9 @@ public final class PulsarManagedSubmissionOutcomeProjector implements Submission
                                               final TransportResult result) {
         final io.nereusstream.delay.protocol.PreparedCommand command = SubmissionProjectorSupport.managedCommand(plan);
         if (!(plan.request() instanceof PulsarSendRequest request)
-                || !(result instanceof PulsarSendResult pulsar)) {
+                || !(result instanceof PulsarSendResult pulsar)
+                || (pulsar.physicalAttemptId() != null
+                && !pulsar.physicalAttemptId().equals(physicalAttemptId))) {
             return uncertain(plan, physicalAttemptId, StableCode.INTEGRITY_ERROR);
         }
         return switch (pulsar.disposition()) {

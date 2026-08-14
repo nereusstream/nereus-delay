@@ -97,6 +97,9 @@ public final class DefaultSubmissionCoordinator implements SubmissionCoordinator
                     return projector.uncertain(plan, attempt, StableCode.ENQUEUE_RESULT_UNCERTAIN);
                 }
                 try {
+                    if (!attempt.equals(result.physicalAttemptId())) {
+                        return projector.uncertain(plan, attempt, StableCode.INTEGRITY_ERROR);
+                    }
                     return projector.project(plan, attempt, result);
                 } catch (RuntimeException malformed) {
                     return projector.uncertain(plan, attempt, StableCode.INTEGRITY_ERROR);

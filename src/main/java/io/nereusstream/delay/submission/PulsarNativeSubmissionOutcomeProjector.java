@@ -36,7 +36,9 @@ public final class PulsarNativeSubmissionOutcomeProjector implements SubmissionO
                                               final TransportResult result) {
         if (!(plan.routeAuthority() instanceof NativeTargetAuthority authority)
                 || !(plan.request() instanceof PulsarNativeSendRequest request)
-                || !(result instanceof PulsarSendResult pulsar)) {
+                || !(result instanceof PulsarSendResult pulsar)
+                || (pulsar.physicalAttemptId() != null
+                && !pulsar.physicalAttemptId().equals(physicalAttemptId))) {
             return uncertain(plan, physicalAttemptId, StableCode.INTEGRITY_ERROR);
         }
         final NativePreparedDeliveryV1 prepared = authority.prepared();

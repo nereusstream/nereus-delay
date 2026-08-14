@@ -28,19 +28,30 @@ public final class GuardedKafkaCommandTransport implements CommandTransport {
     @Override
     public CompletionStage<? extends TransportResult> send(final TransportRequest request,
                                                             final TransportOwnershipPermit ownershipPermit) {
+        Objects.requireNonNull(ownershipPermit, "ownershipPermit");
         if (!(request instanceof KafkaProduceRequest kafka)
                 || !key.authenticatedClusterId().equals(kafka.authenticatedClusterId())
                 || !key.nativeTopicUuid().equals(kafka.nativeTopicUuid())
                 || key.partition() != kafka.partition()) {
             return CompletableFuture.completedFuture(KafkaProduceResult.definitelyNotPersisted(
+                    ownershipPermit.physicalAttemptId(),
                     StableCode.BROKER_RESOURCE_UNCERTIFIED.wireValue(), null));
         }
-        Objects.requireNonNull(ownershipPermit, "ownershipPermit");
         if (!ownershipPermit.tryTransferToLibraryOwnership()) {
             return CompletableFuture.completedFuture(KafkaProduceResult.definitelyNotPersisted(
+                    ownershipPermit.physicalAttemptId(),
                     StableCode.BROKER_RESOURCE_UNCERTIFIED.wireValue(), null));
         }
-        return producer.produce(kafka);
+        final CompletionStage<KafkaProduceResult> result = producer.produce(kafka);
+        if (result == null) {
+            return null;
+        }
+        try {
+            return result.thenApply(value -> value == null ? null : value.bindPhysicalAttemptId(
+                    ownershipPermit.physicalAttemptId()));
+        } catch (RuntimeException failure) {
+            return CompletableFuture.failedFuture(failure);
+        }
     }
 
     @Override
