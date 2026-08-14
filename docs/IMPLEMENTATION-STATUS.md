@@ -93,6 +93,25 @@ GRADLE_USER_HOME=/tmp/nereus-delay-full-gradle \
 The gate completed with `BUILD SUCCESSFUL` in 21 actionable tasks; the five
 opt-in real-Oxia methods were skipped because no endpoint was configured.
 
+## 2026-08-15 native capability issuance boundary
+
+Delay commit `3bae4a6b` adds `NativeCapabilitySnapshotIssuer` and the
+`NativeCapabilityIssuanceAuthority` seam. The issuer verifies the Route
+signature, resolves canonical Destination/Capability/Profile and the current
+credential Binding/Head, verifies the credential equivalence attestation,
+checks the Pulsar AUTO_FAST relationship and partition bounds, then requests
+an exact principal-scoped Broker guard projection. It computes a bounded
+expiry from the trusted issuance interval, Route, attestation, guard and
+issuer lifetime, persists the native protection horizon through the external
+authority, and only then signs/returns the immutable snapshot.
+
+`NativeCapabilitySnapshotIssuerTest` covers successful issuance, protection
+ordering/expiry failure and foreign guard rejection. This is the reusable
+issuance boundary, not a real authority receipt: the production
+`NativeCapabilityIssuanceAuthority` still needs Oxia transactional protection,
+live Pulsar guard reads and credential-provider resolution. No plaintext secret
+enters the snapshot.
+
 ## 2026-08-15 Kafka source poll/ACK handoff slice
 
 Delay worktree commit `412441c47cce4e61d3cc015b95c7d3cffcab2f7f` adds the

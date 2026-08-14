@@ -117,6 +117,10 @@ require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaSig
     "explicitSessionReconnectRotatesMarkerAfterFenceAndRestoresReads"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/semantic/VerifiedNativePreparationSnapshotCache.java" \
     "NativePreparationEligibilityV1"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/semantic/NativeCapabilitySnapshotIssuer.java" \
+    "protectNativeCapability"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/semantic/NativeCapabilityIssuanceAuthority.java" \
+    "resolveGuard"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/client/DelayClient.java" \
     "prepareScheduleSubmissionV1"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/protocol/ActivationBarrierV1.java" \

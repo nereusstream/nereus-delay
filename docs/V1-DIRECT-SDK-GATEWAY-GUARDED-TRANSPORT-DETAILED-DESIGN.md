@@ -312,6 +312,15 @@ target-record size；任何失败都返回已经冻结的 managed frame。Direct
 `SubmissionModeV1` 请求共用这个入口。这里的 issuer/catalog/Oxia refresh 仍是
 外部 authority，cache 不是 native capability 的签发者，也不执行 Broker probe。
 
+Commit `3bae4a6b` adds the issuance-side `NativeCapabilitySnapshotIssuer`.
+It verifies the signed Route and exact catalog Profile/Binding/Head, checks
+the credential-equivalence attestation, obtains principal-scoped Broker guard
+evidence, bounds expiry by the trusted interval and every prerequisite, and
+requires the external authority to persist native credential protection before
+returning the signed snapshot. The injected authority is still the boundary
+for production Oxia protection, live guard reads, credential resolution and
+issuer key rotation; the local issuer test is not a live authority receipt.
+
 ### 4.3 路由与 ID 构造顺序
 
 无序 Schedule 需要先生成逻辑 UUIDv7，再计算 partition，不能先随机选择 Shard：
@@ -2748,7 +2757,11 @@ real source ownership/reconnect. Commit `f8ffaff9` additionally routes both
 current-alias and exact-historical Worker assignment construction through the
 tenant-authorized `RouteSnapshotProvider`; missing historical authorization
 fails closed. This remains assignment projection, not assignment publication,
-Owner Lease CAS or Broker source ownership. 完成门：snapshot
+Owner Lease CAS or Broker source ownership. Commit `3bae4a6b` also supplies
+the local issuance ordering boundary: signed Route/Profile/Binding/attestation
+and guard evidence are checked before external native protection is required
+and the snapshot is signed. Production Oxia protection, live Broker guard
+reads, credential resolution and issuer key rotation remain external. 完成门：snapshot
 signature/digest、lifecycle、route
 expansion、credential binding、cache staleness cuts。
 同一 Route Incarnation 的 resource/partition/hash/query-retention/size drift 必须 quarantine；仅
@@ -2831,7 +2844,8 @@ recovery wiring 和 Docker crash cuts 仍未完成。完成门仍以主设计 §
   response-loss/Fetch/LSO/retention/source gates remain independently open；
 - Pulsar 使用 first-class v22 create/per-SEND guard 和 guarded receipt；
 - native AUTO_FAST 只允许 issuer-verified local snapshots，且 managed fallback
-  保持 exact bytes；这仍不是 native capability issuance or live Broker eligibility；
+  保持 exact bytes；issuer now has a local protection-before-signing boundary,
+  but production native capability authority and live Broker eligibility remain open；
 - Route activation barriers now have an exact signed-snapshot-to-source-assignment
   projection, and Worker assignment lookup is tenant-authorized for current or
   historical Routes; live activation publication, Owner Lease CAS and

@@ -5947,6 +5947,20 @@ skipped without an endpoint. The separate JWT test change in `1cd64b72` makes
 its signature-mutation negative vector deterministic and is not evidence of
 live certificate deployment.
 
+## 2026-08-15 native capability issuance audit
+
+Commit `3bae4a6b` adds the issuance-side boundary. It verifies the signed
+Route bytes and exact catalog Profile/Binding/Head, checks the signed
+credential-equivalence attestation, obtains principal-scoped Broker guard
+evidence, bounds snapshot expiry by every supplied prerequisite, and requires
+the external authority to return exact credential protection through that
+expiry before exposing the issuer-signed snapshot.
+
+The focused issuer tests passed. This closes the local ordering and
+validation seam only. It does not provide the production Oxia protection
+transaction, live Pulsar guard authority, credential resolver, key rotation or
+real issuer/catalog deployment evidence; those release gates remain OPEN.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
