@@ -13,11 +13,12 @@ The repository is still a single Gradle module. It now contains a local
 `DelaySemanticCore`, signed Route value/verifier plus Oxia event/head-CAS
 composition, Direct SDK facade, transport ownership/coordinator seam, an
 in-memory Gateway Schedule conformance composition, generated Java/gRPC
-Gateway API descriptors, and partial generated service handling for Schedule
-and RetryUncertain from the checked-in proto. These are local
+Gateway API descriptors, partial generated service handling for Schedule and
+RetryUncertain from the checked-in proto, and a transport-neutral Worker
+source-consumer/ACK-after-sync composition. These are local
 implementation evidence, not claims of activation-barrier/session-fenced real
 Oxia authority, a complete Gateway service/authentication deployment, real Broker transport, or
-production/release readiness. The isolated Kafka and Pulsar
+production Worker wiring or release readiness. The isolated Kafka and Pulsar
 upstream worktrees recorded below remain separately owned implementation
 evidence; their patches are not copied into this repository.
 
@@ -51,8 +52,8 @@ routing and no transport call from preparation.
 This remains local D1 evidence. The Delay worktree now also contains a local
 Oxia event-stream/head-CAS Route authority composition, but activation-barrier
 publication, session fencing, real credential/native eligibility authority,
-production transport artifacts, Worker integration and real-Broker evidence
-remain open.
+production transport artifacts, production Worker integration and real-Broker
+evidence remain open.
 
 ## 2026-08-14 D1/D4/D5 local composition slice
 
@@ -142,7 +143,39 @@ distributed quota/control reserve, production safe-audit durability, Gateway
 HA/transactional durability beyond the single-record CAS composition,
 late authenticated evidence/aggregate promotion,
 activation-barrier or session-fenced real Oxia Route authority, Kafka/Pulsar client artifact integration, Worker ACK-after-sync
-evidence, Docker lifecycle cuts or any real-Broker PASS.
+production evidence, Docker lifecycle cuts or any real-Broker PASS.
+
+## 2026-08-14 Worker source-consumer composition slice
+
+Delay worktree commit `1bee5b45` on
+`nereus/delay-full-implementation-v1` adds the Worker-facing
+`SourceRecordConsumer` SPI and `WorkerSourceApplyLoop` around the existing
+`SourceApplyCoordinator`. A native adapter supplies one exact
+`SourceReplayEntry` plus its broker-owned acknowledgement callback. The loop
+polls at most one record, returns `WAITING_FOR_SOURCE` for an idle poll, retains
+the same record across queue rejection, apply failure and ACK uncertainty, and
+does not permit the next poll until the ACK callback returns `ACKED`. The
+callback is identity-bound to the original polled object, so a replacement
+record cannot reuse an acknowledgement authority.
+
+`SourceApplyCoordinatorTest` now covers ACK-after-Store visibility, unknown-ACK
+retry without a second poll or a second WriteBatch, queue rejection, and an
+idle poll followed by a later record. The independent full gate for this
+content was:
+
+```text
+GRADLE_USER_HOME=/tmp/nereus-delay-full-gradle \
+  ./gradlew check --no-daemon --console=plain
+```
+
+It passed with `checkDocumentation`, main Checkstyle and the full local test
+task; the five opt-in real-Oxia methods were still skipped because no endpoint
+was configured. This closes only a local Worker source handoff composition.
+The SPI is not a Kafka/Pulsar client implementation and does not establish
+Fetch-v13 or guarded Pulsar SUBSCRIBE/connection-generation evidence, real
+Broker ACK/commit/rewind behavior, Oxia session ownership, dynamic
+WriteBatch/IO admission, due/publish/checkpoint/recovery wiring, Docker cuts,
+or a D6 production PASS.
 
 ## 2026-08-14 K1 isolated Kafka guarded-client slice
 

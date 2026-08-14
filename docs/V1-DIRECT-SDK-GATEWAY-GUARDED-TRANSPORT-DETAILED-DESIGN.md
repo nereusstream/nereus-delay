@@ -2079,6 +2079,15 @@ request hash的 response evidence；任意 diagnostic string/单 byte array 都�
 - RocksDB sync WriteBatch 后才 ACK/commit；
 - source identity mismatch 一条 record 都不能 apply/ACK。
 
+当前 Delay worktree 的 `1bee5b45` 已提供 transport-neutral
+`SourceRecordConsumer`/`WorkerSourceApplyLoop` composition：一个 bounded turn
+最多 poll 一个 physical record，idle poll 返回可重试状态；exact record 在
+queue rejection、apply failure、ACK unknown 期间保持不变，只有 broker ACK
+明确返回 `ACKED` 才允许下一次 poll。该 callback 以原始 polled object 做
+identity binding，并在 Store apply 已可见后才被调用。它是 Worker 接线和
+本地 crash-boundary 的证据，不是 Kafka/Pulsar client artifact、Fetch/ACK
+或 commit/rewind 的实测证据。
+
 Writer E2E 不能被误报为完整 Worker production E2E。
 
 ## 12. Worker 对接边界
@@ -2101,6 +2110,11 @@ source record
   -> durable
   -> ACK source
 ```
+
+本地 `SourceApplyCoordinator`/`WorkerSourceApplyLoop` 只闭合上述流程的
+transport-neutral handoff；真实 source adapter 仍必须把 native cursor 的
+ACK/commit/rewind、Kafka TopicId 或 Pulsar connection-generation proof 绑定
+到同一 exact record，并在其结果不确定时保留 Broker retry authority。
 
 已有 Destination Lane、Publish Admission、UNCERTAIN、checkpoint/replay 逻辑保持权威。Chronos 的单 seek cursor、目标无限重试、墓碑-only cancel 和公开 RocksDB key 都不进入代码。
 
@@ -2403,7 +2417,11 @@ durability、RetryUncertain late-evidence/aggregate、crash cuts 和
 
 真实 Kafka/Pulsar source、ownership、RocksDB apply/ACK、due/Lane/publish/checkpoint/recovery。
 
-完成门仍以主设计 §23.5 为准；不能从 D1–D5 推导 V1 release-ready。
+`1bee5b45` 只完成 transport-neutral source-consumer handoff 的本地组合；
+真实 Kafka/Pulsar source、Broker ACK/rewind、ownership/session、dynamic
+WriteBatch/IO admission、due/Lane/publish/checkpoint/recovery 和 Docker
+crash cuts 仍未完成。完成门仍以主设计 §23.5 为准；不能从 D1–D5 或这
+个 local slice 推导 V1 release-ready。
 
 ## 16. 当前结论与仍需实测的数值
 
