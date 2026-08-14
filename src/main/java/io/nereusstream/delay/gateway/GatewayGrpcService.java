@@ -6,6 +6,8 @@ import io.grpc.stub.StreamObserver;
 import io.nereusstream.delay.gateway.v1.DelayGatewayV1Grpc;
 import io.nereusstream.delay.gateway.v1.GatewayCancelRequestV1;
 import io.nereusstream.delay.gateway.v1.GatewayCommitLargeScheduleRequestV1;
+import io.nereusstream.delay.gateway.v1.GatewayAttestPayloadUploadRequestV1;
+import io.nereusstream.delay.gateway.v1.GatewayIssuePayloadUploadHandleRequestV1;
 import io.nereusstream.delay.gateway.v1.GatewayPrepareLargeScheduleRequestV1;
 import io.nereusstream.delay.gateway.v1.GatewayRescheduleRequestV1;
 import io.nereusstream.delay.gateway.v1.GatewayRetryUncertainRequestV1;
@@ -13,14 +15,18 @@ import io.nereusstream.delay.gateway.v1.GatewayScheduleRequestV1;
 import io.nereusstream.delay.protocol.AdapterKindV1;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.MessagePreconditionV1;
+import io.nereusstream.delay.protocol.OpaquePayloadUploadHandleV1;
+import io.nereusstream.delay.protocol.PayloadAttestationResponseV1;
 import io.nereusstream.delay.protocol.PayloadCommitProofV1;
 import io.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
 import io.nereusstream.delay.protocol.PayloadReservationReceiptV1;
+import io.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.ScheduleIntentV1;
 import io.nereusstream.delay.protocol.SubmissionModeV1;
 import io.nereusstream.delay.semantic.RouteSelectionHint;
 import io.nereusstream.delay.transport.PhysicalEnqueueAttemptId;
+import io.nereusstream.delay.protocol.UploadHandleKindV1;
 
 import java.util.Objects;
 import java.util.concurrent.CompletionException;
@@ -33,11 +39,65 @@ import java.util.concurrent.CompletionException;
 public final class GatewayGrpcService extends DelayGatewayV1Grpc.DelayGatewayV1ImplBase {
     private final GatewayIngressService ingress;
     private final GatewayPeerContextProvider peerContextProvider;
+    private final GatewayPayloadIngressService payloadIngress;
 
     public GatewayGrpcService(final GatewayIngressService ingress,
                               final GatewayPeerContextProvider peerContextProvider) {
+        this(ingress, peerContextProvider, null);
+    }
+
+    public GatewayGrpcService(final GatewayIngressService ingress,
+                              final GatewayPeerContextProvider peerContextProvider,
+                              final GatewayPayloadIngressService payloadIngress) {
         this.ingress = Objects.requireNonNull(ingress, "ingress");
         this.peerContextProvider = Objects.requireNonNull(peerContextProvider, "peerContextProvider");
+        this.payloadIngress = payloadIngress;
+    }
+
+    @Override
+    public void issuePayloadUploadHandle(final GatewayIssuePayloadUploadHandleRequestV1 request,
+                                         final StreamObserver<io.nereusstream.delay.gateway.v1
+                                                 .GatewayPayloadUploadHandleResponseV1> responseObserver) {
+        if (payloadIngress == null) {
+            fail(responseObserver, Status.Code.UNIMPLEMENTED);
+            return;
+        }
+        final io.nereusstream.delay.gateway.GatewayIssuePayloadUploadHandleRequestV1 domain;
+        try {
+            domain = decodeIssuePayloadUploadHandle(request);
+        } catch (RuntimeException invalidRequest) {
+            fail(responseObserver, Status.Code.INVALID_ARGUMENT);
+            return;
+        }
+        try {
+            payloadIngress.issueUploadHandle(peerContextProvider.current(), domain)
+                    .whenComplete((response, failure) -> complete(responseObserver, response, failure));
+        } catch (RuntimeException failure) {
+            fail(responseObserver, statusFor(failure));
+        }
+    }
+
+    @Override
+    public void attestPayloadUpload(final GatewayAttestPayloadUploadRequestV1 request,
+                                    final StreamObserver<io.nereusstream.delay.gateway.v1
+                                            .GatewayPayloadAttestationResponseV1> responseObserver) {
+        if (payloadIngress == null) {
+            fail(responseObserver, Status.Code.UNIMPLEMENTED);
+            return;
+        }
+        final io.nereusstream.delay.gateway.GatewayAttestPayloadUploadRequestV1 domain;
+        try {
+            domain = decodeAttestPayloadUpload(request);
+        } catch (RuntimeException invalidRequest) {
+            fail(responseObserver, Status.Code.INVALID_ARGUMENT);
+            return;
+        }
+        try {
+            payloadIngress.attestUpload(peerContextProvider.current(), domain)
+                    .whenComplete((response, failure) -> complete(responseObserver, response, failure));
+        } catch (RuntimeException failure) {
+            fail(responseObserver, statusFor(failure));
+        }
     }
 
     @Override
@@ -216,6 +276,27 @@ public final class GatewayGrpcService extends DelayGatewayV1Grpc.DelayGatewayV1I
                 request.getDeliverAtEpochMs(), request.getExpireAtEpochMs(), request.getRetryUntilEpochMs());
     }
 
+    private static io.nereusstream.delay.gateway.GatewayIssuePayloadUploadHandleRequestV1
+            decodeIssuePayloadUploadHandle(final GatewayIssuePayloadUploadHandleRequestV1 request) {
+        if (request.getPayloadReservationReceiptV1().isEmpty()) {
+            throw new IllegalArgumentException("Gateway upload-handle request is incomplete");
+        }
+        return new io.nereusstream.delay.gateway.GatewayIssuePayloadUploadHandleRequestV1(
+                PayloadReservationReceiptV1.decodePayload(request.getPayloadReservationReceiptV1().toByteArray()),
+                UploadHandleKindV1.fromWire(request.getUploadHandleKind()));
+    }
+
+    private static io.nereusstream.delay.gateway.GatewayAttestPayloadUploadRequestV1 decodeAttestPayloadUpload(
+            final GatewayAttestPayloadUploadRequestV1 request) {
+        if (request.getPayloadReservationReceiptV1().isEmpty()
+                || request.getOpaquePayloadUploadHandleV1().isEmpty()) {
+            throw new IllegalArgumentException("Gateway attestation request is incomplete");
+        }
+        return new io.nereusstream.delay.gateway.GatewayAttestPayloadUploadRequestV1(
+                PayloadReservationReceiptV1.decodePayload(request.getPayloadReservationReceiptV1().toByteArray()),
+                OpaquePayloadUploadHandleV1.decode(request.getOpaquePayloadUploadHandleV1().toByteArray()));
+    }
+
     private static void complete(
             final StreamObserver<io.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1> responseObserver,
             final GatewaySubmissionOutcomeV1 outcome, final Throwable failure) {
@@ -234,6 +315,34 @@ public final class GatewayGrpcService extends DelayGatewayV1Grpc.DelayGatewayV1I
         responseObserver.onCompleted();
     }
 
+    private static void complete(
+            final StreamObserver<io.nereusstream.delay.gateway.v1.GatewayPayloadUploadHandleResponseV1>
+                    responseObserver,
+            final PayloadUploadHandleResponseV1 response, final Throwable failure) {
+        if (failure != null || response == null) {
+            fail(responseObserver, statusFor(failure));
+            return;
+        }
+        responseObserver.onNext(io.nereusstream.delay.gateway.v1.GatewayPayloadUploadHandleResponseV1.newBuilder()
+                .setPayloadUploadHandleResponseV1(ByteString.copyFrom(response.canonicalBytes()))
+                .build());
+        responseObserver.onCompleted();
+    }
+
+    private static void complete(
+            final StreamObserver<io.nereusstream.delay.gateway.v1.GatewayPayloadAttestationResponseV1>
+                    responseObserver,
+            final PayloadAttestationResponseV1 response, final Throwable failure) {
+        if (failure != null || response == null) {
+            fail(responseObserver, statusFor(failure));
+            return;
+        }
+        responseObserver.onNext(io.nereusstream.delay.gateway.v1.GatewayPayloadAttestationResponseV1.newBuilder()
+                .setPayloadAttestationResponseV1(ByteString.copyFrom(response.canonicalBytes()))
+                .build());
+        responseObserver.onCompleted();
+    }
+
     private static Status.Code statusFor(final Throwable failure) {
         Throwable current = failure;
         while (current instanceof CompletionException && current.getCause() != null) {
@@ -249,9 +358,7 @@ public final class GatewayGrpcService extends DelayGatewayV1Grpc.DelayGatewayV1I
         return Status.Code.INTERNAL;
     }
 
-    private static void fail(
-            final StreamObserver<io.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1> responseObserver,
-            final Status.Code code) {
+    private static void fail(final StreamObserver<?> responseObserver, final Status.Code code) {
         responseObserver.onError(Status.fromCode(code).asRuntimeException());
     }
 
