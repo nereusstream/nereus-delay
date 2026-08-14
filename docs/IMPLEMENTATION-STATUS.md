@@ -260,14 +260,15 @@ source-consumer, Worker scheduling, HA or release E2E.
 
 ## 2026-08-15 real Oxia Route publication/refresh slice
 
-Delay worktree commit `becfb1a35fc05cbf7ae7c77816f91bd72e546566` adds
-`OxiaRealRouteAuthoritySmokeTest` and makes real-client Route notification
-refreshes leave the Oxia callback thread for an owned single-thread executor;
-the deterministic fake-client seam remains synchronous. The live smoke uses
-separate publisher and provider sessions, publishes signed revisions 1 and 2
-through the event/head CAS, performs explicit session-fenced provider refreshes
-after each head change, checks tenant-scoped ACTIVE lookup, and verifies the
-RETIRED transition.
+Delay worktree commits `becfb1a35fc05cbf7ae7c77816f91bd72e546566` and
+`3d45dcd7bc457d0ab308b51b9dee4abf5de6adf4` add `OxiaRealRouteAuthoritySmokeTest`,
+move real-client Route notification refreshes off the Oxia callback thread,
+and isolate the notification stream on a separate Oxia client from the
+session-fenced read/write client. The deterministic fake-client seam remains
+synchronous. The live smoke uses separate publisher/provider sessions,
+publishes signed revisions 1 and 2 through the event/head CAS, verifies both
+explicit session-fenced refresh and notification-driven refresh, checks
+tenant-scoped ACTIVE lookup, and verifies the RETIRED transition.
 
 The updated Docker command passed on 2026-08-15:
 
@@ -276,19 +277,18 @@ The updated Docker command passed on 2026-08-15:
 ```
 
 It built Oxia source `37a17bef17202d5fd6e23282da5fd26d94865484` in Compose
-project `nereus-delay-v1-oxia-e2e-1786731364-80164` on
-`127.0.0.1:16649`; all seven selected real-service test methods completed
-with `BUILD SUCCESSFUL`, and the exit cleanup removed the matching container
-and network. A notification-enabled live attempt exposed a session/refresh
-failure and is not counted as PASS; the current real smoke intentionally uses
-explicit refresh. Fake coverage still exercises notification rebuild, while
-real notification-stream stability, session timeout/reconnect, activation
-barrier publication and native eligibility remain open.
+project `nereus-delay-v1-oxia-e2e-1786732310-90387` on
+`127.0.0.1:16649`; all eight selected real-service test methods completed
+with `BUILD SUCCESSFUL`, including the notification-driven Route refresh, and
+the exit cleanup removed the matching container and network. This proves one
+live notification refresh path with separate watch/session clients; session
+timeout/reconnect, cache staleness recovery, activation-barrier publication
+and native eligibility remain open.
 
-The independent full local gate with `--rerun-tasks` also passed at this slice;
-the seven opt-in real-service methods were skipped when no endpoint was
-configured. This is explicit-refresh Route service evidence, not a production
-Route activation or reconnect gate.
+The focused Route tests and main Checkstyle passed at `3d45dcd7`; the
+independent full local gate must still be rerun at this code slice. This is
+live Route notification/explicit-refresh evidence, not a production Route
+activation or timeout/reconnect gate.
 
 ## 2026-08-15 cross-repository contract audit slice
 
@@ -4847,7 +4847,7 @@ covers this ordering.
 
 | Area | Status | Evidence |
 |---|---|---|
-| Shared Semantic Core and signed immutable RouteSnapshot | Partial (local deterministic core plus Oxia event/head-CAS authority composition; production gates open) | `RouteSnapshotV1`, `DefaultDelaySemanticCore`, `InMemorySignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotPublisher`, `RouteSnapshotCompatibilityV1`, `DefaultDelayClient`, `RouteBoundSubmissionTransportPlanResolver`, `RouteSnapshotV1Test`, `DefaultDelaySemanticCoreTest`, `InMemorySignedRouteSnapshotProviderTest`, `OxiaSignedRouteSnapshotProviderTest`, `OxiaRealRouteAuthoritySmokeTest`; canonical signature/digest, contiguous replay, head CAS, notification refresh, same-incarnation immutable-drift quarantine, tenant-scoped historical resolution, explicit-refresh real Oxia publication and zero-I/O preparation are covered. Real notification-stream stability/session reconnect, activation-barrier publication, native eligibility authority, package split and production cross-entry gate remain open |
+| Shared Semantic Core and signed immutable RouteSnapshot | Partial (local deterministic core plus Oxia event/head-CAS authority composition; production gates open) | `RouteSnapshotV1`, `DefaultDelaySemanticCore`, `InMemorySignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotPublisher`, `RouteSnapshotCompatibilityV1`, `DefaultDelayClient`, `RouteBoundSubmissionTransportPlanResolver`, `RouteSnapshotV1Test`, `DefaultDelaySemanticCoreTest`, `InMemorySignedRouteSnapshotProviderTest`, `OxiaSignedRouteSnapshotProviderTest`, `OxiaRealRouteAuthoritySmokeTest`; canonical signature/digest, contiguous replay, head CAS, notification refresh with an isolated watch client, same-incarnation immutable-drift quarantine, tenant-scoped historical resolution, explicit-refresh real Oxia publication and zero-I/O preparation are covered. Notification-stream reconnect/stability under session churn, activation-barrier publication, native eligibility authority, package split and production cross-entry gate remain open |
 | Delay Gateway and Gateway idempotency | Partial (generated handlers, Oxia idempotency CAS and digest-only audit sink; production authority still open) | `GatewayScheduleRequestV1`, `GatewayRetryUncertainRequestV1`, `GatewayIdempotencyStore`, `GatewayIdempotencyHashV1`, `GatewayIdempotencyRecordV1`, `GatewayPhysicalAttemptV1`, `InMemoryGatewayIdempotencyStore`, `OxiaGatewayIdempotencyStore`, `OxiaGatewayAuditSink`, `GatewayScheduleService`, `GatewayGrpcService`, source proto, `GatewayScheduleServiceTest`, `OxiaGatewayIdempotencyStoreTest`, `OxiaGatewayAuditSinkTest` and `OxiaRealGatewayAuditSinkSmokeTest`; exact body conflict, prepared-before-ownership, one-shot attempt, strict record decoding, uncertain expected-prior/retry-ID CAS, response-loss exact rereads, generated eleven-RPC surface, immutable digest-only audit persistence and live Oxia readback are covered. mTLS/JWT authentication, distributed quota/control reserve, HA/transactional idempotency, late authenticated evidence promotion, crash cuts and multi-language vectors remain open |
 | Kafka generic guarded Producer patch | Implemented in isolated upstream worktree (real-service cuts pass; release gates open) | Kafka branch `nereus/delay-guarded-producer-v1@95d48e89e7e8a4e6d8718e44d424ffef8f17829f` from locked `trunk@c300006a7705c240642db6950b5a95fec982bfc5`; focused client/mock and real KRaft delete/recreate/leader-failover evidence pass, including legal `logAppendTimeMs=-1` handling. Artifact/source digest and Delay D2 transport remain open; K2 target-plus-receipt transaction is separate |
 | Pulsar v22 first-class resource guard | Implemented in isolated upstream worktree (single-broker cut pass; release gate open) | Pulsar branch `nereus/delay-resource-guard-v1@7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9` from locked `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`; focused common/broker, real in-process guarded SEND plus delete/recreate, and affected-module checkstyle evidence pass. Multi-broker unload/failover, proxy compatibility, artifact/source digest and Delay D3 transport remain open |

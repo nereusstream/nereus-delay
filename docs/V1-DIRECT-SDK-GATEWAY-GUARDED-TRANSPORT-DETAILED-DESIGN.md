@@ -2179,19 +2179,19 @@ is Dockerized Oxia authority/audit evidence only and remains separate from
 Route activation/session reconnect, real Broker transport, Worker vertical,
 HA and release gates.
 
-2026-08-15 implementation evidence: commit
-`becfb1a35fc05cbf7ae7c77816f91bd72e546566` adds the real Oxia Route
-publication/refresh smoke and dispatches real-client notification refreshes to
-an owned executor rather than performing synchronous reads on the Oxia
-callback thread. The Docker harness built source
-`37a17bef17202d5fd6e23282da5fd26d94865484` in project
-`nereus-delay-v1-oxia-e2e-1786731364-80164` on `127.0.0.1:16649`; seven
-selected real-service methods passed with `BUILD SUCCESSFUL`. The Route test
-uses separate publisher/provider sessions and explicit refresh after signed
-event/head revisions. A notification-enabled live attempt still failed at
-the session/refresh boundary and is deliberately not promoted; notification
-stream stability, timeout/reconnect, activation barrier, native eligibility,
-real Broker transport and Worker vertical evidence remain open.
+2026-08-15 implementation evidence: commits
+`becfb1a35fc05cbf7ae7c77816f91bd72e546566` and
+`3d45dcd7bc457d0ab308b51b9dee4abf5de6adf4` add the real Oxia Route
+publication/refresh smoke, dispatch notification refreshes to an owned
+executor rather than the Oxia callback thread, and isolate the notification
+stream on a separate client from the session-fenced Route client. The Docker
+harness built source `37a17bef17202d5fd6e23282da5fd26d94865484` in project
+`nereus-delay-v1-oxia-e2e-1786732310-90387` on `127.0.0.1:16649`; eight
+selected real-service methods passed with `BUILD SUCCESSFUL`. The Route tests
+cover separate publisher/provider sessions, explicit refresh after signed
+event/head revisions and notification-driven refresh. Session
+timeout/reconnect, cache-staleness recovery, activation barrier, native
+eligibility, real Broker transport and Worker vertical evidence remain open.
 
 2026-08-15 implementation evidence: commit
 `4a4cb9424ec731a59bb117028ae631557c907e2f` adds
@@ -2516,10 +2516,12 @@ signatures, replays contiguous revisions, refreshes from Oxia notifications,
 and quarantines same-incarnation immutable drift. Exact lookup remains
 tenant-scoped and preparation still reads only the local cache.
 
-Explicit-refresh publication and tenant-scoped cache replay now have a live
-Oxia smoke, but activation barrier publication, real-service
-notification-stream/session-timeout/reconnect and cache-staleness cuts, and
-native eligibility authority remain required。完成门：snapshot
+Explicit-refresh publication and notification-driven tenant-scoped cache
+replay now have a live Oxia smoke. The notification stream uses a separate
+client from the session-fenced Route read/write client, and refresh work is
+dispatched off the Oxia callback thread. Session-timeout/reconnect and
+cache-staleness recovery cuts, activation barrier publication and native
+eligibility authority remain required。完成门：snapshot
 signature/digest、lifecycle、route
 expansion、credential binding、cache staleness cuts。
 同一 Route Incarnation 的 resource/partition/hash/query-retention/size drift 必须 quarantine；仅
