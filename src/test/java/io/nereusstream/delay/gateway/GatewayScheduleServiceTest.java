@@ -29,6 +29,7 @@ import io.nereusstream.delay.semantic.RouteSelectionHint;
 import io.nereusstream.delay.semantic.TrustedClock;
 import io.nereusstream.delay.submission.SubmissionCoordinator;
 import io.nereusstream.delay.transport.TransportOwnershipPermit;
+import io.nereusstream.delay.transport.PhysicalEnqueueAttemptId;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -82,6 +83,42 @@ class GatewayScheduleServiceTest {
         assertFalse(conflict.hasSubmissionOutcome());
         assertEquals(StableCode.PREPARED_SUBMISSION_MISMATCH, conflict.preparationError().code());
         assertEquals(1, coordinator.calls);
+    }
+
+    @Test
+    void retryUncertainReusesStoredBytesAndRetryRequestIdWithoutDuplicateAttempt() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
+        final PreparedCommand command = PreparedCommand.scheduleV1(shard, schedule(), 600);
+        final FakeCore core = new FakeCore(PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(command)));
+        final CountingCoordinator coordinator = new CountingCoordinator(command, true);
+        final TrustedClock clock = () -> 100;
+        final InMemoryGatewayIdempotencyStore store = new InMemoryGatewayIdempotencyStore(clock, 10, 20);
+        final GatewayScheduleService service = new GatewayScheduleService(core, store, coordinator, clock);
+        final AuthenticatedTenantContext tenant = tenant();
+        final GatewayScheduleRequestV1 request = request(600);
+
+        final GatewaySubmissionOutcomeV1 uncertain = service.schedule(tenant, request)
+                .toCompletableFuture().join();
+        final io.nereusstream.delay.transport.Digest32 keyHash = GatewayIdempotencyHashV1.keyHash(
+                tenant.authenticatedTenantScopeHash(), request.idempotencyKey());
+        final PhysicalEnqueueAttemptId expected = store.exact(keyHash).attempts().get(0).physicalAttemptId();
+        final GatewayRetryUncertainRequestV1 retry = new GatewayRetryUncertainRequestV1(request.idempotencyKey(),
+                expected, PhysicalEnqueueAttemptId.require(bytes(16, 91)));
+
+        final GatewaySubmissionOutcomeV1 retried = service.retryUncertain(tenant, retry)
+                .toCompletableFuture().join();
+        final GatewaySubmissionOutcomeV1 repeated = service.retryUncertain(tenant, retry)
+                .toCompletableFuture().join();
+
+        assertTrue(uncertain.hasSubmissionOutcome());
+        assertEquals(io.nereusstream.delay.protocol.SubmissionOutcomeKindV1.MANAGED,
+                uncertain.submissionOutcome().kind());
+        assertEquals(io.nereusstream.delay.protocol.EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN,
+                uncertain.submissionOutcome().managed().kind());
+        assertTrue(retried.hasSubmissionOutcome());
+        assertArrayEquals(retried.submissionOutcome().canonicalBytes(), repeated.submissionOutcome().canonicalBytes());
+        assertEquals(2, coordinator.calls);
+        assertEquals(2, store.exact(keyHash).attempts().size());
     }
 
     private static GatewayScheduleRequestV1 request(final long retryUntil) {
@@ -169,10 +206,16 @@ class GatewayScheduleServiceTest {
 
     private static final class CountingCoordinator implements SubmissionCoordinator {
         private final PreparedCommand command;
+        private final boolean uncertainFirst;
         private int calls;
 
         private CountingCoordinator(final PreparedCommand command) {
+            this(command, false);
+        }
+
+        private CountingCoordinator(final PreparedCommand command, final boolean uncertainFirst) {
             this.command = command;
+            this.uncertainFirst = uncertainFirst;
         }
 
         @Override
@@ -180,6 +223,11 @@ class GatewayScheduleServiceTest {
                                                                     final PreparedSubmissionV1 submission,
                                                                     final TransportOwnershipPermit permit) {
             calls++;
+            if (uncertainFirst && calls == 1) {
+                return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
+                        WireIngressOutcomeSupport.uncertain(command, permit.physicalAttemptId().bytes(),
+                                StableCode.ENQUEUE_RESULT_UNCERTAIN, null)));
+            }
             return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
                     WireIngressOutcomeSupport.localDefinite(command, StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED)));
         }

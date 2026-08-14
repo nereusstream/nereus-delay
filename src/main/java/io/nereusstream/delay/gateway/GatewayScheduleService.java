@@ -89,11 +89,59 @@ public final class GatewayScheduleService {
             final io.nereusstream.delay.transport.Digest32 keyHash,
             final PreparedSubmissionV1 submission,
             final GatewayScheduleRequestV1 request) {
-        if (trustedClock.nowEpochMs() >= request.retryUntilEpochMs()) {
+        try {
+            if (trustedClock.nowEpochMs() >= request.retryUntilEpochMs()) {
+                return completed(GatewaySubmissionOutcomeV1.submission(GatewayOutcomeSupport.localDefinite(submission,
+                        StableCode.PREPARED_COMMAND_EXPIRED)));
+            }
+        } catch (RuntimeException unavailable) {
             return completed(GatewaySubmissionOutcomeV1.submission(GatewayOutcomeSupport.localDefinite(submission,
-                    StableCode.PREPARED_COMMAND_EXPIRED)));
+                    StableCode.ROUTE_SNAPSHOT_UNAVAILABLE)));
         }
-        final InMemoryGatewayIdempotencyStore.AttemptStart started = idempotency.startAttempt(keyHash);
+        return continueStartedAttempt(tenant, keyHash, submission, idempotency.startAttempt(keyHash));
+    }
+
+    /** Retries only the stored exact prepared bytes after an uncertain aggregate. */
+    public CompletionStage<GatewaySubmissionOutcomeV1> retryUncertain(final AuthenticatedTenantContext tenant,
+                                                                       final GatewayRetryUncertainRequestV1 request) {
+        Objects.requireNonNull(tenant, "tenant");
+        Objects.requireNonNull(request, "request");
+        final io.nereusstream.delay.transport.Digest32 keyHash;
+        try {
+            keyHash = GatewayIdempotencyHashV1.keyHash(tenant.authenticatedTenantScopeHash(),
+                    request.originalIdempotencyKey());
+        } catch (RuntimeException invalidRequest) {
+            return completed(preparationError(StableCode.INVALID_METADATA));
+        }
+        final GatewayIdempotencyRecordV1 record = idempotency.exact(keyHash);
+        if (record == null) {
+            return completed(preparationError(StableCode.NOT_FOUND_OR_NOT_AUTHORIZED));
+        }
+        final PreparedSubmissionV1 submission;
+        try {
+            submission = PreparedSubmissionV1.decode(record.preparedSubmissionBytes());
+        } catch (RuntimeException malformed) {
+            return completed(preparationError(StableCode.INTEGRITY_ERROR));
+        }
+        final InMemoryGatewayIdempotencyStore.RetryStart started;
+        try {
+            started = idempotency.startRetry(keyHash, request.expectedPriorPhysicalAttemptId(),
+                    request.retryRequestId());
+        } catch (RuntimeException failure) {
+            return completed(preparationError(StableCode.INTEGRITY_ERROR));
+        }
+        if (started.state() == InMemoryGatewayIdempotencyStore.RetryState.CONFLICT) {
+            return completed(preparationError(StableCode.PREPARED_SUBMISSION_MISMATCH));
+        }
+        return continueStartedAttempt(tenant, keyHash, submission,
+                new InMemoryGatewayIdempotencyStore.AttemptStart(started.record(), started.permit()));
+    }
+
+    private CompletionStage<GatewaySubmissionOutcomeV1> continueStartedAttempt(
+            final AuthenticatedTenantContext tenant,
+            final io.nereusstream.delay.transport.Digest32 keyHash,
+            final PreparedSubmissionV1 submission,
+            final InMemoryGatewayIdempotencyStore.AttemptStart started) {
         if (started.permit() == null) {
             final byte[] aggregate = started.record().aggregateOutcomeBytes();
             if (aggregate != null) {
@@ -118,11 +166,10 @@ public final class GatewayScheduleService {
         try {
             stage = submissions.submit(tenant, submission, permit);
         } catch (RuntimeException failure) {
-            return finishAfterFailure(keyHash, submission, permit, failure);
+            return finishAfterFailure(keyHash, submission, permit);
         }
         if (stage == null) {
-            return finishAfterFailure(keyHash, submission, permit,
-                    new IllegalStateException("submission coordinator returned a null stage"));
+            return finishAfterFailure(keyHash, submission, permit);
         }
         try {
             return stage.handle((outcome, failure) -> {
@@ -141,15 +188,14 @@ public final class GatewayScheduleService {
                 return GatewaySubmissionOutcomeV1.submission(resolved);
             });
         } catch (RuntimeException failure) {
-            return finishAfterFailure(keyHash, submission, permit, failure);
+            return finishAfterFailure(keyHash, submission, permit);
         }
     }
 
     private CompletionStage<GatewaySubmissionOutcomeV1> finishAfterFailure(
             final io.nereusstream.delay.transport.Digest32 keyHash,
             final PreparedSubmissionV1 submission,
-            final GatewayAttemptOwnershipPermit permit,
-            final RuntimeException failure) {
+            final GatewayAttemptOwnershipPermit permit) {
         final SubmissionOutcomeMessageV1 outcome = permit.state() == TransportOwnershipState.LIBRARY_OWNED
                 ? GatewayOutcomeSupport.uncertain(submission, permit.physicalAttemptId())
                 : GatewayOutcomeSupport.localDefinite(submission, StableCode.BROKER_RESOURCE_UNCERTIFIED);

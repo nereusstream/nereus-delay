@@ -4,5 +4,12 @@ package io.nereusstream.delay.gateway;
 public enum GatewayIdempotencyPhaseV1 {
     PREPARED,
     ACTIVE,
-    QUIESCENT
+    QUIESCENT;
+
+    public static GatewayIdempotencyPhaseV1 fromWire(final long value) {
+        if (value < 1 || value > values().length) {
+            throw new IllegalArgumentException("unknown Gateway idempotency phase: " + value);
+        }
+        return values()[(int) value - 1];
+    }
 }

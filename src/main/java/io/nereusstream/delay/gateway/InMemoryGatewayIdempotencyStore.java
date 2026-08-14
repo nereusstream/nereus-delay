@@ -2,6 +2,7 @@ package io.nereusstream.delay.gateway;
 
 import io.nereusstream.delay.protocol.PreparedSubmissionV1;
 import io.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
+import io.nereusstream.delay.protocol.SubmissionOutcomeKindV1;
 import io.nereusstream.delay.semantic.TrustedClock;
 import io.nereusstream.delay.transport.Digest32;
 import io.nereusstream.delay.transport.GatewayAttemptOwnershipPermit;
@@ -64,6 +65,53 @@ public final class InMemoryGatewayIdempotencyStore {
         records.put(keyHash, next);
         return new AttemptStart(next, new GatewayAttemptOwnershipPermit(id, next.revision(), ownershipNotAfter,
                 trustedClock));
+    }
+
+    /** Starts exactly one explicit retry from the current uncertain aggregate. */
+    public synchronized RetryStart startRetry(final Digest32 keyHash,
+                                               final PhysicalEnqueueAttemptId expectedPriorAttemptId,
+                                               final PhysicalEnqueueAttemptId retryRequestId) {
+        final GatewayIdempotencyRecordV1 current = require(keyHash);
+        final Digest32 retryHash = GatewayIdempotencyHashV1.retryRequestHash(keyHash, expectedPriorAttemptId,
+                retryRequestId);
+        for (GatewayPhysicalAttemptV1 attempt : current.attempts()) {
+            if (retryRequestId.equals(attempt.retryRequestId())) {
+                return new RetryStart(current, null,
+                        retryHash.equals(attempt.retryRequestHash()) ? RetryState.EXISTING_RETRY
+                                : RetryState.CONFLICT);
+            }
+        }
+        if (current.aggregateOutcomeBytes() == null || current.phase() != GatewayIdempotencyPhaseV1.QUIESCENT) {
+            return new RetryStart(current, null, RetryState.NOT_RETRYABLE);
+        }
+        final SubmissionOutcomeMessageV1 aggregate;
+        try {
+            aggregate = SubmissionOutcomeMessageV1.decode(current.aggregateOutcomeBytes());
+        } catch (RuntimeException malformed) {
+            return new RetryStart(current, null, RetryState.NOT_RETRYABLE);
+        }
+        final boolean uncertain = aggregate.kind() == SubmissionOutcomeKindV1.NATIVE_ENQUEUE_UNCERTAIN
+                || (aggregate.kind() == SubmissionOutcomeKindV1.MANAGED
+                && aggregate.managed().kind() == io.nereusstream.delay.protocol.EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN);
+        if (!uncertain || current.attempts().isEmpty()) {
+            return new RetryStart(current, null, RetryState.NOT_RETRYABLE);
+        }
+        final GatewayPhysicalAttemptV1 prior = current.attempts().get(current.attempts().size() - 1);
+        if (prior.state() != GatewayPhysicalAttemptStateV1.UNCERTAIN
+                || !prior.physicalAttemptId().equals(expectedPriorAttemptId)) {
+            return new RetryStart(current, null, RetryState.STALE_PRECONDITION);
+        }
+        final long started = now();
+        final long uncertaintyAt = checkedAdd(started, outcomeWaitMs);
+        final long ownershipNotAfter = checkedAdd(started, ownershipMaxAgeMs);
+        final PhysicalEnqueueAttemptId id = PhysicalEnqueueAttemptId.random();
+        final GatewayPhysicalAttemptV1 attempt = new GatewayPhysicalAttemptV1(current.attempts().size() + 1, id,
+                GatewayPhysicalAttemptStateV1.STARTED, null, started, uncertaintyAt, retryRequestId, retryHash,
+                current.revision() + 1, ownershipNotAfter);
+        final GatewayIdempotencyRecordV1 next = current.withAttempt(attempt);
+        records.put(keyHash, next);
+        return new RetryStart(next, new GatewayAttemptOwnershipPermit(id, next.revision(), ownershipNotAfter,
+                trustedClock), RetryState.STARTED);
     }
 
     public synchronized GatewayIdempotencyRecordV1 finish(final Digest32 keyHash,
@@ -130,6 +178,22 @@ public final class InMemoryGatewayIdempotencyStore {
     public record AttemptStart(GatewayIdempotencyRecordV1 record, GatewayAttemptOwnershipPermit permit) {
         public AttemptStart {
             Objects.requireNonNull(record, "record");
+        }
+    }
+
+    public enum RetryState {
+        STARTED,
+        EXISTING_RETRY,
+        CONFLICT,
+        STALE_PRECONDITION,
+        NOT_RETRYABLE
+    }
+
+    public record RetryStart(GatewayIdempotencyRecordV1 record, GatewayAttemptOwnershipPermit permit,
+                             RetryState state) {
+        public RetryStart {
+            Objects.requireNonNull(record, "record");
+            Objects.requireNonNull(state, "state");
         }
     }
 }

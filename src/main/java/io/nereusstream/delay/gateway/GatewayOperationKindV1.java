@@ -13,4 +13,13 @@ public enum GatewayOperationKindV1 {
     public int wireValue() {
         return wireValue;
     }
+
+    public static GatewayOperationKindV1 fromWire(final long value) {
+        for (GatewayOperationKindV1 kind : values()) {
+            if (kind.wireValue == value) {
+                return kind;
+            }
+        }
+        throw new IllegalArgumentException("unknown Gateway operation kind: " + value);
+    }
 }
