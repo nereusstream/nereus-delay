@@ -2,7 +2,11 @@ package io.nereusstream.delay.gateway;
 
 /** Gateway operation kinds included in idempotency body hashes. */
 public enum GatewayOperationKindV1 {
-    SCHEDULE(1);
+    SCHEDULE(1),
+    PREPARE_LARGE_SCHEDULE(2),
+    COMMIT_LARGE_SCHEDULE(3),
+    CANCEL(4),
+    RESCHEDULE(5);
 
     private final int wireValue;
 
