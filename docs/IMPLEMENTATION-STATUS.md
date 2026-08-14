@@ -349,15 +349,16 @@ into this Delay repository. Their source locks, binary digests, rollout and
 real-Broker cuts remain release blockers; a design ACCEPTED label is not
 implementation PASS.
 
-## 2026-08-14 P1 isolated Pulsar guarded-client slice
+## 2026-08-15 P1 isolated Pulsar guarded-client slice
 
-The isolated Pulsar worktree now contains two independently reviewable commits
+The isolated Pulsar worktree now contains three independently reviewable commits
 on `nereus/delay-resource-guard-v1`, based directly on the locked
 `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`:
 
 ```text
 19c97bf836d521f0e6103c542819723e70ccdbab  Add Pulsar v22 topic resource guard contract
 be226fe6c88634e9a94ba5c6a0f5859bc510cb66  Enforce Pulsar topic resource guards
+7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9  Preserve guarded producer identity asynchronously
 ```
 
 The first commit adds ProtocolVersion v22, ResourceIncarnationMismatch=26,
@@ -389,12 +390,40 @@ GRADLE_USER_HOME=/tmp/nereus-pulsar-delay-gradle \
 
 This command passed at `be226fe6c8`; the cross-module compile
 `:pulsar-client-original:compileJava :pulsar-broker:compileJava` also passed.
-The focused result is upstream module/mock evidence only. Real Pulsar
-delete/recreate, unload, failover, old-broker proxy compatibility, artifact
-digest capture, Docker lifecycle and the D3 Nereus transport are still OPEN.
-The `pulsar-client-original` full test source was not used as a gate because
-the checkout has unrelated pre-existing generated-test compilation failures;
-no full client or real-broker PASS is claimed.
+The third commit closes two client/broker lifecycle gaps found by a real
+in-process broker cut: it snapshots and copies the v22 guard before the
+asynchronous topic lookup (the decoded `CommandProducer` can be recycled),
+and converts create-time `ResourceIncarnationMismatch` into a typed,
+non-retriable `TopicResourceGuardException`. Its integration test enables the
+broker timestamp/index interceptors and passes both guarded SEND evidence and
+same-name delete/recreate: the old incarnation is rejected before persistence
+with `definitelyNotPersisted=true`, while the replacement incarnation sends
+successfully. The success assertion covers attested physical topic/partition,
+ledger/entry, broker timestamp and request/authenticated-response SHA-256
+evidence.
+
+The current real-broker and affected-module static evidence is:
+
+```text
+GRADLE_USER_HOME=/tmp/nereus-pulsar-delay-gradle \
+  ./gradlew :pulsar-broker:test \
+    --tests org.apache.pulsar.client.api.TopicResourceGuardIntegrationTest \
+    -DtestRetryCount=0 --no-daemon --console=plain
+
+GRADLE_USER_HOME=/tmp/nereus-pulsar-delay-gradle \
+  ./gradlew :pulsar-broker:checkstyleMain \
+    :pulsar-broker:checkstyleTest \
+    :pulsar-client-original:checkstyleMain \
+    :pulsar-client-api:checkstyleMain \
+    --no-daemon --console=plain
+```
+
+Both commands pass at `7eebd41d5b`. This is still a single-broker in-process
+integration cut, not a release or production transport PASS. Pulsar unload,
+multi-broker failover, old-broker/proxy compatibility, artifact/source digest
+capture, Docker lifecycle and the D3 Nereus transport remain OPEN. The
+`pulsar-client-original` full test source is not used as a gate because the
+checkout has unrelated pre-existing generated-test compilation failures.
 
 The post-permit live-service audit on 2026-08-12 ran from document commit
 `b45045b` with a temporary standalone Oxia service built from source commit
@@ -4691,7 +4720,7 @@ covers this ordering.
 | Shared Semantic Core and signed immutable RouteSnapshot | Partial (local deterministic core plus Oxia event/head-CAS authority composition; production gates open) | `RouteSnapshotV1`, `DefaultDelaySemanticCore`, `InMemorySignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotPublisher`, `RouteSnapshotCompatibilityV1`, `DefaultDelayClient`, `RouteBoundSubmissionTransportPlanResolver`, `RouteSnapshotV1Test`, `DefaultDelaySemanticCoreTest`, `InMemorySignedRouteSnapshotProviderTest`, `OxiaSignedRouteSnapshotProviderTest`; canonical signature/digest, contiguous replay, head CAS, notification refresh, same-incarnation immutable-drift quarantine, tenant-scoped historical resolution and zero-I/O preparation are covered. Activation-barrier publication, session fencing, real Oxia service evidence, native eligibility authority, package split and production cross-entry gate remain open |
 | Delay Gateway and Gateway idempotency | Partial (local Schedule/RetryUncertain plus Oxia single-record CAS composition) | `GatewayScheduleRequestV1`, `GatewayRetryUncertainRequestV1`, `GatewayIdempotencyStore`, `GatewayIdempotencyHashV1`, `GatewayIdempotencyRecordV1`, `GatewayPhysicalAttemptV1`, `InMemoryGatewayIdempotencyStore`, `OxiaGatewayIdempotencyStore`, `GatewayScheduleService`, source proto, `GatewayScheduleServiceTest` and `OxiaGatewayIdempotencyStoreTest`; exact body conflict, prepared-before-ownership, one-shot attempt, strict record decoding, uncertain expected-prior/retry-ID CAS, response-loss no-permit behavior and outcome replay are local evidence. Generated gRPC/API modules, mTLS/JWT authentication, quota/audit, HA/transactional durability, late authenticated evidence promotion, crash cuts and multi-language vectors remain open |
 | Kafka generic guarded Producer patch | Implemented in isolated upstream worktree (real-service cuts pass; release gates open) | Kafka branch `nereus/delay-guarded-producer-v1@95d48e89e7e8a4e6d8718e44d424ffef8f17829f` from locked `trunk@c300006a7705c240642db6950b5a95fec982bfc5`; focused client/mock and real KRaft delete/recreate/leader-failover evidence pass, including legal `logAppendTimeMs=-1` handling. Artifact/source digest and Delay D2 transport remain open; K2 target-plus-receipt transaction is separate |
-| Pulsar v22 first-class resource guard | Implemented in isolated upstream worktree (real-service gate open) | Pulsar branch `nereus/delay-resource-guard-v1@be226fe6c88634e9a94ba5c6a0f5859bc510cb66` from locked `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`; focused common/broker and checkstyle evidence pass. Delete/recreate, unload/failover, proxy compatibility, artifact/source digest and Delay D3 transport remain open |
+| Pulsar v22 first-class resource guard | Implemented in isolated upstream worktree (single-broker cut pass; release gate open) | Pulsar branch `nereus/delay-resource-guard-v1@7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9` from locked `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`; focused common/broker, real in-process guarded SEND plus delete/recreate, and affected-module checkstyle evidence pass. Multi-broker unload/failover, proxy compatibility, artifact/source digest and Delay D3 transport remain open |
 | Queued receipt Route-policy boundary | Implemented (local strict adapter seam; Route authority pending) | `QueuedReceiptQueryPolicy`, `PolicyBoundWireCommandIngressAdapter`, `PinnedKafkaCommandIngress`, `PinnedPulsarCommandIngress`, `PreparedSubmissionAdapter`, `EmbeddedDelayService`, `AdapterIngressTest`, `NativeSubmissionAdapterTest`; strict paths derive `receipt_query_until` from authenticated Broker persistence time with checked addition, reject missing/drifting policy snapshots before transport ownership, and retain post-persistence overflow as `ENQUEUE_UNCERTAIN`/integrity evidence; absolute-boundary overloads are compatibility-only and checked against a bound policy; Route policy publication, source-time authority and concrete production transports remain release blockers |
 | Full command-result retention boundary | Implemented (local strict query seam; retention authority pending) | `CommandResultRetentionPolicy`, `DelayClient`, `EmbeddedDelayService`, `BoundedLocalQueryProjector`, `EmbeddedDelayServiceTest.embeddedQueryDerivesFullResultRetentionFromAppliedSourceTime`, `CommandResultRetentionPolicyTest`; strict query/await/applied-receipt projections derive `full_result_retain_until` from the applied Source Position Broker persistence time with checked addition, while absolute-boundary overloads remain compatibility-only; policy publication, source-time authority and production query routing remain release blockers |
 | Strict typed Claim runtime binding | Implemented (local Message plus durable V1 command/Lane-tuple binding and public-API fence; live authority pending) | `DelayShard.claimForPublishV1`, `V1ScheduleBinding.requireClaimLaneProjection`, `CanonicalLaneTupleV1Test`, `DelayShardTest.physicalGcMutationPrimitivesAreNotPublicProductionApis`, `DelayShardTest.registryPrepareCannotDowngradeTrustSetAuthorityWithLegacyCommitBody`, `ClaimMaterializationRuntimeTest`; strict Claim entrypoint binds message identity, generation, delivery window, timeline `actionAt` and inline/object payload reference before persistence, then, when a `V1ScheduleBinding` exists, exactly rebinds Destination Profile, business metadata, delivery window and the original Schedule payload branch or Prepare Object Store Profile/length/SHA-256. It also parses the exact durable canonical Lane tuple and requires byte-identical Destination/Capability Profiles, Kafka/Pulsar Broker target resource and physical partition; same-hash foreign Profile identities, target or partition drift are rejected before Claim state changes. The legacy byte-array primitive is package-local and reachable across packages only from the test-classpath bridge. Production Claim creation remains routed through `ClaimHandoffWorkClassExecutor`/`OwnedDelayShard`; live Profile/credential/resource authority, Object Store fetch, Adapter serialization/size certification, channel lease, Producer ownership and crash recovery remain release blockers |

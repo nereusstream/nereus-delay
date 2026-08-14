@@ -1642,6 +1642,16 @@ Pulsar MessageId。`MessageId.fromByteArray*` 不得重建 `GuardedMessageId` �
 因此 Nereus transport 必须在 callback 内把 typed evidence 持久/投影，不能稍后从序列化
 MessageId 猜回 receipt。
 
+P1 broker/client implementation additionally snapshots the wire guard into a copied
+`TopicResourceGuard` before `ServerCnx` enters asynchronous authorization/topic
+creation. The async path must use that snapshot rather than rereading the mutable
+decoded `CommandProducer`; otherwise decoder reuse can erase the guard and create
+an ordinary producer. A create-time `ResourceIncarnationMismatch` is converted to
+`TopicResourceGuardException`, marked `definitelyNotPersisted`, and treated as
+non-retriable. The real in-process broker cut at
+`7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9` verifies this boundary together with
+attested SEND evidence and same-name delete/recreate.
+
 `ProducerBuilder<T>` 增加：
 
 ```java
@@ -2387,21 +2397,28 @@ atomic-target-receipt Profile 必须保持不可激活。
 
 从 `5.0.0-M1@8dae0236` 创建独立分支，实现 §10。
 
-2026-08-14 progress evidence: Pulsar worktree branch
+2026-08-15 progress evidence: Pulsar worktree branch
 `nereus/delay-resource-guard-v1` is implemented in commits
 `19c97bf836d521f0e6103c542819723e70ccdbab` and
-`be226fe6c88634e9a94ba5c6a0f5859bc510cb66`. The v22 wire/API slice and the
+`be226fe6c88634e9a94ba5c6a0f5859bc510cb66`, followed by
+`7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9`. The v22 wire/API slice and the
 broker/client enforcement slice pass the focused common/broker tests and
-affected-module checkstyle with an independent Gradle user home. The patch
-keeps generic Pulsar APIs and uses strict three-property resource tuples,
-INVALID-before-update publication, exact create/SEND guard comparison,
+affected-module checkstyle with an independent Gradle user home. The latest
+commit snapshots and copies the guard before asynchronous broker topic work,
+so decoder command reuse cannot silently turn a guarded producer into an
+ordinary producer; it also maps create-time incarnation mismatch to a typed,
+non-retriable guard exception. A real in-process broker/client test now passes
+guarded SEND evidence and same-name delete/recreate: the old incarnation is
+rejected before persistence and the replacement incarnation sends successfully.
+The patch keeps generic Pulsar APIs and uses strict three-property resource
+tuples, INVALID-before-update publication, exact create/SEND guard comparison,
 broker-entry timestamp receipt echo and typed evidence correlation.
 
 This remains an isolated upstream slice, not a Delay repository production
-transport. Real delete/recreate, unload/failover, old-peer proxy compatibility,
-artifact/source digest and Docker lifecycle cuts remain required before the
-completion gate can pass; D3 must not use an ordinary Pulsar producer as a
-substitute.
+transport. The single-broker delete/recreate cut is covered; unload,
+multi-broker failover, old-peer proxy compatibility, artifact/source digest
+and Docker lifecycle cuts remain required before the completion gate can pass;
+D3 must not use an ordinary Pulsar producer as a substitute.
 
 完成门：v22 wire compatibility、create+per-SEND guard、receipt echo、delete/recreate/unload/failover cut、focused modules格式检查。
 

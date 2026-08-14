@@ -79,18 +79,23 @@ digest capture, D2 Nereus transport and production release approval remain
 OPEN.
 
 The separately owned Pulsar P1 worktree has since produced
-`19c97bf836d521f0e6103c542819723e70ccdbab` and
-`be226fe6c88634e9a94ba5c6a0f5859bc510cb66` on
+`19c97bf836d521f0e6103c542819723e70ccdbab`,
+`be226fe6c88634e9a94ba5c6a0f5859bc510cb66` and
+`7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9` on
 `nereus/delay-resource-guard-v1`, based on the locked
 `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`. The commits add the
 v22 guard wire contract, immutable guard/evidence API, strict broker property
 view, create/per-SEND checks, receipt echo and client generation/identity
-correlation. The post-commit common/broker focused tests and affected-module
-checkstyle passed with `GRADLE_USER_HOME=/tmp/nereus-pulsar-delay-gradle`.
-This is isolated upstream module evidence only: real delete/recreate,
-unload/failover, old-peer proxy cuts, artifact/source digest, Docker and D3
-Nereus transport evidence remain OPEN, so this audit does not promote P1 or
-V1 production status.
+correlation. The latest commit snapshots the guard before asynchronous broker
+topic work and makes create-time incarnation mismatch typed and non-retriable.
+The current real in-process broker test passes guarded SEND evidence and
+same-name delete/recreate (old incarnation rejected before persistence,
+replacement accepted); the affected-module checkstyle also passes with
+`GRADLE_USER_HOME=/tmp/nereus-pulsar-delay-gradle`.
+This is isolated upstream module evidence only: unload, multi-broker failover,
+old-peer proxy cuts, artifact/source digest, Docker and D3 Nereus transport
+evidence remain OPEN, so this audit does not promote P1 or V1 production
+status.
 
 The post-permit live-service audit on 2026-08-12 ran from document commit
 `b45045b` with a temporary standalone Oxia service built from source commit
@@ -4397,7 +4402,7 @@ the guarded Broker rollout attestation remains external evidence.
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
 | Pulsar first-class-guard implementation base inspected for ADR 0044 | `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551` |
 | Kafka isolated K1 implementation | `nereus/delay-guarded-producer-v1@95d48e89e7e8a4e6d8718e44d424ffef8f17829f` |
-| Pulsar isolated P1 implementation | `nereus/delay-resource-guard-v1@be226fe6c88634e9a94ba5c6a0f5859bc510cb66` |
+| Pulsar isolated P1 implementation | `nereus/delay-resource-guard-v1@7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9` |
 
 主设计 R12–R37 的 Kafka/Pulsar correctness-critical 链接全部使用上述 immutable commit。发布包还必须记录实际 patch/binary digest、Broker rollout attestation 和 delete/recreate cuts；仅有文档 source lock 不等于实现已通过。
 
