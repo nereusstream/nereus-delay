@@ -6699,6 +6699,39 @@ assignment/session CAS, response-loss or crash recovery, Pulsar mutation
 apply, automatic Claim/Publish authority, multi-shard placement or the V1
 release gates.
 
+## 2026-08-15 Pulsar System Mutation Worker apply audit
+
+Delay commit `016288b1` closes the previously open Pulsar mutation-to-Store
+Worker cut. The real P1 smoke appends two signed `TIME_FENCE` mutations,
+replays ledger/entry `18/0` through strict Owner recovery, activates at the
+exclusive `18/1` barrier, and applies `18/1` through the active mixed source
+loop. It checks the mutation id/hash/type, `SystemMutationResult=APPLIED/OK`,
+exact Pulsar Source Position, RocksDB WriteBatch completion, guarded
+SUBSCRIBE ACK and final checkpoint before reporting success. The append,
+recovery and active paths retain the same cluster/incarnation/topic
+attestation and connection-generation proof.
+
+The source lock is P1
+`358ce4a1033bd566faebcd3465c3ba4606f3c83f`; the receipt used client
+SHA-256 values
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`, and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`,
+distribution SHA-256
+`7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5a1d137d`, and P1
+image `sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`.
+The full Docker receipt used Compose project
+`nereus-delay-pulsar-e2e-1786780346-14394` on ports `19930,19931`; a second
+full receipt on `19940,19941` reproduced the mutation Worker ledger/entry
+pair. Both used local/in-memory owner authority.
+
+This closes only the bounded Pulsar mutation append → recovery → active Store
+apply → ACK → local checkpoint integration cut. It is not evidence of real
+Oxia assignment/session CAS, multi-broker failover, native source ownership
+transfer, response-loss or crash recovery at every WriteBatch boundary,
+automatic Claim/Publish authority, catalog placement or §23.5 release
+completion.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

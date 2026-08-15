@@ -7754,6 +7754,53 @@ receipt; production Route publication, external assignment/session authority,
 mutation response-loss/crash cuts, Pulsar mutation-to-Store apply,
 automatic Claim/Publish authority and release PASS remain open.
 
+## 2026-08-15 Pulsar System Mutation Worker apply evidence
+
+Delay commit `016288b1` adds `PulsarClientArtifactMutationWorkerSmoke` and the
+`runRealPulsarMutationWorkerSmoke` E2E task. It appends two signed `TIME_FENCE`
+records to one guarded P1 topic. Strict Owner recovery consumes only the first
+record and activates at the exclusive second-entry barrier. The active
+`WorkerShardRuntime` then consumes the second record through guarded SUBSCRIBE,
+applies the source-ordered `DelayShard` System Mutation WriteBatch, checks the
+durable `SystemMutationResult` and exact Pulsar ledger/entry, ACKs the source,
+and drains a final local checkpoint. The same P1 client proof is used for
+append, recovery and active replay; no name-only client path is substituted.
+
+The fresh full run used Delay `016288b1`, P1 source
+`358ce4a1033bd566faebcd3465c3ba4606f3c83f`, client SHA-256 values
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`, and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`,
+distribution SHA-256
+`7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5a1d137d`, P1 image
+`sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`,
+Compose project `nereus-delay-pulsar-e2e-1786780346-14394`, and ports
+`19930,19931`. The exact command was:
+
+```bash
+JAVA_TOOL_OPTIONS='-Dorg.slf4j.simpleLogger.defaultLogLevel=warn' \
+PULSAR_BROKER_PORT=19930 PULSAR_WEB_PORT=19931 \
+./e2e/run-pulsar-real-client-e2e.sh
+```
+
+The mutation Worker cut printed:
+
+```text
+Pulsar mutation Worker assignment publication/acceptance passed: revision=1, worker=pulsar-mutation-worker, authority=in-memory
+Pulsar mutation Worker vertical smoke passed: recovery TIME_FENCE ledger/entry=18/0, active Store apply TIME_FENCE ledger/entry=18/1, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
+```
+
+A second complete run on ports `19940,19941` independently emitted the same
+mutation Worker receipt with ledger/entry `18/0` and `18/1`. The full harness
+also passed guarded service/source replay, signed mutation append/replay/ACK,
+ordinary Worker recovery/apply, ACK handoff and broker-restart resume, then
+exited with `Pulsar P1 real-client E2E passed` and removed its Docker resources.
+This closes the Pulsar mutation-to-Store Worker path with the local/in-memory
+owner authority used by these receipts. Optional real Oxia authority was not
+enabled; production multi-broker failover, assignment/session CAS, mutation
+response-loss/crash cuts, automatic Claim/Publish authority, catalog-driven
+placement and release PASS remain open.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

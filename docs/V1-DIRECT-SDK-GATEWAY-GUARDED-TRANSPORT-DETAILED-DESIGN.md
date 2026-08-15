@@ -3387,6 +3387,36 @@ not itself establish real Oxia assignment/session CAS, mutation response-loss
 or crash recovery, Pulsar mutation apply, automatic Claim/Publish authority,
 multi-shard placement or §23.5 release completion.
 
+### 2026-08-15 Pulsar System Mutation Worker apply
+
+The P1 real-client binding now has a mixed-mutation Worker receipt. Two signed
+`TIME_FENCE` frames are appended through the guarded P1 Producer on one topic.
+The recovery cursor is bounded to the first frame, and strict Owner recovery
+applies ledger/entry `18/0` through the shared `SOURCE_APPLY` WorkClass before
+the exclusive activation barrier opens. The active Worker consumes ledger/
+entry `18/1` through guarded SUBSCRIBE, validates the exact P1 source proof,
+applies `DelayShard`'s durable System Mutation WriteBatch, verifies the exact
+`SystemMutationResult` and Store Source Position, and acknowledges the source.
+Drain then requires the final local checkpoint and releases the Owner lease.
+
+The receipt used Delay `016288b1`, P1 source
+`358ce4a1033bd566faebcd3465c3ba4606f3c83f`, client SHA-256 values
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`, and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`,
+distribution SHA-256
+`7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5a1d137d`, P1 image
+`sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`,
+and the Docker receipt `nereus-delay-pulsar-e2e-1786780346-14394` on ports
+`19930,19931`. A second full run on `19940,19941` reproduced the same
+ledger/entry pair and the final aggregate pass.
+
+This is an integration cut for local/in-memory owner authority. It does not
+establish real Oxia assignment/session CAS, Pulsar multi-broker failover,
+native source ownership transfer, response-loss or crash evidence,
+automatic Claim/Publish authority, catalog-driven placement or §23.5 release
+completion.
+
 ## 16. 当前结论与仍需实测的数值
 
 已经冻结：
