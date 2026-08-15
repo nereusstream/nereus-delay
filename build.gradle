@@ -76,7 +76,10 @@ tasks.register('compileRealKafka', JavaCompile) {
         }
     }
     source = sourceSets.realKafka.java
-    classpath = files(sourceSets.main.output, realKafkaClientJar)
+    // The shared main API exposes Oxia-backed authority constructors. Keep
+    // upstream Kafka isolated, but make the shared main compile dependencies
+    // visible when javac resolves those public signatures.
+    classpath = files(sourceSets.main.output, sourceSets.main.compileClasspath, realKafkaClientJar)
     destinationDirectory = layout.buildDirectory.dir('classes/java/realKafka')
     options.release = 21
     options.encoding = 'UTF-8'
@@ -163,7 +166,10 @@ tasks.register('compileRealPulsar', JavaCompile) {
         }
     }
     source = sourceSets.realPulsar.java
-    classpath = files(sourceSets.main.output, realPulsarClientClasspath.split(File.pathSeparator))
+    // See compileRealKafka: the real binding may call a shared Oxia-backed
+    // authority, whose public signature is part of the main API surface.
+    classpath = files(sourceSets.main.output, sourceSets.main.compileClasspath,
+            realPulsarClientClasspath.split(File.pathSeparator))
     destinationDirectory = layout.buildDirectory.dir('classes/java/realPulsar')
     options.release = 21
     options.encoding = 'UTF-8'

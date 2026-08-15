@@ -1,8 +1,10 @@
 package io.nereusstream.delay.transport;
 
 import io.nereusstream.delay.ownership.InMemoryOwnerLeaseStore;
+import io.nereusstream.delay.ownership.InMemoryWorkerAssignmentAuthority;
 import io.nereusstream.delay.ownership.OxiaOwnerLeaseStore;
 import io.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend;
+import io.nereusstream.delay.ownership.OxiaSyncWorkerAssignmentBackend;
 import io.nereusstream.delay.ownership.OwnerLease;
 import io.nereusstream.delay.ownership.OwnerRecoveryCoordinator;
 import io.nereusstream.delay.ownership.OwnerRecoveryTurn;
@@ -12,9 +14,14 @@ import io.nereusstream.delay.ownership.SourceAssignment;
 import io.nereusstream.delay.ownership.SourceReplayCursor;
 import io.nereusstream.delay.ownership.SourceReplayEntry;
 import io.nereusstream.delay.ownership.SourceReplaySuccessor;
+import io.nereusstream.delay.ownership.WorkerAssignment;
+import io.nereusstream.delay.ownership.WorkerAssignmentAuthority;
+import io.nereusstream.delay.ownership.WorkerAssignmentCoordinator;
 import io.nereusstream.delay.ownership.WorkerShardRuntime;
 import io.nereusstream.delay.protocol.AdapterMetadataV1;
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.CapacityDimensionV1;
+import io.nereusstream.delay.protocol.CapacityVectorV1;
 import io.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
 import io.nereusstream.delay.protocol.DeliveryMode;
 import io.nereusstream.delay.protocol.DestinationLaneId;
@@ -44,6 +51,8 @@ import io.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
 import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.ShardStoreConfig;
 import io.nereusstream.delay.store.SharedRocksDbResources;
+import io.nereusstream.delay.store.WorkerLoadVector;
+import io.nereusstream.delay.store.WorkerPlacementPolicy;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.NewTopic;
@@ -107,12 +116,19 @@ public final class KafkaClientArtifactWorkerSmoke {
             final PreparedCommand recoveryCommand = command(shard, "worker-recovery");
             produce(bootstrap, clusterId, topic, topicId, recoveryCommand);
 
-            final SourceAssignment assignment = new SourceAssignment(shard,
+            final SourceAssignment sourceAssignment = new SourceAssignment(shard,
                     Bytes.sha256(Bytes.utf8("kafka-worker-assignment")), 1,
                     new KafkaActivationBarrier(shard, clusterId, nativeTopicId, 1));
             final WorkClassExecutionRegistry workClasses = workClasses();
             final OxiaSyncOwnerLeaseBackend.ClientHandle oxia = connectOxiaIfConfigured();
             try {
+                final WorkerAssignmentAuthority assignmentAuthority = oxia == null
+                        ? new InMemoryWorkerAssignmentAuthority()
+                        : new OxiaSyncWorkerAssignmentBackend(oxia,
+                                "nereus-delay/kafka-worker-placement/" + UUID.randomUUID());
+                final WorkerAssignment assignmentProjection = publishAssignment(assignmentAuthority,
+                        sourceAssignment, oxia != null);
+                final SourceAssignment assignment = assignmentProjection.sourceAssignment();
                 final OxiaOwnerLeaseStore authority;
                 if (oxia == null) {
                     authority = new OxiaOwnerLeaseStore(new InMemoryOwnerLeaseStore());
@@ -205,6 +221,33 @@ public final class KafkaClientArtifactWorkerSmoke {
                 }
             }
         }
+    }
+
+    private static WorkerAssignment publishAssignment(final WorkerAssignmentAuthority authority,
+                                                       final SourceAssignment sourceAssignment,
+                                                       final boolean realOxia) {
+        final WorkerAssignmentCoordinator coordinator = new WorkerAssignmentCoordinator(
+                new WorkerPlacementPolicy(new WorkerPlacementPolicy.Configuration(1_000, 0, 0, 0, 0)), authority);
+        final long now = System.currentTimeMillis();
+        final WorkerPlacementPolicy.WorkerCandidate candidate = new WorkerPlacementPolicy.WorkerCandidate(
+                "kafka-worker", capacity(1), CapacityVectorV1.empty(), 0, 16, 0, 16,
+                WorkerLoadVector.empty(), WorkerLoadVector.empty(), now, true, 0);
+        final WorkerAssignmentCoordinator.PlacementResult result = coordinator.place(sourceAssignment,
+                Bytes.sha256(Bytes.utf8("kafka-worker-capacity-envelope")), 1, List.of(candidate),
+                capacity(1), CapacityVectorV1.empty(), CapacityVectorV1.empty(), null, now, 0, 0);
+        final WorkerAssignmentAuthority.Publication publication = result.publication().orElseThrow();
+        final WorkerAssignment accepted = coordinator.requireAccepted(sourceAssignment.shardId(),
+                publication.revision(), publication.assignment());
+        System.out.println("Kafka Worker assignment publication/acceptance passed: revision="
+                + publication.revision() + ", worker=" + accepted.workerId() + ", authority="
+                + (realOxia ? "real Oxia session-bound" : "in-memory"));
+        return accepted;
+    }
+
+    private static CapacityVectorV1 capacity(final long dbInstances) {
+        final long[] values = new long[CapacityDimensionV1.COUNT];
+        values[CapacityDimensionV1.DB_INSTANCES.wireValue() - 1] = dbInstances;
+        return new CapacityVectorV1(values);
     }
 
     private static OxiaSyncOwnerLeaseBackend.ClientHandle connectOxiaIfConfigured() throws Exception {
