@@ -7499,10 +7499,34 @@ Publish authority.
 `ClaimMaterializationRuntimeTest` covers ordinary inline and committed-object
 derivation and exact equality with the strict Claim projection. `compileJava`,
 `checkstyleMain`, the focused Claim/Protocol tests and `git diff --check`
-passed. This closes durable Claim materialization only; automatic Publish
-descriptor/Ready Certificate preparation, external provider authority,
-Pulsar mutation support, response-loss/crash cuts, multi-shard Worker wiring
-and release PASS remain open.
+passed. This closes durable Claim materialization only; automatic Ready
+Certificate preparation, external provider authority, Pulsar mutation support,
+response-loss/crash cuts, multi-shard Worker wiring and release PASS remain
+open.
+
+## 2026-08-15 Claim-derived Publish descriptor handoff slice
+
+Delay commit `4865ba4f` adds a derived Publish Admission overload. Given the
+exact durable Claim and an externally-authorized `ChannelResourceIdentityV1`,
+`PublishAdmissionWorkClassExecutor` derives adapter kind, lane/resource/profile
+identity, payload/timing, the Claim-derived `publishAttemptId` and attempt
+number, plus the Reserved Publish metadata. The overload then enters the same
+canonical signed `PUBLISH_ADMISSION` preparation and queue-wait owner/Claim/
+permit/prerequisite fences as the explicit descriptor path.
+
+The channel identity remains explicit because producer/transactional identity,
+resource-guard attestation, credential binding and credential-use lease are
+external authority. Ready Certificate, trusted decision time, retry deadline,
+signing key and live adapter prerequisite remain explicit as well. The focused
+`PublishAdmissionWorkClassExecutorTest` executes the derived overload and
+compares the resulting canonical descriptor bytes with the independently
+constructed descriptor. `compileJava`, `checkstyleMain` and the focused Claim/
+Publish tests passed.
+
+This closes local Claim → canonical Publish descriptor composition only. It
+does not establish automatic channel/Ready-Certificate preparation, remote
+provider authority, Broker append/ACK, response-loss/crash cuts, Pulsar
+mutation support, multi-shard Worker wiring or release PASS.
 
 ## Verification command
 

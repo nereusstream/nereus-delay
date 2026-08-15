@@ -6501,9 +6501,28 @@ descriptor/Ready Certificate remain independent inputs. Focused tests prove
 inline and committed-object equality with the strict Claim validator.
 
 This closes durable V1 Claim materialization and local handoff composition for
-one shard. It does not promote the result to automatic Publish, external
-provider authority, Pulsar mutation replay, response-loss/crash evidence,
-multi-shard Worker production wiring or release PASS.
+one shard. It does not promote the result to automatic channel/Ready
+Certificate preparation, external provider authority, Pulsar mutation replay,
+response-loss/crash evidence, multi-shard Worker production wiring or release
+PASS.
+
+## 2026-08-15 Claim-derived Publish descriptor handoff audit
+
+Delay commit `4865ba4f` adds the derived Publish Admission path. It takes the
+exact Claim and an externally-authorized `ChannelResourceIdentityV1`, derives
+the adapter/lane/resource/profile/payload/timing projection, the next
+replay-stable attempt identity and Reserved Publish metadata, then feeds the
+result into the existing canonical signed `PUBLISH_ADMISSION` builder. The
+explicit descriptor path remains available and the focused executor test
+compares its canonical descriptor bytes with the derived path.
+
+The channel is intentionally not inferred: producer or transactional
+identity, resource-guard attestation, credential binding/use lease and channel
+generation are external authority. Ready Certificate, trusted decision time,
+retry deadline, signing key and live prerequisite checks also remain explicit.
+This closes local Claim → descriptor composition, not automatic channel/Ready
+Certificate preparation, Broker append/ACK, response-loss/crash evidence,
+Pulsar mutation replay, multi-shard production wiring or release PASS.
 
 ## Final gate
 

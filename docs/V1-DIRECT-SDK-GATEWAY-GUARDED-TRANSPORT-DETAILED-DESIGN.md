@@ -3211,6 +3211,24 @@ Producer ownership and all Publish descriptor/Ready Certificate inputs stay
 explicit. Focused inline/object tests cover equality with the strict Claim
 validator and fail-closed missing-proof behavior.
 
+### 2026-08-15 Claim-derived Publish descriptor implementation note
+
+`PublishAdmissionWorkClassExecutor` now accepts the exact Claim plus an
+externally-authorized `ChannelResourceIdentityV1` and derives the canonical
+`PreparedPublishDescriptorV1` projection. The derivation carries the Claim
+materialization, lane incarnation, adapter/resource/profile identity,
+Claim-derived attempt number and logical identity, and Reserved Publish
+metadata into the existing signed Admission body. `WorkerCommandRuntime` and
+`WorkerShardRuntime` expose the same overload.
+
+The channel remains a first-class external input because its producer or
+transactional identity, resource-guard attestation, credential binding and
+credential-use lease cannot be inferred from Claim bytes. Ready Certificate,
+trusted decision time, retry deadline, signing key and live adapter
+prerequisite remain explicit. This is local Claim → descriptor composition;
+automatic channel/Ready-Certificate preparation, physical append/ACK and
+response-loss/crash evidence remain separate gates.
+
 ## 16. 当前结论与仍需实测的数值
 
 已经冻结：
