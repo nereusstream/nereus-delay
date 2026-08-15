@@ -558,7 +558,8 @@ public final class PulsarClientArtifactWorkerSmoke {
                     final PublishAdmissionBody admission = PublishAdmissionBody.decode(attempt.admissionBytes());
                     final long retryDeadline = attempt.hasRetryWindow() ? attempt.retryDeadlineEpochMs()
                             : request.deliverAtEpochMs();
-                    return new WorkerPublishOutcomeMutationFactory.OutcomeContext(retryDeadline, 0, zeroCharge(),
+                    return new WorkerPublishOutcomeMutationFactory.OutcomeContext(retryDeadline, 0,
+                            admission.chargeVector().canonicalBytes(),
                             evidence(result.brokerPersistenceTimeEpochMs(), result.brokerPersistenceTimeEpochMs(),
                                     "pulsar-worker-publish-observed"),
                             retryDecision(admission.decisionTime().latestEpochMs(), retryDeadline,

@@ -8,6 +8,7 @@ import io.nereusstream.delay.adapter.KafkaTargetResource;
 import io.nereusstream.delay.adapter.KafkaTransactionalDestinationAdapter;
 import io.nereusstream.delay.adapter.KafkaProduceRequest;
 import io.nereusstream.delay.adapter.KafkaProduceResult;
+import io.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutor;
 import io.nereusstream.delay.ownership.OutcomeWorkClassExecutor;
 import io.nereusstream.delay.ownership.InMemoryOwnerLeaseStore;
 import io.nereusstream.delay.ownership.InMemoryWorkerAssignmentAuthority;
@@ -19,7 +20,6 @@ import io.nereusstream.delay.ownership.OwnerRecoveryCoordinator;
 import io.nereusstream.delay.ownership.OwnerRecoveryTurn;
 import io.nereusstream.delay.ownership.OwnedDelayShard;
 import io.nereusstream.delay.ownership.ReplayTurnBudget;
-import io.nereusstream.delay.ownership.ShardLogMutationAppender;
 import io.nereusstream.delay.ownership.ShardLifecycleState;
 import io.nereusstream.delay.ownership.SourceAssignment;
 import io.nereusstream.delay.ownership.SourceReplayCursor;
@@ -30,9 +30,13 @@ import io.nereusstream.delay.ownership.SourceReplaySuccessor;
 import io.nereusstream.delay.ownership.WorkerAssignment;
 import io.nereusstream.delay.ownership.WorkerAssignmentAuthority;
 import io.nereusstream.delay.ownership.WorkerAssignmentCoordinator;
+import io.nereusstream.delay.ownership.WorkerCommandRuntime;
 import io.nereusstream.delay.ownership.WorkerPhysicalPublishExecutor;
 import io.nereusstream.delay.ownership.WorkerPublishOutcomeMutationFactory;
+import io.nereusstream.delay.ownership.WorkerPublishPreparationCoordinator;
+import io.nereusstream.delay.ownership.WorkerSchedulingRuntime;
 import io.nereusstream.delay.ownership.WorkerShardRuntime;
+import io.nereusstream.delay.ownership.PublishAdmissionWorkClassExecutor;
 import io.nereusstream.delay.protocol.ActivationBarrierV1;
 import io.nereusstream.delay.protocol.AdapterKindV1;
 import io.nereusstream.delay.protocol.AdapterMetadataV1;
@@ -44,7 +48,6 @@ import io.nereusstream.delay.protocol.CapacityVectorV1;
 import io.nereusstream.delay.protocol.CanonicalProtobuf;
 import io.nereusstream.delay.protocol.ChannelKindV1;
 import io.nereusstream.delay.protocol.ChannelResourceIdentityV1;
-import io.nereusstream.delay.protocol.ClaimMaterializationV1;
 import io.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
 import io.nereusstream.delay.protocol.CredentialUseKindV1;
 import io.nereusstream.delay.protocol.CredentialUseLeaseV1;
@@ -59,8 +62,6 @@ import io.nereusstream.delay.protocol.KafkaMetadataV1;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.OwnerIdentityV1;
 import io.nereusstream.delay.protocol.OrderingMode;
-import io.nereusstream.delay.protocol.PayloadForPublishV1;
-import io.nereusstream.delay.protocol.PreparedPublishDescriptorV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
@@ -71,23 +72,21 @@ import io.nereusstream.delay.protocol.PublishEvidenceV1;
 import io.nereusstream.delay.protocol.PublishOutcomeBody;
 import io.nereusstream.delay.protocol.QuotaGrantRefV1;
 import io.nereusstream.delay.protocol.ReadyCertificateV1;
-import io.nereusstream.delay.protocol.ReservedPublishMetadataV1;
 import io.nereusstream.delay.protocol.RetryPolicyRefV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ScheduleIntentV1;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.ShardSubjectV1;
 import io.nereusstream.delay.protocol.StableCode;
-import io.nereusstream.delay.protocol.SystemMutation;
 import io.nereusstream.delay.protocol.SystemMutationType;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.runtime.DelayShard;
 import io.nereusstream.delay.runtime.DelayShardConfig;
-import io.nereusstream.delay.runtime.ClaimRecord;
 import io.nereusstream.delay.runtime.LaneRecord;
 import io.nereusstream.delay.runtime.MessageStatus;
 import io.nereusstream.delay.runtime.V1ScheduleResolver;
 import io.nereusstream.delay.scheduler.SchedulerBudget;
+import io.nereusstream.delay.scheduler.ClaimExecutionAdmission;
 import io.nereusstream.delay.scheduler.WorkClass;
 import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import io.nereusstream.delay.scheduler.WorkClassPolicy;
@@ -144,6 +143,7 @@ import java.util.concurrent.TimeUnit;
  */
 public final class KafkaClientArtifactWorkerSmoke {
     private static final long LEASE_DURATION_MS = 60_000;
+    private static final long DUE_DISCOVERY_MAX_BYTES = 900_000;
 
     private KafkaClientArtifactWorkerSmoke() {
     }
@@ -631,43 +631,43 @@ public final class KafkaClientArtifactWorkerSmoke {
         if (lane == null || !lane.schedulable()) {
             throw new IllegalStateException("source-applied physical Lane did not become schedulable");
         }
+        bindActiveOwnerPublishGraph(runtime, ownedShard, ownerIdentity, authority, store, workClasses,
+                verificationKey, bridge);
         waitUntil(message.deliverAtEpochMs());
 
         final byte[] payload = message.payload();
-        final ProfileRefV1 capability = bridge.capabilityProfile();
-        final AdapterMetadataV1 metadata = AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of()));
-        final ClaimMaterializationV1 materialization = new ClaimMaterializationV1(
-                bridge.destinationProfile(), capability, bridge.targetResource(), 0,
-                messageId(physicalCommand), Integer.toUnsignedLong(message.generation()),
-                PayloadForPublishV1.inline(payload), metadata, message.deliverAtEpochMs(),
-                message.expireAtEpochMs(), message.runtimeIndex().timeline().actionAtEpochMs());
-        final AuthorIdentity author = AuthorIdentity.owner(ownerIdentity.deploymentId(), ownerIdentity.workerRunId(),
-                ownerIdentity.ownerEpoch(), ownerIdentity.leaseFencingDigest());
-        final ClaimRecord claim = delayShard.claimForPublishV1(messageId(physicalCommand), author,
-                message.expireAtEpochMs() - 1, materialization, claimCharge(payload.length));
-        final PreparedPublishDescriptorV1 descriptor = preparedDescriptor(claim, materialization, bridge.channel());
-        final long decisionNow = Math.max(message.deliverAtEpochMs(), System.currentTimeMillis());
-        final TrustedUtcIntervalEvidence decisionTime = evidence(decisionNow, decisionNow + 500,
-                "kafka-worker-admission-decision");
-        final byte[] body = PublishAdmissionBody.canonicalBytes(physicalCommand.shardId(), message.expireAtEpochMs(),
-                author.asOwnerIdentity(), store.metadata().storeIncarnation(), claim.claimId(), bridge.laneId(),
-                bridge.laneIncarnation(), messageId(physicalCommand), Integer.toUnsignedLong(message.generation()),
-                descriptor.publishAttemptId(), descriptor, zeroChargeVector(), bridge.readyCertificate(), decisionTime,
-                claim.preconditionBytes());
-        final SystemMutation admission = SystemMutation.signed(physicalCommand.shardId(),
-                SystemMutationType.PUBLISH_ADMISSION, message.expireAtEpochMs(), descriptor.publishAttemptId(), body,
-                author.canonicalBytes(), 1, verificationKey.getPrivate());
-        final ShardLogMutationAppender.AppendOutcome append = bridge.appender().append(admission);
-        if (append.disposition() != ShardLogMutationAppender.AppendDisposition.PERSISTED
-                || !(append.sourcePosition() instanceof KafkaSourcePosition admissionPosition)
-                || admissionPosition.compareTo(physicalSchedulePosition) <= 0) {
-            throw new IllegalStateException(
-                    "Kafka Worker physical Admission did not receive a later guarded source position");
-        }
-        final WorkerShardRuntime.SourceBoundPhysicalPublishTurn physicalTurn =
-                runtime.runSourceBoundPhysicalPublish(admission.logicalOperationIdentity(), admissionPosition,
+        final long dueEarliest = Math.max(System.currentTimeMillis(), message.deliverAtEpochMs());
+        final TrustedUtcIntervalEvidence dueEvidence = evidence(dueEarliest, dueEarliest + 500,
+                "kafka-worker-due-clock");
+        final WorkerShardRuntime.DueClaimPublishPhysicalTurn dueClaimPublish =
+                runtime.runDueClaimPublishPhysicalTurn(dueEvidence,
+                        new SchedulerBudget(1, DUE_DISCOVERY_MAX_BYTES, TimeUnit.SECONDS.toNanos(2)),
+                        message.expireAtEpochMs() - 1, claimCharge(payload.length), System::currentTimeMillis,
                         new SchedulerBudget(1, 2_000_000, TimeUnit.SECONDS.toNanos(2)), 16,
-                        ignored -> Optional.of(payload), System::currentTimeMillis);
+                        new SchedulerBudget(1, 2_000_000, TimeUnit.SECONDS.toNanos(2)), 16,
+                        ignored -> Optional.of(payload));
+        final var dueClaim = dueClaimPublish.dueClaimPublishTurn();
+        final var claimResult = dueClaim.claimResult().orElseThrow(
+                () -> new IllegalStateException("provider-driven Worker turn did not return a Claim result"));
+        if (claimResult.kind() != ClaimHandoffWorkClassExecutor.ResultKind.CLAIMED) {
+            throw new IllegalStateException("provider-driven Worker Claim was not admitted: " + claimResult.kind());
+        }
+        final var admissionSubmission = dueClaim.publishSubmission().orElseThrow(
+                () -> new IllegalStateException("provider-driven Worker turn did not queue Publish Admission"));
+        final var admissionResult = admissionSubmission.result().orElseThrow(
+                () -> new IllegalStateException("provider-driven Publish Admission has no result"));
+        if (admissionResult.kind() != io.nereusstream.delay.ownership.PublishAdmissionWorkClassExecutor.ResultKind.ENQUEUED
+                || !(admissionResult.sourcePosition() instanceof KafkaSourcePosition admissionPosition)
+                || admissionPosition.compareTo(physicalSchedulePosition) <= 0) {
+            throw new IllegalStateException("Kafka Worker provider-driven Publish Admission was not source-bound: "
+                    + admissionResult.kind());
+        }
+        final PublishAdmissionBody admissionBody = PublishAdmissionBody.decode(
+                admissionResult.mutation().canonicalBody());
+        final byte[] publishAttemptId = admissionBody.publishAttemptId();
+        final WorkerShardRuntime.SourceBoundPhysicalPublishTurn physicalTurn =
+                dueClaimPublish.physicalTurn().orElseThrow(
+                        () -> new IllegalStateException("provider-driven Worker turn did not start physical publish"));
         if (physicalTurn.status() != WorkerShardRuntime.SourceBoundPhysicalPublishStatus.PHYSICAL_SUBMITTED) {
             throw new IllegalStateException("source-applied PUBLISHING did not submit physical publish: "
                     + physicalTurn.status() + "/" + physicalTurn.failure());
@@ -710,7 +710,7 @@ public final class KafkaClientArtifactWorkerSmoke {
         }
         final PublishOutcomeBody outcome = PublishOutcomeBody.decode(outcomeRecord.mutation().canonicalBody());
         if (outcome.sideEffect() != 1 || outcome.stableCode() != StableCode.OK
-                || !Arrays.equals(outcome.publishAttemptId(), descriptor.publishAttemptId())) {
+                || !Arrays.equals(outcome.publishAttemptId(), publishAttemptId)) {
             throw new IllegalStateException("Kafka Worker Publish Outcome was not a definitive PUBLISHED result");
         }
         final PublishEvidenceV1 publishEvidence = PublishEvidenceV1.decode(outcome.evidence());
@@ -718,20 +718,73 @@ public final class KafkaClientArtifactWorkerSmoke {
                 || publishEvidence.verificationStatus() != EvidenceVerificationStatusV1.VERIFIED_PUBLISHED) {
             throw new IllegalStateException("Kafka Worker Publish Outcome carried the wrong evidence branch");
         }
-        publishEvidence.requireBusinessMutation(descriptor.publishAttemptId(), true);
+        publishEvidence.requireBusinessMutation(publishAttemptId, true);
         if (!(outcomeRecord.position() instanceof KafkaSourcePosition outcomePosition)) {
             throw new IllegalStateException("source-applied typed Publish Outcome has a non-Kafka source position");
         }
         final var finalMessage = delayShard.getMessage(messageId(physicalCommand));
-        if (finalMessage == null || finalMessage.status() != MessageStatus.PUBLISHED
-                || delayShard.findOpenPublishAttempt(descriptor.publishAttemptId()) != null) {
-            throw new IllegalStateException("source-applied typed Publish Outcome did not close the PUBLISHED attempt");
+        final var openAttempt = delayShard.findOpenPublishAttempt(publishAttemptId);
+        if (finalMessage == null || finalMessage.status() != MessageStatus.PUBLISHED || openAttempt != null) {
+            final var appliedResult = delayShard.getSystemMutationResult(
+                    outcomeRecord.mutation().systemMutationId());
+            throw new IllegalStateException("source-applied typed Publish Outcome did not close the PUBLISHED attempt: "
+                    + "messageStatus=" + (finalMessage == null ? "missing" : finalMessage.status())
+                    + ", openAttemptState=" + (openAttempt == null ? "none" : openAttempt.state())
+                    + ", applyStatus=" + (appliedResult == null ? "missing" : appliedResult.applyStatus())
+                    + ", stableCode=" + (appliedResult == null ? "missing" : appliedResult.stableCode()));
         }
         requirePayload(bootstrap, clusterId, bridge.destinationPhysicalTopic(), bridge.destinationTopicId(), payload);
         System.out.println("Kafka Worker source-applied physical publish passed: Admission source offset="
                 + admissionPosition.offset() + ", typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset="
                 + branchNumber(publishEvidence, 2) + ", Outcome source offset=" + outcomePosition.offset()
                 + ", exact payload readback");
+    }
+
+    private static void bindActiveOwnerPublishGraph(
+            final WorkerShardRuntime runtime,
+            final OwnedDelayShard ownedShard,
+            final OwnerIdentityV1 ownerIdentity,
+            final OxiaOwnerLeaseStore authority,
+            final ShardStore store,
+            final WorkClassExecutionRegistry workClasses,
+            final KeyPair verificationKey,
+            final PhysicalPublishBridge bridge) {
+        final WorkerSchedulingRuntime scheduling = WorkerSchedulingRuntime.openForActiveOwnerFromTypedLanes(
+                workClasses, ownedShard, authority, store, ownerIdentity, List.of(bridge.laneId()), 8);
+        final ClaimExecutionAdmission permits = new ClaimExecutionAdmission(1, 1_000_000);
+        permits.registerShard(new ClaimExecutionAdmission.ShardSpec(runtime.shardId(), 1, 1_000_000));
+        permits.registerLane(new ClaimExecutionAdmission.LaneSpec(runtime.shardId(), bridge.laneId(),
+                bridge.laneIncarnation(), 0, 0, 1, 1_000_000));
+        permits.openReady(runtime.shardId(), bridge.laneId(), bridge.laneIncarnation());
+        final ClaimHandoffWorkClassExecutor claimExecutor = new ClaimHandoffWorkClassExecutor(
+                workClasses, ownedShard, authority, scheduling.scheduler(), permits,
+                ignored -> ClaimHandoffWorkClassExecutor.PrerequisiteDecision.available());
+        final PublishAdmissionWorkClassExecutor publishExecutor = new PublishAdmissionWorkClassExecutor(
+                workClasses, ownedShard, authority, permits, bridge.appender(),
+                ignored -> PublishAdmissionWorkClassExecutor.PrerequisiteDecision.available());
+        final WorkerCommandRuntime commandRuntime = new WorkerCommandRuntime(workClasses,
+                store.sharedResources(), claimExecutor, publishExecutor);
+        final WorkerPublishPreparationCoordinator preparation = new WorkerPublishPreparationCoordinator(
+                ownedShard, authority, System::currentTimeMillis, request -> {
+                    final long expiry = Math.min(request.claim().materialization().expireAtEpochMs(),
+                            request.readyCertificate().validUntilEpochMs());
+                    final long retryUntil = expiry - 1;
+                    final long earliest = Math.max(Math.max(System.currentTimeMillis(),
+                                    request.claim().materialization().actionAtEpochMs()),
+                            request.readyCertificate().issuedAt().latestEpochMs());
+                    if (retryUntil <= earliest) {
+                        return Optional.empty();
+                    }
+                    final long latest = Math.min(retryUntil - 1, Math.addExact(earliest, 500));
+                    if (latest < earliest) {
+                        return Optional.empty();
+                    }
+                    return Optional.of(new WorkerCommandRuntime.PublishPreparation(
+                            request.channel(), request.readyCertificate(),
+                            evidence(earliest, latest, "kafka-worker-provider-preparation"), retryUntil, 1,
+                            verificationKey.getPrivate(), System::currentTimeMillis));
+                });
+        runtime.bindActiveOwnerPublishGraph(scheduling, commandRuntime, preparation);
     }
 
     private static void waitForPhysicalCompletion(final WorkerPhysicalPublishExecutor.Submission submission)
@@ -811,7 +864,8 @@ public final class KafkaClientArtifactWorkerSmoke {
                     final PublishAdmissionBody admissionBody = PublishAdmissionBody.decode(attempt.admissionBytes());
                     final long retryDeadline = attempt.hasRetryWindow() ? attempt.retryDeadlineEpochMs()
                             : request.deliverAtEpochMs();
-                    return new WorkerPublishOutcomeMutationFactory.OutcomeContext(retryDeadline, 0, zeroCharge(),
+                    return new WorkerPublishOutcomeMutationFactory.OutcomeContext(retryDeadline, 0,
+                            admissionBody.chargeVector().canonicalBytes(),
                             evidence(result.brokerPersistenceTimeEpochMs(), result.brokerPersistenceTimeEpochMs(),
                                     "kafka-worker-publish-observed"),
                             retryDecision(admissionBody.decisionTime().latestEpochMs(), retryDeadline,
@@ -839,24 +893,6 @@ public final class KafkaClientArtifactWorkerSmoke {
         return new PhysicalPublishBridge(executor, appender, laneId, laneIncarnation, destinationProfile,
                 capabilityProfile, target, channel, readyCertificate, List.of(cursor), destinationPhysicalTopic,
                 destinationTopicId);
-    }
-
-    private static PreparedPublishDescriptorV1 preparedDescriptor(
-            final ClaimRecord claim, final ClaimMaterializationV1 materialization,
-            final ChannelResourceIdentityV1 channel) {
-        final byte[] attempt = SystemMutation.computePublishAttemptLogicalIdentity(claim.claimId(),
-                claim.delayMessageId(), Integer.toUnsignedLong(claim.generation()), 1);
-        final ReservedPublishMetadataV1 reserved = new ReservedPublishMetadataV1(
-                claim.delayMessageId().routingId().shardId().routeIncarnation(),
-                claim.delayMessageId().routingId().shardId().partition(), claim.delayMessageId(),
-                Integer.toUnsignedLong(claim.generation()), attempt, materialization.destinationProfile().semanticHash(),
-                materialization.capabilityProfile().semanticHash(), materialization.deliverAtEpochMs(),
-                DeliveryMode.MANAGED);
-        return new PreparedPublishDescriptorV1(AdapterKindV1.KAFKA, claim.laneId(), claim.laneIncarnation(),
-                materialization.destinationProfile(), materialization.capabilityProfile(), materialization.targetResource(),
-                materialization.physicalPartition(), channel, materialization.messageId(), materialization.generation(),
-                attempt, 1, materialization.payload(), materialization.businessMetadata(), reserved,
-                materialization.deliverAtEpochMs(), materialization.expireAtEpochMs(), materialization.actionAtEpochMs());
     }
 
     private static ChannelResourceIdentityV1 channel(final DestinationLaneId laneId, final byte[] laneIncarnation,

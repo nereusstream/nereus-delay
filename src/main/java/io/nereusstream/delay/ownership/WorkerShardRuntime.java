@@ -52,10 +52,10 @@ public final class WorkerShardRuntime implements AutoCloseable {
     private final SharedRocksDbResources resources;
     private final WorkerSourceApplyLoop sourceLoop;
     private final OwnerDrainCoordinator drainCoordinator;
-    private final WorkerSchedulingRuntime schedulingRuntime;
-    private final WorkerCommandRuntime commandRuntime;
+    private WorkerSchedulingRuntime schedulingRuntime;
+    private WorkerCommandRuntime commandRuntime;
     private final WorkerCheckpointRuntime checkpointRuntime;
-    private final PublishPreparationProvider preparationProvider;
+    private PublishPreparationProvider preparationProvider;
     private final WorkerPhysicalPublishExecutor physicalPublishExecutor;
     private boolean sourcePaused;
     private boolean terminal;
@@ -193,6 +193,33 @@ public final class WorkerShardRuntime implements AutoCloseable {
     /** Whether this runtime has a bounded physical publish bridge attached. */
     boolean hasPhysicalPublishExecutor() {
         return physicalPublishExecutor != null;
+    }
+
+    /**
+     * Binds the active-owner scheduling and Claim/Publish graph after a
+     * source-only bootstrap has applied the Schedule and persisted its typed
+     * Lane readiness projection.  This is a one-way composition boundary: a
+     * runtime cannot replace an already admitted graph or bind a provider
+     * without the matching scheduling/command identities.
+     */
+    public synchronized void bindActiveOwnerPublishGraph(
+            final WorkerSchedulingRuntime schedulingRuntime,
+            final WorkerCommandRuntime commandRuntime,
+            final PublishPreparationProvider preparationProvider) {
+        ensureSourceRunning();
+        if (this.schedulingRuntime != null || this.commandRuntime != null || this.preparationProvider != null) {
+            throw new IllegalStateException("Worker active-owner publish graph is already bound");
+        }
+        final WorkerSchedulingRuntime exactScheduling = Objects.requireNonNull(schedulingRuntime,
+                "scheduling runtime");
+        final WorkerCommandRuntime exactCommand = Objects.requireNonNull(commandRuntime, "command runtime");
+        final PublishPreparationProvider exactPreparation = Objects.requireNonNull(preparationProvider,
+                "publish preparation provider");
+        exactScheduling.requireWorkClassExecutionRegistry(workClasses);
+        exactCommand.requireWorkClassExecutionRegistry(workClasses);
+        this.schedulingRuntime = exactScheduling;
+        this.commandRuntime = exactCommand;
+        this.preparationProvider = exactPreparation;
     }
 
     /** Validates process-wide graph/resource identity before fleet admission. */
