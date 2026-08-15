@@ -484,7 +484,7 @@ require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transp
     "runDueClaimPublishPhysicalTurn"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
     "Pulsar Worker source-applied physical publish passed"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerShardRuntime.java" \
     "runSourceBoundPhysicalPublish"
 require_file_text "$delay_root/build.gradle" \
     "pulsarWorkerDestinationTopic"
