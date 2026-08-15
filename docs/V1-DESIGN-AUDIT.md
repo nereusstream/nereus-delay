@@ -6655,6 +6655,21 @@ This is a local lifecycle fence only. Remote provider quiescence, durable
 checkpoint publication, assignment/failover, crash-boundary evidence and
 release PASS remain unproven.
 
+## 2026-08-15 recurring checkpoint claim-to-submit wiring audit
+
+Delay commit `5dacd6f3` adds a one-head Worker checkpoint entrypoint that keeps
+the exact `ScheduledCheckpoint` capability through request construction and
+into `CheckpointWorkClassExecutor`. A factory failure before queue admission
+now releases that exact handle through the checkpoint execution boundary;
+foreign value-equal handles are rejected, while queue rejection still leaves
+the original handle current for exact retry. The corresponding Worker shard
+wrapper keeps the source-running and runtime-resource admission fences.
+
+The focused checkpoint/fleet tests and main Checkstyle passed. This advances
+only local recurring-checkpoint retryability and request wiring. Durable
+schedule authority, remote publication, automatic Ready/Publish preparation,
+assignment/failover, crash-boundary evidence and release PASS remain open.
+
 The focused checkpoint and fleet tests plus main checkstyle passed. This
 advances only local checkpoint retryability and event-loop multi-shard
 composition. It is not catalog-driven placement or assignment publication,

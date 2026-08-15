@@ -7689,6 +7689,27 @@ from being mistaken for completed checkpoint work. It still does not prove
 checkpoint publication durability, drain-time remote provider quiescence,
 assignment/failover or crash release evidence.
 
+## 2026-08-15 recurring checkpoint claim-to-submit wiring
+
+Delay commit `5dacd6f3` adds `WorkerCheckpointRuntime.claimDueAndSubmit` and
+the matching `WorkerShardRuntime.claimDueAndSubmitCheckpoint` wrapper. The
+entrypoint claims at most one exact process-local `ScheduledCheckpoint`, asks
+an injected factory for the immutable `ExecutionRequest`, verifies that the
+request retains the same object-identity capability, and only then enters the
+existing checkpoint work-class admission path. If request construction fails
+before queue admission, the exact claim is completed through the
+package-private checkpoint boundary and becomes claimable at the next
+schedule; queue rejection and execution-time prerequisite behavior remain
+unchanged.
+
+`CheckpointExecutionCoordinatorTest.workerCheckpointClaimAndSubmitReleasesClaimWhenRequestFactoryFails`
+proves no checkpoint/provider work is started and the next exact schedule is
+available. The focused checkpoint/fleet tests and `checkstyleMain` passed.
+This closes local recurring-checkpoint claim-to-request wiring only; it does
+not establish durable schedule authority, remote Object Store/catalog
+publication, automatic Ready/Publish preparation, assignment/failover,
+crash-boundary or release PASS evidence.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

@@ -3346,6 +3346,21 @@ process-local registration. This is only local schedule lifecycle protection;
 provider quiescence, remote publication durability, assignment/failover,
 crash-boundary and §23.5 release evidence remain separate.
 
+### 2026-08-15 recurring checkpoint claim-to-submit wiring
+
+Delay commit `5dacd6f3` adds the bounded `claimDueAndSubmit` bridge to the
+Worker checkpoint graph. It claims one exact schedule capability, lets the
+injected request factory assemble the immutable Store/intent/manifest/upload
+inputs, verifies the same capability is retained, and releases that claim if
+request construction fails before work-class admission. The public Worker
+wrapper keeps this behind the existing source lifecycle and shared-resource
+fences; no Store or provider I/O is inferred by the bridge.
+
+This closes local recurring-checkpoint claim-to-request composition. It does
+not provide durable schedule authority, remote Object Store/catalog
+publication, automatic Ready/Publish orchestration, source ownership transfer,
+broker failover, crash evidence or §23.5 release completion.
+
 ## 16. 当前结论与仍需实测的数值
 
 已经冻结：
