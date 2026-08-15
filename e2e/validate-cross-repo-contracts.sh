@@ -193,6 +193,8 @@ require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transpo
     "CheckpointFileInventory.collect"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "and final checkpoint"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+    "Kafka Worker restart preparation passed"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackend.java" \
     "establishSessionMarker"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackend.java" \
@@ -236,7 +238,11 @@ require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "bootstrap_survivors"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
+    "restart_worker_topic"
+require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "NEREUS_DELAY_KAFKA_WITH_OXIA"
+require_file_text "$delay_root/build.gradle" \
+    "kafkaWorkerMode"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactSourceSmoke.java" \
     "PulsarClientArtifactRecoverySourceCursor"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \

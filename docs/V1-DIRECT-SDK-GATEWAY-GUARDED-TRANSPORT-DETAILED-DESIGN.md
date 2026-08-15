@@ -3140,6 +3140,24 @@ fresh assignment recovery, guarded Fetch v13, WriteBatch-before-`commitSync`
 and final checkpoint ordering. It does not prove live source ownership
 transfer, an in-flight ACK cut or full D6 failover/crash completion.
 
+### 2026-08-15 Kafka Worker same-topic failover/resume implementation note
+
+The K1 Worker harness now has an explicit `prepare`/`resume` cut. It persists
+one guarded record on an exact topic while the three-broker cluster is healthy,
+stops broker 1, and launches a new Worker JVM against the same topic through
+brokers 2 and 3. The resume path deterministically reconstructs the shard
+incarnation from the topic, recovers offset 0 without ACK, applies and ACKs
+offset 1 through the guarded Fetch v13 path, writes the bounded final local
+checkpoint and releases the exact Owner lease. The fresh run was
+`3ca85c74` with Kafka source `05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose project `nereus-delay-kafka-e2e-1786771524-17482`, and ports
+`19270,19271,19272`. This is a fresh-process, one-broker-stop recovery cut;
+same-process ownership transfer, response-loss recovery, multi-shard
+placement, crash-at-every-boundary coverage and release gates remain open.
+
 ### 2026-08-15 Pulsar Worker broker-restart implementation note
 
 The P1 Worker harness now has an explicit prepare/resume cut. It persists one

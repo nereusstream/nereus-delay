@@ -6399,6 +6399,33 @@ not prove in-flight source ownership transfer, ACK response-loss recovery,
 Pulsar multi-broker failover, multi-shard placement, crash cuts or release
 PASS.
 
+## 2026-08-15 Kafka Worker same-topic failover/resume audit
+
+Delay commit `3ca85c74` adds explicit `prepare` and `resume` modes to the K1
+Worker harness. One exact restart topic is persisted before broker 1 is
+stopped; a new Worker JVM then bootstraps only from brokers 2 and 3, recovers
+the prepared offset 0 record, applies the next record at offset 1 through the
+guarded Fetch v13 and RocksDB WriteBatch path, ACKs with `commitSync`, writes
+the bounded final checkpoint and releases the exact Owner lease.
+
+The fresh run used Kafka source
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, client
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+project `nereus-delay-kafka-e2e-1786771524-17482`, ports
+`19270,19271,19272`, and survivor bootstrap `19271,19272`. The preparation,
+resume and complete harness exited successfully and cleaned their matching
+Docker resources. The resumed Worker line was:
+
+```text
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, and final checkpoint
+```
+
+This is one source-locked same-topic fresh-process recovery cut. It does not
+prove same-process source ownership transfer, ACK/Fetch/commit response-loss,
+Pulsar multi-broker failover, multi-shard placement, crash cuts at every
+WriteBatch boundary or release PASS.
+
 ## 2026-08-15 Pulsar Worker broker-restart resume audit
 
 Delay commit `fe8879b3` adds a two-process cut to the P1 Worker harness. The

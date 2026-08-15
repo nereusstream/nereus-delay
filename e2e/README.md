@@ -55,18 +55,20 @@ guarded producer transaction, checks commit and abort with `read_committed`
 consumers, verifies the exact target payload and canonical receipt key/value,
 rejects a stale target TopicId after same-name delete/recreate, and commits
 against the replacement target. The harness then stops broker 1 and reuses the
-surviving K1 topic through brokers 2 and 3. It records source SHA, client-jar
-SHA256, broker image ID and allocated ports, and cleans only its own Compose
-project, volumes, temporary image and staging directory. The Kafka checkout
-must be clean; ignored build outputs are read only.
+surviving K1 topic through brokers 2 and 3. Before the stop, the harness
+prepares one exact Worker restart topic and persists one guarded record; after
+the stop, a new Worker JVM resumes that same topic through the survivor
+bootstrap. It records source SHA, client-jar SHA256, broker image ID and
+allocated ports, and cleans only its own Compose project, volumes, temporary
+image and staging directory. The Kafka checkout must be clean; ignored build
+outputs are read only.
 
-The harness also runs the full Worker recovery/apply/ACK smoke after stopping
-broker 1. The survivor invocation uses only brokers 2 and 3 and a fresh
-Worker topic; the latest run passed the same guarded Fetch v13, RocksDB
-WriteBatch, synchronous ACK and final-checkpoint line under bootstrap
-`127.0.0.1:19137,127.0.0.1:19138`. This is survivor-bootstrap evidence for
-one partition, not in-flight ownership transfer or complete crash/failover
-release evidence.
+The same-topic resume line recovers offset 0, applies offset 1 through guarded
+Fetch v13 and RocksDB `WriteBatch`, ACKs with synchronous `commitSync`, writes
+the final local checkpoint and releases the exact Owner lease. This is
+survivor-bootstrap plus fresh-process same-topic recovery evidence for one
+partition, not in-flight ownership transfer or complete crash/failover release
+evidence.
 
 ```text
 ./e2e/run-kafka-real-client-e2e.sh
@@ -75,12 +77,12 @@ release evidence.
 Use `NEREUS_DELAY_KAFKA_CHECKOUT`, `NEREUS_DELAY_KAFKA_CLIENT_JAR`, or the
 `KAFKA_BROKER_*_PORT` variables to override local paths and ports. The latest
 run passed with Kafka source
-`05849884ca81fad767fda058444d1e17c7f9cbf9`, Compose project
-`nereus-delay-kafka-e2e-1786757667-58603`, ports `19195,19196,19197`, broker
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Delay commit `3ca85c74`, Compose
+project `nereus-delay-kafka-e2e-1786771524-17482`, ports `19270,19271,19272`, broker
 image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
 and client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`.
-The source smoke reported source Topic UUID `ay9r1XMxQUycBBCYwxqqvg`, first
+The source smoke reported source Topic UUID `26IyMNTRSAiF0HFe6pPM2w`, first
 offset `0`, second offset `1`, and `committedAfterRestart=empty`. The source
 binding now creates only a `GuardedConsumer`, binds cluster/topic/TopicId/
 partition, and validates Fetch v13+ evidence before exposing each record;
@@ -90,6 +92,17 @@ reported:
 ```text
 Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch and commitSync ACK
 ```
+
+The same run also printed:
+
+```text
+Kafka Worker restart preparation passed: one guarded record persisted before broker failover
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, and final checkpoint
+```
+
+The second line is from a new Worker JVM bootstrapped through
+`127.0.0.1:19271,127.0.0.1:19272` after broker 1 was stopped. The full harness
+exited successfully and removed its matching Docker resources.
 
 This is current guarded source-handoff plus real-Kafka local recovery/apply/ACK
 opt-in evidence. The optional Oxia mode additionally proves the network

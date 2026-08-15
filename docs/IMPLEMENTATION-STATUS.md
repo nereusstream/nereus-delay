@@ -7375,6 +7375,35 @@ an in-flight ACK, Fetch/commit response-loss recovery, multi-shard placement,
 Pulsar multi-broker failover, crash-at-every-WriteBatch-boundary evidence or
 release PASS.
 
+## 2026-08-15 Kafka Worker same-topic failover resume cut
+
+Delay commit `3ca85c74` adds explicit `prepare` and `resume` modes to the K1
+Worker smoke. The harness creates and writes one exact restart topic while all
+three brokers are healthy, stops broker 1, then starts a new Worker JVM with
+only brokers 2 and 3. The resumed Worker recovers the prepared same-topic
+record at offset 0, applies and ACKs the next record at offset 1 through the
+guarded Fetch v13 path, creates the bounded final local checkpoint and releases
+the exact Owner lease.
+
+The fresh run used Kafka source
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose project `nereus-delay-kafka-e2e-1786771524-17482`, and ports
+`19270,19271,19272`. The preparation line was
+`Kafka Worker restart preparation passed: one guarded record persisted before broker failover`;
+the survivor bootstrap was `127.0.0.1:19271,127.0.0.1:19272`, and the resumed
+Worker line was `Kafka Worker vertical smoke passed: assignment recovery
+offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch,
+commitSync ACK, and final checkpoint`. The complete harness exited with code
+0 and removed its matching Docker resources.
+
+This closes one broker-1 stop plus same-topic fresh-process Worker
+recovery/apply/ACK/checkpoint cut. It does not establish same-process source
+ownership transfer, ACK/Fetch/commit response-loss recovery, multi-shard
+placement, crash-at-every-WriteBatch-boundary evidence, Pulsar multi-broker
+failover or release PASS.
+
 ## 2026-08-15 Pulsar Worker broker-restart resume cut
 
 Delay commit `fe8879b3` adds explicit `prepare` and `resume` modes to the P1
