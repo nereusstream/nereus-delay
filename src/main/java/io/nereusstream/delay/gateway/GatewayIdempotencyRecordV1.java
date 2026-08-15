@@ -176,6 +176,7 @@ public final class GatewayIdempotencyRecordV1 {
                 found = true;
                 next.add(new GatewayPhysicalAttemptV1(attempt.attemptNo(), attempt.physicalAttemptId(), state,
                         outcomeBytes, attempt.startedAtEpochMs(), attempt.uncertaintyAtEpochMs(),
+                        attempt.retryRequestId(), attempt.retryRequestHash(),
                         attempt.revision() + 1, attempt.ownershipNotAfterEpochMs()));
             } else {
                 next.add(attempt);

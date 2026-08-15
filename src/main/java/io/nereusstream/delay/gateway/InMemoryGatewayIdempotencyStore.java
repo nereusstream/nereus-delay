@@ -51,7 +51,6 @@ public final class InMemoryGatewayIdempotencyStore implements GatewayIdempotency
         final GatewayIdempotencyRecordV1 current = require(keyHash);
         if (current.phase() != GatewayIdempotencyPhaseV1.PREPARED || current.aggregateOutcomeBytes() != null) {
             if (current.phase() == GatewayIdempotencyPhaseV1.ACTIVE
-                    && current.aggregateOutcomeBytes() == null
                     && !current.attempts().isEmpty()) {
                 final GatewayPhysicalAttemptV1 started = current.attempts().get(current.attempts().size() - 1);
                 if (started.state() == GatewayPhysicalAttemptStateV1.STARTED
@@ -87,7 +86,8 @@ public final class InMemoryGatewayIdempotencyStore implements GatewayIdempotency
     public synchronized RetryStart startRetry(final Digest32 keyHash,
                                                final PhysicalEnqueueAttemptId expectedPriorAttemptId,
                                                final PhysicalEnqueueAttemptId retryRequestId) {
-        final GatewayIdempotencyRecordV1 current = require(keyHash);
+        GatewayIdempotencyRecordV1 current = require(keyHash);
+        current = recoverExpiredStartedAttempt(keyHash, current);
         final Digest32 retryHash = GatewayIdempotencyHashV1.retryRequestHash(keyHash, expectedPriorAttemptId,
                 retryRequestId);
         for (GatewayPhysicalAttemptV1 attempt : current.attempts()) {
@@ -128,6 +128,26 @@ public final class InMemoryGatewayIdempotencyStore implements GatewayIdempotency
         records.put(keyHash, next);
         return new RetryStart(next, new GatewayAttemptOwnershipPermit(id, next.revision(), ownershipNotAfter,
                 trustedClock), RetryState.STARTED);
+    }
+
+    private GatewayIdempotencyRecordV1 recoverExpiredStartedAttempt(final Digest32 keyHash,
+                                                                     final GatewayIdempotencyRecordV1 current) {
+        if (current.phase() != GatewayIdempotencyPhaseV1.ACTIVE || current.attempts().isEmpty()) {
+            return current;
+        }
+        final GatewayPhysicalAttemptV1 started = current.attempts().get(current.attempts().size() - 1);
+        if (started.state() != GatewayPhysicalAttemptStateV1.STARTED
+                || now() < started.uncertaintyAtEpochMs()) {
+            return current;
+        }
+        final PreparedSubmissionV1 prepared = PreparedSubmissionV1.decode(current.preparedSubmissionBytes());
+        final SubmissionOutcomeMessageV1 uncertain = GatewayOutcomeSupport.uncertain(prepared,
+                started.physicalAttemptId());
+        final GatewayIdempotencyRecordV1 recovered = current.withOutcome(
+                new GatewayIdempotencyRecordV1.PhysicalEnqueueAttemptIdMatch(started.physicalAttemptId()),
+                uncertain.canonicalBytes(), GatewayPhysicalAttemptStateV1.UNCERTAIN);
+        records.put(keyHash, recovered);
+        return recovered;
     }
 
     public synchronized GatewayIdempotencyRecordV1 finish(final Digest32 keyHash,

@@ -126,7 +126,7 @@ public final class OxiaGatewayIdempotencyStore implements GatewayIdempotencyStor
 
     private Entry recoverExpiredStartedAttempt(final Digest32 keyHash, final Entry current) {
         if (current.record().phase() != GatewayIdempotencyPhaseV1.ACTIVE
-                || current.record().aggregateOutcomeBytes() != null || current.record().attempts().isEmpty()) {
+                || current.record().attempts().isEmpty()) {
             return current;
         }
         final GatewayPhysicalAttemptV1 started = current.record().attempts()
@@ -155,7 +155,7 @@ public final class OxiaGatewayIdempotencyStore implements GatewayIdempotencyStor
                                                                         final PhysicalEnqueueAttemptId retryRequestId) {
         Objects.requireNonNull(expectedPrior, "expectedPrior");
         Objects.requireNonNull(retryRequestId, "retryRequestId");
-        final Entry current = require(keyHash);
+        final Entry current = recoverExpiredStartedAttempt(keyHash, require(keyHash));
         final Digest32 retryHash = GatewayIdempotencyHashV1.retryRequestHash(keyHash, expectedPrior,
                 retryRequestId);
         for (GatewayPhysicalAttemptV1 attempt : current.record().attempts()) {

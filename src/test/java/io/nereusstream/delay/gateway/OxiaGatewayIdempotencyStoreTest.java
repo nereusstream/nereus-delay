@@ -129,6 +129,43 @@ class OxiaGatewayIdempotencyStoreTest {
                 SubmissionOutcomeMessageV1.decode(recovered.record().aggregateOutcomeBytes()).kind());
     }
 
+    @Test
+    void retryAttemptCasResponseLossConvergesToUncertainAfterDeadlineWithoutPermit() {
+        final long[] now = {100};
+        final TrustedClock clock = () -> now[0];
+        final FakeGatewayClient client = new FakeGatewayClient();
+        final OxiaGatewayIdempotencyStore store = new OxiaGatewayIdempotencyStore(client, "/nereus/gateway", clock,
+                10, 20);
+        final PreparedSubmissionV1 prepared = prepared();
+        final Digest32 keyHash = new Digest32(bytes(32, 31));
+        final Digest32 bodyHash = new Digest32(bytes(32, 32));
+        store.prepareIfAbsent(keyHash, GatewayOperationKindV1.SCHEDULE, bodyHash, prepared, 800);
+        final GatewayIdempotencyStore.AttemptStart first = store.startAttempt(keyHash);
+        final SubmissionOutcomeMessageV1 uncertain = GatewayOutcomeSupport.uncertain(prepared,
+                first.permit().physicalAttemptId());
+        store.finish(keyHash, first.permit().physicalAttemptId(), uncertain);
+        final PhysicalEnqueueAttemptId retryRequestId = PhysicalEnqueueAttemptId.require(bytes(16, 93));
+
+        client.loseNextPutResponse = true;
+        final GatewayIdempotencyStore.RetryStart responseLost = store.startRetry(keyHash,
+                first.permit().physicalAttemptId(), retryRequestId);
+        assertEquals(GatewayIdempotencyStore.RetryState.EXISTING_RETRY, responseLost.state());
+        assertNull(responseLost.permit());
+        assertEquals(GatewayIdempotencyPhaseV1.ACTIVE, responseLost.record().phase());
+        assertEquals(GatewayPhysicalAttemptStateV1.STARTED,
+                responseLost.record().attempts().get(1).state());
+
+        now[0] = 120;
+        final GatewayIdempotencyStore.RetryStart recovered = store.startRetry(keyHash,
+                first.permit().physicalAttemptId(), retryRequestId);
+        assertEquals(GatewayIdempotencyStore.RetryState.EXISTING_RETRY, recovered.state());
+        assertNull(recovered.permit());
+        assertEquals(GatewayIdempotencyPhaseV1.QUIESCENT, recovered.record().phase());
+        assertEquals(GatewayPhysicalAttemptStateV1.UNCERTAIN,
+                recovered.record().attempts().get(1).state());
+        assertNotNull(recovered.record().aggregateOutcomeBytes());
+    }
+
     private static PreparedSubmissionV1 prepared() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
         final PreparedCommand command = PreparedCommand.scheduleV1(shard, schedule(), 600);
