@@ -5035,3 +5035,34 @@ credential rotation, provider quiescence/consistency and external Object Store
 authority remain outside this slice. The pre-existing ungated constructors are
 retained for the bounded provider-shaped adapter fixture and are not a
 production credential-authority claim.
+
+### 2026-08-16 Oxia credential Profile Head/Protection CAS implementation note
+
+`OxiaSyncProfileCatalogBackend` supplies the narrow external authority needed
+before the local Object Store lease gate. It stores one bindable Profile
+version per canonical Oxia record: the exact semantic envelope, unsigned-sorted
+immutable credential generations, the current `CredentialBindingHeadV1` and
+matching `CredentialBindingProtectionV1` values are wrapped in a versioned
+record with a final digest. Generation-1 publication and
+`RotateEquivalentSecretRequestV1` compare the current record version and Head
+identity, retry conflicts and accept a response-loss retry only after an exact
+canonical reread.
+
+`issueCredentialUseLease` compares the requested Head generation/revision and
+binding digest, validates the resolved credential fingerprint and the
+attestation's Profile scope/age, bounds the lease TTL, and advances the
+managed-channel or Object Store protection horizon by checked monotonic max in
+the same record CAS. The returned `CredentialUseLeaseV1` carries the resulting
+protection revision, so the local adapter gate can prove the lease was
+protected before provider ownership.
+
+The deterministic test is
+`OxiaSyncProfileCatalogBackendTest`. The opt-in real test
+`OxiaRealProfileCatalogSmokeTest.profileHeadProtectionLeaseAndRotationReopenAgainstRealService`
+passed in the Dockerized Oxia harness at source
+`37a17bef17202d5fd6e23282da5fd26d94865484` (Compose
+`nereus-delay-v1-oxia-e2e-1786835835-39861`, port `16693`). This remains a
+single-record/single-node authority receipt; secret resolution, trust-set and
+actor authorization, source ordering, retained-generation quota/GC,
+cross-record session transactions, multi-node failover for this authority,
+provider rotation/quiescence and release evidence remain outside the slice.

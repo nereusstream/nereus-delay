@@ -1326,3 +1326,31 @@ loaded credential fingerprint before HTTP. The focused tests passed with
 constructors remain a local provider-shaped seam, not credential-authority
 evidence. Oxia Head/protection CAS, trust-set/secret authority, rotation, real
 S3/MinIO, provider quiescence, deletion, chaos and release gates remain open.
+
+## Oxia credential Profile Head/Protection/lease authority receipt
+
+Run the Dockerized real-service authority slice with:
+
+```bash
+NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-profile-gradle \
+NEREUS_DELAY_OXIA_E2E_PORT=16693 \
+./e2e/run-oxia-real-service.sh
+```
+
+The source-locked run used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, Compose project
+`nereus-delay-v1-oxia-e2e-1786835835-39861`, and host port `16693`. The
+script includes
+`OxiaRealProfileCatalogSmokeTest.profileHeadProtectionLeaseAndRotationReopenAgainstRealService`;
+its report recorded one test, zero skips, zero failures and zero errors. The
+run ended with `BUILD SUCCESSFUL` and
+`Dockerized Oxia real-service smoke passed for 37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The receipt proves one Profile's generation-1 publication, exact Head-bound
+Protection/lease issuance, reopen and checked generation rotation through
+single-record Oxia CAS. It is not secret-provider resolution, attestation
+trust-set or actor authorization, source ordering, retained-generation GC,
+cross-record Owner/Route/session transaction, multi-node failover for this
+authority, provider credential rotation/quiescence, real S3/MinIO or V1
+release evidence.

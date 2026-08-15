@@ -4664,8 +4664,8 @@ the guarded Broker rollout attestation remains external evidence.
 
 | 依赖 | 审计锁 |
 |---|---|
-| Delay local implementation slice | `nereus/delay-full-implementation-v1@078c66ce141a17a3e757aabb88bae5140d1d297a` (latest runtime slice: the S3-compatible checkpoint adapter now has a lease-gated constructor and local pre-provider recheck of exact Object Store binding/protection/lease identity, attestation age, trusted time and loaded credential fingerprint; it builds on the source-bound Kafka/Pulsar physical Publish/Outcome, Gateway/Oxia response-loss, real multi-node Oxia Gateway failover and bounded Kafka/Pulsar Worker failover slices; Oxia Head/protection CAS, trust-set/secret authority, real provider credentials, quiescence, raw network/process cuts, catalog authority, production placement/eligibility and release gates remain open) |
-| Delay current implementation head | `nereus/delay-full-implementation-v1@fbe95d3b2ab3b31d365e1b8862d90764abe86e34` (current branch head; code slice `078c66ce141a17a3e757aabb88bae5140d1d297a` adds the local Object Store credential-use lease gate and this commit synchronizes its evidence/validator; historical bounded Pulsar Route/Worker receipt remains provenance at `nereus/delay-full-implementation-v1@bf858b089b927fcf65129214d8ed5a7fc5300deb`; bounded Kafka/Pulsar Route/Worker assignment, failover, physical Publish/typed Outcome and Gateway/Oxia response-loss receipts are recorded; Oxia/provider authority, catalog-driven multi-shard placement, native eligibility, production Worker authority, raw chaos and release gates remain open) |
+| Delay local implementation slice | `nereus/delay-full-implementation-v1@37d8efb49876e8eb95b9d214f0ad9ec1afe48595` (latest runtime slice: a single-record Oxia Profile catalog now atomically publishes generation one, rotates the credential Head and raises the matching managed-channel/Object Store Protection before issuing a bounded Credential Use Lease, with exact response-loss reread and real single-node Oxia smoke; it builds on the S3-compatible checkpoint adapter and local lease gate plus the source-bound Kafka/Pulsar physical Publish/Outcome, Gateway/Oxia response-loss, real multi-node Oxia Gateway failover and bounded Kafka/Pulsar Worker failover slices; secret/trust-set/actor authority, source ordering, retained-generation GC, cross-record session transactions, multi-node failover for this authority, provider quiescence, raw network/process cuts, production placement/eligibility and release gates remain open) |
+| Delay current implementation head | `nereus/delay-full-implementation-v1@fbe95d3b2ab3b31d365e1b8862d90764abe86e34` (temporary until the documentation commit below; code slice `37d8efb49876e8eb95b9d214f0ad9ec1afe48595` adds the Oxia Profile Head/Protection/lease CAS authority and this row will be advanced to the docs-synchronization commit; historical bounded Pulsar Route/Worker receipt remains provenance at `nereus/delay-full-implementation-v1@bf858b089b927fcf65129214d8ed5a7fc5300deb`; bounded Kafka/Pulsar Route/Worker assignment, failover, physical Publish/typed Outcome and Gateway/Oxia response-loss receipts are recorded; secret/trust-set/actor authority, catalog-driven multi-shard placement, native eligibility, production Worker authority, raw chaos and release gates remain open) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
@@ -8254,6 +8254,29 @@ Oxia Head/protection CAS, attestation trust-set verification, secret
 resolution, credential rotation, real S3/MinIO conformance, provider
 quiescence, version-aware deletion, catalog transaction, chaos or V1 release
 readiness.
+
+## 2026-08-16 Oxia credential Profile CAS authority audit
+
+Delay runtime commit `37d8efb49876e8eb95b9d214f0ad9ec1afe48595` adds
+`OxiaSyncProfileCatalogBackend`. Its one-record state binds the exact Profile
+semantic bytes, immutable generation bindings, mutable Head and all matching
+Protection projections under a final digest. Generation-1 publication and
+`RotateEquivalentSecretRequestV1` use exact version CAS with idempotent retries;
+lease issuance checks Head/binding/fingerprint/attestation/TTL inputs and
+raises the corresponding protection horizon in the same CAS before returning
+the lease. `OxiaSyncProfileCatalogBackendTest` covers reopen, rotation,
+protection-bound lease issuance, response-loss exact reread, Head fencing and
+semantic collision. The opt-in real test passed against Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` with one test, zero skips and zero
+failures/errors in Compose project `nereus-delay-v1-oxia-e2e-1786835835-39861`
+on port `16693`.
+
+This is single-Profile, single-record Oxia authority evidence. It does not
+prove secret resolution, attestation trust-set verification, actor or
+source-order authorization, retained-generation quota/GC, cross-record
+Owner/Route/session transactions, multi-node failover for this authority,
+provider credential rotation/quiescence, real Object Store conformance, chaos
+or V1 release readiness.
 
 ## Final gate
 
