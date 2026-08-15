@@ -40,7 +40,7 @@ import java.util.TreeMap;
  * verify an attestation trust set; those inputs must already have been
  * authorized by the surrounding control plane.</p>
  */
-public final class OxiaSyncProfileCatalogBackend implements ProfileCatalog {
+public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAuthority {
     private static final int RECORD_VERSION = 1;
     private static final int MAX_RECORD_BYTES = 8 * 1024 * 1024;
     private static final int MAX_BINDINGS = 4096;
