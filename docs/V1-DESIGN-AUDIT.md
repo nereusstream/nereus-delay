@@ -4665,7 +4665,7 @@ the guarded Broker rollout attestation remains external evidence.
 | 依赖 | 审计锁 |
 |---|---|
 | Delay local implementation slice | `nereus/delay-full-implementation-v1@4f606fec86aaeb74472f6575e5ee7ddcb8dc8f82` (Oxia Route session-fenced publisher/provider composition on top of Gateway query/await/message handlers and bounded query ingress behind explicit `GatewayQueryAuthority`, receipt-bound payload upload/attestation ingress, PrepareLargeSchedule/CommitLargeSchedule, Cancel and Reschedule control slices, Direct SDK outbox fail-closed and Worker source-consumer/ACK-after-sync composition; transport result/attempt binding `5cc955e1306e1f54db06a06a2bb2b84f232c2a7b`; Gateway query base `59d492041ac42b79a632ebddfb56a7608b2d7283`, Gateway ingress base `1dc28eaf391429f2dc9221f416af968d36575dff`, Gateway API generation base `a06ab232a5608ec0e7c9152ef80fc72c06966e66`; Gateway CAS base `e276bec3ffff7f5015367bed55f5b8d63c080e21`, Route authority base `62a9438967112f96e65b8daa7b2b86d52a103b10`, Gateway retry base `c42405ce6c69aef8ae0f8a9a63158c917410309f`, route-cache base `67ef3de3ab6f69ae992c3ccb70c7cb65cad47613`, composition base `402b27fa0dced95c2312bfedc0678af03463f2d5`, repository base `origin/main@2dfc3289ffdbe9cf9d7f4d0de1d701493d1b49a6`) |
-| Delay current implementation head | `nereus/delay-full-implementation-v1@c72cac90` (Kafka guarded Fetch/source proof and ACK/replay handoff, guarded Pulsar SUBSCRIBE/replay/ACK binding, strict Gateway RS256+mTLS JWT policy, durable Oxia tenant admission CAS, explicit Route session recovery, and the real-Kafka recovery/apply/ACK Worker slice; network Oxia session/placement, Route publication, production Worker wiring and release gates remain open) |
+| Delay current implementation head | `nereus/delay-full-implementation-v1@a7fd5fa7dd35d5d8535d3c63e577208d29fc2c5` (Kafka guarded Fetch/source proof and ACK/replay handoff, guarded Pulsar SUBSCRIBE/replay/ACK binding, strict Gateway RS256+mTLS JWT policy, durable Oxia tenant admission CAS, explicit Route session recovery, real-Kafka recovery/apply/ACK Worker slice and opt-in network Oxia session-bound owner lease; placement, Route publication, production Worker wiring and release gates remain open) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
@@ -6065,6 +6065,34 @@ by `OxiaOwnerLeaseStore`, so it does not prove network Oxia session authority,
 Route assignment publication, placement, Broker source ownership, real
 Pulsar Worker apply/ACK, due/Lane/publish/checkpoint production wiring or
 failure-injection/crash recovery. Those remain release blockers.
+
+## 2026-08-15 Kafka Worker real Oxia authority audit
+
+Delay commit `a7fd5fa7dd35d5d8535d3c63e577208d29fc2c5` adds the optional
+`NEREUS_DELAY_KAFKA_WITH_OXIA=1` path to the Kafka real-client harness. The
+Worker smoke connects to Oxia with a unique client/key prefix, establishes an
+ephemeral session marker, derives the `OwnerLeaseContext` identity from the
+returned session metadata, and verifies the marker before the assignment
+acquire and subsequent drain/release path. The normal command remains the
+deterministic in-memory mode when the endpoint is absent.
+
+The integrated source-locked run used Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, Kafka Compose project
+`nereus-delay-kafka-e2e-1786759086-73769` with ports `19300,19301,19302`, and
+Oxia Compose project `nereus-delay-kafka-oxia-e2e-1786759086-73769` with port
+`16656`. It passed the guarded source ACK/restart, Worker recovery at offset
+0, RocksDB apply at offset 1, synchronous ACK, exact drain release, K1/K2
+delete/recreate/failover cuts, and printed:
+
+```text
+Kafka Worker authority smoke passed: real Oxia session-bound lease
+```
+
+The run proves only this real Oxia session-bound authority cut around a
+single smoke-created assignment. It does not prove RouteSnapshot publication,
+placement, catalog-driven assignment, production multi-shard Worker wiring,
+real Pulsar Worker apply/ACK, or D6 crash/failure-injection gates.
 
 ## Final gate
 

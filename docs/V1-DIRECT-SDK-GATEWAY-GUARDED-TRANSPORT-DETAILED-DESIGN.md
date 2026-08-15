@@ -2946,13 +2946,22 @@ Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply o
 ```
 
 This closes the real Kafka guarded Fetch → recovery → local RocksDB apply →
-ACK cut for one partition. The smoke deliberately uses an in-memory owner
-lease backend wrapped by `OxiaOwnerLeaseStore`, so it is not evidence of
-network Oxia session authority, Route assignment publication, placement or
-Broker source ownership. Real Pulsar Worker apply/ACK, Broker ACK/rewind
-failure cuts, Oxia session/placement, due/Lane/publish/checkpoint/recovery
-production wiring and Docker crash cuts remain open. The §23.5 completion
-gate still controls release status; this slice cannot imply V1 release-ready.
+ACK cut for one partition. Commit `a7fd5fa7` adds an opt-in variant that
+connects the same Worker smoke to a real Oxia service, creates an ephemeral
+session marker, derives the context identity from Oxia session metadata and
+revalidates that marker before lease operations. The integrated run used
+Kafka source `05849884ca81fad767fda058444d1e17c7f9cbf9`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, Kafka Compose
+`nereus-delay-kafka-e2e-1786759086-73769` on `19300,19301,19302`, and Oxia
+Compose `nereus-delay-kafka-oxia-e2e-1786759086-73769` on `16656`; it printed
+`Kafka Worker authority smoke passed: real Oxia session-bound lease`.
+
+This adds network session-bound owner authority evidence for the one
+assignment constructed by the smoke. It does not establish Route assignment
+publication, placement, Broker source ownership, real Pulsar Worker
+apply/ACK, Broker ACK/rewind failure cuts, due/Lane/publish/checkpoint/
+recovery production wiring or Docker crash cuts. The §23.5 completion gate
+still controls release status; this slice cannot imply V1 release-ready.
 
 ## 16. 当前结论与仍需实测的数值
 

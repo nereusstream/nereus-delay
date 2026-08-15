@@ -14,7 +14,7 @@ pulsar_branch="nereus/delay-resource-guard-v1"
 pulsar_base="8dae0236c0a0d405ed7f8303081080520fe91551"
 pulsar_head="358ce4a1033bd566faebcd3465c3ba4606f3c83f"
 oxia_head="37a17bef17202d5fd6e23282da5fd26d94865484"
-delay_worker_head="c72cac90"
+delay_worker_head="a7fd5fa7dd35d5d8535d3c63e577208d29fc2c5c"
 
 fail() {
     echo "cross-repo contract audit failed: $*" >&2
@@ -94,6 +94,8 @@ require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "72d4accf"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "c72cac90"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "a7fd5fa7dd35d5d8535d3c63e577208d29fc2c5c"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "358ce4a103"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
@@ -179,10 +181,18 @@ require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transpo
     "KafkaClientArtifactRecoverySourceCursor"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "Kafka Worker vertical smoke passed"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+    "Kafka Worker authority smoke passed"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackend.java" \
+    "establishSessionMarker"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackend.java" \
+    "connectUnchecked"
 require_file_text "$delay_root/build.gradle" \
     "runRealKafkaWorkerSmoke"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "runRealKafkaWorkerSmoke"
+require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
+    "NEREUS_DELAY_KAFKA_WITH_OXIA"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactSourceSmoke.java" \
     "PulsarClientArtifactRecoverySourceCursor"
 

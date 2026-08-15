@@ -6917,6 +6917,44 @@ writer delete-recreate cut. It does not close unload, multi-broker failover,
 proxy compatibility, source session ownership or rewind, D3 Direct SDK
 integration, Worker production wiring, or the release-scale D3/D6 gates.
 
+## 2026-08-15 Kafka Worker real Oxia session-bound authority evidence
+
+Delay commit `a7fd5fa7dd35d5d8535d3c63e577208d29fc2c5` adds an opt-in network
+authority path to `KafkaClientArtifactWorkerSmoke`. With
+`NEREUS_DELAY_OXIA_ENDPOINT` configured, the smoke connects to the locked
+Oxia service through `OxiaSyncOwnerLeaseBackend.connectUnchecked`, creates an
+ephemeral session marker, derives the context session identity from the
+broker-returned session metadata, and acquires the Worker assignment through
+the real `OxiaOwnerLeaseStore`. The backend rereads the marker before
+context-bound lease operations and closes the client at the end of the smoke.
+Without that variable, the existing deterministic in-memory authority remains
+the default local mode.
+
+The fresh integrated run used Delay `a7fd5fa7dd35d5d8535d3c63e577208d29fc2c5`,
+Kafka `nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, Kafka client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, and
+broker image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`.
+The Kafka Compose project was
+`nereus-delay-kafka-e2e-1786759086-73769` on ports `19300,19301,19302`; the
+Oxia Compose project was `nereus-delay-kafka-oxia-e2e-1786759086-73769` on
+port `16656`. The run reported:
+
+```text
+Kafka source ACK smoke passed: topicId=fiY_GTiLTueRRBBkC8cfKQ, firstOffset=0, secondOffset=1, committedAfterRestart=empty
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch and commitSync ACK
+Kafka Worker authority smoke passed: real Oxia session-bound lease
+Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, assignment recovery to RocksDB Worker apply, K1 identity/failover, and K2 atomic target+receipt commit, abort, and delete/recreate fence.
+```
+
+The harness exited successfully and its Kafka/Oxia containers, networks,
+volumes and temporary images were absent after cleanup. This closes the
+network Oxia session-bound owner-lease cut for the one-partition assignment
+constructed by this smoke. It does not establish RouteSnapshot publication,
+placement/assignment authority, catalog-driven multi-shard Worker wiring,
+real Pulsar Worker apply/ACK, due/Lane/publish/checkpoint production wiring,
+or crash/failover evidence; those remain open.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

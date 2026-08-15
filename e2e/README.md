@@ -43,8 +43,10 @@ Worker smoke then recovers one pre-activation record through the no-ACK
 recovery cursor, activates the owned shard at the exact barrier, applies the
 next guarded record through `WorkerShardRuntime` and RocksDB `WriteBatch`, and
 checks the committed group offset after synchronous ACK plus exact owner-lease
-release on drain. The local owner authority in this smoke is deliberately
-deterministic; it is not the network Oxia session/placement path. The K2 smoke
+release on drain. The default owner authority is deliberately deterministic;
+when `NEREUS_DELAY_OXIA_ENDPOINT` is set, the same Worker smoke can acquire
+the assignment through a real Oxia ephemeral session-bound lease. This remains
+an owner-authority smoke, not Route placement or publication evidence. The K2 smoke
 creates
 separate target and receipt topics, sends both through one transaction-v2
 guarded producer transaction, checks commit and abort with `read_committed`
@@ -80,10 +82,32 @@ Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply o
 ```
 
 This is current guarded source-handoff plus real-Kafka local recovery/apply/ACK
-opt-in evidence. It does not claim EndTxn response-loss, Fetch response-loss,
-LSO/retention-floor recovery, Route assignment publication, network Oxia
-session/placement authority, ACK-failure injection, due/Lane/publish/checkpoint
-production wiring or the complete Worker vertical.
+opt-in evidence. The optional Oxia mode additionally proves the network
+session-bound owner lease for the smoke-created assignment. It does not claim
+EndTxn response-loss, Fetch response-loss, LSO/retention-floor recovery, Route
+assignment publication, placement authority, ACK-failure injection,
+due/Lane/publish/checkpoint production wiring or the complete Worker vertical.
+
+The latest optional real-Oxia run used Delay
+`a7fd5fa7dd35d5d8535d3c63e577208d29fc2c5`, Kafka source
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, Kafka Compose project
+`nereus-delay-kafka-e2e-1786759086-73769` on ports `19300,19301,19302`, and
+Oxia Compose project `nereus-delay-kafka-oxia-e2e-1786759086-73769` on port
+`16656`. It reported:
+
+```text
+Kafka Worker authority smoke passed: real Oxia session-bound lease
+```
+
+The harness exited successfully and removed its matching Kafka/Oxia Docker
+resources. Run it with:
+
+```bash
+NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+NEREUS_DELAY_KAFKA_OXIA_CHECKOUT=/absolute/path/to/oxia \
+./e2e/run-kafka-real-client-e2e.sh
+```
 
 ## Pulsar P1 real-client service E2E
 
