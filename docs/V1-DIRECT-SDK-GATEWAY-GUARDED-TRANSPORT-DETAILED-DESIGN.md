@@ -3070,6 +3070,19 @@ successfully. This adds network owner-authority evidence only and does not
 promote object-store checkpoint publication, due/Lane/publish orchestration,
 crash recovery, failover or production multi-shard Worker wiring.
 
+### 2026-08-15 Worker scheduling composition implementation note
+
+Delay commit `c124b216` adds `WorkerSchedulingRuntime` and the
+`PersistentLaneScheduler.forActiveOwner` factory. The accepted active Lane
+projection is registered before persisted fairness restore; a strict active
+Owner/Store check then gates authoritative READY rebuild and each READY poll.
+Due discovery is submitted to the shared `DUE_SCHEDULER` work class and the
+result is returned as typed `ScheduleWorkItem` candidates. The composition
+does not infer Claim materialization, Publish Admission descriptors, external
+adapter readiness or checkpoint publication state. Those remain explicit
+authority inputs to the later work-class executors and are still required for
+the D6 production vertical.
+
 ## 16. 当前结论与仍需实测的数值
 
 已经冻结：

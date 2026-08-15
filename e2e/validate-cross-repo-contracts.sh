@@ -14,7 +14,7 @@ pulsar_branch="nereus/delay-resource-guard-v1"
 pulsar_base="8dae0236c0a0d405ed7f8303081080520fe91551"
 pulsar_head="358ce4a1033bd566faebcd3465c3ba4606f3c83f"
 oxia_head="37a17bef17202d5fd6e23282da5fd26d94865484"
-delay_worker_head="2dd2cfff83f4d029972cf7fbeb569fbf4538c026"
+delay_worker_head="c124b216"
 
 fail() {
     echo "cross-repo contract audit failed: $*" >&2
@@ -207,6 +207,10 @@ require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/Wor
     "requireAccepted"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/RouteWorkerAssignmentCoordinator.java" \
     "snapshotDigest"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerSchedulingRuntime.java" \
+    "openForActiveOwner"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/scheduler/PersistentLaneScheduler.java" \
+    "forActiveOwner"
 require_file_text "$delay_root/build.gradle" \
     "runRealKafkaWorkerSmoke"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \

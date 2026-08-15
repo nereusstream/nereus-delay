@@ -6285,6 +6285,23 @@ These runs close only checkpoint-before-release under network owner authority,
 not object-store publication, due/Lane/publish orchestration, crash recovery,
 multi-broker failover or production multi-shard Worker wiring.
 
+## 2026-08-15 active-owner Lane/READY scheduling audit
+
+Commit `c124b216` adds the missing Worker-side composition around the already
+implemented strict scheduler actions. `WorkerSchedulingRuntime` restores the
+accepted active Lane set and persisted fairness projections, performs a fenced
+authoritative READY rebuild, submits due discovery to `DUE_SCHEDULER`, and
+exposes only a strict READY poll for the next Claim handoff. The regression
+executes both the queued discovery action and the Owner-reread poll through
+that composition.
+
+The new entrypoint does not promote the release state: Claim materialization
+and permits, external Profile/Object Store/credential readiness, signed
+Publish Admission append/ACK evidence, checkpoint Intent/Catalog/Object Store
+publication, multi-shard Worker scheduling, crash cuts and broker failover
+remain open. This is a local composition audit with no Docker or network
+service evidence.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

@@ -7223,6 +7223,32 @@ yet establish catalog-driven multi-shard placement, capacity-envelope
 authority, Broker source ownership transfer/reconnect, multi-broker failover,
 due/Lane/publish/checkpoint production wiring or crash/failure-injection gates.
 
+## 2026-08-15 active-owner scheduling composition slice
+
+Delay commit `c124b216` adds `WorkerSchedulingRuntime` as the production
+composition entrypoint for one already-activated Owner. It accepts the exact
+active Lane projection, restores persisted fairness state, rebuilds the READY
+ring from the authoritative Store through `PersistentLaneScheduler`, routes
+bounded discovery through `DUE_SCHEDULER`, and performs a strict Owner/Store
+reread before READY polling. The scheduler factory is
+`PersistentLaneScheduler.forActiveOwner`; the low-level register/restore
+methods remain package-local, so the runtime cannot silently skip the active
+Lane projection or construct a scheduler from a guessed Lane set.
+
+`WorkerSchedulingRuntime` intentionally stops at a typed READY Claim
+candidate. It does not synthesize Claim materialization, Publish Admission,
+Profile/Object Store prerequisites, Broker append evidence or checkpoint
+publication inputs. Those later boundaries remain the existing explicit
+`ClaimHandoffWorkClassExecutor`, `PublishAdmissionWorkClassExecutor` and
+`CheckpointWorkClassExecutor` contracts. This slice therefore closes local
+active-owner Lane/READY scheduling composition only; it is not a due-to-publish
+or production multi-shard Worker PASS.
+
+The focused `DueSchedulerWorkClassExecutorTest` now exercises the composition
+through `runDueTurn` and `pollReady`; the existing Claim handoff and full Lane
+scheduler regressions also passed. `compileJava` and `checkstyleMain` passed.
+No new Docker or external-service evidence is claimed by this local slice.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
