@@ -34,6 +34,7 @@ public final class WorkerShardRuntime implements AutoCloseable {
     private final WorkerSourceApplyLoop sourceLoop;
     private final OwnerDrainCoordinator drainCoordinator;
     private final WorkerSchedulingRuntime schedulingRuntime;
+    private final WorkerCommandRuntime commandRuntime;
     private boolean sourcePaused;
     private boolean terminal;
 
@@ -61,8 +62,23 @@ public final class WorkerShardRuntime implements AutoCloseable {
                               final OxiaOwnerLeaseStore authority,
                               final PublicKey verificationKey,
                               final WorkerSchedulingRuntime schedulingRuntime) {
+        this(sourceConsumer, workClasses, ownedShard, store, resources, authority, verificationKey,
+                schedulingRuntime, null);
+    }
+
+    /** Creates the source/scheduling/Claim/Publish composition for one Worker shard. */
+    public WorkerShardRuntime(final SourceRecordConsumer sourceConsumer,
+                              final WorkClassExecutionRegistry workClasses,
+                              final OwnedDelayShard ownedShard,
+                              final ShardStore store,
+                              final SharedRocksDbResources resources,
+                              final OxiaOwnerLeaseStore authority,
+                              final PublicKey verificationKey,
+                              final WorkerSchedulingRuntime schedulingRuntime,
+                              final WorkerCommandRuntime commandRuntime) {
         this.resources = Objects.requireNonNull(resources, "resources");
         this.schedulingRuntime = schedulingRuntime;
+        this.commandRuntime = commandRuntime;
         this.sourceLoop = new WorkerSourceApplyLoop(sourceConsumer, workClasses, ownedShard, authority,
                 verificationKey);
         this.drainCoordinator = new OwnerDrainCoordinator(ownedShard, store, resources, authority, workClasses);
@@ -104,6 +120,32 @@ public final class WorkerShardRuntime implements AutoCloseable {
         ensureSourceRunning();
         resources.requireRuntimeBusinessAdmission();
         return schedulingRuntime.pollReady(evidence, budget, ownerClock);
+    }
+
+    /** Queues one exact Claim handoff while source/command admission is open. */
+    public synchronized ClaimHandoffWorkClassExecutor.Submission submitClaim(
+            final WorkerCommandRuntime.ClaimRequest request) {
+        ensureCommandRuntime();
+        ensureSourceRunning();
+        resources.requireRuntimeBusinessAdmission();
+        return commandRuntime.submitClaim(request);
+    }
+
+    /** Queues one exact Publish Admission handoff while source/command admission is open. */
+    public synchronized PublishAdmissionWorkClassExecutor.Submission submitPublish(
+            final WorkerCommandRuntime.PublishRequest request) {
+        ensureCommandRuntime();
+        ensureSourceRunning();
+        resources.requireRuntimeBusinessAdmission();
+        return commandRuntime.submitPublish(request);
+    }
+
+    /** Runs one bounded Claim/Publish turn through the shared Worker graph. */
+    public synchronized List<WorkClassTask> runCommandTurn(final SchedulerBudget budget) {
+        ensureCommandRuntime();
+        ensureSourceRunning();
+        resources.requireRuntimeBusinessAdmission();
+        return commandRuntime.runTurn(budget);
     }
 
     /** Returns the exact source entry retained across an ACK/apply boundary. */
@@ -193,6 +235,13 @@ public final class WorkerShardRuntime implements AutoCloseable {
         ensureNotTerminal();
         if (schedulingRuntime == null) {
             throw new IllegalStateException("Worker shard runtime has no active-owner scheduling graph");
+        }
+    }
+
+    private void ensureCommandRuntime() {
+        ensureNotTerminal();
+        if (commandRuntime == null) {
+            throw new IllegalStateException("Worker shard runtime has no Claim/Publish command graph");
         }
     }
 }
