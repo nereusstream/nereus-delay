@@ -7052,6 +7052,46 @@ It does not establish live Profile/credential/Broker prerequisite authority,
 automatic due-to-Claim-to-Publish execution, multi-shard or transport E2E,
 crash/response-loss evidence, or release PASS.
 
+## 2026-08-15 current-source Kafka and Pulsar revalidation audit
+
+The current Delay commit `efa422a9ec16cb370376e0c5a72b18bbbdb3a906` passed
+both locked real-client transport harnesses. Kafka used
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`
+from `c300006a7705c240642db6950b5a95fec982bfc5`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose project `nereus-delay-kafka-e2e-1786795881-97477`, ports
+`19835,19836,19837`, and Oxia `37a17bef17202d5fd6e232da5fd26d94865484` in
+`nereus-delay-kafka-oxia-e2e-1786795881-97477` on `16686`. Its final receipt
+was:
+
+```text
+Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, assignment recovery to RocksDB Worker apply before and after broker-1 failover, same-topic Worker resume after failover, K1 identity/failover, and K2 atomic target+receipt commit, abort, and delete/recreate fence.
+```
+
+Pulsar used P1 `0a2536484cd3932801a98dc88ff112b2df88a1c7` from
+`8dae0236c0a0d405ed7f8303081080520fe91551`, distribution
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+client-api `f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`,
+common `94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`,
+image `sha256:892add226a105fb04b6df05df2c58f43e49f76647d39ed73944fcfc9ea1cb3d`,
+Compose project `nereus-delay-pulsar-e2e-1786796050-99359`, broker/web
+`20135,20136`, and Oxia in `nereus-delay-pulsar-oxia-e2e-1786796050-99359` on
+`16687`. Its final receipt was:
+
+```text
+Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, guarded source replay, signed mutation append/replay/ACK, signed Route barrier/assignment/source ACK, Broker timestamp, Worker recovery/apply, ACK handoff, and broker-restart resume.
+```
+
+This revalidates the current transport and Worker source locks after the typed
+Lane/scheduler changes. It is not evidence that the typed activation boundary
+has live Profile/credential/Broker authority, nor does it close automatic
+due-to-Claim-to-Publish execution, multi-shard placement, Pulsar multi-broker
+failover, remote Object Store checkpointing, crash/response-loss resolution or
+the §23.5 release gates. Temporary Docker projects and images were cleaned up
+by the harness traps.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
