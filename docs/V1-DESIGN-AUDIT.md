@@ -6569,6 +6569,19 @@ rejection and successful Claim coverage. This closes only the local one-shard
 DUE/READY → Claim queue wiring and is not multi-shard, automatic Ready/Publish
 preparation, response-loss/crash or release evidence.
 
+## 2026-08-15 Claim-result-bound Publish handoff audit
+
+Delay commit `e5828f40` adds a typed Claim-result → Publish handoff. The
+runtime accepts only a successful Claim result and carries its exact
+reservation into Publish Admission; a separate Claim or reservation cannot be
+silently substituted. The external Channel Resource Identity, Ready
+Certificate, trusted decision interval, retry limit and signing key remain
+caller-supplied authority inputs. Focused Publish and Claim regressions pass.
+
+This is local queue composition only. It does not prepare channel/credential
+authority, execute Broker append/ACK, classify response loss, or prove
+multi-shard/failover/crash/release gates.
+
 ## 2026-08-15 bounded due-to-Claim Worker turn audit
 
 Delay commit `ce4bc2d5` composes one due-discovery work-class action with the

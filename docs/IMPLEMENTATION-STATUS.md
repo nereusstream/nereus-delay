@@ -7583,6 +7583,24 @@ checkstyle and the Claim/Publish/scheduling regressions passed; multi-shard
 orchestration, automatic Ready/Publish preparation, response-loss/crash and
 release gates remain open.
 
+## 2026-08-15 Claim-result-bound Publish handoff
+
+Delay commit `e5828f40` adds a `WorkerCommandRuntime`/`WorkerShardRuntime`
+Publish overload that accepts the exact successful
+`ClaimHandoffWorkClassExecutor.ClaimHandoffResult` plus a typed external
+`PublishPreparation`. It rejects deferred/failed Claim results before queue
+admission, then passes the same Claim and active reservation to the existing
+canonical Publish builder. Channel identity, Ready Certificate, trusted
+decision time, retry window, signing key and Owner clock remain explicit
+inputs. The focused Publish regression executes this overload and preserves
+the existing prerequisite deferral and guarded Shard Log append assertions.
+
+This closes local Claim-result → Publish queue wiring and prevents a caller
+from accidentally pairing a reservation with another Claim. It does not
+create external channel/credential/Ready authority, run Broker append/ACK
+response-loss recovery, or establish multi-shard/failover/crash release
+evidence.
+
 ## 2026-08-15 bounded due-to-Claim Worker turn
 
 Delay commit `ce4bc2d5` adds `WorkerShardRuntime.runDueAndSubmitClaim`. One

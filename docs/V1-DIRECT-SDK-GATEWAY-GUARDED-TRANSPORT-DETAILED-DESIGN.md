@@ -3261,6 +3261,20 @@ remain inputs. The method is a local one-shard DUE/READY → Claim composition;
 channel/Ready Certificate/Publish preparation, physical append/ACK,
 multi-shard assignment and crash/failover evidence remain separate.
 
+### 2026-08-15 Claim-result-bound Publish composition
+
+Delay commit `e5828f40` adds a Publish handoff that takes the exact successful
+Claim result and a typed external preparation bundle. The runtime carries the
+Claim's active reservation unchanged into the canonical Publish builder and
+rejects all non-CLAIMED results before queue admission. Channel identity,
+Ready Certificate, trusted decision time, retry deadline, signing key and
+Owner clock remain external inputs, so this boundary cannot manufacture live
+Broker or credential authority.
+
+This closes local Claim-result → Publish queue composition only; it does not
+prepare channels, append/ACK the Shard Log, classify response loss, or prove
+multi-shard, failover, crash or release evidence.
+
 ### 2026-08-15 bounded due-to-Claim Worker composition
 
 Delay commit `ce4bc2d5` adds a bounded Worker entrypoint that submits due
