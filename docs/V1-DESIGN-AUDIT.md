@@ -6756,6 +6756,37 @@ Route activation/source ownership transfer, Pulsar multi-broker failover,
 response-loss or crash recovery at every WriteBatch boundary, automatic
 Claim/Publish authority or §23.5 release completion.
 
+## 2026-08-15 Kafka guarded Fetch to signed Route Worker assignment audit
+
+Delay commit `1550347f` adds a real-client Route activation cut rather than
+only reusing the deterministic Route/assignment tests. With K1 source
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, the smoke requires Fetch v13
+evidence and uses its exact `lastStableOffset`/record range to build the Kafka
+activation barrier. A real Oxia session publishes the signed Route event/head;
+the provider refreshes from that authority; `RouteWorkerAssignmentCoordinator`
+then publishes and rereads a route-bound Worker assignment by revision CAS.
+The second Kafka record is observed only after the signed exclusive barrier
+and is ACKed by `commitSync`.
+
+The receipt used Delay `1550347f`, Kafka client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Kafka/Oxia projects `nereus-delay-kafka-e2e-1786782354-37593` /
+`nereus-delay-kafka-oxia-e2e-1786782354-37593`, ports
+`19730,19731,19732` / `16673`, and Oxia source
+`37a17bef17202d5fd6e232da5fd26d94865484`. It printed:
+
+```text
+Kafka signed Route -> guarded Fetch barrier -> Oxia Worker assignment smoke passed: fetch=v18, lso=1, routeRevision=1, assignmentRevision=1, barrierOffset=1, sourceOffset=1, commitSync ACK
+```
+
+This is source-locked, one-partition integration evidence for signed Route
+publication, exact barrier projection, Oxia assignment CAS and post-barrier
+source ACK. It does not promote the result to production Route activation:
+session churn/reconnect, accepted-Route broker failover, catalog placement,
+native eligibility, source ownership transfer, Object Store checkpointing,
+automatic Claim/Publish authority and §23.5 release gates remain open.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

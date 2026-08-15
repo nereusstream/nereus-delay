@@ -196,6 +196,35 @@ NEREUS_DELAY_KAFKA_OXIA_CHECKOUT=/absolute/path/to/oxia \
 ./e2e/run-kafka-real-client-e2e.sh
 ```
 
+### Kafka signed Route barrier to Worker assignment
+
+When `NEREUS_DELAY_KAFKA_WITH_OXIA=1`, the same harness also runs
+`runRealKafkaRouteWorkerSmoke`. It appends one guarded K1 record, requires the
+Fetch v13/TopicId/LSO proof, signs a Kafka Route with the exact activation
+barrier, publishes the Route event/head through a real session-fenced Oxia
+authority, publishes and rereads a route-bound Worker assignment, then
+appends a second record and starts the guarded source at the signed barrier
+before `commitSync` ACK.
+
+The source-locked receipt used Delay `1550347f`, Kafka
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Oxia
+`37a17bef17202d5fd6e232da5fd26d94865484`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Kafka/Oxia projects `nereus-delay-kafka-e2e-1786782354-37593` /
+`nereus-delay-kafka-oxia-e2e-1786782354-37593`, ports
+`19730,19731,19732` / `16673`. It printed:
+
+```text
+Kafka signed Route -> guarded Fetch barrier -> Oxia Worker assignment smoke passed: fetch=v18, lso=1, routeRevision=1, assignmentRevision=1, barrierOffset=1, sourceOffset=1, commitSync ACK
+```
+
+This proves one source-locked topic/partition and one Oxia assignment/session
+cut. It does not prove catalog-driven multi-shard placement, session
+reconnect/churn, Broker failover with an accepted Route, native eligibility,
+production source ownership transfer, Object Store checkpoint publication or
+release PASS.
+
 ## Pulsar P1 real-client service E2E
 
 `run-pulsar-real-client-e2e.sh` builds a temporary Pulsar server image from the

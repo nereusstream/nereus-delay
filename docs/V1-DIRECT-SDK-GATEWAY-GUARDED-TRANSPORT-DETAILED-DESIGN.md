@@ -3439,6 +3439,38 @@ catalog-driven multi-shard placement, signed Route activation/source ownership
 transfer, Pulsar multi-broker failover, response-loss or crash evidence,
 automatic Claim/Publish authority or §23.5 release completion.
 
+### 2026-08-15 Kafka guarded Fetch to signed Route Worker assignment
+
+Delay commit `1550347f` adds `KafkaClientArtifactRouteWorkerSmoke`. It first
+requires a real K1 guarded Fetch v13 response for one persisted record and
+retains the exact cluster, native TopicId, partition, record range,
+`lastStableOffset` and response digest. The smoke projects that evidence into
+`ActivationBarrierV1.kafka`, signs a one-partition `RouteSnapshotV1`, publishes
+the immutable Route event/head through a session-fenced real Oxia client, and
+refreshes the provider from the Oxia head. `RouteWorkerAssignmentCoordinator`
+then resolves the active Route, publishes a revision-CAS assignment carrying
+the Route digest and barrier, rereads it before acceptance, appends a second
+record, seeks the guarded source to the signed exclusive offset and ACKs it
+with `commitSync`.
+
+The source-locked receipt used Kafka
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Oxia
+`37a17bef17202d5fd6e232da5fd26d94865484`, Kafka client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, and
+Compose projects `nereus-delay-kafka-e2e-1786782354-37593` /
+`nereus-delay-kafka-oxia-e2e-1786782354-37593` on broker ports
+`19730,19731,19732` and Oxia port `16673`. The exact receipt was:
+
+```text
+Kafka signed Route -> guarded Fetch barrier -> Oxia Worker assignment smoke passed: fetch=v18, lso=1, routeRevision=1, assignmentRevision=1, barrierOffset=1, sourceOffset=1, commitSync ACK
+```
+
+This closes the bounded real-Kafka barrier-to-assignment/source-ACK cut. It
+does not claim that a production Worker can refresh a Route through session
+churn, survive Broker failover with an accepted assignment, establish native
+eligibility, perform catalog-driven multi-shard placement or complete the
+Object Store/checkpoint/Claim/Publish/release gates.
+
 ## 16. 当前结论与仍需实测的数值
 
 已经冻结：

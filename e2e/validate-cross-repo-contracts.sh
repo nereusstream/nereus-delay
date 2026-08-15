@@ -235,6 +235,14 @@ require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transpo
     "and final checkpoint"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "Kafka Worker restart preparation passed"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactRouteWorkerSmoke.java" \
+    "Kafka signed Route -> guarded Fetch barrier"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactRouteWorkerSmoke.java" \
+    "lastStableOffset"
+require_file_text "$delay_root/build.gradle" \
+    "runRealKafkaRouteWorkerSmoke"
+require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
+    "run_route_worker_smoke"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackend.java" \
     "establishSessionMarker"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackend.java" \
