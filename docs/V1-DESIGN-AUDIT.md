@@ -7323,6 +7323,22 @@ multi-shard placement, checkpoint/quiescence or §23.5 release readiness. The
 real-client harnesses were not changed or rerun; their source-qualified
 receipts remain bound to `d02d8120`.
 
+## 2026-08-15 typed signed PUBLISH_OUTCOME factory audit
+
+`WorkerPublishOutcomeMutationFactory` now supplies the common typed signing
+path behind the physical bridge. It requires exact PUBLISHING ledger/request
+identity, maps physical disposition to the closed Outcome side-effect branch,
+validates attempt-owned Publish Evidence, rejects typed UNKNOWN evidence that
+would be dropped, and emits a canonical Ed25519-signed `PUBLISH_OUTCOME`
+mutation. `WorkerPublishOutcomeMutationFactoryTest` proves the published
+canonical body/signature and fail-closed mismatched context cases.
+
+The factory consumes an external retry/charge/time `OutcomeContextProvider`; it
+does not create live authority, Broker evidence or source ordering. Physical
+Kafka/Pulsar append/ACK, source-factory wiring, adapter journals,
+response-loss/crash resolution, real-client E2E and §23.5 release readiness
+remain open.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

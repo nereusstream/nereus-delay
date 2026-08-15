@@ -3983,3 +3983,18 @@ retry/charge factories, Kafka/Pulsar append/ACK, adapter journals and
 non-persistence classifiers remain external. The real-client harnesses do not
 construct this executor and were not rerun for this change, so their latest
 receipts remain source-qualified to `d02d81201d0cff3f9fa5fb3c8bba912721de5575`.
+
+### 2026-08-15 typed signed PUBLISH_OUTCOME factory implementation note
+
+`WorkerPublishOutcomeMutationFactory` implements the bridge's Outcome factory
+with a strict local boundary: it accepts only a PUBLISHING ledger and matching
+destination request, preserves the adapter's PUBLISHED/definitive/UNKNOWN
+branch, requires attempt-owned typed Publish Evidence for observed definitive
+results, validates the canonical `PublishOutcomeBody`, and signs the exact
+`PUBLISH_OUTCOME` System Mutation with the supplied owner author/key.
+
+The factory's `OutcomeContextProvider` supplies retry/disposition, charge
+transfer and trusted-time projections from external authority. The factory
+does not classify Broker response loss, mint physical evidence, apply RocksDB
+state or append to the Shard Log. Those boundaries, plus live signing-key
+protection and source-factory production wiring, remain open.

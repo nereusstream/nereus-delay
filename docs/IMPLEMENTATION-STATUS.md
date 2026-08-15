@@ -5613,6 +5613,7 @@ covers this ordering.
 | Active READY-discovery and Claim-handoff work-class admission | Implemented (local bounded discovery, exact Store/Owner/Worker-permit binding, live-certificate handler, exact Claim rollback and logical permit seam; external authority pending) | `DueSchedulerWorkClassExecutor`, `ClaimHandoffWorkClassExecutor`, `WorkerCommandRuntime`, `WorkerShardRuntime`, `ClaimExecutionAdmission`, `WorkClassExecutionRegistry`, `OwnedDelayShard`, `PersistentLaneScheduler`, `ActiveLaneStateV1`, `DueSchedulerWorkClassExecutorTest`, `ClaimHandoffWorkClassExecutorTest`, `PublishAdmissionWorkClassExecutorTest`, `ClaimExecutionAdmissionTest`, `WorkClassExecutionRegistryTest`; discovery retains its exact Shard/canonical trusted-time/scan-budget identity and full rollback. Shared due/Claim preflight requires the persistent scheduler and owned runtime to have the same ShardId, complete Owner identity and byte-equal Store Incarnation; a same-Shard/same-Owner scheduler over another DB is rejected before action registration or Store access. One Worker registry binds one exact Claim permit pool, all Claim/Publish Admission executors reuse it, the pool rejects a second registry, and foreign-pool Reservations fail before action registration/append (`WorkClassExecutionRegistryTest.oneClaimAdmissionPoolCannotMultiplyCapacityAcrossWorkerRegistries`). The Claim action accepts only a previously polled head, derives or binds typed materialization/deadline/charge, rereads READY/Message/Timeline/typed Lane/Ready Certificate after queue wait, enforces Worker/Shard/Lane message-and-byte caps plus READY minima, exact-requeues known deferrals, and fences unknown failures. A successful local Claim consumes READY before releasing the retained scheduler identity; a READY certificate may remain with no physical key/current timing projection after the head is consumed. Profile/catalog, Object Store, Adapter serialization/size, channel/credential live generations, Publish Admission/Producer, production trusted-time/Oxia capacity authority and dynamic IO attribution remain release blockers |
 | Message expiry discovery and exact-mutation handoff | Implemented (local record/actual-byte/elapsed bounded discovery plus append handoff; external authority pending) | `ExpiryDiscoveryWorkClassExecutor`, `ExpiryWorkClassExecutor`, `BoundedReadBudget`, `OwnedDelayShard`, `DelayShard`, `ShardStore`, `ExpiryDiscoveryWorkClassExecutorTest`, `ExpiryWorkClassExecutorTest`, `ShardStoreTest`; discovery binds the exact Shard/canonical Trusted-UTC evidence/full scan envelope before `EXPIRY` admission, rejection reads no Oxia/clock/Store state, execution rereads strict Owner authority, and one shared budget charges actual `timeline_cf/EXPIRY` plus dependent `id_cf/MESSAGE` key/value bytes and elapsed time. An individually oversized candidate fails closed; a later candidate that does not fit remains durable for another turn. Discovery is state-neutral, while each exact candidate is independently signed and handed to the external Shard Log appender without local Source Position allocation; production scheduling, Trusted-Time/Oxia authority, Broker append/ACK and source replay remain release blockers |
 | Scheduled checkpoint work-class admission | Implemented (local concrete handler wiring and derived static request charge; production authority pending) | `CheckpointWorkClassExecutor`, `CheckpointExecutionCoordinator`, `WorkClassExecutionRegistry`, `CheckpointExecutionCoordinatorTest.checkpointWorkClassRejectsBeforeIoThenExecutesTheExactClaim`; exact scheduler claim and pending intent are fenced before `CHECKPOINT` queue admission and repeated before I/O, normalized path/claim/pending-intent/upload-time bytes form one canonical identity whose domain-separated hash is the task ID and whose exact length is the queue byte charge, caller-supplied `workClassBytes` is absent, negative upload time fails before admission, direct preflight/execution methods are package-private so cross-package composition must use the bounded entrypoint, queue rejection leaves the current claim and filesystem/provider state unchanged, ordinary attempt failure returns a checkpoint-owned outcome without a stale generic work action, and only the next exact scheduler claim can start the next physical attempt; Owner Lease/session, Source Assignment, external Object Store/Oxia authority, the other shard-specific handlers and dynamic checkpoint-file/upload/WriteBatch I/O attribution remain release gates |
+| Signed Worker PUBLISH_OUTCOME construction | Implemented (typed local factory; context and source authority pending) | `WorkerPublishOutcomeMutationFactory`, `WorkerPublishOutcomeMutationFactoryTest`; exact PUBLISHING ledger/request identity, physical-result side-effect/disposition compatibility, typed PublishEvidence ownership, canonical `PublishOutcomeBody` construction and Ed25519 `SystemMutation` signing are enforced; external retry-policy/charge/time context, live owner/signing-key authority, Broker evidence and source-log append/application remain release blockers |
 | Shard identity and local Store Incarnation validation | Implemented | `StoreMetadata`, `ShardStoreTest` |
 | Synchronous atomic WriteBatch | Implemented | `ShardStore.write`, `ShardStoreTest` |
 | Native RocksDB checkpoint creation | Implemented | `ShardStore.createCheckpoint`, `ShardStoreTest`; checkpoint creation is staged under the same-filesystem `checkpoint-tmp` namespace, rejects an existing target, installs only through an atomic rename, and removes a target that was moved but failed the subsequent parent-directory durability step, with failed-stage cleanup |
@@ -8627,6 +8628,41 @@ not invoke this executor; their latest real receipts remain source-qualified
 to `d02d81201d0cff3f9fa5fb3c8bba912721de5575`. No claim is made for physical
 Broker append/ACK, response-loss or crash recovery, journal/LSO/retention
 resolution, multi-shard placement, checkpoint/quiescence, or release PASS.
+
+## 2026-08-15 typed signed PUBLISH_OUTCOME factory
+
+Delay adds `WorkerPublishOutcomeMutationFactory`, which implements the
+`WorkerPhysicalPublishExecutor.PublishOutcomeMutationFactory` seam. The factory
+requires a `PUBLISHING` ledger and exact destination request identity, maps the
+adapter's PUBLISHED/DEFINITIVELY_NOT_PUBLISHED/UNKNOWN result to the closed
+Outcome side-effect branches, requires typed Publish Evidence to remain bound to
+the publish attempt, and rejects an UNKNOWN result when typed evidence would be
+discarded. It then validates the canonical `PublishOutcomeBody` and signs the
+source mutation with the supplied owner author and key.
+
+The factory deliberately receives an external `OutcomeContextProvider` for
+retry deadline/disposition, charge transfer, trusted observation interval and
+retry-decision bytes. Those values are not locally invented or treated as
+Broker proof. The source log still owns append ordering and `DelayShard` still
+owns source-ordered application.
+
+Focused verification:
+
+```text
+./gradlew test --tests io.nereusstream.delay.ownership.WorkerPublishOutcomeMutationFactoryTest --tests io.nereusstream.delay.ownership.WorkerPhysicalPublishExecutorTest --no-daemon --console=plain
+BUILD SUCCESSFUL in 6s
+11 actionable tasks: 3 executed, 8 up-to-date
+
+./gradlew check --no-daemon --console=plain
+BUILD SUCCESSFUL in 1m 14s
+21 actionable tasks: 3 executed, 18 up-to-date
+```
+
+This closes typed local construction and signing only. Live retry/charge/time
+authority, source-protected signing keys, adapter evidence journals,
+Kafka/Pulsar physical append/ACK, response-loss/crash resolution and the
+real-client harnesses remain open; no real-client E2E was rerun for this
+common factory slice.
 
 ## Verification command
 
