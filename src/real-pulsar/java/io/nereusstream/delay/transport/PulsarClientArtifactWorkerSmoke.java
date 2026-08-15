@@ -4,6 +4,7 @@ import io.nereusstream.delay.adapter.PulsarSendRequest;
 import io.nereusstream.delay.adapter.PulsarSendResult;
 import io.nereusstream.delay.ownership.InMemoryOwnerLeaseStore;
 import io.nereusstream.delay.ownership.OxiaOwnerLeaseStore;
+import io.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend;
 import io.nereusstream.delay.ownership.OwnerLease;
 import io.nereusstream.delay.ownership.OwnerRecoveryCoordinator;
 import io.nereusstream.delay.ownership.OwnerRecoveryTurn;
@@ -102,105 +103,136 @@ public final class PulsarClientArtifactWorkerSmoke {
         final PreparedCommand recoveryCommand = command(shard, "worker-recovery");
         send(client, guard, physicalTopic, recoveryCommand, "worker-recovery-producer");
 
-        final String subscription = "nereus-delay-worker-" + UUID.randomUUID();
-        final GuardedConsumer<byte[]> nativeConsumer = PulsarClientArtifactSourceConsumerFactory.create(
-                client, guard, physicalTopic, subscription);
-        final PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof proof =
-                PulsarClientArtifactRecoverySourcePositioner.seekAfter(nativeConsumer, guard, physicalTopic, shard,
-                        Optional.empty(), Duration.ofSeconds(5));
-        final SourceAssignment assignment = new SourceAssignment(shard,
-                Bytes.sha256(Bytes.utf8("pulsar-worker-assignment")), 1,
-                PulsarActivationBarrier.empty(shard, INCARNATION, physicalTopic,
-                        proof.connectionGeneration(), proof.attestationDigest()));
-        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(new InMemoryOwnerLeaseStore());
-        final long ownerNow = System.currentTimeMillis();
-        final byte[] sessionIdentity = Bytes.sha256(Bytes.utf8("pulsar-worker-session"));
-        final OwnerLease lease = authority.acquire(assignment, "pulsar-worker", sessionIdentity,
-                ownerNow, LEASE_DURATION_MS).orElseThrow();
-        final WorkClassExecutionRegistry workClasses = workClasses();
-        final KeyPair verificationKey = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-        final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshot(shard);
-        final Path root = Files.createTempDirectory("nereus-delay-pulsar-worker-");
-        boolean runtimeDrained = false;
+        final OxiaSyncOwnerLeaseBackend.ClientHandle oxia = connectOxiaIfConfigured();
         try {
-            final ShardStoreConfig storeConfig = ShardStoreConfig.defaults(root);
-            try (SharedRocksDbResources resources = new SharedRocksDbResources(storeConfig);
-                 ShardStore store = ShardStore.open(storeConfig, shard, resources)) {
-                resources.bindWorkClassExecutionRegistry(workClasses);
-                store.recordControlSnapshot(controlSnapshot);
-                final DelayShard delayShard = new DelayShard(store, DelayShardConfig.defaults(), null, null,
-                        scheduleResolver());
-                final OwnedDelayShard ownedShard = new OwnedDelayShard(delayShard, lease,
-                        new io.nereusstream.delay.protocol.OwnerIdentityV1(bytes(16, 70), bytes(16, 71),
-                                lease.ownerEpoch(), Bytes.sha256(Bytes.utf8("pulsar-worker-fencing"))));
+            final String subscription = "nereus-delay-worker-" + UUID.randomUUID();
+            final GuardedConsumer<byte[]> nativeConsumer = PulsarClientArtifactSourceConsumerFactory.create(
+                    client, guard, physicalTopic, subscription);
+            final PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof proof =
+                    PulsarClientArtifactRecoverySourcePositioner.seekAfter(nativeConsumer, guard, physicalTopic, shard,
+                            Optional.empty(), Duration.ofSeconds(5));
+            final SourceAssignment assignment = new SourceAssignment(shard,
+                    Bytes.sha256(Bytes.utf8("pulsar-worker-assignment")), 1,
+                    PulsarActivationBarrier.empty(shard, INCARNATION, physicalTopic,
+                            proof.connectionGeneration(), proof.attestationDigest()));
+            final OxiaOwnerLeaseStore authority = oxia == null
+                    ? new OxiaOwnerLeaseStore(new InMemoryOwnerLeaseStore())
+                    : new OxiaOwnerLeaseStore(oxia.backend());
+            final long ownerNow = System.currentTimeMillis();
+            final byte[] sessionIdentity = oxia == null
+                    ? Bytes.sha256(Bytes.utf8("pulsar-worker-session")) : oxia.sessionIdentity();
+            final OwnerLease lease = authority.acquire(assignment, "pulsar-worker", sessionIdentity,
+                    ownerNow, LEASE_DURATION_MS).orElseThrow();
+            final WorkClassExecutionRegistry workClasses = workClasses();
+            final KeyPair verificationKey = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+            final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshot(shard);
+            final Path root = Files.createTempDirectory("nereus-delay-pulsar-worker-");
+            boolean runtimeDrained = false;
+            try {
+                final ShardStoreConfig storeConfig = ShardStoreConfig.defaults(root);
+                try (SharedRocksDbResources resources = new SharedRocksDbResources(storeConfig);
+                     ShardStore store = ShardStore.open(storeConfig, shard, resources)) {
+                    resources.bindWorkClassExecutionRegistry(workClasses);
+                    store.recordControlSnapshot(controlSnapshot);
+                    final DelayShard delayShard = new DelayShard(store, DelayShardConfig.defaults(), null, null,
+                            scheduleResolver());
+                    final OwnedDelayShard ownedShard = new OwnedDelayShard(delayShard, lease,
+                            new io.nereusstream.delay.protocol.OwnerIdentityV1(bytes(16, 70), bytes(16, 71),
+                                    lease.ownerEpoch(), Bytes.sha256(Bytes.utf8("pulsar-worker-fencing"))));
 
-                try (PulsarClientArtifactRecoverySourceCursor recovery =
-                             new PulsarClientArtifactRecoverySourceCursor(nativeConsumer, guard, assignment,
-                                     physicalTopic, Duration.ofMillis(250))) {
-                    final SourceReplayCursor<SourceReplayEntry> cursor = SourceReplayCursor.of(recovery);
-                    final OwnerRecoveryCoordinator coordinator = new OwnerRecoveryCoordinator(ownedShard, authority,
-                            assignment, SourceReplaySuccessor.strictPulsarBatchMember(), cursor,
-                            verificationKey.getPublic(), controlSnapshot, System::currentTimeMillis,
-                            new ReplayTurnBudget(1, 1_000_000, TimeUnit.SECONDS.toNanos(10)), workClasses);
-                    OwnerRecoveryTurn turn;
-                    do {
-                        turn = coordinator.runTurn();
-                    } while (!turn.complete());
-                    if (turn.outcomes().size() != 1 || !coordinator.complete()
-                            || ownedShard.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
-                            || !(ownedShard.lastCatchupPosition() instanceof PulsarSourcePosition recovered)) {
-                        throw new IllegalStateException("Pulsar Worker recovery did not activate at one exact record");
-                    }
-                    if (!recovered.shardId().equals(shard)
-                            || !Arrays.equals(recovered.brokerResourceIncarnation(), INCARNATION)
-                            || !recovered.physicalTopic().equals(physicalTopic)) {
-                        throw new IllegalStateException("Pulsar Worker recovery position identity changed");
-                    }
+                    try (PulsarClientArtifactRecoverySourceCursor recovery =
+                                 new PulsarClientArtifactRecoverySourceCursor(nativeConsumer, guard, assignment,
+                                         physicalTopic, Duration.ofMillis(250))) {
+                        final SourceReplayCursor<SourceReplayEntry> cursor = SourceReplayCursor.of(recovery);
+                        final OwnerRecoveryCoordinator coordinator = new OwnerRecoveryCoordinator(ownedShard, authority,
+                                assignment, SourceReplaySuccessor.strictPulsarBatchMember(), cursor,
+                                verificationKey.getPublic(), controlSnapshot, System::currentTimeMillis,
+                                new ReplayTurnBudget(1, 1_000_000, TimeUnit.SECONDS.toNanos(10)), workClasses);
+                        OwnerRecoveryTurn turn;
+                        do {
+                            turn = coordinator.runTurn();
+                        } while (!turn.complete());
+                        if (turn.outcomes().size() != 1 || !coordinator.complete()
+                                || ownedShard.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
+                                || !(ownedShard.lastCatchupPosition() instanceof PulsarSourcePosition recovered)) {
+                            throw new IllegalStateException("Pulsar Worker recovery did not activate at one exact record");
+                        }
+                        if (!recovered.shardId().equals(shard)
+                                || !Arrays.equals(recovered.brokerResourceIncarnation(), INCARNATION)
+                                || !recovered.physicalTopic().equals(physicalTopic)) {
+                            throw new IllegalStateException("Pulsar Worker recovery position identity changed");
+                        }
 
-                    final PreparedCommand activeCommand = command(shard, "worker-active");
-                    send(client, guard, physicalTopic, activeCommand, "worker-active-producer");
-                    WorkerShardRuntime runtime = PulsarClientArtifactWorkerSourceFactory.create(nativeConsumer, guard,
-                            physicalTopic, Duration.ofMillis(250), assignment, workClasses, ownedShard, store,
-                            resources, authority, verificationKey.getPublic());
-                    try {
-                        final io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult result =
-                                runUntilApplied(runtime);
-                        if (!(result.entry() instanceof SourceReplayRecord record)
-                                || !record.command().equals(activeCommand)
-                                || !(record.position() instanceof PulsarSourcePosition activePosition)) {
-                            throw new IllegalStateException("Pulsar Worker active turn did not apply the second record");
-                        }
-                        final var applied = store.appliedShardLogPosition();
-                        if (!(applied instanceof PulsarSourcePosition appliedPosition)
-                                || !appliedPosition.equals(activePosition)
-                                || activePosition.compareTo(recovered) <= 0) {
-                            throw new IllegalStateException("Pulsar Worker Store did not persist the active position");
-                        }
-                        final var drain = runtime.drain(
-                                new io.nereusstream.delay.ownership.OwnerDrainCoordinator.DrainRequest(
-                                        System.currentTimeMillis() + 5_000, 0, null),
-                                System::currentTimeMillis, () -> { });
-                        if (drain.pendingCheckpointTask() != null || !authority.current(shard).isEmpty()) {
-                            throw new IllegalStateException("Pulsar Worker drain did not release the owner lease");
-                        }
-                        runtimeDrained = true;
-                        System.out.println("Pulsar Worker vertical smoke passed: assignment recovery ledger/entry="
-                                + recovered.ledgerId() + "/" + recovered.entryId()
-                                + ", active apply ledger/entry=" + activePosition.ledgerId() + "/"
-                                + activePosition.entryId() + ", guarded SUBSCRIBE, RocksDB WriteBatch and ACK");
-                    } finally {
-                        if (!runtimeDrained) {
-                            closeNative(nativeConsumer);
+                        final PreparedCommand activeCommand = command(shard, "worker-active");
+                        send(client, guard, physicalTopic, activeCommand, "worker-active-producer");
+                        WorkerShardRuntime runtime = PulsarClientArtifactWorkerSourceFactory.create(nativeConsumer,
+                                guard, physicalTopic, Duration.ofMillis(250), assignment, workClasses, ownedShard,
+                                store, resources, authority, verificationKey.getPublic());
+                        try {
+                            final io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult result =
+                                    runUntilApplied(runtime);
+                            if (!(result.entry() instanceof SourceReplayRecord record)
+                                    || !record.command().equals(activeCommand)
+                                    || !(record.position() instanceof PulsarSourcePosition activePosition)) {
+                                throw new IllegalStateException(
+                                        "Pulsar Worker active turn did not apply the second record");
+                            }
+                            final var applied = store.appliedShardLogPosition();
+                            if (!(applied instanceof PulsarSourcePosition appliedPosition)
+                                    || !appliedPosition.equals(activePosition)
+                                    || activePosition.compareTo(recovered) <= 0) {
+                                throw new IllegalStateException(
+                                        "Pulsar Worker Store did not persist the active position");
+                            }
+                            final var drain = runtime.drain(
+                                    new io.nereusstream.delay.ownership.OwnerDrainCoordinator.DrainRequest(
+                                            System.currentTimeMillis() + 5_000, 0, null),
+                                    System::currentTimeMillis, () -> { });
+                            if (drain.pendingCheckpointTask() != null || !authority.current(shard).isEmpty()) {
+                                throw new IllegalStateException("Pulsar Worker drain did not release the owner lease");
+                            }
+                            runtimeDrained = true;
+                            System.out.println("Pulsar Worker vertical smoke passed: assignment recovery ledger/entry="
+                                    + recovered.ledgerId() + "/" + recovered.entryId()
+                                    + ", active apply ledger/entry=" + activePosition.ledgerId() + "/"
+                                    + activePosition.entryId() + ", guarded SUBSCRIBE, RocksDB WriteBatch and ACK");
+                            if (oxia != null) {
+                                System.out.println("Pulsar Worker authority smoke passed: real Oxia session-bound lease");
+                            }
+                        } finally {
+                            if (!runtimeDrained) {
+                                closeNative(nativeConsumer);
+                            }
                         }
                     }
                 }
+            } finally {
+                deleteTree(root);
+                if (!runtimeDrained) {
+                    closeNative(nativeConsumer);
+                }
             }
         } finally {
-            deleteTree(root);
-            if (!runtimeDrained) {
-                closeNative(nativeConsumer);
+            if (oxia != null) {
+                oxia.close();
             }
         }
+    }
+
+    private static OxiaSyncOwnerLeaseBackend.ClientHandle connectOxiaIfConfigured() {
+        final String endpoint = System.getenv("NEREUS_DELAY_OXIA_ENDPOINT");
+        if (endpoint == null || endpoint.isBlank()) {
+            return null;
+        }
+        final String namespace = configured("NEREUS_DELAY_OXIA_NAMESPACE", "default");
+        return OxiaSyncOwnerLeaseBackend.connectUnchecked(endpoint, namespace,
+                "nereus-delay-pulsar-worker-" + UUID.randomUUID(), Duration.ofSeconds(15),
+                "nereus-delay-pulsar-worker/" + UUID.randomUUID());
+    }
+
+    private static String configured(final String name, final String fallback) {
+        final String value = System.getenv(name);
+        return value == null || value.isBlank() ? fallback : value;
     }
 
     private static io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult runUntilApplied(

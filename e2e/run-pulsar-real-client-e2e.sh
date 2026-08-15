@@ -8,15 +8,21 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 delay_dir="$(cd "${script_dir}/.." && pwd)"
 pulsar_dir="${NEREUS_DELAY_PULSAR_CHECKOUT:-${delay_dir}/../../pulsar-worktrees/nereus-delay-p1}"
 gradle_user_home="${NEREUS_DELAY_PULSAR_GRADLE_USER_HOME:-/tmp/nereus-delay-pulsar-e2e-gradle}"
+with_oxia="${NEREUS_DELAY_PULSAR_WITH_OXIA:-0}"
+oxia_checkout="${NEREUS_DELAY_OXIA_CHECKOUT:-${delay_dir}/../../oxia}"
 compose_project="nereus-delay-pulsar-e2e-$(date +%s)-$$"
+oxia_project="nereus-delay-pulsar-oxia-e2e-${compose_project#nereus-delay-pulsar-e2e-}"
 compose_file="${script_dir}/docker-compose.pulsar.yml"
 compose=(docker compose -p "${compose_project}" -f "${compose_file}")
+oxia_compose_file="${script_dir}/docker-compose.oxia.yml"
+oxia_compose=(docker compose -p "${oxia_project}" -f "${oxia_compose_file}")
 image="nereus-delay-pulsar-p1:${compose_project}"
 image_context="$(mktemp -d -t nereus-delay-p1-image.XXXXXX)"
 runtime_dir="$(mktemp -d -t nereus-delay-p1-runtime.XXXXXX)"
 base_port=$((19650 + ($$ % 300)))
 broker_port="${PULSAR_BROKER_PORT:-${base_port}}"
 web_port="${PULSAR_WEB_PORT:-$((base_port + 1))}"
+oxia_port="${NEREUS_DELAY_PULSAR_OXIA_PORT:-16657}"
 tarball="${NEREUS_DELAY_PULSAR_TARBALL:-${pulsar_dir}/distribution/server/build/distributions/apache-pulsar-5.0.0-M1-bin.tar.gz}"
 topic="${PULSAR_DELAY_E2E_TOPIC:-p1-real-client-${compose_project##*-}}"
 service_url="pulsar://127.0.0.1:${broker_port}"
@@ -26,6 +32,9 @@ IFS=: read -r -a pulsar_client_artifacts <<< "${pulsar_client_cp}"
 
 cleanup() {
   "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
+  if [[ "${with_oxia}" == "1" ]]; then
+    "${oxia_compose[@]}" down --remove-orphans >/dev/null 2>&1 || true
+  fi
   docker image rm "${image}" >/dev/null 2>&1 || true
   rm -rf "${image_context}"
   rm -rf "${runtime_dir}"
@@ -50,6 +59,21 @@ wait_for_service() {
   echo "Pulsar standalone did not become ready: ${admin_url}" >&2
   "${compose[@]}" ps >&2 || true
   "${compose[@]}" logs >&2 || true
+  return 1
+}
+
+wait_for_oxia() {
+  local deadline=$((SECONDS + 120))
+  while (( SECONDS < deadline )); do
+    if "${oxia_compose[@]}" exec --no-TTY oxia oxia health --host 127.0.0.1 --port 6648 --timeout 2s \
+        >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "Oxia did not become ready: ${oxia_project}" >&2
+  "${oxia_compose[@]}" ps >&2 || true
+  "${oxia_compose[@]}" logs >&2 || true
   return 1
 }
 
@@ -83,9 +107,17 @@ echo "P1 image ID: ${image_id}"
 echo "P1 runtime library count: $(find "${runtime_dir}/lib" -type f -name '*.jar' | wc -l | tr -d ' ')"
 echo "Compose project: ${compose_project}"
 echo "P1 ports: broker=${broker_port},web=${web_port}"
+echo "Pulsar Worker Oxia authority: ${with_oxia}"
 
 "${compose[@]}" up -d
 wait_for_service
+
+if [[ "${with_oxia}" == "1" ]]; then
+  test -d "${oxia_checkout}"
+  NEREUS_DELAY_OXIA_CHECKOUT="${oxia_checkout}" NEREUS_DELAY_OXIA_E2E_PORT="${oxia_port}" \
+    "${oxia_compose[@]}" up --build -d
+  wait_for_oxia
+fi
 
 GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealPulsarServiceSmoke \
   -PpulsarClientClasspath="${pulsar_client_cp}" \
@@ -103,12 +135,20 @@ GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealPulsarSourceSmoke \
   -PpulsarTopic="${topic}" \
   --no-daemon --console=plain
 
-GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealPulsarWorkerSmoke \
+worker_environment=(env "GRADLE_USER_HOME=${gradle_user_home}")
+worker_properties=()
+if [[ "${with_oxia}" == "1" ]]; then
+  worker_environment+=("NEREUS_DELAY_OXIA_ENDPOINT=127.0.0.1:${oxia_port}")
+  worker_properties+=("-PpulsarWithOxia=true")
+fi
+
+"${worker_environment[@]}" ./gradlew runRealPulsarWorkerSmoke \
   -PpulsarClientClasspath="${pulsar_client_cp}" \
   -PpulsarRuntimeDir="${runtime_dir}/lib" \
   -PpulsarServiceUrl="${service_url}" \
   -PpulsarAdminUrl="${admin_url}" \
   -PpulsarTopic="${topic}" \
+  "${worker_properties[@]}" \
   --no-daemon --console=plain
 
 echo "Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, guarded source replay, Broker timestamp, Worker recovery/apply, and ACK handoff."

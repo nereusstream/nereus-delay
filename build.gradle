@@ -262,9 +262,11 @@ tasks.register('runRealPulsarWorkerSmoke', JavaExec) {
             throw new GradleException('pulsarRuntimeDir must be an extracted P1 distribution lib directory')
         }
     }
+    def optionalOxiaClasspath = findProperty('pulsarWithOxia') == 'true'
+            ? sourceSets.main.runtimeClasspath : files()
     classpath = files(sourceSets.main.output,
             sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator),
-            fileTree(realPulsarRuntimeDir).include('**/*.jar'))
+            fileTree(realPulsarRuntimeDir).include('**/*.jar'), optionalOxiaClasspath)
     mainClass = 'io.nereusstream.delay.transport.PulsarClientArtifactWorkerSmoke'
     args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarTopic')
 }
