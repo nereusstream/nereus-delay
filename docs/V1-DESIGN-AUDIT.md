@@ -40,6 +40,28 @@ the full K2 receipt-read/response-loss gate, D3/source verticals, or a productio
 vertical. Those rows remain open release blockers even though the design status
 is Accepted.
 
+Commit `72d4accf` closes the local native Pulsar recovery-positioning gap
+without promoting the Worker vertical. `PulsarClientArtifactRecoverySourcePositioner`
+validates the guarded consumer before seek, maps a durable position to the
+physical-topic native MessageId, waits for the seek-triggered SUBSCRIBE
+generation to stabilize, and makes the post-seek proof the only source of the
+new activation barrier. P1 commit `358ce4a103` returns the permit consumed by a
+non-batch seek-filter path, so the guarded queue-size-one source can advance
+past the filtered target. The focused P1 client test and distribution build
+passed; the rebuilt client, common and distribution SHA-256 values are
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8` and
+`7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5c5a1d137d`.
+The latest Docker run used P1 image
+`sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`,
+project `nereus-delay-pulsar-e2e-1786753971-20261` and ports `19811,19812`;
+it asserted `skipped=11/0`, returned the second command, reported source
+generations `5` and `6`, and ended with `Pulsar P1 real-client E2E passed`.
+Delay source compilation and full `check` passed as well. This closes only
+native cursor positioning and the P1 small-queue permit boundary. Durable
+Store cursor selection, Owner assignment/Lease CAS, RocksDB apply, activation
+and the full Worker catch-up/ACK/recovery vertical remain OPEN.
+
 Commit `5c53f866` adds the source-set
 `KafkaClientArtifactWorkerSourceFactory` and
 `PulsarClientArtifactWorkerSourceFactory` composition boundaries. They reject

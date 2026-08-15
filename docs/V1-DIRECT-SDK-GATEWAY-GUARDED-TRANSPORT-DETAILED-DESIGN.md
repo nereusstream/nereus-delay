@@ -2374,6 +2374,29 @@ guarded writer/source cuts. This is native replay-input evidence only; it does
 not prove assignment publication, Owner Lease CAS, Store-positioned Pulsar
 recovery, RocksDB apply, or the full D6 Worker vertical.
 
+2026-08-15 implementation evidence: Delay commit `72d4accf` adds
+`PulsarClientArtifactRecoverySourcePositioner`. It validates the current P1
+guard proof, maps the durable `PulsarSourcePosition` to a native MessageId,
+performs the seek, waits for two stable post-seek proofs after the client
+rotates its guarded SUBSCRIBE generation, and requires the caller to build the
+activation barrier from that proof before constructing the no-ACK recovery
+cursor. Separate physical route topics deliberately use native partition
+index `-1`; the logical `ShardId.partition` remains independently validated.
+
+The real E2E exposed and closed a P1 client edge: `resourceGuard` keeps the
+source receiver queue at one, and a non-batch seek target filtered before
+application must replenish its permit. P1 commit `358ce4a103` implements that
+return path. The focused P1 client test, distribution assembly, Delay
+`compileRealPulsar`, and full Delay `check` passed. The latest isolated run
+used P1 distribution `7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5c5a1d137d`,
+client `57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+image `sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`,
+project `nereus-delay-pulsar-e2e-1786753971-20261`, and ports `19811,19812`.
+It reported `skipped=11/0`, returned the second command, and completed the
+guarded source ACK smoke with source generations `5` and `6`. This closes the
+native positioning sub-boundary, not durable Store cursor selection, Owner
+assignment/Lease CAS, RocksDB apply, activation or the complete D6 vertical.
+
 2026-08-15 implementation evidence: commit
 `3d0bf7ea081ae7b652e3a0ca4b66003bc4b23618` adds an isolated Docker Compose
 Oxia smoke harness. `./e2e/run-oxia-real-service.sh` built source
@@ -2440,12 +2463,14 @@ ACK/commit/rewind、Kafka TopicId 或 Pulsar connection-generation proof 绑定
 Recovery uses a separate no-ACK cursor composition. The Kafka recovery cursor
 starts at a caller-validated durable offset and releases only its local
 look-ahead after the coordinator proves Store application. The Pulsar recovery
-cursor validates the guarded subscription proof on every receive but does not
-invent a seek position or acknowledge the message; the Owner/Store recovery
-path must position the subscription from durable recovery metadata and decide
-the eventual ACK/rewind boundary. These native cursors therefore cannot be
-read as proof of Owner assignment/session authority, recovery catalog/Floor
-selection, RocksDB replay application, or activation CAS.
+cursor validates the guarded subscription proof on every receive and
+`PulsarClientArtifactRecoverySourcePositioner` performs the seek from a
+caller-validated durable position, waits for the new guarded generation, and
+returns the proof used to build the activation barrier. Neither cursor ACKs a
+recovery message; the Owner/Store recovery path still chooses the durable
+position and the eventual ACK/rewind boundary. These native cursors therefore
+cannot be read as proof of Owner assignment/session authority, recovery
+catalog/Floor selection, RocksDB replay application, or activation CAS.
 
 已有 Destination Lane、Publish Admission、UNCERTAIN、checkpoint/replay 逻辑保持权威。Chronos 的单 seek cursor、目标无限重试、墓碑-only cancel 和公开 RocksDB key 都不进入代码。
 
@@ -2868,8 +2893,11 @@ RocksDB apply/dynamic WriteBatch/IO admission、due/Lane/publish/checkpoint/
 recovery wiring 和 Docker crash cuts 仍未完成。`bbbc3160` 增加了不确认
 Broker 记录的 Kafka/Pulsar native recovery cursor，以及 source smoke 中的
 精确两条回放/look-ahead 断言；它只是给 `OwnerRecoveryCoordinator` 提供
-受保护的 replay input，不包含 durable cursor 定位、Store apply 或 ACK
-决策。完成门仍以主设计 §23.5 为准；不能从这些子集推导 V1
+受保护的 replay input，不包含 Store apply 或 ACK 决策。后续 `72d4accf`
+增加了 guarded Pulsar durable-position seek、post-seek generation proof 和
+新 barrier 投影，并由 P1 `358ce4a103` 修复 queue-size-one seek permit
+返还；这只关闭 native cursor 定位子门。完成门仍以主设计 §23.5 为准；
+不能从这些子集推导 V1
 release-ready。
 
 ## 16. 当前结论与仍需实测的数值

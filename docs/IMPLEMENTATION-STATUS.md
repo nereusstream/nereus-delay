@@ -32,6 +32,67 @@ are closed. The isolated Kafka and
 Pulsar upstream worktrees recorded below remain separately owned implementation
 evidence; their patches are not copied into this repository.
 
+## 2026-08-15 guarded Pulsar recovery positioning slice
+
+Delay commit `72d4accf` adds
+`PulsarClientArtifactRecoverySourcePositioner`. `seekAfter` validates the
+current guarded consumer proof, maps the durable `PulsarSourcePosition` to the
+native MessageId with the physical-topic partition index `-1`, performs the
+seek, waits for two consecutive identical post-seek guarded proofs, and only
+then allows the caller to construct a fresh activation barrier and
+`PulsarClientArtifactRecoverySourceCursor`. The proof record uses defensive
+digest copies and value equality; a generation, topic, partition, incarnation
+or attestation mismatch fails closed. The recovery cursor remains no-ACK and
+retains one decoded entry until the caller advances it after Store apply.
+
+The locked P1 branch is now
+`nereus/delay-resource-guard-v1@358ce4a1033bd566faebcd3465c3ba4606f3c83f`,
+based on `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`. Commit
+`358ce4a103` fixes the client-side seek boundary exposed by the real smoke:
+when a non-batch seek target is filtered before application, the client now
+returns the consumed permit so a guarded receiver queue of one can continue
+to the next entry. This preserves the P1 `resourceGuard` queue constraint; the
+Delay source factory remains at `receiverQueueSize(1)`.
+
+The focused P1 client test and distribution gates passed:
+
+```text
+GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-e2e-gradle \
+  ./gradlew :pulsar-client-original:test --no-daemon --console=plain
+BUILD SUCCESSFUL in 1m 48s
+
+GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-e2e-gradle \
+  ./gradlew :distribution:pulsar-server-distribution:assemble --no-daemon --console=plain
+BUILD SUCCESSFUL in 1m 38s
+```
+
+The rebuilt artifact evidence is client
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`, client-api
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`, common
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, and
+distribution
+`7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5c5a1d137d`.
+
+The latest `LC_ALL=C LANG=C ./e2e/run-pulsar-real-client-e2e.sh` passed with
+P1 image `sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`,
+Compose project `nereus-delay-pulsar-e2e-1786753971-20261`, broker/web ports
+`19811,19812`, and P1 checkout `358ce4a103`. Its positioned recovery line was:
+
+```text
+Pulsar positioned recovery passed: skipped=11/0, returned=01f690bf446a9548b692302c2dd29f76940000000001a002d6466f742899096b913ca4c6bfa3f6adb1, connectionGeneration=4
+Pulsar source ACK smoke passed: physicalTopic=persistent://public/default/p1-real-client-20261-source-a161d730-3a42-4417-b589-bc3819207253, firstLedger=11, firstEntry=0, secondLedger=11, secondEntry=1, firstConnectionGeneration=5, secondConnectionGeneration=6
+Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, guarded source replay, Broker timestamp, and ACK handoff.
+```
+
+The matching Docker resources were removed by the script trap. Delay
+`compileRealPulsar` against these three P1 jars and the full local `check` also
+passed; the latter completed with 21 actionable tasks, 2 executed and 19
+up-to-date. This closes native Pulsar recovery positioning and the guarded
+small-queue seek starvation boundary only. It does not publish/accept a
+source assignment, CAS the Owner Lease, select a recovery Floor, apply
+RocksDB, or prove the complete Worker catch-up/activation/ACK/recovery
+vertical; those remain release blockers.
+
 ## 2026-08-15 guarded no-ACK recovery source cursor slice
 
 Delay commit `bbbc3160a6674b04a90b48a1f00865c079313bc7` adds native

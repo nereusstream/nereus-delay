@@ -12,7 +12,7 @@ kafka_base="c300006a7705c240642db6950b5a95fec982bfc5"
 kafka_head="8bd66fbb26eae1b0e4c5867e61f41900c3f5e318"
 pulsar_branch="nereus/delay-resource-guard-v1"
 pulsar_base="8dae0236c0a0d405ed7f8303081080520fe91551"
-pulsar_head="f813c96687cc19e6fca1c82d3d161cf3e045c86b"
+pulsar_head="358ce4a1033bd566faebcd3465c3ba4606f3c83f"
 oxia_head="37a17bef17202d5fd6e23282da5fd26d94865484"
 
 fail() {
@@ -88,6 +88,12 @@ require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "nereus/delay-guarded-producer-v1@8bd66fbb26eae1b0e4c5867e61f41900c3f5e318"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "412441c47cce4e61d3cc015b95c7d3cffcab2f7f"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "72d4accf"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "358ce4a103"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "PulsarClientArtifactRecoverySourcePositioner"
 
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/protocol/KafkaBrokerResourceIdentityV1.java" \
     "nativeTopicUuid"
@@ -145,6 +151,10 @@ require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transp
     "PulsarClientArtifactRecoverySourceCursor"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactRecoverySourceCursor.java" \
     "requireProof"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactRecoverySourcePositioner.java" \
+    "seekAfter"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactRecoverySourcePositioner.java" \
+    "awaitStableProof"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactSourceRecordConsumer.java" \
     "GuardedConsumer<byte[]>"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactSourceRecordConsumer.java" \
@@ -189,6 +199,8 @@ require_file_text "$pulsar_checkout/pulsar-client-api/src/main/java/org/apache/p
     "Optional<TopicResourceGuardAttestation> resourceGuardAttestation()"
 require_file_text "$pulsar_checkout/pulsar-client/src/main/java/org/apache/pulsar/client/impl/ConsumerImpl.java" \
     "guardedSourceConnectionGeneration"
+require_file_text "$pulsar_checkout/pulsar-client/src/main/java/org/apache/pulsar/client/impl/ConsumerImpl.java" \
+    "small receiver queue can continue past a seek boundary"
 require_file_text "$pulsar_checkout/pulsar-broker/src/main/java/org/apache/pulsar/broker/service/ServerCnx.java" \
     "guardedSourceConnectionGeneration"
 require_file_text "$pulsar_checkout/pulsar-broker/src/main/java/org/apache/pulsar/broker/service/Producer.java" \
