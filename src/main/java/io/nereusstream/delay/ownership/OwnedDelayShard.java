@@ -366,6 +366,30 @@ public final class OwnedDelayShard {
     }
 
     /**
+     * Polls the exact READY projection only after the execution-time Owner
+     * Lease/session reread.  The scheduler result is still a local Claim
+     * candidate and must cross the Claim work-class boundary before any
+     * Claim WriteBatch is allowed.
+     */
+    synchronized List<ScheduleWorkItem> pollReadyAuthoritativelyStrict(
+            final OxiaOwnerLeaseStore authority,
+            final PersistentLaneScheduler scheduler,
+            final TrustedUtcIntervalEvidence evidence,
+            final SchedulerBudget budget,
+            final LongSupplier clock) {
+        requireDueSchedulerSubmission(authority, scheduler);
+        final long nowEpochMs = readActiveWorkClock(clock, "READY poll");
+        ensureAuthoritativeActive(authority, nowEpochMs, "READY poll");
+        try {
+            return scheduler.poll(Objects.requireNonNull(evidence, "trusted UTC evidence").earliestEpochMs(),
+                    Objects.requireNonNull(budget, "scheduler budget"));
+        } catch (RuntimeException | Error failure) {
+            state = ShardLifecycleState.FENCED;
+            throw failure;
+        }
+    }
+
+    /**
      * Side-effect-free preflight for one exact already-polled Claim handoff.
      * It proves strict local ownership and revalidates the durable READY/
      * certificate projection, but performs no Claim WriteBatch.

@@ -86,6 +86,37 @@ public final class PersistentLaneScheduler {
         return new PersistentLaneScheduler(store, LaneScheduler.defaults());
     }
 
+    /**
+     * Creates the scheduler projection for an accepted active-owner
+     * composition.  The supplied Lane records must come from the same
+     * source-ordered Route/Registry projection that activated the shard; this
+     * method only registers those records and restores the persisted fairness
+     * state.  The owning Worker must still perform the strict Owner/Store
+     * check before calling the recovery-bound rebuild entrypoint.
+     */
+    public static PersistentLaneScheduler forActiveOwner(final ShardStore store,
+                                                          final OwnerIdentityV1 owner,
+                                                          final List<LaneRecord> activeLanes) {
+        final PersistentLaneScheduler scheduler = new PersistentLaneScheduler(
+                Objects.requireNonNull(store, "store"), LaneScheduler.defaults(),
+                Objects.requireNonNull(owner, "owner"));
+        for (LaneRecord lane : List.copyOf(Objects.requireNonNull(activeLanes, "activeLanes"))) {
+            scheduler.register(Objects.requireNonNull(lane, "active lane"));
+        }
+        scheduler.restorePersistedState();
+        return scheduler;
+    }
+
+    /**
+     * Rebuilds the in-memory READY ring from the authoritative Store after
+     * the Worker has proved the active Owner/Store binding.  The low-level
+     * recovery method remains package-local so callers cannot accidentally
+     * bypass that production lifecycle gate.
+     */
+    public synchronized int rebuildAuthoritativeReady(final int maxReadyEntries) {
+        return rebuildFromAuthoritativeReady(maxReadyEntries);
+    }
+
     /** Returns the physical shard whose READY and fairness projections this scheduler owns. */
     public ShardId shardId() {
         return store.shardId();

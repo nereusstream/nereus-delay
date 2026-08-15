@@ -135,6 +135,8 @@ class DueSchedulerWorkClassExecutorTest {
             final WorkClassExecutionRegistry workClasses = workClasses(1);
             final DueSchedulerWorkClassExecutor executor = new DueSchedulerWorkClassExecutor(
                     workClasses, owned, authority, scheduler);
+            final WorkerSchedulingRuntime runtime = new WorkerSchedulingRuntime(
+                    workClasses, owned, authority, scheduler);
 
             workClasses.submit(new WorkClassTask(WorkClass.DUE_SCHEDULER, "occupied", 1), () -> {
             });
@@ -174,19 +176,16 @@ class DueSchedulerWorkClassExecutorTest {
             assertEquals(foreignSequence, foreignStore.latestSequenceNumber());
             assertEquals(0, workClasses.registeredActions());
 
-            final DueSchedulerWorkClassExecutor.Submission submitted =
-                    executor.submit(evidence, budget, () -> 101);
+            final WorkerSchedulingRuntime.DueTurn dueTurn = runtime.runDueTurn(evidence, budget, () -> 101);
             assertEquals(16 + 4 + 4 + 8 + 8 + 4 + evidence.canonicalBytes().length + budget.maxBytes(),
-                    submitted.task().bytes());
-            assertTrue(submitted.discovered().isEmpty());
-            assertEquals(List.of(submitted.task()),
-                    workClasses.runTurn(new SchedulerBudget(1, 1_000_000, 1_000)));
-            assertEquals(List.of(messageId), submitted.discovered().orElseThrow().stream()
+                    dueTurn.task().bytes());
+            assertEquals(List.of(dueTurn.task()), dueTurn.completedTasks());
+            assertEquals(List.of(messageId), dueTurn.discoveredItems().stream()
                     .map(ScheduleWorkItem::messageId).toList());
             assertEquals(0, workClasses.registeredActions());
             assertEquals(1, scheduler.snapshot().lanes().get(0).pendingItems());
 
-            final ScheduleWorkItem selected = scheduler.poll(evidence.earliestEpochMs(), budget).get(0);
+            final ScheduleWorkItem selected = runtime.pollReady(evidence, budget, () -> 101).get(0);
             scheduler.requeueFailedClaim(selected);
             assertEquals(1, scheduler.snapshot().lanes().get(0).pendingItems());
             final ScheduleWorkItem retried = scheduler.poll(evidence.earliestEpochMs(), budget).get(0);
