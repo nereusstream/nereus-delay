@@ -3336,6 +3336,16 @@ The fence is local identity protection only. It does not turn the schedule into
 durable authority or provide remote publication, assignment/failover,
 crash-boundary or §23.5 release evidence.
 
+### 2026-08-15 recurring checkpoint drain fence
+
+Delay commit `6f1f6d25` makes recurring checkpoint lifecycle explicit at the
+Worker drain boundary. A shard with an in-flight exact checkpoint claim fails
+closed before Owner/Store/lease drain begins; an idle schedule is unregistered
+before drain, preventing a replacement owner from colliding with stale
+process-local registration. This is only local schedule lifecycle protection;
+provider quiescence, remote publication durability, assignment/failover,
+crash-boundary and §23.5 release evidence remain separate.
+
 ## 16. 当前结论与仍需实测的数值
 
 已经冻结：

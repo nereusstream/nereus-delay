@@ -7675,6 +7675,20 @@ This is an identity/retry safety fence, not a claim of durable schedule
 authority, remote checkpoint publication, assignment/failover or crash
 evidence.
 
+## 2026-08-15 recurring checkpoint drain fence
+
+Delay commit `6f1f6d25` closes the Worker lifecycle edge around the recurring
+schedule. Before `WorkerShardRuntime.drain` enters the Owner/Store/lease drain
+sequence, an attached checkpoint runtime unregisters its idle local schedule;
+an in-flight checkpoint claim rejects drain before any lifecycle callback or
+Store close. The fleet regression proves both fail-closed behavior and removal
+of the schedule after the claim is completed and drain succeeds.
+
+This prevents a stale process-local schedule from blocking a future owner or
+from being mistaken for completed checkpoint work. It still does not prove
+checkpoint publication durability, drain-time remote provider quiescence,
+assignment/failover or crash release evidence.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

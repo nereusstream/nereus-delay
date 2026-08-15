@@ -6642,6 +6642,19 @@ This closes only a local cross-shard identity hazard. Durable schedule
 authority, remote publication, assignment/failover, crash-boundary evidence and
 release PASS remain open.
 
+## 2026-08-15 recurring checkpoint drain fence audit
+
+Delay commit `6f1f6d25` adds a drain preflight for the attached recurring
+checkpoint runtime. An in-flight exact schedule claim rejects drain before the
+Owner/Store/lease sequence starts; an idle registered schedule is unregistered
+before that sequence, so a successfully drained shard does not retain a stale
+local registration. The fleet/checkpoint focused tests and main Checkstyle
+passed.
+
+This is a local lifecycle fence only. Remote provider quiescence, durable
+checkpoint publication, assignment/failover, crash-boundary evidence and
+release PASS remain unproven.
+
 The focused checkpoint and fleet tests plus main checkstyle passed. This
 advances only local checkpoint retryability and event-loop multi-shard
 composition. It is not catalog-driven placement or assignment publication,
