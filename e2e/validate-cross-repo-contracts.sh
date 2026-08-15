@@ -186,7 +186,7 @@ require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/Oxi
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
     "gatewayDurableRecordsRecoverAfterOxiaSessionChurn"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
-    "stale durable sessions failed closed"
+    "assertThrows(OxiaGatewaySessionUnavailableException.class"
 require_file_text "$delay_root/e2e/run-gateway-real-e2e.sh" \
     "NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
