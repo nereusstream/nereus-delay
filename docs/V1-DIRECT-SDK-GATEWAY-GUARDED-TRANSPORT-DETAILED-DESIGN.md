@@ -4314,3 +4314,32 @@ Pulsar multi-Broker failover, multi-shard placement, checkpoint/quiescence,
 or the §23.5 V1 release gates. Pulsar ran with
 `NEREUS_DELAY_PULSAR_WITH_OXIA=0`; neither receipt is a runtime, milestone or
 release PASS.
+
+### 2026-08-16 real Oxia authority provider-driven Pulsar receipt
+
+The same provider-driven P1 E2E was rerun with
+`NEREUS_DELAY_PULSAR_WITH_OXIA=1`, so Worker assignment publication,
+session-bound ownership and the physical Publish graph used the real Oxia
+backend rather than the in-memory authority. The locked Oxia checkout was
+`37a17bef17202d5fd6e23282da5fd26d94865484`; P1 remained
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, and
+image `sha256:892add226a105fb04b6df05df2c58f43e49f76647d39ed73944fcfc9ea1cb3d`.
+The receipt used Compose project `nereus-delay-pulsar-e2e-1786815185-13398`,
+Pulsar ports `21615,21616`, and Oxia port `16658`:
+
+```text
+Pulsar Worker assignment publication/acceptance passed: revision=1, worker=pulsar-worker, authority=real Oxia session-bound
+Pulsar Worker source-applied physical publish passed: Admission source ledger=24/3, typed PULSAR_SEND_ACK target ledger/entry=25/0, Outcome source ledger=24/4, exact payload readback
+Pulsar Worker source-applied physical publish passed: Admission source ledger=35/2, typed PULSAR_SEND_ACK target ledger/entry=36/0, Outcome source ledger=35/3, exact payload readback
+Pulsar Worker authority smoke passed: real Oxia session-bound lease
+Pulsar signed Route -> guarded SUBSCRIBE barrier -> Oxia Worker assignment -> RocksDB apply/checkpoint smoke passed: generation=16, barrier=22/0, routeRevision=1, assignmentRevision=1, source=22/1, ACK, final checkpoint
+Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, source-bound typed destination SEND ACK/payload readback, guarded source replay, signed mutation append/replay/ACK, signed Route barrier/assignment/source ACK, Broker timestamp, Worker recovery/apply, source-applied physical publish with typed Outcome and payload readback, ACK handoff, and broker-restart resume.
+```
+
+This closes positive real-Oxia authority evidence for the provider-driven P1
+Worker path across a standalone Broker restart. It remains a single Oxia
+service and single Pulsar Broker receipt: multi-Broker failover, Oxia
+failover/partition behavior, crash/response-loss resolution, live
+Profile/credential/Object Store/catalog authority, placement,
+checkpoint/quiescence and §23.5 release gates remain open.

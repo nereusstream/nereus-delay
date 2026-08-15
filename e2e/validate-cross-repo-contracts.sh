@@ -504,6 +504,16 @@ require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "nereus-delay-pulsar-e2e-1786814719-7983"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "21515,21516"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+    "real Oxia session-bound"
+require_file_text "$delay_root/e2e/run-pulsar-real-client-e2e.sh" \
+    "NEREUS_DELAY_PULSAR_WITH_OXIA"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "37a17bef17202d5fd6e23282da5fd26d94865484"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "nereus-delay-pulsar-e2e-1786815185-13398"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Admission source ledger=35/2"
 
 require_file_text "$kafka_checkout/clients/src/main/java/org/apache/kafka/clients/producer/GuardedProducer.java" \
     "sendGuarded"
