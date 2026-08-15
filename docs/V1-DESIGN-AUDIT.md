@@ -4665,7 +4665,7 @@ the guarded Broker rollout attestation remains external evidence.
 | 依赖 | 审计锁 |
 |---|---|
 | Delay local implementation slice | `nereus/delay-full-implementation-v1@4f606fec86aaeb74472f6575e5ee7ddcb8dc8f82` (Oxia Route session-fenced publisher/provider composition on top of Gateway query/await/message handlers and bounded query ingress behind explicit `GatewayQueryAuthority`, receipt-bound payload upload/attestation ingress, PrepareLargeSchedule/CommitLargeSchedule, Cancel and Reschedule control slices, Direct SDK outbox fail-closed and Worker source-consumer/ACK-after-sync composition; transport result/attempt binding `5cc955e1306e1f54db06a06a2bb2b84f232c2a7b`; Gateway query base `59d492041ac42b79a632ebddfb56a7608b2d7283`, Gateway ingress base `1dc28eaf391429f2dc9221f416af968d36575dff`, Gateway API generation base `a06ab232a5608ec0e7c9152ef80fc72c06966e66`; Gateway CAS base `e276bec3ffff7f5015367bed55f5b8d63c080e21`, Route authority base `62a9438967112f96e65b8daa7b2b86d52a103b10`, Gateway retry base `c42405ce6c69aef8ae0f8a9a63158c917410309f`, route-cache base `67ef3de3ab6f69ae992c3ccb70c7cb65cad47613`, composition base `402b27fa0dced95c2312bfedc0678af03463f2d5`, repository base `origin/main@2dfc3289ffdbe9cf9d7f4d0de1d701493d1b49a6`) |
-| Delay current implementation head | `nereus/delay-full-implementation-v1@17b4d7e6` (Kafka guarded Fetch/source proof and ACK/replay handoff, guarded Pulsar SUBSCRIBE/replay/ACK binding, strict Gateway RS256+mTLS JWT policy, durable Oxia tenant admission CAS, and explicit Route session recovery; assignment/session authority, Store apply and production Worker evidence remain open) |
+| Delay current implementation head | `nereus/delay-full-implementation-v1@c72cac90` (Kafka guarded Fetch/source proof and ACK/replay handoff, guarded Pulsar SUBSCRIBE/replay/ACK binding, strict Gateway RS256+mTLS JWT policy, durable Oxia tenant admission CAS, explicit Route session recovery, and the real-Kafka recovery/apply/ACK Worker slice; network Oxia session/placement, Route publication, production Worker wiring and release gates remain open) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
@@ -6032,6 +6032,39 @@ The focused issuer tests passed. This closes the local ordering and
 validation seam only. It does not provide the production Oxia protection
 transaction, live Pulsar guard authority, credential resolver, key rotation or
 real issuer/catalog deployment evidence; those release gates remain OPEN.
+
+## 2026-08-15 guarded Kafka Worker vertical audit
+
+Delay commit `c72cac90` adds the opt-in `KafkaClientArtifactWorkerSmoke`.
+It uses the locked Kafka K1 guarded Producer and Consumer to publish one
+record before activation, recover offset 0 through
+`KafkaClientArtifactRecoverySourceCursor` and `OwnerRecoveryCoordinator`,
+activate the `OwnedDelayShard` at the exact exclusive barrier, then consume
+offset 1 through `KafkaClientArtifactWorkerSourceFactory` and
+`WorkerShardRuntime`. The smoke proves Fetch v13 evidence, exact Kafka source
+identity, RocksDB `WriteBatch` apply before native `commitSync`, committed group
+offset 2 and exact owner-lease release during drain.
+
+The isolated three-broker Docker run used Kafka source
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose project `nereus-delay-kafka-e2e-1786757667-58603`, and ports
+`19195,19196,19197`. The source and Worker output was:
+
+```text
+Kafka source ACK smoke passed: topicId=ay9r1XMxQUycBBCYwxqqvg, firstOffset=0, secondOffset=1, committedAfterRestart=empty
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch and commitSync ACK
+```
+
+K1 delete/recreate and survivor-broker failover plus K2 target/receipt
+commit/abort/replacement fencing passed in the same run; the harness cleaned
+its matching Docker resources. This is an opt-in real-Kafka integration
+evidence cut. Its owner authority is a deterministic in-memory backend wrapped
+by `OxiaOwnerLeaseStore`, so it does not prove network Oxia session authority,
+Route assignment publication, placement, Broker source ownership, real
+Pulsar Worker apply/ACK, due/Lane/publish/checkpoint production wiring or
+failure-injection/crash recovery. Those remain release blockers.
 
 ## Final gate
 

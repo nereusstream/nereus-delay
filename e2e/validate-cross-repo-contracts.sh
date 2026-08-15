@@ -14,6 +14,7 @@ pulsar_branch="nereus/delay-resource-guard-v1"
 pulsar_base="8dae0236c0a0d405ed7f8303081080520fe91551"
 pulsar_head="358ce4a1033bd566faebcd3465c3ba4606f3c83f"
 oxia_head="37a17bef17202d5fd6e23282da5fd26d94865484"
+delay_worker_head="c72cac90"
 
 fail() {
     echo "cross-repo contract audit failed: $*" >&2
@@ -72,6 +73,7 @@ for repo in "$delay_root" "$kafka_checkout" "$pulsar_checkout" "$oxia_checkout";
 done
 
 require_branch "$delay_root" "nereus/delay-full-implementation-v1"
+require_ancestor "$delay_root" "$delay_worker_head"
 require_branch "$kafka_checkout" "$kafka_branch"
 require_head "$kafka_checkout" "$kafka_head"
 require_ancestor "$kafka_checkout" "$kafka_base"
@@ -90,6 +92,8 @@ require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "412441c47cce4e61d3cc015b95c7d3cffcab2f7f"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "72d4accf"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "c72cac90"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "358ce4a103"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
@@ -173,6 +177,12 @@ require_file_text "$kafka_checkout/clients/src/main/java/org/apache/kafka/client
     "fetchResponseBodySha256"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactSourceSmoke.java" \
     "KafkaClientArtifactRecoverySourceCursor"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+    "Kafka Worker vertical smoke passed"
+require_file_text "$delay_root/build.gradle" \
+    "runRealKafkaWorkerSmoke"
+require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
+    "runRealKafkaWorkerSmoke"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactSourceSmoke.java" \
     "PulsarClientArtifactRecoverySourceCursor"
 

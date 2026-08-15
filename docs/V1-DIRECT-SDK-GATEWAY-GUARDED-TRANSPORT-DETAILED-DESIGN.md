@@ -2921,18 +2921,38 @@ Docker smoke in `b6154072`, but HA/session-churn observability、Gateway HA/tran
 
 `1bee5b45` 和 `decb965e` 完成 transport-neutral source-consumer/Worker
 生命周期组合；`412441c4` 再完成了锁定 Kafka client 上的 source frame/
-position/`commitSync`/restart-replay handoff 子集。真实 Kafka/Pulsar source
-assignment/guarded Fetch、Broker ACK/rewind failure cuts、ownership/session、
-RocksDB apply/dynamic WriteBatch/IO admission、due/Lane/publish/checkpoint/
-recovery wiring 和 Docker crash cuts 仍未完成。`bbbc3160` 增加了不确认
-Broker 记录的 Kafka/Pulsar native recovery cursor，以及 source smoke 中的
-精确两条回放/look-ahead 断言；它只是给 `OwnerRecoveryCoordinator` 提供
-受保护的 replay input，不包含 Store apply 或 ACK 决策。后续 `72d4accf`
-增加了 guarded Pulsar durable-position seek、post-seek generation proof 和
-新 barrier 投影，并由 P1 `358ce4a103` 修复 queue-size-one seek permit
-返还；这只关闭 native cursor 定位子门。完成门仍以主设计 §23.5 为准；
-不能从这些子集推导 V1
-release-ready。
+position/`commitSync`/restart-replay handoff 子集。`bbbc3160` 增加了不确认
+Broker 记录的 Kafka/Pulsar native recovery cursor；后续 `72d4accf` 增加了
+guarded Pulsar durable-position seek、post-seek generation proof 和新
+barrier 投影，并由 P1 `358ce4a103` 修复 queue-size-one seek permit 返还。
+
+Delay commit `c72cac90` now adds an opt-in real-Kafka Worker vertical:
+`KafkaClientArtifactWorkerSmoke` uses the locked guarded Kafka Producer and
+Consumer, recovers offset 0 through `OwnerRecoveryCoordinator`, activates the
+owned shard at the exclusive barrier, applies offset 1 through
+`WorkerShardRuntime` and RocksDB `WriteBatch`, and calls native `commitSync`
+only after the apply. The smoke checks exact Fetch v13 evidence, source
+position, group offset and owner-lease release on drain. The 2026-08-15
+three-broker Docker run passed with Kafka source
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose project `nereus-delay-kafka-e2e-1786757667-58603`, and ports
+`19195,19196,19197`. Its evidence lines were:
+
+```text
+Kafka source ACK smoke passed: topicId=ay9r1XMxQUycBBCYwxqqvg, firstOffset=0, secondOffset=1, committedAfterRestart=empty
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch and commitSync ACK
+```
+
+This closes the real Kafka guarded Fetch → recovery → local RocksDB apply →
+ACK cut for one partition. The smoke deliberately uses an in-memory owner
+lease backend wrapped by `OxiaOwnerLeaseStore`, so it is not evidence of
+network Oxia session authority, Route assignment publication, placement or
+Broker source ownership. Real Pulsar Worker apply/ACK, Broker ACK/rewind
+failure cuts, Oxia session/placement, due/Lane/publish/checkpoint/recovery
+production wiring and Docker crash cuts remain open. The §23.5 completion
+gate still controls release status; this slice cannot imply V1 release-ready.
 
 ## 16. 当前结论与仍需实测的数值
 
