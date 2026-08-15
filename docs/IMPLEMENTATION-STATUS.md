@@ -7710,6 +7710,50 @@ not establish durable schedule authority, remote Object Store/catalog
 publication, automatic Ready/Publish preparation, assignment/failover,
 crash-boundary or release PASS evidence.
 
+## 2026-08-15 Kafka System Mutation Worker apply evidence
+
+Delay commit `eee022bd` adds `KafkaClientArtifactMutationWorkerSmoke` and the
+`runRealKafkaMutationWorkerSmoke` E2E task. It appends two signed `TIME_FENCE`
+records to one guarded Kafka partition. Recovery exposes only the first record
+to `OwnerRecoveryCoordinator`, applies it through the shared mixed
+`SOURCE_APPLY` path, and activates at the exclusive offset of the second
+record. The active `WorkerShardRuntime` then reads the second mutation through
+guarded Fetch v13, applies the source-ordered `DelayShard` WriteBatch, checks
+the durable `SystemMutationResult` and exact Store Source Position, and only
+then performs the native `commitSync` ACK. The same run drains the owner and
+publishes the final local checkpoint. The append/replay comparator permits the
+K1 response's optional leader epoch to be enriched by Fetch evidence while
+keeping cluster, TopicId, partition, offset and Broker append time exact.
+
+The fresh run used Delay `eee022bd`, Kafka source
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose project `nereus-delay-kafka-e2e-1786779783-8472`, and ports
+`19700,19701,19702`. The exact command was:
+
+```bash
+JAVA_TOOL_OPTIONS='-Dorg.slf4j.simpleLogger.defaultLogLevel=warn' \
+KAFKA_BROKER_1_PORT=19700 KAFKA_BROKER_2_PORT=19701 KAFKA_BROKER_3_PORT=19702 \
+./e2e/run-kafka-real-client-e2e.sh
+```
+
+The new Worker mutation cut printed:
+
+```text
+Kafka mutation Worker vertical smoke passed: recovery TIME_FENCE offset=0, active Store apply TIME_FENCE offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, and final checkpoint
+```
+
+The same fresh project also passed the existing guarded source ACK/restart,
+ordinary Worker recovery/apply, same-topic Worker resume after broker-1
+failover, K1 failover and K2 transaction cuts, then exited `BUILD SUCCESSFUL`
+and removed its Docker resources. This closes the Kafka mutation-to-Store
+Worker path with the local/in-memory owner authority used by this run. The
+optional real Oxia owner path is implemented but was not enabled in this
+receipt; production Route publication, external assignment/session authority,
+mutation response-loss/crash cuts, Pulsar mutation-to-Store apply,
+automatic Claim/Publish authority and release PASS remain open.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

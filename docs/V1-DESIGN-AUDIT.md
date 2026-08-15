@@ -6677,6 +6677,28 @@ automatic Ready/Publish preparation, remote Object Store durability, native
 source ownership transfer, broker failover, crash-boundary evidence or a
 release PASS.
 
+## 2026-08-15 Kafka System Mutation Worker apply audit
+
+Delay commit `eee022bd` closes the previously open Kafka mutation-to-Store
+Worker cut. The real Kafka smoke appends two signed `TIME_FENCE` mutations,
+replays offset 0 through strict Owner recovery, activates at the offset-1
+barrier, and applies offset 1 through the active mixed source loop. It checks
+the mutation id/hash/type, `SystemMutationResult=APPLIED/OK`, exact Kafka
+Source Position, RocksDB WriteBatch completion, `commitSync` ACK and final
+checkpoint before reporting success. The source set is locked to Kafka
+`05849884ca81fad767fda058444d1e17c7f9cbf9`; the fresh three-broker receipt
+used Compose project `nereus-delay-kafka-e2e-1786779783-8472`, ports
+`19700,19701,19702`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, and
+broker image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`.
+
+The focused real-client task and the surrounding Kafka source/Worker/K1/K2
+and broker-failover harness all passed. This is a bounded Kafka integration
+receipt using local/in-memory owner authority, not evidence of production
+assignment/session CAS, response-loss or crash recovery, Pulsar mutation
+apply, automatic Claim/Publish authority, multi-shard placement or the V1
+release gates.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

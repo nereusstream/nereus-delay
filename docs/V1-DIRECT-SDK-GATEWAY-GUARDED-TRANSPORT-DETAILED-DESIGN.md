@@ -3361,6 +3361,32 @@ not provide durable schedule authority, remote Object Store/catalog
 publication, automatic Ready/Publish orchestration, source ownership transfer,
 broker failover, crash evidence or §23.5 release completion.
 
+### 2026-08-15 Kafka System Mutation Worker apply
+
+The Kafka real-client binding now has a mixed-mutation Worker receipt. Two
+signed `TIME_FENCE` frames are appended through the guarded K1 Producer. The
+recovery cursor is bounded to the first frame, and the strict Owner recovery
+action applies it through the shared `SOURCE_APPLY` WorkClass before the
+exclusive Kafka activation barrier opens. The active Worker seeks to the
+second offset, validates Fetch v13 evidence, applies `DelayShard`'s durable
+System Mutation WriteBatch, verifies the exact `SystemMutationResult` and
+Store Source Position, and then acknowledges with `commitSync`; drain also
+requires the final local checkpoint.
+
+The receipt used Delay `eee022bd`, Kafka source
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose project `nereus-delay-kafka-e2e-1786779783-8472`, and ports
+`19700,19701,19702`. The K1 append response may omit leader epoch; replay
+evidence may enrich it, but cluster, TopicId, partition, offset and append
+time remain exact identity fields.
+
+This is an integration cut for the local/in-memory owner authority. It does
+not itself establish real Oxia assignment/session CAS, mutation response-loss
+or crash recovery, Pulsar mutation apply, automatic Claim/Publish authority,
+multi-shard placement or §23.5 release completion.
+
 ## 16. 当前结论与仍需实测的数值
 
 已经冻结：
