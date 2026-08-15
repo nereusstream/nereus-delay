@@ -310,6 +310,35 @@ tasks.register('runRealPulsarMutationSmoke', JavaExec) {
     args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarMutationTopic')
 }
 
+tasks.register('runRealPulsarMutationWorkerSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs mixed signed System Mutation recovery and active Worker Store apply against Pulsar.'
+    dependsOn tasks.named('compileRealPulsar')
+    if (realPulsarClientClasspath == null || realPulsarRuntimeDir == null
+            || findProperty('pulsarServiceUrl') == null
+            || findProperty('pulsarAdminUrl') == null || findProperty('pulsarMutationWorkerTopic') == null) {
+        doFirst {
+            throw new GradleException(
+                    'runRealPulsarMutationWorkerSmoke requires -PpulsarClientClasspath=... '
+                            + '-PpulsarRuntimeDir=/path/to/pulsar-distribution/lib '
+                            + '-PpulsarServiceUrl=pulsar://host:6650 -PpulsarAdminUrl=http://host:8080 '
+                            + '-PpulsarMutationWorkerTopic=topic')
+        }
+    }
+    doFirst {
+        if (!file(realPulsarRuntimeDir).isDirectory()) {
+            throw new GradleException('pulsarRuntimeDir must be an extracted P1 distribution lib directory')
+        }
+    }
+    def optionalOxiaClasspath = findProperty('pulsarWithOxia') == 'true'
+            ? sourceSets.main.runtimeClasspath : files()
+    classpath = files(sourceSets.main.output,
+            sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator),
+            fileTree(realPulsarRuntimeDir).include('**/*.jar'), optionalOxiaClasspath)
+    mainClass = 'io.nereusstream.delay.transport.PulsarClientArtifactMutationWorkerSmoke'
+    args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarMutationWorkerTopic')
+}
+
 tasks.register('runRealPulsarWorkerSmoke', JavaExec) {
     group = 'verification'
     description = 'Runs the P1 guarded recovery, Pulsar Worker apply and synchronous ACK smoke.'

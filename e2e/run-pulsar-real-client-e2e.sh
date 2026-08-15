@@ -26,6 +26,7 @@ oxia_port="${NEREUS_DELAY_PULSAR_OXIA_PORT:-16657}"
 tarball="${NEREUS_DELAY_PULSAR_TARBALL:-${pulsar_dir}/distribution/server/build/distributions/apache-pulsar-5.0.0-M1-bin.tar.gz}"
 topic="${PULSAR_DELAY_E2E_TOPIC:-p1-real-client-${compose_project##*-}}"
 mutation_topic="${PULSAR_DELAY_MUTATION_TOPIC:-p1-mutation-${compose_project##*-}}"
+mutation_worker_topic="${PULSAR_DELAY_MUTATION_WORKER_TOPIC:-p1-mutation-worker-${compose_project##*-}}"
 service_url="pulsar://127.0.0.1:${broker_port}"
 admin_url="http://127.0.0.1:${web_port}"
 pulsar_client_cp="${pulsar_dir}/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar:${pulsar_dir}/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar:${pulsar_dir}/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar"
@@ -143,6 +144,28 @@ GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealPulsarMutationSmoke \
   -PpulsarAdminUrl="${admin_url}" \
   -PpulsarMutationTopic="${mutation_topic}" \
   --no-daemon --console=plain
+
+run_mutation_worker_smoke() {
+  local worker_topic="$1"
+  local worker_environment=(env "GRADLE_USER_HOME=${gradle_user_home}")
+  local worker_gradle_args=(
+    -PpulsarClientClasspath="${pulsar_client_cp}"
+    -PpulsarRuntimeDir="${runtime_dir}/lib"
+    -PpulsarServiceUrl="${service_url}"
+    -PpulsarAdminUrl="${admin_url}"
+    -PpulsarMutationWorkerTopic="${worker_topic}"
+  )
+  if [[ "${with_oxia}" == "1" ]]; then
+    worker_environment+=("NEREUS_DELAY_OXIA_ENDPOINT=127.0.0.1:${oxia_port}")
+    worker_gradle_args+=("-PpulsarWithOxia=true")
+  fi
+
+  "${worker_environment[@]}" ./gradlew runRealPulsarMutationWorkerSmoke \
+    "${worker_gradle_args[@]}" \
+    --no-daemon --console=plain
+}
+
+run_mutation_worker_smoke "${mutation_worker_topic}"
 
 run_worker_smoke() {
   local worker_topic="$1"
