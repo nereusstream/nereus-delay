@@ -7249,6 +7249,21 @@ through `runDueTurn` and `pollReady`; the existing Claim handoff and full Lane
 scheduler regressions also passed. `compileJava` and `checkstyleMain` passed.
 No new Docker or external-service evidence is claimed by this local slice.
 
+## 2026-08-15 Worker lifecycle scheduling fence
+
+Delay commit `579ad3ba` adds the scheduling graph to the optional
+`WorkerShardRuntime` composition. `runSchedulingTurn`, `runDueTurn` and
+`pollReady` now share the Worker runtime admission gate and the same
+source-paused/terminal fence used by source apply. The OwnerDrain callback
+therefore stops source and due/Claim/Publish/Checkpoint admission together;
+an active graph cannot continue to schedule after drain begins.
+
+`DueSchedulerWorkClassExecutorTest` exercises the due discovery and strict
+READY poll through `WorkerShardRuntime`; the existing source-loop and drain
+regressions passed. `compileJava`, `checkstyleMain` and the focused source/due
+tests passed. This is local lifecycle evidence only; no new Broker, Oxia,
+object-store, crash or multi-shard E2E claim is made.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

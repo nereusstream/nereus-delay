@@ -3083,6 +3083,15 @@ adapter readiness or checkpoint publication state. Those remain explicit
 authority inputs to the later work-class executors and are still required for
 the D6 production vertical.
 
+### 2026-08-15 Worker lifecycle fence implementation note
+
+Delay commit `579ad3ba` makes the scheduling graph an optional dependency of
+`WorkerShardRuntime`. Source apply and due/READY scheduling now cross the same
+runtime admission and drain fence; once the OwnerDrain callback stops source
+and scheduling, all three Worker scheduling entrypoints fail closed. This
+orders local lifecycle state without inventing remote Claim, publish or
+checkpoint authority.
+
 ## 16. 当前结论与仍需实测的数值
 
 已经冻结：

@@ -6302,6 +6302,19 @@ publication, multi-shard Worker scheduling, crash cuts and broker failover
 remain open. This is a local composition audit with no Docker or network
 service evidence.
 
+## 2026-08-15 Worker scheduling lifecycle audit
+
+Commit `579ad3ba` binds `WorkerSchedulingRuntime` to the optional
+`WorkerShardRuntime` composition. All scheduling entrypoints use the shared
+runtime resource admission and are rejected after the drain callback fences
+source/scheduling; this closes the local lifecycle ordering gap between source
+quiescence and new due/Claim/Publish/Checkpoint admission.
+
+The change remains below the release gate. It does not establish automatic
+Claim materialization, external readiness, Shard Log outcome evidence,
+Object Store checkpoint publication, multi-shard scheduling or crash/failover
+evidence.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
