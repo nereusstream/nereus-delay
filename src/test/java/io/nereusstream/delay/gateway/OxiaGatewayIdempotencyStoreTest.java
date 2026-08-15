@@ -152,6 +152,7 @@ class OxiaGatewayIdempotencyStoreTest {
         assertEquals(GatewayIdempotencyStore.RetryState.EXISTING_RETRY, responseLost.state());
         assertNull(responseLost.permit());
         assertEquals(GatewayIdempotencyPhaseV1.ACTIVE, responseLost.record().phase());
+        assertNull(responseLost.record().aggregateOutcomeBytes());
         assertEquals(GatewayPhysicalAttemptStateV1.STARTED,
                 responseLost.record().attempts().get(1).state());
 

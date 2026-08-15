@@ -163,7 +163,7 @@ public final class GatewayIdempotencyRecordV1 {
         final List<GatewayPhysicalAttemptV1> next = new ArrayList<>(attempts);
         next.add(Objects.requireNonNull(attempt, "attempt"));
         return new GatewayIdempotencyRecordV1(gatewayKeyHash, operation, requestBodyHash,
-                preparedSubmissionBytes, GatewayIdempotencyPhaseV1.ACTIVE, next, aggregateOutcomeBytes,
+                preparedSubmissionBytes, GatewayIdempotencyPhaseV1.ACTIVE, next, null,
                 createdAtEpochMs, retainUntilEpochMs, revision + 1);
     }
 

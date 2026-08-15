@@ -41,6 +41,7 @@ import io.nereusstream.delay.semantic.RouteSelectionHint;
 import io.nereusstream.delay.semantic.TrustedClock;
 import io.nereusstream.delay.submission.SubmissionCoordinator;
 import io.nereusstream.delay.transport.TransportOwnershipPermit;
+import io.nereusstream.delay.transport.PhysicalEnqueueAttemptId;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
@@ -319,6 +320,147 @@ class OxiaRealGatewayGrpcSmokeTest {
                         idempotencyRecord.attempts().get(0).state());
                 assertNotNull(idempotencyRecord.aggregateOutcomeBytes());
                 assertEquals(4, auditRecords.size());
+            }
+        }
+    }
+
+    @Test
+    void gatewayRecoversAfterCommittedOxiaRetryAttemptResponseLoss() throws Exception {
+        final String endpoint = System.getenv("NEREUS_DELAY_OXIA_ENDPOINT");
+        Assumptions.assumeTrue(endpoint != null && !endpoint.isBlank(),
+                "NEREUS_DELAY_OXIA_ENDPOINT is not configured");
+        final Path serverCertificate = requiredPath("NEREUS_DELAY_GATEWAY_SERVER_CERT");
+        final Path serverPrivateKey = requiredPath("NEREUS_DELAY_GATEWAY_SERVER_KEY");
+        final Path trustedClientCertificates = requiredPath("NEREUS_DELAY_GATEWAY_CA_CERT");
+        final Path clientCertificate = requiredPath("NEREUS_DELAY_GATEWAY_CLIENT_CERT");
+        final Path clientPrivateKey = requiredPath("NEREUS_DELAY_GATEWAY_CLIENT_KEY");
+        final int port = Integer.parseInt(requiredEnv("NEREUS_DELAY_GATEWAY_PORT"));
+        if (port <= 0 || port > 65_535) {
+            throw new IllegalArgumentException("NEREUS_DELAY_GATEWAY_PORT must be 1..65535");
+        }
+
+        final String namespace = configured("NEREUS_DELAY_OXIA_NAMESPACE", "default");
+        final String prefix = "nereus-delay-real-gateway-retry-response-loss/" + UUID.randomUUID();
+        final MutableClock clock = new MutableClock(NOW_EPOCH_MS);
+        final AuthenticatedTenantContext tenant = tenant(51);
+        final KeyPair jwtKeyPair = rsaKeyPair();
+        final byte[] certificateFingerprint = certificateFingerprint(clientCertificate);
+        final RsaSha256GatewayJwtVerifier verifier = new RsaSha256GatewayJwtVerifier(
+                jwtKeyPair.getPublic(), "nereus-delay-gateway-e2e-issuer", "nereus-delay-gateway-e2e",
+                "gateway-e2e-key", Clock.fixed(Instant.ofEpochSecond(NOW_EPOCH_SECONDS), ZoneOffset.UTC),
+                30, 600);
+        final MutualTlsJwtGatewayTenantAuthority authority = new MutualTlsJwtGatewayTenantAuthority(verifier);
+        final ScheduleIntentV1 intent = scheduleIntent();
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
+        final PreparedCommand command = PreparedCommand.scheduleV1(shard, intent, 2_000_000);
+        final PreparedSubmissionV1 prepared = PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(command));
+        final FixedCore core = new FixedCore(prepared);
+        final CountingCoordinator coordinator = new CountingCoordinator(command);
+        final String token = token(jwtKeyPair, tenant, certificateFingerprint);
+        final io.nereusstream.delay.gateway.v1.GatewayScheduleRequestV1 request = request(intent);
+
+        try (OxiaSyncOwnerLeaseBackend.ClientHandle admissionClient = OxiaSyncOwnerLeaseBackend.connect(
+                endpoint, namespace, "nereus-delay-gateway-retry-response-loss-admission-" + UUID.randomUUID(),
+                Duration.ofSeconds(15), prefix + "/admission-client");
+             OxiaSyncOwnerLeaseBackend.ClientHandle idempotencyClient = OxiaSyncOwnerLeaseBackend.connect(
+                     endpoint, namespace, "nereus-delay-gateway-retry-response-loss-idempotency-" + UUID.randomUUID(),
+                     Duration.ofSeconds(15), prefix + "/idempotency-client");
+             OxiaSyncOwnerLeaseBackend.ClientHandle auditClient = OxiaSyncOwnerLeaseBackend.connect(
+                     endpoint, namespace, "nereus-delay-gateway-retry-response-loss-audit-" + UUID.randomUUID(),
+                     Duration.ofSeconds(15), prefix + "/audit-client")) {
+            final ResponseLossOnceRecordClient responseLossIdempotencyRecords = new ResponseLossOnceRecordClient(
+                    new SessionBoundOxiaGatewayRecordClient(idempotencyClient), Set.of(2, 4));
+            final GatewayGrpcService grpc = grpcService(
+                    new SessionBoundOxiaGatewayRecordClient(admissionClient), responseLossIdempotencyRecords,
+                    new SessionBoundOxiaGatewayRecordClient(auditClient), prefix, clock, core, coordinator,
+                    authority);
+            try (GatewayGrpcServer server = GatewayGrpcServer.mutualTls(port, serverCertificate, serverPrivateKey,
+                    trustedClientCertificates, grpc)) {
+                server.start();
+                final ManagedChannel channel = channel(port, trustedClientCertificates, clientCertificate,
+                        clientPrivateKey);
+                try {
+                    final io.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 firstResponse =
+                            stub(channel, token).schedule(request);
+                    assertEquals(io.nereusstream.delay.protocol.EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN,
+                            SubmissionOutcomeMessageV1.decode(firstResponse.getSubmissionOutcomeNdr1().toByteArray())
+                                    .managed().kind());
+                    assertEquals(1, core.prepareCalls);
+                    assertEquals(0, coordinator.submitCalls);
+
+                    clock.set(NOW_EPOCH_MS + 10_000);
+                    final io.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 recoveredResponse =
+                            stub(channel, token).schedule(request);
+                    assertArrayEquals(firstResponse.toByteArray(), recoveredResponse.toByteArray());
+
+                    final GatewayIdempotencyRecordV1 recoveredRecord;
+                    try (var idempotencyScan = idempotencyClient.client().rangeScan(
+                            prefix + "/idempotency/idempotency/", prefix + "/idempotency/idempotency/\uffff")) {
+                        final List<GetResult> records =
+                                java.util.stream.StreamSupport.stream(idempotencyScan.spliterator(), false).toList();
+                        assertEquals(1, records.size());
+                        recoveredRecord = GatewayIdempotencyRecordV1.decode(records.get(0).value());
+                    }
+                    assertEquals(GatewayPhysicalAttemptStateV1.UNCERTAIN,
+                            recoveredRecord.attempts().get(0).state());
+                    final PhysicalEnqueueAttemptId priorAttemptId =
+                            recoveredRecord.attempts().get(0).physicalAttemptId();
+                    final PhysicalEnqueueAttemptId retryRequestId =
+                            PhysicalEnqueueAttemptId.require(bytes(16, 151));
+                    final io.nereusstream.delay.gateway.v1.GatewayRetryUncertainRequestV1 retryRequest =
+                            io.nereusstream.delay.gateway.v1.GatewayRetryUncertainRequestV1.newBuilder()
+                                    .setOriginalIdempotencyKey(request.getIdempotencyKey())
+                                    .setExpectedPriorPhysicalAttemptId(ByteString.copyFrom(priorAttemptId.bytes()))
+                                    .setRetryRequestId(ByteString.copyFrom(retryRequestId.bytes()))
+                                    .build();
+
+                    final io.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 retryResponse =
+                            stub(channel, token).retryUncertain(retryRequest);
+                    assertEquals(io.nereusstream.delay.protocol.EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN,
+                            SubmissionOutcomeMessageV1.decode(retryResponse.getSubmissionOutcomeNdr1().toByteArray())
+                                    .managed().kind());
+                    assertEquals(1, core.prepareCalls);
+                    assertEquals(0, coordinator.submitCalls);
+
+                    clock.set(NOW_EPOCH_MS + 20_000);
+                    final io.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 recoveredRetryResponse =
+                            stub(channel, token).retryUncertain(retryRequest);
+                    assertArrayEquals(retryResponse.toByteArray(), recoveredRetryResponse.toByteArray());
+                    assertEquals(1, core.prepareCalls);
+                    assertEquals(0, coordinator.submitCalls);
+                    System.out.println("Gateway Oxia RETRY_UNCERTAIN response-loss E2E passed: committed retry "
+                            + "attempt was reread after deadline as exact UNCERTAIN without a second physical submission");
+                } finally {
+                    channel.shutdownNow();
+                    assertTrue(channel.awaitTermination(10, TimeUnit.SECONDS));
+                }
+            }
+
+            try (var admissionScan = admissionClient.client().rangeScan(
+                    prefix + "/admission/admission/", prefix + "/admission/admission/\uffff");
+                 var idempotencyScan = idempotencyClient.client().rangeScan(
+                         prefix + "/idempotency/idempotency/", prefix + "/idempotency/idempotency/\uffff");
+                 var auditScan = auditClient.client().rangeScan(
+                         prefix + "/audit/audit/", prefix + "/audit/audit/\uffff")) {
+                final List<GetResult> admissionRecords =
+                        java.util.stream.StreamSupport.stream(admissionScan.spliterator(), false).toList();
+                final List<GetResult> idempotencyRecords =
+                        java.util.stream.StreamSupport.stream(idempotencyScan.spliterator(), false).toList();
+                final List<GetResult> auditRecords =
+                        java.util.stream.StreamSupport.stream(auditScan.spliterator(), false).toList();
+                assertEquals(1, admissionRecords.size());
+                assertEquals(0, GatewayAdmissionRecordV1.decode(admissionRecords.get(0).value()).leases().size());
+                assertEquals(1, idempotencyRecords.size());
+                final GatewayIdempotencyRecordV1 idempotencyRecord =
+                        GatewayIdempotencyRecordV1.decode(idempotencyRecords.get(0).value());
+                assertEquals(GatewayIdempotencyPhaseV1.QUIESCENT, idempotencyRecord.phase());
+                assertEquals(2, idempotencyRecord.attempts().size());
+                assertEquals(GatewayPhysicalAttemptStateV1.UNCERTAIN,
+                        idempotencyRecord.attempts().get(0).state());
+                assertEquals(GatewayPhysicalAttemptStateV1.UNCERTAIN,
+                        idempotencyRecord.attempts().get(1).state());
+                assertNotNull(idempotencyRecord.aggregateOutcomeBytes());
+                assertEquals(8, auditRecords.size());
             }
         }
     }
@@ -998,15 +1140,20 @@ class OxiaRealGatewayGrpcSmokeTest {
 
     private static final class ResponseLossOnceRecordClient implements OxiaGatewayRecordClient {
         private final OxiaGatewayRecordClient delegate;
-        private final int loseOnPutNumber;
+        private final Set<Integer> loseOnPutNumbers;
         private int putCalls;
 
         private ResponseLossOnceRecordClient(final OxiaGatewayRecordClient delegate, final int loseOnPutNumber) {
+            this(delegate, Set.of(loseOnPutNumber));
+        }
+
+        private ResponseLossOnceRecordClient(final OxiaGatewayRecordClient delegate,
+                                             final Set<Integer> loseOnPutNumbers) {
             this.delegate = delegate;
-            if (loseOnPutNumber <= 0) {
-                throw new IllegalArgumentException("loseOnPutNumber must be positive");
+            this.loseOnPutNumbers = Set.copyOf(loseOnPutNumbers);
+            if (this.loseOnPutNumbers.isEmpty() || this.loseOnPutNumbers.stream().anyMatch(number -> number <= 0)) {
+                throw new IllegalArgumentException("loseOnPutNumbers must contain positive values");
             }
-            this.loseOnPutNumber = loseOnPutNumber;
         }
 
         @Override
@@ -1019,7 +1166,7 @@ class OxiaRealGatewayGrpcSmokeTest {
                 throws UnexpectedVersionIdException, KeyAlreadyExistsException {
             final int call = ++putCalls;
             final PutResult result = delegate.put(key, value, options);
-            if (call == loseOnPutNumber) {
+            if (loseOnPutNumbers.contains(call)) {
                 throw new IllegalStateException("simulated committed Oxia response loss");
             }
             return result;
