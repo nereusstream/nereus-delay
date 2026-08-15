@@ -4166,3 +4166,50 @@ bind the real Worker harness's due/Claim/Publish turn to this destination
 transport, prove Pulsar multi-broker failover, provide typed guard-rejection
 or response-loss/crash resolution, or satisfy live Profile/credential,
 Owner/Assignment, Object Store, checkpoint/quiescence and V1 release gates.
+
+### 2026-08-16 source-applied Pulsar Worker physical Publish and typed Outcome implementation note
+
+Delay commit `cb309d82` binds the real P1 Worker smoke to one bounded
+source-applied physical Publish vertical. With
+`-PpulsarWorkerDestinationTopic`, the smoke first sends the physical Schedule
+to the guarded Shard Log and retains its exact `PulsarSourcePosition`. The
+Worker source loop then applies that Schedule, derives the typed Lane
+incarnation from that source position, and activates the Lane using the
+bounded smoke authority's exact channel/certificate/cursor projections.
+
+The same source appender records a signed `PUBLISH_ADMISSION` after the local
+Claim and prepared descriptor are built. `WorkerShardRuntime
+runSourceBoundPhysicalPublish(...)` source-applies that Admission, reloads the
+persisted `PUBLISHING` ledger, and invokes `WorkerPhysicalPublishExecutor`
+with the source-aware `PulsarClientArtifactDestinationTransport`. The P1
+transport returns the typed `PULSAR_SEND_ACK` branch; the signed Outcome
+factory queues a source-log `PUBLISH_OUTCOME`, which the same Worker source
+loop applies before the smoke verifies `PUBLISHED` and reads the exact payload
+back through a guarded destination consumer.
+
+The current-source receipt used P1
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
+SHA-256 values
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`, and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, image
+`sha256:892add226a105fb04b6df05df2c58f43e49f76647d39ed73944fcfc9ea1cb3d`,
+Compose project `nereus-delay-pulsar-e2e-1786809927-56224`, and ports
+`20515,20516`:
+
+```text
+Pulsar Worker source-applied physical publish passed: Admission source ledger=22/3, typed PULSAR_SEND_ACK target ledger/entry=23/0, Outcome source ledger=22/4, exact payload readback
+Pulsar Worker source-applied physical publish passed: Admission source ledger=33/2, typed PULSAR_SEND_ACK target ledger/entry=34/0, Outcome source ledger=33/3, exact payload readback
+Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, source-bound typed destination SEND ACK/payload readback, guarded source replay, signed mutation append/replay/ACK, signed Route barrier/assignment/source ACK, Broker timestamp, Worker recovery/apply, source-applied physical publish with typed Outcome and payload readback, ACK handoff, and broker-restart resume.
+```
+
+This closes the positive source-applied PUBLISHING-to-typed-Outcome path for
+the direct P1 Worker smoke. The Claim, readiness certificate, credential
+projection and payload are still supplied by the bounded smoke authority; the
+run does not invoke the live due/Claim/Object Store provider graph or
+`runDueClaimPublishPhysicalTurn`. It is a single standalone Broker restart
+receipt, not Pulsar multi-Broker failover, crash/response-loss resolution,
+runtime/milestone PASS, or V1 release readiness. Oxia Route Worker authority
+was disabled for this receipt (`NEREUS_DELAY_PULSAR_WITH_OXIA=0`).

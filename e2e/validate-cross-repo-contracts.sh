@@ -442,6 +442,24 @@ require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "Pulsar destination typed-evidence smoke passed"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "ledger=11, entry=0, batchIndex=0, sequence=0"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+    "runSourceAppliedPhysicalPublish"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+    "Pulsar Worker source-applied physical publish passed"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+    "runSourceBoundPhysicalPublish"
+require_file_text "$delay_root/build.gradle" \
+    "pulsarWorkerDestinationTopic"
+require_file_text "$delay_root/e2e/run-pulsar-real-client-e2e.sh" \
+    "worker_destination_topic"
+require_file_text "$delay_root/e2e/run-pulsar-real-client-e2e.sh" \
+    "source-applied physical publish with typed Outcome"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "cb309d82"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Admission source ledger=22/3"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Admission source ledger=33/2"
 
 require_file_text "$kafka_checkout/clients/src/main/java/org/apache/kafka/clients/producer/GuardedProducer.java" \
     "sendGuarded"

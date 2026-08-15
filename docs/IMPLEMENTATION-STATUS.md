@@ -8866,6 +8866,40 @@ and response-loss/crash recovery, Pulsar multi-broker failover, live
 prerequisite/Object Store authority, checkpoint/quiescence and V1 release
 gates remain open.
 
+## 2026-08-16 source-applied Pulsar Worker physical Publish vertical
+
+Delay commit `cb309d82` wires the real P1 Worker smoke to a bounded physical
+Publish vertical. The smoke records a guarded Shard Log Schedule and keeps its
+exact source position, source-applies the Schedule, builds the typed Lane
+projection, appends signed `PUBLISH_ADMISSION`, and calls
+`WorkerShardRuntime.runSourceBoundPhysicalPublish(...)`. The runtime reloads
+the persisted `PUBLISHING` ledger and reaches
+`PulsarClientArtifactDestinationTransport`; typed `PULSAR_SEND_ACK` evidence
+is then carried by a signed source `PUBLISH_OUTCOME`, source-applied, and
+verified as `PUBLISHED` with exact guarded destination payload readback.
+
+Checks passed: `./gradlew check`, exact `compileRealPulsar`, and the current
+source P1 E2E. Locks: P1
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+distribution SHA-256 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`,
+client SHAs `57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`,
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, image
+`sha256:892add226a105fb04b6df05df2c58f43e49f76647d39ed73944fcfc9ea1cb3d`,
+Compose `nereus-delay-pulsar-e2e-1786809927-56224`, ports `20515,20516`.
+
+```text
+Pulsar Worker source-applied physical publish passed: Admission source ledger=22/3, typed PULSAR_SEND_ACK target ledger/entry=23/0, Outcome source ledger=22/4, exact payload readback
+Pulsar Worker source-applied physical publish passed: Admission source ledger=33/2, typed PULSAR_SEND_ACK target ledger/entry=34/0, Outcome source ledger=33/3, exact payload readback
+```
+
+Status boundary: this is not a full due/Claim/Object Store provider PASS.
+The Claim/certificate/readiness inputs are bounded smoke authority, the E2E
+does not invoke `runDueClaimPublishPhysicalTurn`, Oxia Route authority was
+disabled, and standalone Broker restart does not prove Pulsar multi-Broker
+failover, crash/response-loss resolution, checkpoint/quiescence or V1
+release readiness.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

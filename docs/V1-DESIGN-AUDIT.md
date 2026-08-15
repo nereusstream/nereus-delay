@@ -7477,6 +7477,35 @@ transport, and typed guard rejection, response-loss/crash resolution,
 Pulsar multi-broker failover, live prerequisite authority, placement,
 checkpoint/quiescence and §23.5 gates remain open.
 
+## 2026-08-16 source-applied Pulsar Worker physical Publish and typed Outcome audit
+
+Delay commit `cb309d82` extends the real P1 Worker smoke through a bounded
+source-ordered physical Publish path. The smoke obtains a real guarded source
+position for a physical Schedule, applies that Schedule through the Worker
+source loop, then appends a signed `PUBLISH_ADMISSION` with a bounded Claim,
+READY certificate and typed Lane projection. The Worker source-bound physical
+entrypoint reloads the resulting `PUBLISHING` ledger and invokes the guarded
+P1 destination transport. Its typed `PULSAR_SEND_ACK` is signed into a
+source-log `PUBLISH_OUTCOME`; replay applies the Outcome, closes the attempt
+as `PUBLISHED`, and a guarded consumer verifies the exact destination payload.
+
+Verification passed with `./gradlew check`, exact `compileRealPulsar`, and the
+current-source E2E on P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, distribution
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, image
+`sha256:892add226a105fb04b6df05df2c58f43e49f76647d39ed73944fcfc9ea1cb3d`,
+Compose project `nereus-delay-pulsar-e2e-1786809927-56224`, and ports
+`20515,20516`. The run recorded source/target/source positions `22/3 → 23/0
+→ 22/4` and, after Broker restart, `33/2 → 34/0 → 33/3`, with exact payload
+readback in both cases.
+
+This is a positive source-applied Worker vertical only. The Claim and
+readiness inputs remain bounded smoke authority; the live due/Claim/Object
+Store provider graph, `runDueClaimPublishPhysicalTurn`, typed guard rejection,
+crash/response-loss resolution, Pulsar multi-Broker failover, Oxia Route
+authority and §23.5 release gates remain open. The receipt ran with
+`NEREUS_DELAY_PULSAR_WITH_OXIA=0`.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
