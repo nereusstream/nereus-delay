@@ -52,6 +52,8 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.file.Path;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.UUID;
@@ -174,10 +176,18 @@ class ClaimHandoffWorkClassExecutorTest {
                     executor, publishExecutor));
             final WorkerCommandRuntime commandRuntime = new WorkerCommandRuntime(workClasses, resources,
                     executor, publishExecutor);
+            final WorkerSchedulingRuntime schedulingRuntime = new WorkerSchedulingRuntime(
+                    workClasses, owned, authority, scheduler);
+            final KeyPair verificationKey = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+            final WorkerShardRuntime workerRuntime = new WorkerShardRuntime(() -> java.util.Optional.empty(),
+                    workClasses, owned, store, resources, authority, verificationKey.getPublic(),
+                    schedulingRuntime, commandRuntime);
             final ClaimMaterializationV1 materialization = shard.resolveClaimMaterializationV1(
                     schedule.delayMessageId());
             final byte[] claimCharge = claimCharge(payload.length);
 
+            final WorkerSchedulingRuntime.DueTurn dueTurn = workerRuntime.runDueTurn(evidence, budget, () -> 101);
+            assertEquals(List.of(dueTurn.task()), dueTurn.completedTasks());
             ScheduleWorkItem selected = scheduler.poll(evidence.earliestEpochMs(), budget).get(0);
             workClasses.submit(new WorkClassTask(WorkClass.DUE_SCHEDULER, "occupied", 1), () -> {
             });
@@ -211,13 +221,14 @@ class ClaimHandoffWorkClassExecutorTest {
             assertEquals(1, scheduler.snapshot().lanes().get(0).pendingItems());
             occupied.release();
 
-            selected = scheduler.poll(evidence.earliestEpochMs(), budget).get(0);
-            final ScheduleWorkItem claimedItem = selected;
-            final ClaimHandoffWorkClassExecutor.Submission claimed = commandRuntime.submitClaim(
-                    claimedItem, evidence, 3_000, claimCharge, () -> 101);
+            final ScheduleWorkItem claimedItem = scheduler.poll(evidence.earliestEpochMs(), budget).get(0);
+            scheduler.requeueFailedClaim(claimedItem);
+            final WorkerShardRuntime.DueClaimTurn dueClaim = workerRuntime.runDueAndSubmitClaim(
+                    evidence, budget, 3_000, claimCharge, () -> 101);
+            final ClaimHandoffWorkClassExecutor.Submission claimed = dueClaim.claimSubmission().orElseThrow();
             assertTrue(claimed.result().isEmpty());
             assertEquals(List.of(claimed.task()),
-                    workClasses.runTurn(new SchedulerBudget(1, 1_000_000, 1_000)));
+                    workerRuntime.runCommandTurn(new SchedulerBudget(1, 1_000_000, 1_000)));
             final ClaimHandoffWorkClassExecutor.ClaimHandoffResult result = claimed.result().orElseThrow();
             assertEquals(ClaimHandoffWorkClassExecutor.ResultKind.CLAIMED, result.kind());
             assertEquals(schedule.delayMessageId(), result.claim().delayMessageId());

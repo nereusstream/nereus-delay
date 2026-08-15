@@ -194,6 +194,24 @@ public final class WorkerShardRuntime implements AutoCloseable {
                 claimedCharge, ownerClock));
     }
 
+    /**
+     * Runs one bounded due-discovery action and queues at most one derived
+     * Claim from the resulting READY ring.  The Claim action is returned
+     * unexecuted so the caller can schedule its normal command turn through
+     * the shared WorkClass registry.
+     */
+    public synchronized DueClaimTurn runDueAndSubmitClaim(
+            final TrustedUtcIntervalEvidence evidence,
+            final SchedulerBudget discoveryBudget,
+            final long claimDeadlineEpochMs,
+            final byte[] claimedCharge,
+            final LongSupplier ownerClock) {
+        final WorkerSchedulingRuntime.DueTurn due = runDueTurn(evidence, discoveryBudget, ownerClock);
+        final Optional<ClaimHandoffWorkClassExecutor.Submission> claim = pollAndSubmitClaim(
+                evidence, discoveryBudget, claimDeadlineEpochMs, claimedCharge, ownerClock);
+        return new DueClaimTurn(due, claim);
+    }
+
     /** Queues one exact Claim handoff while source/command admission is open. */
     public synchronized ClaimHandoffWorkClassExecutor.Submission submitClaim(
             final WorkerCommandRuntime.ClaimRequest request) {
@@ -345,6 +363,15 @@ public final class WorkerShardRuntime implements AutoCloseable {
         ensureNotTerminal();
         if (commandRuntime == null) {
             throw new IllegalStateException("Worker shard runtime has no Claim/Publish command graph");
+        }
+    }
+
+    /** Evidence from one combined due-discovery to derived-Claim handoff. */
+    public record DueClaimTurn(WorkerSchedulingRuntime.DueTurn dueTurn,
+                               Optional<ClaimHandoffWorkClassExecutor.Submission> claimSubmission) {
+        public DueClaimTurn {
+            Objects.requireNonNull(dueTurn, "dueTurn");
+            claimSubmission = Objects.requireNonNull(claimSubmission, "claimSubmission");
         }
     }
 }
