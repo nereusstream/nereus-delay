@@ -152,7 +152,8 @@ tasks.register('runRealKafkaWorkerSmoke', JavaExec) {
     }
     classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
     mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactWorkerSmoke'
-    args findProperty('kafkaBootstrap'), findProperty('kafkaWorkerTopic')
+    args findProperty('kafkaBootstrap'), findProperty('kafkaWorkerTopic'),
+            findProperty('kafkaWorkerMode') ?: 'run'
 }
 
 tasks.register('compileRealPulsar', JavaCompile) {

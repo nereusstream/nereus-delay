@@ -94,6 +94,7 @@ start_oxia() {
 run_worker_smoke() {
   local bootstrap_server="$1"
   local worker_topic_base="$2"
+  local worker_mode="${3:-run}"
   if [[ "${with_oxia}" == "1" ]]; then
     NEREUS_DELAY_OXIA_ENDPOINT="${oxia_endpoint}" \
     NEREUS_DELAY_OXIA_NAMESPACE=default \
@@ -101,12 +102,14 @@ run_worker_smoke() {
       -PkafkaClientJar="${client_jar}" \
       -PkafkaBootstrap="${bootstrap_server}" \
       -PkafkaWorkerTopic="${worker_topic_base}" \
+      -PkafkaWorkerMode="${worker_mode}" \
       --no-daemon --console=plain
   else
     GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaWorkerSmoke \
       -PkafkaClientJar="${client_jar}" \
       -PkafkaBootstrap="${bootstrap_server}" \
       -PkafkaWorkerTopic="${worker_topic_base}" \
+      -PkafkaWorkerMode="${worker_mode}" \
       --no-daemon --console=plain
   fi
 }
@@ -160,6 +163,8 @@ if [[ "${with_oxia}" == "1" ]]; then
   start_oxia
 fi
 run_worker_smoke "${bootstrap_all}" "${worker_topic}"
+restart_worker_topic="${KAFKA_DELAY_RESTART_WORKER_TOPIC:-${worker_topic}-broker-restart}"
+run_worker_smoke "${bootstrap_all}" "${restart_worker_topic}" prepare
 
 GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaK2Smoke \
   -PkafkaClientJar="${client_jar}" \
@@ -177,6 +182,6 @@ GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaSmoke \
   -PsmokeMode=preserve \
   --no-daemon --console=plain
 
-run_worker_smoke "${bootstrap_survivors}" "${worker_topic}-survivor"
+run_worker_smoke "${bootstrap_survivors}" "${restart_worker_topic}" resume
 
-echo "Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, assignment recovery to RocksDB Worker apply before and after broker-1 failover, K1 identity/failover, and K2 atomic target+receipt commit, abort, and delete/recreate fence."
+echo "Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, assignment recovery to RocksDB Worker apply before and after broker-1 failover, same-topic Worker resume after failover, K1 identity/failover, and K2 atomic target+receipt commit, abort, and delete/recreate fence."

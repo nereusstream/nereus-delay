@@ -99,11 +99,15 @@ public final class KafkaClientArtifactWorkerSmoke {
     }
 
     public static void main(final String[] arguments) throws Exception {
-        if (arguments.length != 2) {
-            throw new IllegalArgumentException("usage: <bootstrap-server> <worker-topic>");
+        if (arguments.length != 2 && arguments.length != 3) {
+            throw new IllegalArgumentException("usage: <bootstrap-server> <worker-topic> [run|prepare|resume]");
         }
         final String bootstrap = arguments[0];
-        final String topic = arguments[1] + "-" + UUID.randomUUID();
+        final String mode = arguments.length >= 3 ? arguments[2] : "run";
+        if (!mode.equals("run") && !mode.equals("prepare") && !mode.equals("resume")) {
+            throw new IllegalArgumentException("unknown Worker smoke mode: " + mode);
+        }
+        final String topic = mode.equals("run") ? arguments[1] + "-" + UUID.randomUUID() : arguments[1];
         final Map<String, Object> adminConfiguration = Map.of(
                 AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap,
                 AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, 10_000);
@@ -113,9 +117,17 @@ public final class KafkaClientArtifactWorkerSmoke {
             final String clusterId = admin.describeCluster().clusterId().get(10, TimeUnit.SECONDS);
             final Uuid topicId = describe(admin, topic).topicId();
             final UUID nativeTopicId = toUuid(topicId);
-            final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
-            final PreparedCommand recoveryCommand = command(shard, "worker-recovery");
-            produce(bootstrap, clusterId, topic, topicId, recoveryCommand);
+            final ShardId shard = mode.equals("run")
+                    ? new ShardId(RouteIncarnation.random(), 0) : restartShard(topic);
+            if (!mode.equals("resume")) {
+                final String commandIdentity = mode.equals("prepare")
+                        ? "worker-restart-prepared" : "worker-recovery";
+                produce(bootstrap, clusterId, topic, topicId, command(shard, commandIdentity));
+            }
+            if (mode.equals("prepare")) {
+                System.out.println("Kafka Worker restart preparation passed: one guarded record persisted before broker failover");
+                return;
+            }
 
             final SourceAssignment sourceAssignment = new SourceAssignment(shard,
                     Bytes.sha256(Bytes.utf8("kafka-worker-assignment")), 1,
@@ -230,6 +242,12 @@ public final class KafkaClientArtifactWorkerSmoke {
                 }
             }
         }
+    }
+
+    private static ShardId restartShard(final String topic) {
+        return new ShardId(new RouteIncarnation(java.util.Arrays.copyOf(
+                Bytes.sha256(Bytes.utf8("nereus-delay-kafka-worker-restart/" + topic)),
+                RouteIncarnation.LENGTH)), 0);
     }
 
     private static WorkerAssignment publishAssignment(final WorkerAssignmentAuthority authority,
