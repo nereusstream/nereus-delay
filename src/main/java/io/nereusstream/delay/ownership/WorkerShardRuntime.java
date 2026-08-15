@@ -17,6 +17,7 @@ import io.nereusstream.delay.store.WorkerCheckpointRuntime;
 
 import java.security.PrivateKey;
 import java.security.PublicKey;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -238,6 +239,98 @@ public final class WorkerShardRuntime implements AutoCloseable {
         final Optional<ClaimHandoffWorkClassExecutor.Submission> claim = pollAndSubmitClaim(
                 evidence, discoveryBudget, claimDeadlineEpochMs, claimedCharge, ownerClock);
         return new DueClaimTurn(due, claim);
+    }
+
+    /**
+     * Runs a bounded due-to-Claim-to-Publish composition on the shared Worker
+     * graph.  The exact Claim and Publish tasks are observed through bounded
+     * fair command turns rather than by reaching into an executor's private
+     * action.  An empty preparation result means that the external live
+     * authority is not ready yet; the successful Claim and its active
+     * reservation are returned for an evidence-driven retry or revoke.
+     */
+    public synchronized DueClaimPublishTurn runDueClaimPublishTurn(
+            final TrustedUtcIntervalEvidence evidence,
+            final SchedulerBudget discoveryBudget,
+            final long claimDeadlineEpochMs,
+            final byte[] claimedCharge,
+            final LongSupplier ownerClock,
+            final SchedulerBudget commandBudget,
+            final int maxCommandTurns,
+            final PublishPreparationProvider preparationProvider) {
+        ensureSchedulingRuntime();
+        ensureCommandRuntime();
+        ensureSourceRunning();
+        resources.requireRuntimeBusinessAdmission();
+        final SchedulerBudget exactCommandBudget = Objects.requireNonNull(commandBudget, "command budget");
+        if (maxCommandTurns <= 0) {
+            throw new IllegalArgumentException("maxCommandTurns must be positive");
+        }
+        final PublishPreparationProvider provider = Objects.requireNonNull(preparationProvider,
+                "preparation provider");
+        final DueClaimTurn dueClaim = runDueAndSubmitClaim(evidence, discoveryBudget, claimDeadlineEpochMs,
+                claimedCharge, ownerClock);
+        if (dueClaim.claimSubmission().isEmpty()) {
+            return new DueClaimPublishTurn(dueClaim, List.of(), Optional.empty(), Optional.empty(), List.of());
+        }
+
+        final ClaimHandoffWorkClassExecutor.Submission claimSubmission = dueClaim.claimSubmission().orElseThrow();
+        final List<WorkClassTask> claimCompletedTasks = runCommandTurnsUntilCompleted(claimSubmission.task(),
+                exactCommandBudget, maxCommandTurns);
+        final ClaimHandoffWorkClassExecutor.ClaimHandoffResult claimResult = claimSubmission.result()
+                .orElseThrow(() -> new IllegalStateException("Claim task completed without a result"));
+        final Optional<ClaimHandoffWorkClassExecutor.ClaimHandoffResult> completedClaim = Optional.of(claimResult);
+        if (claimResult.kind() != ClaimHandoffWorkClassExecutor.ResultKind.CLAIMED) {
+            return new DueClaimPublishTurn(dueClaim, claimCompletedTasks, completedClaim, Optional.empty(),
+                    List.of());
+        }
+
+        final Optional<WorkerCommandRuntime.PublishPreparation> preparation;
+        try {
+            preparation = Objects.requireNonNull(provider.prepare(claimResult), "Publish preparation result");
+        } catch (RuntimeException | Error failure) {
+            // A live prerequisite authority that throws has not proved that
+            // the Claim can safely continue.  Fence this owner and retain
+            // the exact Claim/reservation for evidence-driven recovery.
+            ownedShard.fence();
+            throw failure;
+        }
+        if (preparation.isEmpty()) {
+            return new DueClaimPublishTurn(dueClaim, claimCompletedTasks, completedClaim, Optional.empty(),
+                    List.of());
+        }
+        final PublishAdmissionWorkClassExecutor.Submission publishSubmission = submitPublish(claimResult,
+                preparation.orElseThrow());
+        final List<WorkClassTask> publishCompletedTasks = runCommandTurnsUntilCompleted(publishSubmission.task(),
+                exactCommandBudget, maxCommandTurns);
+        return new DueClaimPublishTurn(dueClaim, claimCompletedTasks, completedClaim,
+                Optional.of(publishSubmission), publishCompletedTasks);
+    }
+
+    private List<WorkClassTask> runCommandTurnsUntilCompleted(final WorkClassTask target,
+                                                               final SchedulerBudget commandBudget,
+                                                               final int maxCommandTurns) {
+        final List<WorkClassTask> completedTasks = new ArrayList<>();
+        for (int turn = 0; turn < maxCommandTurns; turn++) {
+            final Optional<WorkClassExecutionRegistry.ExecutionState> state = workClasses.state(target);
+            if (state.isEmpty()) {
+                return List.copyOf(completedTasks);
+            }
+            if (state.orElseThrow() == WorkClassExecutionRegistry.ExecutionState.FAILED) {
+                throw new IllegalStateException("exact Worker command task failed: " + target.taskId());
+            }
+            final List<WorkClassTask> completedThisTurn = runCommandTurn(commandBudget);
+            completedTasks.addAll(completedThisTurn);
+            if (completedThisTurn.isEmpty() && workClasses.state(target).isPresent()) {
+                throw new IllegalStateException("exact Worker command task made no bounded progress: "
+                        + target.taskId());
+            }
+        }
+        if (workClasses.state(target).isPresent()) {
+            throw new IllegalStateException("exact Worker command task exceeded command-turn bound: "
+                    + target.taskId());
+        }
+        return List.copyOf(completedTasks);
     }
 
     /** Queues one exact Claim handoff while source/command admission is open. */
@@ -465,6 +558,31 @@ public final class WorkerShardRuntime implements AutoCloseable {
         public DueClaimTurn {
             Objects.requireNonNull(dueTurn, "dueTurn");
             claimSubmission = Objects.requireNonNull(claimSubmission, "claimSubmission");
+        }
+    }
+
+    /** External authority that prepares immutable Publish inputs after Claim success. */
+    @FunctionalInterface
+    public interface PublishPreparationProvider {
+        Optional<WorkerCommandRuntime.PublishPreparation> prepare(
+                ClaimHandoffWorkClassExecutor.ClaimHandoffResult claimResult);
+    }
+
+    /** Results from one bounded due-to-Claim-to-Publish Worker composition. */
+    public record DueClaimPublishTurn(
+            DueClaimTurn dueClaimTurn,
+            List<WorkClassTask> claimCompletedTasks,
+            Optional<ClaimHandoffWorkClassExecutor.ClaimHandoffResult> claimResult,
+            Optional<PublishAdmissionWorkClassExecutor.Submission> publishSubmission,
+            List<WorkClassTask> publishCompletedTasks) {
+        public DueClaimPublishTurn {
+            Objects.requireNonNull(dueClaimTurn, "dueClaimTurn");
+            claimCompletedTasks = List.copyOf(Objects.requireNonNull(claimCompletedTasks,
+                    "claimCompletedTasks"));
+            claimResult = Objects.requireNonNull(claimResult, "claimResult");
+            publishSubmission = Objects.requireNonNull(publishSubmission, "publishSubmission");
+            publishCompletedTasks = List.copyOf(Objects.requireNonNull(publishCompletedTasks,
+                    "publishCompletedTasks"));
         }
     }
 }

@@ -4,6 +4,7 @@ import io.nereusstream.delay.protocol.ActiveLaneStateV1;
 import io.nereusstream.delay.protocol.AdapterMetadataV1;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CanonicalProtobuf;
+import io.nereusstream.delay.protocol.ChannelResourceIdentityV1;
 import io.nereusstream.delay.protocol.ClaimMaterializationV1;
 import io.nereusstream.delay.protocol.DeliveryMode;
 import io.nereusstream.delay.protocol.DestinationLaneId;
@@ -16,9 +17,9 @@ import io.nereusstream.delay.protocol.OwnerIdentityV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
-import io.nereusstream.delay.protocol.ProtocolTestFixtures;
 import io.nereusstream.delay.protocol.PublishAdmissionBody;
 import io.nereusstream.delay.protocol.PublishAdmissionBodyTest;
+import io.nereusstream.delay.protocol.ReadyCertificateV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ScheduleIntentV1;
 import io.nereusstream.delay.protocol.ShardId;
@@ -81,9 +82,9 @@ class ClaimHandoffWorkClassExecutorTest {
         final OwnerLease lease = backend.acquire(assignment, "claim-work-owner",
                 Bytes.sha256(Bytes.utf8("claim-work-session")), 100, 100).orElseThrow();
         final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
-        final ProfileRefV1 destination = profile(ProfileKindV1.DESTINATION, "claim-work-destination");
-        final ProfileRefV1 capability = profile(ProfileKindV1.DELIVERY_CAPABILITY, "claim-work-capability");
-        final byte[] laneTuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
+        final ProfileRefV1 destination = profile(ProfileKindV1.DESTINATION, "destination");
+        final ProfileRefV1 capability = profile(ProfileKindV1.DELIVERY_CAPABILITY, "capability");
+        final byte[] laneTuple = canonicalClaimKafkaLaneTuple(destination, capability);
         final DestinationLaneId laneId = DestinationLaneId.derive(laneTuple);
         final byte[] payload = Bytes.utf8("claim-work-payload");
         final ScheduleIntentV1 scheduleIntent = ScheduleIntentV1.create(destination,
@@ -185,6 +186,9 @@ class ClaimHandoffWorkClassExecutorTest {
             final ClaimMaterializationV1 materialization = shard.resolveClaimMaterializationV1(
                     schedule.delayMessageId());
             final byte[] claimCharge = claimCharge(payload.length);
+            final ReadyCertificateV1 readyCertificate = ReadyCertificateV1.decode(certificate);
+            final ChannelResourceIdentityV1 channel = ChannelResourceIdentityV1.decode(
+                    readyCertificate.channel());
 
             final WorkerSchedulingRuntime.DueTurn dueTurn = workerRuntime.runDueTurn(evidence, budget, () -> 101);
             assertEquals(List.of(dueTurn.task()), dueTurn.completedTasks());
@@ -223,19 +227,23 @@ class ClaimHandoffWorkClassExecutorTest {
 
             final ScheduleWorkItem claimedItem = scheduler.poll(evidence.earliestEpochMs(), budget).get(0);
             scheduler.requeueFailedClaim(claimedItem);
-            final WorkerShardRuntime.DueClaimTurn dueClaim = workerRuntime.runDueAndSubmitClaim(
-                    evidence, budget, 3_000, claimCharge, () -> 101);
-            final ClaimHandoffWorkClassExecutor.Submission claimed = dueClaim.claimSubmission().orElseThrow();
-            assertTrue(claimed.result().isEmpty());
-            assertEquals(List.of(claimed.task()),
-                    workerRuntime.runCommandTurn(new SchedulerBudget(1, 1_000_000, 1_000)));
-            final ClaimHandoffWorkClassExecutor.ClaimHandoffResult result = claimed.result().orElseThrow();
+            final WorkerShardRuntime.DueClaimPublishTurn dueClaim = workerRuntime.runDueClaimPublishTurn(
+                    evidence, budget, 3_000, claimCharge, () -> 101,
+                    new SchedulerBudget(1, 1_000_000, 1_000), 2,
+                    claimResult -> java.util.Optional.of(new WorkerCommandRuntime.PublishPreparation(
+                            channel, readyCertificate, evidence, 3_000, 1, verificationKey.getPrivate(), () -> 101)));
+            final ClaimHandoffWorkClassExecutor.ClaimHandoffResult result = dueClaim.claimResult().orElseThrow();
             assertEquals(ClaimHandoffWorkClassExecutor.ResultKind.CLAIMED, result.kind());
             assertEquals(schedule.delayMessageId(), result.claim().delayMessageId());
             assertEquals(ClaimExecutionAdmission.ReservationState.ACTIVE, result.reservation().state());
             assertEquals(MessageStatus.CLAIMED, shard.getMessage(schedule.delayMessageId()).status());
             assertEquals(0, scheduler.snapshot().lanes().get(0).pendingItems());
             assertThrows(IllegalArgumentException.class, () -> scheduler.requeueFailedClaim(claimedItem));
+            final PublishAdmissionWorkClassExecutor.Submission publish = dueClaim.publishSubmission().orElseThrow();
+            assertEquals(List.of(publish.task()), dueClaim.publishCompletedTasks());
+            assertEquals(PublishAdmissionWorkClassExecutor.ResultKind.UNKNOWN,
+                    publish.result().orElseThrow().kind());
+            assertEquals(ClaimExecutionAdmission.ReservationState.ACTIVE, result.reservation().state());
             assertEquals(0, workClasses.registeredActions());
             assertTrue(result.reservation().release());
             assertFalse(result.reservation().release());
@@ -249,7 +257,17 @@ class ClaimHandoffWorkClassExecutorTest {
     }
 
     private static ProfileRefV1 profile(final ProfileKindV1 kind, final String value) {
-        return new ProfileRefV1(Bytes.utf8(value), 1, Bytes.sha256(Bytes.utf8(value + "-semantic")), kind);
+        return new ProfileRefV1(Bytes.utf8(value), 1, Bytes.sha256(Bytes.utf8(value + "-hash")), kind);
+    }
+
+    private static byte[] canonicalClaimKafkaLaneTuple(final ProfileRefV1 destination,
+                                                        final ProfileRefV1 capability) {
+        final byte[] topicUuid = new byte[16];
+        return Bytes.concat(new byte[32], Bytes.u8(1), Bytes.lp32(Bytes.utf8("cluster")), Bytes.u8(1),
+                topicUuid, Bytes.lp32(topicUuid), Bytes.u32be(0), Bytes.lp32(destination.profileId()),
+                Bytes.u64beBits(destination.version()), destination.semanticHash(), Bytes.lp32(capability.profileId()),
+                Bytes.u64beBits(capability.version()), capability.semanticHash(), Bytes.u8(1),
+                Bytes.sha256(Bytes.utf8("claim-work-ordering-domain")));
     }
 
     private static PublishAdmissionBody.ChargeVector zeroCharge() {
