@@ -65,6 +65,19 @@ public final class CheckpointExecutionCoordinator {
     }
 
     /**
+     * Completes a scheduler claim without starting checkpoint I/O.  This is
+     * used when an injected Owner/session or pending-intent gate becomes
+     * unavailable after queue admission; the exact process-local claim must
+     * not remain stuck in flight when no physical side effect was attempted.
+     */
+    void completeWithoutExecution(final CheckpointScheduler.ScheduledCheckpoint claim,
+                                   final LongSupplier completionClock) {
+        scheduler.requireCurrentClaim(Objects.requireNonNull(claim, "claim"));
+        scheduler.complete(claim, readCompletionTime(Objects.requireNonNull(completionClock,
+                "completionClock")));
+    }
+
+    /**
      * Executes one exact scheduler claim. A failed publication still clears
      * the claim and schedules a later retry; if that completion cannot be
      * proven, the scheduler deliberately retains the in-flight claim and the

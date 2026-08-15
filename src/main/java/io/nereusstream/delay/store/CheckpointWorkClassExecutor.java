@@ -35,17 +35,28 @@ public final class CheckpointWorkClassExecutor {
 
     private final WorkClassExecutionRegistry workClasses;
     private final CheckpointExecutionCoordinator checkpointExecutor;
+    private final CheckpointPrerequisiteGate prerequisiteGate;
 
     public CheckpointWorkClassExecutor(final WorkClassExecutionRegistry workClasses,
                                        final CheckpointExecutionCoordinator checkpointExecutor) {
+        this(workClasses, checkpointExecutor, request -> {
+        });
+    }
+
+    /** Creates a checkpoint handoff with an execution-time Owner/intent gate. */
+    public CheckpointWorkClassExecutor(final WorkClassExecutionRegistry workClasses,
+                                       final CheckpointExecutionCoordinator checkpointExecutor,
+                                       final CheckpointPrerequisiteGate prerequisiteGate) {
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
         this.checkpointExecutor = Objects.requireNonNull(checkpointExecutor, "checkpointExecutor");
+        this.prerequisiteGate = Objects.requireNonNull(prerequisiteGate, "prerequisiteGate");
         this.checkpointExecutor.bindWorkClassExecutionRegistry(this.workClasses);
     }
 
     /** Registers one exact action; physical checkpoint work starts only when its bounded turn runs. */
     public Submission submit(final ExecutionRequest request) {
         final ExecutionRequest submitted = Objects.requireNonNull(request, "request");
+        prerequisiteGate.validate(submitted);
         checkpointExecutor.requireCurrentExecution(submitted.claim(), submitted.pending());
         final byte[] identity = canonicalIdentity(submitted);
         final WorkClassTask task = new WorkClassTask(WorkClass.CHECKPOINT,
@@ -59,7 +70,10 @@ public final class CheckpointWorkClassExecutor {
         if (submission.outcome().isPresent()) {
             throw new IllegalStateException("checkpoint work-class action already completed");
         }
+        boolean executionStarted = false;
         try {
+            prerequisiteGate.validate(request);
+            executionStarted = true;
             submission.complete(AttemptOutcome.succeeded(checkpointExecutor.execute(
                     request.claim(), request.checkpointDirectory(), request.pending(),
                     request.manifestFactory(), request.uploadNowEpochMs(), request.completionClock(),
@@ -68,11 +82,33 @@ public final class CheckpointWorkClassExecutor {
             // The checkpoint coordinator owns exact-claim rescheduling.  A
             // completed failure outcome is the handler result, not a second
             // generic retry authority.
+            if (!executionStarted) {
+                completeDeferredClaim(request, failure);
+            }
             submission.complete(AttemptOutcome.failed(failure));
         } catch (Error failure) {
+            if (!executionStarted) {
+                completeDeferredClaim(request, failure);
+            }
             submission.complete(AttemptOutcome.failed(failure));
             throw failure;
         }
+    }
+
+    private void completeDeferredClaim(final ExecutionRequest request, final Throwable primaryFailure) {
+        try {
+            checkpointExecutor.completeWithoutExecution(request.claim(), request.completionClock());
+        } catch (RuntimeException | Error completionFailure) {
+            if (completionFailure != primaryFailure) {
+                primaryFailure.addSuppressed(completionFailure);
+            }
+        }
+    }
+
+    /** Rereads Owner/session, pending-intent and catalog prerequisites after queue wait. */
+    @FunctionalInterface
+    public interface CheckpointPrerequisiteGate {
+        void validate(ExecutionRequest request);
     }
 
     private static byte[] canonicalIdentity(final ExecutionRequest request) {

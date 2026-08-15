@@ -36,6 +36,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -288,6 +289,60 @@ class CheckpointExecutionCoordinatorTest {
             assertTrue(Files.isDirectory(checkpointDirectory));
             assertFalse(scheduler.isInFlight(shard));
             assertEquals(0, workClasses.registeredActions());
+        }
+    }
+
+    @Test
+    void workerCheckpointRuntimeReleasesClaimWhenPrerequisiteChangesAfterQueueAdmission() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 21);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("runtime-resources"));
+        final CheckpointScheduler scheduler = new CheckpointScheduler(100, 0, 1);
+        final Path checkpointDirectory = tempDir.resolve("runtime-checkpoint");
+        final byte[] lineage = bytes(16, 50);
+        final byte[] checkpointId = bytes(16, 51);
+        final OwnerIdentityV1 owner = new OwnerIdentityV1(bytes(8, 52), bytes(8, 53), 54, bytes(32, 55));
+        final ProfileRefV1 objectStore = new ProfileRefV1(bytes(32, 56), 1, bytes(32, 57),
+                ProfileKindV1.OBJECT_STORE);
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shard, resources)) {
+            final CheckpointUploadIntentV1 pending = new CheckpointUploadIntentV1(
+                    new ShardSubjectV1(shard), lineage, checkpointId, owner,
+                    uuidBytes(store.metadata().storeIncarnationUuid()), bytes(32, 58), 1,
+                    null, null, objectStore, evidence(100), 5_000,
+                    CheckpointUploadStateV1.PENDING_UPLOAD, 1, null, null);
+            final WorkClassExecutionRegistry workClasses = workClasses(1);
+            final AtomicInteger gateCalls = new AtomicInteger();
+            final WorkerCheckpointRuntime runtime = new WorkerCheckpointRuntime(workClasses, scheduler, store,
+                    new CheckpointPublicationCoordinator(resources, new CheckpointUploadIntentStore(),
+                            new RecoveryCatalog()), request -> {
+                                if (gateCalls.incrementAndGet() == 2) {
+                                    throw new IllegalStateException("Owner session changed while queued");
+                                }
+                            });
+            runtime.register(shard, 0);
+            final CheckpointScheduler.ScheduledCheckpoint claim = runtime.claimDue(100, 1).get(0);
+            final CheckpointWorkClassExecutor.ExecutionRequest request =
+                    new CheckpointWorkClassExecutor.ExecutionRequest(claim, checkpointDirectory, pending,
+                            (directory, currentStore) -> {
+                                throw new AssertionError("prerequisite failure must precede checkpoint I/O");
+                            }, 100, () -> 100, upload -> {
+                                throw new AssertionError("prerequisite failure must precede provider I/O");
+                            });
+
+            final CheckpointWorkClassExecutor.Submission submitted = runtime.submit(request);
+            assertEquals(1, gateCalls.get());
+            assertEquals(List.of(submitted.task()), runtime.runTurn(new SchedulerBudget(1,
+                    submitted.task().bytes(), 1_000)));
+            assertEquals(2, gateCalls.get());
+            assertEquals("Owner session changed while queued",
+                    submitted.outcome().orElseThrow().failure().getMessage());
+            assertFalse(Files.exists(checkpointDirectory));
+            assertFalse(runtime.scheduler().isInFlight(shard));
+            assertEquals(0, workClasses.registeredActions());
+
+            assertEquals(1, runtime.claimDue(200, 1).size(),
+                    "deferred prerequisite failure must leave the exact schedule retryable");
         }
     }
 
