@@ -3940,3 +3940,21 @@ checkpointing, crash/response-loss resolution and §23.5 release gates remain
 open. Temporary Compose resources were removed; the Kafka Oxia image was
 removed by cleanup and the Pulsar Oxia image remained locally with digest
 `sha256:71d69981a5b9dd458158a8c440fb6d90642450d96b0e92e59f7c49745bbc498c`.
+
+### 2026-08-15 fleet-level due-to-Claim-to-Publish dispatch implementation note
+
+Delay commit `d5672a46c9558aa4417f744f30cccd79518adde0` adds
+`WorkerShardFleetRuntime.runNextDueClaimPublishTurn(...)`. The fair fleet
+cursor selects only a shard that has both `WorkerSchedulingRuntime` and
+`WorkerCommandRuntime`; the selected shard executes its existing bounded
+`WorkerShardRuntime.runDueClaimPublishTurn(...)` through the provider bound at
+graph construction. No caller-supplied replacement provider is accepted, and
+an unbound selected runtime fails closed.
+
+The focused Claim handoff test now enters through the fleet boundary, and the
+full `check` passed. This closes a common multi-shard dispatch seam only. The
+real-client Kafka/Pulsar receipts were not rerun for this API-only change and
+remain source-qualified to `d02d8120`; they do not prove this fleet method.
+Live prerequisite authority, catalog placement, physical Publish append/ACK,
+checkpoint publication, crash/response-loss recovery and release gates remain
+open.

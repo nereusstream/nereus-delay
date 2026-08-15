@@ -8549,6 +8549,42 @@ remain open. Temporary Compose resources were removed; the Kafka Oxia image was
 removed by cleanup, while the Pulsar Oxia image remained locally with the
 recorded digest above.
 
+## 2026-08-15 fleet-level due-to-Claim-to-Publish dispatch
+
+Delay commit `d5672a46c9558aa4417f744f30cccd79518adde0` adds
+`WorkerShardFleetRuntime.runNextDueClaimPublishTurn(...)`. The fleet advances
+its scheduling round-robin cursor only to a shard that has both an active
+scheduling graph and a Claim/Publish command graph; source-only, scheduling-only
+or command-only runtimes are not silently selected. The selected runtime then
+uses its graph-bound `PublishPreparationProvider`, so the fleet cannot replace
+the typed Lane/provider boundary with a caller-supplied callback. An unbound
+selected runtime continues to fail closed through `WorkerShardRuntime`.
+
+The existing single-graph fleet methods retain their behavior because the new
+selection predicate is conjunctive only when a combined turn is requested.
+`ClaimHandoffWorkClassExecutorTest` now executes the successful bounded
+due-to-Claim-to-Publish path through the fleet entrypoint, while the fleet
+focused coverage retains the optional-graph and duplicate-shard checks.
+
+Verification passed:
+
+```text
+./gradlew test --tests io.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutorTest --tests io.nereusstream.delay.ownership.WorkerShardFleetRuntimeTest --no-daemon --console=plain
+BUILD SUCCESSFUL in 7s
+11 actionable tasks: 3 executed, 8 up-to-date
+
+./gradlew check --no-daemon --console=plain
+BUILD SUCCESSFUL in 1m 13s
+21 actionable tasks: 4 executed, 17 up-to-date
+```
+
+This is common Worker fleet dispatch evidence only. The real Kafka/Pulsar
+harnesses were not rerun for this API-only change; their latest transport and
+Worker receipts remain bound to Delay source lock `d02d8120`. The new fleet
+entrypoint still does not create live Profile/credential/Broker authority,
+catalog-driven placement, physical Publish append/ACK, checkpoint publication,
+crash/response-loss resolution or release PASS.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

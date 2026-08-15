@@ -7283,6 +7283,24 @@ and §23.5 release gates remain open. Temporary Compose resources were removed;
 the Kafka Oxia image was removed by cleanup and the Pulsar Oxia image remained
 locally with digest `sha256:71d69981a5b9dd458158a8c440fb6d90642450d96b0e92e59f7c49745bbc498c`.
 
+## 2026-08-15 fleet-level due-to-Claim-to-Publish dispatch audit
+
+Delay commit `d5672a46c9558aa4417f744f30cccd79518adde0` adds the multi-shard
+`WorkerShardFleetRuntime.runNextDueClaimPublishTurn(...)` boundary. It selects
+only a runtime with both scheduling and command graphs, preserves fair
+round-robin selection, and invokes the runtime's already-bound preparation
+provider without exposing a replacement callback. Source-only or partially
+composed runtimes therefore return no combined turn; a selected runtime without
+the provider remains fail-closed.
+
+The Claim handoff test now proves the successful bounded turn through this fleet
+boundary, and the full `check` passed. This audit closes only the common fleet
+dispatch composition. It does not prove catalog-driven placement, live
+Profile/credential/Broker authority, physical Publish append/ACK, checkpoint
+publication, crash/response-loss resolution, real fleet E2E or §23.5 release
+readiness. No real-client harness was rerun for this common-only change; its
+latest source-qualified receipts remain bound to `d02d8120`.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
