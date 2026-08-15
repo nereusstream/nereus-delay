@@ -1,13 +1,18 @@
 package io.nereusstream.delay.ownership;
 
+import io.nereusstream.delay.protocol.ChannelResourceIdentityV1;
+import io.nereusstream.delay.protocol.ReadyCertificateV1;
 import io.nereusstream.delay.scheduler.SchedulerBudget;
 import io.nereusstream.delay.scheduler.ScheduleWorkItem;
 import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import io.nereusstream.delay.scheduler.WorkClassTask;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
+import io.nereusstream.delay.runtime.ClaimRecord;
+import io.nereusstream.delay.scheduler.ClaimExecutionAdmission;
 import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.SharedRocksDbResources;
 
+import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.util.List;
 import java.util.Objects;
@@ -159,6 +164,24 @@ public final class WorkerShardRuntime implements AutoCloseable {
         ensureSourceRunning();
         resources.requireRuntimeBusinessAdmission();
         return commandRuntime.submitPublish(request);
+    }
+
+    /** Queues Publish Admission with a descriptor derived from the Claim. */
+    public synchronized PublishAdmissionWorkClassExecutor.Submission submitPublish(
+            final ClaimRecord claim,
+            final ClaimExecutionAdmission.Reservation reservation,
+            final ChannelResourceIdentityV1 channel,
+            final ReadyCertificateV1 readyCertificate,
+            final TrustedUtcIntervalEvidence decisionTime,
+            final long retryUntilEpochMs,
+            final int signingKeyVersion,
+            final PrivateKey signingKey,
+            final LongSupplier ownerClock) {
+        ensureCommandRuntime();
+        ensureSourceRunning();
+        resources.requireRuntimeBusinessAdmission();
+        return commandRuntime.submitPublish(claim, reservation, channel, readyCertificate, decisionTime,
+                retryUntilEpochMs, signingKeyVersion, signingKey, ownerClock);
     }
 
     /** Runs one bounded Claim/Publish turn through the shared Worker graph. */

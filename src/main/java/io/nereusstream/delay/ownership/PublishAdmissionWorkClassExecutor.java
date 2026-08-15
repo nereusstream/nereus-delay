@@ -1,12 +1,17 @@
 package io.nereusstream.delay.ownership;
 
+import io.nereusstream.delay.protocol.AdapterKindV1;
 import io.nereusstream.delay.protocol.AuthorIdentity;
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.ChannelResourceIdentityV1;
+import io.nereusstream.delay.protocol.ClaimMaterializationV1;
 import io.nereusstream.delay.protocol.ClaimResultBody;
+import io.nereusstream.delay.protocol.DeliveryMode;
 import io.nereusstream.delay.protocol.OwnerIdentityV1;
 import io.nereusstream.delay.protocol.PreparedPublishDescriptorV1;
 import io.nereusstream.delay.protocol.PublishAdmissionBody;
 import io.nereusstream.delay.protocol.ReadyCertificateV1;
+import io.nereusstream.delay.protocol.ReservedPublishMetadataV1;
 import io.nereusstream.delay.protocol.SystemMutation;
 import io.nereusstream.delay.protocol.SystemMutationType;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
@@ -67,6 +72,25 @@ public final class PublishAdmissionWorkClassExecutor {
     }
 
     /**
+     * Derives the replay-stable descriptor from the exact Claim and the
+     * externally-authorized channel identity. Ready Certificate, timing,
+     * signing and prerequisite inputs remain explicit.
+     */
+    public Submission submit(final ClaimRecord claim,
+                             final ClaimExecutionAdmission.Reservation reservation,
+                             final ChannelResourceIdentityV1 channel,
+                             final ReadyCertificateV1 readyCertificate,
+                             final TrustedUtcIntervalEvidence decisionTime,
+                             final long retryUntilEpochMs,
+                             final int signingKeyVersion,
+                             final PrivateKey signingKey,
+                             final LongSupplier ownerClock) {
+        return submit(claim, reservation, deriveDescriptor(Objects.requireNonNull(claim, "Claim"),
+                Objects.requireNonNull(channel, "channel")), readyCertificate, decisionTime, retryUntilEpochMs,
+                signingKeyVersion, signingKey, ownerClock);
+    }
+
+    /**
      * Prepares the exact canonical body/envelope and registers one bounded
      * append action.  The Claim reservation remains active until the source
      * ordered Admission apply or an explicit Claim revoke releases it.
@@ -90,6 +114,32 @@ public final class PublishAdmissionWorkClassExecutor {
         final Submission submission = new Submission(task, request.mutation, request.reservation);
         workClasses.submit(task, () -> execute(request, submission));
         return submission;
+    }
+
+    private static PreparedPublishDescriptorV1 deriveDescriptor(final ClaimRecord claim,
+                                                                 final ChannelResourceIdentityV1 channel) {
+        final ClaimMaterializationV1 materialization = claim.materialization();
+        final ClaimResultBody.ClaimPrecondition precondition = ClaimResultBody.decodePrecondition(
+                claim.preconditionBytes());
+        final long attemptNo = Math.addExact(Integer.toUnsignedLong(precondition.expectedAdmissionsUsed()), 1);
+        final byte[] publishAttemptId = SystemMutation.computePublishAttemptLogicalIdentity(claim.claimId(),
+                claim.delayMessageId(), Integer.toUnsignedLong(claim.generation()), attemptNo);
+        final AdapterKindV1 adapterKind = materialization.targetResource().kind() ==
+                io.nereusstream.delay.protocol.BrokerResourceIdentityV1.Kind.KAFKA
+                ? AdapterKindV1.KAFKA : AdapterKindV1.PULSAR;
+        final ReservedPublishMetadataV1 reserved = new ReservedPublishMetadataV1(
+                claim.delayMessageId().routingId().shardId().routeIncarnation(),
+                claim.delayMessageId().routingId().shardId().unsignedPartition(), claim.delayMessageId(),
+                Integer.toUnsignedLong(claim.generation()), publishAttemptId,
+                materialization.destinationProfile().semanticHash(), materialization.capabilityProfile().semanticHash(),
+                materialization.deliverAtEpochMs(), DeliveryMode.MANAGED);
+        return new PreparedPublishDescriptorV1(adapterKind, claim.laneId(), claim.laneIncarnation(),
+                materialization.destinationProfile(), materialization.capabilityProfile(),
+                materialization.targetResource(), materialization.physicalPartition(), channel,
+                materialization.messageId(), materialization.generation(), publishAttemptId, attemptNo,
+                materialization.payload(), materialization.businessMetadata(), reserved,
+                materialization.deliverAtEpochMs(), materialization.expireAtEpochMs(),
+                materialization.actionAtEpochMs());
     }
 
     private void execute(final Request request, final Submission submission) {

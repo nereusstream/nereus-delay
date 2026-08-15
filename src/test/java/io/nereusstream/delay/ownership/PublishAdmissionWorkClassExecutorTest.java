@@ -180,7 +180,7 @@ class PublishAdmissionWorkClassExecutorTest {
 
             gate.set(PublishAdmissionWorkClassExecutor.PrerequisiteDecision.available());
             final PublishAdmissionWorkClassExecutor.Submission admitted = executor.submit(claim, reservation,
-                    descriptor, certificate, decision, 2_500, 1, keyPair.getPrivate(), () -> 101);
+                    descriptor.channel(), certificate, decision, 2_500, 1, keyPair.getPrivate(), () -> 101);
             assertTrue(admitted.result().isEmpty());
             workClasses.runTurn(new io.nereusstream.delay.scheduler.SchedulerBudget(1, 1_000_000, 1_000));
             final PublishAdmissionWorkClassExecutor.AdmissionHandoffResult admittedResult =
@@ -191,8 +191,9 @@ class PublishAdmissionWorkClassExecutorTest {
             assertEquals(ClaimExecutionAdmission.ReservationState.ACTIVE, reservation.state());
             assertArrayEquals(appended.get().canonicalBody(), admitted.mutation().canonicalBody());
             assertTrue(admitted.mutation().verifySignature(keyPair.getPublic()));
-            assertEquals(claim.claimId()[0], PublishAdmissionBody.decode(admitted.mutation().canonicalBody())
-                    .claimId()[0]);
+            final PublishAdmissionBody admittedBody = PublishAdmissionBody.decode(admitted.mutation().canonicalBody());
+            assertArrayEquals(descriptor.canonicalBytes(), admittedBody.descriptor().canonicalBytes());
+            assertEquals(claim.claimId()[0], admittedBody.claimId()[0]);
         }
     }
 

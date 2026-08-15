@@ -1,6 +1,7 @@
 package io.nereusstream.delay.ownership;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.ChannelResourceIdentityV1;
 import io.nereusstream.delay.protocol.ClaimMaterializationV1;
 import io.nereusstream.delay.protocol.PreparedPublishDescriptorV1;
 import io.nereusstream.delay.protocol.ReadyCertificateV1;
@@ -85,6 +86,26 @@ public final class WorkerCommandRuntime {
         return publishExecutor.submit(exact.claim(), exact.reservation(), exact.descriptor(),
                 exact.readyCertificate(), exact.decisionTime(), exact.retryUntilEpochMs(),
                 exact.signingKeyVersion(), exact.signingKey(), exact.ownerClock());
+    }
+
+    /**
+     * Queues Publish Admission with its descriptor derived from the exact
+     * Claim and externally-authorized channel identity. The Ready Certificate
+     * and all live timing/signing inputs remain explicit.
+     */
+    public PublishAdmissionWorkClassExecutor.Submission submitPublish(
+            final ClaimRecord claim,
+            final ClaimExecutionAdmission.Reservation reservation,
+            final ChannelResourceIdentityV1 channel,
+            final ReadyCertificateV1 readyCertificate,
+            final TrustedUtcIntervalEvidence decisionTime,
+            final long retryUntilEpochMs,
+            final int signingKeyVersion,
+            final PrivateKey signingKey,
+            final LongSupplier ownerClock) {
+        resources.requireRuntimeBusinessAdmission();
+        return publishExecutor.submit(claim, reservation, channel, readyCertificate, decisionTime,
+                retryUntilEpochMs, signingKeyVersion, signingKey, ownerClock);
     }
 
     /** Runs one bounded turn for Claim and Publish Admission actions. */
