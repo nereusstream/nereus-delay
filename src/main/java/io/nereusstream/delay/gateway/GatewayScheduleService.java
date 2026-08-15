@@ -76,6 +76,8 @@ public final class GatewayScheduleService {
             }
         } catch (SemanticPreparationException failure) {
             return completed(GatewaySubmissionOutcomeV1.preparationError(failure.error()));
+        } catch (OxiaGatewaySessionUnavailableException failure) {
+            throw failure;
         } catch (RuntimeException failure) {
             return completed(preparationError(StableCode.INVALID_PREPARED_COMMAND));
         }
@@ -177,6 +179,8 @@ public final class GatewayScheduleService {
             }
         } catch (SemanticPreparationException failure) {
             return completed(GatewaySubmissionOutcomeV1.preparationError(failure.error()));
+        } catch (OxiaGatewaySessionUnavailableException failure) {
+            throw failure;
         } catch (RuntimeException failure) {
             return completed(preparationError(StableCode.INVALID_PREPARED_COMMAND));
         }
@@ -212,6 +216,8 @@ public final class GatewayScheduleService {
         try {
             started = idempotency.startRetry(keyHash, request.expectedPriorPhysicalAttemptId(),
                     request.retryRequestId());
+        } catch (OxiaGatewaySessionUnavailableException failure) {
+            throw failure;
         } catch (RuntimeException failure) {
             return completed(preparationError(StableCode.INTEGRITY_ERROR));
         }
@@ -266,6 +272,8 @@ public final class GatewayScheduleService {
                 }
                 try {
                     idempotency.finish(keyHash, permit.physicalAttemptId(), resolved);
+                } catch (OxiaGatewaySessionUnavailableException sessionFailure) {
+                    throw sessionFailure;
                 } catch (RuntimeException ignored) {
                     return GatewaySubmissionOutcomeV1.submission(
                             GatewayOutcomeSupport.uncertain(submission, permit.physicalAttemptId()));
@@ -286,6 +294,8 @@ public final class GatewayScheduleService {
                 : GatewayOutcomeSupport.localDefinite(submission, StableCode.BROKER_RESOURCE_UNCERTIFIED);
         try {
             idempotency.finish(keyHash, permit.physicalAttemptId(), outcome);
+        } catch (OxiaGatewaySessionUnavailableException failure) {
+            throw failure;
         } catch (RuntimeException ignored) {
             return completed(GatewaySubmissionOutcomeV1.submission(
                     GatewayOutcomeSupport.uncertain(submission, permit.physicalAttemptId())));

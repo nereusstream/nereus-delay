@@ -1,5 +1,6 @@
 package io.nereusstream.delay.gateway;
 
+import io.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend;
 import io.nereusstream.delay.protocol.Bytes;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
@@ -26,7 +27,7 @@ public final class OxiaGatewayAuditSink implements GatewayAuditSink, AutoCloseab
     private static final String AUDIT_SUFFIX = "/audit/";
     private static final byte[] KEY_DOMAIN = Bytes.utf8("nereus-delay-gateway-audit-record-v1\0");
 
-    private final RecordClient client;
+    private final OxiaGatewayRecordClient client;
     private final String recordPrefix;
 
     /** Creates a sink over an already configured Oxia client. */
@@ -34,8 +35,17 @@ public final class OxiaGatewayAuditSink implements GatewayAuditSink, AutoCloseab
         this(new SyncRecordClient(client), keyPrefix);
     }
 
+    /** Creates a sink fenced to the exact ephemeral session of a handle. */
+    public OxiaGatewayAuditSink(final OxiaSyncOwnerLeaseBackend.ClientHandle handle, final String keyPrefix) {
+        this(new SessionBoundOxiaGatewayRecordClient(handle), keyPrefix);
+    }
+
     /** Package-private constructor used by deterministic CAS tests. */
     OxiaGatewayAuditSink(final RecordClient client, final String keyPrefix) {
+        this((OxiaGatewayRecordClient) client, keyPrefix);
+    }
+
+    OxiaGatewayAuditSink(final OxiaGatewayRecordClient client, final String keyPrefix) {
         this.client = Objects.requireNonNull(client, "client");
         this.recordPrefix = canonicalKeyPrefix(keyPrefix) + AUDIT_SUFFIX;
     }
@@ -119,14 +129,7 @@ public final class OxiaGatewayAuditSink implements GatewayAuditSink, AutoCloseab
         return value;
     }
 
-    interface RecordClient extends AutoCloseable {
-        GetResult get(String key);
-
-        PutResult put(String key, byte[] value, Set<PutOption> options)
-                throws UnexpectedVersionIdException, KeyAlreadyExistsException;
-
-        @Override
-        void close();
+    interface RecordClient extends OxiaGatewayRecordClient {
     }
 
     private static final class SyncRecordClient implements RecordClient {

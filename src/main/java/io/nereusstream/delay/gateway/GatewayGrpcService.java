@@ -513,6 +513,9 @@ public final class GatewayGrpcService extends DelayGatewayV1Grpc.DelayGatewayV1I
         while (current instanceof CompletionException && current.getCause() != null) {
             current = current.getCause();
         }
+        if (current instanceof OxiaGatewaySessionUnavailableException) {
+            return Status.Code.UNAVAILABLE;
+        }
         if (current instanceof GatewayIngressException ingressFailure) {
             return switch (ingressFailure.kind()) {
                 case AUTHENTICATION -> Status.Code.UNAUTHENTICATED;

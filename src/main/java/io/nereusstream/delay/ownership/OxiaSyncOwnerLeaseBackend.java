@@ -134,6 +134,19 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
     }
 
     /**
+     * Verifies that the connected client still owns the exact ephemeral
+     * session marker established by {@link #connect}. Callers that use the
+     * durable Gateway records must fail closed when this check does not pass;
+     * a new client/session has to be composed explicitly for recovery.
+     */
+    public void assertConnectedSession() {
+        if (sessionMarker == null) {
+            throw new IllegalStateException("backend was not connected with an Oxia session marker");
+        }
+        requireConnectedSession();
+    }
+
+    /**
      * Derives the 32-byte V1 session identity from the metadata attached to an
      * Oxia ephemeral record.  Callers of context-bound acquisition should pass
      * this value, not a process-local random value.

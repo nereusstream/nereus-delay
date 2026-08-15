@@ -32,7 +32,7 @@ class OxiaRealGatewayAdmissionSmokeTest {
                 endpoint, namespace, "nereus-delay-real-admission-" + UUID.randomUUID(),
                 Duration.ofSeconds(15), prefix + "/client")) {
             final OxiaGatewayAdmissionController controller = new OxiaGatewayAdmissionController(
-                    client.client(), prefix, clock,
+                    client, prefix, clock,
                     new OxiaGatewayAdmissionController.Limits(1, 100, 1, 1, 10, 8));
             final GatewayAdmissionLease first = reserve(controller, tenant, GatewayIngressOperationV1.SCHEDULE, 80);
             assertEquals(GatewayAdmissionController.State.REJECTED,

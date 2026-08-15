@@ -8,7 +8,7 @@ import io.oxia.client.api.options.PutOption;
 
 import java.util.Set;
 
-/** Minimal Oxia record CAS surface used by the Gateway idempotency store. */
+/** Minimal Oxia record CAS surface used by the Gateway durable records. */
 interface OxiaGatewayRecordClient extends AutoCloseable {
     GetResult get(String key);
 

@@ -1,5 +1,6 @@
 package io.nereusstream.delay.gateway;
 
+import io.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.PreparedSubmissionV1;
 import io.nereusstream.delay.protocol.SubmissionOutcomeKindV1;
@@ -42,6 +43,14 @@ public final class OxiaGatewayIdempotencyStore implements GatewayIdempotencyStor
                                        final TrustedClock trustedClock, final long ownershipMaxAgeMs,
                                        final long outcomeWaitMs) {
         this(new SyncRecordClient(client), keyPrefix, trustedClock, ownershipMaxAgeMs, outcomeWaitMs);
+    }
+
+    /** Creates a store fenced to the exact ephemeral session of a handle. */
+    public OxiaGatewayIdempotencyStore(final OxiaSyncOwnerLeaseBackend.ClientHandle handle,
+                                       final String keyPrefix, final TrustedClock trustedClock,
+                                       final long ownershipMaxAgeMs, final long outcomeWaitMs) {
+        this(new SessionBoundOxiaGatewayRecordClient(handle), keyPrefix, trustedClock, ownershipMaxAgeMs,
+                outcomeWaitMs);
     }
 
     OxiaGatewayIdempotencyStore(final OxiaGatewayRecordClient client, final String keyPrefix,

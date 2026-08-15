@@ -127,11 +127,11 @@ class OxiaRealGatewayGrpcSmokeTest {
                      endpoint, namespace, "nereus-delay-gateway-audit-" + UUID.randomUUID(), Duration.ofSeconds(15),
                      prefix + "/audit-client")) {
             final OxiaGatewayAdmissionController admission = new OxiaGatewayAdmissionController(
-                    admissionClient.client(), prefix + "/admission", clock,
+                    admissionClient, prefix + "/admission", clock,
                     new OxiaGatewayAdmissionController.Limits(1, 1_000_000, 1, 1, 10_000, 8));
             final OxiaGatewayIdempotencyStore idempotency = new OxiaGatewayIdempotencyStore(
-                    idempotencyClient.client(), prefix + "/idempotency", clock, 10_000, 10_000);
-            final OxiaGatewayAuditSink audit = new OxiaGatewayAuditSink(auditClient.client(), prefix + "/audit");
+                    idempotencyClient, prefix + "/idempotency", clock, 10_000, 10_000);
+            final OxiaGatewayAuditSink audit = new OxiaGatewayAuditSink(auditClient, prefix + "/audit");
             final GatewayScheduleService schedule = new GatewayScheduleService(core, idempotency, coordinator, clock);
             final GatewayIngressService ingress = new GatewayIngressService(schedule, authority, admission, audit,
                     clock);
@@ -460,11 +460,11 @@ class OxiaRealGatewayGrpcSmokeTest {
                                                    final FixedCore core, final CountingCoordinator coordinator,
                                                    final GatewayTenantAuthority authority) {
         final OxiaGatewayAdmissionController admission = new OxiaGatewayAdmissionController(
-                admissionClient.client(), prefix + "/admission", clock,
+                admissionClient, prefix + "/admission", clock,
                 new OxiaGatewayAdmissionController.Limits(2, 2_000_000, 1, 1, 10_000, 8));
         final OxiaGatewayIdempotencyStore idempotency = new OxiaGatewayIdempotencyStore(
-                idempotencyClient.client(), prefix + "/idempotency", clock, 10_000, 10_000);
-        final OxiaGatewayAuditSink audit = new OxiaGatewayAuditSink(auditClient.client(), prefix + "/audit");
+                idempotencyClient, prefix + "/idempotency", clock, 10_000, 10_000);
+        final OxiaGatewayAuditSink audit = new OxiaGatewayAuditSink(auditClient, prefix + "/audit");
         final GatewayScheduleService schedule = new GatewayScheduleService(core, idempotency, coordinator, clock);
         final GatewayIngressService ingress = new GatewayIngressService(schedule, authority, admission, audit, clock);
         return new GatewayGrpcService(ingress, GatewayGrpcContext.provider());

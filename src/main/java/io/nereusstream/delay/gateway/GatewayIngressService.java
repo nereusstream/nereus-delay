@@ -163,6 +163,8 @@ public final class GatewayIngressService {
         final GatewayAdmissionController.Decision decision;
         try {
             decision = admission.reserve(new GatewayAdmissionRequestV1(tenant, operation, estimatedBytes));
+        } catch (OxiaGatewaySessionUnavailableException failure) {
+            throw new GatewayIngressException(GatewayIngressException.Kind.UNAVAILABLE, failure);
         } catch (RuntimeException failure) {
             throw new GatewayIngressException(GatewayIngressException.Kind.INTERNAL, failure);
         }

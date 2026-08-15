@@ -32,7 +32,7 @@ class OxiaRealGatewayAuditSinkSmokeTest {
         try (OxiaSyncOwnerLeaseBackend.ClientHandle client = OxiaSyncOwnerLeaseBackend.connect(
                 endpoint, namespace, "nereus-delay-real-gateway-" + UUID.randomUUID(),
                 Duration.ofSeconds(15), prefix + "/client")) {
-            final OxiaGatewayAuditSink sink = new OxiaGatewayAuditSink(client.client(), prefix);
+            final OxiaGatewayAuditSink sink = new OxiaGatewayAuditSink(client, prefix);
             sink.record(event);
             sink.record(event);
 

@@ -1,5 +1,6 @@
 package io.nereusstream.delay.gateway;
 
+import io.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.semantic.TrustedClock;
@@ -41,6 +42,13 @@ public final class OxiaGatewayAdmissionController implements GatewayAdmissionCon
     public OxiaGatewayAdmissionController(final SyncOxiaClient client, final String keyPrefix,
                                            final TrustedClock trustedClock, final Limits limits) {
         this(new SyncRecordClient(client), keyPrefix, trustedClock, limits);
+    }
+
+    /** Creates a controller fenced to the exact ephemeral session of a handle. */
+    public OxiaGatewayAdmissionController(final OxiaSyncOwnerLeaseBackend.ClientHandle handle,
+                                           final String keyPrefix, final TrustedClock trustedClock,
+                                           final Limits limits) {
+        this(new SessionBoundOxiaGatewayRecordClient(handle), keyPrefix, trustedClock, limits);
     }
 
     /** Package-private constructor used by deterministic CAS tests. */
