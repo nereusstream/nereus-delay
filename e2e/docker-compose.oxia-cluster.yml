@@ -1,0 +1,132 @@
+services:
+  coordinator-1:
+    build:
+      context: ${NEREUS_DELAY_OXIA_CHECKOUT:-../../../oxia}
+      dockerfile: Dockerfile
+    command:
+      - oxia
+      - coordinator
+      - --metadata
+      - raft
+      - --raft-bootstrap-nodes
+      - coordinator-1:6645,coordinator-2:6645,coordinator-3:6645
+      - --raft-address
+      - coordinator-1:6645
+      - --raft-data-dir
+      - /var/lib/oxia/raft
+      - --public-addr
+      - 0.0.0.0:6651
+      - --internal-addr
+      - 0.0.0.0:6649
+      - --metrics-addr
+      - 0.0.0.0:8080
+    ports:
+      - "127.0.0.1:${NEREUS_DELAY_OXIA_COORDINATOR_1_PORT:-16691}:6651"
+
+  coordinator-2:
+    build:
+      context: ${NEREUS_DELAY_OXIA_CHECKOUT:-../../../oxia}
+      dockerfile: Dockerfile
+    command:
+      - oxia
+      - coordinator
+      - --metadata
+      - raft
+      - --raft-bootstrap-nodes
+      - coordinator-1:6645,coordinator-2:6645,coordinator-3:6645
+      - --raft-address
+      - coordinator-2:6645
+      - --raft-data-dir
+      - /var/lib/oxia/raft
+      - --public-addr
+      - 0.0.0.0:6651
+      - --internal-addr
+      - 0.0.0.0:6649
+      - --metrics-addr
+      - 0.0.0.0:8080
+    ports:
+      - "127.0.0.1:${NEREUS_DELAY_OXIA_COORDINATOR_2_PORT:-16692}:6651"
+
+  coordinator-3:
+    build:
+      context: ${NEREUS_DELAY_OXIA_CHECKOUT:-../../../oxia}
+      dockerfile: Dockerfile
+    command:
+      - oxia
+      - coordinator
+      - --metadata
+      - raft
+      - --raft-bootstrap-nodes
+      - coordinator-1:6645,coordinator-2:6645,coordinator-3:6645
+      - --raft-address
+      - coordinator-3:6645
+      - --raft-data-dir
+      - /var/lib/oxia/raft
+      - --public-addr
+      - 0.0.0.0:6651
+      - --internal-addr
+      - 0.0.0.0:6649
+      - --metrics-addr
+      - 0.0.0.0:8080
+    ports:
+      - "127.0.0.1:${NEREUS_DELAY_OXIA_COORDINATOR_3_PORT:-16693}:6651"
+
+  data-server-1:
+    build:
+      context: ${NEREUS_DELAY_OXIA_CHECKOUT:-../../../oxia}
+      dockerfile: Dockerfile
+    command:
+      - oxia
+      - server
+      - --public-addr
+      - 0.0.0.0:6648
+      - --internal-addr
+      - 0.0.0.0:6649
+      - --metrics-addr
+      - 0.0.0.0:8080
+      - --wal-dir
+      - /var/lib/oxia/wal
+      - --data-dir
+      - /var/lib/oxia/db
+    ports:
+      - "127.0.0.1:${NEREUS_DELAY_OXIA_DATA_SERVER_1_PORT:-16681}:6648"
+
+  data-server-2:
+    build:
+      context: ${NEREUS_DELAY_OXIA_CHECKOUT:-../../../oxia}
+      dockerfile: Dockerfile
+    command:
+      - oxia
+      - server
+      - --public-addr
+      - 0.0.0.0:6648
+      - --internal-addr
+      - 0.0.0.0:6649
+      - --metrics-addr
+      - 0.0.0.0:8080
+      - --wal-dir
+      - /var/lib/oxia/wal
+      - --data-dir
+      - /var/lib/oxia/db
+    ports:
+      - "127.0.0.1:${NEREUS_DELAY_OXIA_DATA_SERVER_2_PORT:-16682}:6648"
+
+  data-server-3:
+    build:
+      context: ${NEREUS_DELAY_OXIA_CHECKOUT:-../../../oxia}
+      dockerfile: Dockerfile
+    command:
+      - oxia
+      - server
+      - --public-addr
+      - 0.0.0.0:6648
+      - --internal-addr
+      - 0.0.0.0:6649
+      - --metrics-addr
+      - 0.0.0.0:8080
+      - --wal-dir
+      - /var/lib/oxia/wal
+      - --data-dir
+      - /var/lib/oxia/db
+    ports:
+      - "127.0.0.1:${NEREUS_DELAY_OXIA_DATA_SERVER_3_PORT:-16683}:6648"
