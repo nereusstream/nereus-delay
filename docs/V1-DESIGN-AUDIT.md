@@ -7353,6 +7353,20 @@ application of a live PUBLISHING ledger, Source Assignment/ACK authority,
 physical K2 Broker append, response-loss/LSO resolution, real Worker E2E or
 §23.5 release readiness.
 
+## 2026-08-15 Pulsar source-bound physical adapter invocation audit
+
+Delay commit `1d969cb8fa15430faaf8b38ae1e34390ce5e7769` extends the common
+source-bound physical call to `PinnedPulsarDestinationAdapter`. The adapter
+requires a Pulsar Source Position for the request's Shard and forwards the
+canonical Source Position and prepared hash to a source-aware transport,
+while legacy request-only transports remain compatible.
+
+The focused Pulsar adapter/Worker tests and full `check` passed. This is still
+local transport composition only: source-applied PUBLISHING lookup, live
+Pulsar assignment/ACK authority, Broker append, reconnect/rewind,
+response-loss/crash resolution, real Worker E2E and §23.5 release readiness
+remain open.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

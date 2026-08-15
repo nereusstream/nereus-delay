@@ -4014,3 +4014,16 @@ This is not source replay or Broker evidence. The runtime still needs the
 source-applied PUBLISHING ledger, live assignment/ACK authority, K2 response
 loss/LSO resolution and a real Worker E2E before this composition can be
 promoted.
+
+### 2026-08-15 Pulsar source-bound physical adapter implementation note
+
+Delay commit `1d969cb8fa15430faaf8b38ae1e34390ce5e7769` extends the source-aware
+adapter path to `PinnedPulsarDestinationAdapter`. It rejects a source-bound
+request whose Source Position is not a Pulsar position for the same Shard,
+then passes the exact Source Position and prepared Publish hash to the guarded
+Pulsar transport. Request-only transport implementations remain on the
+compatibility default.
+
+This does not prove Pulsar Broker persistence, source ACK, reconnect/rewind or
+response-loss resolution. Those require the source-applied Worker ledger,
+live assignment/channel authority and a real-client Worker E2E.
