@@ -5562,7 +5562,7 @@ covers this ordering.
 
 | Area | Status | Evidence |
 |---|---|---|
-| Shared Semantic Core and signed immutable RouteSnapshot | Partial (local deterministic core plus Oxia event/head-CAS authority composition; bounded Kafka and Pulsar activation proofs added; production gates open) | `RouteSnapshotV1`, `DefaultDelaySemanticCore`, `InMemorySignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotPublisher`, `RouteSnapshotCompatibilityV1`, `DefaultDelayClient`, `RouteBoundSubmissionTransportPlanResolver`, `RouteSnapshotV1Test`, `DefaultDelaySemanticCoreTest`, `InMemorySignedRouteSnapshotProviderTest`, `OxiaSignedRouteSnapshotProviderTest`, `OxiaRealRouteAuthoritySmokeTest`, `KafkaClientArtifactRouteWorkerSmoke`, `PulsarClientArtifactRouteWorkerSmoke`; canonical signature/digest, contiguous replay, head CAS, notification refresh with an isolated watch client, same-incarnation immutable-drift quarantine, tenant-scoped historical resolution, explicit-refresh real Oxia publication and zero-I/O preparation are covered. Bounded real Kafka Fetch v13/LSO and Pulsar guarded SUBSCRIBE/position proofs now feed signed Route barriers, real Oxia Route publication and route-bound Worker assignment/source ACK. Notification-stream reconnect/stability under session churn, multi-broker activation/failover, native eligibility authority, package split and production cross-entry gate remain open |
+| Shared Semantic Core and signed immutable RouteSnapshot | Partial (local deterministic core plus Oxia event/head-CAS authority composition; bounded Kafka and Pulsar activation proofs added; production gates open) | `RouteSnapshotV1`, `DefaultDelaySemanticCore`, `InMemorySignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotPublisher`, `RouteSnapshotCompatibilityV1`, `DefaultDelayClient`, `RouteBoundSubmissionTransportPlanResolver`, `RouteSnapshotV1Test`, `DefaultDelaySemanticCoreTest`, `InMemorySignedRouteSnapshotProviderTest`, `OxiaSignedRouteSnapshotProviderTest`, `OxiaRealRouteAuthoritySmokeTest`, `KafkaClientArtifactRouteWorkerSmoke`, `PulsarClientArtifactRouteWorkerSmoke`; canonical signature/digest, contiguous replay, head CAS, notification refresh with an isolated watch client, same-incarnation immutable-drift quarantine, tenant-scoped historical resolution, explicit-refresh real Oxia publication and zero-I/O preparation are covered. Bounded real Kafka Fetch v13/LSO and Pulsar guarded SUBSCRIBE/position proofs now feed signed Route barriers, real Oxia Route publication and route-bound Worker assignment; Kafka additionally proves bounded Worker Store apply, source ACK, final local checkpoint and owner/assignment release. Notification-stream reconnect/stability under session churn, multi-broker activation/failover, native eligibility authority, package split and production cross-entry gate remain open |
 | Delay Gateway and Gateway idempotency | Partial (generated handlers, strict RS256+mTLS authority, durable Oxia admission/idempotency/audit compositions; live/HA authority still open) | `GatewayScheduleRequestV1`, `GatewayRetryUncertainRequestV1`, `GatewayAdmissionRecordV1`, `GatewayAdmissionController`, `OxiaGatewayAdmissionController`, `GatewayIdempotencyStore`, `GatewayIdempotencyHashV1`, `GatewayIdempotencyRecordV1`, `GatewayPhysicalAttemptV1`, `InMemoryGatewayAdmissionController`, `InMemoryGatewayIdempotencyStore`, `OxiaGatewayIdempotencyStore`, `OxiaGatewayAuditSink`, `GatewayScheduleService`, `GatewayGrpcService`, `GatewayGrpcContext`, `GatewayGrpcServer`, `MutualTlsJwtGatewayTenantAuthority`, `RsaSha256GatewayJwtVerifier`, source proto, `GatewayScheduleServiceTest`, `GatewaySecurityCompositionTest`, `RsaSha256GatewayJwtVerifierTest`, `OxiaGatewayAdmissionControllerTest`, `OxiaRealGatewayAdmissionSmokeTest`, `OxiaGatewayIdempotencyStoreTest`, `OxiaGatewayAuditSinkTest` and `OxiaRealGatewayAuditSinkSmokeTest`; exact body conflict, prepared-before-ownership, one-shot attempt, strict record decoding, separate durable admission pools with expiring lease CAS, trusted expiry reclaim, uncertain expected-prior/retry-ID CAS, response-loss exact rereads, generated eleven-RPC surface, mandatory mTLS server composition, RS256 signature/issuer/audience/time policy, mTLS `cnf.x5t#S256` binding, immutable digest-only audit persistence and live Oxia admission/audit readback are covered. Certificate deployment/rotation, quota-rate/load proof, admission HA/session churn, HA/transactional idempotency, late authenticated evidence promotion, crash cuts and multi-language vectors remain open |
 | Kafka generic guarded Producer patch | Implemented in isolated upstream worktree plus opt-in Delay K1/K2 binding (full K2 gate open) | Kafka branch `nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9` from locked `trunk@c300006a7705c240642db6950b5a95fec982bfc5`; focused K1/K2 client tests, guarded Fetch/source evidence, real KRaft delete/recreate/leader-failover, transaction-v2 guarded send, Delay source-set compile and three-broker K1/K2 Docker E2E pass. Client SHA-256 and broker image ID are recorded above; response-loss, LSO/retention, source assignment authority and release gates remain open |
 | Kafka guarded Consumer/source/Worker vertical | Implemented (opt-in real Kafka plus local owner authority; production authority pending) | `ConsumerResourceGuard`, `GuardedFetchEvidence`, `KafkaClientArtifactSourceConsumerFactory`, `KafkaClientArtifactRecoverySourceCursor`, `KafkaClientArtifactWorkerSourceFactory`, `KafkaClientArtifactWorkerSmoke`, `OwnerRecoveryCoordinator`, `WorkerShardRuntime`; guarded Fetch v13 evidence is validated before recovery or active source exposure, recovery applies offset 0 before activation, active offset 1 reaches RocksDB before `commitSync`, exact group offset is checked and drain releases the lease. The Docker evidence is recorded in the 2026-08-15 section above; Oxia network session/placement, Route publication, Broker failure cuts and due/Lane/publish/checkpoint production wiring remain open |
@@ -7860,24 +7860,28 @@ Claim/Publish authority or release PASS.
 
 ## 2026-08-15 Kafka guarded Fetch to signed Route Worker assignment evidence
 
-Delay commit `1550347f` adds `KafkaClientArtifactRouteWorkerSmoke` and the
+Delay commit `7e0abb87fff8db1c1d2d2f73ffdd44a0c6097112` adds `KafkaClientArtifactRouteWorkerSmoke` and the
 `runRealKafkaRouteWorkerSmoke` task. The smoke appends one guarded K1 record,
 requires a non-empty Fetch v13 proof with exact cluster/TopicId/partition and
 `lastStableOffset`, and derives the signed Kafka `ActivationBarrierV1` from
 that proof. It publishes the signed Route event/head through a real,
 session-fenced Oxia authority, refreshes the Route provider, projects the
 partition policy through `RouteWorkerAssignmentCoordinator`, publishes and
-rereads the exact route-bound assignment through Oxia revision CAS, then
-appends a second record and starts the guarded source exactly at the signed
-barrier offset before `commitSync` ACK.
+rereads the exact route-bound assignment through Oxia revision CAS, then uses
+the accepted assignment to recover the pre-Route record into the real Worker
+Store and ACKs it only after the RocksDB apply. It appends a second record and
+starts the guarded Worker source exactly at the signed barrier offset before
+applying and `commitSync` ACKing it. The smoke then drains the Worker,
+publishes the final local checkpoint and proves the Oxia owner lease and
+assignment are released.
 
-The fresh full run used Delay `1550347f`, Kafka source
+The fresh full run used Delay `7e0abb87fff8db1c1d2d2f73ffdd44a0c6097112`, Kafka source
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`, client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
-Kafka Compose project `nereus-delay-kafka-e2e-1786782354-37593`, Oxia Compose
-project `nereus-delay-kafka-oxia-e2e-1786782354-37593`, broker ports
+Kafka Compose project `nereus-delay-kafka-e2e-1786785694-74566`, Oxia Compose
+project `nereus-delay-kafka-oxia-e2e-1786785694-74566`, broker ports
 `19730,19731,19732`, and Oxia port `16673`. The exact command was:
 
 ```bash
@@ -7890,7 +7894,7 @@ KAFKA_BROKER_1_PORT=19730 KAFKA_BROKER_2_PORT=19731 KAFKA_BROKER_3_PORT=19732 \
 The new Route cut printed:
 
 ```text
-Kafka signed Route -> guarded Fetch barrier -> Oxia Worker assignment smoke passed: fetch=v18, lso=1, routeRevision=1, assignmentRevision=1, barrierOffset=1, sourceOffset=1, commitSync ACK
+Kafka signed Route -> guarded Fetch barrier -> Oxia Worker assignment -> RocksDB apply/checkpoint smoke passed: fetch=v18, lso=1, routeRevision=1, assignmentRevision=1, barrierOffset=1, sourceOffset=1, commitSync ACK, final checkpoint
 ```
 
 The same full run also passed the existing guarded source replay, signed
@@ -7902,7 +7906,8 @@ Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, as
 ```
 
 This closes a bounded one-topic/one-partition Fetch proof -> signed Route
-barrier -> real Oxia assignment/source ACK cut. It does not establish
+barrier -> real Oxia assignment -> Worker Store apply/checkpoint/source ACK
+cut. It does not establish
 catalog-driven multi-shard placement, Route session reconnect under churn,
 Broker failover while an accepted Route is active, native eligibility,
 production source ownership transfer, Object Store checkpoint publication,

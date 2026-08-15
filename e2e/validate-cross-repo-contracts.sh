@@ -240,6 +240,8 @@ require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transpo
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactRouteWorkerSmoke.java" \
     "Kafka signed Route -> guarded Fetch barrier"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactRouteWorkerSmoke.java" \
+    "RocksDB apply/checkpoint"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactRouteWorkerSmoke.java" \
     "lastStableOffset"
 require_file_text "$delay_root/build.gradle" \
     "runRealKafkaRouteWorkerSmoke"

@@ -6758,31 +6758,41 @@ Claim/Publish authority or §23.5 release completion.
 
 ## 2026-08-15 Kafka guarded Fetch to signed Route Worker assignment audit
 
-Delay commit `1550347f` adds a real-client Route activation cut rather than
+Delay commit `7e0abb87fff8db1c1d2d2f73ffdd44a0c6097112` adds a real-client
+Route activation cut rather than
 only reusing the deterministic Route/assignment tests. With K1 source
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, the smoke requires Fetch v13
 evidence and uses its exact `lastStableOffset`/record range to build the Kafka
 activation barrier. A real Oxia session publishes the signed Route event/head;
 the provider refreshes from that authority; `RouteWorkerAssignmentCoordinator`
 then publishes and rereads a route-bound Worker assignment by revision CAS.
-The second Kafka record is observed only after the signed exclusive barrier
-and is ACKed by `commitSync`.
+The pre-Route record is recovered into the real Worker Store and ACKed only
+after its RocksDB apply. The second Kafka record is observed only after the
+signed exclusive barrier, applied through the accepted Worker assignment and
+ACKed by `commitSync`; the Worker then publishes its final local checkpoint
+and releases the Oxia owner lease and assignment.
 
-The receipt used Delay `1550347f`, Kafka client SHA-256
+The earlier assignment-only receipt is retained as historical provenance at
+Delay `1550347f`; it is superseded by the current Worker Store apply cut
+below, not rewritten as current evidence.
+
+The receipt used Delay `7e0abb87fff8db1c1d2d2f73ffdd44a0c6097112`, Kafka client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
-Kafka/Oxia projects `nereus-delay-kafka-e2e-1786782354-37593` /
-`nereus-delay-kafka-oxia-e2e-1786782354-37593`, ports
+Kafka/Oxia projects `nereus-delay-kafka-e2e-1786785694-74566` /
+`nereus-delay-kafka-oxia-e2e-1786785694-74566`, ports
 `19730,19731,19732` / `16673`, and Oxia source
 `37a17bef17202d5fd6e232da5fd26d94865484`. It printed:
 
 ```text
-Kafka signed Route -> guarded Fetch barrier -> Oxia Worker assignment smoke passed: fetch=v18, lso=1, routeRevision=1, assignmentRevision=1, barrierOffset=1, sourceOffset=1, commitSync ACK
+Kafka signed Route -> guarded Fetch barrier -> Oxia Worker assignment -> RocksDB apply/checkpoint smoke passed: fetch=v18, lso=1, routeRevision=1, assignmentRevision=1, barrierOffset=1, sourceOffset=1, commitSync ACK, final checkpoint
 ```
 
 This is source-locked, one-partition integration evidence for signed Route
-publication, exact barrier projection, Oxia assignment CAS and post-barrier
-source ACK. It does not promote the result to production Route activation:
+publication, exact barrier projection, Oxia assignment CAS, pre-Route Store
+recovery/apply, post-barrier Worker Store apply/source ACK, final local
+checkpoint and owner/assignment release. It does not promote the result to
+production Route activation:
 session churn/reconnect, accepted-Route broker failover, catalog placement,
 native eligibility, source ownership transfer, Object Store checkpointing,
 automatic Claim/Publish authority and §23.5 release gates remain open.
