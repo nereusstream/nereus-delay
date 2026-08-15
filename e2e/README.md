@@ -55,18 +55,21 @@ must be clean; ignored build outputs are read only.
 ```
 
 Use `NEREUS_DELAY_KAFKA_CHECKOUT`, `NEREUS_DELAY_KAFKA_CLIENT_JAR`, or the
-`KAFKA_BROKER_*_PORT` variables to override local paths and ports. The current
+`KAFKA_BROKER_*_PORT` variables to override local paths and ports. The latest
 run passed with Kafka source
-`8bd66fbb26eae1b0e4c5867e61f41900c3f5e318`, Compose project
-`nereus-delay-kafka-e2e-1786741055-82662`, ports `19254,19255,19256`, broker
-image `sha256:3116a80efc9d4a9399ca225c1de4288abde253659fd6fad2292af7727a2e9505`,
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Compose project
+`nereus-delay-kafka-e2e-1786756126-42356`, ports `19448,19449,19450`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
 and client SHA-256
-`4b6362d10146568c7ef78629ad678e50f164a750fdbb362ba0899dc49b815656`.
-The source smoke reported source Topic UUID `MvniR2bXSkuGdh3KGq02lQ`, first
-offset `0`, second offset `1`, and `committedAfterRestart=empty`. This is
-current source-handoff/K1/K2 opt-in evidence; it does not claim EndTxn
-response-loss, Fetch v13/LSO/retention recovery, guarded source Fetch/session
-authority, ACK-failure injection or the full Worker vertical.
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`.
+The source smoke reported source Topic UUID `UhgNFMmET9ShykfZrz5gRg`, first
+offset `0`, second offset `1`, and `committedAfterRestart=empty`. The source
+binding now creates only a `GuardedConsumer`, binds cluster/topic/TopicId/
+partition, and validates Fetch v13+ evidence before exposing each record;
+the recovery cursor uses the same proof and never commits. This is current
+guarded source-handoff/K1/K2 opt-in evidence; it does not claim EndTxn
+response-loss, Fetch response-loss, LSO/retention-floor recovery, assignment/
+session authority, ACK-failure injection or the full Worker vertical.
 
 ## Pulsar P1 real-client service E2E
 

@@ -2699,6 +2699,40 @@ module、完成 K2 之外的 source/ACK vertical 和 Worker ACK-after-sync。
 
 完成门：QUEUED/definite/uncertain 三态和 Worker ACK-after-sync crash cut。
 
+### Phase D2-source：Kafka guarded Fetch/source handoff
+
+The source side now has its own K1 contract; the guarded Producer contract is
+not treated as evidence for reads. Kafka commit
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+descended from `trunk@c300006a7705c240642db6950b5a95fec982bfc5`, adds the
+public `GuardedConsumer`, `ConsumerResourceGuard`, `GuardedConsumerRecords` and
+`GuardedFetchEvidence` APIs. A bound consumer is restricted to one exact
+cluster/topic/TopicId/partition identity. Its Fetch request must use v13 or
+newer and the completed response proof records the request version,
+correlation/broker/session identity, fetch and returned offset range, high
+watermark, last stable offset and canonical response-body digest. The proof
+is carried through both Classic and Async consumer Fetch paths; TopicId or
+partition drift is a typed failure and never falls back to name-only metadata.
+
+Delay commit `17b4d7e6` uses a source-set
+`KafkaClientArtifactSourceConsumerFactory` that binds the immutable guard and
+rejects a runtime without `GuardedConsumer`. The active source and recovery
+cursor call `pollGuarded`, validate every returned record against the proof,
+and use the same Java-UUID/Kafka-`Uuid` conversion as the existing Kafka
+producer binding. The active source retains one in-flight record until
+`commitSync` succeeds; recovery has no ACK/commit path. The Worker composition
+factory checks the same guard before seeking its accepted activation barrier.
+
+The focused Kafka client tests, Delay `check`, source-set compile/checkstyle,
+and the three-broker K1/K2 Docker harness passed. The latest harness used
+Kafka `05849884ca81fad767fda058444d1e17c7f9cbf9`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, and
+broker image
+`sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`.
+This closes opt-in source Fetch proof and ACK/replay handoff only. Fetch
+response-loss, LSO/retention-floor recovery, assignment/session authority,
+ACK-failure injection, Store apply and the full Worker vertical remain open.
+
 ### Phase K2：Kafka transactional guarded destination
 
 在 Kafka 独立切片中为 target + receipt transaction 提供 exact TopicId、Produce v13+、transaction

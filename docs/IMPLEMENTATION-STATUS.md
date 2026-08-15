@@ -17,8 +17,8 @@ digest-only Gateway audit sink, an Oxia-backed tenant-scoped admission CAS
 controller, generated Java/gRPC
 Gateway API descriptors, generated service handling for all eleven RPCs when
 the explicit payload/query compositions are configured, and a transport-neutral Worker
-source-consumer/ACK-after-sync composition, plus a source-locked Kafka
-poll/ACK handoff smoke and receipt-bound payload upload
+source-consumer/ACK-after-sync composition, plus a source-locked guarded Kafka
+Fetch/source poll/ACK handoff smoke and receipt-bound payload upload
 handlers behind an explicitly injected `GatewayPayloadAuthority`, and
 query/await/message handlers behind an explicitly injected
 `GatewayQueryAuthority`. These are local
@@ -27,10 +27,56 @@ Oxia authority, real issuer/catalog native eligibility authority, a complete aut
 or release readiness. The Delay worktree now also contains explicit opt-in bindings to
 the locked Kafka K1/K2 and Pulsar P1 client artifacts, including real three-broker
 K1/K2 smokes; these are source-bound integration evidence, not a claim that the
-full K2 receipt-read/response-loss, D3, guarded-source or Worker production gates
-are closed. The isolated Kafka and
+full K2 receipt-read/response-loss, D3 assignment/session/LSO recovery or Worker
+production gates are closed. The isolated Kafka and
 Pulsar upstream worktrees recorded below remain separately owned implementation
 evidence; their patches are not copied into this repository.
+
+## 2026-08-15 guarded Kafka Fetch/source handoff slice
+
+Kafka commit `05849884ca81fad767fda058444d1e17c7f9cbf9` extends the isolated
+`nereus/delay-guarded-producer-v1` client from guarded Produce to a public
+`GuardedConsumer` boundary. `ConsumerResourceGuard` binds the authenticated
+cluster, canonical topic, expected TopicId and one partition. The Kafka Fetch
+path now requires Fetch v13 or newer for a bound consumer, carries a typed
+`GuardedFetchEvidence` through `CompletedFetch` and `ConsumerRecords`, and
+includes the request version, correlation ID, broker node, session ID, fetch
+offset, returned offset range, high watermark, last stable offset and a
+SHA-256 digest of the Fetch response body. Cluster/topic/TopicId/partition
+drift fails closed with a typed resource-guard failure; no name-only or stock
+Consumer fallback is accepted.
+
+Delay commit `17b4d7e6` binds that artifact through
+`KafkaClientArtifactSourceConsumerFactory`, which forces auto-commit off and
+rejects a runtime that does not implement `GuardedConsumer`. Both the active
+source adapter and the no-ACK recovery cursor use `pollGuarded`, validate the
+proof against the exact TopicId/topic/partition and require each returned
+record offset to be inside the proven Fetch range. The active adapter retains
+one in-flight record until `commitSync` succeeds; the recovery cursor never
+commits a group offset. The Worker composition boundary now also requires the
+same immutable guard before seeking the accepted activation barrier.
+
+The locked Kafka client focused compile/checkstyle/tests passed, including the
+API, Fetch and identity-drift tests. Delay `check`, `compileRealKafka` and
+`checkstyleRealKafka` passed as separate gates against client JAR SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`.
+`run-kafka-real-client-e2e.sh` then passed against Kafka
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Compose project
+`nereus-delay-kafka-e2e-1786756126-42356`, ports `19448,19449,19450`, and
+broker image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`.
+The source line was:
+
+```text
+Kafka source ACK smoke passed: topicId=UhgNFMmET9ShykfZrz5gRg, firstOffset=0, secondOffset=1, committedAfterRestart=empty
+```
+
+The same run also passed K1 delete/recreate and survivor-broker failover plus
+K2 target/receipt commit, abort and replacement-topic fencing. This closes
+the guarded source Fetch proof and source ACK/replay handoff at the opt-in
+client-binding level. It does not prove Fetch response-loss handling, LSO or
+retention-floor recovery, assignment/session ownership, ACK-failure injection,
+RocksDB apply, or the complete production Worker vertical; those remain
+release blockers.
 
 ## 2026-08-15 guarded Pulsar recovery positioning slice
 

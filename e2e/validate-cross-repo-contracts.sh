@@ -9,7 +9,7 @@ oxia_checkout=${NEREUS_DELAY_OXIA_CHECKOUT:-"$delay_root/../../oxia"}
 
 kafka_branch="nereus/delay-guarded-producer-v1"
 kafka_base="c300006a7705c240642db6950b5a95fec982bfc5"
-kafka_head="8bd66fbb26eae1b0e4c5867e61f41900c3f5e318"
+kafka_head="05849884ca81fad767fda058444d1e17c7f9cbf9"
 pulsar_branch="nereus/delay-resource-guard-v1"
 pulsar_base="8dae0236c0a0d405ed7f8303081080520fe91551"
 pulsar_head="358ce4a1033bd566faebcd3465c3ba4606f3c83f"
@@ -85,7 +85,7 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
-    "nereus/delay-guarded-producer-v1@8bd66fbb26eae1b0e4c5867e61f41900c3f5e318"
+    "nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "412441c47cce4e61d3cc015b95c7d3cffcab2f7f"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
@@ -163,6 +163,14 @@ require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transpo
     "KafkaClientArtifactSourceRecordConsumer"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactSourceRecordConsumer.java" \
     "consumer.commitSync"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactSourceConsumerFactory.java" \
+    "bindResourceGuard"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactFetchEvidence.java" \
+    "requireBatch"
+require_file_text "$kafka_checkout/clients/src/main/java/org/apache/kafka/clients/consumer/GuardedConsumer.java" \
+    "pollGuarded"
+require_file_text "$kafka_checkout/clients/src/main/java/org/apache/kafka/clients/consumer/GuardedFetchEvidence.java" \
+    "fetchResponseBodySha256"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactSourceSmoke.java" \
     "KafkaClientArtifactRecoverySourceCursor"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactSourceSmoke.java" \
