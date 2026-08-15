@@ -7339,6 +7339,20 @@ Kafka/Pulsar append/ACK, source-factory wiring, adapter journals,
 response-loss/crash resolution, real-client E2E and §23.5 release readiness
 remain open.
 
+## 2026-08-15 source-bound physical adapter invocation audit
+
+Delay commit `5222c9bbb9f64e6a0fe58009ccf143ca8ec59636` carries the durable
+attempt's canonical Source Position and prepared Publish hash through the
+bounded physical adapter. The late gate and zombie-release behavior remain
+shared with ordinary invocation, while `KafkaTransactionalDestinationAdapter`
+can now be reached through its source-aware target-plus-receipt overload.
+
+The focused Worker/Kafka tests and full `check` passed. This closes only the
+common source-bound composition. It does not prove source-ordered lookup and
+application of a live PUBLISHING ledger, Source Assignment/ACK authority,
+physical K2 Broker append, response-loss/LSO resolution, real Worker E2E or
+§23.5 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

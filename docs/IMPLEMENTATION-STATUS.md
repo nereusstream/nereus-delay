@@ -5614,6 +5614,7 @@ covers this ordering.
 | Message expiry discovery and exact-mutation handoff | Implemented (local record/actual-byte/elapsed bounded discovery plus append handoff; external authority pending) | `ExpiryDiscoveryWorkClassExecutor`, `ExpiryWorkClassExecutor`, `BoundedReadBudget`, `OwnedDelayShard`, `DelayShard`, `ShardStore`, `ExpiryDiscoveryWorkClassExecutorTest`, `ExpiryWorkClassExecutorTest`, `ShardStoreTest`; discovery binds the exact Shard/canonical Trusted-UTC evidence/full scan envelope before `EXPIRY` admission, rejection reads no Oxia/clock/Store state, execution rereads strict Owner authority, and one shared budget charges actual `timeline_cf/EXPIRY` plus dependent `id_cf/MESSAGE` key/value bytes and elapsed time. An individually oversized candidate fails closed; a later candidate that does not fit remains durable for another turn. Discovery is state-neutral, while each exact candidate is independently signed and handed to the external Shard Log appender without local Source Position allocation; production scheduling, Trusted-Time/Oxia authority, Broker append/ACK and source replay remain release blockers |
 | Scheduled checkpoint work-class admission | Implemented (local concrete handler wiring and derived static request charge; production authority pending) | `CheckpointWorkClassExecutor`, `CheckpointExecutionCoordinator`, `WorkClassExecutionRegistry`, `CheckpointExecutionCoordinatorTest.checkpointWorkClassRejectsBeforeIoThenExecutesTheExactClaim`; exact scheduler claim and pending intent are fenced before `CHECKPOINT` queue admission and repeated before I/O, normalized path/claim/pending-intent/upload-time bytes form one canonical identity whose domain-separated hash is the task ID and whose exact length is the queue byte charge, caller-supplied `workClassBytes` is absent, negative upload time fails before admission, direct preflight/execution methods are package-private so cross-package composition must use the bounded entrypoint, queue rejection leaves the current claim and filesystem/provider state unchanged, ordinary attempt failure returns a checkpoint-owned outcome without a stale generic work action, and only the next exact scheduler claim can start the next physical attempt; Owner Lease/session, Source Assignment, external Object Store/Oxia authority, the other shard-specific handlers and dynamic checkpoint-file/upload/WriteBatch I/O attribution remain release gates |
 | Signed Worker PUBLISH_OUTCOME construction | Implemented (typed local factory; context and source authority pending) | `WorkerPublishOutcomeMutationFactory`, `WorkerPublishOutcomeMutationFactoryTest`; exact PUBLISHING ledger/request identity, physical-result side-effect/disposition compatibility, typed PublishEvidence ownership, canonical `PublishOutcomeBody` construction and Ed25519 `SystemMutation` signing are enforced; external retry-policy/charge/time context, live owner/signing-key authority, Broker evidence and source-log append/application remain release blockers |
+| Source-bound physical adapter invocation | Implemented (common bounded path; real Worker source replay pending) | `DestinationPublishAdapter`, `BoundedDestinationPublishAdapter`, `KafkaTransactionalDestinationAdapter`, `WorkerPhysicalPublishExecutor`, `WorkerPhysicalPublishExecutorTest`; the durable ledger Source Position and prepared Publish hash now cross the bounded preflight into the adapter source-aware overload, while ordinary adapters retain the one-argument compatibility path; source-ordered admission lookup, live Source Assignment/ACK authority, response-loss resolution and real K2 Worker E2E remain release blockers |
 | Shard identity and local Store Incarnation validation | Implemented | `StoreMetadata`, `ShardStoreTest` |
 | Synchronous atomic WriteBatch | Implemented | `ShardStore.write`, `ShardStoreTest` |
 | Native RocksDB checkpoint creation | Implemented | `ShardStore.createCheckpoint`, `ShardStoreTest`; checkpoint creation is staged under the same-filesystem `checkpoint-tmp` namespace, rejects an existing target, installs only through an atomic rename, and removes a target that was moved but failed the subsequent parent-directory durability step, with failed-stage cleanup |
@@ -8663,6 +8664,38 @@ authority, source-protected signing keys, adapter evidence journals,
 Kafka/Pulsar physical append/ACK, response-loss/crash resolution and the
 real-client harnesses remain open; no real-client E2E was rerun for this
 common factory slice.
+
+## 2026-08-15 source-bound physical adapter invocation
+
+Delay commit `5222c9bbb9f64e6a0fe58009ccf143ca8ec59636` adds a source-aware
+`DestinationPublishAdapter.publish(request, sourcePosition, preparedHash)`
+compatibility boundary. `BoundedDestinationPublishAdapter` carries that exact
+context through the same physical admission, late `PublishPreflight`,
+completion observation and zombie-release path. Ordinary adapters inherit the
+default overload and preserve their existing behavior; the
+`KafkaTransactionalDestinationAdapter` marks its target-plus-receipt overload
+as the source-bound implementation.
+
+`WorkerPhysicalPublishExecutor` decodes the canonical Source Position retained
+by the `PUBLISHING` ledger and passes it together with the retained prepared
+Publish hash immediately before the guarded delegate. Focused verification
+passed:
+
+```text
+./gradlew test --tests io.nereusstream.delay.ownership.WorkerPhysicalPublishExecutorTest --tests io.nereusstream.delay.adapter.KafkaTransactionalDestinationAdapterTest --no-daemon --console=plain
+BUILD SUCCESSFUL in 6s
+11 actionable tasks: 2 executed, 9 up-to-date
+
+./gradlew check --no-daemon --console=plain
+BUILD SUCCESSFUL in 1m 10s
+21 actionable tasks: 3 executed, 18 up-to-date
+```
+
+This proves the common source-bound invocation seam and local K2 adapter
+composition only. The checked-in real-client harnesses were not changed or
+rerun; they still do not source-apply a Worker PUBLISHING ledger into this
+executor, so no claim is made for real K2 Worker append/ACK, source replay,
+response-loss/LSO resolution or release PASS.
 
 ## Verification command
 

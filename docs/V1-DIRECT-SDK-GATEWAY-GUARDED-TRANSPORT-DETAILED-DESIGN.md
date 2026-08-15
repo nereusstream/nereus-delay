@@ -3998,3 +3998,19 @@ transfer and trusted-time projections from external authority. The factory
 does not classify Broker response loss, mint physical evidence, apply RocksDB
 state or append to the Shard Log. Those boundaries, plus live signing-key
 protection and source-factory production wiring, remain open.
+
+### 2026-08-15 source-bound physical adapter invocation implementation note
+
+Delay commit `5222c9bbb9f64e6a0fe58009ccf143ca8ec59636` adds a default
+source-aware adapter method carrying canonical Source Position and prepared
+Publish hash. The bounded wrapper forwards that context through its existing
+physical admission and final preflight boundary. The Worker decodes the
+Source Position retained in the PUBLISHING ledger immediately before the
+delegate call, and Kafka's transactional target-plus-receipt adapter now
+implements the overload explicitly; ordinary adapters keep the compatibility
+one-argument path.
+
+This is not source replay or Broker evidence. The runtime still needs the
+source-applied PUBLISHING ledger, live assignment/ACK authority, K2 response
+loss/LSO resolution and a real Worker E2E before this composition can be
+promoted.
