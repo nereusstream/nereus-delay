@@ -91,27 +91,50 @@ public final class PulsarClientArtifactWorkerSmoke {
     }
 
     public static void main(final String[] arguments) throws Exception {
-        if (arguments.length != 3) {
-            throw new IllegalArgumentException("usage: <service-url> <admin-url> <topic>");
+        if (arguments.length != 3 && arguments.length != 4) {
+            throw new IllegalArgumentException("usage: <service-url> <admin-url> <topic> [run|prepare|resume]");
         }
         final String serviceUrl = arguments[0];
         final String adminUrl = arguments[1];
-        final String topic = arguments[2] + "-worker-" + UUID.randomUUID();
+        final String mode = arguments.length == 4 ? arguments[3] : "run";
+        if (!mode.equals("run") && !mode.equals("prepare") && !mode.equals("resume")) {
+            throw new IllegalArgumentException("unknown Worker smoke mode: " + mode);
+        }
+        final String topic = mode.equals("run") ? arguments[2] + "-worker-" + UUID.randomUUID() : arguments[2];
         final String physicalTopic = "persistent://public/default/" + topic;
         final HttpClient admin = HttpClient.newHttpClient();
-        createTopic(admin, adminUrl, topic);
-        try (PulsarClient client = PulsarClient.builder().serviceUrl(serviceUrl).build()) {
-            runWorker(client, physicalTopic);
+        createTopic(admin, adminUrl, topic, mode.equals("resume"));
+        try {
+            try (PulsarClient client = PulsarClient.builder().serviceUrl(serviceUrl).build()) {
+                if (mode.equals("prepare")) {
+                    prepareWorkerRecord(client, physicalTopic);
+                } else {
+                    runWorker(client, physicalTopic, !mode.equals("resume"));
+                }
+            }
         } finally {
-            deleteTopicIfPresent(admin, adminUrl, topic);
+            if (!mode.equals("prepare")) {
+                deleteTopicIfPresent(admin, adminUrl, topic);
+            }
         }
     }
 
-    private static void runWorker(final PulsarClient client, final String physicalTopic) throws Exception {
+    private static void prepareWorkerRecord(final PulsarClient client, final String physicalTopic) throws Exception {
         final TopicResourceGuard guard = new TopicResourceGuard(CLUSTER, INCARNATION, CREATION_TIMESTAMP);
-        final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
-        final PreparedCommand recoveryCommand = command(shard, "worker-recovery");
-        send(client, guard, physicalTopic, recoveryCommand, "worker-recovery-producer");
+        final ShardId shard = restartShard(physicalTopic);
+        send(client, guard, physicalTopic, command(shard, "worker-restart-prepared"),
+                "worker-restart-preparation-producer");
+        System.out.println("Pulsar Worker restart preparation passed: one guarded record persisted before broker restart");
+    }
+
+    private static void runWorker(final PulsarClient client, final String physicalTopic,
+                                  final boolean seedRecovery) throws Exception {
+        final TopicResourceGuard guard = new TopicResourceGuard(CLUSTER, INCARNATION, CREATION_TIMESTAMP);
+        final ShardId shard = seedRecovery ? new ShardId(RouteIncarnation.random(), 0) : restartShard(physicalTopic);
+        if (seedRecovery) {
+            final PreparedCommand recoveryCommand = command(shard, "worker-recovery");
+            send(client, guard, physicalTopic, recoveryCommand, "worker-recovery-producer");
+        }
 
         final OxiaSyncOwnerLeaseBackend.ClientHandle oxia = connectOxiaIfConfigured();
         try {
@@ -242,6 +265,12 @@ public final class PulsarClientArtifactWorkerSmoke {
                 oxia.close();
             }
         }
+    }
+
+    private static ShardId restartShard(final String physicalTopic) {
+        return new ShardId(new RouteIncarnation(Arrays.copyOf(
+                Bytes.sha256(Bytes.utf8("nereus-delay-pulsar-worker-restart/" + physicalTopic)),
+                RouteIncarnation.LENGTH)), 0);
     }
 
     private static WorkerAssignment publishAssignment(final WorkerAssignmentAuthority authority,
@@ -388,7 +417,8 @@ public final class PulsarClientArtifactWorkerSmoke {
                 16, 8_000_000), System::nanoTime);
     }
 
-    private static void createTopic(final HttpClient client, final String adminUrl, final String topic)
+    private static void createTopic(final HttpClient client, final String adminUrl, final String topic,
+                                    final boolean allowExisting)
             throws Exception {
         final String path = adminUrl + "/admin/v2/persistent/public/default/" + topic;
         final String body = "{\"nereus.resource.guard.version\":\"1\","
@@ -399,6 +429,9 @@ public final class PulsarClientArtifactWorkerSmoke {
         for (int attempt = 0; attempt < 40; attempt++) {
             final HttpResponse<String> response = request(client, path, "PUT", body);
             if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                return;
+            }
+            if (allowExisting && response.statusCode() == 409) {
                 return;
             }
             if (response.statusCode() != 409 && response.statusCode() != 412

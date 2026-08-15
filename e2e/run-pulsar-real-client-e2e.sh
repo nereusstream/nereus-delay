@@ -135,21 +135,34 @@ GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealPulsarSourceSmoke \
   -PpulsarTopic="${topic}" \
   --no-daemon --console=plain
 
-worker_environment=(env "GRADLE_USER_HOME=${gradle_user_home}")
-worker_gradle_args=(
-  -PpulsarClientClasspath="${pulsar_client_cp}"
-  -PpulsarRuntimeDir="${runtime_dir}/lib"
-  -PpulsarServiceUrl="${service_url}"
-  -PpulsarAdminUrl="${admin_url}"
-  -PpulsarTopic="${topic}"
-)
-if [[ "${with_oxia}" == "1" ]]; then
-  worker_environment+=("NEREUS_DELAY_OXIA_ENDPOINT=127.0.0.1:${oxia_port}")
-  worker_gradle_args+=("-PpulsarWithOxia=true")
-fi
+run_worker_smoke() {
+  local worker_topic="$1"
+  local worker_mode="$2"
+  local worker_environment=(env "GRADLE_USER_HOME=${gradle_user_home}")
+  local worker_gradle_args=(
+    -PpulsarClientClasspath="${pulsar_client_cp}"
+    -PpulsarRuntimeDir="${runtime_dir}/lib"
+    -PpulsarServiceUrl="${service_url}"
+    -PpulsarAdminUrl="${admin_url}"
+    -PpulsarTopic="${worker_topic}"
+    -PpulsarWorkerMode="${worker_mode}"
+  )
+  if [[ "${with_oxia}" == "1" ]]; then
+    worker_environment+=("NEREUS_DELAY_OXIA_ENDPOINT=127.0.0.1:${oxia_port}")
+    worker_gradle_args+=("-PpulsarWithOxia=true")
+  fi
 
-"${worker_environment[@]}" ./gradlew runRealPulsarWorkerSmoke \
-  "${worker_gradle_args[@]}" \
-  --no-daemon --console=plain
+  "${worker_environment[@]}" ./gradlew runRealPulsarWorkerSmoke \
+    "${worker_gradle_args[@]}" \
+    --no-daemon --console=plain
+}
 
-echo "Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, guarded source replay, Broker timestamp, Worker recovery/apply, and ACK handoff."
+run_worker_smoke "${topic}" run
+
+restart_topic="${PULSAR_DELAY_RESTART_TOPIC:-p1-worker-restart-${compose_project##*-}}"
+run_worker_smoke "${restart_topic}" prepare
+"${compose[@]}" restart pulsar
+wait_for_service
+run_worker_smoke "${restart_topic}" resume
+
+echo "Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, guarded source replay, Broker timestamp, Worker recovery/apply, ACK handoff, and broker-restart resume."
