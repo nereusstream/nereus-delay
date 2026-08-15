@@ -39,8 +39,8 @@ class OxiaSyncProfileCatalogBackendTest {
     @Test
     void publishesReopensRotatesAndIssuesProtectionBoundLease() throws Exception {
         final FakeRecordClient records = new FakeRecordClient();
-        final OxiaSyncProfileCatalogBackend backend = backend(records, "delay/profile");
         final Fixture fixture = fixture();
+        final OxiaSyncProfileCatalogBackend backend = backend(records, "delay/profile", fixture.keyPair());
 
         assertEquals(1, backend.publish(fixture.profile(), fixture.binding()).headRevision());
         final CredentialUseLeaseV1 lease = backend.issueCredentialUseLease(fixture.profile().ref(),
@@ -50,7 +50,7 @@ class OxiaSyncProfileCatalogBackendTest {
         assertEquals(2, backend.resolveProtection(fixture.profile().ref(), 1).protectionRevision());
         assertEquals(fixture.binding(), backend.resolveBinding(fixture.profile().ref(), 1));
 
-        final OxiaSyncProfileCatalogBackend reopened = backend(records, "delay/profile");
+        final OxiaSyncProfileCatalogBackend reopened = backend(records, "delay/profile", fixture.keyPair());
         assertEquals(fixture.profile(), reopened.resolve(fixture.profile().ref()));
         final CredentialUseLeaseV1 shorterLease = reopened.issueCredentialUseLease(fixture.profile().ref(),
                 CredentialUseKindV1.OBJECT_STORE_ADAPTER, bytes(32, 30), 1, fixture.binding().bindingDigest(),
@@ -72,8 +72,8 @@ class OxiaSyncProfileCatalogBackendTest {
     @Test
     void responseLossIsAcceptedOnlyAfterExactReread() throws Exception {
         final FakeRecordClient records = new FakeRecordClient();
-        final OxiaSyncProfileCatalogBackend backend = backend(records, "delay/profile-loss");
         final Fixture fixture = fixture();
+        final OxiaSyncProfileCatalogBackend backend = backend(records, "delay/profile-loss", fixture.keyPair());
 
         records.failNextPutAfterCommit = true;
         assertEquals(1, backend.publish(fixture.profile(), fixture.binding()).headRevision());
@@ -86,8 +86,8 @@ class OxiaSyncProfileCatalogBackendTest {
     @Test
     void rejectsHeadCasDriftAndProfileSemanticCollision() throws Exception {
         final FakeRecordClient records = new FakeRecordClient();
-        final OxiaSyncProfileCatalogBackend backend = backend(records, "delay/profile-fence");
         final Fixture fixture = fixture();
+        final OxiaSyncProfileCatalogBackend backend = backend(records, "delay/profile-fence", fixture.keyPair());
         backend.publish(fixture.profile(), fixture.binding());
 
         final CredentialBindingV1 nextBinding = binding(fixture.profile(), 2, Bytes.utf8("secret://object/v2"),
@@ -107,8 +107,11 @@ class OxiaSyncProfileCatalogBackendTest {
         assertThrows(IllegalStateException.class, () -> backend.resolve(conflicting.ref()));
     }
 
-    private static OxiaSyncProfileCatalogBackend backend(final FakeRecordClient records, final String prefix) {
-        return new OxiaSyncProfileCatalogBackend(records, prefix, MAX_LEASE_TTL_MS, MAX_ATTESTATION_AGE_MS);
+    private static OxiaSyncProfileCatalogBackend backend(final FakeRecordClient records, final String prefix,
+                                                         final KeyPair keyPair) {
+        return new OxiaSyncProfileCatalogBackend(records, prefix, MAX_LEASE_TTL_MS, MAX_ATTESTATION_AGE_MS,
+                CredentialAttestationTrustSet.single(1, Bytes.utf8("verifier"), 1, keyPair.getPublic(),
+                        0, 20_000));
     }
 
     private static Fixture fixture() throws Exception {

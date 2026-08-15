@@ -34,7 +34,8 @@ class OxiaRealProfileCatalogSmokeTest {
 
         try (OxiaSyncOwnerLeaseBackend.ClientHandle client = connect(endpoint, prefix + "/client")) {
             final OxiaSyncProfileCatalogBackend backend = new OxiaSyncProfileCatalogBackend(
-                    client.client(), prefix + "/catalog", 5_000, 10_000);
+                    client.client(), prefix + "/catalog", 5_000, 10_000,
+                    trustSet(fixture.keyPair()));
             assertEquals(1, backend.publish(fixture.profile(), fixture.binding()).headRevision());
             final CredentialUseLeaseV1 lease = backend.issueCredentialUseLease(fixture.profile().ref(),
                     CredentialUseKindV1.OBJECT_STORE_ADAPTER, id32(30), 1, fixture.binding().bindingDigest(),
@@ -44,7 +45,8 @@ class OxiaRealProfileCatalogSmokeTest {
                     .objectStoreLeaseProtectionUntilEpochMs());
 
             final OxiaSyncProfileCatalogBackend reopened = new OxiaSyncProfileCatalogBackend(
-                    client.client(), prefix + "/catalog", 5_000, 10_000);
+                    client.client(), prefix + "/catalog", 5_000, 10_000,
+                    trustSet(fixture.keyPair()));
             assertEquals(fixture.profile(), reopened.resolve(fixture.profile().ref()));
             final CredentialUseLeaseV1 shorterLease = reopened.issueCredentialUseLease(fixture.profile().ref(),
                     CredentialUseKindV1.OBJECT_STORE_ADAPTER, id32(30), 1, fixture.binding().bindingDigest(),
@@ -108,6 +110,11 @@ class OxiaRealProfileCatalogSmokeTest {
         return new TrustedUtcIntervalEvidence(earliest, earliest + 1,
                 TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, id32((int) earliest), 1, 1, 1,
                 id32((int) earliest + 1), 0, null);
+    }
+
+    private static CredentialAttestationTrustSet trustSet(final KeyPair keyPair) {
+        return CredentialAttestationTrustSet.single(1, Bytes.utf8("real-verifier"), 1,
+                keyPair.getPublic(), 0, 20_000);
     }
 
     private static byte[] id32(final int seed) {

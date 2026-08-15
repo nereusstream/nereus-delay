@@ -36,9 +36,10 @@ import java.util.TreeMap;
  *
  * <p>Every Profile version is stored in one canonical record. Initial
  * publication, equivalent-secret rotation and protection-before-lease issuance
- * therefore use one version CAS each. The backend does not resolve a secret or
- * verify an attestation trust set; those inputs must already have been
- * authorized by the surrounding control plane.</p>
+ * therefore use one version CAS each. The backend does not resolve private
+ * material or authorize a control actor, but it does require every binding's
+ * equivalence attestation to verify against the configured immutable trust
+ * set.</p>
  */
 public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAuthority {
     private static final int RECORD_VERSION = 1;
@@ -53,18 +54,22 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
     private final String keyPrefix;
     private final long maximumLeaseTtlMs;
     private final long maximumAttestationAgeMs;
+    private final CredentialAttestationTrustSet attestationTrustSet;
 
     /** Creates a Profile catalog over an already configured Oxia client. */
     public OxiaSyncProfileCatalogBackend(final SyncOxiaClient client, final String keyPrefix,
                                          final long maximumLeaseTtlMs,
-                                         final long maximumAttestationAgeMs) {
-        this(new SyncRecordClient(client), keyPrefix, maximumLeaseTtlMs, maximumAttestationAgeMs);
+                                         final long maximumAttestationAgeMs,
+                                         final CredentialAttestationTrustSet attestationTrustSet) {
+        this(new SyncRecordClient(client), keyPrefix, maximumLeaseTtlMs, maximumAttestationAgeMs,
+                attestationTrustSet);
     }
 
     /** Package-private constructor used by deterministic CAS tests. */
     OxiaSyncProfileCatalogBackend(final RecordClient client, final String keyPrefix,
                                   final long maximumLeaseTtlMs,
-                                  final long maximumAttestationAgeMs) {
+                                  final long maximumAttestationAgeMs,
+                                  final CredentialAttestationTrustSet attestationTrustSet) {
         this.client = Objects.requireNonNull(client, "client");
         this.keyPrefix = canonicalKeyPrefix(keyPrefix);
         if (maximumLeaseTtlMs <= 0 || maximumAttestationAgeMs <= 0) {
@@ -72,6 +77,7 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
         }
         this.maximumLeaseTtlMs = maximumLeaseTtlMs;
         this.maximumAttestationAgeMs = maximumAttestationAgeMs;
+        this.attestationTrustSet = Objects.requireNonNull(attestationTrustSet, "attestationTrustSet");
     }
 
     /** Publishes generation one and its initial protection projection atomically. */
@@ -83,6 +89,7 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
             throw new IllegalArgumentException("Profile publication requires an exact generation-1 binding");
         }
         requireCredentialScope(profile, binding);
+        requireCredentialAttestation(profile, binding);
         return mutate(profile.ref(), current -> {
             if (current != null) {
                 if (!current.profile().equals(profile)) {
@@ -132,6 +139,7 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
                 throw new IllegalStateException("credential Head CAS precondition failed");
             }
             requireCredentialScope(current.profile(), nextBinding);
+            requireCredentialAttestation(current.profile(), nextBinding);
             if (existingNext != null && !existingNext.equals(nextBinding)) {
                 throw new IllegalStateException("credential generation already has different immutable bytes");
             }
@@ -193,6 +201,7 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
                     binding.equivalenceAttestation().resolvedCredentialFingerprintDigest())) {
                 throw new IllegalArgumentException("resolved credential fingerprint does not match binding");
             }
+            requireCredentialAttestation(current.profile(), binding);
             binding.equivalenceAttestation().requireNotAfterAtMost(maximumAttestationAgeMs);
             if (issuedAt.earliestEpochMs() < binding.equivalenceAttestation().verifiedAt().latestEpochMs()) {
                 throw new IllegalArgumentException("lease evidence predates credential attestation");
@@ -344,7 +353,7 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
         });
     }
 
-    private static State decodeState(final byte[] encoded) {
+    private State decodeState(final byte[] encoded) {
         Objects.requireNonNull(encoded, "encoded");
         final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(encoded, true);
         final CanonicalProtobuf.Reader.Field profileField = next(reader, 1);
@@ -371,6 +380,7 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
                 final CredentialBindingV1 binding = CredentialBindingV1.decode(bytes(field, 3, MAX_RECORD_BYTES));
                 requireBindingIdentity(profile, binding);
                 requireCredentialScope(profile, binding);
+                requireCredentialAttestation(profile, binding);
                 if (bindings.size() >= MAX_BINDINGS) {
                     throw new IllegalStateException("Oxia Profile catalog binding count exceeds bound");
                 }
@@ -476,6 +486,11 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
                 ? destination.credentialAuthorizationScopeDigest()
                 : ((ObjectStoreProfileSemanticV1) profile.body()).credentialAuthorizationScopeDigest();
         binding.equivalenceAttestation().requireAuthorizationScopeDigest(expectedScope);
+    }
+
+    private void requireCredentialAttestation(final ProfileSemanticEnvelopeV1 profile,
+                                              final CredentialBindingV1 binding) {
+        attestationTrustSet.verify(profile, binding);
     }
 
     private static void requireBindingIdentity(final ProfileSemanticEnvelopeV1 profile,
