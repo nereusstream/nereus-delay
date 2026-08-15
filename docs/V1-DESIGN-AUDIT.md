@@ -7969,6 +7969,36 @@ transport response-loss evidence; physical Kafka/Pulsar crash/response-loss
 resolution, transparent reconnect/HA, load, multi-shard placement and V1
 release readiness remain open.
 
+## 2026-08-16 real Oxia Gateway RETRY_UNCERTAIN response-loss receipt audit
+
+Commit `bcac733ae7e48776ce7d427d66643d21a6dd2a7d` fixes the retry transition
+so `GatewayIdempotencyRecordV1.withAttempt` clears the prior uncertain
+aggregate while an explicit retry is `ACTIVE`. The deterministic retry CAS
+test asserts that boundary. The source-bound
+`gatewayRecoversAfterCommittedOxiaRetryAttemptResponseLoss` test then loses
+the response after real Oxia commits both the initial `STARTED` CAS and the
+explicit retry `STARTED` CAS. It recovers the first attempt, starts the retry
+only from the exact prior attempt, and verifies byte-identical retry output
+before and after the retry uncertainty deadline with no physical submission.
+
+The receipt is locked to Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, image
+`sha256:ba41122a1fa21cdcfb1c2680e81a3f14519d6f1f9213f82dfa284fb3e792428d`,
+Compose `nereus-delay-gateway-e2e-1786828250-57299`, Oxia `16697` and Gateway
+`22362`. Final scans require one admission record with zero leases, one
+quiescent idempotency record with two `UNCERTAIN` attempts and an aggregate,
+and eight digest-only audit records. The run ended with:
+
+```text
+Gateway Oxia RETRY_UNCERTAIN response-loss E2E passed: committed retry attempt was reread after deadline as exact UNCERTAIN without a second physical submission
+```
+
+This is source-bound real-Oxia explicit-retry durability and recovery with a
+controlled post-commit response cut. It is not raw network packet-loss or
+Broker transport response-loss evidence; physical Kafka/Pulsar crash/response-
+loss resolution, transparent reconnect/HA, load, multi-shard placement and
+V1 release readiness remain open.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

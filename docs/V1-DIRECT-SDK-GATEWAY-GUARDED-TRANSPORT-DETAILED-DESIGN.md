@@ -4725,3 +4725,39 @@ This is durable post-commit response-loss recovery with a controlled client
 response cut, not raw socket fault injection. It does not promote physical
 Kafka/Pulsar response-loss/crash resolution, transparent Gateway reconnect/HA,
 load, multi-shard placement or the V1 release gates.
+
+### 2026-08-16 real Oxia Gateway RETRY_UNCERTAIN response-loss receipt
+
+Commit `bcac733ae7e48776ce7d427d66643d21a6dd2a7d` closes the explicit retry
+state transition exposed by the real network test. When
+`OxiaGatewayIdempotencyStore.startRetry` creates a new `ACTIVE` attempt,
+`GatewayIdempotencyRecordV1.withAttempt` now drops the prior uncertain
+aggregate. This prevents the first retry response from replaying the prior
+attempt's physical identity; the retry aggregate is written only when the
+new retry attempt is resolved or recovered.
+
+`gatewayRecoversAfterCommittedOxiaRetryAttemptResponseLoss` uses the real
+mTLS/RS256 Gateway and three session-bound Oxia record clients. The controlled
+wrapper loses the response after the real Oxia `STARTED` CAS for the first
+attempt and again after the explicit retry `STARTED` CAS. The test recovers the
+first attempt, sends `RetryUncertain` with its exact prior-attempt precondition,
+and verifies the retry response is byte-identical before and after the retry
+deadline, with one preparation and zero physical submissions.
+
+The source-locked receipt used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, image
+`sha256:ba41122a1fa21cdcfb1c2680e81a3f14519d6f1f9213f82dfa284fb3e792428d`,
+Compose `nereus-delay-gateway-e2e-1786828250-57299`, host ports `16697` and
+`22362`, and ended with `BUILD SUCCESSFUL in 16s` / `11 actionable tasks: 11
+executed` for the seven-test class (two opt-in tests skipped):
+
+```text
+Gateway Oxia RETRY_UNCERTAIN response-loss E2E passed: committed retry attempt was reread after deadline as exact UNCERTAIN without a second physical submission
+```
+
+The final real-Oxia scans prove two uncertain attempts in one quiescent record,
+a non-null aggregate, zero admission leases and eight audit records. This is
+durable explicit-retry response-loss recovery with a controlled client-side
+response cut, not raw socket fault injection. It does not promote physical
+Kafka/Pulsar response-loss/crash resolution, transparent Gateway reconnect/HA,
+load, multi-shard placement or the V1 release gates.

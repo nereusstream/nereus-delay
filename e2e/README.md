@@ -1012,3 +1012,41 @@ This is real-Oxia durable post-commit recovery with controlled client-side
 response loss. It is not raw socket fault injection or physical Kafka/Pulsar
 response-loss/crash evidence; transparent Gateway reconnect/HA, load,
 multi-shard placement and release PASS remain open.
+
+## Gateway RETRY_UNCERTAIN response-loss recovery against real Oxia
+
+Run the explicit-retry receipt against a source-locked real Oxia service:
+
+```bash
+NEREUS_DELAY_OXIA_CHECKOUT=/absolute/path/to/oxia \
+NEREUS_DELAY_OXIA_GATEWAY_E2E_PORT=16697 \
+NEREUS_DELAY_GATEWAY_PORT=22362 \
+NEREUS_DELAY_GATEWAY_GRADLE_USER_HOME=/tmp/nereus-delay-gateway-retry-loss-real-gradle \
+./e2e/run-gateway-real-e2e.sh
+```
+
+Commit `bcac733ae7e48776ce7d427d66643d21a6dd2a7d` clears the previous
+uncertain aggregate whenever a new explicit retry becomes `ACTIVE`. The real
+`gatewayRecoversAfterCommittedOxiaRetryAttemptResponseLoss` test loses the
+response after Oxia commits both the initial and retry `STARTED` CAS writes.
+It recovers the initial attempt, issues `RetryUncertain` with the exact prior
+attempt ID, and checks byte-identical retry responses before and after the
+deadline, one Semantic preparation and zero physical submissions. Final scans
+require one quiescent idempotency record with two `UNCERTAIN` attempts, an
+aggregate, zero admission leases and eight audit records.
+
+The accepted source-locked run used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, image
+`sha256:ba41122a1fa21cdcfb1c2680e81a3f14519d6f1f9213f82dfa284fb3e792428d`,
+Compose project `nereus-delay-gateway-e2e-1786828250-57299`, Oxia port
+`16697` and Gateway port `22362`. The seven-test class ended with
+`BUILD SUCCESSFUL in 16s` and two opt-in tests skipped, and emitted:
+
+```text
+Gateway Oxia RETRY_UNCERTAIN response-loss E2E passed: committed retry attempt was reread after deadline as exact UNCERTAIN without a second physical submission
+```
+
+This is real-Oxia durable explicit-retry recovery with controlled client-side
+post-commit response loss. It is not raw socket fault injection or physical
+Kafka/Pulsar response-loss/crash evidence; transparent Gateway reconnect/HA,
+load, multi-shard placement and release PASS remain open.

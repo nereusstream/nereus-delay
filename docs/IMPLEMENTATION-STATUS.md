@@ -9432,6 +9432,48 @@ response loss. It is not a raw socket fault-injection proof and does not close
 physical Kafka/Pulsar response-loss or crash resolution, transparent Gateway
 reconnect/HA, load, multi-shard placement or the §23.5 V1 release gates.
 
+## 2026-08-16 real Oxia Gateway RETRY_UNCERTAIN response-loss receipt
+
+Commit `bcac733ae7e48776ce7d427d66643d21a6dd2a7d` closes the remaining
+explicit-retry response-loss gap exposed by the real receipt. Starting a new
+retry attempt now clears the previous uncertain aggregate while the record is
+`ACTIVE`; otherwise the first retry response could incorrectly replay the old
+attempt's bytes and differ from the deadline-recovery response. The deterministic
+`retryAttemptCasResponseLossConvergesToUncertainAfterDeadlineWithoutPermit`
+test now asserts that the active retry has no aggregate.
+
+The real test
+`gatewayRecoversAfterCommittedOxiaRetryAttemptResponseLoss` uses the same
+mTLS/RS256 Gateway and real Oxia record surfaces. Its wrapper loses the first
+`STARTED` CAS response and the explicit retry `STARTED` CAS response after both
+puts commit. The first attempt is recovered at the deadline, the retry is
+started with the prior attempt precondition, and the retry is recovered at its
+deadline. Both first retry and post-deadline retry responses are
+byte-identical; Semantic preparation remains one and physical submissions
+remain zero.
+
+The source-locked run used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, image
+`sha256:ba41122a1fa21cdcfb1c2680e81a3f14519d6f1f9213f82dfa284fb3e792428d`,
+Compose project `nereus-delay-gateway-e2e-1786828250-57299`, Oxia port
+`16697` and Gateway port `22362`. The class ran seven tests with the two
+multi-node/session-churn tests skipped and zero failures; Gradle ended with
+`BUILD SUCCESSFUL in 16s` / `11 actionable tasks: 11 executed`. The new
+receipt printed:
+
+```text
+Gateway Oxia RETRY_UNCERTAIN response-loss E2E passed: committed retry attempt was reread after deadline as exact UNCERTAIN without a second physical submission
+```
+
+Final real-Oxia scans found one admission record with zero leases, one
+quiescent idempotency record with two `UNCERTAIN` attempts and a non-null
+aggregate, and eight immutable audit records for the four authenticated
+calls. This is real-Oxia durable explicit-retry response-loss recovery with a
+controlled client-side post-commit response cut. It is not raw socket fault
+injection and does not close physical Kafka/Pulsar response-loss or crash
+resolution, transparent Gateway reconnect/HA, load, multi-shard placement or
+the §23.5 V1 release gates.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
