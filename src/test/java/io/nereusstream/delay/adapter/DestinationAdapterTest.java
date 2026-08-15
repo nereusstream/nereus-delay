@@ -9,11 +9,14 @@ import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
 import io.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
+import io.nereusstream.delay.protocol.PulsarSourcePosition;
+import io.nereusstream.delay.protocol.SourcePosition;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -105,6 +108,46 @@ class DestinationAdapterTest {
             assertEquals(DestinationPublishResult.Disposition.UNKNOWN, result.disposition());
             assertEquals(StableCode.DESTINATION_OUTCOME_UNKNOWN, result.stableCode());
         }
+    }
+
+    @Test
+    void pulsarSourceBoundTransportReceivesSourcePositionAndPreparedHash() {
+        final byte[] resourceIncarnation = Bytes.sha256(Bytes.utf8("pulsar-source-bound-resource"));
+        final PulsarTargetResource resource = new PulsarTargetResource("cluster", resourceIncarnation,
+                "persistent://tenant/ns/source-bound", 8_100, 0);
+        final DestinationPublishRequest request = request(1_000, 1_000);
+        final SourcePosition source = new PulsarSourcePosition(request.delayMessageId().routingId().shardId(),
+                Bytes.sha256(Bytes.utf8("source-resource")), "persistent://tenant/ns/source", 4, 9, 0, 1,
+                PulsarSourcePosition.EntryKind.NON_BATCH, 1_001);
+        final byte[] preparedHash = Bytes.sha256(Bytes.utf8("prepared-source-bound"));
+        final AtomicReference<SourcePosition> receivedSource = new AtomicReference<>();
+        final AtomicReference<byte[]> receivedPreparedHash = new AtomicReference<>();
+        final PinnedPulsarDestinationAdapter.PulsarDestinationTransport transport =
+                new PinnedPulsarDestinationAdapter.PulsarDestinationTransport() {
+                    @Override
+                    public CompletableFuture<DestinationPublishResult> publish(
+                            final PulsarDestinationRequest ignored) {
+                        throw new AssertionError("source-bound transport overload was not used");
+                    }
+
+                    @Override
+                    public CompletableFuture<DestinationPublishResult> publish(
+                            final PulsarDestinationRequest ignored,
+                            final SourcePosition exactSource,
+                            final byte[] exactPreparedHash) {
+                        receivedSource.set(exactSource);
+                        receivedPreparedHash.set(exactPreparedHash);
+                        return CompletableFuture.completedFuture(DestinationPublishResult.unknown(
+                                StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
+                    }
+                };
+        try (PinnedPulsarDestinationAdapter adapter = new PinnedPulsarDestinationAdapter(resource, transport)) {
+            final DestinationPublishResult result = adapter.publish(request, source, preparedHash)
+                    .toCompletableFuture().join();
+            assertEquals(DestinationPublishResult.Disposition.UNKNOWN, result.disposition());
+        }
+        assertEquals(source, receivedSource.get());
+        assertArrayEquals(preparedHash, receivedPreparedHash.get());
     }
 
     @Test

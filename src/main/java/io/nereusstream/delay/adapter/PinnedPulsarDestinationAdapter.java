@@ -1,7 +1,10 @@
 package io.nereusstream.delay.adapter;
 
-import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.PulsarSourcePosition;
+import io.nereusstream.delay.protocol.SourcePosition;
+import io.nereusstream.delay.protocol.StableCode;
 
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -39,7 +42,28 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
                 () -> completed(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null)));
     }
 
+    @Override
+    public CompletionStage<DestinationPublishResult> publish(final DestinationPublishRequest request,
+                                                              final SourcePosition sourcePosition,
+                                                              final byte[] preparedPublishHash) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(sourcePosition, "sourcePosition");
+        Bytes.requireLength(preparedPublishHash, 32, "preparedPublishHash");
+        return closeGuard.invokeIfOpen(() -> publishOpen(request, sourcePosition, preparedPublishHash),
+                () -> completed(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null)));
+    }
+
     private CompletionStage<DestinationPublishResult> publishOpen(final DestinationPublishRequest request) {
+        return publishOpen(request, null, null);
+    }
+
+    private CompletionStage<DestinationPublishResult> publishOpen(final DestinationPublishRequest request,
+                                                                   final SourcePosition sourcePosition,
+                                                                   final byte[] preparedPublishHash) {
+        if (sourcePosition != null && (!(sourcePosition instanceof PulsarSourcePosition pulsarSource)
+                || !request.delayMessageId().routingId().shardId().equals(pulsarSource.shardId()))) {
+            return completed(DestinationPublishResult.definitelyNotPublished(StableCode.INVALID_METADATA, null));
+        }
         try {
             timingPolicy.validate(request);
         } catch (RuntimeException exception) {
@@ -53,7 +77,9 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
         }
         final CompletionStage<DestinationPublishResult> result;
         try {
-            result = transport.publish(transportRequest);
+            result = sourcePosition == null
+                    ? transport.publish(transportRequest)
+                    : transport.publish(transportRequest, sourcePosition, preparedPublishHash);
         } catch (RuntimeException exception) {
             // A synchronous transport exception does not prove that the
             // request stopped before Producer ownership. Mark the logical
@@ -115,6 +141,15 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
     @FunctionalInterface
     public interface PulsarDestinationTransport extends AutoCloseable {
         CompletionStage<DestinationPublishResult> publish(PulsarDestinationRequest request);
+
+        /** Source-bound transport hook; legacy transports use the request-only path. */
+        default CompletionStage<DestinationPublishResult> publish(final PulsarDestinationRequest request,
+                                                                   final SourcePosition sourcePosition,
+                                                                   final byte[] preparedPublishHash) {
+            Objects.requireNonNull(sourcePosition, "sourcePosition");
+            Bytes.requireLength(preparedPublishHash, 32, "preparedPublishHash");
+            return publish(request);
+        }
 
         @Override
         default void close() {
