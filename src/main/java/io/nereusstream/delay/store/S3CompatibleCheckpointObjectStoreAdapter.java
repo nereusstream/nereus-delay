@@ -286,6 +286,8 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
         }
         if (isSuccess(response.statusCode())) {
             verifyLocalFile(source, expectedLength, expectedChecksum);
+            verifyRemoteFile(key, expectedLength, expectedChecksum,
+                    objectBytesLimit(limits.maxIndividualFileBytes()));
             return;
         }
         if (isAlreadyExists(response.statusCode())) {
