@@ -788,3 +788,12 @@ port `22351`, and printed:
 ```text
 Gateway restart/idempotency E2E passed: server restarted and returned the exact durable outcome without a second attempt
 ```
+
+The current harness also races two independent Gateway compositions, backed
+by separate Oxia client sessions, against the same durable idempotency key.
+The accepted run used ports `22353,22354` and required one durable physical
+attempt:
+
+```text
+Gateway two-server CAS race E2E passed: independent Gateway servers converged on one durable physical attempt
+```

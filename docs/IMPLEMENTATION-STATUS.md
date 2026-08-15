@@ -5563,7 +5563,7 @@ covers this ordering.
 | Area | Status | Evidence |
 |---|---|---|
 | Shared Semantic Core and signed immutable RouteSnapshot | Partial (local deterministic core plus Oxia event/head-CAS authority composition; bounded Kafka and Pulsar activation proofs added; production gates open) | `RouteSnapshotV1`, `DefaultDelaySemanticCore`, `InMemorySignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotPublisher`, `RouteSnapshotCompatibilityV1`, `DefaultDelayClient`, `RouteBoundSubmissionTransportPlanResolver`, `RouteSnapshotV1Test`, `DefaultDelaySemanticCoreTest`, `InMemorySignedRouteSnapshotProviderTest`, `OxiaSignedRouteSnapshotProviderTest`, `OxiaRealRouteAuthoritySmokeTest`, `KafkaClientArtifactRouteWorkerSmoke`, `PulsarClientArtifactRouteWorkerSmoke`; canonical signature/digest, contiguous replay, head CAS, notification refresh with an isolated watch client, same-incarnation immutable-drift quarantine, tenant-scoped historical resolution, explicit-refresh real Oxia publication and zero-I/O preparation are covered. Bounded real Kafka Fetch v13/LSO and Pulsar guarded SUBSCRIBE/position proofs now feed signed Route barriers, real Oxia Route publication and route-bound Worker assignment; Kafka additionally proves bounded Worker Store apply, source ACK, final local checkpoint and owner/assignment release. Notification-stream reconnect/stability under session churn, multi-broker activation/failover, native eligibility authority, package split and production cross-entry gate remain open |
-| Delay Gateway and Gateway idempotency | Partial (generated handlers, strict RS256+mTLS authority, durable Oxia admission/idempotency/audit compositions, and real network plus server-restart revalidation; live/HA authority still open) | `GatewayScheduleRequestV1`, `GatewayRetryUncertainRequestV1`, `GatewayAdmissionRecordV1`, `GatewayAdmissionController`, `OxiaGatewayAdmissionController`, `GatewayIdempotencyStore`, `GatewayIdempotencyHashV1`, `GatewayIdempotencyRecordV1`, `GatewayPhysicalAttemptV1`, `InMemoryGatewayAdmissionController`, `InMemoryGatewayIdempotencyStore`, `OxiaGatewayIdempotencyStore`, `OxiaGatewayAuditSink`, `GatewayScheduleService`, `GatewayGrpcService`, `GatewayGrpcContext`, `GatewayGrpcServer`, `MutualTlsJwtGatewayTenantAuthority`, `RsaSha256GatewayJwtVerifier`, source proto, `GatewayScheduleServiceTest`, `GatewaySecurityCompositionTest`, `RsaSha256GatewayJwtVerifierTest`, `OxiaGatewayAdmissionControllerTest`, `OxiaRealGatewayAdmissionSmokeTest`, `OxiaGatewayIdempotencyStoreTest`, `OxiaGatewayAuditSinkTest`, `OxiaRealGatewayAuditSinkSmokeTest` and `OxiaRealGatewayGrpcSmokeTest`; exact body conflict, prepared-before-ownership, one-shot attempt, strict record decoding, separate durable admission pools with expiring lease CAS, trusted expiry reclaim, uncertain expected-prior/retry-ID CAS, response-loss exact rereads, generated eleven-RPC surface, mandatory mTLS server composition, RS256 signature/issuer/audience/time policy, mTLS `cnf.x5t#S256` binding, immutable digest-only audit persistence, live Oxia admission/audit readback, server restart with exact outcome reread, and the checked-in `e2e/run-gateway-real-e2e.sh` network path are covered. Certificate deployment/rotation, quota-rate/load proof, admission HA/session churn, multi-process HA/transactional idempotency, late authenticated evidence promotion, crash cuts and multi-language vectors remain open |
+| Delay Gateway and Gateway idempotency | Partial (generated handlers, strict RS256+mTLS authority, durable Oxia admission/idempotency/audit compositions, real network plus server-restart revalidation, and bounded two-server CAS race; live/HA authority still open) | `GatewayScheduleRequestV1`, `GatewayRetryUncertainRequestV1`, `GatewayAdmissionRecordV1`, `GatewayAdmissionController`, `OxiaGatewayAdmissionController`, `GatewayIdempotencyStore`, `GatewayIdempotencyHashV1`, `GatewayIdempotencyRecordV1`, `GatewayPhysicalAttemptV1`, `InMemoryGatewayAdmissionController`, `InMemoryGatewayIdempotencyStore`, `OxiaGatewayIdempotencyStore`, `OxiaGatewayAuditSink`, `GatewayScheduleService`, `GatewayGrpcService`, `GatewayGrpcContext`, `GatewayGrpcServer`, `MutualTlsJwtGatewayTenantAuthority`, `RsaSha256GatewayJwtVerifier`, source proto, `GatewayScheduleServiceTest`, `GatewaySecurityCompositionTest`, `RsaSha256GatewayJwtVerifierTest`, `OxiaGatewayAdmissionControllerTest`, `OxiaRealGatewayAdmissionSmokeTest`, `OxiaGatewayIdempotencyStoreTest`, `OxiaGatewayAuditSinkTest`, `OxiaRealGatewayAuditSinkSmokeTest` and `OxiaRealGatewayGrpcSmokeTest`; exact body conflict, prepared-before-ownership, one-shot attempt, strict record decoding, separate durable admission pools with expiring lease CAS, trusted expiry reclaim, uncertain expected-prior/retry-ID CAS, response-loss exact rereads, generated eleven-RPC surface, mandatory mTLS server composition, RS256 signature/issuer/audience/time policy, mTLS `cnf.x5t#S256` binding, immutable digest-only audit persistence, live Oxia admission/audit readback, server restart with exact outcome reread, independent-client two-server CAS convergence, and the checked-in `e2e/run-gateway-real-e2e.sh` network path are covered. Certificate deployment/rotation, quota-rate/load proof, admission HA/session churn, multi-process HA/transactional idempotency, late authenticated evidence promotion, crash cuts and multi-language vectors remain open |
 | Kafka generic guarded Producer patch | Implemented in isolated upstream worktree plus opt-in Delay K1/K2 binding (full K2 gate open) | Kafka branch `nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9` from locked `trunk@c300006a7705c240642db6950b5a95fec982bfc5`; focused K1/K2 client tests, guarded Fetch/source evidence, real KRaft delete/recreate/leader-failover, transaction-v2 guarded send, Delay source-set compile and three-broker K1/K2 Docker E2E pass. Client SHA-256 and broker image ID are recorded above; response-loss, LSO/retention, source assignment authority and release gates remain open |
 | Kafka guarded Consumer/source/Worker vertical | Implemented (opt-in real Kafka plus local owner authority; production authority pending) | `ConsumerResourceGuard`, `GuardedFetchEvidence`, `KafkaClientArtifactSourceConsumerFactory`, `KafkaClientArtifactRecoverySourceCursor`, `KafkaClientArtifactWorkerSourceFactory`, `KafkaClientArtifactWorkerSmoke`, `OwnerRecoveryCoordinator`, `WorkerShardRuntime`; guarded Fetch v13 evidence is validated before recovery or active source exposure, recovery applies offset 0 before activation, active offset 1 reaches RocksDB before `commitSync`, exact group offset is checked and drain releases the lease. The Docker evidence is recorded in the 2026-08-15 section above; Oxia network session/placement, Route publication, Broker failure cuts and due/Lane/publish/checkpoint production wiring remain open |
 | Pulsar v22 first-class resource guard | Implemented in isolated upstream worktree plus opt-in Delay P1 binding (D3/open broker cuts) | Pulsar branch `nereus/delay-resource-guard-v1@f813c96687cc19e6fca1c82d3d161cf3e045c86b` from locked `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`; focused common/broker, real in-process guarded SEND plus delete/recreate, guarded SUBSCRIBE with attestation/connection generation, affected-module checkstyle, Delay source-set compile and single-node writer/source Docker evidence pass. Artifact SHA-256 values are recorded above; multi-broker unload/failover, proxy/session cuts, rewind, and full D3 transport remain open |
@@ -7444,6 +7444,40 @@ Dockerized Gateway real-service smoke passed for Oxia 37a17bef17202d5fd6e23282da
 Status boundary: this is a single-process Gateway restart/reconnect receipt,
 not multi-process HA, certificate rotation, admission session churn, load,
 crash-cut response-loss or live Kafka/Pulsar publish evidence.
+
+## 2026-08-16 Gateway two-server Oxia CAS race vertical
+
+Delay commit `1213650b` extends the real Gateway harness with two independent
+`GatewayGrpcService` compositions. Each server uses separate Oxia client
+sessions and separate admission, idempotency and audit wrappers, but both
+serve the same tenant/request and durable key prefix on Gateway ports `22353`
+and `22354`. Concurrent authenticated requests must converge through the
+Oxia `IfRecordDoesNotExist`/version-CAS protocol; only one coordinator may
+submit a physical attempt. A settled reread is then issued after the race,
+and the durable record is scanned for one attempt, an aggregate outcome and
+released admission. The audit scan allows the bounded two- or three-event
+shape because the losing concurrent request may expose the exact uncertain
+public branch before the winner's durable outcome is reread.
+
+The accepted run used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, image
+`sha256:7f5524d4c54dff644be706b3ee68d855112f4a130cd0298599b09a9587651082`,
+Compose project `nereus-delay-gateway-e2e-1786821521-84089`, Oxia port
+`16670`, Gateway ports `22353,22354`, and ended with `BUILD SUCCESSFUL` and
+`11 actionable tasks: 11 executed`:
+
+```text
+Gateway mTLS/RS256 network E2E passed: authenticated Schedule and invalid JWT rejection
+Gateway restart/idempotency E2E passed: server restarted and returned the exact durable outcome without a second attempt
+Gateway two-server CAS race E2E passed: independent Gateway servers converged on one durable physical attempt
+Gateway Oxia durable E2E passed: admission released, one idempotency attempt, and two digest-only audit events
+Dockerized Gateway real-service smoke passed for Oxia 37a17bef17202d5fd6e23282da5fd26d94865484
+```
+
+Status boundary: this is a bounded independent-client/two-server race in one
+test JVM, not production multi-process HA, Oxia failover, session churn,
+certificate rotation, load, crash/response-loss or live Kafka/Pulsar publish
+evidence.
 
 ## Verification command
 

@@ -7769,6 +7769,35 @@ multi-process HA, admission session churn, certificate deployment/rotation,
 load, crash/response-loss cuts, live Kafka/Pulsar publication or V1 release
 readiness.
 
+## 2026-08-16 Gateway two-server Oxia CAS race audit
+
+Commit `1213650b` adds two independent Gateway server compositions with
+separate Oxia client sessions and separate durable wrapper instances. They
+receive concurrent identical mTLS/JWT requests against one tenant-scoped
+durable key prefix. The race converged on one physical attempt; the losing
+request stayed within the defined in-flight/uncertain branch, and a settled
+request reread the durable aggregate. Admission was empty after both leases
+closed, and the idempotency scan contained one attempt.
+
+The source-locked run used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, Compose project
+`nereus-delay-gateway-e2e-1786821521-84089`, Oxia port `16670`, Gateway ports
+`22353,22354`, and ended with `BUILD SUCCESSFUL` after `11 actionable tasks:
+11 executed`:
+
+```text
+Gateway mTLS/RS256 network E2E passed: authenticated Schedule and invalid JWT rejection
+Gateway restart/idempotency E2E passed: server restarted and returned the exact durable outcome without a second attempt
+Gateway two-server CAS race E2E passed: independent Gateway servers converged on one durable physical attempt
+Gateway Oxia durable E2E passed: admission released, one idempotency attempt, and two digest-only audit events
+Dockerized Gateway real-service smoke passed for Oxia 37a17bef17202d5fd6e23282da5fd26d94865484
+```
+
+Audit boundary: this is independent-client concurrency in one test JVM, not
+production multi-process HA, Oxia failover, session churn, certificate
+operations, load, crash/response-loss resolution, live Kafka/Pulsar
+publication or V1 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

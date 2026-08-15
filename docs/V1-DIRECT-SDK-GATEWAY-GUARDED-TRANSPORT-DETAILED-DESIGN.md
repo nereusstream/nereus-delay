@@ -4496,3 +4496,28 @@ Dockerized Gateway real-service smoke passed for Oxia 37a17bef17202d5fd6e23282da
 This closes only single-process restart/reconnect durability for the Gateway
 composition. Multi-process HA/session churn, certificate operations, load,
 crash/response-loss cuts and live Kafka/Pulsar publication remain open.
+
+### 2026-08-16 Gateway two-server Oxia CAS race receipt
+
+Commit `1213650b` adds a bounded concurrent race between two independent
+Gateway service compositions. The servers use separate Oxia sessions and
+separate admission/idempotency/audit wrappers, while sharing the same
+tenant-scoped durable key prefix. Concurrent identical requests are sent over
+two mTLS channels; one coordinator obtains the physical attempt and the
+other observes the protocol's exact in-flight/uncertain boundary. A settled
+request after the race rereads the durable aggregate, and scans require one
+attempt, one aggregate outcome and released admission.
+
+The accepted run used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, Compose project
+`nereus-delay-gateway-e2e-1786821521-84089`, Oxia port `16670`, Gateway ports
+`22353,22354`, and printed:
+
+```text
+Gateway two-server CAS race E2E passed: independent Gateway servers converged on one durable physical attempt
+```
+
+This is bounded independent-client concurrency in one test JVM. It does not
+establish production multi-process HA, Oxia failover, notification/session
+churn, certificate deployment/rotation, load, crash/response-loss handling or
+live Kafka/Pulsar publication.

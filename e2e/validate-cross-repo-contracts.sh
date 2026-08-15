@@ -161,6 +161,10 @@ require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaR
     "afterRestart"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "232ce29d"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
+    "concurrentDuplicateRequestsAcrossTwoGatewayServersUseOneDurableAttempt"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "1213650b"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayAdmissionRecordV1.java" \
     "nereus-delay-gateway-admission-record-v1"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaGatewayAdmissionControllerTest.java" \
