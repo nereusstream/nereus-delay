@@ -34,6 +34,8 @@ import org.apache.kafka.common.errors.InvalidReplicationFactorException;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -42,6 +44,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Real three-broker K2 smoke for the target-plus-keyed-receipt transaction. */
 public final class KafkaClientArtifactTransactionalSmoke {
@@ -81,10 +84,14 @@ public final class KafkaClientArtifactTransactionalSmoke {
             final Map<String, Object> producerConfiguration = producerConfiguration(bootstrap, "k2-e2e-initial");
             final KafkaReceiptJournal initialJournal = new KafkaReceiptJournal(shard, receipt);
             final boolean failoverGate = hasCommitGate();
+            final boolean committedResponseLoss = hasCommittedResponseLoss();
             try (KafkaProducer<byte[], byte[]> producer = newProducer(producerConfiguration)) {
                 producer.initTransactions();
+                final GuardedTransactionalProducer<byte[], byte[]> guardedProducer = committedResponseLoss
+                        ? committedResponseLossProducer((GuardedTransactionalProducer<byte[], byte[]>) producer)
+                        : (GuardedTransactionalProducer<byte[], byte[]>) producer;
                 final KafkaClientArtifactTransactionalDestinationTransport transport =
-                        transport((GuardedTransactionalProducer<byte[], byte[]>) producer, bootstrap);
+                        transport(guardedProducer, bootstrap);
                 final KafkaTransactionalDestinationAdapter adapter = newAdapter(initialTarget, receipt,
                         targetTopic, receiptTopic, initialJournal, lane, laneIncarnation, transactionIdentity,
                         transport);
@@ -113,7 +120,7 @@ public final class KafkaClientArtifactTransactionalSmoke {
                 requireExactRecord(bootstrap, targetTopic, null, firstRequest.payload(), "initial target");
                 requireExactRecord(bootstrap, receiptTopic, initialRecord.receiptKey(), initialRecord.receiptValue(),
                         "initial receipt");
-                if (!failoverGate) {
+                if (!failoverGate && !committedResponseLoss) {
                     abortDirectPair(producer, initialTarget, receipt, targetTopic, receiptTopic, firstRequest,
                             preparedHash);
                     requireCommittedCounts(bootstrap, targetTopic, receiptTopic, 1, 1);
@@ -124,6 +131,12 @@ public final class KafkaClientArtifactTransactionalSmoke {
             if (failoverGate) {
                 System.out.println("K2 broker failover smoke passed: target-plus-receipt transaction "
                         + "crossed broker-1 failover and exact read_committed records were verified");
+                return;
+            }
+            if (committedResponseLoss) {
+                System.out.println("K2 committed response-loss smoke passed: real EndTxn committed the exact "
+                        + "target-plus-receipt pair, the local response was discarded, and typed "
+                        + "read_committed evidence resolved PUBLISHED");
                 return;
             }
 
@@ -263,6 +276,33 @@ public final class KafkaClientArtifactTransactionalSmoke {
     private static boolean hasCommitGate() {
         final String gate = System.getenv("NEREUS_DELAY_KAFKA_K2_COMMIT_GATE");
         return gate != null && !gate.isBlank();
+    }
+
+    private static boolean hasCommittedResponseLoss() {
+        return "1".equals(System.getenv("NEREUS_DELAY_KAFKA_K2_COMMITTED_RESPONSE_LOSS"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static GuardedTransactionalProducer<byte[], byte[]> committedResponseLossProducer(
+            final GuardedTransactionalProducer<byte[], byte[]> delegate) {
+        final AtomicBoolean responseLost = new AtomicBoolean();
+        return (GuardedTransactionalProducer<byte[], byte[]>) Proxy.newProxyInstance(
+                GuardedTransactionalProducer.class.getClassLoader(),
+                new Class<?>[]{GuardedTransactionalProducer.class},
+                (proxy, method, arguments) -> {
+                    final Object result;
+                    try {
+                        result = method.invoke(delegate, arguments);
+                    } catch (InvocationTargetException failure) {
+                        throw failure.getCause();
+                    }
+                    if (method.getName().equals("commitTransaction")
+                            && method.getParameterCount() == 0
+                            && responseLost.compareAndSet(false, true)) {
+                        throw new IllegalStateException("simulated committed Kafka EndTxn response loss");
+                    }
+                    return result;
+                });
     }
 
     private static void requireDefinitelyNotPublished(
