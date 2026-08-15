@@ -4867,3 +4867,39 @@ Pulsar Worker source ACK response-loss E2E passed: real ACK response loss was re
 This is narrower than D6: it is controlled client-side loss after a real ACK
 receipt, not raw network packet loss, process/consumer/Broker crash recovery,
 multi-Broker failover or full source-ACK release evidence.
+
+### 2026-08-16 Pulsar Worker source-applied destination response-loss receipt
+
+The Worker physical bridge now uses the same source-bound destination recovery
+provider as the standalone P1 destination smoke. The guarded SEND's real
+`GuardedMessageId` is captured by a test-only wrapper before its local
+completion is discarded. Exact guard/attestation, ledger/entry and batch
+coordinates are checked, typed `PULSAR_SEND_ACK` is returned, and the
+`WorkerPhysicalPublishExecutor` hands the verified result to the source log's
+typed `PUBLISH_OUTCOME`. The receipt also verifies the closed publish attempt
+and exact destination payload readback.
+
+The source-locked run used Pulsar
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
+SHA-256 values
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394` and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, base
+image `eclipse-temurin:21-jre@sha256:371da296b8cb74c7e53fbe7083d5374befc0011b493231d97d45fa789915e434`,
+P1 image `sha256:4faa8217a39de36a030e449473fc07f4cd04553477f4f2e84c5d799720989cf0`,
+Compose project `nereus-delay-pulsar-e2e-1786830983-86815`, and ports
+`21889,21890`. It printed:
+
+```text
+Pulsar Worker destination response-loss smoke passed: real SEND persisted the exact payload, the local response was discarded, and typed PULSAR_SEND_ACK evidence resolved the source-applied PUBLISHED Outcome
+Pulsar Worker source-applied physical publish passed: Admission source ledger=9/3, typed PULSAR_SEND_ACK target ledger/entry=10/0, Outcome source ledger=9/4, exact payload readback
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=9/0, active apply ledger/entry=9/1, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
+Pulsar Worker destination response-loss E2E passed: real SEND response loss resolved through typed PULSAR_SEND_ACK evidence and the source-applied Outcome completed.
+```
+
+This is narrower than D6: controlled client-side response loss after real
+physical persistence is covered, but raw network loss, process/Broker crash
+between persistence and Outcome, multi-Broker failover, Attempt Journal
+recovery and release activation remain open.

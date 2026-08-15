@@ -9627,3 +9627,53 @@ This is controlled client-side loss after a real Broker ACK receipt. It is not
 raw packet-loss injection, consumer/process/Broker crash recovery,
 multi-Broker failover or proof that the entire D6 source-ACK/crash matrix and
 V1 release gates are complete.
+
+## 2026-08-16 Pulsar Worker source-applied destination response-loss receipt
+
+Implementation commit `c903fe34` binds the existing exact typed destination
+recovery provider into the real Pulsar Worker physical bridge. In the focused
+mode, a test-only Producer wrapper lets the guarded destination SEND return a
+real `GuardedMessageId`, then discards only the local completion. The Worker
+destination provider validates that exact guard/attestation and constructs
+`PULSAR_SEND_ACK`; the source-applied physical path then writes a typed
+`PUBLISH_OUTCOME`, closes the same publish attempt as `PUBLISHED`, and reads
+the exact destination payload back.
+
+The source-locked run used Pulsar
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
+SHA-256 values
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394` and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, base
+image `eclipse-temurin:21-jre@sha256:371da296b8cb74c7e53fbe7083d5374befc0011b493231d97d45fa789915e434`,
+P1 image `sha256:4faa8217a39de36a030e449473fc07f4cd04553477f4f2e84c5d799720989cf0`,
+Compose project `nereus-delay-pulsar-e2e-1786830983-86815`, ports `21889` and
+`21890`, and Delay commit `c903fe34`.
+
+The dedicated run used:
+
+```bash
+NEREUS_DELAY_PULSAR_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1 \
+NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-p1-response-loss-real-gradle \
+NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS=1 \
+NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS_ONLY=1 \
+PULSAR_BROKER_PORT=21889 PULSAR_WEB_PORT=21890 \
+./e2e/run-pulsar-real-client-e2e.sh
+```
+
+The run ended with `BUILD SUCCESSFUL in 12s` / `11 actionable tasks: 1
+executed, 10 up-to-date` and printed:
+
+```text
+Pulsar Worker destination response-loss smoke passed: real SEND persisted the exact payload, the local response was discarded, and typed PULSAR_SEND_ACK evidence resolved the source-applied PUBLISHED Outcome
+Pulsar Worker source-applied physical publish passed: Admission source ledger=9/3, typed PULSAR_SEND_ACK target ledger/entry=10/0, Outcome source ledger=9/4, exact payload readback
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=9/0, active apply ledger/entry=9/1, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
+Pulsar Worker destination response-loss E2E passed: real SEND response loss resolved through typed PULSAR_SEND_ACK evidence and the source-applied Outcome completed.
+```
+
+This is source-applied Worker evidence with a controlled client-side
+post-SEND response cut. It does not prove raw network loss, a process/Broker
+crash between physical persistence and Outcome, multi-Broker failover,
+Attempt Journal recovery or the complete D6/V1 release matrix.
