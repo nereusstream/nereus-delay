@@ -45,6 +45,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.file.Path;
+import java.security.KeyPairGenerator;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.UUID;
@@ -135,8 +136,11 @@ class DueSchedulerWorkClassExecutorTest {
             final WorkClassExecutionRegistry workClasses = workClasses(1);
             final DueSchedulerWorkClassExecutor executor = new DueSchedulerWorkClassExecutor(
                     workClasses, owned, authority, scheduler);
-            final WorkerSchedulingRuntime runtime = new WorkerSchedulingRuntime(
+            final WorkerSchedulingRuntime schedulingRuntime = new WorkerSchedulingRuntime(
                     workClasses, owned, authority, scheduler);
+            final WorkerShardRuntime workerRuntime = new WorkerShardRuntime(
+                    () -> java.util.Optional.empty(), workClasses, owned, store, resources, authority,
+                    KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPublic(), schedulingRuntime);
 
             workClasses.submit(new WorkClassTask(WorkClass.DUE_SCHEDULER, "occupied", 1), () -> {
             });
@@ -176,7 +180,7 @@ class DueSchedulerWorkClassExecutorTest {
             assertEquals(foreignSequence, foreignStore.latestSequenceNumber());
             assertEquals(0, workClasses.registeredActions());
 
-            final WorkerSchedulingRuntime.DueTurn dueTurn = runtime.runDueTurn(evidence, budget, () -> 101);
+            final WorkerSchedulingRuntime.DueTurn dueTurn = workerRuntime.runDueTurn(evidence, budget, () -> 101);
             assertEquals(16 + 4 + 4 + 8 + 8 + 4 + evidence.canonicalBytes().length + budget.maxBytes(),
                     dueTurn.task().bytes());
             assertEquals(List.of(dueTurn.task()), dueTurn.completedTasks());
@@ -185,7 +189,7 @@ class DueSchedulerWorkClassExecutorTest {
             assertEquals(0, workClasses.registeredActions());
             assertEquals(1, scheduler.snapshot().lanes().get(0).pendingItems());
 
-            final ScheduleWorkItem selected = runtime.pollReady(evidence, budget, () -> 101).get(0);
+            final ScheduleWorkItem selected = workerRuntime.pollReady(evidence, budget, () -> 101).get(0);
             scheduler.requeueFailedClaim(selected);
             assertEquals(1, scheduler.snapshot().lanes().get(0).pendingItems());
             final ScheduleWorkItem retried = scheduler.poll(evidence.earliestEpochMs(), budget).get(0);

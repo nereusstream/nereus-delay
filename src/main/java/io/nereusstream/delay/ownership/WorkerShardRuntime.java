@@ -1,7 +1,10 @@
 package io.nereusstream.delay.ownership;
 
 import io.nereusstream.delay.scheduler.SchedulerBudget;
+import io.nereusstream.delay.scheduler.ScheduleWorkItem;
 import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
+import io.nereusstream.delay.scheduler.WorkClassTask;
+import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.SharedRocksDbResources;
 
@@ -30,6 +33,7 @@ public final class WorkerShardRuntime implements AutoCloseable {
     private final SharedRocksDbResources resources;
     private final WorkerSourceApplyLoop sourceLoop;
     private final OwnerDrainCoordinator drainCoordinator;
+    private final WorkerSchedulingRuntime schedulingRuntime;
     private boolean sourcePaused;
     private boolean terminal;
 
@@ -41,7 +45,24 @@ public final class WorkerShardRuntime implements AutoCloseable {
                               final SharedRocksDbResources resources,
                               final OxiaOwnerLeaseStore authority,
                               final PublicKey verificationKey) {
+        this(sourceConsumer, workClasses, ownedShard, store, resources, authority, verificationKey, null);
+    }
+
+    /**
+     * Creates the source/apply/drain composition with an active-owner
+     * scheduling graph.  The graph shares the same WorkClass registry and is
+     * fenced by this runtime when owner drain stops source admission.
+     */
+    public WorkerShardRuntime(final SourceRecordConsumer sourceConsumer,
+                              final WorkClassExecutionRegistry workClasses,
+                              final OwnedDelayShard ownedShard,
+                              final ShardStore store,
+                              final SharedRocksDbResources resources,
+                              final OxiaOwnerLeaseStore authority,
+                              final PublicKey verificationKey,
+                              final WorkerSchedulingRuntime schedulingRuntime) {
         this.resources = Objects.requireNonNull(resources, "resources");
+        this.schedulingRuntime = schedulingRuntime;
         this.sourceLoop = new WorkerSourceApplyLoop(sourceConsumer, workClasses, ownedShard, authority,
                 verificationKey);
         this.drainCoordinator = new OwnerDrainCoordinator(ownedShard, store, resources, authority, workClasses);
@@ -53,6 +74,36 @@ public final class WorkerShardRuntime implements AutoCloseable {
         ensureSourceRunning();
         resources.requireRuntimeBusinessAdmission();
         return sourceLoop.runTurn(workBudget, ownerClock);
+    }
+
+    /** Runs one bounded due/Claim/Publish/Checkpoint turn on the shared graph. */
+    public synchronized List<WorkClassTask> runSchedulingTurn(final SchedulerBudget workBudget) {
+        ensureSchedulingRuntime();
+        ensureSourceRunning();
+        resources.requireRuntimeBusinessAdmission();
+        return schedulingRuntime.runTurn(workBudget);
+    }
+
+    /** Runs one due discovery action while source and scheduling admission remain open. */
+    public synchronized WorkerSchedulingRuntime.DueTurn runDueTurn(
+            final TrustedUtcIntervalEvidence evidence,
+            final SchedulerBudget discoveryBudget,
+            final LongSupplier ownerClock) {
+        ensureSchedulingRuntime();
+        ensureSourceRunning();
+        resources.requireRuntimeBusinessAdmission();
+        return schedulingRuntime.runDueTurn(evidence, discoveryBudget, ownerClock);
+    }
+
+    /** Polls one strict READY candidate while the owner is still admitting work. */
+    public synchronized List<ScheduleWorkItem> pollReady(
+            final TrustedUtcIntervalEvidence evidence,
+            final SchedulerBudget budget,
+            final LongSupplier ownerClock) {
+        ensureSchedulingRuntime();
+        ensureSourceRunning();
+        resources.requireRuntimeBusinessAdmission();
+        return schedulingRuntime.pollReady(evidence, budget, ownerClock);
     }
 
     /** Returns the exact source entry retained across an ACK/apply boundary. */
@@ -135,6 +186,13 @@ public final class WorkerShardRuntime implements AutoCloseable {
     private void ensureNotTerminal() {
         if (terminal) {
             throw new IllegalStateException("Worker shard runtime is closed");
+        }
+    }
+
+    private void ensureSchedulingRuntime() {
+        ensureNotTerminal();
+        if (schedulingRuntime == null) {
+            throw new IllegalStateException("Worker shard runtime has no active-owner scheduling graph");
         }
     }
 }
