@@ -71,6 +71,35 @@ generate_tls_material() {
         -CA "$tls_dir/ca.crt" -CAkey "$tls_dir/ca.key" -CAcreateserial \
         -out "$tls_dir/client.crt" -days 1 -sha256 -extfile "$tls_dir/client.ext" \
         >/dev/null 2>&1
+
+    openssl req -x509 -newkey rsa:2048 -nodes \
+        -keyout "$tls_dir/rotated-ca.key" -out "$tls_dir/rotated-ca.crt" -days 1 -sha256 \
+        -subj "/CN=Nereus Delay Gateway Rotated E2E CA" \
+        -addext "basicConstraints=critical,CA:TRUE" \
+        -addext "keyUsage=critical,keyCertSign,cRLSign" \
+        >/dev/null 2>&1
+
+    openssl req -newkey rsa:2048 -nodes \
+        -keyout "$tls_dir/rotated-server.key" -out "$tls_dir/rotated-server.csr" \
+        -subj "/CN=localhost" >/dev/null 2>&1
+    printf '%s\n' \
+        'subjectAltName=IP:127.0.0.1' \
+        'extendedKeyUsage=serverAuth' >"$tls_dir/rotated-server.ext"
+    openssl x509 -req -in "$tls_dir/rotated-server.csr" \
+        -CA "$tls_dir/rotated-ca.crt" -CAkey "$tls_dir/rotated-ca.key" \
+        -CAcreateserial -CAserial "$tls_dir/rotated-ca.srl" \
+        -out "$tls_dir/rotated-server.crt" -days 1 -sha256 -extfile "$tls_dir/rotated-server.ext" \
+        >/dev/null 2>&1
+
+    openssl req -newkey rsa:2048 -nodes \
+        -keyout "$tls_dir/rotated-client.key" -out "$tls_dir/rotated-client.csr" \
+        -subj "/CN=nereus-delay-gateway-rotated-client" >/dev/null 2>&1
+    printf '%s\n' 'extendedKeyUsage=clientAuth' >"$tls_dir/rotated-client.ext"
+    openssl x509 -req -in "$tls_dir/rotated-client.csr" \
+        -CA "$tls_dir/rotated-ca.crt" -CAkey "$tls_dir/rotated-ca.key" \
+        -CAserial "$tls_dir/rotated-ca.srl" \
+        -out "$tls_dir/rotated-client.crt" -days 1 -sha256 -extfile "$tls_dir/rotated-client.ext" \
+        >/dev/null 2>&1
     chmod 600 "$tls_dir"/*.key
 }
 
@@ -105,6 +134,11 @@ NEREUS_DELAY_GATEWAY_SERVER_KEY="$tls_dir/server.key" \
 NEREUS_DELAY_GATEWAY_CA_CERT="$tls_dir/ca.crt" \
 NEREUS_DELAY_GATEWAY_CLIENT_CERT="$tls_dir/client.crt" \
 NEREUS_DELAY_GATEWAY_CLIENT_KEY="$tls_dir/client.key" \
+NEREUS_DELAY_GATEWAY_ROTATED_SERVER_CERT="$tls_dir/rotated-server.crt" \
+NEREUS_DELAY_GATEWAY_ROTATED_SERVER_KEY="$tls_dir/rotated-server.key" \
+NEREUS_DELAY_GATEWAY_ROTATED_CA_CERT="$tls_dir/rotated-ca.crt" \
+NEREUS_DELAY_GATEWAY_ROTATED_CLIENT_CERT="$tls_dir/rotated-client.crt" \
+NEREUS_DELAY_GATEWAY_ROTATED_CLIENT_KEY="$tls_dir/rotated-client.key" \
 GRADLE_USER_HOME="$delay_gradle_user_home" \
     "$delay_root/gradlew" test \
         --tests io.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest \
@@ -113,6 +147,7 @@ GRADLE_USER_HOME="$delay_gradle_user_home" \
 
 echo "Gateway mTLS/RS256 network E2E passed: authenticated Schedule and invalid JWT rejection"
 echo "Gateway restart/idempotency E2E passed: server restarted and returned the exact durable outcome without a second attempt"
+echo "Gateway certificate rotation E2E passed: old mTLS client rejected and new certificate reread the exact durable outcome"
 echo "Gateway two-server CAS race E2E passed: independent Gateway servers converged on one durable physical attempt"
 echo "Gateway Oxia durable E2E passed: admission released, one idempotency attempt, and two digest-only audit events"
 echo "Dockerized Gateway real-service smoke passed for Oxia $oxia_sha"
