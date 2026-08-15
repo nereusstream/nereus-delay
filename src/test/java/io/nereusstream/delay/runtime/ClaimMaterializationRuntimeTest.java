@@ -92,6 +92,59 @@ class ClaimMaterializationRuntimeTest {
     }
 
     @Test
+    void derivesInlineClaimMaterializationFromAcceptedV1Binding() {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("derived-inline-claim"));
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 3);
+        final ProfileRefV1 destination = profile(ProfileKindV1.DESTINATION, "derived-destination");
+        final ProfileRefV1 capability = profile(ProfileKindV1.DELIVERY_CAPABILITY, "derived-capability");
+        final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
+        final io.nereusstream.delay.protocol.DestinationLaneId lane =
+                io.nereusstream.delay.protocol.DestinationLaneId.derive(tuple);
+        final byte[] payload = Bytes.utf8("derived-inline-payload");
+        final ScheduleIntentV1 intent = ScheduleIntentV1.create(destination,
+                new io.nereusstream.delay.protocol.RetryPolicyRefV1(Bytes.utf8("derived-retry"), 1,
+                        Bytes.sha256(Bytes.utf8("derived-retry-semantic"))),
+                2_000, 5_000, DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT,
+                Bytes.utf8("derived-ordering"), payload, null,
+                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())), null, null);
+        final PreparedCommand schedule = PreparedCommand.scheduleV1(shardId, intent, 9_000);
+        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+            @Override
+            public ResolvedSchedule resolveSchedule(final ShardId shard, final DelayMessageId messageId,
+                                                     final ScheduleIntentV1 resolvedIntent,
+                                                     final SourcePosition source) {
+                return new ResolvedSchedule(lane, tuple, payload, null);
+            }
+
+            @Override
+            public ResolvedPrepare resolvePrepare(final ShardId shard, final DelayMessageId messageId,
+                                                  final io.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1 body,
+                                                  final SourcePosition source) {
+                throw new UnsupportedOperationException("not used by this test");
+            }
+        };
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver);
+            assertEquals(io.nereusstream.delay.protocol.StableCode.SCHEDULED,
+                    shard.apply(schedule, position(shardId, 0, 1_000)).stableCode());
+
+            final MessageRecord current = shard.getMessage(schedule.delayMessageId());
+            final ClaimMaterializationV1 derived = shard.resolveClaimMaterializationV1(schedule.delayMessageId());
+
+            assertEquals(destination, derived.destinationProfile());
+            assertEquals(capability, derived.capabilityProfile());
+            assertEquals(lane, current.laneId());
+            assertEquals(schedule.delayMessageId(), derived.messageId());
+            assertEquals(Integer.toUnsignedLong(current.generation()), derived.generation());
+            assertEquals(PayloadForPublishV1.inline(payload), derived.payload());
+            assertEquals(intent.adapterMetadata(), derived.businessMetadata());
+            assertEquals(current.runtimeIndex().timeline().actionAtEpochMs(), derived.actionAtEpochMs());
+        }
+    }
+
+    @Test
     void strictClaimBindsCommittedObjectPayloadReference() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("object-claim"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 2);
@@ -145,6 +198,7 @@ class ClaimMaterializationRuntimeTest {
                     PayloadForPublishV1.object(descriptor), intent.adapterMetadata(),
                     current.deliverAtEpochMs(), current.expireAtEpochMs(),
                     current.runtimeIndex().timeline().actionAtEpochMs());
+            assertEquals(valid, shard.resolveClaimMaterializationV1(schedule.delayMessageId()));
             final ProfileRefV1 foreignObjectStore = new ProfileRefV1(Bytes.utf8("foreign-object-store"), 7,
                     objectStore.semanticHash(), ProfileKindV1.OBJECT_STORE);
             final CommittedPayloadDescriptorV1 foreignDescriptor = new CommittedPayloadDescriptorV1(

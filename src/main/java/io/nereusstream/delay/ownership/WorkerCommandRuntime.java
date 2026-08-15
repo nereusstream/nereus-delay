@@ -21,7 +21,8 @@ import java.util.function.LongSupplier;
 /**
  * Worker composition for the exact Claim and Publish Admission handoffs.
  *
- * <p>The caller remains responsible for materializing and authorizing every
+ * <p>The local V1 Claim projection can be derived from the durable accepted
+ * Schedule binding. The caller remains responsible for authorizing every
  * external input: Profile/Object Store readiness, payload serialization,
  * credential/channel leases, a Claim charge, a signed publish descriptor and
  * its Ready Certificate. This runtime only applies the common Worker resource
@@ -60,6 +61,21 @@ public final class WorkerCommandRuntime {
         resources.requireRuntimeBusinessAdmission();
         return claimExecutor.submit(exact.item(), exact.evidence(), exact.claimDeadlineEpochMs(),
                 exact.materialization(), exact.claimedCharge(), exact.ownerClock());
+    }
+
+    /**
+     * Queues a Claim handoff with materialization derived from the accepted
+     * durable V1 Schedule binding. External live prerequisites and the charge
+     * remain explicit and are checked by the normal Claim gate.
+     */
+    public ClaimHandoffWorkClassExecutor.Submission submitClaim(
+            final ScheduleWorkItem item,
+            final TrustedUtcIntervalEvidence evidence,
+            final long claimDeadlineEpochMs,
+            final byte[] claimedCharge,
+            final LongSupplier ownerClock) {
+        resources.requireRuntimeBusinessAdmission();
+        return claimExecutor.submit(item, evidence, claimDeadlineEpochMs, claimedCharge, ownerClock);
     }
 
     /** Queues one exact Claim-to-Publish Admission handoff after Worker admission. */

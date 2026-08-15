@@ -21,10 +21,11 @@ import java.util.function.LongSupplier;
 /**
  * Bounded active-owner handoff from one polled READY head to a reversible Claim.
  *
- * <p>The caller supplies an exact typed materialization, canonical Claim charge
- * and deadline, but this executor repeats every local fence after the queue
- * wait.  The injected prerequisite gate is the production integration point
- * for immutable Profile/Object Store/Adapter serialization and current
+ * <p>The caller may supply an exact typed materialization or ask this
+ * executor to derive the local V1 projection from the durable Message and
+ * binding.  In both forms the executor repeats every local fence after the
+ * queue wait.  The injected prerequisite gate is the production integration
+ * point for immutable Profile/Object Store/Adapter serialization and current
  * channel/evidence/credential generations; this class does not invent those
  * external authorities.</p>
  */
@@ -60,6 +61,21 @@ public final class ClaimHandoffWorkClassExecutor {
         if (workClasses != Objects.requireNonNull(registry, "registry")) {
             throw new IllegalArgumentException("Claim handoff executor uses another work-class registry");
         }
+    }
+
+    /**
+     * Derives the accepted V1 binding projection before queueing the exact
+     * Claim handoff.  The charge, deadline, and live prerequisite gate remain
+     * explicit caller inputs.
+     */
+    public Submission submit(final ScheduleWorkItem item,
+                             final TrustedUtcIntervalEvidence evidence,
+                             final long claimDeadlineEpochMs,
+                             final byte[] claimedCharge,
+                             final LongSupplier ownerClock) {
+        final ClaimMaterializationV1 materialization = ownedShard
+                .resolveClaimMaterializationAuthoritativelyStrict(authority, scheduler, item, evidence, ownerClock);
+        return submit(item, evidence, claimDeadlineEpochMs, materialization, claimedCharge, ownerClock);
     }
 
     /**

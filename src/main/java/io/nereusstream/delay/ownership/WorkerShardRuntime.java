@@ -139,6 +139,19 @@ public final class WorkerShardRuntime implements AutoCloseable {
         return commandRuntime.submitClaim(request);
     }
 
+    /** Queues a Claim handoff whose V1 materialization is derived locally. */
+    public synchronized ClaimHandoffWorkClassExecutor.Submission submitClaim(
+            final ScheduleWorkItem item,
+            final TrustedUtcIntervalEvidence evidence,
+            final long claimDeadlineEpochMs,
+            final byte[] claimedCharge,
+            final LongSupplier ownerClock) {
+        ensureCommandRuntime();
+        ensureSourceRunning();
+        resources.requireRuntimeBusinessAdmission();
+        return commandRuntime.submitClaim(item, evidence, claimDeadlineEpochMs, claimedCharge, ownerClock);
+    }
+
     /** Queues one exact Publish Admission handoff while source/command admission is open. */
     public synchronized PublishAdmissionWorkClassExecutor.Submission submitPublish(
             final WorkerCommandRuntime.PublishRequest request) {

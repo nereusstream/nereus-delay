@@ -13,10 +13,12 @@ import io.nereusstream.delay.protocol.CapacityDimensionV1;
 import io.nereusstream.delay.protocol.CapacityGrantV1;
 import io.nereusstream.delay.protocol.CapacityVectorV1;
 import io.nereusstream.delay.protocol.CancelCommandBodyV1;
+import io.nereusstream.delay.protocol.CanonicalLaneTupleV1;
 import io.nereusstream.delay.protocol.ClaimMaterializationV1;
 import io.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
 import io.nereusstream.delay.protocol.CommitLargeScheduleBodyV1;
 import io.nereusstream.delay.protocol.ChannelResourceIdentityV1;
+import io.nereusstream.delay.protocol.CommittedPayloadDescriptorV1;
 import io.nereusstream.delay.protocol.CredentialBindingHeadV1;
 import io.nereusstream.delay.protocol.ControlRef;
 import io.nereusstream.delay.protocol.ControlTargetRefV1;
@@ -1119,6 +1121,66 @@ public final class DelayShard {
             throw new IllegalStateException("V1 Schedule binding Lane does not match message");
         }
         return binding;
+    }
+
+    /**
+     * Derives the replay-stable Claim materialization from the accepted V1
+     * Schedule binding and the current durable Message generation.
+     *
+     * <p>This closes the local durable projection boundary only.  It does not
+     * infer live Profile readiness, serialization, credentials, channel
+     * leases, or a Claim charge; those remain explicit Worker prerequisite
+     * gates.  A missing binding, current timeline, or committed object proof
+     * fails closed rather than falling back to a compatibility projection.</p>
+     */
+    public synchronized ClaimMaterializationV1 resolveClaimMaterializationV1(final DelayMessageId messageId) {
+        final DelayMessageId exactMessageId = Objects.requireNonNull(messageId, "messageId");
+        final MessageRecord current = getMessage(exactMessageId);
+        if (current == null) {
+            throw new IllegalStateException("Claim materialization requires an existing Message");
+        }
+        if (current.status() != MessageStatus.SCHEDULED) {
+            throw new IllegalStateException("Claim materialization requires a scheduled Message");
+        }
+        final V1ScheduleBinding binding = getV1ScheduleBinding(exactMessageId);
+        if (binding == null) {
+            throw new IllegalStateException("automatic Claim materialization requires a V1 Schedule binding");
+        }
+        final ScheduleIntentV1 intent;
+        final PayloadForPublishV1 payload;
+        if (binding.commandType() == CommandType.SCHEDULE) {
+            intent = ScheduleCommandBodyV1.decode(binding.canonicalBody()).intent();
+            payload = intent.hasInlinePayload()
+                    ? PayloadForPublishV1.inline(current.payload())
+                    : PayloadForPublishV1.object(intent.committedPayload());
+        } else if (binding.commandType() == CommandType.PREPARE_LARGE_SCHEDULE) {
+            final PrepareLargeScheduleBodyV1 prepare = PrepareLargeScheduleBodyV1.decode(binding.canonicalBody());
+            intent = prepare.intentWithoutPayload();
+            final PayloadReference reference = current.payloadReference();
+            if (reference == null || !Bytes.constantTimeEquals(reference.objectStoreProfileHash(),
+                    prepare.objectStoreProfile().semanticHash()) || !reference.hasCommitIdentity()) {
+                throw new IllegalStateException("committed PrepareLarge payload proof is unavailable");
+            }
+            final CommittedPayloadDescriptorV1 descriptor = new CommittedPayloadDescriptorV1(
+                    prepare.objectStoreProfile(), reference.container(), reference.objectKey(),
+                    reference.immutableObjectVersion(), reference.etag(), reference.length(),
+                    reference.payloadSha256(), reference.reservationId(), reference.proofId());
+            payload = PayloadForPublishV1.object(descriptor);
+        } else {
+            throw new IllegalStateException("unsupported V1 Claim binding command type");
+        }
+        final TimelineWorkRef timeline = current.runtimeIndex().timeline();
+        if (timeline == null) {
+            throw new IllegalStateException("scheduled Message has no durable TimelineWorkRef");
+        }
+        final CanonicalLaneTupleV1.Projection lane = CanonicalLaneTupleV1.project(binding.canonicalLaneTuple());
+        final ClaimMaterializationV1 materialization = new ClaimMaterializationV1(
+                lane.destinationProfile(), lane.capabilityProfile(), lane.targetResource(),
+                lane.physicalPartition(), exactMessageId, Integer.toUnsignedLong(current.generation()), payload,
+                intent.adapterMetadata(), current.deliverAtEpochMs(), current.expireAtEpochMs(),
+                timeline.actionAtEpochMs());
+        requireClaimMaterializationMatchesMessage(exactMessageId, current, materialization);
+        return materialization;
     }
 
     /**

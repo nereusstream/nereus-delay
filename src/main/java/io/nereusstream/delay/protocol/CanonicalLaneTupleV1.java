@@ -12,7 +12,7 @@ import java.util.UUID;
  * Profile semantics, credentials and Broker authority remain outside this
  * local value codec.
  */
-final class CanonicalLaneTupleV1 {
+public final class CanonicalLaneTupleV1 {
     private static final int TENANT_SCOPE_LENGTH = 32;
     private static final int HASH_LENGTH = 32;
     private static final int MAX_TUPLE_BYTES = 1 << 20;
@@ -25,6 +25,17 @@ final class CanonicalLaneTupleV1 {
     private static final int UNORDERED_LANE = 2;
 
     private CanonicalLaneTupleV1() {
+    }
+
+    /**
+     * Returns the immutable projections needed to materialize a V1 Claim.
+     *
+     * <p>The returned value is parsed directly from the canonical Registry
+     * Lane tuple.  It does not consult live Profile, credential, or Broker
+     * authorities; those remain separate admission gates.</p>
+     */
+    public static Projection project(final byte[] encoded) {
+        return parse(encoded);
     }
 
     static void requireProfileProjection(final byte[] encoded, final ProfileRefV1 destination,
@@ -123,8 +134,8 @@ final class CanonicalLaneTupleV1 {
         return new UUID(Bytes.readU64be(value, 0), Bytes.readU64be(value, 8));
     }
 
-    private record Projection(BrokerResourceIdentityV1 targetResource, long physicalPartition,
-                              ProfileRefV1 destinationProfile, ProfileRefV1 capabilityProfile) {
+    public record Projection(BrokerResourceIdentityV1 targetResource, long physicalPartition,
+                             ProfileRefV1 destinationProfile, ProfileRefV1 capabilityProfile) {
     }
 
     private static void requireCanonicalText(final byte[] value, final String name) {

@@ -405,6 +405,30 @@ public final class OwnedDelayShard {
     }
 
     /**
+     * Derives the local durable V1 Claim projection behind the same strict
+     * Owner/READY fence used by Claim submission.  External Profile,
+     * serialization, credential/channel, and charge prerequisites remain
+     * outside this read-only materialization boundary.
+     */
+    synchronized ClaimMaterializationV1 resolveClaimMaterializationAuthoritativelyStrict(
+            final OxiaOwnerLeaseStore authority,
+            final PersistentLaneScheduler scheduler,
+            final ScheduleWorkItem item,
+            final TrustedUtcIntervalEvidence evidence,
+            final LongSupplier clock) {
+        requireClaimSubmission(authority, scheduler, item, evidence);
+        final long nowEpochMs = readActiveWorkClock(Objects.requireNonNull(clock, "Claim materialization clock"),
+                "Claim materialization");
+        ensureAuthoritativeActive(authority, nowEpochMs, "Claim materialization");
+        final ClaimMaterializationV1 materialization = delegate.resolveClaimMaterializationV1(item.messageId());
+        if (!materialization.messageId().equals(item.messageId())
+                || materialization.generation() != Integer.toUnsignedLong(item.generation())) {
+            throw new IllegalStateException("derived Claim materialization differs from READY work identity");
+        }
+        return materialization;
+    }
+
+    /**
      * Side-effect-free preflight for a prepared Publish Admission.  The
      * Claim must still be the exact local durable Claim; this method does not
      * append a mutation or synthesize a Source Position.
