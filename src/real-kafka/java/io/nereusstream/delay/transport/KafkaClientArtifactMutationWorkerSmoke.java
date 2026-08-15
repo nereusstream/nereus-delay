@@ -37,6 +37,8 @@ import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.ShardSubjectV1;
 import io.nereusstream.delay.protocol.StableCode;
+import io.nereusstream.delay.protocol.SourcePosition;
+import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.SystemMutation;
 import io.nereusstream.delay.protocol.SystemMutationType;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
@@ -353,12 +355,18 @@ public final class KafkaClientArtifactMutationWorkerSmoke {
     }
 
     private static boolean samePosition(final byte[] encoded, final KafkaSourcePosition expected) {
-        return java.util.Arrays.equals(encoded, expected.canonicalBytes());
+        return samePosition(SourcePositionCodec.decode(encoded), expected);
     }
 
-    private static boolean samePosition(final io.nereusstream.delay.protocol.SourcePosition actual,
-                                        final KafkaSourcePosition expected) {
-        return actual != null && java.util.Arrays.equals(actual.canonicalBytes(), expected.canonicalBytes());
+    private static boolean samePosition(final SourcePosition actual, final KafkaSourcePosition expected) {
+        if (!(actual instanceof KafkaSourcePosition observed)
+                || !observed.shardId().equals(expected.shardId())
+                || !observed.sameSourceIdentity(expected)
+                || observed.offset() != expected.offset()
+                || observed.brokerLogAppendTimeEpochMs() != expected.brokerLogAppendTimeEpochMs()) {
+            return false;
+        }
+        return expected.leaderEpoch() == null || expected.leaderEpoch().equals(observed.leaderEpoch());
     }
 
     private static MutationFixture timeFence(final ShardId shard, final String identity, final KeyPair keyPair) {
