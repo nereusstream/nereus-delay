@@ -7583,6 +7583,22 @@ checkstyle and the Claim/Publish/scheduling regressions passed; multi-shard
 orchestration, automatic Ready/Publish preparation, response-loss/crash and
 release gates remain open.
 
+## 2026-08-15 bounded due-to-Claim Worker turn
+
+Delay commit `ce4bc2d5` adds `WorkerShardRuntime.runDueAndSubmitClaim`. One
+bounded call submits/runs the due-discovery work class, rereads the strict
+active Owner/Store boundary, polls at most one READY head and queues its
+derived Claim handoff. The Claim submission remains unexecuted until the
+normal shared command turn, so queue admission, Claim prerequisite, permit
+and source-ordered state transitions keep their existing retry/fence rules.
+The Claim regression now exercises this combined entrypoint after queue
+rejection, prerequisite deferral and permit deferral, then verifies the final
+Claim and active reservation.
+
+This composes local DUE/READY → Claim for one shard; it does not prepare a
+channel or Ready Certificate, run Publish Admission, append/ACK a Broker
+mutation, or establish multi-shard assignment/failover/crash evidence.
+
 ## 2026-08-15 checkpoint preflight and bounded multi-shard dispatch slices
 
 Delay commit `ad5020f0` closes a retryability hole in the checkpoint

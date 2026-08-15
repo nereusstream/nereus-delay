@@ -6569,6 +6569,21 @@ rejection and successful Claim coverage. This closes only the local one-shard
 DUE/READY → Claim queue wiring and is not multi-shard, automatic Ready/Publish
 preparation, response-loss/crash or release evidence.
 
+## 2026-08-15 bounded due-to-Claim Worker turn audit
+
+Delay commit `ce4bc2d5` composes one due-discovery work-class action with the
+strict one-head READY → derived Claim handoff in `WorkerShardRuntime`. The
+returned Claim action is still queued, not executed; the caller must run the
+shared command turn. This keeps the separate Claim prerequisite/permit and
+source-ordered local mutation boundaries intact while removing an orchestration
+caller from the normal DUE/READY path. The focused Claim regression covers
+queue, prerequisite and permit deferrals plus the successful Claim result.
+
+The slice is local one-shard DUE/READY → Claim composition. Automatic channel
+and Ready-Certificate preparation, Publish Admission, Broker append/ACK,
+multi-shard assignment, response-loss/crash evidence and release PASS remain
+open.
+
 ## 2026-08-15 checkpoint preflight and bounded multi-shard dispatch audit
 
 Delay commit `ad5020f0` fixes the checkpoint claim lifecycle at the

@@ -3261,6 +3261,20 @@ remain inputs. The method is a local one-shard DUE/READY → Claim composition;
 channel/Ready Certificate/Publish preparation, physical append/ACK,
 multi-shard assignment and crash/failover evidence remain separate.
 
+### 2026-08-15 bounded due-to-Claim Worker composition
+
+Delay commit `ce4bc2d5` adds a bounded Worker entrypoint that submits due
+discovery, polls at most one strict READY head and queues its durable-derived
+Claim. The Claim work-class action is intentionally returned before execution;
+the shared command turn remains the only executor. This preserves the
+one-head scheduler requeue identity and the existing Owner/Claim/permit/
+prerequisite fences.
+
+This closes only local one-shard DUE/READY → Claim orchestration. It does not
+infer external channel/credential/Ready-Certificate state, execute Publish
+Admission, append or ACK the Shard Log, or provide multi-shard/failover/crash
+release evidence.
+
 ### 2026-08-15 checkpoint preflight and bounded multi-shard Worker composition
 
 The checkpoint work-class boundary must not strand a process-local schedule
