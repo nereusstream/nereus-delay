@@ -225,6 +225,51 @@ reconnect/churn, Broker failover with an accepted Route, native eligibility,
 production source ownership transfer, Object Store checkpoint publication or
 release PASS.
 
+### Pulsar signed Route barrier to Worker assignment
+
+When `NEREUS_DELAY_PULSAR_WITH_OXIA=1`, the same harness also runs
+`runRealPulsarRouteWorkerSmoke`. It creates a native one-partition topic,
+stamps the physical `-partition-0` guard through the P1 dedicated Resource
+Controller endpoint, captures a guarded SUBSCRIBE position and stable
+attestation, signs the Pulsar Route activation barrier, publishes the Route
+event/head through session-fenced Oxia, publishes and rereads a route-bound
+Worker assignment by revision CAS, and ACKs the next source record on the
+same guarded connection only after verifying the connection generation and
+position advance. The generic topic-properties mutation remains fail-closed
+for the guard tuple.
+
+The source-locked receipt used Delay
+`a73faf3e836ada67931f709d46214dde7caf3ad0`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` from
+`8dae0236c0a0d405ed7f8303081080520fe91551`, and Oxia
+`37a17bef17202d5fd6e232da5fd26d94865484`. It used P1 client
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+client-api `f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`,
+common `94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`,
+distribution `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`,
+and base image
+`eclipse-temurin:21-jre@sha256:371da296b8cb74c7e53fbe7083d5374befc0011b493231d97d45fa789915e434`.
+The command was:
+
+```bash
+JAVA_TOOL_OPTIONS='-Dorg.slf4j.simpleLogger.defaultLogLevel=warn' \
+NEREUS_DELAY_PULSAR_WITH_OXIA=1 NEREUS_DELAY_PULSAR_OXIA_PORT=16674 \
+PULSAR_BROKER_PORT=20020 PULSAR_WEB_PORT=20021 \
+./e2e/run-pulsar-real-client-e2e.sh
+```
+
+The bounded Route receipt was:
+
+```text
+Pulsar signed Route -> guarded SUBSCRIBE barrier -> Oxia Worker assignment smoke passed: generation=15, barrier=20/0, routeRevision=1, assignmentRevision=1, source=20/1, ACK
+```
+
+This is one source-locked native partition and one Oxia assignment/session
+cut. It does not prove catalog-driven multi-shard placement, session
+reconnect/churn, multi-broker failover with an accepted Route, native
+eligibility, production source ownership transfer, Object Store checkpoint
+publication or release PASS.
+
 ## Pulsar P1 real-client service E2E
 
 `run-pulsar-real-client-e2e.sh` builds a temporary Pulsar server image from the

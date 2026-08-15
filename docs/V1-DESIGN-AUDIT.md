@@ -4665,13 +4665,13 @@ the guarded Broker rollout attestation remains external evidence.
 | 依赖 | 审计锁 |
 |---|---|
 | Delay local implementation slice | `nereus/delay-full-implementation-v1@4f606fec86aaeb74472f6575e5ee7ddcb8dc8f82` (Oxia Route session-fenced publisher/provider composition on top of Gateway query/await/message handlers and bounded query ingress behind explicit `GatewayQueryAuthority`, receipt-bound payload upload/attestation ingress, PrepareLargeSchedule/CommitLargeSchedule, Cancel and Reschedule control slices, Direct SDK outbox fail-closed and Worker source-consumer/ACK-after-sync composition; transport result/attempt binding `5cc955e1306e1f54db06a06a2bb2b84f232c2a7b`; Gateway query base `59d492041ac42b79a632ebddfb56a7608b2d7283`, Gateway ingress base `1dc28eaf391429f2dc9221f416af968d36575dff`, Gateway API generation base `a06ab232a5608ec0e7c9152ef80fc72c06966e66`; Gateway CAS base `e276bec3ffff7f5015367bed55f5b8d63c080e21`, Route authority base `62a9438967112f96e65b8daa7b2b86d52a103b10`, Gateway retry base `c42405ce6c69aef8ae0f8a9a63158c917410309f`, route-cache base `67ef3de3ab6f69ae992c3ccb70c7cb65cad47613`, composition base `402b27fa0dced95c2312bfedc0678af03463f2d5`, repository base `origin/main@2dfc3289ffdbe9cf9d7f4d0de1d701493d1b49a6`) |
-| Delay current implementation head | `nereus/delay-full-implementation-v1@2dd2cfff83f4d029972cf7fbeb569fbf4538c026` (Kafka guarded Fetch/source proof and ACK/replay handoff, guarded Pulsar SUBSCRIBE/replay/ACK binding, strict Gateway RS256+mTLS JWT policy, durable Oxia tenant admission CAS, explicit Route session recovery, real-Kafka and real-Pulsar recovery/apply/ACK Worker slices, opt-in network Oxia session-bound owner lease, authoritative Route-bound per-shard Worker assignment publication/acceptance, bounded local final-checkpoint-on-drain evidence and nounset-safe E2E harness; object-store checkpoint publication, catalog-driven multi-shard placement, production Worker wiring and release gates remain open) |
+| Delay current implementation head | `nereus/delay-full-implementation-v1@a73faf3e836ada67931f709d46214dde7caf3ad0` (Kafka guarded Fetch/source proof and ACK/replay handoff, guarded Pulsar SUBSCRIBE/replay/ACK binding, bounded signed Kafka and Pulsar Route barrier-to-assignment/source-ACK cuts, strict Gateway RS256+mTLS JWT policy, durable Oxia tenant admission CAS, explicit Route session recovery, real-Kafka and real-Pulsar recovery/apply/ACK Worker slices, opt-in network Oxia session-bound owner lease, authoritative Route-bound per-shard Worker assignment publication/acceptance, bounded local final-checkpoint-on-drain evidence and nounset-safe E2E harness; object-store checkpoint publication, catalog-driven multi-shard placement, production Worker wiring and release gates remain open) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
 | Pulsar first-class-guard implementation base inspected for ADR 0044 | `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551` |
 | Kafka isolated K1/K2 implementation | `nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9` |
-| Pulsar isolated P1 implementation | `nereus/delay-resource-guard-v1@358ce4a1033bd566faebcd3465c3ba4606f3c83f` |
+| Pulsar isolated P1 implementation | `nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7` (dedicated admin/ownership-checked Resource Controller guard endpoint; generic topic-properties mutation remains fail-closed) |
 
 主设计 R12–R37 的 Kafka/Pulsar correctness-critical 链接全部使用上述 immutable commit。发布包还必须记录实际 patch/binary digest、Broker rollout attestation 和 delete/recreate cuts；仅有文档 source lock 不等于实现已通过。
 
@@ -6786,6 +6786,45 @@ source ACK. It does not promote the result to production Route activation:
 session churn/reconnect, accepted-Route broker failover, catalog placement,
 native eligibility, source ownership transfer, Object Store checkpointing,
 automatic Claim/Publish authority and §23.5 release gates remain open.
+
+## 2026-08-15 Pulsar guarded SUBSCRIBE to signed Route Worker assignment audit
+
+Delay commit `a73faf3e836ada67931f709d46214dde7caf3ad0` adds a real-client
+Route activation cut for the locked P1 source. P1 commit
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` supplies the dedicated
+admin/ownership-checked Resource Controller endpoint required to stamp the
+guard tuple on a native partitioned physical topic; the generic topic
+properties API remains fail-closed. The smoke creates one native partition,
+captures the first guarded SUBSCRIBE position and stable attestation, derives
+`ActivationBarrierV1.pulsar`, publishes the signed Route event/head through a
+session-fenced real Oxia client, publishes and rereads a revision-CAS
+route-bound Worker assignment, and ACKs the next record on the unchanged
+guarded connection generation.
+
+The receipt is source-locked to P1 `0a2536484cd3932801a98dc88ff112b2df88a1c7`
+from `8dae0236c0a0d405ed7f8303081080520fe91551`, Delay
+`a73faf3e836ada67931f709d46214dde7caf3ad0`, and Oxia
+`37a17bef17202d5fd6e232da5fd26d94865484`. It records P1 client
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+client-api `f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`,
+common `94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`,
+distribution `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`,
+base image `eclipse-temurin:21-jre@sha256:371da296b8cb74c7e53fbe7083d5374befc0011b493231d97d45fa789915e434`,
+P1 image `sha256:892add226a105fb04b6df05df2c58f43e49f76647d39ed73944fcfc9ea1cb3d5`,
+Compose project `nereus-delay-pulsar-e2e-1786784183-57675`, broker/web ports
+`20020,20021`, and Oxia port `16674`. The exact Route receipt was:
+
+```text
+Pulsar signed Route -> guarded SUBSCRIBE barrier -> Oxia Worker assignment smoke passed: generation=15, barrier=20/0, routeRevision=1, assignmentRevision=1, source=20/1, ACK
+```
+
+This is source-locked, one-native-partition integration evidence for the
+guarded source position, signed Pulsar barrier, Oxia assignment CAS and
+post-barrier source ACK. It does not promote the result to production Route
+activation: session reconnect/churn, multi-broker failover with an accepted
+Route, catalog placement, native eligibility, source ownership transfer,
+Object Store checkpointing, automatic Claim/Publish authority and §23.5
+release gates remain open.
 
 ## Final gate
 

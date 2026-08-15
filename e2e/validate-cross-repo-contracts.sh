@@ -12,7 +12,7 @@ kafka_base="c300006a7705c240642db6950b5a95fec982bfc5"
 kafka_head="05849884ca81fad767fda058444d1e17c7f9cbf9"
 pulsar_branch="nereus/delay-resource-guard-v1"
 pulsar_base="8dae0236c0a0d405ed7f8303081080520fe91551"
-pulsar_head="358ce4a1033bd566faebcd3465c3ba4606f3c83f"
+pulsar_head="0a2536484cd3932801a98dc88ff112b2df88a1c7"
 oxia_head="37a17bef17202d5fd6e23282da5fd26d94865484"
 delay_worker_head="7a839678"
 
@@ -243,6 +243,16 @@ require_file_text "$delay_root/build.gradle" \
     "runRealKafkaRouteWorkerSmoke"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "run_route_worker_smoke"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactRouteWorkerSmoke.java" \
+    "Pulsar signed Route -> guarded SUBSCRIBE barrier"
+require_file_text "$delay_root/build.gradle" \
+    "runRealPulsarRouteWorkerSmoke"
+require_file_text "$delay_root/e2e/run-pulsar-real-client-e2e.sh" \
+    "run_route_worker_smoke"
+require_file_text "$pulsar_checkout/pulsar-broker/src/main/java/org/apache/pulsar/broker/admin/v2/PersistentTopics.java" \
+    "resourceGuard"
+require_file_text "$pulsar_checkout/pulsar-broker/src/main/java/org/apache/pulsar/broker/admin/impl/PersistentTopicsBase.java" \
+    "internalUpdateTopicResourceGuardPropertiesAsync"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackend.java" \
     "establishSessionMarker"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackend.java" \
