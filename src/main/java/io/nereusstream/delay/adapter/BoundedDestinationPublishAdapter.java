@@ -76,7 +76,23 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
      * mark the physical operation zombie without releasing it early.
      */
     public PublishCall submit(final DestinationPublishRequest request) {
+        return submit(request, ignored -> null);
+    }
+
+    /**
+     * Submits a request with a final pre-transport gate.
+     *
+     * <p>The gate runs on the bounded adapter executor after the physical
+     * reservation has been acquired and immediately before the delegate is
+     * invoked. A non-null result completes the call without invoking the
+     * delegate. This is the narrow seam used by the Worker to recheck the
+     * live Owner/Store/Claim/channel fence after queue wait; it does not
+     * manufacture a physical success or mutate shard state.</p>
+     */
+    public PublishCall submit(final DestinationPublishRequest request,
+                              final PublishPreflight preflight) {
         Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(preflight, "preflight");
         if (closeGuard.isClosed()) {
             return PublishCall.completed(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
         }
@@ -111,7 +127,8 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                 // rejection and release an operation whose ownership is
                 // already unknown.
                 taskStarted.set(true);
-                invokeDelegate(request, outcome, reservation, retainPhysicalCharge, completionObserved);
+                invokeDelegate(request, preflight, outcome, reservation, retainPhysicalCharge,
+                        completionObserved);
             });
         } catch (RuntimeException exception) {
             if (!taskStarted.get()) {
@@ -212,6 +229,7 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
     }
 
     private void invokeDelegate(final DestinationPublishRequest request,
+                                final PublishPreflight preflight,
                                 final CompletableFuture<DestinationPublishResult> outcome,
                                 final DestinationPhysicalAdmission.Reservation reservation,
                                 final AtomicBoolean retainPhysicalCharge,
@@ -219,7 +237,11 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
         final DelegateInvocation invocation;
         try {
             invocation = closeGuard.invokeIfOpen(
-                    () -> {
+                () -> {
+                        final DestinationPublishResult preflightResult = preflight.check(request);
+                        if (preflightResult != null) {
+                            return new DelegateInvocation(CompletableFuture.completedFuture(preflightResult), false);
+                        }
                         try {
                             return new DelegateInvocation(delegate.publish(request), false);
                         } catch (RuntimeException exception) {
@@ -355,6 +377,12 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
     }
 
     private record DelegateInvocation(CompletionStage<DestinationPublishResult> stage, boolean closed) {
+    }
+
+    /** Runs immediately before the target delegate; non-null means do not call the delegate. */
+    @FunctionalInterface
+    public interface PublishPreflight {
+        DestinationPublishResult check(DestinationPublishRequest request);
     }
 
     public static final class PublishCall {

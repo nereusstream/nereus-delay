@@ -1,6 +1,7 @@
 package io.nereusstream.delay.ownership;
 
 import io.nereusstream.delay.protocol.ChannelResourceIdentityV1;
+import io.nereusstream.delay.adapter.DestinationPublishRequest;
 import io.nereusstream.delay.protocol.ReadyCertificateV1;
 import io.nereusstream.delay.scheduler.SchedulerBudget;
 import io.nereusstream.delay.scheduler.ScheduleWorkItem;
@@ -48,6 +49,7 @@ public final class WorkerShardRuntime implements AutoCloseable {
     private final WorkerCommandRuntime commandRuntime;
     private final WorkerCheckpointRuntime checkpointRuntime;
     private final PublishPreparationProvider preparationProvider;
+    private final WorkerPhysicalPublishExecutor physicalPublishExecutor;
     private boolean sourcePaused;
     private boolean terminal;
 
@@ -105,7 +107,7 @@ public final class WorkerShardRuntime implements AutoCloseable {
                               final WorkerCommandRuntime commandRuntime,
                               final WorkerCheckpointRuntime checkpointRuntime) {
         this(sourceConsumer, workClasses, ownedShard, store, resources, authority, verificationKey,
-                schedulingRuntime, commandRuntime, checkpointRuntime, null);
+                schedulingRuntime, commandRuntime, checkpointRuntime, null, null);
     }
 
     /** Creates the complete Worker graph with an optionally bound Publish preparation provider. */
@@ -120,6 +122,23 @@ public final class WorkerShardRuntime implements AutoCloseable {
                               final WorkerCommandRuntime commandRuntime,
                               final WorkerCheckpointRuntime checkpointRuntime,
                               final PublishPreparationProvider preparationProvider) {
+        this(sourceConsumer, workClasses, ownedShard, store, resources, authority, verificationKey,
+                schedulingRuntime, commandRuntime, checkpointRuntime, preparationProvider, null);
+    }
+
+    /** Creates the complete Worker graph with optional physical publish execution. */
+    public WorkerShardRuntime(final SourceRecordConsumer sourceConsumer,
+                              final WorkClassExecutionRegistry workClasses,
+                              final OwnedDelayShard ownedShard,
+                              final ShardStore store,
+                              final SharedRocksDbResources resources,
+                              final OxiaOwnerLeaseStore authority,
+                              final PublicKey verificationKey,
+                              final WorkerSchedulingRuntime schedulingRuntime,
+                              final WorkerCommandRuntime commandRuntime,
+                              final WorkerCheckpointRuntime checkpointRuntime,
+                              final PublishPreparationProvider preparationProvider,
+                              final WorkerPhysicalPublishExecutor physicalPublishExecutor) {
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
         this.ownedShard = Objects.requireNonNull(ownedShard, "ownedShard");
         this.resources = Objects.requireNonNull(resources, "resources");
@@ -137,6 +156,7 @@ public final class WorkerShardRuntime implements AutoCloseable {
         this.commandRuntime = commandRuntime;
         this.checkpointRuntime = checkpointRuntime;
         this.preparationProvider = preparationProvider;
+        this.physicalPublishExecutor = physicalPublishExecutor;
         this.sourceLoop = new WorkerSourceApplyLoop(sourceConsumer, this.workClasses, this.ownedShard, authority,
                 verificationKey);
         this.drainCoordinator = new OwnerDrainCoordinator(this.ownedShard, store, resources, authority,
@@ -161,6 +181,11 @@ public final class WorkerShardRuntime implements AutoCloseable {
     /** Whether this runtime has a recurring checkpoint graph attached. */
     boolean hasCheckpointRuntime() {
         return checkpointRuntime != null;
+    }
+
+    /** Whether this runtime has a bounded physical publish bridge attached. */
+    boolean hasPhysicalPublishExecutor() {
+        return physicalPublishExecutor != null;
     }
 
     /** Validates process-wide graph/resource identity before fleet admission. */
@@ -432,6 +457,26 @@ public final class WorkerShardRuntime implements AutoCloseable {
         return commandRuntime.submitPublish(claimResult, preparation);
     }
 
+    /** Queues one PUBLISHING attempt behind the live physical gate and Outcome handoff. */
+    public synchronized WorkerPhysicalPublishExecutor.Submission submitPhysicalPublish(
+            final io.nereusstream.delay.runtime.PublishAttemptLedger attempt,
+            final DestinationPublishRequest request,
+            final LongSupplier ownerClock) {
+        ensurePhysicalPublishExecutor();
+        ensureSourceRunning();
+        resources.requireRuntimeBusinessAdmission();
+        return physicalPublishExecutor.submit(attempt, request, ownerClock);
+    }
+
+    /** Rebuilds the exact request from the retained Admission before handoff. */
+    public synchronized WorkerPhysicalPublishExecutor.Submission submitPhysicalPublish(
+            final io.nereusstream.delay.runtime.PublishAttemptLedger attempt,
+            final byte[] payload,
+            final LongSupplier ownerClock) {
+        return submitPhysicalPublish(attempt,
+                WorkerPhysicalPublishExecutor.prepareRequest(attempt, payload), ownerClock);
+    }
+
     /** Runs one bounded Claim/Publish turn through the shared Worker graph. */
     public synchronized List<WorkClassTask> runCommandTurn(final SchedulerBudget budget) {
         ensureCommandRuntime();
@@ -589,6 +634,13 @@ public final class WorkerShardRuntime implements AutoCloseable {
         ensureNotTerminal();
         if (checkpointRuntime == null) {
             throw new IllegalStateException("Worker shard runtime has no recurring checkpoint graph");
+        }
+    }
+
+    private void ensurePhysicalPublishExecutor() {
+        ensureNotTerminal();
+        if (physicalPublishExecutor == null) {
+            throw new IllegalStateException("Worker shard runtime has no physical publish executor");
         }
     }
 
