@@ -1,5 +1,6 @@
 package io.nereusstream.delay.ownership;
 
+import io.nereusstream.delay.protocol.ActiveLaneStateV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.OwnerIdentityV1;
 import io.nereusstream.delay.protocol.AuthorIdentity;
@@ -17,6 +18,8 @@ import io.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
 import io.nereusstream.delay.protocol.ResourceRetireIntentBody;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.DestinationLaneId;
+import io.nereusstream.delay.runtime.LaneRecord;
 import io.nereusstream.delay.runtime.SystemMutationResult;
 import io.nereusstream.delay.runtime.CommandResult;
 import io.nereusstream.delay.runtime.ClaimRecord;
@@ -951,6 +954,62 @@ public final class OwnedDelayShard {
                 || !lease.shardId().equals(queryShard)) {
             throw new IllegalArgumentException("query belongs to another shard");
         }
+    }
+
+    /**
+     * Captures the exact typed Lane identity that an external activator must
+     * resolve.  This preflight does not read Oxia or mutate the Store.
+     */
+    synchronized LaneActivationCoordinator.ActivationRequest requireLaneActivationRequest(
+            final DestinationLaneId laneId, final long nowEpochMs) {
+        if (state != ShardLifecycleState.CATCHING_UP) {
+            throw new IllegalStateException("Lane activation requires a catching-up shard");
+        }
+        if (ownerIdentity == null) {
+            throw new IllegalStateException("Lane activation requires a bound protocol Owner identity");
+        }
+        if (nowEpochMs < 0) {
+            throw new IllegalArgumentException("owner clock returned a negative time");
+        }
+        final ActiveLaneStateV1 lane = delegate.getActiveLaneStateV1(Objects.requireNonNull(laneId, "laneId"));
+        if (lane == null) {
+            throw new IllegalStateException("Lane activation requires a typed active Lane");
+        }
+        return new LaneActivationCoordinator.ActivationRequest(lane.laneId(), lane.laneIncarnation(),
+                ownerIdentity, delegate.storeIncarnation(), lane, nowEpochMs);
+    }
+
+    /**
+     * Commits a certificate-backed READY projection after rereading the same
+     * context-bound Owner Lease in CATCHING_UP.  A response-loss retry is
+     * idempotent only for the exact certificate already stored on the Lane.
+     */
+    synchronized LaneRecord activateLaneAuthoritatively(final OxiaOwnerLeaseStore authority,
+                                                         final DestinationLaneId laneId,
+                                                         final LaneActivationPrerequisites prerequisites,
+                                                         final long nowEpochMs) {
+        requireStrictActivationAuthority(authority);
+        if (state != ShardLifecycleState.CATCHING_UP) {
+            throw new IllegalStateException("Lane activation requires a catching-up shard");
+        }
+        if (ownerIdentity == null) {
+            throw new IllegalStateException("Lane activation requires a bound protocol Owner identity");
+        }
+        final LaneActivationPrerequisites proof = Objects.requireNonNull(prerequisites, "prerequisites");
+        proof.requireCurrentAt(nowEpochMs);
+        final ActiveLaneStateV1 lane = delegate.getActiveLaneStateV1(Objects.requireNonNull(laneId, "laneId"));
+        if (lane == null || !lane.laneId().equals(laneId)
+                || !Bytes.constantTimeEquals(lane.laneIncarnation(), proof.readyCertificate().laneIncarnation())
+                || !Bytes.constantTimeEquals(delegate.storeIncarnation(), proof.readyCertificate().storeIncarnation())) {
+            throw new IllegalArgumentException("Lane activation proof does not match the current Store Lane");
+        }
+        final OwnerIdentityV1 proofOwner = OwnerIdentityV1.decode(proof.readyCertificate().ownerIdentity());
+        if (!ownerIdentity.equals(proofOwner)) {
+            throw new IllegalArgumentException("Lane activation certificate belongs to another Owner");
+        }
+        ensureAuthoritativeCatchup(authority, nowEpochMs);
+        return delegate.activateLaneReadiness(laneId, lane.laneIncarnation(), proof.channel(),
+                proof.readyCertificate(), proof.evidenceCursors());
     }
 
     /**

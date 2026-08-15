@@ -1366,9 +1366,14 @@ class DelayShardTest {
     void registryScheduleAndPrepareRequireAndUseExplicitLaneResolver() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("registry-schedule-resolver"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 32);
+        final ProfileRefV1 destination = new ProfileRefV1(Bytes.utf8("destination"), 1,
+                bytes(32, 1), ProfileKindV1.DESTINATION);
+        final ProfileRefV1 capability = new ProfileRefV1(Bytes.utf8("capability"), 1,
+                bytes(32, 3), ProfileKindV1.DELIVERY_CAPABILITY);
+        final byte[] canonicalTuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
+        final DestinationLaneId canonicalLane = DestinationLaneId.derive(canonicalTuple);
         final ScheduleIntentV1 scheduleIntent = ScheduleIntentV1.create(
-                new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 1),
-                        ProfileKindV1.DESTINATION),
+                destination,
                 new io.nereusstream.delay.protocol.RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 2)),
                 2_000, 5_000, io.nereusstream.delay.protocol.DeliveryMode.MANAGED,
                 OrderingMode.BEST_EFFORT, Bytes.utf8("ordering"), Bytes.utf8("v1-payload"), null,
@@ -1386,21 +1391,18 @@ class DelayShardTest {
         }
 
         final V1ScheduleResolver resolver = new V1ScheduleResolver() {
-            private final byte[] tuple = Bytes.utf8("canonical-lane-tuple-v1");
-            private final DestinationLaneId lane = DestinationLaneId.derive(tuple);
-
             @Override
             public ResolvedSchedule resolveSchedule(final ShardId shard, final DelayMessageId messageId,
                                                      final ScheduleIntentV1 intent,
                                                      final io.nereusstream.delay.protocol.SourcePosition source) {
-                return new ResolvedSchedule(lane, tuple, intent.inlinePayload(), null);
+                return new ResolvedSchedule(canonicalLane, canonicalTuple, intent.inlinePayload(), null);
             }
 
             @Override
             public ResolvedPrepare resolvePrepare(final ShardId shard, final DelayMessageId messageId,
                                                   final io.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1 body,
                                                   final io.nereusstream.delay.protocol.SourcePosition source) {
-                return new ResolvedPrepare(lane, tuple);
+                return new ResolvedPrepare(canonicalLane, canonicalTuple);
             }
         };
         final ScheduleIntentV1 prepareIntent = ScheduleIntentV1.forPrepare(scheduleIntent.profile(),
@@ -1417,7 +1419,13 @@ class DelayShardTest {
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver);
             assertEquals(StableCode.SCHEDULED, shard.apply(schedule, position0).stableCode());
             final MessageRecord message = shard.getMessage(schedule.delayMessageId());
-            assertEquals(DestinationLaneId.derive(Bytes.utf8("canonical-lane-tuple-v1")), message.laneId());
+            assertEquals(canonicalLane, message.laneId());
+            final ActiveLaneStateV1 activeLane = shard.getActiveLaneStateV1(canonicalLane);
+            assertNotNull(activeLane);
+            assertEquals(RuntimeReadiness.RECOVERING_EVIDENCE, activeLane.runtimeReadiness());
+            assertEquals(destination, activeLane.destinationProfile());
+            assertEquals(capability, activeLane.capabilityProfile());
+            assertArrayEquals(canonicalTuple, activeLane.canonicalLaneTuple());
             assertArrayEquals(Bytes.utf8("v1-payload"), message.payload());
             assertEquals(StableCode.OK, shard.apply(prepare, position1).stableCode());
             final byte[] reservationId = Bytes.sha256(Bytes.utf8("nereus-delay-reservation-id-v1\0"),
@@ -1658,8 +1666,11 @@ class DelayShardTest {
             assertEquals(2_500, message.runtimeIndex().timeline().actionAtEpochMs());
             assertEquals(2_500, message.retryEligibilityAtEpochMs());
             assertEquals(0, reopened.discoverReady(2_499, 10).size());
-            reopened.updateLaneReadiness(lane, RuntimeReadiness.READY);
-            assertEquals(1, reopened.discoverReady(2_500, 10).size());
+            assertThrows(IllegalArgumentException.class,
+                    () -> reopened.updateLaneReadiness(lane, RuntimeReadiness.READY));
+            assertEquals(RuntimeReadiness.RECOVERING_EVIDENCE,
+                    reopened.getActiveLaneStateV1(lane).runtimeReadiness());
+            assertEquals(0, reopened.discoverReady(2_500, 10).size());
         }
     }
 

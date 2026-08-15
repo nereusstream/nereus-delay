@@ -26,6 +26,7 @@ import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.runtime.DelayShard;
 import io.nereusstream.delay.runtime.DelayShardConfig;
+import io.nereusstream.delay.runtime.DelayShardTestSupport;
 import io.nereusstream.delay.runtime.GenerationRuntimeIndex;
 import io.nereusstream.delay.runtime.LaneRecord;
 import io.nereusstream.delay.runtime.MessageRecord;
@@ -123,12 +124,11 @@ class ClaimHandoffWorkClassExecutorTest {
                     Bytes.sha256(Bytes.utf8("claim-work-owner-fence")));
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver);
             shard.apply(schedule, source);
-            io.nereusstream.delay.runtime.DelayShardTestSupport.updateLaneReadiness(
-                    shard, laneId, RuntimeReadiness.READY);
             final OwnedDelayShard owned = new OwnedDelayShard(shard, lease, owner);
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
             owned.recordCatchup(source);
             owned.activateForCommands(authority, 101);
+            DelayShardTestSupport.activateTypedLaneReadinessForTest(shard, laneId);
             final MessageRecord message = shard.getMessage(schedule.delayMessageId());
             final LaneRecord lane = shard.getLane(laneId);
             final byte[] readyKey = KeyCodec.timelineReady(lane.nextEligibleAtEpochMs(), laneId,

@@ -4,12 +4,15 @@ import io.nereusstream.delay.ownership.OxiaOwnerLeaseStore;
 import io.nereusstream.delay.ownership.OwnedDelayShard;
 import io.nereusstream.delay.ownership.ShardLifecycleState;
 import io.nereusstream.delay.ownership.SourceAssignment;
+import io.nereusstream.delay.ownership.WorkerCommandRuntime;
+import io.nereusstream.delay.ownership.WorkerSchedulingRuntime;
 import io.nereusstream.delay.ownership.WorkerShardRuntime;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.PulsarActivationBarrier;
 import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.SharedRocksDbResources;
+import io.nereusstream.delay.store.WorkerCheckpointRuntime;
 import org.apache.pulsar.client.api.GuardedConsumer;
 import org.apache.pulsar.client.api.TopicResourceGuard;
 import org.apache.pulsar.client.api.TopicResourceGuardAttestation;
@@ -45,6 +48,32 @@ public final class PulsarClientArtifactWorkerSourceFactory {
             final SharedRocksDbResources resources,
             final OxiaOwnerLeaseStore authority,
             final PublicKey verificationKey) {
+        return create(consumer, expectedGuard, physicalTopic, receiveTimeout, acceptedAssignment, workClasses,
+                ownedShard, store, resources, authority, verificationKey, null, null, null);
+    }
+
+    /**
+     * Creates one Pulsar source runtime with the complete shared Worker graph.
+     * The supplied scheduling, command and checkpoint runtimes must already be
+     * built from the same registry, Store, resources and Owner composition;
+     * {@link WorkerShardRuntime} repeats those identity checks before exposing
+     * the guarded source.
+     */
+    public static WorkerShardRuntime create(
+            final GuardedConsumer<byte[]> consumer,
+            final TopicResourceGuard expectedGuard,
+            final String physicalTopic,
+            final Duration receiveTimeout,
+            final SourceAssignment acceptedAssignment,
+            final WorkClassExecutionRegistry workClasses,
+            final OwnedDelayShard ownedShard,
+            final ShardStore store,
+            final SharedRocksDbResources resources,
+            final OxiaOwnerLeaseStore authority,
+            final PublicKey verificationKey,
+            final WorkerSchedulingRuntime schedulingRuntime,
+            final WorkerCommandRuntime commandRuntime,
+            final WorkerCheckpointRuntime checkpointRuntime) {
         Objects.requireNonNull(consumer, "consumer");
         final TopicResourceGuard guard = Objects.requireNonNull(expectedGuard, "expectedGuard");
         final String topic = requirePhysicalTopic(physicalTopic);
@@ -68,7 +97,7 @@ public final class PulsarClientArtifactWorkerSourceFactory {
             return new WorkerShardRuntime(source, Objects.requireNonNull(workClasses, "workClasses"), ownedShard,
                     Objects.requireNonNull(store, "store"), Objects.requireNonNull(resources, "resources"),
                     Objects.requireNonNull(authority, "authority"), Objects.requireNonNull(verificationKey,
-                            "verificationKey"));
+                            "verificationKey"), schedulingRuntime, commandRuntime, checkpointRuntime);
         } catch (RuntimeException | Error failure) {
             closeAfterFailure(source, failure);
             throw failure;

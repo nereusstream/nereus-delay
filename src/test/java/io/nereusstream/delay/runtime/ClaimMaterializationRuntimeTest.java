@@ -189,7 +189,7 @@ class ClaimMaterializationRuntimeTest {
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver);
             assertEquals(io.nereusstream.delay.protocol.StableCode.SCHEDULED,
                     shard.apply(schedule, position(shardId, 0, 1_000)).stableCode());
-            shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
+            DelayShardTestSupport.activateTypedLaneReadinessForTest(shard, lane);
             final MessageRecord current = shard.getMessage(schedule.delayMessageId());
             final ClaimMaterializationV1 valid = new ClaimMaterializationV1(destination, capability,
                     BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1("fixture-target-cluster",

@@ -28,9 +28,11 @@ import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DeliveryCapabilitySemanticV1;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.DlqExportResultBody;
+import io.nereusstream.delay.protocol.EvidenceCursorV1;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.LaneRecordEnvelopeV1;
 import io.nereusstream.delay.protocol.LaneQuotaUsageEntryV1;
+import io.nereusstream.delay.protocol.LaneCircuitStateV1;
 import io.nereusstream.delay.protocol.LaneRetirementProgressV1;
 import io.nereusstream.delay.protocol.LaneTerminalGuardV1;
 import io.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
@@ -55,6 +57,7 @@ import io.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1;
 import io.nereusstream.delay.protocol.PublishAdmissionBody;
 import io.nereusstream.delay.protocol.PublishOutcomeBody;
 import io.nereusstream.delay.protocol.PreparedCommand;
+import io.nereusstream.delay.protocol.ReadyCertificateV1;
 import io.nereusstream.delay.protocol.PreparedControlOperationV1;
 import io.nereusstream.delay.protocol.ReplayDeadLetterBody;
 import io.nereusstream.delay.protocol.ResolveUncertainBody;
@@ -6172,6 +6175,18 @@ public final class DelayShard {
         return readLane(laneId);
     }
 
+    /**
+     * Returns the typed immutable Lane projection, or {@code null} for a
+     * legacy compatibility Lane.  Production activation requires this typed
+     * state so Profile/capability/tuple identity cannot be replaced by a
+     * readiness-only compatibility record.
+     */
+    public synchronized ActiveLaneStateV1 getActiveLaneStateV1(
+            final io.nereusstream.delay.protocol.DestinationLaneId laneId) {
+        final LaneValue value = readLaneValue(Objects.requireNonNull(laneId, "laneId"));
+        return value == null ? null : value.typedActiveState();
+    }
+
     /** Returns the durable local close cursor, if this Lane has not finished materialization. */
     public synchronized LaneCloseMaterializationCursor getLaneCloseCursor(
             final io.nereusstream.delay.protocol.DestinationLaneId laneId) {
@@ -6399,6 +6414,85 @@ public final class DelayShard {
         store.write(batch -> {
             deleteReadyKey(batch, current);
             putReadyProjection(batch, projection);
+        });
+        return projection.lane();
+    }
+
+    /**
+     * Applies a strict typed Lane activation.  The caller must supply the
+     * exact Channel Resource, Ready Certificate and evidence cursor set
+     * produced by the external prerequisite authority.  This is intentionally
+     * separate from the runtime-package readiness test seam above: a raw enum
+     * can never make a typed Lane schedulable.
+     */
+    public synchronized LaneRecord activateLaneReadiness(
+            final io.nereusstream.delay.protocol.DestinationLaneId laneId,
+            final byte[] laneIncarnation,
+            final ChannelResourceIdentityV1 channel,
+            final ReadyCertificateV1 readyCertificate,
+            final List<EvidenceCursorV1> evidenceCursors) {
+        final DestinationLaneId exactLaneId = Objects.requireNonNull(laneId, "laneId");
+        final byte[] exactIncarnation = Bytes.copy(Objects.requireNonNull(laneIncarnation, "laneIncarnation"));
+        final ChannelResourceIdentityV1 exactChannel = Objects.requireNonNull(channel, "channel");
+        final ReadyCertificateV1 exactCertificate = Objects.requireNonNull(readyCertificate,
+                "readyCertificate");
+        final List<EvidenceCursorV1> exactEvidence = List.copyOf(Objects.requireNonNull(evidenceCursors,
+                "evidenceCursors"));
+        final ActiveLaneStateV1 currentTyped = getActiveLaneStateV1(exactLaneId);
+        if (currentTyped == null) {
+            throw new IllegalStateException("strict Lane activation requires a typed active Lane");
+        }
+        if (!Arrays.equals(currentTyped.laneIncarnation(), exactIncarnation)
+                || !Arrays.equals(exactChannel.destinationLaneId(), exactLaneId.bytes())
+                || !Arrays.equals(exactChannel.laneIncarnation(), exactIncarnation)) {
+            throw new IllegalArgumentException("Lane activation identity does not match the typed Lane");
+        }
+        final ChannelResourceIdentityV1 certificateChannel = ChannelResourceIdentityV1.decode(
+                exactCertificate.channel());
+        if (!exactChannel.equals(certificateChannel)
+                || !Arrays.equals(exactCertificate.destinationLaneId(), exactLaneId.bytes())
+                || !Arrays.equals(exactCertificate.laneIncarnation(), exactIncarnation)
+                || !Arrays.equals(exactCertificate.storeIncarnation(), storeIncarnation())
+                || !exactEvidence.equals(exactCertificate.evidenceCursors())) {
+            throw new IllegalArgumentException("Lane activation proof is not self-consistent");
+        }
+        final CanonicalLaneTupleV1.Projection tuple = CanonicalLaneTupleV1.project(
+                currentTyped.canonicalLaneTuple());
+        if (!tuple.destinationProfile().equals(currentTyped.destinationProfile())
+                || !tuple.capabilityProfile().equals(currentTyped.capabilityProfile())
+                || !tuple.targetResource().equals(exactChannel.targetResource())
+                || tuple.physicalPartition() != exactChannel.physicalPartition()
+                || !tuple.targetResource().equals(exactCertificate.activationBarrier().resource())
+                || tuple.physicalPartition() != exactCertificate.activationBarrier().partition()) {
+            throw new IllegalArgumentException("Lane activation proof does not match the pinned Lane tuple");
+        }
+        for (EvidenceCursorV1 cursor : exactEvidence) {
+            if (!Arrays.equals(cursor.destinationLaneId(), exactLaneId.bytes())
+                    || !Arrays.equals(cursor.laneIncarnation(), exactIncarnation)) {
+                throw new IllegalArgumentException("Lane activation evidence belongs to another Lane");
+            }
+        }
+
+        final LaneValue currentValue = readLaneValue(exactLaneId);
+        final LaneRecord current = currentValue.asLaneRecord();
+        if (current.admissionGate() != AdmissionGate.OPEN) {
+            throw new IllegalStateException("non-open Lane cannot become READY");
+        }
+        if (current.runtimeReadiness() == RuntimeReadiness.READY) {
+            if (!Arrays.equals(currentTyped.readyCertificate(), exactCertificate.canonicalBytes())) {
+                throw new IllegalStateException("READY Lane already carries another certificate");
+            }
+            return current;
+        }
+        if (current.runtimeReadiness() != RuntimeReadiness.RECOVERING_EVIDENCE) {
+            throw new IllegalStateException("Lane must return to RECOVERING_EVIDENCE before activation");
+        }
+        final LaneRecord next = current.withReadiness(RuntimeReadiness.READY);
+        final TimelineCandidate candidate = findLaneCandidate(exactLaneId, null, -1, null, null);
+        final LaneProjection projection = projectLane(exactLaneId, current, next, candidate);
+        store.write(batch -> {
+            deleteReadyKey(batch, current);
+            putReadyProjection(batch, projection, exactCertificate);
         });
         return projection.lane();
     }
@@ -8112,6 +8206,12 @@ public final class DelayShard {
 
     private void putReadyProjection(final ShardStore.Batch batch, final LaneProjection projection)
             throws org.rocksdb.RocksDBException {
+        putReadyProjection(batch, projection, null);
+    }
+
+    private void putReadyProjection(final ShardStore.Batch batch, final LaneProjection projection,
+                                    final ReadyCertificateV1 activationCertificate)
+            throws org.rocksdb.RocksDBException {
         final LaneValue previousValue = projection.previousValue();
         final byte[] laneValue;
         if (previousValue != null && previousValue.typedActiveState() != null) {
@@ -8126,10 +8226,15 @@ public final class DelayShard {
                             ? state.runtimeBlockReason() : null,
                     projection.lane().laneControlVersion(), projection.lane().laneVersion(),
                     projection.lane().weight(), usage,
-                    projection.earliestActionAtEpochMs(), projection.nextEligibleAtEpochMs(), readyKey);
+                    projection.earliestActionAtEpochMs(), projection.nextEligibleAtEpochMs(), readyKey,
+                    activationCertificate == null ? (projection.lane().runtimeReadiness() == RuntimeReadiness.READY
+                            ? state.readyCertificate() : null) : activationCertificate.canonicalBytes());
             laneValue = LaneRecordEnvelopeV1.active(nextState).canonicalBytes();
         } else {
-            laneValue = LaneRecordEnvelopeV1.active(projection.lane().encode()).canonicalBytes();
+            final ActiveLaneStateV1 typed = typedInitialLaneState(projection);
+            laneValue = typed == null
+                    ? LaneRecordEnvelopeV1.active(projection.lane().encode()).canonicalBytes()
+                    : LaneRecordEnvelopeV1.active(typed).canonicalBytes();
         }
         batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(projection.lane().laneId()),
                 laneValue);
@@ -8139,6 +8244,50 @@ public final class DelayShard {
                     KeyCodec.timelineReady(ready.nextEligibleAtEpochMs(), ready.laneId(), ready.laneVersion()),
                     ready.encode());
         }
+    }
+
+    /**
+     * Creates the first typed Lane projection from the exact V1 resolver
+     * tuple.  Legacy commands and existing legacy Lanes retain their old
+     * compatibility value; they are never upgraded from an arbitrary byte
+     * string or from caller-supplied Profile names.
+     */
+    private ActiveLaneStateV1 typedInitialLaneState(final LaneProjection projection) {
+        if (projection.previousValue() != null
+                || (projection.lane().laneVersion() != 0 && projection.lane().laneVersion() != 1)
+                || projection.lane().laneControlVersion() != 1) {
+            return null;
+        }
+        final byte[] tupleBytes;
+        if (lastResolvedSchedule != null && lastResolvedSchedule.laneId().equals(projection.lane().laneId())) {
+            tupleBytes = lastResolvedSchedule.canonicalLaneTuple();
+        } else if (lastResolvedPrepare != null && lastResolvedPrepare.laneId().equals(projection.lane().laneId())) {
+            tupleBytes = lastResolvedPrepare.canonicalLaneTuple();
+        } else {
+            return null;
+        }
+        final CanonicalLaneTupleV1.Projection tuple;
+        try {
+            tuple = CanonicalLaneTupleV1.project(tupleBytes);
+        } catch (IllegalArgumentException malformedTuple) {
+            // The raw resolver remains a compatibility seam for historical
+            // tests/clients.  A malformed tuple must retain the legacy
+            // projection, which strict activation will refuse later, rather
+            // than manufacturing typed identity from unparsed bytes.
+            return null;
+        }
+        if (!projection.lane().laneId().equals(DestinationLaneId.derive(tupleBytes))) {
+            throw new IllegalStateException("initial typed Lane tuple identity changed during projection");
+        }
+        final long typedLaneVersion = Math.max(1, projection.lane().laneVersion());
+        final Long earliestActionAt = projection.earliestActionAtEpochMs();
+        final Long nextEligibleAt = projection.nextEligibleAtEpochMs();
+        return new ActiveLaneStateV1(projection.lane().laneId(), projection.lane().laneIncarnation(),
+                projection.lane().admissionGate(), projection.lane().runtimeReadiness(), null,
+                projection.lane().laneControlVersion(), typedLaneVersion,
+                tuple.destinationProfile(), tuple.capabilityProfile(),
+                tupleBytes, projection.lane().weight(), projection.laneUsage(), earliestActionAt, nextEligibleAt,
+                LaneCircuitStateV1.CLOSED, 0, 0, 0, 0, null, null, null);
     }
 
     private TimelineCandidate findLaneCandidate(

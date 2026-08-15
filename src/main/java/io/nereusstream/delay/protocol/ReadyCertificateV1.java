@@ -12,6 +12,8 @@ import java.util.Objects;
  */
 public final class ReadyCertificateV1 {
     private final PublishAdmissionBody.ReadyCertificate delegate;
+    private final ActivationBarrierV1 activationBarrier;
+    private final List<EvidenceCursorV1> evidenceCursors;
 
     private ReadyCertificateV1(final PublishAdmissionBody.ReadyCertificate delegate) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
@@ -32,7 +34,9 @@ public final class ReadyCertificateV1 {
         if (delegate.validUntilEpochMs() > channel.credentialUseLease().validUntilEpochMs()) {
             throw new IllegalArgumentException("ReadyCertificate outlives the channel credential lease");
         }
-        validateNestedCanonical(delegate.canonicalBytes());
+        final NestedEvidence nestedEvidence = validateNestedCanonical(delegate.canonicalBytes());
+        this.activationBarrier = nestedEvidence.activationBarrier();
+        this.evidenceCursors = nestedEvidence.evidenceCursors();
     }
 
     public static ReadyCertificateV1 decode(final byte[] encoded) {
@@ -96,20 +100,29 @@ public final class ReadyCertificateV1 {
         return delegate.certificateDigest();
     }
 
-    private static void validateNestedCanonical(final byte[] encoded) {
+    /** Returns the exact target-resource barrier carried by this certificate. */
+    public ActivationBarrierV1 activationBarrier() {
+        return activationBarrier;
+    }
+
+    /** Returns the sorted, unique evidence cursors carried by this certificate. */
+    public List<EvidenceCursorV1> evidenceCursors() {
+        return evidenceCursors;
+    }
+
+    private static NestedEvidence validateNestedCanonical(final byte[] encoded) {
         final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(encoded, true);
         final List<EvidenceCursorV1> evidenceCursors = new ArrayList<>();
-        boolean activationBarrierSeen = false;
+        ActivationBarrierV1 activationBarrier = null;
         while (reader.hasRemaining()) {
             final CanonicalProtobuf.Reader.Field field = reader.next();
             if (field.number() == 7) {
-                ActivationBarrierV1.decode(QueryCodecSupport.nested(field, 7));
-                activationBarrierSeen = true;
+                activationBarrier = ActivationBarrierV1.decode(QueryCodecSupport.nested(field, 7));
             } else if (field.number() == 8) {
                 evidenceCursors.add(EvidenceCursorV1.decode(QueryCodecSupport.nested(field, 8)));
             }
         }
-        if (!activationBarrierSeen || evidenceCursors.isEmpty()) {
+        if (activationBarrier == null || evidenceCursors.isEmpty()) {
             throw new IllegalArgumentException("ReadyCertificate requires activation barrier and evidence cursor");
         }
         for (int index = 1; index < evidenceCursors.size(); index++) {
@@ -117,6 +130,11 @@ public final class ReadyCertificateV1 {
                 throw new IllegalArgumentException("ReadyCertificate evidence cursors must be sorted and unique");
             }
         }
+        return new NestedEvidence(activationBarrier, List.copyOf(evidenceCursors));
+    }
+
+    private record NestedEvidence(ActivationBarrierV1 activationBarrier,
+                                  List<EvidenceCursorV1> evidenceCursors) {
     }
 
     @Override

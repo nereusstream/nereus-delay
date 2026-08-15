@@ -266,13 +266,35 @@ public final class ActiveLaneStateV1 {
                                                   final Long nextEarliestActionAtEpochMs,
                                                   final Long nextEligibleAtEpochMs,
                                                   final byte[] nextEncodedReadyKey) {
+        return withLocalProjection(nextAdmissionGate, nextRuntimeReadiness, nextRuntimeBlockReason,
+                nextLaneControlVersion, nextLaneVersion, nextSchedulerWeight, nextLaneUsage,
+                nextEarliestActionAtEpochMs, nextEligibleAtEpochMs, nextEncodedReadyKey,
+                nextRuntimeReadiness == RuntimeReadiness.READY ? readyCertificate : null);
+    }
+
+    /**
+     * Replaces the local projection and, for a newly proven READY state,
+     * installs the exact externally-issued Ready Certificate in the same
+     * immutable typed value.  The certificate is never synthesized from a
+     * readiness enum or retained across a transition away from READY.
+     */
+    public ActiveLaneStateV1 withLocalProjection(final AdmissionGate nextAdmissionGate,
+                                                  final RuntimeReadiness nextRuntimeReadiness,
+                                                  final LaneRuntimeBlockReasonV1 nextRuntimeBlockReason,
+                                                  final long nextLaneControlVersion,
+                                                  final long nextLaneVersion,
+                                                  final long nextSchedulerWeight,
+                                                  final PublishAdmissionBody.ChargeVector nextLaneUsage,
+                                                  final Long nextEarliestActionAtEpochMs,
+                                                  final Long nextEligibleAtEpochMs,
+                                                  final byte[] nextEncodedReadyKey,
+                                                  final byte[] nextReadyCertificate) {
         return new ActiveLaneStateV1(laneId, laneIncarnation, nextAdmissionGate, nextRuntimeReadiness,
                 nextRuntimeBlockReason, nextLaneControlVersion, nextLaneVersion, destinationProfile,
                 capabilityProfile, canonicalLaneTuple, nextSchedulerWeight, nextLaneUsage,
                 nextEarliestActionAtEpochMs, nextEligibleAtEpochMs, circuitState, circuitOpenUntilEpochMs,
                 consecutiveFailures, laneRetryBackoffUntilEpochMs, executorRetryAtEpochMs,
-                nextEncodedReadyKey, nextRuntimeReadiness == RuntimeReadiness.READY ? readyCertificate : null,
-                retirement);
+                nextEncodedReadyKey, nextReadyCertificate, retirement);
     }
 
     public byte[] canonicalBytes() {
