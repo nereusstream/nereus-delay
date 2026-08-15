@@ -4,11 +4,23 @@ import io.nereusstream.delay.ownership.RouteWorkerAssignmentCoordinator;
 import io.nereusstream.delay.ownership.SourceAcknowledgement;
 import io.nereusstream.delay.ownership.SourceRecordConsumer;
 import io.nereusstream.delay.ownership.SourceReplayRecord;
+import io.nereusstream.delay.ownership.OxiaOwnerLeaseStore;
 import io.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend;
 import io.nereusstream.delay.ownership.OxiaSyncWorkerAssignmentBackend;
+import io.nereusstream.delay.ownership.OwnerLease;
+import io.nereusstream.delay.ownership.OwnerRecoveryCoordinator;
+import io.nereusstream.delay.ownership.OwnerRecoveryTurn;
+import io.nereusstream.delay.ownership.OwnedDelayShard;
+import io.nereusstream.delay.ownership.ReplayTurnBudget;
+import io.nereusstream.delay.ownership.ShardLifecycleState;
+import io.nereusstream.delay.ownership.SourceAssignment;
+import io.nereusstream.delay.ownership.SourceReplayCursor;
+import io.nereusstream.delay.ownership.SourceReplayEntry;
+import io.nereusstream.delay.ownership.SourceReplaySuccessor;
 import io.nereusstream.delay.ownership.WorkerAssignment;
 import io.nereusstream.delay.ownership.WorkerAssignmentAuthority;
 import io.nereusstream.delay.ownership.WorkerAssignmentCoordinator;
+import io.nereusstream.delay.ownership.WorkerShardRuntime;
 import io.nereusstream.delay.protocol.ActivationBarrierV1;
 import io.nereusstream.delay.protocol.AdapterKindV1;
 import io.nereusstream.delay.protocol.AdapterMetadataV1;
@@ -16,12 +28,15 @@ import io.nereusstream.delay.protocol.BrokerResourceIdentityV1;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CapacityDimensionV1;
 import io.nereusstream.delay.protocol.CapacityVectorV1;
+import io.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
 import io.nereusstream.delay.protocol.DeliveryMode;
+import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.IngressCredentialBindingRefV1;
 import io.nereusstream.delay.protocol.KafkaActivationBarrier;
 import io.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
 import io.nereusstream.delay.protocol.KafkaIngressRouteResourceV1;
 import io.nereusstream.delay.protocol.KafkaMetadataV1;
+import io.nereusstream.delay.protocol.OwnerIdentityV1;
 import io.nereusstream.delay.protocol.OrderingMode;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.ProfileKindV1;
@@ -36,12 +51,26 @@ import io.nereusstream.delay.protocol.RoutePartitionPolicyV1;
 import io.nereusstream.delay.protocol.RouteSnapshotV1;
 import io.nereusstream.delay.protocol.RoutingHashVersionV1;
 import io.nereusstream.delay.protocol.ShardId;
+import io.nereusstream.delay.protocol.ShardSubjectV1;
+import io.nereusstream.delay.protocol.ScheduleIntentV1;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.route.OxiaRouteAuthoritySession;
 import io.nereusstream.delay.route.OxiaSignedRouteSnapshotProvider;
 import io.nereusstream.delay.route.OxiaSignedRouteSnapshotPublisher;
+import io.nereusstream.delay.runtime.DelayShard;
+import io.nereusstream.delay.runtime.DelayShardConfig;
+import io.nereusstream.delay.runtime.V1ScheduleResolver;
+import io.nereusstream.delay.scheduler.SchedulerBudget;
+import io.nereusstream.delay.scheduler.WorkClass;
+import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
+import io.nereusstream.delay.scheduler.WorkClassPolicy;
+import io.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
 import io.nereusstream.delay.semantic.AuthenticatedTenantContext;
 import io.nereusstream.delay.semantic.RouteSelectionHint;
+import io.nereusstream.delay.store.CheckpointFileInventory;
+import io.nereusstream.delay.store.ShardStore;
+import io.nereusstream.delay.store.ShardStoreConfig;
+import io.nereusstream.delay.store.SharedRocksDbResources;
 import io.nereusstream.delay.store.WorkerLoadVector;
 import io.nereusstream.delay.store.WorkerPlacementPolicy;
 import org.apache.kafka.clients.admin.Admin;
@@ -63,6 +92,8 @@ import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.time.Duration;
@@ -142,32 +173,109 @@ public final class KafkaClientArtifactRouteWorkerSmoke {
                 publisher.publish(hint, snapshot, 0);
                 provider.refresh().toCompletableFuture().join();
 
-                final WorkerAssignmentAuthority authority = new OxiaSyncWorkerAssignmentBackend(assignmentHandle,
-                        assignmentPrefix);
+                final WorkerAssignmentAuthority assignmentAuthority = new OxiaSyncWorkerAssignmentBackend(
+                        assignmentHandle, assignmentPrefix);
                 final RouteWorkerAssignmentCoordinator coordinator = new RouteWorkerAssignmentCoordinator(provider,
                         new WorkerAssignmentCoordinator(new WorkerPlacementPolicy(
-                                new WorkerPlacementPolicy.Configuration(1_000, 0, 0, 0, 0)), authority));
+                                new WorkerPlacementPolicy.Configuration(1_000, 0, 0, 0, 0)), assignmentAuthority));
                 final RouteWorkerAssignmentCoordinator.RoutePlacementResult placement = coordinator.placeActive(
                         tenant, hint, placementRequest(System.currentTimeMillis()));
-                final WorkerAssignment publication = placement.publication().assignment();
                 final WorkerAssignment accepted = coordinator.requireAccepted(tenant,
-                        placement.publication().revision(), publication);
+                        placement.publication().revision(), placement.publication().assignment());
                 requireRouteAssignment(accepted, snapshot, clusterId, nativeTopicId, barrierOffset);
 
-                append(bootstrap, clusterId, topic, topicId, afterRoute, barrierOffset);
-                final SourceObservation observation = pollAfterBarrier(bootstrap, clusterId, topic, nativeTopicId,
-                        shard, barrierOffset, afterRoute);
-                requireCommittedOffset(admin, observation.groupId(), topic, 0, barrierOffset + 1);
-                if (!authority.withdraw(placement.publication())) {
-                    throw new IllegalStateException("Kafka Route Worker assignment was not withdrawn exactly");
+                final OxiaOwnerLeaseStore ownerAuthority = new OxiaOwnerLeaseStore(assignmentHandle.backend());
+                final OwnerLease lease = ownerAuthority.acquire(accepted.sourceAssignment(), "kafka-route-worker",
+                        assignmentHandle.sessionIdentity(), System.currentTimeMillis(), 60_000).orElseThrow();
+                final WorkClassExecutionRegistry workClasses = workClasses();
+                final KeyPair verificationKey = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+                final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshot(shard);
+                final Path root = Files.createTempDirectory("nereus-delay-kafka-route-worker-");
+                boolean drained = false;
+                try {
+                    final ShardStoreConfig storeConfig = ShardStoreConfig.defaults(root);
+                    try (SharedRocksDbResources resources = new SharedRocksDbResources(storeConfig);
+                         ShardStore store = ShardStore.open(storeConfig, shard, resources)) {
+                        resources.bindWorkClassExecutionRegistry(workClasses);
+                        store.recordControlSnapshot(controlSnapshot);
+                        final DelayShard delayShard = new DelayShard(store, DelayShardConfig.defaults(), null, null,
+                                scheduleResolver());
+                        final OwnedDelayShard ownedShard = new OwnedDelayShard(delayShard, lease,
+                                new OwnerIdentityV1(bytes(16, 70), bytes(16, 71), lease.ownerEpoch(),
+                                        Bytes.sha256(Bytes.utf8("kafka-route-worker-fencing"))));
+                        recoverRouteRecord(accepted, ownerAuthority, ownedShard,
+                                firstRouteRecord(bootstrap, clusterId, topic, nativeTopicId, shard, beforeRoute),
+                                verificationKey, controlSnapshot, workClasses);
+                        if (ownedShard.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
+                                || !(ownedShard.lastCatchupPosition()
+                                instanceof io.nereusstream.delay.protocol.KafkaSourcePosition recovered)
+                                || recovered.offset() != 0) {
+                            throw new IllegalStateException(
+                                    "Kafka Route Worker recovery did not apply the pre-Route record");
+                        }
+                        ackFirstRouteRecord(bootstrap, clusterId, topic, nativeTopicId, shard, beforeRoute, admin);
+
+                        append(bootstrap, clusterId, topic, topicId, afterRoute, barrierOffset);
+                        final String workerGroup = "nereus-delay-route-worker-" + UUID.randomUUID();
+                        final GuardedConsumer<byte[], byte[]> workerConsumer = workerConsumer(bootstrap, workerGroup,
+                                clusterId, topic, nativeTopicId, shard);
+                        try {
+                            final WorkerShardRuntime runtime = KafkaClientArtifactWorkerSourceFactory.create(
+                                    workerConsumer, topic, POLL_TIMEOUT, accepted.sourceAssignment(), workClasses,
+                                    ownedShard, store, resources, ownerAuthority, verificationKey.getPublic());
+                            final io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult result =
+                                    runUntilApplied(runtime);
+                            if (result.status() != io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus
+                                    .APPLIED_AND_ACKED) {
+                                throw new IllegalStateException(
+                                        "Kafka Route Worker active source did not ACK: " + result.status(),
+                                        result.failure());
+                            }
+                            if (!(store.appliedShardLogPosition()
+                                    instanceof io.nereusstream.delay.protocol.KafkaSourcePosition applied)
+                                    || applied.offset() != barrierOffset || !applied.shardId().equals(shard)
+                                    || !applied.authenticatedClusterId().equals(clusterId)
+                                    || !applied.nativeTopicUuid().equals(nativeTopicId)) {
+                                throw new IllegalStateException(
+                                        "Kafka Route Worker Store did not persist the post-barrier position");
+                            }
+                            requireCommittedOffset(admin, workerGroup, topic, 0, barrierOffset + 1);
+                            final Path checkpointPath = root.resolve("route-worker-final-checkpoint");
+                            final byte[] checkpointId = java.util.Arrays.copyOf(
+                                    Bytes.sha256(Bytes.utf8("kafka-route-worker-final-checkpoint")), 16);
+                            final var drain = runtime.drain(
+                                    new io.nereusstream.delay.ownership.OwnerDrainCoordinator.DrainRequest(
+                                            System.currentTimeMillis() + 30_000, 0, checkpointPath, checkpointId),
+                                    System::currentTimeMillis, () -> { });
+                            if (drain.pendingCheckpointTask() != null || drain.finalCheckpointPath() == null
+                                    || !Files.isDirectory(checkpointPath)
+                                    || CheckpointFileInventory.collect(checkpointPath).isEmpty()
+                                    || !ownerAuthority.current(shard).isEmpty()) {
+                                throw new IllegalStateException(
+                                        "Kafka Route Worker drain did not publish the final checkpoint or release the owner lease");
+                            }
+                            runtime.close();
+                            if (!assignmentAuthority.withdraw(placement.publication())) {
+                                throw new IllegalStateException(
+                                        "Kafka Route Worker assignment was not withdrawn exactly");
+                            }
+                            drained = true;
+                            provider.close();
+                            System.out.println("Kafka signed Route -> guarded Fetch barrier -> Oxia Worker assignment "
+                                    + "-> RocksDB apply/checkpoint smoke passed: fetch=v"
+                                    + fetchEvidence.requestVersion() + ", lso=" + fetchEvidence.lastStableOffset()
+                                    + ", routeRevision=" + placement.routeRevision() + ", assignmentRevision="
+                                    + placement.publication().revision() + ", barrierOffset=" + barrierOffset
+                                    + ", sourceOffset=" + barrierOffset + ", commitSync ACK, final checkpoint");
+                        } finally {
+                            if (!drained) {
+                                workerConsumer.close();
+                            }
+                        }
+                    }
+                } finally {
+                    deleteTree(root);
                 }
-                provider.close();
-                System.out.println("Kafka signed Route -> guarded Fetch barrier -> Oxia Worker assignment smoke "
-                        + "passed: fetch=v" + fetchEvidence.requestVersion() + ", lso="
-                        + fetchEvidence.lastStableOffset() + ", routeRevision=" + placement.routeRevision()
-                        + ", assignmentRevision=" + placement.publication().revision() + ", barrierOffset="
-                        + barrierOffset + ", sourceOffset=" + observation.position().offset()
-                        + ", commitSync ACK");
             }
         }
     }
@@ -195,6 +303,155 @@ public final class KafkaClientArtifactRouteWorkerSmoke {
         } finally {
             consumer.close();
         }
+    }
+
+    private static SourceReplayEntry firstRouteRecord(final String bootstrap, final String clusterId,
+                                                       final String topic, final UUID topicId, final ShardId shard,
+                                                       final PreparedCommand expected) {
+        final GuardedConsumer<byte[], byte[]> consumer = KafkaClientArtifactSourceConsumerFactory.create(
+                consumerConfiguration(bootstrap, "nereus-delay-route-recovery-" + UUID.randomUUID()),
+                clusterId, topic, topicId, shard.partition());
+        try (KafkaClientArtifactRecoverySourceCursor cursor = new KafkaClientArtifactRecoverySourceCursor(
+                consumer, new SourceAssignment(shard, Bytes.sha256(Bytes.utf8("route-recovery-assignment")), 1,
+                        new KafkaActivationBarrier(shard, clusterId, topicId, 1)), topic, 0, POLL_TIMEOUT)) {
+            if (!cursor.hasNext()) {
+                throw new IllegalStateException("Kafka Route recovery record did not become visible");
+            }
+            final SourceReplayEntry entry = cursor.next();
+            if (!(entry instanceof SourceReplayRecord record) || !expected.equals(record.command())
+                    || !(record.position() instanceof io.nereusstream.delay.protocol.KafkaSourcePosition position)
+                    || position.offset() != 0) {
+                throw new IllegalStateException("Kafka Route recovery returned an unexpected pre-Route record");
+            }
+            return entry;
+        }
+    }
+
+    private static void recoverRouteRecord(final WorkerAssignment accepted,
+                                           final OxiaOwnerLeaseStore authority,
+                                           final OwnedDelayShard ownedShard,
+                                           final SourceReplayEntry entry,
+                                           final KeyPair verificationKey,
+                                           final CompatibleControlSnapshotV1 controlSnapshot,
+                                           final WorkClassExecutionRegistry workClasses) {
+        final SourceReplayCursor<SourceReplayEntry> cursor = SourceReplayCursor.of(List.of(entry).iterator());
+        final OwnerRecoveryCoordinator recovery = new OwnerRecoveryCoordinator(ownedShard, authority,
+                accepted.sourceAssignment(), SourceReplaySuccessor.strictKafka(), cursor,
+                verificationKey.getPublic(), controlSnapshot, System::currentTimeMillis,
+                new ReplayTurnBudget(1, 1_000_000, TimeUnit.SECONDS.toNanos(10)), workClasses);
+        OwnerRecoveryTurn turn;
+        do {
+            turn = recovery.runTurn();
+        } while (!turn.complete());
+        if (turn.outcomes().size() != 1 || !recovery.complete()) {
+            throw new IllegalStateException("Kafka Route Worker recovery did not apply exactly one record");
+        }
+    }
+
+    private static void ackFirstRouteRecord(final String bootstrap, final String clusterId, final String topic,
+                                            final UUID topicId, final ShardId shard, final PreparedCommand expected,
+                                            final Admin admin) throws Exception {
+        final String groupId = "nereus-delay-route-first-ack-" + UUID.randomUUID();
+        final GuardedConsumer<byte[], byte[]> consumer = KafkaClientArtifactSourceConsumerFactory.create(
+                consumerConfiguration(bootstrap, groupId), clusterId, topic, topicId, shard.partition());
+        final KafkaClientArtifactSourceRecordConsumer source = new KafkaClientArtifactSourceRecordConsumer(consumer,
+                clusterId, topicId, shard, topic, POLL_TIMEOUT);
+        try {
+            consumer.seek(new TopicPartition(topic, shard.partition()), 0);
+            final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+            while (System.nanoTime() < deadline) {
+                final Optional<SourceRecordConsumer.PolledSourceRecord> polled = source.poll();
+                if (polled.isEmpty()) {
+                    continue;
+                }
+                if (!(polled.get().entry() instanceof SourceReplayRecord record)
+                        || !expected.equals(record.command())
+                        || !(record.position() instanceof io.nereusstream.delay.protocol.KafkaSourcePosition position)
+                        || position.offset() != 0) {
+                    throw new IllegalStateException("Kafka Route first ACK returned an unexpected record");
+                }
+                requireAcked(polled.get().acknowledgement().acknowledge(polled.get().entry(), null));
+                requireCommittedOffset(admin, groupId, topic, shard.partition(), 1);
+                return;
+            }
+            throw new IllegalStateException("Kafka Route first ACK record did not become visible");
+        } finally {
+            source.close();
+        }
+    }
+
+    private static io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult runUntilApplied(
+            final WorkerShardRuntime runtime) {
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+        io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult result;
+        do {
+            result = runtime.runSourceTurn(new SchedulerBudget(1, 1_000_000, TimeUnit.SECONDS.toNanos(2)),
+                    System::currentTimeMillis);
+            if (result.status()
+                    == io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED) {
+                return result;
+            }
+            if (result.status()
+                    != io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.WAITING_FOR_SOURCE
+                    && result.status()
+                    != io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.WAITING_FOR_WORK_CLASS) {
+                throw new IllegalStateException("Kafka Route Worker source turn failed: " + result.status(),
+                        result.failure());
+            }
+        } while (System.nanoTime() < deadline);
+        throw new IllegalStateException("Kafka Route Worker source record did not become visible");
+    }
+
+    private static GuardedConsumer<byte[], byte[]> workerConsumer(final String bootstrap, final String groupId,
+                                                                   final String clusterId, final String topic,
+                                                                   final UUID topicId, final ShardId shard) {
+        return KafkaClientArtifactSourceConsumerFactory.create(consumerConfiguration(bootstrap, groupId), clusterId,
+                topic, topicId, shard.partition());
+    }
+
+    private static V1ScheduleResolver scheduleResolver() {
+        final byte[] tuple = Bytes.utf8("kafka-route-worker-canonical-lane-tuple-v1");
+        final DestinationLaneId lane = DestinationLaneId.derive(tuple);
+        return new V1ScheduleResolver() {
+            @Override
+            public ResolvedSchedule resolveSchedule(final ShardId shard,
+                                                     final io.nereusstream.delay.protocol.DelayMessageId message,
+                                                     final ScheduleIntentV1 intent,
+                                                     final io.nereusstream.delay.protocol.SourcePosition source) {
+                return new ResolvedSchedule(lane, tuple, intent.inlinePayload(), null);
+            }
+
+            @Override
+            public ResolvedPrepare resolvePrepare(final ShardId shard,
+                                                  final io.nereusstream.delay.protocol.DelayMessageId message,
+                                                  final io.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1 body,
+                                                  final io.nereusstream.delay.protocol.SourcePosition source) {
+                return new ResolvedPrepare(lane, tuple);
+            }
+        };
+    }
+
+    private static CompatibleControlSnapshotV1 controlSnapshot(final ShardId shard) {
+        return new CompatibleControlSnapshotV1(new ShardSubjectV1(shard),
+                List.of(new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1)),
+                List.of(new ProfileRefV1(bytes(32, 50), 1, bytes(32, 51), ProfileKindV1.DESTINATION)),
+                new QuotaGrantRefV1(bytes(32, 52), 1, new PublishAdmissionBody.ChargeVector(
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));
+    }
+
+    private static WorkClassExecutionRegistry workClasses() {
+        final java.util.EnumMap<WorkClass, WorkClassPolicy> policies =
+                new java.util.EnumMap<>(WorkClass.class);
+        for (WorkClass workClass : WorkClass.values()) {
+            final boolean protectedClass = switch (workClass) {
+                case LEASE_FENCE, SOURCE_APPLY, OUTCOME_AND_CONTROL, EXPIRY, DUE_SCHEDULER, GC -> true;
+                case QUERY, CHECKPOINT -> false;
+            };
+            policies.put(workClass, new WorkClassPolicy(1, 8, 1_000_000, 1, 1_000_000, 1_000_000,
+                    protectedClass ? 1 : 0, protectedClass ? 1 : 0, workClass == WorkClass.LEASE_FENCE));
+        }
+        return new WorkClassExecutionRegistry(new WorkClassRuntimeConfig(policies,
+                TimeUnit.SECONDS.toNanos(5), TimeUnit.SECONDS.toNanos(30), 16, 8_000_000), System::nanoTime);
     }
 
     private static SourceObservation pollAfterBarrier(final String bootstrap, final String clusterId,
@@ -406,6 +663,21 @@ public final class KafkaClientArtifactRouteWorkerSmoke {
             value[index] = (byte) (seed + index);
         }
         return value;
+    }
+
+    private static void deleteTree(final Path root) throws Exception {
+        if (!Files.exists(root)) {
+            return;
+        }
+        try (var paths = Files.walk(root)) {
+            paths.sorted(java.util.Comparator.reverseOrder()).forEach(path -> {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (java.io.IOException failure) {
+                    throw new java.io.UncheckedIOException(failure);
+                }
+            });
+        }
     }
 
     private record SourceObservation(String groupId, SourceRecordConsumer.PolledSourceRecord record,
