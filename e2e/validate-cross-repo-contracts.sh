@@ -277,6 +277,16 @@ require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "nereus-delay-kafka-e2e-1786812109-79794"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "21092,21093,21094"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerShardRuntime.java" \
+    "bindActiveOwnerPublishGraph"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+    "runDueClaimPublishPhysicalTurn"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "e5cae7b8e7d9988cc6dca516212d011d49fea5fa"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "nereus-delay-kafka-e2e-1786814042-841"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "21492,21493,21494"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactRouteWorkerSmoke.java" \
     "Kafka signed Route -> guarded Fetch barrier"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactRouteWorkerSmoke.java" \
@@ -469,6 +479,10 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
     "runSourceAppliedPhysicalPublish"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+    "bindActiveOwnerPublishGraph"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+    "runDueClaimPublishPhysicalTurn"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
     "Pulsar Worker source-applied physical publish passed"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
     "runSourceBoundPhysicalPublish"
@@ -484,6 +498,12 @@ require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "Admission source ledger=22/3"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "Admission source ledger=33/2"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "3c6e605a33cea2de85fce473af740b5e05fcf74e"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "nereus-delay-pulsar-e2e-1786814719-7983"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "21515,21516"
 
 require_file_text "$kafka_checkout/clients/src/main/java/org/apache/kafka/clients/producer/GuardedProducer.java" \
     "sendGuarded"

@@ -7551,6 +7551,54 @@ disabled. Crash/response-loss coverage beyond the exercised K2 read-committed
 receipt, multi-shard placement, checkpoint/quiescence and §23.5 release gates
 remain open.
 
+## 2026-08-16 provider-driven Kafka and Pulsar Worker physical Publish audit
+
+The earlier source-applied entries are historical snapshots. Delay commits
+`e5cae7b8e7d9988cc6dca516212d011d49fea5fa` (Kafka) and
+`3c6e605a33cea2de85fce473af740b5e05fcf74e` (Pulsar) now bind each real Worker
+smoke to the active-owner typed scheduling, Claim Handoff, Publish Admission
+and preparation-provider graph. Each smoke invokes
+`runDueClaimPublishPhysicalTurn(...)`, source-applies the provider-driven
+Claim/Admission, then completes the source-bound physical Publish and typed
+Outcome path.
+
+Kafka verification passed with `./gradlew check`, exact locked-client
+`compileRealKafka`, and the three-broker E2E using K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, image
+`sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose `nereus-delay-kafka-e2e-1786814042-841`, ports `21492,21493,21494`:
+
+```text
+Kafka Worker source-applied physical publish passed: Admission source offset=3, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset=0, Outcome source offset=4, exact payload readback
+Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, assignment recovery to RocksDB Worker apply before and after broker-1 failover, source-applied physical publish with typed KAFKA_TRANSACTIONAL_RECEIPT Outcome and payload readback, same-topic Worker resume after failover, K1 identity/failover, and K2 atomic target+receipt commit, abort, and delete/recreate fence.
+```
+
+Pulsar verification passed with `./gradlew check`, exact locked-client
+`compileRealPulsar`, and the P1 E2E using source
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
+SHA-256 values
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`, and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, image
+`sha256:892add226a105fb04b6df05df2c58f43e49f76647d39ed73944fcfc9ea1cb3d`,
+Compose `nereus-delay-pulsar-e2e-1786814719-7983`, ports `21515,21516`:
+
+```text
+Pulsar Worker source-applied physical publish passed: Admission source ledger=22/3, typed PULSAR_SEND_ACK target ledger/entry=23/0, Outcome source ledger=22/4, exact payload readback
+Pulsar Worker source-applied physical publish passed: Admission source ledger=33/2, typed PULSAR_SEND_ACK target ledger/entry=34/0, Outcome source ledger=33/3, exact payload readback
+Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, source-bound typed destination SEND ACK/payload readback, guarded source replay, signed mutation append/replay/ACK, signed Route barrier/assignment/source ACK, Broker timestamp, Worker recovery/apply, source-applied physical publish with typed Outcome and payload readback, ACK handoff, and broker-restart resume.
+```
+
+This is positive provider-driven Worker evidence. The provider graph still
+uses bounded in-memory authority and deterministic smoke preparation; it does
+not establish live Profile/credential/Object Store/catalog authority, crash or
+response-loss resolution, Pulsar multi-Broker failover, placement,
+checkpoint/quiescence or §23.5 release readiness. Pulsar ran with
+`NEREUS_DELAY_PULSAR_WITH_OXIA=0`; neither E2E is a runtime, milestone or
+release PASS.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

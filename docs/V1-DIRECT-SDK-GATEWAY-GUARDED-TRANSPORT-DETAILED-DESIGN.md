@@ -4260,3 +4260,57 @@ invoke the live due/Claim/Object Store provider graph or
 `runDueClaimPublishPhysicalTurn`, Oxia Route authority was disabled, and the
 full crash/response-loss matrix, multi-shard placement, checkpoint/quiescence
 and §23.5 release gates remain open.
+
+### 2026-08-16 provider-driven Kafka and Pulsar Worker physical Publish implementation note
+
+The previous notes above are retained as historical receipts. Delay commit
+`e5cae7b8e7d9988cc6dca516212d011d49fea5fa` binds the real K1 Worker smoke to
+the active-owner typed scheduling, Claim Handoff, Publish Admission and
+`WorkerPublishPreparationCoordinator` graph. The smoke now calls
+`runDueClaimPublishPhysicalTurn(...)`, source-applies the provider-driven
+Claim and Admission, and then reaches the already source-bound physical
+Publish/Outcome path. The companion Pulsar implementation is commit
+`3c6e605a33cea2de85fce473af740b5e05fcf74e`.
+
+For Kafka, the locked K1 source was
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256 was
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image was
+`sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+and the three-broker receipt used Compose project
+`nereus-delay-kafka-e2e-1786814042-841`, ports `21492,21493,21494`:
+
+```text
+Kafka Worker source-applied physical publish passed: Admission source offset=3, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset=0, Outcome source offset=4, exact payload readback
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, source-applied physical publish with typed KAFKA_TRANSACTIONAL_RECEIPT Outcome and payload readback, and final checkpoint
+Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, assignment recovery to RocksDB Worker apply before and after broker-1 failover, source-applied physical publish with typed KAFKA_TRANSACTIONAL_RECEIPT Outcome and payload readback, same-topic Worker resume after failover, K1 identity/failover, and K2 atomic target+receipt commit, abort, and delete/recreate fence.
+```
+
+For Pulsar, the locked P1 source was
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+distribution SHA-256 was
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
+SHA-256 values were
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`, and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, image
+was `sha256:892add226a105fb04b6df05df2c58f43e49f76647d39ed73944fcfc9ea1cb3d`,
+and the receipt used Compose project
+`nereus-delay-pulsar-e2e-1786814719-7983`, ports `21515,21516`:
+
+```text
+Pulsar Worker source-applied physical publish passed: Admission source ledger=22/3, typed PULSAR_SEND_ACK target ledger/entry=23/0, Outcome source ledger=22/4, exact payload readback
+Pulsar Worker source-applied physical publish passed: Admission source ledger=33/2, typed PULSAR_SEND_ACK target ledger/entry=34/0, Outcome source ledger=33/3, exact payload readback
+Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, source-bound typed destination SEND ACK/payload readback, guarded source replay, signed mutation append/replay/ACK, signed Route barrier/assignment/source ACK, Broker timestamp, Worker recovery/apply, source-applied physical publish with typed Outcome and payload readback, ACK handoff, and broker-restart resume.
+```
+
+Both `./gradlew check` and the exact locked-client compile gates passed. This
+is now positive provider-driven due-to-Claim-to-physical-Publish evidence for
+the two real Worker smokes. The graph still uses bounded in-memory authority
+and deterministic preparation inputs; it does not prove live Profile/
+credential/Object Store/catalog authority, crash or response-loss resolution,
+Pulsar multi-Broker failover, multi-shard placement, checkpoint/quiescence,
+or the §23.5 V1 release gates. Pulsar ran with
+`NEREUS_DELAY_PULSAR_WITH_OXIA=0`; neither receipt is a runtime, milestone or
+release PASS.
