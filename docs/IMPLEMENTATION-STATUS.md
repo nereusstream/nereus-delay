@@ -8252,6 +8252,38 @@ Profile/credential/Broker prerequisite authority, automatic due-to-Claim-to-
 Publish execution, multi-shard/transport orchestration, crash/response-loss
 evidence and release PASS remain open.
 
+## 2026-08-15 bounded due-to-Claim-to-Publish Worker composition
+
+Delay commit `5305748b02965f171ac751615bb00b4dda8a9eb0` extends the bounded
+one-shard Worker entrypoint with `WorkerShardRuntime.runDueClaimPublishTurn`.
+After due discovery and one strict READY head are submitted, the entrypoint
+observes the exact Claim task through bounded fair shared-command turns. A
+successful Claim result is then passed to an injected typed
+`PublishPreparationProvider`; when preparation is available, the exact Claim
+reservation is carried into Publish Admission and its exact task is also run
+through bounded fair turns. An empty preparation result leaves the successful
+Claim reservation active for a later retry or explicit revoke. Provider
+failure fences the Owner; a Publish `UNKNOWN` result retains the exact active
+reservation until source-ordered resolution or explicit release.
+
+The focused Claim regression now exercises this complete bounded local turn,
+including the injected preparation and `UNKNOWN` Publish outcome. The
+following checks passed:
+
+```text
+./gradlew test --tests io.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutorTest
+./gradlew test --tests io.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutorTest --tests io.nereusstream.delay.ownership.PublishAdmissionWorkClassExecutorTest
+./gradlew check
+BUILD SUCCESSFUL in 1m 13s
+21 actionable tasks: 4 executed, 17 up-to-date
+```
+
+This closes only bounded local due → Claim → caller-supplied Publish
+preparation composition for one shard. It does not provide live
+Profile/credential/Broker prerequisite authority, physical Broker append or
+ACK, automatic preparation, response-loss/crash resolution, multi-shard
+placement, remote Object Store checkpoint authority or release PASS.
+
 ## 2026-08-15 current-source Kafka and Pulsar real-client revalidation
 
 After the typed Lane scheduling bootstrap, the current Delay tree at
@@ -8295,6 +8327,55 @@ Broker prerequisite authority for typed Lane activation, automatic
 due-to-Claim-to-Publish execution, multi-shard placement, remote Object Store
 checkpoint authority, crash/response-loss evidence or the release gates. Each
 harness removed its temporary Compose resources after exit.
+
+## 2026-08-15 current-source Kafka and Pulsar revalidation after bounded Worker composition
+
+The bounded due-to-Claim-to-Publish composition was committed at Delay source
+lock `5305748b02965f171ac751615bb00b4dda8a9eb0`. The real-client harnesses were
+rerun after that source lock against the same locked transport worktrees. The
+Kafka run used
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`
+from base `c300006a7705c240642db6950b5a95fec982bfc5`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose project `nereus-delay-kafka-e2e-1786797371-14292`, broker ports
+`19845,19846,19847`, and Oxia `37a17bef17202d5fd6e232da5fd26d94865484` in
+project `nereus-delay-kafka-oxia-e2e-1786797371-14292` on port `16696`. The
+final receipt was:
+
+```text
+Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, assignment recovery to RocksDB Worker apply before and after broker-1 failover, same-topic Worker resume after failover, K1 identity/failover, and K2 atomic target+receipt commit, abort, and delete/recreate fence.
+```
+
+The Pulsar run used P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` from base
+`8dae0236c0a0d405ed7f8303081080520fe91551`, distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+client-api `f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`,
+common `94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`,
+image `sha256:892add226a105fb04b6df05df2c58f43e49f76647d39ed73944fcfc9ea1cb3d`,
+Compose project `nereus-delay-pulsar-e2e-1786797371-14293`, broker/web ports
+`20145,20146`, and Oxia `37a17bef17202d5fd6e232da5fd26d94865484` in project
+`nereus-delay-pulsar-oxia-e2e-1786797371-14293` on port `16697`, with Oxia
+image `sha256:b8e9f6e6497308be5e1c1cb937a6af96be10d8b258cb660696f605cdf0b495e3`.
+The final receipt was:
+
+```text
+Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, guarded source replay, signed mutation append/replay/ACK, signed Route barrier/assignment/source ACK, Broker timestamp, Worker recovery/apply, ACK handoff, and broker-restart resume.
+```
+
+These receipts revalidate the locked transport/Worker source paths after
+`5305748b`; the checked-in real-client harnesses do not invoke the new
+provider-driven `runDueClaimPublishTurn` path and therefore do not prove its
+automatic live preparation or physical Publish append/ACK. They remain
+current-source transport/Worker evidence only: Kafka covers the checked-in
+three-broker K1/K2 cuts, while Pulsar covers one standalone-broker restart and
+not multi-broker failover. Profile/credential/Broker prerequisite authority,
+multi-shard placement, remote Object Store checkpoint authority,
+crash/response-loss resolution and release PASS remain open. Harness cleanup
+removed the temporary Compose resources; the Kafka Oxia image was also removed
+by its cleanup policy.
 
 ## Verification command
 
