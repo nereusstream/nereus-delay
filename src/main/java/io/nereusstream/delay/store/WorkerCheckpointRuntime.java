@@ -67,6 +67,18 @@ public final class WorkerCheckpointRuntime {
         return scheduler.claimDueForShard(store.shardId(), nowEpochMs, limit);
     }
 
+    /** Removes this Store's idle recurring schedule before Owner drain begins. */
+    public void prepareForDrain() {
+        final io.nereusstream.delay.protocol.ShardId shardId = store.shardId();
+        if (!scheduler.isRegistered(shardId)) {
+            return;
+        }
+        if (scheduler.isInFlight(shardId)) {
+            throw new IllegalStateException("checkpoint schedule has an in-flight claim for Store shard");
+        }
+        scheduler.unregister(shardId);
+    }
+
     /** Queues one exact checkpoint attempt after prerequisite preflight. */
     public CheckpointWorkClassExecutor.Submission submit(
             final CheckpointWorkClassExecutor.ExecutionRequest request) {

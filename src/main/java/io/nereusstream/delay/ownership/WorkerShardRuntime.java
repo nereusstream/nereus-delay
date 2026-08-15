@@ -368,6 +368,9 @@ public final class WorkerShardRuntime implements AutoCloseable {
         if (sourceLoop.pendingEntry().isPresent()) {
             throw new IllegalStateException("cannot drain with a pending source acknowledgement");
         }
+        if (checkpointRuntime != null) {
+            checkpointRuntime.prepareForDrain();
+        }
         final OwnerDrainCoordinator.DrainResult result = drainCoordinator.drain(request, clock,
                 new OwnerDrainCoordinator.DrainCallbacks() {
                     @Override

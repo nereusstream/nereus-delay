@@ -178,6 +178,11 @@ public final class CheckpointScheduler {
         return states.size();
     }
 
+    /** Returns whether a shard currently has a registered process-local schedule. */
+    public synchronized boolean isRegistered(final ShardId shardId) {
+        return states.containsKey(Objects.requireNonNull(shardId, "shardId"));
+    }
+
     private long nextDue(final long baseEpochMs, final ShardId shardId) {
         final long delay;
         try {

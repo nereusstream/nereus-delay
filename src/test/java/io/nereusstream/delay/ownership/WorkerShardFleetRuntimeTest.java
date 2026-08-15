@@ -62,8 +62,17 @@ class WorkerShardFleetRuntimeTest {
                     () -> new WorkerShardFleetRuntime(workClasses, resources,
                             List.of(first.runtime, first.runtime)));
 
+            first.runtime.registerCheckpoint(101);
+            final CheckpointScheduler.ScheduledCheckpoint checkpointClaim =
+                    first.runtime.claimDueCheckpoints(201, 1).get(0);
+            assertThrows(IllegalStateException.class,
+                    () -> first.runtime.drain(new OwnerDrainCoordinator.DrainRequest(5_000, 0, null),
+                            () -> 101, () -> { }));
+            assertTrue(first.checkpointRuntime.scheduler().isInFlight(first.shard));
+            first.checkpointRuntime.scheduler().complete(checkpointClaim, 201);
             first.runtime.drain(new OwnerDrainCoordinator.DrainRequest(5_000, 0, null), () -> 101,
                     () -> { });
+            assertEquals(0, first.checkpointRuntime.scheduler().size());
             second.runtime.drain(new OwnerDrainCoordinator.DrainRequest(5_000, 0, null), () -> 101,
                     () -> { });
             fleet.close();
@@ -94,6 +103,7 @@ class WorkerShardFleetRuntimeTest {
         private final ShardId shard;
         private final ShardStore store;
         private final WorkerShardRuntime runtime;
+        private final WorkerCheckpointRuntime checkpointRuntime;
 
         private Fixture(final ShardStoreConfig config, final SharedRocksDbResources resources,
                         final WorkClassExecutionRegistry workClasses,
@@ -114,7 +124,7 @@ class WorkerShardFleetRuntimeTest {
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
             owned.activateForCommands(authority, 101);
             if (withCheckpoint) {
-                final WorkerCheckpointRuntime checkpointRuntime = new WorkerCheckpointRuntime(workClasses,
+                checkpointRuntime = new WorkerCheckpointRuntime(workClasses,
                         new CheckpointScheduler(100, 0, 1), store,
                         new CheckpointPublicationCoordinator(resources, new CheckpointUploadIntentStore(),
                                 new RecoveryCatalog()), request -> { });
@@ -122,6 +132,7 @@ class WorkerShardFleetRuntimeTest {
                         resources, authority, java.security.KeyPairGenerator.getInstance("Ed25519")
                                 .generateKeyPair().getPublic(), null, null, checkpointRuntime);
             } else {
+                checkpointRuntime = null;
                 runtime = new WorkerShardRuntime(() -> Optional.empty(), workClasses, owned, store,
                         resources, authority, java.security.KeyPairGenerator.getInstance("Ed25519")
                                 .generateKeyPair().getPublic());
