@@ -117,6 +117,7 @@ run_worker_smoke() {
 }
 
 run_mutation_worker_smoke() {
+  local bootstrap_server="$1"
   if [[ "${with_oxia}" == "1" ]]; then
     NEREUS_DELAY_OXIA_ENDPOINT="${oxia_endpoint}" \
     NEREUS_DELAY_OXIA_NAMESPACE=default \
