@@ -103,4 +103,12 @@ GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealPulsarSourceSmoke \
   -PpulsarTopic="${topic}" \
   --no-daemon --console=plain
 
-echo "Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, guarded source replay, Broker timestamp, and ACK handoff."
+GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealPulsarWorkerSmoke \
+  -PpulsarClientClasspath="${pulsar_client_cp}" \
+  -PpulsarRuntimeDir="${runtime_dir}/lib" \
+  -PpulsarServiceUrl="${service_url}" \
+  -PpulsarAdminUrl="${admin_url}" \
+  -PpulsarTopic="${topic}" \
+  --no-daemon --console=plain
+
+echo "Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, guarded source replay, Broker timestamp, Worker recovery/apply, and ACK handoff."
