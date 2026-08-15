@@ -632,6 +632,22 @@ require_file_text "$delay_root/e2e/README.md" \
     "NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS=1"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "nereus-delay-pulsar-e2e-1786829967-75545"
+require_file_text "$delay_root/e2e/run-pulsar-real-client-e2e.sh" \
+    "NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_ONLY"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+    "ACK_UNKNOWN"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+    "Pulsar Worker source ACK response-loss smoke passed"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "31145cc8"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Pulsar Worker source ACK response-loss smoke passed"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Pulsar Worker source ACK response-loss receipt"
+require_file_text "$delay_root/e2e/README.md" \
+    "NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS=1"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "nereus-delay-pulsar-e2e-1786830626-82754"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "4f2297e1dc593f8b5e16f7733e6ed1109544cb4a"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \

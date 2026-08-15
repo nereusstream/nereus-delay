@@ -9578,3 +9578,52 @@ persistence, not raw socket packet-loss injection. It does not integrate the
 local `PulsarAttemptJournal`, prove response loss after a process or Broker
 crash, prove multi-Broker failover, or make the Pulsar destination and V1
 release gates complete.
+
+## 2026-08-16 Pulsar Worker source ACK response-loss receipt
+
+Implementation commit `31145cc8` adds a focused Worker receipt for a source
+ACK response loss. The test-only guarded-consumer proxy delegates the real
+receipt-enabled `acknowledge` call first and throws only after the Broker has
+accepted it. `SourceApplyCoordinator` already retains the applied outcome and
+pending source record across `ACK_UNKNOWN`; the Worker smoke now models the
+next bounded turn instead of treating that retryable state as a terminal
+failure. The second ACK uses the same source record, so the cursor cannot move
+past an unproven ACK and the Store apply is not repeated.
+
+The source-locked run used Pulsar
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
+SHA-256 values
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394` and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, base
+image `eclipse-temurin:21-jre@sha256:371da296b8cb74c7e53fbe7083d5374befc0011b493231d97d45fa789915e434`,
+P1 image `sha256:4faa8217a39de36a030e449473fc07f4cd04553477f4f2e84c5d799720989cf0`,
+Compose project `nereus-delay-pulsar-e2e-1786830626-82754`, ports `21887` and
+`21888`, and Delay commit `31145cc8`.
+
+The dedicated run used:
+
+```bash
+NEREUS_DELAY_PULSAR_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1 \
+NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-p1-response-loss-real-gradle \
+NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS=1 \
+NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_ONLY=1 \
+PULSAR_BROKER_PORT=21887 PULSAR_WEB_PORT=21888 \
+./e2e/run-pulsar-real-client-e2e.sh
+```
+
+The run ended with `BUILD SUCCESSFUL in 9s` / `11 actionable tasks: 1
+executed, 10 up-to-date` and printed:
+
+```text
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=9/0, active apply ledger/entry=9/1, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
+Pulsar Worker source ACK response-loss smoke passed: real ACK was accepted before the local response was discarded, and the same source record was ACKed on the next bounded Worker turn
+Pulsar Worker source ACK response-loss E2E passed: real ACK response loss was retried on the same source record and the bounded Worker vertical completed.
+```
+
+This is controlled client-side loss after a real Broker ACK receipt. It is not
+raw packet-loss injection, consumer/process/Broker crash recovery,
+multi-Broker failover or proof that the entire D6 source-ACK/crash matrix and
+V1 release gates are complete.

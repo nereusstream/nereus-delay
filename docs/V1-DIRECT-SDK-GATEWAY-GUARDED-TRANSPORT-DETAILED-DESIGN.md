@@ -4833,3 +4833,37 @@ This receipt is narrower than D6: it does not inject raw network packet loss,
 exercise Attempt Journal recovery, stop a producer/client/Broker during an
 in-flight SEND, prove multi-Broker failover or activate the Pulsar destination
 release profile. The shared Dockerfile build-context copy fix is harness-only.
+
+### 2026-08-16 Pulsar Worker source ACK response-loss receipt
+
+The source Worker ACK boundary now has an explicit bounded retry receipt. The
+test-only `GuardedConsumer` proxy delegates the receipt-enabled synchronous
+`acknowledge` call, then throws after the real Broker receipt returns. The
+adapter keeps the exact `inFlight` message and reports `ACK_UNKNOWN`; the
+Worker turn runner accepts that retryable status and calls the same
+acknowledgement again. The `SourceApplyCoordinator` retains its applied
+outcome, so the retry does not re-run Store apply or advance the native cursor
+early.
+
+The source-locked run used Pulsar
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
+SHA-256 values
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394` and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, base
+image `eclipse-temurin:21-jre@sha256:371da296b8cb74c7e53fbe7083d5374befc0011b493231d97d45fa789915e434`,
+P1 image `sha256:4faa8217a39de36a030e449473fc07f4cd04553477f4f2e84c5d799720989cf0`,
+Compose project `nereus-delay-pulsar-e2e-1786830626-82754`, and ports
+`21887,21888`. It printed:
+
+```text
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=9/0, active apply ledger/entry=9/1, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
+Pulsar Worker source ACK response-loss smoke passed: real ACK was accepted before the local response was discarded, and the same source record was ACKed on the next bounded Worker turn
+Pulsar Worker source ACK response-loss E2E passed: real ACK response loss was retried on the same source record and the bounded Worker vertical completed.
+```
+
+This is narrower than D6: it is controlled client-side loss after a real ACK
+receipt, not raw network packet loss, process/consumer/Broker crash recovery,
+multi-Broker failover or full source-ACK release evidence.

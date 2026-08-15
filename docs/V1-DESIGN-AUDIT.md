@@ -8072,6 +8072,39 @@ client-side completion cut. It is not raw network loss, process/Broker crash
 recovery, multi-Broker failover, Attempt Journal completion recovery or a V1
 release PASS.
 
+## 2026-08-16 Pulsar Worker source ACK response-loss receipt audit
+
+Commit `31145cc8` adds a focused Worker source-ACK response-loss mode. A
+test-only proxy calls the real receipt-enabled Pulsar `acknowledge` operation
+and throws only after it returns. The source adapter reports `ACK_UNKNOWN`
+while retaining the exact in-flight record; the Worker smoke now retries that
+bounded turn, and `SourceApplyCoordinator` reuses the already applied outcome
+instead of applying the record again. Only the second ACK clears the pending
+record and allows the source cursor/Worker drain to complete.
+
+The receipt is locked to Pulsar
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
+SHA-256 values
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394` and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, base
+image `eclipse-temurin:21-jre@sha256:371da296b8cb74c7e53fbe7083d5374befc0011b493231d97d45fa789915e434`,
+P1 image `sha256:4faa8217a39de36a030e449473fc07f4cd04553477f4f2e84c5d799720989cf0`,
+Compose `nereus-delay-pulsar-e2e-1786830626-82754`, host ports `21887` and
+`21888`, and Delay `31145cc8`. The run printed:
+
+```text
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=9/0, active apply ledger/entry=9/1, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
+Pulsar Worker source ACK response-loss smoke passed: real ACK was accepted before the local response was discarded, and the same source record was ACKed on the next bounded Worker turn
+Pulsar Worker source ACK response-loss E2E passed: real ACK response loss was retried on the same source record and the bounded Worker vertical completed.
+```
+
+This is a controlled post-receipt client response cut. It is not raw network
+loss, process/consumer/Broker crash recovery, multi-Broker failover or a
+complete D6 source-ACK/crash or V1 release receipt.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
