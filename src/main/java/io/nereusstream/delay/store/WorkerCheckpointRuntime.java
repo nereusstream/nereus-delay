@@ -18,6 +18,8 @@ import java.util.Objects;
  */
 public final class WorkerCheckpointRuntime {
     private final WorkClassExecutionRegistry workClasses;
+    private final ShardStore store;
+    private final SharedRocksDbResources resources;
     private final CheckpointScheduler scheduler;
     private final CheckpointWorkClassExecutor executor;
 
@@ -28,11 +30,29 @@ public final class WorkerCheckpointRuntime {
                                    final CheckpointWorkClassExecutor.CheckpointPrerequisiteGate prerequisiteGate) {
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
         this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
+        this.store = Objects.requireNonNull(store, "store");
+        final CheckpointPublicationCoordinator publication = Objects.requireNonNull(publicationCoordinator,
+                "publicationCoordinator");
+        this.resources = this.store.sharedResources();
         final CheckpointExecutionCoordinator execution = new CheckpointExecutionCoordinator(
-                this.scheduler, Objects.requireNonNull(store, "store"),
-                Objects.requireNonNull(publicationCoordinator, "publicationCoordinator"));
+                this.scheduler, this.store, publication);
         this.executor = new CheckpointWorkClassExecutor(this.workClasses, execution,
                 Objects.requireNonNull(prerequisiteGate, "prerequisiteGate"));
+    }
+
+    /** Binds this recurring-checkpoint graph to the owning Worker composition. */
+    public void requireWorkerComposition(final WorkClassExecutionRegistry expectedWorkClasses,
+                                         final ShardStore expectedStore,
+                                         final SharedRocksDbResources expectedResources) {
+        if (workClasses != Objects.requireNonNull(expectedWorkClasses, "expectedWorkClasses")) {
+            throw new IllegalArgumentException("checkpoint runtime uses another work-class registry");
+        }
+        if (store != Objects.requireNonNull(expectedStore, "expectedStore")) {
+            throw new IllegalArgumentException("checkpoint runtime uses another Store");
+        }
+        if (resources != Objects.requireNonNull(expectedResources, "expectedResources")) {
+            throw new IllegalArgumentException("checkpoint runtime uses another resource envelope");
+        }
     }
 
     /** Registers one shard in the process-local due schedule. */
@@ -53,6 +73,7 @@ public final class WorkerCheckpointRuntime {
 
     /** Runs one bounded shared Worker turn containing the queued checkpoint action. */
     public List<WorkClassTask> runTurn(final SchedulerBudget budget) {
+        resources.requireRuntimeBusinessAdmission();
         return workClasses.runTurn(Objects.requireNonNull(budget, "budget"));
     }
 

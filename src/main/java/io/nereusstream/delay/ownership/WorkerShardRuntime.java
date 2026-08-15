@@ -11,6 +11,9 @@ import io.nereusstream.delay.runtime.ClaimRecord;
 import io.nereusstream.delay.scheduler.ClaimExecutionAdmission;
 import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.SharedRocksDbResources;
+import io.nereusstream.delay.store.CheckpointScheduler;
+import io.nereusstream.delay.store.CheckpointWorkClassExecutor;
+import io.nereusstream.delay.store.WorkerCheckpointRuntime;
 
 import java.security.PrivateKey;
 import java.security.PublicKey;
@@ -42,6 +45,7 @@ public final class WorkerShardRuntime implements AutoCloseable {
     private final OwnerDrainCoordinator drainCoordinator;
     private final WorkerSchedulingRuntime schedulingRuntime;
     private final WorkerCommandRuntime commandRuntime;
+    private final WorkerCheckpointRuntime checkpointRuntime;
     private boolean sourcePaused;
     private boolean terminal;
 
@@ -83,6 +87,21 @@ public final class WorkerShardRuntime implements AutoCloseable {
                               final PublicKey verificationKey,
                               final WorkerSchedulingRuntime schedulingRuntime,
                               final WorkerCommandRuntime commandRuntime) {
+        this(sourceConsumer, workClasses, ownedShard, store, resources, authority, verificationKey,
+                schedulingRuntime, commandRuntime, null);
+    }
+
+    /** Creates the source/scheduling/Claim/Publish/checkpoint composition for one Worker shard. */
+    public WorkerShardRuntime(final SourceRecordConsumer sourceConsumer,
+                              final WorkClassExecutionRegistry workClasses,
+                              final OwnedDelayShard ownedShard,
+                              final ShardStore store,
+                              final SharedRocksDbResources resources,
+                              final OxiaOwnerLeaseStore authority,
+                              final PublicKey verificationKey,
+                              final WorkerSchedulingRuntime schedulingRuntime,
+                              final WorkerCommandRuntime commandRuntime,
+                              final WorkerCheckpointRuntime checkpointRuntime) {
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
         this.ownedShard = Objects.requireNonNull(ownedShard, "ownedShard");
         this.resources = Objects.requireNonNull(resources, "resources");
@@ -93,8 +112,12 @@ public final class WorkerShardRuntime implements AutoCloseable {
         if (commandRuntime != null) {
             commandRuntime.requireWorkClassExecutionRegistry(this.workClasses);
         }
+        if (checkpointRuntime != null) {
+            checkpointRuntime.requireWorkerComposition(this.workClasses, store, this.resources);
+        }
         this.schedulingRuntime = schedulingRuntime;
         this.commandRuntime = commandRuntime;
+        this.checkpointRuntime = checkpointRuntime;
         this.sourceLoop = new WorkerSourceApplyLoop(sourceConsumer, this.workClasses, this.ownedShard, authority,
                 verificationKey);
         this.drainCoordinator = new OwnerDrainCoordinator(this.ownedShard, store, resources, authority,
@@ -114,6 +137,11 @@ public final class WorkerShardRuntime implements AutoCloseable {
     /** Whether this runtime has a Claim/Publish command graph attached. */
     boolean hasCommandRuntime() {
         return commandRuntime != null;
+    }
+
+    /** Whether this runtime has a recurring checkpoint graph attached. */
+    boolean hasCheckpointRuntime() {
+        return checkpointRuntime != null;
     }
 
     /** Validates process-wide graph/resource identity before fleet admission. */
@@ -279,6 +307,40 @@ public final class WorkerShardRuntime implements AutoCloseable {
         return commandRuntime.runTurn(budget);
     }
 
+    /** Registers this shard in the recurring checkpoint schedule. */
+    public synchronized long registerCheckpoint(final long nowEpochMs) {
+        ensureCheckpointRuntime();
+        ensureSourceRunning();
+        resources.requireRuntimeBusinessAdmission();
+        return checkpointRuntime.register(shardId(), nowEpochMs);
+    }
+
+    /** Claims exact checkpoint handles for this shard's recurring schedule. */
+    public synchronized List<CheckpointScheduler.ScheduledCheckpoint> claimDueCheckpoints(
+            final long nowEpochMs, final int limit) {
+        ensureCheckpointRuntime();
+        ensureSourceRunning();
+        resources.requireRuntimeBusinessAdmission();
+        return checkpointRuntime.claimDue(nowEpochMs, limit);
+    }
+
+    /** Queues one exact recurring checkpoint attempt behind the Worker fence. */
+    public synchronized CheckpointWorkClassExecutor.Submission submitCheckpoint(
+            final CheckpointWorkClassExecutor.ExecutionRequest request) {
+        ensureCheckpointRuntime();
+        ensureSourceRunning();
+        resources.requireRuntimeBusinessAdmission();
+        return checkpointRuntime.submit(request);
+    }
+
+    /** Runs one bounded recurring checkpoint turn on the shared WorkClass graph. */
+    public synchronized List<WorkClassTask> runCheckpointTurn(final SchedulerBudget budget) {
+        ensureCheckpointRuntime();
+        ensureSourceRunning();
+        resources.requireRuntimeBusinessAdmission();
+        return checkpointRuntime.runTurn(budget);
+    }
+
     /** Returns the exact source entry retained across an ACK/apply boundary. */
     public synchronized Optional<SourceReplayEntry> pendingSourceEntry() {
         return sourceLoop.pendingEntry();
@@ -373,6 +435,13 @@ public final class WorkerShardRuntime implements AutoCloseable {
         ensureNotTerminal();
         if (commandRuntime == null) {
             throw new IllegalStateException("Worker shard runtime has no Claim/Publish command graph");
+        }
+    }
+
+    private void ensureCheckpointRuntime() {
+        ensureNotTerminal();
+        if (checkpointRuntime == null) {
+            throw new IllegalStateException("Worker shard runtime has no recurring checkpoint graph");
         }
     }
 

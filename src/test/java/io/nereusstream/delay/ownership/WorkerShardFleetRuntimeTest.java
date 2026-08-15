@@ -13,6 +13,11 @@ import io.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
 import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.ShardStoreConfig;
 import io.nereusstream.delay.store.SharedRocksDbResources;
+import io.nereusstream.delay.store.CheckpointPublicationCoordinator;
+import io.nereusstream.delay.store.CheckpointScheduler;
+import io.nereusstream.delay.store.CheckpointUploadIntentStore;
+import io.nereusstream.delay.store.RecoveryCatalog;
+import io.nereusstream.delay.store.WorkerCheckpointRuntime;
 import io.nereusstream.delay.runtime.DelayShard;
 import io.nereusstream.delay.runtime.DelayShardConfig;
 import org.junit.jupiter.api.Test;
@@ -41,8 +46,8 @@ class WorkerShardFleetRuntimeTest {
         final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
-             Fixture first = new Fixture(config, resources, workClasses, authority, backend, 1, "first");
-             Fixture second = new Fixture(config, resources, workClasses, authority, backend, 2, "second")) {
+             Fixture first = new Fixture(config, resources, workClasses, authority, backend, 1, "first", true);
+             Fixture second = new Fixture(config, resources, workClasses, authority, backend, 2, "second", false)) {
             final WorkerShardFleetRuntime fleet = new WorkerShardFleetRuntime(workClasses, resources,
                     List.of(first.runtime, second.runtime));
 
@@ -52,6 +57,7 @@ class WorkerShardFleetRuntimeTest {
             assertEquals(first.shard, fleet.runNextSourceTurn(budget(), () -> 101).shardId());
             assertTrue(fleet.runNextSchedulingTurn(budget()).isEmpty());
             assertTrue(fleet.runNextCommandTurn(budget()).isEmpty());
+            assertEquals(first.shard, fleet.runNextCheckpointTurn(budget()).orElseThrow().shardId());
             assertThrows(IllegalArgumentException.class,
                     () -> new WorkerShardFleetRuntime(workClasses, resources,
                             List.of(first.runtime, first.runtime)));
@@ -92,7 +98,7 @@ class WorkerShardFleetRuntimeTest {
         private Fixture(final ShardStoreConfig config, final SharedRocksDbResources resources,
                         final WorkClassExecutionRegistry workClasses,
                         final OxiaOwnerLeaseStore authority, final InMemoryOwnerLeaseStore backend,
-                        final int partition, final String identity) throws Exception {
+                        final int partition, final String identity, final boolean withCheckpoint) throws Exception {
             shard = new ShardId(RouteIncarnation.random(), partition);
             final SourceAssignment assignment = new SourceAssignment(shard,
                     Bytes.sha256(Bytes.utf8("fleet-assignment-" + identity)), 1,
@@ -107,9 +113,19 @@ class WorkerShardFleetRuntimeTest {
                     DelayShardConfig.defaults()), lease, owner);
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
             owned.activateForCommands(authority, 101);
-            runtime = new WorkerShardRuntime(() -> Optional.empty(), workClasses, owned, store,
-                    resources, authority, java.security.KeyPairGenerator.getInstance("Ed25519")
-                            .generateKeyPair().getPublic());
+            if (withCheckpoint) {
+                final WorkerCheckpointRuntime checkpointRuntime = new WorkerCheckpointRuntime(workClasses,
+                        new CheckpointScheduler(100, 0, 1), store,
+                        new CheckpointPublicationCoordinator(resources, new CheckpointUploadIntentStore(),
+                                new RecoveryCatalog()), request -> { });
+                runtime = new WorkerShardRuntime(() -> Optional.empty(), workClasses, owned, store,
+                        resources, authority, java.security.KeyPairGenerator.getInstance("Ed25519")
+                                .generateKeyPair().getPublic(), null, null, checkpointRuntime);
+            } else {
+                runtime = new WorkerShardRuntime(() -> Optional.empty(), workClasses, owned, store,
+                        resources, authority, java.security.KeyPairGenerator.getInstance("Ed25519")
+                                .generateKeyPair().getPublic());
+            }
         }
 
         @Override

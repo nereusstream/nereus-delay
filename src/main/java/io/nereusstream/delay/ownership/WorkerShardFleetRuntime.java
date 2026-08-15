@@ -32,6 +32,7 @@ public final class WorkerShardFleetRuntime implements AutoCloseable {
     private int sourceCursor;
     private int schedulingCursor;
     private int commandCursor;
+    private int checkpointCursor;
     private boolean closed;
 
     public WorkerShardFleetRuntime(final WorkClassExecutionRegistry workClasses,
@@ -80,7 +81,7 @@ public final class WorkerShardFleetRuntime implements AutoCloseable {
      */
     public synchronized Optional<SchedulingTurn> runNextSchedulingTurn(final SchedulerBudget budget) {
         ensureOpen();
-        final Optional<IndexedRuntime> selected = nextRuntime(true, false);
+        final Optional<IndexedRuntime> selected = nextRuntime(true, false, false);
         if (selected.isEmpty()) {
             return Optional.empty();
         }
@@ -92,12 +93,24 @@ public final class WorkerShardFleetRuntime implements AutoCloseable {
     /** Runs one Claim/Publish command turn on the next command-enabled shard. */
     public synchronized Optional<CommandTurn> runNextCommandTurn(final SchedulerBudget budget) {
         ensureOpen();
-        final Optional<IndexedRuntime> selected = nextRuntime(false, true);
+        final Optional<IndexedRuntime> selected = nextRuntime(false, true, false);
         if (selected.isEmpty()) {
             return Optional.empty();
         }
         final WorkerShardRuntime runtime = selected.get().runtime();
         return Optional.of(new CommandTurn(runtime.shardId(), runtime.runCommandTurn(
+                Objects.requireNonNull(budget, "budget"))));
+    }
+
+    /** Runs one recurring checkpoint turn on the next checkpoint-enabled shard. */
+    public synchronized Optional<CheckpointTurn> runNextCheckpointTurn(final SchedulerBudget budget) {
+        ensureOpen();
+        final Optional<IndexedRuntime> selected = nextRuntime(false, false, true);
+        if (selected.isEmpty()) {
+            return Optional.empty();
+        }
+        final WorkerShardRuntime runtime = selected.get().runtime();
+        return Optional.of(new CheckpointTurn(runtime.shardId(), runtime.runCheckpointTurn(
                 Objects.requireNonNull(budget, "budget"))));
     }
 
@@ -113,16 +126,20 @@ public final class WorkerShardFleetRuntime implements AutoCloseable {
         closed = true;
     }
 
-    private Optional<IndexedRuntime> nextRuntime(final boolean scheduling, final boolean command) {
-        int cursor = scheduling ? schedulingCursor : commandCursor;
+    private Optional<IndexedRuntime> nextRuntime(final boolean scheduling, final boolean command,
+                                                 final boolean checkpoint) {
+        int cursor = scheduling ? schedulingCursor : command ? commandCursor : checkpointCursor;
         for (int offset = 0; offset < shards.size(); offset++) {
             final int index = (cursor + offset) % shards.size();
             final WorkerShardRuntime runtime = shards.get(index);
-            if ((scheduling && runtime.hasSchedulingRuntime()) || (command && runtime.hasCommandRuntime())) {
+            if ((scheduling && runtime.hasSchedulingRuntime()) || (command && runtime.hasCommandRuntime())
+                    || (checkpoint && runtime.hasCheckpointRuntime())) {
                 if (scheduling) {
                     schedulingCursor = (index + 1) % shards.size();
-                } else {
+                } else if (command) {
                     commandCursor = (index + 1) % shards.size();
+                } else {
+                    checkpointCursor = (index + 1) % shards.size();
                 }
                 return Optional.of(new IndexedRuntime(index, runtime));
             }
@@ -158,6 +175,14 @@ public final class WorkerShardFleetRuntime implements AutoCloseable {
     public record CommandTurn(io.nereusstream.delay.protocol.ShardId shardId,
                               List<WorkClassTask> completedTasks) {
         public CommandTurn {
+            Objects.requireNonNull(shardId, "shardId");
+            completedTasks = List.copyOf(Objects.requireNonNull(completedTasks, "completedTasks"));
+        }
+    }
+
+    public record CheckpointTurn(io.nereusstream.delay.protocol.ShardId shardId,
+                                 List<WorkClassTask> completedTasks) {
+        public CheckpointTurn {
             Objects.requireNonNull(shardId, "shardId");
             completedTasks = List.copyOf(Objects.requireNonNull(completedTasks, "completedTasks"));
         }
