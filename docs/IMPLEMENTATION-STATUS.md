@@ -7583,6 +7583,34 @@ checkstyle and the Claim/Publish/scheduling regressions passed; multi-shard
 orchestration, automatic Ready/Publish preparation, response-loss/crash and
 release gates remain open.
 
+## 2026-08-15 checkpoint preflight and bounded multi-shard dispatch slices
+
+Delay commit `ad5020f0` closes a retryability hole in the checkpoint
+work-class handoff. `CheckpointWorkClassExecutor.submit` now completes the
+exact `CheckpointScheduler.ScheduledCheckpoint` when the Owner/intent
+prerequisite or immutable execution identity rejects before queue admission.
+Queue saturation remains side-effect free and leaves the exact claim current
+for resubmission. The new regression proves that a preflight Owner-session
+failure performs no checkpoint/provider I/O, clears `inFlight`, and makes the
+next deterministic schedule claimable. The focused checkpoint test and
+`checkstyleMain` passed.
+
+Delay commit `d0fe7158` adds `WorkerShardFleetRuntime`. It admits only unique
+already-constructed `WorkerShardRuntime` instances that share the exact
+process-wide WorkClass registry and RocksDB resource envelope, then dispatches
+one source, scheduling, or Claim/Publish command turn at a time in bounded
+round-robin order. Source-only runtimes return no fabricated scheduling or
+command action, and fleet close still delegates to each shard's owner-drain
+fence. `WorkerShardFleetRuntimeTest` covers two accepted shards, round-robin
+source turns, optional-graph absence, duplicate-shard rejection and
+post-close fencing.
+
+This is a local multi-shard event-loop composition boundary. It does not
+publish catalog-driven assignments, acquire leases, construct native source
+clients, orchestrate automatic Ready/Publish preparation, provide remote
+Object Store authority, or prove multi-broker/fresh-process crash evidence;
+those release gates remain open.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

@@ -3261,6 +3261,25 @@ remain inputs. The method is a local one-shard DUE/READY → Claim composition;
 channel/Ready Certificate/Publish preparation, physical append/ACK,
 multi-shard assignment and crash/failover evidence remain separate.
 
+### 2026-08-15 checkpoint preflight and bounded multi-shard Worker composition
+
+The checkpoint work-class boundary must not strand a process-local schedule
+claim. Delay commit `ad5020f0` therefore releases the exact
+`ScheduledCheckpoint` when Owner/intent preflight fails before queue
+registration; queue saturation remains a no-I/O retry path with the claim
+still current. The corresponding focused test proves the next schedule can be
+claimed after a rejected preflight.
+
+Delay commit `d0fe7158` adds a bounded `WorkerShardFleetRuntime` around already
+activated `WorkerShardRuntime` instances. It enforces one shared WorkClass
+execution graph and one shared RocksDB resource envelope, rejects duplicate
+Shard identities, and round-robins one source/scheduling/command turn at a
+time. It does not own Route assignment, Owner Lease CAS, native client
+construction or checkpoint publication; a shard must still drain itself before
+the fleet can close it. This is local multi-shard event-loop wiring only, not
+catalog placement, automatic Ready/Publish orchestration, Broker failover,
+crash evidence or §23.5 release completion.
+
 ## 16. 当前结论与仍需实测的数值
 
 已经冻结：

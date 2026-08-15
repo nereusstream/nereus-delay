@@ -6569,6 +6569,31 @@ rejection and successful Claim coverage. This closes only the local one-shard
 DUE/READY → Claim queue wiring and is not multi-shard, automatic Ready/Publish
 preparation, response-loss/crash or release evidence.
 
+## 2026-08-15 checkpoint preflight and bounded multi-shard dispatch audit
+
+Delay commit `ad5020f0` fixes the checkpoint claim lifecycle at the
+pre-queue boundary. If the exact Owner/intent prerequisite or Store/intent
+identity check fails before a `CHECKPOINT` action is registered, the executor
+completes that same scheduler claim and preserves the primary rejection. A
+queue-capacity rejection still leaves the claim current for exact retry. The
+focused regression proves no checkpoint directory or provider call is created
+by a preflight failure and the next schedule is claimable.
+
+Delay commit `d0fe7158` adds `WorkerShardFleetRuntime`, a process-local
+round-robin dispatcher for already accepted shard runtimes. Admission binds
+unique Shard identities to one WorkClass registry and one shared RocksDB
+resource envelope; source, scheduling and Claim/Publish command turns are
+bounded per selected shard, while an absent optional graph yields no invented
+action. Closing the fleet still requires each shard's own drain/lease/source
+ordering.
+
+The focused checkpoint and fleet tests plus main checkstyle passed. This
+advances only local checkpoint retryability and event-loop multi-shard
+composition. It is not catalog-driven placement or assignment publication,
+automatic Ready/Publish preparation, remote Object Store durability, native
+source ownership transfer, broker failover, crash-boundary evidence or a
+release PASS.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
