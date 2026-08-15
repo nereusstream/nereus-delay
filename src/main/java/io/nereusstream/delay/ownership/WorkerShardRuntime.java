@@ -135,6 +135,35 @@ public final class WorkerShardRuntime implements AutoCloseable {
         return schedulingRuntime.pollReady(evidence, budget, ownerClock);
     }
 
+    /**
+     * Polls at most one READY head and queues its derived-materialization
+     * Claim handoff. The single-head bound preserves the scheduler's exact
+     * requeue contract if Claim queue admission is rejected.
+     */
+    public synchronized Optional<ClaimHandoffWorkClassExecutor.Submission> pollAndSubmitClaim(
+            final TrustedUtcIntervalEvidence evidence,
+            final SchedulerBudget budget,
+            final long claimDeadlineEpochMs,
+            final byte[] claimedCharge,
+            final LongSupplier ownerClock) {
+        ensureSchedulingRuntime();
+        ensureCommandRuntime();
+        ensureSourceRunning();
+        resources.requireRuntimeBusinessAdmission();
+        final SchedulerBudget oneHead = new SchedulerBudget(1,
+                Objects.requireNonNull(budget, "Claim poll budget").maxBytes(), budget.maxElapsedNanos());
+        final List<ScheduleWorkItem> selected = schedulingRuntime.pollReady(
+                Objects.requireNonNull(evidence, "trusted UTC evidence"), oneHead, ownerClock);
+        if (selected.isEmpty()) {
+            return Optional.empty();
+        }
+        if (selected.size() != 1) {
+            throw new IllegalStateException("single-head Claim poll returned multiple READY items");
+        }
+        return Optional.of(commandRuntime.submitClaim(selected.get(0), evidence, claimDeadlineEpochMs,
+                claimedCharge, ownerClock));
+    }
+
     /** Queues one exact Claim handoff while source/command admission is open. */
     public synchronized ClaimHandoffWorkClassExecutor.Submission submitClaim(
             final WorkerCommandRuntime.ClaimRequest request) {
