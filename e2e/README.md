@@ -1246,3 +1246,38 @@ the typed receipt provider and source-applied Outcome validate the exact
 publication. This is controlled client-side response loss, not raw network
 loss, process/Broker crash recovery, multi-Broker failover or a V1 release
 receipt.
+
+## Kafka Worker source ACK response-loss receipt
+
+Run the focused Worker source-ACK cut with:
+
+```bash
+NEREUS_DELAY_KAFKA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-gradle \
+NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS=1 \
+NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS_ONLY=1 \
+KAFKA_BROKER_1_PORT=19679 KAFKA_BROKER_2_PORT=19680 KAFKA_BROKER_3_PORT=19681 \
+./e2e/run-kafka-real-client-e2e.sh
+```
+
+The source-locked run used Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose `nereus-delay-kafka-e2e-1786832218-928`, ports `19679,19680,19681`,
+and Delay commit `d165e73e457834be55af58d238980be65c2054c7`.
+
+It printed:
+
+```text
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, and final checkpoint
+Kafka Worker source ACK response-loss smoke passed: real commitSync ACK was accepted before the local response was discarded, and the same source record was ACKed on the next bounded Worker turn
+Kafka Worker source ACK response-loss E2E passed: real commitSync ACK response loss was retried on the same source record and the bounded Worker vertical completed.
+```
+
+The test-only proxy loses the local response after the real `commitSync`
+returns. The source adapter retains the same in-flight record and the Worker
+retries its pending ACK without reapplying the Store mutation. This is
+controlled client-side response loss, not raw network loss, process/consumer/
+Broker crash recovery, multi-Broker failover or a V1 release receipt.

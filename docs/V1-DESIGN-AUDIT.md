@@ -8169,6 +8169,33 @@ This is controlled client-side post-commit response-loss evidence in one
 source-applied Worker process. It is not raw network fault injection, crash
 recovery, multi-Broker failover, Attempt Journal recovery or a V1 release PASS.
 
+## 2026-08-16 Kafka Worker source ACK response-loss receipt audit
+
+Commit `d165e73e457834be55af58d238980be65c2054c7` adds the focused source ACK
+receipt. A test-only guarded-consumer proxy delegates the real `commitSync`
+operation and then discards only its local response. The Kafka source adapter
+retains the exact in-flight record, the Worker reports `ACK_UNKNOWN`, and the
+next bounded turn retries the same source record without repeating Store apply.
+The final committed offset and checkpoint complete only after the retry ACK.
+
+The receipt is locked to Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose `nereus-delay-kafka-e2e-1786832218-928`, ports `19679,19680,19681`,
+and Delay `d165e73e457834be55af58d238980be65c2054c7`. The run printed:
+
+```text
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, and final checkpoint
+Kafka Worker source ACK response-loss smoke passed: real commitSync ACK was accepted before the local response was discarded, and the same source record was ACKed on the next bounded Worker turn
+Kafka Worker source ACK response-loss E2E passed: real commitSync ACK response loss was retried on the same source record and the bounded Worker vertical completed.
+```
+
+This is controlled client-side post-ACK response-loss evidence. It is not raw
+network fault injection, process/consumer/Broker crash recovery,
+multi-Broker failover, coordinator recovery or a V1 release PASS.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
