@@ -7037,6 +7037,83 @@ not establish Oxia placement, Route assignment publication, Broker source
 ownership, multi-broker failover, production multi-shard Worker wiring,
 due/Lane/publish/checkpoint production paths or crash/failure-injection gates.
 
+## 2026-08-15 authoritative Worker placement publication/acceptance evidence
+
+Delay commit `759c4a49b54395211c8ee02c2705006525288fe3` adds the first
+authoritative Worker-assignment slice. `WorkerPlacementPolicy` remains a
+deterministic local scorer, while `WorkerAssignmentCoordinator` binds its
+selected result to a canonical `WorkerAssignment` containing the exact
+`SourceAssignment`, placement epoch and capacity-envelope digest. The
+in-memory authority enforces per-shard revision CAS, idempotence, monotonic
+placement epochs and exact withdraw identity. `OxiaSyncWorkerAssignmentBackend`
+persists the same canonical bytes in an Oxia record, uses expected-revision
+CAS, exact reread after response loss and an Oxia session fence when built from
+the connected owner-lease client. `requireAccepted` rereads the authoritative
+revision and canonical assignment before either real Worker source factory
+constructs native source state.
+
+The fresh default Kafka run used Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose project `nereus-delay-kafka-e2e-1786763617-28066` and ports
+`19420,19421,19422`. It printed:
+
+```text
+Kafka Worker assignment publication/acceptance passed: revision=1, worker=kafka-worker, authority=in-memory
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch and commitSync ACK
+Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, assignment recovery to RocksDB Worker apply, K1 identity/failover, and K2 atomic target+receipt commit, abort, and delete/recreate fence.
+```
+
+The matching optional Kafka Oxia run used Delay `759c4a49b54395211c8ee02c2705006525288fe3`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, Kafka Compose project
+`nereus-delay-kafka-e2e-1786763887-31303` on `19430,19431,19432`, Oxia Compose
+project `nereus-delay-kafka-oxia-e2e-1786763887-31303` on `16658`, and Oxia
+image `sha256:4ddec0e5a373348f6e529abc0ca953b4f7f1a8f1c3e0dbd2a652bf2669870273`.
+The placement line changed to:
+
+```text
+Kafka Worker assignment publication/acceptance passed: revision=1, worker=kafka-worker, authority=real Oxia session-bound
+```
+
+The fresh default Pulsar run used P1
+`nereus/delay-resource-guard-v1@358ce4a1033bd566faebcd3465c3ba4606f3c83f`,
+distribution SHA-256
+`7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5a1d137d`, P1 image
+`sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`,
+Compose project `nereus-delay-pulsar-e2e-1786763739-29494` and ports
+`19970,19971`. It printed:
+
+```text
+Pulsar Worker assignment publication/acceptance passed: revision=1, worker=pulsar-worker, authority=in-memory
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=15/0, active apply ledger/entry=15/1, guarded SUBSCRIBE, RocksDB WriteBatch and ACK
+Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, guarded source replay, Broker timestamp, Worker recovery/apply, and ACK handoff.
+```
+
+The fresh optional Pulsar Oxia run used the same P1 artifacts and Oxia source,
+Pulsar Compose project `nereus-delay-pulsar-e2e-1786764116-34287` on
+`19980,19981`, Oxia Compose project
+`nereus-delay-pulsar-oxia-e2e-1786764116-34287` on `16659`, and Oxia image
+`sha256:2de0fc24d2b2d46952594f8903d9989627df4c51700f3e5f05bd24a52786ab48`.
+It printed:
+
+```text
+Pulsar Worker assignment publication/acceptance passed: revision=1, worker=pulsar-worker, authority=real Oxia session-bound
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=15/0, active apply ledger/entry=15/1, guarded SUBSCRIBE, RocksDB WriteBatch and ACK
+Pulsar Worker authority smoke passed: real Oxia session-bound lease
+Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, guarded source replay, Broker timestamp, Worker recovery/apply, and ACK handoff.
+```
+
+All four fresh harness runs removed their matching containers, networks and
+volumes; the locally built Oxia images remain. This closes authoritative
+per-shard assignment publication/acceptance and exact Worker pre-wiring
+acceptance for the smoke-created assignments. It does not yet establish a
+catalog-driven multi-shard placement service, signed RouteSnapshot publication
+to the assignment authority, source ownership transfer/reconnect, capacity
+envelope registry authority, due/Lane/publish/checkpoint production wiring,
+multi-broker failover or crash/failure-injection gates.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

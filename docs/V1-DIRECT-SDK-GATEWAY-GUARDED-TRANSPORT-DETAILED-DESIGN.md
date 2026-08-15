@@ -3001,6 +3001,35 @@ owner authority for the smoke-created assignment; placement, RouteSnapshot
 publication, production multi-shard Worker wiring, failover and
 crash/failure-injection gates remain open.
 
+Commit `759c4a49b54395211c8ee02c2705006525288fe3` adds the next accepted
+assignment boundary. `WorkerPlacementPolicy` remains the local scoring seam;
+`WorkerAssignmentCoordinator` turns its selected candidate into canonical
+`WorkerAssignment` bytes, publishes them through either the deterministic
+revision-CAS authority or the session-fenced Oxia record backend, and requires
+an exact authoritative reread before the Kafka/Pulsar native source factory is
+allowed to construct source state. The record carries the exact
+`SourceAssignment`, placement epoch and capacity-envelope digest, and both
+authority implementations reject stale epochs, mismatched revisions and
+withdrawals of a different canonical assignment.
+
+Focused codec/authority/Oxia/coordinator tests and isolated real-client
+compile/checkstyle gates passed. Fresh Kafka and Pulsar default runs printed
+`Worker assignment publication/acceptance passed` with `revision=1` and
+`authority=in-memory`; the corresponding optional Oxia runs printed the same
+line with `authority=real Oxia session-bound`. The optional Kafka run used
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, Compose projects
+`nereus-delay-kafka-e2e-1786763887-31303` /
+`nereus-delay-kafka-oxia-e2e-1786763887-31303`, and port `16658`. The optional
+Pulsar run used the same Oxia source, projects
+`nereus-delay-pulsar-e2e-1786764116-34287` /
+`nereus-delay-pulsar-oxia-e2e-1786764116-34287`, and port `16659`; it also
+passed the real Oxia owner-authority, Worker recovery/apply/ACK and final P1
+E2E lines. This is authoritative per-shard assignment acceptance for the
+smoke-created assignments, not yet catalog-driven multi-shard placement,
+capacity-envelope registry authority, signed RouteSnapshot publication,
+source ownership transfer/reconnect, due/Lane/publish/checkpoint wiring or
+crash/failover evidence.
+
 ## 16. 当前结论与仍需实测的数值
 
 已经冻结：

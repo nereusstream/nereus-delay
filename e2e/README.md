@@ -205,6 +205,47 @@ one smoke-created assignment, not Oxia placement, Route publication, Broker
 source ownership, multi-broker failover, production multi-shard Worker
 wiring, due/Lane/publish/checkpoint paths or crash gates.
 
+## Worker assignment publication and acceptance
+
+The real Kafka and Pulsar Worker smokes now run the local
+`WorkerPlacementPolicy` scorer through `WorkerAssignmentCoordinator`. The
+selected assignment is encoded canonically, published through revision-CAS
+authority, and reread at the exact revision before native source setup. The
+default mode uses the deterministic in-memory authority; the existing Oxia
+opt-in uses the session-bound `OxiaSyncWorkerAssignmentBackend`.
+
+The fresh default Kafka run used project
+`nereus-delay-kafka-e2e-1786763617-28066` on `19420,19421,19422`; the fresh
+default Pulsar run used project `nereus-delay-pulsar-e2e-1786763739-29494` on
+`19970,19971`. They printed:
+
+```text
+Kafka Worker assignment publication/acceptance passed: revision=1, worker=kafka-worker, authority=in-memory
+Pulsar Worker assignment publication/acceptance passed: revision=1, worker=pulsar-worker, authority=in-memory
+```
+
+The optional network-authority runs used Kafka/Oxia projects
+`nereus-delay-kafka-e2e-1786763887-31303` /
+`nereus-delay-kafka-oxia-e2e-1786763887-31303` on
+`19430,19431,19432` / `16658`, and Pulsar/Oxia projects
+`nereus-delay-pulsar-e2e-1786764116-34287` /
+`nereus-delay-pulsar-oxia-e2e-1786764116-34287` on
+`19980,19981` / `16659`. Both printed the same placement line with
+`authority=real Oxia session-bound`; the Pulsar run also printed:
+
+```text
+Pulsar Worker authority smoke passed: real Oxia session-bound lease
+```
+
+Delay source-lock commit: `759c4a49b54395211c8ee02c2705006525288fe3`.
+Oxia source-lock commit: `37a17bef17202d5fd6e23282da5fd26d94865484`.
+The matching Compose containers, networks and volumes were removed. This
+closes per-shard authoritative publication/acceptance and exact Worker
+pre-wiring reread for the smoke-created assignments; it does not claim
+catalog-driven multi-shard placement, signed RouteSnapshot publication,
+source ownership transfer/reconnect, capacity-envelope authority,
+due/Lane/publish/checkpoint production wiring, failover or crash gates.
+
 ## Optional source-locked client bindings
 
 The shared Gradle build never puts upstream Kafka or Pulsar classes on the

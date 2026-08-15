@@ -14,7 +14,7 @@ pulsar_branch="nereus/delay-resource-guard-v1"
 pulsar_base="8dae0236c0a0d405ed7f8303081080520fe91551"
 pulsar_head="358ce4a1033bd566faebcd3465c3ba4606f3c83f"
 oxia_head="37a17bef17202d5fd6e23282da5fd26d94865484"
-delay_worker_head="0da18a7b4d6040eeb6700195a1132ee224087ffa"
+delay_worker_head="759c4a49b54395211c8ee02c2705006525288fe3"
 
 fail() {
     echo "cross-repo contract audit failed: $*" >&2
@@ -99,7 +99,7 @@ require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "10e21cbf0e6f741f10b353c56a316a0b57b71b9d"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
-    "nereus/delay-full-implementation-v1@0da18a7b4d6040eeb6700195a1132ee224087ffa"
+    "nereus/delay-full-implementation-v1@759c4a49b54395211c8ee02c2705006525288fe3"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "202368d46fedfe12ae414edaa9c3db32cc8e5073"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
@@ -193,6 +193,14 @@ require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/Oxi
     "establishSessionMarker"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackend.java" \
     "connectUnchecked"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/SourceAssignment.java" \
+    "canonicalBytes"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerAssignment.java" \
+    "capacityEnvelopeDigest"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncWorkerAssignmentBackend.java" \
+    "nereus-delay-oxia-worker-assignment-record-v1"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerAssignmentCoordinator.java" \
+    "requireAccepted"
 require_file_text "$delay_root/build.gradle" \
     "runRealKafkaWorkerSmoke"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
@@ -203,6 +211,10 @@ require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transp
     "PulsarClientArtifactRecoverySourceCursor"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
     "Pulsar Worker vertical smoke passed"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+    "Pulsar Worker assignment publication/acceptance passed"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+    "Kafka Worker assignment publication/acceptance passed"
 require_file_text "$delay_root/build.gradle" \
     "runRealPulsarWorkerSmoke"
 require_file_text "$delay_root/e2e/run-pulsar-real-client-e2e.sh" \
