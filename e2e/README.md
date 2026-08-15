@@ -296,6 +296,21 @@ does not prove object-store checkpoint publication, due/Lane/publish
 orchestration, crash recovery, multi-broker failover or production multi-shard
 Worker wiring.
 
+The same checkpoint code can be run with the network authority enabled. The
+fresh Kafka/Oxia run used projects
+`nereus-delay-kafka-e2e-1786766242-57688` /
+`nereus-delay-kafka-oxia-e2e-1786766242-57688` on
+`19450,19451,19452` / `16661`; the fresh Pulsar/Oxia run used projects
+`nereus-delay-pulsar-e2e-1786766242-57687` /
+`nereus-delay-pulsar-oxia-e2e-1786766242-57687` on `20000,20001` / `16662`.
+Both printed `final checkpoint` and `real Oxia session-bound lease`, exited
+successfully and removed matching containers, networks and volumes. The
+optional Pulsar run emitted multiple-provider SLF4J warnings from its combined
+runtime classpath. This mode proves checkpoint-before-release with network
+owner authority only; it does not prove object-store publication, due/Lane/
+publish orchestration, crash recovery, failover or production multi-shard
+Worker wiring.
+
 ## Optional source-locked client bindings
 
 The shared Gradle build never puts upstream Kafka or Pulsar classes on the

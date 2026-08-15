@@ -6268,6 +6268,23 @@ does not close due/Lane/publish orchestration, object-store checkpoint
 publication, crash recovery, multi-broker failover or production multi-shard
 Worker wiring.
 
+The same code was rerun with network Oxia authority. The Kafka/Oxia projects
+were `nereus-delay-kafka-e2e-1786766242-57688` /
+`nereus-delay-kafka-oxia-e2e-1786766242-57688` on
+`19450,19451,19452` / `16661`, with Oxia image
+`sha256:22ec5f247796cce0bd78017bc78f110e1f865d26b3af5ce74f7a45886532efa4`.
+The Pulsar/Oxia projects were `nereus-delay-pulsar-e2e-1786766242-57687` /
+`nereus-delay-pulsar-oxia-e2e-1786766242-57687` on `20000,20001` / `16662`,
+with Oxia image
+`sha256:fb3da338d4b1ff5e0974b74837c094775c708aaa9e5470650cdd487185493f55`.
+Both printed the final-checkpoint Worker line and
+`real Oxia session-bound lease`, then exited successfully with matching
+containers, networks and volumes absent. The optional Pulsar classpath emitted
+multiple-provider SLF4J warnings; this does not change the successful exit.
+These runs close only checkpoint-before-release under network owner authority,
+not object-store publication, due/Lane/publish orchestration, crash recovery,
+multi-broker failover or production multi-shard Worker wiring.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

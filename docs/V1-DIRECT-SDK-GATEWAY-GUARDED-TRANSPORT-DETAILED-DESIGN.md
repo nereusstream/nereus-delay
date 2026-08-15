@@ -3060,6 +3060,16 @@ evidence only. It does not provide object-store manifest/publication, due/Lane/
 publish orchestration, crash recovery, multi-broker failover or production
 multi-shard Worker wiring.
 
+The same code was also exercised with the opt-in Oxia endpoint. The Kafka and
+Pulsar runs used ports `19450,19451,19452` / `16661` and `20000,20001` /
+`16662`, respectively, and both printed the final-checkpoint Worker line plus
+`real Oxia session-bound lease`. Their matching containers, networks and
+volumes were removed. The optional Pulsar run emitted multiple-provider SLF4J
+warnings from the combined runtime classpath; the run still exited
+successfully. This adds network owner-authority evidence only and does not
+promote object-store checkpoint publication, due/Lane/publish orchestration,
+crash recovery, failover or production multi-shard Worker wiring.
+
 ## 16. 当前结论与仍需实测的数值
 
 已经冻结：

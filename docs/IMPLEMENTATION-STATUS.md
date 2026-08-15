@@ -379,6 +379,39 @@ It does not claim object-store checkpoint manifest/publication, due/Lane/
 publish orchestration, crash recovery, multi-broker failover or a production
 multi-shard Worker deployment; those remain release gates.
 
+The same code was rerun with real Oxia owner authority. Kafka used Compose
+projects `nereus-delay-kafka-e2e-1786766242-57688` and
+`nereus-delay-kafka-oxia-e2e-1786766242-57688` on ports
+`19450,19451,19452` and `16661`; its Oxia image was
+`sha256:22ec5f247796cce0bd78017bc78f110e1f865d26b3af5ce74f7a45886532efa4`.
+It printed:
+
+```text
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, and final checkpoint
+Kafka Worker authority smoke passed: real Oxia session-bound lease
+Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, assignment recovery to RocksDB Worker apply, K1 identity/failover, and K2 atomic target+receipt commit, abort, and delete/recreate fence.
+```
+
+Pulsar used Compose projects `nereus-delay-pulsar-e2e-1786766242-57687` and
+`nereus-delay-pulsar-oxia-e2e-1786766242-57687` on ports `20000,20001` and
+`16662`; its Oxia image was
+`sha256:fb3da338d4b1ff5e0974b74837c094775c708aaa9e5470650cdd487185493f55`.
+It printed:
+
+```text
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=15/0, active apply ledger/entry=15/1, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
+Pulsar Worker authority smoke passed: real Oxia session-bound lease
+Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, guarded source replay, Broker timestamp, Worker recovery/apply, and ACK handoff.
+```
+
+The optional Pulsar run emitted multiple-provider SLF4J warnings from the
+combined P1/main runtime classpath but exited successfully. Both optional
+traps removed their matching containers, networks and volumes; locally built
+Oxia images remain. This upgrades the checkpoint ordering evidence to the
+network session-bound authority path without claiming object-store publication,
+due/Lane/publish orchestration, crash recovery or production multi-shard
+Worker deployment.
+
 ## 2026-08-15 native capability issuance boundary
 
 Delay commit `3bae4a6b` adds `NativeCapabilitySnapshotIssuer` and the
