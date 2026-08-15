@@ -197,6 +197,8 @@ class ClaimHandoffWorkClassExecutorTest {
             final WorkerShardRuntime workerRuntime = new WorkerShardRuntime(() -> java.util.Optional.empty(),
                     workClasses, owned, store, resources, authority, verificationKey.getPublic(),
                     schedulingRuntime, commandRuntime, null, preparationCoordinator);
+            final WorkerShardFleetRuntime fleet = new WorkerShardFleetRuntime(workClasses, resources,
+                    List.of(workerRuntime));
             final ClaimMaterializationV1 materialization = shard.resolveClaimMaterializationV1(
                     schedule.delayMessageId());
             final byte[] claimCharge = claimCharge(payload.length);
@@ -238,9 +240,11 @@ class ClaimHandoffWorkClassExecutorTest {
 
             final ScheduleWorkItem claimedItem = scheduler.poll(evidence.earliestEpochMs(), budget).get(0);
             scheduler.requeueFailedClaim(claimedItem);
-            final WorkerShardRuntime.DueClaimPublishTurn dueClaim = workerRuntime.runDueClaimPublishTurn(
-                    evidence, budget, 3_000, claimCharge, () -> 101,
-                    new SchedulerBudget(1, 1_000_000, 1_000), 2);
+            final WorkerShardFleetRuntime.DueClaimPublishTurn fleetTurn =
+                    fleet.runNextDueClaimPublishTurn(evidence, budget, 3_000, claimCharge, () -> 101,
+                            new SchedulerBudget(1, 1_000_000, 1_000), 2).orElseThrow();
+            assertEquals(shardId, fleetTurn.shardId());
+            final WorkerShardRuntime.DueClaimPublishTurn dueClaim = fleetTurn.result();
             final ClaimHandoffWorkClassExecutor.ClaimHandoffResult result = dueClaim.claimResult().orElseThrow();
             assertEquals(ClaimHandoffWorkClassExecutor.ResultKind.CLAIMED, result.kind());
             assertEquals(schedule.delayMessageId(), result.claim().delayMessageId());

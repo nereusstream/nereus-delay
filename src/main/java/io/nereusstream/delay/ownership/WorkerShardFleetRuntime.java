@@ -1,5 +1,6 @@
 package io.nereusstream.delay.ownership;
 
+import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.scheduler.SchedulerBudget;
 import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import io.nereusstream.delay.scheduler.WorkClassTask;
@@ -102,6 +103,34 @@ public final class WorkerShardFleetRuntime implements AutoCloseable {
                 Objects.requireNonNull(budget, "budget"))));
     }
 
+    /**
+     * Runs one bounded due-to-Claim-to-Publish turn on the next shard that has
+     * both scheduling and command graphs. The shard runtime owns the typed
+     * Lane/provider fence; this fleet method only adds fair multi-shard
+     * dispatch and never accepts a replacement provider from the caller.
+     */
+    public synchronized Optional<DueClaimPublishTurn> runNextDueClaimPublishTurn(
+            final TrustedUtcIntervalEvidence evidence,
+            final SchedulerBudget discoveryBudget,
+            final long claimDeadlineEpochMs,
+            final byte[] claimedCharge,
+            final LongSupplier ownerClock,
+            final SchedulerBudget commandBudget,
+            final int maxCommandTurns) {
+        ensureOpen();
+        final Optional<IndexedRuntime> selected = nextRuntime(true, true, false);
+        if (selected.isEmpty()) {
+            return Optional.empty();
+        }
+        final WorkerShardRuntime runtime = selected.get().runtime();
+        return Optional.of(new DueClaimPublishTurn(runtime.shardId(), runtime.runDueClaimPublishTurn(
+                Objects.requireNonNull(evidence, "trusted UTC evidence"),
+                Objects.requireNonNull(discoveryBudget, "discovery budget"), claimDeadlineEpochMs,
+                Objects.requireNonNull(claimedCharge, "claimed charge"),
+                Objects.requireNonNull(ownerClock, "owner clock"),
+                Objects.requireNonNull(commandBudget, "command budget"), maxCommandTurns)));
+    }
+
     /** Runs one recurring checkpoint turn on the next checkpoint-enabled shard. */
     public synchronized Optional<CheckpointTurn> runNextCheckpointTurn(final SchedulerBudget budget) {
         ensureOpen();
@@ -132,8 +161,9 @@ public final class WorkerShardFleetRuntime implements AutoCloseable {
         for (int offset = 0; offset < shards.size(); offset++) {
             final int index = (cursor + offset) % shards.size();
             final WorkerShardRuntime runtime = shards.get(index);
-            if ((scheduling && runtime.hasSchedulingRuntime()) || (command && runtime.hasCommandRuntime())
-                    || (checkpoint && runtime.hasCheckpointRuntime())) {
+            if ((!scheduling || runtime.hasSchedulingRuntime())
+                    && (!command || runtime.hasCommandRuntime())
+                    && (!checkpoint || runtime.hasCheckpointRuntime())) {
                 if (scheduling) {
                     schedulingCursor = (index + 1) % shards.size();
                 } else if (command) {
@@ -177,6 +207,15 @@ public final class WorkerShardFleetRuntime implements AutoCloseable {
         public CommandTurn {
             Objects.requireNonNull(shardId, "shardId");
             completedTasks = List.copyOf(Objects.requireNonNull(completedTasks, "completedTasks"));
+        }
+    }
+
+    /** Result of one fair fleet dispatch to a shard's bounded Worker turn. */
+    public record DueClaimPublishTurn(io.nereusstream.delay.protocol.ShardId shardId,
+                                      WorkerShardRuntime.DueClaimPublishTurn result) {
+        public DueClaimPublishTurn {
+            Objects.requireNonNull(shardId, "shardId");
+            Objects.requireNonNull(result, "result");
         }
     }
 
